@@ -1,0 +1,75 @@
+&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;RevitAddIns&gt;
+  &lt;!-- 
+    Revit Add-in Manifest File
+    This file tells Revit how to load and initialize your add-in.
+    Place this file in the Revit Add-Ins folder for your version of Revit.
+    
+    Typical locations:
+    - Windows: %APPDATA%\Autodesk\Revit\Addins\2025\
+    - Or: C:\ProgramData\Autodesk\Revit\Addins\2025\
+    
+    TODO: Update version number and paths as needed
+  --&gt;
+  
+  &lt;!-- External Application - Loads when Revit starts --&gt;
+  &lt;AddIn Type="Application"&gt;
+    &lt;!-- Display name in Revit's Add-in Manager --&gt;
+    &lt;Name&gt;Revit Web App Sync&lt;/Name&gt;
+    
+    &lt;!-- Full class name including namespace --&gt;
+    &lt;Assembly&gt;RevitWebAppSync.dll&lt;/Assembly&gt;
+    &lt;FullClassName&gt;RevitWebAppSync.App&lt;/FullClassName&gt;
+    
+    &lt;!-- Add-in ID - Generate a new GUID for your add-in --&gt;
+    &lt;!-- TODO: Generate a unique GUID using Visual Studio or online GUID generator --&gt;
+    &lt;AddInId&gt;12345678-1234-1234-1234-123456789ABC&lt;/AddInId&gt;
+    
+    &lt;!-- Vendor information --&gt;
+    &lt;VendorId&gt;YOUR_COMPANY&lt;/VendorId&gt;
+    &lt;VendorDescription&gt;Your Company Name, www.yourcompany.com&lt;/VendorDescription&gt;
+    
+    &lt;!-- Add-in description --&gt;
+    &lt;Text&gt;Sync Revit files to web application using Autodesk APS integration&lt;/Text&gt;
+    &lt;Description&gt;
+      Allows users to sync their Revit files to a web application through Autodesk Platform Services (APS). 
+      Features include OAuth authentication, file metadata extraction, intelligent project routing, 
+      and seamless file uploads to cloud storage.
+    &lt;/Description&gt;
+    
+    &lt;!-- Version information --&gt;
+    &lt;VisibilityMode&gt;NotVisibleInFamily&lt;/VisibilityMode&gt;
+  &lt;/AddIn&gt;
+  
+  &lt;!-- External Command - Available in Revit UI --&gt;
+  &lt;AddIn Type="Command"&gt;
+    &lt;!-- Display name in Revit ribbon --&gt;
+    &lt;Name&gt;Sync to Web&lt;/Name&gt;
+    
+    &lt;!-- Assembly and class information --&gt;
+    &lt;Assembly&gt;RevitWebAppSync.dll&lt;/Assembly&gt;
+    &lt;FullClassName&gt;RevitWebAppSync.SyncCommand&lt;/FullClassName&gt;
+    
+    &lt;!-- Command ID - Generate a new GUID for this command --&gt;
+    &lt;!-- TODO: Generate a unique GUID different from the application GUID --&gt;
+    &lt;AddInId&gt;87654321-4321-4321-4321-CBA987654321&lt;/AddInId&gt;
+    
+    &lt;!-- Vendor information (same as above) --&gt;
+    &lt;VendorId&gt;YOUR_COMPANY&lt;/VendorId&gt;
+    &lt;VendorDescription&gt;Your Company Name, www.yourcompany.com&lt;/VendorDescription&gt;
+    
+    &lt;!-- Command description --&gt;
+    &lt;Text&gt;Sync to Web App&lt;/Text&gt;
+    &lt;Description&gt;
+      Synchronizes the current Revit file to the configured web application. 
+      Extracts file metadata, authenticates with Autodesk APS, and uploads the file to cloud storage.
+    &lt;/Description&gt;
+    
+    &lt;!-- Command availability --&gt;
+    &lt;VisibilityMode&gt;AlwaysVisible&lt;/VisibilityMode&gt;
+    
+    &lt;!-- TODO: Uncomment and configure if you want to control when command is available --&gt;
+    &lt;!-- &lt;AvailabilityClassName&gt;RevitWebAppSync.CommandAvailability&lt;/AvailabilityClassName&gt; --&gt;
+  &lt;/AddIn&gt;
+  
+&lt;/RevitAddIns&gt;

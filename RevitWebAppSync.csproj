@@ -1,0 +1,140 @@
+&lt;Project Sdk="Microsoft.NET.Sdk"&gt;
+
+  &lt;PropertyGroup&gt;
+    &lt;!-- Target Framework --&gt;
+    &lt;!-- For Revit 2025+: Use .NET 8 --&gt;
+    &lt;!-- For Revit 2024 and earlier: Use .NET Framework 4.8 --&gt;
+    &lt;TargetFramework&gt;net8.0&lt;/TargetFramework&gt;
+    
+    &lt;!-- Use Windows Forms and WPF --&gt;
+    &lt;UseWPF&gt;true&lt;/UseWPF&gt;
+    &lt;UseWindowsForms&gt;true&lt;/UseWindowsForms&gt;
+    
+    &lt;!-- Assembly information --&gt;
+    &lt;AssemblyTitle&gt;Revit Web App Sync&lt;/AssemblyTitle&gt;
+    &lt;AssemblyDescription&gt;Sync Revit files to web application using Autodesk APS integration&lt;/AssemblyDescription&gt;
+    &lt;AssemblyCompany&gt;Your Company Name&lt;/AssemblyCompany&gt;
+    &lt;AssemblyProduct&gt;Revit Web App Sync&lt;/AssemblyProduct&gt;
+    &lt;AssemblyCopyright&gt;Copyright © Your Company 2025&lt;/AssemblyCopyright&gt;
+    &lt;AssemblyVersion&gt;1.0.0.0&lt;/AssemblyVersion&gt;
+    &lt;FileVersion&gt;1.0.0.0&lt;/FileVersion&gt;
+    
+    &lt;!-- Build configuration --&gt;
+    &lt;Platforms&gt;x64&lt;/Platforms&gt;
+    &lt;PlatformTarget&gt;x64&lt;/PlatformTarget&gt;
+    &lt;OutputType&gt;Library&lt;/OutputType&gt;
+    &lt;AppendTargetFrameworkToOutputPath&gt;false&lt;/AppendTargetFrameworkToOutputPath&gt;
+    
+    &lt;!-- Revit-specific settings --&gt;
+    &lt;CopyLocalLockFileAssemblies&gt;false&lt;/CopyLocalLockFileAssemblies&gt;
+    &lt;ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch&gt;None&lt;/ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch&gt;
+    
+    &lt;!-- Code analysis --&gt;
+    &lt;Nullable&gt;enable&lt;/Nullable&gt;
+    &lt;WarningsAsErrors /&gt;
+    &lt;WarningsNotAsErrors&gt;NU1605&lt;/WarningsNotAsErrors&gt;
+  &lt;/PropertyGroup&gt;
+
+  &lt;!-- Debug Configuration --&gt;
+  &lt;PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|x64' "&gt;
+    &lt;DebugSymbols&gt;true&lt;/DebugSymbols&gt;
+    &lt;DebugType&gt;full&lt;/DebugType&gt;
+    &lt;Optimize&gt;false&lt;/Optimize&gt;
+    &lt;DefineConstants&gt;DEBUG;TRACE&lt;/DefineConstants&gt;
+    &lt;OutputPath&gt;bin\Debug\&lt;/OutputPath&gt;
+    
+    &lt;!-- TODO: Set path to your Revit installation for debugging --&gt;
+    &lt;StartProgram&gt;C:\Program Files\Autodesk\Revit 2025\Revit.exe&lt;/StartProgram&gt;
+    &lt;StartAction&gt;Program&lt;/StartAction&gt;
+  &lt;/PropertyGroup&gt;
+
+  &lt;!-- Release Configuration --&gt;
+  &lt;PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|x64' "&gt;
+    &lt;DebugType&gt;pdbonly&lt;/DebugType&gt;
+    &lt;Optimize&gt;true&lt;/Optimize&gt;
+    &lt;DefineConstants&gt;TRACE&lt;/DefineConstants&gt;
+    &lt;OutputPath&gt;bin\Release\&lt;/OutputPath&gt;
+  &lt;/PropertyGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;!-- Revit API References --&gt;
+    &lt;!-- TODO: Update paths to match your Revit installation --&gt;
+    &lt;Reference Include="RevitAPI"&gt;
+      &lt;HintPath&gt;C:\Program Files\Autodesk\Revit 2025\RevitAPI.dll&lt;/HintPath&gt;
+      &lt;Private&gt;False&lt;/Private&gt;
+    &lt;/Reference&gt;
+    &lt;Reference Include="RevitAPIUI"&gt;
+      &lt;HintPath&gt;C:\Program Files\Autodesk\Revit 2025\RevitAPIUI.dll&lt;/HintPath&gt;
+      &lt;Private&gt;False&lt;/Private&gt;
+    &lt;/Reference&gt;
+  &lt;/ItemGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;!-- NuGet Package References --&gt;
+    
+    &lt;!-- Autodesk Platform Services (APS) SDK --&gt;
+    &lt;!-- TODO: Verify these are the latest versions --&gt;
+    &lt;PackageReference Include="Autodesk.SDKManager" Version="1.0.0" /&gt;
+    &lt;PackageReference Include="Autodesk.Authentication" Version="2.0.0" /&gt;
+    &lt;PackageReference Include="Autodesk.OSS" Version="2.0.0" /&gt;
+    
+    &lt;!-- HTTP Client and JSON --&gt;
+    &lt;PackageReference Include="System.Net.Http" Version="4.3.4" /&gt;
+    &lt;PackageReference Include="System.Text.Json" Version="8.0.0" /&gt;
+    
+    &lt;!-- Configuration --&gt;
+    &lt;PackageReference Include="System.Configuration.ConfigurationManager" Version="8.0.0" /&gt;
+    
+    &lt;!-- Logging (optional but recommended) --&gt;
+    &lt;!-- TODO: Uncomment if you want to use a logging framework --&gt;
+    &lt;!-- &lt;PackageReference Include="NLog" Version="5.2.0" /&gt; --&gt;
+    &lt;!-- &lt;PackageReference Include="Serilog" Version="3.1.0" /&gt; --&gt;
+    
+    &lt;!-- For browser integration (OAuth) - choose one based on your preference --&gt;
+    &lt;!-- TODO: Uncomment the browser control you want to use --&gt;
+    &lt;!-- &lt;PackageReference Include="CefSharp.WinForms" Version="118.6.80" /&gt; --&gt;
+    &lt;!-- &lt;PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2210.55" /&gt; --&gt;
+  &lt;/ItemGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;!-- Resources --&gt;
+    &lt;EmbeddedResource Include="Resources\sync_icon_16x16.png" /&gt;
+    &lt;EmbeddedResource Include="Resources\sync_icon_32x32.png" /&gt;
+    
+    &lt;!-- Configuration files --&gt;
+    &lt;None Include="App.config" /&gt;
+  &lt;/ItemGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;!-- XAML Files --&gt;
+    &lt;Page Include="UI\ProjectSelectionDialog.xaml"&gt;
+      &lt;Generator&gt;MSBuild:Compile&lt;/Generator&gt;
+      &lt;SubType&gt;Designer&lt;/SubType&gt;
+    &lt;/Page&gt;
+    &lt;Page Include="UI\ProgressDialog.xaml"&gt;
+      &lt;Generator&gt;MSBuild:Compile&lt;/Generator&gt;
+      &lt;SubType&gt;Designer&lt;/SubType&gt;
+    &lt;/Page&gt;
+  &lt;/ItemGroup&gt;
+
+  &lt;!-- Post-build events --&gt;
+  &lt;Target Name="PostBuild" AfterTargets="PostBuildEvent"&gt;
+    &lt;!-- Copy add-in manifest to Revit Add-ins folder --&gt;
+    &lt;!-- TODO: Update path to match your Revit version --&gt;
+    &lt;Copy SourceFiles="$(ProjectDir)..\RevitWebAppSync.addin" 
+          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\2025\" 
+          Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\2025\')" /&gt;
+    
+    &lt;!-- Copy DLL to Revit Add-ins folder --&gt;
+    &lt;Copy SourceFiles="$(TargetPath)" 
+          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\2025\" 
+          Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\2025\')" /&gt;
+          
+    &lt;!-- Copy dependencies (if any are set to Copy Local = True) --&gt;
+    &lt;Copy SourceFiles="$(TargetDir)*.dll" 
+          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\2025\" 
+          Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\2025\')" 
+          ContinueOnError="true" /&gt;
+  &lt;/Target&gt;
+
+&lt;/Project&gt;
