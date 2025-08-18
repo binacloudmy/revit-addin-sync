@@ -2,10 +2,11 @@
 
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>false</UseWPF>
+    <UseWindowsForms>false</UseWindowsForms>
     <PlatformTarget>x64</PlatformTarget>
     <OutputType>Library</OutputType>
     <AssemblyName>RevitWebAppSync</AssemblyName>
-    <UseWPF>true</UseWPF>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,9 +20,6 @@
     </Reference>
   </ItemGroup>
 
-  <ItemGroup>
-    <EmbeddedResource Include="Resources\revitSync.png" />
-  </ItemGroup>
 
   <!-- Post-build events -->
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
