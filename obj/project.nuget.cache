@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "noyMyTEoOnM=",
+  "dgSpecHash": "fS4crY16oKo=",
   "success": true,
-  "projectFilePath": "D:\\revit-addin-sync\\RevitWebAppSync.csproj",
+  "projectFilePath": "D:\\revit-addin-sync\\RevitWebAppSyncMinimal.csproj",
   "expectedPackageFiles": [],
   "logs": []
 }

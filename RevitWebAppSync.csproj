@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Resources\revitSync.png" />
+    <EmbeddedResource Include="Resources\revitSave.png" />
   </ItemGroup>
 
   <!-- Post-build events -->

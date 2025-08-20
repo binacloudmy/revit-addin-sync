@@ -13,9 +13,9 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "D:\\revit-addin-sync\\RevitWebAppSync.csproj",
+      "projectUniqueName": "D:\\revit-addin-sync\\RevitWebAppSyncMinimal.csproj",
       "projectName": "RevitWebAppSync",
-      "projectPath": "D:\\revit-addin-sync\\RevitWebAppSync.csproj",
+      "projectPath": "D:\\revit-addin-sync\\RevitWebAppSyncMinimal.csproj",
       "packagesPath": "C:\\Users\\User\\.nuget\\packages\\",
       "outputPath": "D:\\revit-addin-sync\\obj\\",
       "projectStyle": "PackageReference",
@@ -62,9 +62,6 @@
         "frameworkReferences": {
           "Microsoft.NETCore.App": {
             "privateAssets": "all"
-          },
-          "Microsoft.WindowsDesktop.App.WPF": {
-            "privateAssets": "none"
           }
         },
         "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.413/PortableRuntimeIdentifierGraph.json"

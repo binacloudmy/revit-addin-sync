@@ -51,7 +51,20 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
             };
 
+            PushButtonData choosePathButtonData = new PushButtonData(
+                "ChoosePath",
+                "Choose Path",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.ChoosePathCommand")
+            {
+                ToolTip = "Choose Path - Open app.bina.cloud",
+                LongDescription = "Opens app.bina.cloud in your default browser to choose your path.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            };
+
             ribbonPanel.AddItem(buttonData);
+            ribbonPanel.AddItem(choosePathButtonData);
         }
 
         private BitmapImage LoadImage(string resourceName, int size = 32)

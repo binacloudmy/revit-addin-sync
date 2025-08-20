@@ -12,22 +12,8 @@ namespace RevitWebAppSync
     {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
-            try
-            {
-                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "https://app.bina.cloud",
-                    UseShellExecute = true
-                });
-
-                return Result.Succeeded;
-            }
-            catch (Exception ex)
-            {
-                TaskDialog.Show("Error", $"Failed to open browser: {ex.Message}");
-                message = ex.Message;
-                return Result.Failed;
-            }
+            TaskDialog.Show("Sync to BINA", "Choose a path in BINA App first before syncing");
+            return Result.Succeeded;
         }
     }
 }
