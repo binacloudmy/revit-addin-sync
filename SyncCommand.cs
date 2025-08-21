@@ -58,25 +58,48 @@ namespace RevitWebAppSync
                 try
                 {
                     string accessToken = loginTask.Result;
-                    binaService.Dispose();
 
                     if (!string.IsNullOrEmpty(accessToken))
                     {
                         string shortToken = accessToken.Length > 50 ? accessToken.Substring(0, 50) + "..." : accessToken;
                         TaskDialog.Show("Login Success!", $"Successfully logged in to BINA!\n\nAccess Token:\n{shortToken}");
+                        
+                        // Now get presigned URL for the current Revit file
+                        var fileParams = binaService.GetFileParameters(doc.PathName);
+                        if (fileParams.key != null && fileParams.size > 0)
+                        {
+                            var presignedUrlTask = Task.Run(() => binaService.GetPresignedUrlAsync(accessToken, fileParams.key, fileParams.size, fileParams.mimeType));
+                            string presignedUrl = presignedUrlTask.Result;
+                            if (!string.IsNullOrEmpty(presignedUrl))
+                            {
+                                TaskDialog.Show("Presigned URL Success!", $"Presigned URL obtained successfully!\n\nFile: {Path.GetFileName(doc.PathName)}\nSize: {fileParams.size} bytes\nKey: {fileParams.key}\n\nPresigned URL received and logged to desktop.");
+                            }
+                            else
+                            {
+                                TaskDialog.Show("Presigned URL Failed", "Failed to obtain presigned URL.\n\nCheck the log file on Desktop for more details.");
+                            }
+                        }
+                        else
+                        {
+                            TaskDialog.Show("File Error", "Failed to calculate file parameters for the Revit file.");
+                        }
                     }
                     else
                     {
                         TaskDialog.Show("Login Failed", "Failed to login to BINA.\n\nPossible issues:\n- Invalid credentials\n- Network connectivity\n\nCheck the log file on Desktop for more details.");
                     }
+                    
+                    binaService.Dispose();
                 }
                 catch (AggregateException aex)
                 {
+                    binaService.Dispose();
                     var innerEx = aex.InnerException ?? aex;
                     TaskDialog.Show("Error", $"Upload failed: {innerEx.Message}\n\nFull error: {innerEx.GetType().Name}");
                 }
                 catch (Exception ex)
                 {
+                    binaService.Dispose();
                     TaskDialog.Show("Error", $"Upload failed: {ex.Message}\n\nError type: {ex.GetType().Name}");
                 }
 
