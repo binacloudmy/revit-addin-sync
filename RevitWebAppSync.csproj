@@ -8,15 +8,25 @@
     <UseWPF>true</UseWPF>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <RevitPath Condition="'$(RevitPath)' == ''">D:\Autodesk\Revit2026\Revit 2026</RevitPath>
+    <RevitVersion Condition="'$(RevitVersion)' == ''">2026</RevitVersion>
+  </PropertyGroup>
+  
   <ItemGroup>
     <Reference Include="RevitAPI">
-      <HintPath>C:\Program Files\Autodesk\Revit 2026\RevitAPI.dll</HintPath>
+      <HintPath>$(RevitPath)\RevitAPI.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="RevitAPIUI">
-      <HintPath>C:\Program Files\Autodesk\Revit 2026\RevitAPIUI.dll</HintPath>
+      <HintPath>$(RevitPath)\RevitAPIUI.dll</HintPath>
       <Private>False</Private>
     </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="System.Net.Http" Version="4.3.4" />
   </ItemGroup>
 
   <ItemGroup>
@@ -27,12 +37,12 @@
   <!-- Post-build events -->
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <Copy SourceFiles="$(ProjectDir)RevitWebAppSync.addin" 
-          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\2026\" 
-          Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\2026\')" />
+          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\" 
+          Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\')" />
     
     <Copy SourceFiles="$(TargetPath)" 
-          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\2026\" 
-          Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\2026\')" />
+          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\" 
+          Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\')" />
   </Target>
 
 </Project>
