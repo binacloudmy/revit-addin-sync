@@ -198,21 +198,71 @@ namespace RevitWebAppSync
             };
         }
 
-        private async Task<bool> UploadFileAsync(string presignedUrl, string filePath, string mimeType)
+        public async Task<bool> UploadFileAsync(string presignedUrl, string filePath, string mimeType)
         {
+            string tempFilePath = null;
             try
             {
-                byte[] fileBytes = File.ReadAllBytes(filePath);
+                LogToFile($"🚀 Starting file upload to presigned URL...");
+                LogToFile($"File path: {filePath}");
+                LogToFile($"MIME type: {mimeType}");
+                
+                // Create a temporary copy of the file to avoid file lock issues
+                tempFilePath = Path.Combine(Path.GetTempPath(), $"bina_upload_{Guid.NewGuid()}{Path.GetExtension(filePath)}");
+                LogToFile($"Creating temporary copy: {tempFilePath}");
+                
+                // Use FileStream with ReadWrite sharing to copy the file even if it's open in Revit
+                using (var sourceStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var destStream = new FileStream(tempFilePath, FileMode.Create, FileAccess.Write))
+                {
+                    await sourceStream.CopyToAsync(destStream);
+                }
+                
+                LogToFile("Temporary file created successfully");
+                
+                byte[] fileBytes = File.ReadAllBytes(tempFilePath);
+                LogToFile($"File loaded: {fileBytes.Length} bytes");
+                
                 var content = new ByteArrayContent(fileBytes);
                 content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
 
+                LogToFile("Sending PUT request to upload file...");
                 var response = await _httpClient.PutAsync(presignedUrl, content);
+                
+                LogToFile($"Upload response status: {response.StatusCode}");
+                
+                if (response.IsSuccessStatusCode)
+                {
+                    LogToFile("✅ File upload successful!");
+                }
+                else
+                {
+                    string responseBody = await response.Content.ReadAsStringAsync();
+                    LogToFile($"❌ Upload failed. Response: {responseBody}");
+                }
                 
                 return response.IsSuccessStatusCode;
             }
             catch (Exception ex)
             {
+                LogToFile($"❌ Upload failed with exception: {ex.Message}");
                 return false;
+            }
+            finally
+            {
+                // Clean up temporary file
+                if (tempFilePath != null && File.Exists(tempFilePath))
+                {
+                    try
+                    {
+                        File.Delete(tempFilePath);
+                        LogToFile("Temporary file cleaned up");
+                    }
+                    catch (Exception ex)
+                    {
+                        LogToFile($"Warning: Could not delete temporary file: {ex.Message}");
+                    }
+                }
             }
         }
 

@@ -72,7 +72,25 @@ namespace RevitWebAppSync
                             string presignedUrl = presignedUrlTask.Result;
                             if (!string.IsNullOrEmpty(presignedUrl))
                             {
-                                TaskDialog.Show("Presigned URL Success!", $"Presigned URL obtained successfully!\n\nFile: {Path.GetFileName(doc.PathName)}\nSize: {fileParams.size} bytes\nKey: {fileParams.key}\n\nPresigned URL received and logged to desktop.");
+                                // Show upload progress dialog
+                                TaskDialog uploadDialog = new TaskDialog("BINA Upload");
+                                uploadDialog.MainContent = $"Uploading {Path.GetFileName(doc.PathName)} to BINA...";
+                                uploadDialog.CommonButtons = TaskDialogCommonButtons.Ok;
+                                uploadDialog.DefaultButton = TaskDialogResult.Ok;
+                                uploadDialog.Show();
+                                
+                                // Start upload
+                                var uploadTask = Task.Run(() => binaService.UploadFileAsync(presignedUrl, doc.PathName, fileParams.mimeType));
+                                bool uploadSuccess = uploadTask.Result;
+                                
+                                if (uploadSuccess)
+                                {
+                                    TaskDialog.Show("Upload Success!", $"File uploaded successfully to BINA!\n\nFile: {Path.GetFileName(doc.PathName)}\nLocation: {fileParams.key}\nSize: {fileParams.size} bytes\n\nYour file is now available in the BINA cloud.");
+                                }
+                                else
+                                {
+                                    TaskDialog.Show("Upload Failed", "Failed to upload file to BINA.\n\nCheck the log file on Desktop for more details.");
+                                }
                             }
                             else
                             {
