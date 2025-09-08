@@ -75,9 +75,22 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
             };
 
+            PushButtonData federateButtonData = new PushButtonData(
+                "FederateDisciplines",
+                "Federate Disciplines",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.FederateDisciplinesCommand")
+            {
+                ToolTip = "Link Downloaded Discipline Files",
+                LongDescription = "Link previously downloaded discipline files to the current Revit document for coordination and clash detection.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            };
+
             ribbonPanel.AddItem(buttonData);
             ribbonPanel.AddItem(choosePathButtonData);
             ribbonPanel.AddItem(bimDisciplineButtonData);
+            ribbonPanel.AddItem(federateButtonData);
         }
 
         private BitmapImage LoadImage(string resourceName, int size = 32)

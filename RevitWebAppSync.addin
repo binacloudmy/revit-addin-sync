@@ -35,4 +35,16 @@
     <Description>Download Architecture, Structure, HVAC, and Electrical discipline files from Bina Cloud.</Description>
     <VisibilityMode>AlwaysVisible</VisibilityMode>
   </AddIn>
+  
+  <AddIn Type="Command">
+    <Name>Federate Disciplines</Name>
+    <Assembly>RevitWebAppSync.dll</Assembly>
+    <FullClassName>RevitWebAppSync.FederateDisciplinesCommand</FullClassName>
+    <AddInId>22222222-3333-4444-5555-666666666666</AddInId>
+    <VendorId>BINA_CLOUD</VendorId>
+    <VendorDescription>Bina Cloud, app.bina.cloud</VendorDescription>
+    <Text>Federate Discipline Files</Text>
+    <Description>Link downloaded discipline files to current Revit document for coordination and clash detection.</Description>
+    <VisibilityMode>AlwaysVisible</VisibilityMode>
+  </AddIn>
 </RevitAddIns>
