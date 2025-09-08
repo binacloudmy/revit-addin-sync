@@ -1,0 +1,18 @@
+using System;
+
+namespace RevitWebAppSync
+{
+    public class BimDisciplineFile
+    {
+        public string DisciplineType { get; set; }
+        public string FileUrl { get; set; }
+    }
+
+    public class BimDisciplineResponse
+    {
+        public BimDisciplineFile Structure { get; set; }
+        public BimDisciplineFile Architecture { get; set; }
+        public BimDisciplineFile HVAC { get; set; }
+        public BimDisciplineFile Electrical { get; set; }
+    }
+}

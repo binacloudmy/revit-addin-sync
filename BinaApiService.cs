@@ -11,7 +11,7 @@ namespace RevitWebAppSync
     public class BinaApiService
     {
         private readonly HttpClient _httpClient;
-        private readonly string _baseUrl = "https://api-stg.bina.cloud";
+        private readonly string _baseUrl = "https://fd14799c16f1.ngrok-free.app";
         private readonly string _email;
         private readonly string _password;
 
@@ -263,6 +263,80 @@ namespace RevitWebAppSync
                         LogToFile($"Warning: Could not delete temporary file: {ex.Message}");
                     }
                 }
+            }
+        }
+
+        public async Task<BimDisciplineResponse> GetBimDisciplineFilesAsync(string accessToken, int projectId)
+        {
+            try
+            {
+                LogToFile($"✨ Requesting BIM discipline files for project {projectId}... ✨");
+                
+                _httpClient.DefaultRequestHeaders.Authorization = 
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+
+                string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}/latest-urls";
+                
+                LogToFile($"Requesting URL: {url}");
+
+                var response = await _httpClient.GetAsync(url);
+                string responseBody = await response.Content.ReadAsStringAsync();
+                
+                LogToFile($"Response status: {response.StatusCode}");
+                LogToFile($"Response body: {responseBody}");
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    LogToFile($"❌ Failed to get BIM discipline files. Status: {response.StatusCode}");
+                    return null;
+                }
+
+                var disciplineResponse = JsonConvert.DeserializeObject<BimDisciplineResponse>(responseBody);
+                LogToFile($"✅ Successfully retrieved BIM discipline files for project {projectId}");
+                
+                return disciplineResponse;
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"❌ GetBimDisciplineFilesAsync failed with exception: {ex.Message}");
+                return null;
+            }
+        }
+
+        public async Task<string> DownloadFileAsync(string fileUrl, string downloadDirectory, string fileName = null)
+        {
+            try
+            {
+                LogToFile($"🔽 Starting file download from: {fileUrl}");
+                
+                if (string.IsNullOrEmpty(fileName))
+                {
+                    var uri = new Uri(fileUrl);
+                    fileName = Path.GetFileName(uri.LocalPath) ?? $"discipline_file_{DateTime.Now:yyyyMMdd_HHmmss}.rvt";
+                }
+                
+                if (!Directory.Exists(downloadDirectory))
+                {
+                    Directory.CreateDirectory(downloadDirectory);
+                    LogToFile($"Created download directory: {downloadDirectory}");
+                }
+
+                string filePath = Path.Combine(downloadDirectory, fileName);
+                LogToFile($"Download destination: {filePath}");
+
+                var response = await _httpClient.GetAsync(fileUrl);
+                response.EnsureSuccessStatusCode();
+                
+                byte[] fileBytes = await response.Content.ReadAsByteArrayAsync();
+                await File.WriteAllBytesAsync(filePath, fileBytes);
+                
+                LogToFile($"✅ File downloaded successfully: {filePath} ({fileBytes.Length} bytes)");
+                return filePath;
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"❌ DownloadFileAsync failed with exception: {ex.Message}");
+                return null;
             }
         }
 

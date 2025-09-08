@@ -63,8 +63,21 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
 
+            PushButtonData bimDisciplineButtonData = new PushButtonData(
+                "BimDiscipline",
+                "Download BIM Disciplines",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.BimDisciplineCommand")
+            {
+                ToolTip = "Download BIM Discipline Files",
+                LongDescription = "Download the latest Architecture, Structure, HVAC, and Electrical discipline files from BINA cloud.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
+            };
+
             ribbonPanel.AddItem(buttonData);
             ribbonPanel.AddItem(choosePathButtonData);
+            ribbonPanel.AddItem(bimDisciplineButtonData);
         }
 
         private BitmapImage LoadImage(string resourceName, int size = 32)

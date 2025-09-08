@@ -23,4 +23,16 @@
     <Description>Opens app.bina.cloud in the default browser.</Description>
     <VisibilityMode>AlwaysVisible</VisibilityMode>
   </AddIn>
+  
+  <AddIn Type="Command">
+    <Name>Download BIM Disciplines</Name>
+    <Assembly>RevitWebAppSync.dll</Assembly>
+    <FullClassName>RevitWebAppSync.BimDisciplineCommand</FullClassName>
+    <AddInId>11111111-2222-3333-4444-555555555555</AddInId>
+    <VendorId>BINA_CLOUD</VendorId>
+    <VendorDescription>Bina Cloud, app.bina.cloud</VendorDescription>
+    <Text>Download BIM Discipline Files</Text>
+    <Description>Download Architecture, Structure, HVAC, and Electrical discipline files from Bina Cloud.</Description>
+    <VisibilityMode>AlwaysVisible</VisibilityMode>
+  </AddIn>
 </RevitAddIns>
