@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Autodesk.Revit.ApplicationServices;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
@@ -238,6 +239,12 @@ namespace RevitWebAppSync
 
                 TaskDialog.Show("Federation Complete!", resultMessage);
 
+                // After successful federation, upload the federated file to BINA
+                if (linkedFiles.Count > 0)
+                {
+                    UploadFederatedFile(doc, linkedFiles);
+                }
+
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -246,6 +253,142 @@ namespace RevitWebAppSync
                 System.Diagnostics.Debug.WriteLine($"[BINA] Federation error: {ex}");
                 return Result.Failed;
             }
+        }
+
+        private async void UploadFederatedFile(Document doc, List<string> linkedFiles)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("[BINA] Starting federated file upload process");
+
+                // Load configuration
+                BinaConfig config = BinaConfig.Load();
+                if (string.IsNullOrEmpty(config.Email) || string.IsNullOrEmpty(config.Password))
+                {
+                    config.Email = "ammar@bina.cloud";
+                    config.Password = "Passw0rd";
+                }
+                // Always set hardcoded values for testing
+                if (config.ProjectId <= 0) config.ProjectId = 240;
+                if (config.UserId <= 0) config.UserId = 9;
+
+                if (!config.IsValid())
+                {
+                    TaskDialog.Show("Configuration Error", 
+                        "Project ID and User ID are required for federated file upload.\n\n" +
+                        "Please configure these values in the application settings.");
+                    return;
+                }
+
+                // Save the current document first
+                doc.Save();
+
+                var binaService = new BinaApiService(config.Email, config.Password);
+
+                try
+                {
+                    // Login to BINA
+                    var loginTask = Task.Run(() => binaService.LoginAsync());
+                    string accessToken = await loginTask;
+
+                    if (string.IsNullOrEmpty(accessToken))
+                    {
+                        TaskDialog.Show("Upload Failed", "Failed to login to BINA.\n\nCheck the log file on Desktop for more details.");
+                        return;
+                    }
+
+                    // Get file parameters
+                    var fileParams = binaService.GetFileParameters(doc.PathName);
+                    if (string.IsNullOrEmpty(fileParams.key))
+                    {
+                        TaskDialog.Show("Upload Failed", "Failed to calculate file parameters.");
+                        return;
+                    }
+
+                    // Get presigned URL
+                    var presignedUrlTask = Task.Run(() => binaService.GetPresignedUrlAsync(accessToken, fileParams.key, fileParams.size, fileParams.mimeType));
+                    string presignedUrl = await presignedUrlTask;
+
+                    if (string.IsNullOrEmpty(presignedUrl))
+                    {
+                        TaskDialog.Show("Upload Failed", "Failed to obtain presigned URL from BINA.");
+                        return;
+                    }
+
+                    // Upload file
+                    var uploadTask = Task.Run(() => binaService.UploadFileAsync(presignedUrl, doc.PathName, fileParams.mimeType));
+                    bool uploadSuccess = await uploadTask;
+
+                    if (!uploadSuccess)
+                    {
+                        TaskDialog.Show("Upload Failed", "Failed to upload file to cloud storage.");
+                        return;
+                    }
+
+                    // Save federated file info to BINA backend
+                    string cleanFileUrl = presignedUrl.Split('?')[0]; // Remove query parameters
+                    cleanFileUrl = cleanFileUrl.Replace(":443", ""); // Remove port 443
+                    
+                    var federatedFileDto = new SaveFederatedFileDto
+                    {
+                        ProjectId = config.ProjectId,
+                        Name = Path.GetFileName(doc.PathName),
+                        FileUrl = cleanFileUrl,
+                        FileKey = fileParams.key,
+                        FileSize = fileParams.size,
+                        FileType = "rvt",
+                        UploadedBy = config.UserId,
+                        Metadata = new FederatedFileMetadata
+                        {
+                            FederatedFrom = ExtractDisciplineNames(linkedFiles),
+                            FederationDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
+                            SourceFiles = linkedFiles
+                        }
+                    };
+
+                    var saveTask = Task.Run(() => binaService.SaveFederatedFileAsync(accessToken, federatedFileDto));
+                    var saveResult = await saveTask;
+
+                    if (saveResult.Success)
+                    {
+                        TaskDialog.Show("Upload Success!", 
+                            $"Federated file uploaded successfully to BINA!\n\n" +
+                            $"File: {Path.GetFileName(doc.PathName)}\n" +
+                            $"Version: {saveResult.Data?.Version}\n" +
+                            $"Federated from: {string.Join(", ", federatedFileDto.Metadata.FederatedFrom)}\n\n" +
+                            $"Your federated model is now available in the BINA cloud as MainFile.");
+                    }
+                    else
+                    {
+                        TaskDialog.Show("Upload Failed", 
+                            $"File was uploaded but failed to register in BINA backend.\n\n" +
+                            $"Error: {saveResult.Message}\n\n" +
+                            $"Check the log file on Desktop for more details.");
+                    }
+                }
+                finally
+                {
+                    binaService.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                TaskDialog.Show("Upload Error", $"An error occurred during federated file upload: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[BINA] Upload error: {ex}");
+            }
+        }
+
+        private List<string> ExtractDisciplineNames(List<string> linkedFiles)
+        {
+            var disciplines = new HashSet<string>();
+            foreach (var file in linkedFiles)
+            {
+                if (file.StartsWith("Architecture")) disciplines.Add("Architecture");
+                else if (file.StartsWith("Structure")) disciplines.Add("Structure");
+                else if (file.StartsWith("HVAC")) disciplines.Add("HVAC");
+                else if (file.StartsWith("Electrical")) disciplines.Add("Electrical");
+            }
+            return disciplines.ToList();
         }
     }
 }

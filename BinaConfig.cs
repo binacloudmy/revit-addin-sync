@@ -8,6 +8,8 @@ namespace RevitWebAppSync
     {
         public string Email { get; set; }
         public string Password { get; set; }
+        public int ProjectId { get; set; }
+        public int UserId { get; set; }
 
         private static readonly string ConfigPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
@@ -52,7 +54,7 @@ namespace RevitWebAppSync
 
         public bool IsValid()
         {
-            return !string.IsNullOrEmpty(Email) && !string.IsNullOrEmpty(Password);
+            return !string.IsNullOrEmpty(Email) && !string.IsNullOrEmpty(Password) && ProjectId > 0 && UserId > 0;
         }
     }
 }

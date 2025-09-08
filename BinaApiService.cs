@@ -11,7 +11,7 @@ namespace RevitWebAppSync
     public class BinaApiService
     {
         private readonly HttpClient _httpClient;
-        private readonly string _baseUrl = "https://api-stg.bina.cloud";
+        private readonly string _baseUrl = "https://dd0b97e618c2.ngrok-free.app";
         private readonly string _email;
         private readonly string _password;
 
@@ -169,7 +169,7 @@ namespace RevitWebAppSync
                 
                 // Generate a key based on filename and timestamp to ensure uniqueness
                 string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
-                string key = $"revit-files/{timestamp}_{fileName}";
+                string key = $"bim-disciplines/combined/{timestamp}_{fileName}";
                 
                 // Determine MIME type based on file extension
                 string mimeType = GetMimeTypeFromExtension(fileInfo.Extension.ToLower());
@@ -337,6 +337,58 @@ namespace RevitWebAppSync
             {
                 LogToFile($"❌ DownloadFileAsync failed with exception: {ex.Message}");
                 return null;
+            }
+        }
+
+        public async Task<SaveFederatedFileResponseDto> SaveFederatedFileAsync(string accessToken, SaveFederatedFileDto request)
+        {
+            try
+            {
+                LogToFile($"✨ Saving federated file to backend... ✨");
+                LogToFile($"Project ID: {request.ProjectId}, File: {request.Name}");
+                
+                _httpClient.DefaultRequestHeaders.Authorization = 
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+
+                var settings = new JsonSerializerSettings
+                {
+                    ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
+                };
+                string jsonContent = JsonConvert.SerializeObject(request, settings);
+                var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+                
+                string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/federated-file";
+                LogToFile($"Requesting URL: {url}");
+
+                var response = await _httpClient.PostAsync(url, content);
+                string responseBody = await response.Content.ReadAsStringAsync();
+                
+                LogToFile($"Response status: {response.StatusCode}");
+                LogToFile($"Response body: {responseBody}");
+                
+                if (!response.IsSuccessStatusCode)
+                {
+                    LogToFile($"❌ Failed to save federated file. Status: {response.StatusCode}");
+                    return new SaveFederatedFileResponseDto 
+                    { 
+                        Success = false, 
+                        Message = $"HTTP {response.StatusCode}: {responseBody}" 
+                    };
+                }
+
+                var result = JsonConvert.DeserializeObject<SaveFederatedFileResponseDto>(responseBody);
+                LogToFile($"✅ Successfully saved federated file. Version: {result.Data?.Version}");
+                
+                return result;
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"❌ SaveFederatedFileAsync failed with exception: {ex.Message}");
+                return new SaveFederatedFileResponseDto 
+                { 
+                    Success = false, 
+                    Message = ex.Message 
+                };
             }
         }
 

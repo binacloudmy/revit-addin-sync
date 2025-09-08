@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("RevitWebAppSync")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+063a2b6cf6ffbd6a389a20d04ac62bf7270c768d")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+1bc31daaeb48687ad129b782b7859c4d95d0a994")]
 [assembly: System.Reflection.AssemblyProductAttribute("RevitWebAppSync")]
 [assembly: System.Reflection.AssemblyTitleAttribute("RevitWebAppSync")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
