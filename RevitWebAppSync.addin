@@ -36,6 +36,7 @@
     <VisibilityMode>AlwaysVisible</VisibilityMode>
   </AddIn>
   
+  <!--
   <AddIn Type="Command">
     <Name>Federate Disciplines</Name>
     <Assembly>RevitWebAppSync.dll</Assembly>
@@ -47,4 +48,5 @@
     <Description>Link downloaded discipline files to current Revit document for coordination and clash detection.</Description>
     <VisibilityMode>AlwaysVisible</VisibilityMode>
   </AddIn>
+  -->
 </RevitAddIns>

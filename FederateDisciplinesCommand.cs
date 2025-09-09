@@ -148,8 +148,8 @@ namespace RevitWebAppSync
                                     
                                     try
                                     {
-                                        // Create the link type
-                                        RevitLinkOptions linkOptions = new RevitLinkOptions(false); // false = don't create new workset
+                                        // Create the link type with proper options for federation
+                                        RevitLinkOptions linkOptions = new RevitLinkOptions(true); // true = create workset for better integration
                                         LinkLoadResult linkLoadResult = RevitLinkType.Create(doc, modelPath, linkOptions);
                                         
                                         if (linkLoadResult != null)
@@ -239,10 +239,23 @@ namespace RevitWebAppSync
 
                 TaskDialog.Show("Federation Complete!", resultMessage);
 
-                // After successful federation, upload the federated file to BINA
+                // After successful federation, save the document with all links
                 if (linkedFiles.Count > 0)
                 {
-                    UploadFederatedFile(doc, linkedFiles);
+                    try
+                    {
+                        // Save document with linked files for proper federation
+                        doc.Save();
+                        System.Diagnostics.Debug.WriteLine("[BINA] Document saved with federation links");
+                        
+                        // Now upload the federated file to BINA
+                        UploadFederatedFile(doc, linkedFiles);
+                    }
+                    catch (Exception saveEx)
+                    {
+                        TaskDialog.Show("Save Warning", $"Federation completed but failed to save document: {saveEx.Message}\n\nPlease save manually before uploading.");
+                        System.Diagnostics.Debug.WriteLine($"[BINA] Save error after federation: {saveEx}");
+                    }
                 }
 
                 return Result.Succeeded;
@@ -259,7 +272,7 @@ namespace RevitWebAppSync
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine("[BINA] Starting federated file upload process");
+                System.Diagnostics.Debug.WriteLine("[BINA] Starting dual upload process: OBS + Autodesk OSS");
 
                 // Load configuration
                 BinaConfig config = BinaConfig.Load();
@@ -284,91 +297,130 @@ namespace RevitWebAppSync
                 doc.Save();
 
                 var binaService = new BinaApiService(config.Email, config.Password);
+                var autodeskService = new AutodeskApiService();
 
                 try
                 {
-                    // Login to BINA
+                    // Step 1: Login to BINA to get access token
                     var loginTask = Task.Run(() => binaService.LoginAsync());
-                    string accessToken = await loginTask;
+                    string binaAccessToken = await loginTask;
 
-                    if (string.IsNullOrEmpty(accessToken))
+                    if (string.IsNullOrEmpty(binaAccessToken))
                     {
                         TaskDialog.Show("Upload Failed", "Failed to login to BINA.\n\nCheck the log file on Desktop for more details.");
                         return;
                     }
 
-                    // Get file parameters
+                    // Step 2: Upload to OBS (Original BINA Upload)
+                    System.Diagnostics.Debug.WriteLine("[BINA] Uploading to OBS (Original BINA storage)...");
+                    
                     var fileParams = binaService.GetFileParameters(doc.PathName);
                     if (string.IsNullOrEmpty(fileParams.key))
                     {
-                        TaskDialog.Show("Upload Failed", "Failed to calculate file parameters.");
+                        TaskDialog.Show("Upload Failed", "Failed to calculate file parameters for OBS upload.");
                         return;
                     }
 
-                    // Get presigned URL
-                    var presignedUrlTask = Task.Run(() => binaService.GetPresignedUrlAsync(accessToken, fileParams.key, fileParams.size, fileParams.mimeType));
+                    var presignedUrlTask = Task.Run(() => binaService.GetPresignedUrlAsync(binaAccessToken, fileParams.key, fileParams.size, fileParams.mimeType));
                     string presignedUrl = await presignedUrlTask;
 
                     if (string.IsNullOrEmpty(presignedUrl))
                     {
-                        TaskDialog.Show("Upload Failed", "Failed to obtain presigned URL from BINA.");
+                        TaskDialog.Show("Upload Failed", "Failed to obtain presigned URL from BINA for OBS upload.");
                         return;
                     }
 
-                    // Upload file
-                    var uploadTask = Task.Run(() => binaService.UploadFileAsync(presignedUrl, doc.PathName, fileParams.mimeType));
-                    bool uploadSuccess = await uploadTask;
+                    var obsUploadTask = Task.Run(() => binaService.UploadFileAsync(presignedUrl, doc.PathName, fileParams.mimeType));
+                    bool obsUploadSuccess = await obsUploadTask;
 
-                    if (!uploadSuccess)
+                    if (!obsUploadSuccess)
                     {
-                        TaskDialog.Show("Upload Failed", "Failed to upload file to cloud storage.");
+                        TaskDialog.Show("Upload Failed", "Failed to upload file to OBS storage.");
                         return;
                     }
 
-                    // Save federated file info to BINA backend
-                    string cleanFileUrl = presignedUrl.Split('?')[0]; // Remove query parameters
+                    System.Diagnostics.Debug.WriteLine("[BINA] ✅ OBS upload completed successfully");
+
+                    // Step 3: Upload to Autodesk OSS
+                    System.Diagnostics.Debug.WriteLine("[BINA] Uploading to Autodesk OSS...");
+                    
+                    var autodeskUploadResult = await Task.Run(() => autodeskService.UploadFileAsync(
+                        binaAccessToken, 
+                        doc.PathName, 
+                        "MainFile", // discipline type for federated file
+                        (progress) => {
+                            System.Diagnostics.Debug.WriteLine($"[AUTODESK] Upload progress: {progress}%");
+                        }
+                    ));
+
+                    if (autodeskUploadResult == null)
+                    {
+                        TaskDialog.Show("Partial Upload", "File uploaded to OBS but failed to upload to Autodesk OSS.\n\nCheck the autodesk_upload_log.txt file on Desktop for more details.\n\nOBS upload was successful.");
+                        // Continue to save with OBS data only
+                    }
+
+                    System.Diagnostics.Debug.WriteLine("[BINA] ✅ Autodesk OSS upload completed successfully");
+
+                    // Step 4: Save federated file info to BINA backend with both URLs
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Saving federated file metadata with OBS URL and Autodesk URN");
+                    
+                    string cleanFileUrl = presignedUrl.Split('?')[0]; // Remove query parameters from OBS URL
                     cleanFileUrl = cleanFileUrl.Replace(":443", ""); // Remove port 443
                     
                     var federatedFileDto = new SaveFederatedFileDto
                     {
                         ProjectId = config.ProjectId,
                         Name = Path.GetFileName(doc.PathName),
-                        FileUrl = cleanFileUrl,
-                        FileKey = fileParams.key,
+                        FileUrl = cleanFileUrl, // OBS file URL for download/access
+                        FileKey = fileParams.key, // OBS file key
                         FileSize = fileParams.size,
                         FileType = "rvt",
                         UploadedBy = config.UserId,
+                        UrnInBase64 = autodeskUploadResult?.UrnInBase64, // Autodesk URN for viewer (null if failed)
+                        DisciplineType = "MainFile", // Federated files are always MainFile type
                         Metadata = new FederatedFileMetadata
                         {
-                            FederatedFrom = ExtractDisciplineNames(linkedFiles),
-                            FederationDate = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"),
-                            SourceFiles = linkedFiles
+                            LinkedFiles = ExtractRevitLinks(doc)
                         }
                     };
 
-                    var saveTask = Task.Run(() => binaService.SaveFederatedFileAsync(accessToken, federatedFileDto));
+                    var saveTask = Task.Run(() => binaService.SaveFederatedFileAsync(binaAccessToken, federatedFileDto));
                     var saveResult = await saveTask;
 
                     if (saveResult.Success)
                     {
-                        TaskDialog.Show("Upload Success!", 
-                            $"Federated file uploaded successfully to BINA!\n\n" +
+                        string successMessage = $"Federated file uploaded successfully!\n\n" +
                             $"File: {Path.GetFileName(doc.PathName)}\n" +
                             $"Version: {saveResult.Data?.Version}\n" +
-                            $"Federated from: {string.Join(", ", federatedFileDto.Metadata.FederatedFrom)}\n\n" +
-                            $"Your federated model is now available in the BINA cloud as MainFile.");
+                            $"OBS Storage: ✅ Uploaded\n" +
+                            $"Autodesk OSS: {(autodeskUploadResult != null ? "✅ Uploaded" : "❌ Failed")}\n";
+                        
+                        if (autodeskUploadResult != null)
+                        {
+                            successMessage += $"URN: {autodeskUploadResult.UrnInBase64}\n" +
+                                            $"Autodesk Viewer: Ready\n";
+                        }
+                        
+                        successMessage += $"Linked disciplines: {string.Join(", ", ExtractDisciplineNames(linkedFiles))}\n\n" +
+                                        $"Your federated model is now available in the BINA cloud.";
+
+                        TaskDialog.Show("Upload Success!", successMessage);
                     }
                     else
                     {
-                        TaskDialog.Show("Upload Failed", 
-                            $"File was uploaded but failed to register in BINA backend.\n\n" +
-                            $"Error: {saveResult.Message}\n\n" +
-                            $"Check the log file on Desktop for more details.");
+                        TaskDialog.Show("Registration Failed", 
+                            $"Files were uploaded but failed to register in BINA backend.\n\n" +
+                            $"Error: {saveResult.Message}\n" +
+                            $"OBS Upload: ✅ Success\n" +
+                            $"Autodesk OSS: {(autodeskUploadResult != null ? "✅ Success" : "❌ Failed")}\n" +
+                            $"URN: {autodeskUploadResult?.UrnInBase64 ?? "N/A"}\n\n" +
+                            $"Check the log files on Desktop for more details.");
                     }
                 }
                 finally
                 {
                     binaService.Dispose();
+                    autodeskService.Dispose();
                 }
             }
             catch (Exception ex)
@@ -389,6 +441,117 @@ namespace RevitWebAppSync
                 else if (file.StartsWith("Electrical")) disciplines.Add("Electrical");
             }
             return disciplines.ToList();
+        }
+
+        private static string GetDisciplineTypeFromFileName(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName))
+                return "MainFile";
+
+            string fileNameUpper = fileName.ToUpper();
+            
+            if (fileNameUpper.StartsWith("ARCHITECTURE"))
+                return "Architecture";
+            else if (fileNameUpper.StartsWith("STRUCTURE"))
+                return "Structure";
+            else if (fileNameUpper.StartsWith("HVAC"))
+                return "HVAC";
+            else if (fileNameUpper.StartsWith("ELECTRICAL"))
+                return "Electrical";
+            else
+                return "MainFile";
+        }
+
+        private static List<LinkedFileInfo> ExtractRevitLinks(Document doc)
+        {
+            var linkedFiles = new List<LinkedFileInfo>();
+            
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("[BINA] Extracting Revit links...");
+                
+                // Get all RevitLinkTypes (the link definitions)
+                var collector = new FilteredElementCollector(doc).OfClass(typeof(RevitLinkType));
+                
+                foreach (RevitLinkType linkType in collector)
+                {
+                    try
+                    {
+                        string linkName = linkType.Name;
+                        System.Diagnostics.Debug.WriteLine($"[BINA] Found link: {linkName}");
+                        
+                        // Get the external file reference to get path information
+                        ExternalFileReference extRef = linkType.GetExternalFileReference();
+                        if (extRef != null)
+                        {
+                            ModelPath modelPath = extRef.GetPath();
+                            string absolutePath = ModelPathUtils.ConvertModelPathToUserVisiblePath(modelPath);
+                            
+                            // Extract just the filename 
+                            string fileName = !string.IsNullOrEmpty(absolutePath) 
+                                ? Path.GetFileName(absolutePath) 
+                                : linkName;
+                                
+                            // For relative path, try to get the stored relative path or fallback to filename
+                            string relPath = fileName; // Default to filename
+                            
+                            // Try to get relative path from the stored path information
+                            try
+                            {
+                                // Check if the path is relative by examining the converted path
+                                if (!string.IsNullOrEmpty(absolutePath) && !absolutePath.Contains(":\\"))
+                                {
+                                    // Likely a relative path
+                                    relPath = absolutePath;
+                                }
+                                else if (!string.IsNullOrEmpty(absolutePath))
+                                {
+                                    // It's an absolute path, use just the filename
+                                    relPath = fileName;
+                                }
+                            }
+                            catch
+                            {
+                                relPath = fileName; // Fallback to filename if any error
+                            }
+                            
+                            linkedFiles.Add(new LinkedFileInfo
+                            {
+                                FileName = fileName,
+                                RelativePath = relPath,
+                                DisciplineType = GetDisciplineTypeFromFileName(fileName)
+                            });
+                            
+                            System.Diagnostics.Debug.WriteLine($"[BINA] Link added - FileName: {fileName}, RelativePath: {relPath}");
+                        }
+                        else
+                        {
+                            // If no external reference, just use the name
+                            linkedFiles.Add(new LinkedFileInfo
+                            {
+                                FileName = linkName,
+                                RelativePath = linkName,
+                                DisciplineType = GetDisciplineTypeFromFileName(linkName)
+                            });
+                            
+                            System.Diagnostics.Debug.WriteLine($"[BINA] Link added (no external ref) - FileName: {linkName}");
+                        }
+                    }
+                    catch (Exception linkEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[BINA] Error processing link {linkType.Name}: {linkEx.Message}");
+                        // Continue processing other links
+                    }
+                }
+                
+                System.Diagnostics.Debug.WriteLine($"[BINA] Total links extracted: {linkedFiles.Count}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] Error extracting Revit links: {ex.Message}");
+            }
+            
+            return linkedFiles;
         }
     }
 }
