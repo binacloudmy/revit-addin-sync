@@ -90,7 +90,7 @@ namespace RevitWebAppSync
             ribbonPanel.AddItem(buttonData);
             ribbonPanel.AddItem(choosePathButtonData);
             ribbonPanel.AddItem(bimDisciplineButtonData);
-            ribbonPanel.AddItem(federateButtonData);
+            // ribbonPanel.AddItem(federateButtonData); // Hidden as requested
         }
 
         private BitmapImage LoadImage(string resourceName, int size = 32)

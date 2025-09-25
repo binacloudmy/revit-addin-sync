@@ -106,7 +106,27 @@ namespace RevitWebAppSync
                         
                         // Start dual upload process: BINA (OBS) + Autodesk OSS
                         var uploadTask = Task.Run(() => UploadToMultiplePlatforms(doc, accessToken, binaService, selectedDiscipline));
-                        uploadTask.Wait();
+                        var resultData = uploadTask.Result;
+                        
+                        // Show results window on main UI thread
+                        if (resultData != null)
+                        {
+                            try
+                            {
+                                var resultsWindow = new SyncResultsWindow(resultData);
+                                resultsWindow.ShowDialog();
+                            }
+                            catch (Exception windowEx)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[BINA] Error showing results window: {windowEx.Message}");
+                                // Fallback to TaskDialog if window fails
+                                string fallbackMessage = $"Upload completed!\n\nFile: {resultData.FileName}\nDiscipline: {resultData.DisciplineType}\n" +
+                                                        $"BINA Storage: {(resultData.BinaObsSuccess ? "✅ Success" : "❌ Failed")}\n" +
+                                                        $"Autodesk Viewer: {(resultData.AutodeskOssSuccess ? "✅ Ready" : "❌ Failed")}\n" +
+                                                        $"Registration: {(resultData.RegistrationSuccess ? "✅ Saved" : "❌ Failed")}";
+                                TaskDialog.Show("Upload Results", fallbackMessage);
+                            }
+                        }
                     }
                     else
                     {
@@ -136,7 +156,7 @@ namespace RevitWebAppSync
             }
         }
 
-        private async Task UploadToMultiplePlatforms(Document doc, string binaAccessToken, BinaApiService binaService, string disciplineType)
+        private async Task<SyncResultData> UploadToMultiplePlatforms(Document doc, string binaAccessToken, BinaApiService binaService, string disciplineType)
         {
             var autodeskService = new AutodeskApiService();
             
@@ -149,7 +169,7 @@ namespace RevitWebAppSync
                 if (string.IsNullOrEmpty(fileParams.key))
                 {
                     TaskDialog.Show("Upload Failed", "Failed to calculate file parameters for BINA upload.");
-                    return;
+                    return null;
                 }
 
                 TaskDialog uploadDialog = new TaskDialog("BINA Upload");
@@ -164,7 +184,7 @@ namespace RevitWebAppSync
                 if (string.IsNullOrEmpty(presignedUrl))
                 {
                     TaskDialog.Show("Upload Failed", "Failed to obtain presigned URL from BINA for OBS upload.");
-                    return;
+                    return null;
                 }
 
                 var obsUploadTask = Task.Run(() => binaService.UploadFileAsync(presignedUrl, doc.PathName, fileParams.mimeType));
@@ -173,7 +193,7 @@ namespace RevitWebAppSync
                 if (!obsUploadSuccess)
                 {
                     TaskDialog.Show("Upload Failed", "Failed to upload file to BINA OBS storage.");
-                    return;
+                    return null;
                 }
 
                 System.Diagnostics.Debug.WriteLine("[BINA] ✅ OBS upload completed successfully");
@@ -233,80 +253,58 @@ namespace RevitWebAppSync
                 var saveTask = Task.Run(() => binaService.SaveFederatedFileAsync(binaAccessToken, saveFileDto));
                 var saveResult = await saveTask;
 
-                // Step 4: Show comprehensive results
-                string resultMessage = "";
+                // Step 4: Show results in dedicated window
+                System.Diagnostics.Debug.WriteLine("[BINA] Showing results window...");
                 
-                if (autodeskUploadResult != null)
+                var resultData = new SyncResultData
                 {
-                    System.Diagnostics.Debug.WriteLine("[BINA] ✅ Autodesk OSS upload completed successfully");
+                    FileName = Path.GetFileName(doc.PathName),
+                    DisciplineType = disciplineType,
+                    FileSize = fileParams.size,
+                    Version = saveResult.Data?.Version,
                     
-                    if (saveResult.Success)
-                    {
-                        resultMessage = $"File uploaded and saved successfully!\n\n" +
-                                       $"File: {Path.GetFileName(doc.PathName)}\n" +
-                                       $"Version: {saveResult.Data?.Version}\n" +
-                                       $"Size: {fileParams.size} bytes\n\n" +
-                                       $"BINA OBS Storage: ✅ Uploaded & Saved\n" +
-                                       $"Location: {fileParams.key}\n\n" +
-                                       $"Autodesk OSS: ✅ Uploaded & Saved\n" +
-                                       $"URN: {autodeskUploadResult.UrnInBase64}\n" +
-                                       $"Autodesk Viewer: Ready\n\n" +
-                                       $"Your file is now fully registered in BINA cloud with dual platform support.";
-                    }
-                    else
-                    {
-                        resultMessage = $"Upload successful but registration failed!\n\n" +
-                                       $"File: {Path.GetFileName(doc.PathName)}\n" +
-                                       $"Size: {fileParams.size} bytes\n\n" +
-                                       $"BINA OBS Storage: ✅ Uploaded\n" +
-                                       $"Autodesk OSS: ✅ Uploaded\n" +
-                                       $"Backend Registration: ❌ Failed\n\n" +
-                                       $"Error: {saveResult.Message}\n" +
-                                       $"URN: {autodeskUploadResult.UrnInBase64}";
-                    }
+                    BinaObsSuccess = obsUploadSuccess,
+                    BinaLocation = fileParams.key,
+                    
+                    AutodeskOssSuccess = autodeskUploadResult != null,
+                    AutodeskUrn = autodeskUploadResult?.UrnInBase64,
+                    
+                    RegistrationSuccess = saveResult.Success,
+                    
+                    LinkedFiles = ExtractRevitLinks(doc),
+                    ErrorMessage = GetErrorMessage(autodeskUploadResult, saveResult)
+                };
 
-                    TaskDialog.Show(saveResult.Success ? "Complete Success!" : "Upload Success, Registration Failed", resultMessage);
-                }
-                else
-                {
-                    if (saveResult.Success)
-                    {
-                        resultMessage = $"Partial upload but successfully saved!\n\n" +
-                                       $"File: {Path.GetFileName(doc.PathName)}\n" +
-                                       $"Version: {saveResult.Data?.Version}\n" +
-                                       $"Size: {fileParams.size} bytes\n\n" +
-                                       $"BINA OBS Storage: ✅ Uploaded & Saved\n" +
-                                       $"Location: {fileParams.key}\n\n" +
-                                       $"Autodesk OSS: ❌ Failed\n" +
-                                       $"Backend Registration: ✅ Saved\n" +
-                                       $"Check the autodesk_upload_log.txt file on Desktop for more details.\n\n" +
-                                       $"Your file is available in BINA cloud (OBS only).";
-                    }
-                    else
-                    {
-                        resultMessage = $"Partial upload and registration failed!\n\n" +
-                                       $"File: {Path.GetFileName(doc.PathName)}\n" +
-                                       $"Size: {fileParams.size} bytes\n\n" +
-                                       $"BINA OBS Storage: ✅ Uploaded\n" +
-                                       $"Location: {fileParams.key}\n\n" +
-                                       $"Autodesk OSS: ❌ Failed\n" +
-                                       $"Backend Registration: ❌ Failed\n" +
-                                       $"Registration Error: {saveResult.Message}\n\n" +
-                                       $"Check the log files on Desktop for more details.";
-                    }
-
-                    TaskDialog.Show(saveResult.Success ? "Partial Success" : "Upload Only Success", resultMessage);
-                }
+                // Return result data instead of showing window here
+                return resultData;
             }
             catch (Exception ex)
             {
                 TaskDialog.Show("Upload Error", $"An error occurred during dual platform upload: {ex.Message}\n\nCheck the log files on Desktop for more details.");
                 System.Diagnostics.Debug.WriteLine($"[BINA] Dual upload error: {ex}");
+                return null;
             }
             finally
             {
                 autodeskService.Dispose();
             }
+        }
+
+        private static string GetErrorMessage(AutodeskUploadResult autodeskResult, SaveFederatedFileResponseDto saveResult)
+        {
+            var errors = new List<string>();
+            
+            if (autodeskResult == null)
+            {
+                errors.Add("Autodesk OSS upload failed - Viewer functionality will be limited");
+            }
+            
+            if (!saveResult.Success)
+            {
+                errors.Add($"Backend registration failed: {saveResult.Message}");
+            }
+            
+            return errors.Count > 0 ? string.Join("\n\n", errors) : null;
         }
 
         private static string GetDisciplineTypeFromFileName(string fileName)

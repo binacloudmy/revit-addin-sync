@@ -11,7 +11,7 @@ namespace RevitWebAppSync
     public class BinaApiService
     {
         private readonly HttpClient _httpClient;
-        private readonly string _baseUrl = "https://059ad86b3c01.ngrok-free.app";
+        private readonly string _baseUrl = "https://eed06c01e474.ngrok-free.app";
         private readonly string _email;
         private readonly string _password;
 
@@ -357,7 +357,7 @@ namespace RevitWebAppSync
                 string jsonContent = JsonConvert.SerializeObject(request, settings);
                 var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
                 
-                string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/federated-file";
+                string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/save-discipline";
                 LogToFile($"Requesting URL: {url}");
 
                 var response = await _httpClient.PostAsync(url, content);
