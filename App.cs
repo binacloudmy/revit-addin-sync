@@ -87,9 +87,22 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
 
+            PushButtonData askAiButtonData = new PushButtonData(
+                "AskAI",
+                "Ask AI",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.AskAICommand")
+            {
+                ToolTip = "Ask AI Assistant",
+                LongDescription = "Open the AI Assistant to get help with your Revit project and BINA sync operations.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
+            };
+
             ribbonPanel.AddItem(buttonData);
             ribbonPanel.AddItem(choosePathButtonData);
             ribbonPanel.AddItem(bimDisciplineButtonData);
+            ribbonPanel.AddItem(askAiButtonData);
             // ribbonPanel.AddItem(federateButtonData); // Hidden as requested
         }
 
