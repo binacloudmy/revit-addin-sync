@@ -10,8 +10,6 @@ namespace RevitWebAppSync
     public partial class SyncResultsWindow : Window
     {
         private SyncResultData _resultData;
-        private const string PlaceholderText = "Ask me anything about this upload...";
-
         public SyncResultsWindow(SyncResultData resultData)
         {
             InitializeComponent();
@@ -140,7 +138,7 @@ namespace RevitWebAppSync
                 // Open BINA Cloud in default browser
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = "https://app.bina.cloud",
+                    FileName = "https://6231c60a791f.ngrok-free.app",
                     UseShellExecute = true
                 });
             }
@@ -155,84 +153,6 @@ namespace RevitWebAppSync
             this.Close();
         }
 
-        #region AI Assistant Events
-
-        private void AiInputBox_GotFocus(object sender, RoutedEventArgs e)
-        {
-            if (AiInputBox.Text == PlaceholderText && AiInputBox.Foreground == System.Windows.Media.Brushes.Gray)
-            {
-                AiInputBox.Text = "";
-                AiInputBox.Foreground = System.Windows.Media.Brushes.Black;
-            }
-        }
-
-        private void AiInputBox_LostFocus(object sender, RoutedEventArgs e)
-        {
-            if (string.IsNullOrWhiteSpace(AiInputBox.Text))
-            {
-                AiInputBox.Text = PlaceholderText;
-                AiInputBox.Foreground = System.Windows.Media.Brushes.Gray;
-            }
-        }
-
-        private void AiInputBox_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Key == Key.Enter)
-            {
-                e.Handled = true;
-                ProcessAiRequest();
-            }
-        }
-
-        private async void AskButton_Click(object sender, RoutedEventArgs e)
-        {
-            await ProcessAiRequest();
-        }
-
-        private async Task ProcessAiRequest()
-        {
-            string userInput = AiInputBox.Text?.Trim();
-
-            if (string.IsNullOrEmpty(userInput) || userInput == PlaceholderText)
-            {
-                return;
-            }
-
-            // Disable input while processing
-            AskButton.IsEnabled = false;
-            AiInputBox.IsEnabled = false;
-            AskButton.Content = "Processing...";
-
-            // Show response area
-            AiResponseArea.Visibility = Visibility.Visible;
-            AiResponseText.Text = "🤖 Processing your request...";
-
-            try
-            {
-                // Simulate AI processing delay
-                await Task.Delay(2000);
-
-                // Mock AI response
-                AiResponseText.Text = "✅ Removed the item that you have requested for you";
-
-                // Clear input
-                AiInputBox.Text = PlaceholderText;
-                AiInputBox.Foreground = System.Windows.Media.Brushes.Gray;
-            }
-            catch (Exception ex)
-            {
-                AiResponseText.Text = $"❌ Error processing request: {ex.Message}";
-            }
-            finally
-            {
-                // Re-enable controls
-                AskButton.IsEnabled = true;
-                AiInputBox.IsEnabled = true;
-                AskButton.Content = "Ask";
-            }
-        }
-
-        #endregion
     }
     
     // Data model for sync results

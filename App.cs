@@ -45,8 +45,8 @@ namespace RevitWebAppSync
                 Assembly.GetExecutingAssembly().Location,
                 "RevitWebAppSync.SyncCommand")
             {
-                ToolTip = "Open app.bina.cloud",
-                LongDescription = "Opens app.bina.cloud in your default browser.",
+                ToolTip = "Open BINA Cloud",
+                LongDescription = "Opens BINA Cloud in your default browser.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
             };
@@ -57,8 +57,8 @@ namespace RevitWebAppSync
                 Assembly.GetExecutingAssembly().Location,
                 "RevitWebAppSync.ChoosePathCommand")
             {
-                ToolTip = "Choose Path - Open app.bina.cloud",
-                LongDescription = "Opens app.bina.cloud in your default browser to choose your path.",
+                ToolTip = "Choose Path - Open BINA Cloud",
+                LongDescription = "Opens BINA Cloud in your default browser to choose your path.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
@@ -95,8 +95,8 @@ namespace RevitWebAppSync
             {
                 ToolTip = "Ask AI Assistant",
                 LongDescription = "Open the AI Assistant to get help with your Revit project and BINA sync operations.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
+                Image = LoadImage("RevitWebAppSync.Resources.microchip.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.microchip.png", 32)
             };
 
             ribbonPanel.AddItem(buttonData);

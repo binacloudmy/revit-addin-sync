@@ -11,7 +11,7 @@ namespace RevitWebAppSync
     public class BinaApiService
     {
         private readonly HttpClient _httpClient;
-        private readonly string _baseUrl = "https://eed06c01e474.ngrok-free.app";
+        private readonly string _baseUrl = "https://6231c60a791f.ngrok-free.app";
         private readonly string _email;
         private readonly string _password;
 

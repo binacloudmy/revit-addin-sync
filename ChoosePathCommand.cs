@@ -16,7 +16,7 @@ namespace RevitWebAppSync
             {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
-                    FileName = "https://app.bina.cloud",
+                    FileName = "https://6231c60a791f.ngrok-free.app",
                     UseShellExecute = true
                 });
 

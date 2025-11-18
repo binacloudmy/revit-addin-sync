@@ -32,6 +32,7 @@
   <ItemGroup>
     <EmbeddedResource Include="Resources\revitSync.png" />
     <EmbeddedResource Include="Resources\revitSave.png" />
+    <EmbeddedResource Include="Resources\microchip.png" />
   </ItemGroup>
 
   <!-- Post-build events -->

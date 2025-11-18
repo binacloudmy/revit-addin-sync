@@ -69,18 +69,16 @@ namespace RevitWebAppSync
 
             try
             {
-                // Show typing indicator
-                var typingIndicator = AddTypingIndicator();
-
-                // Simulate AI processing delay
-                await Task.Delay(7000);
-
-                // Remove typing indicator
-                ChatHistory.Children.Remove(typingIndicator);
-
-                // Generate AI response based on user input
-                string aiResponse = GenerateAIResponse(userMessage);
-                AddAIResponse(aiResponse);
+                // Check if this requires multi-step response
+                if (IsMultiStepResponse(userMessage))
+                {
+                    await HandleMultiStepResponse(userMessage);
+                }
+                else
+                {
+                    // Handle single response (existing behavior)
+                    await HandleSingleResponse(userMessage);
+                }
 
                 // Auto-scroll to bottom
                 ChatScrollViewer.ScrollToBottom();
@@ -95,6 +93,91 @@ namespace RevitWebAppSync
                 SendButton.IsEnabled = true;
                 MessageInputBox.IsEnabled = true;
                 SendButton.Content = "Send";
+            }
+        }
+
+        private bool IsMultiStepResponse(string userMessage)
+        {
+            string lowerMessage = userMessage.ToLower();
+
+            // Check if this is the cafeteria rename request that needs multi-step flow
+            if (lowerMessage.Contains("in floor plan 01") && lowerMessage.Contains("change the cafeteria name to dining area"))
+            {
+                return true;
+            }
+
+            // Check if this is the roof removal request that needs multi-step flow
+            if (lowerMessage.Contains("can you remove the roof from this structure"))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private async Task HandleSingleResponse(string userMessage)
+        {
+            // Show typing indicator
+            var typingIndicator = AddTypingIndicator();
+
+            // Simulate AI processing delay
+            await Task.Delay(7000);
+
+            // Remove typing indicator
+            ChatHistory.Children.Remove(typingIndicator);
+
+            // Generate AI response based on user input
+            string aiResponse = GenerateAIResponse(userMessage);
+            AddAIResponse(aiResponse);
+        }
+
+        private async Task HandleMultiStepResponse(string userMessage)
+        {
+            string lowerMessage = userMessage.ToLower();
+
+            // Handle cafeteria renaming multi-step flow
+            if (lowerMessage.Contains("in floor plan 01") && lowerMessage.Contains("change the cafeteria name to dining area"))
+            {
+                // Step 1: Thinking
+                AddAIResponse("thinking...");
+                ChatScrollViewer.ScrollToBottom();
+                await Task.Delay(2000);
+
+                // Step 2: Analysis
+                AddAIResponse("I see that there is a Cafeteria Section in Floor Plan: 01 - Entry Level, let me change the name to Dining Area");
+                ChatScrollViewer.ScrollToBottom();
+                await Task.Delay(3000);
+
+                // Step 3: Executing
+                AddAIResponse("executing...");
+                ChatScrollViewer.ScrollToBottom();
+                await Task.Delay(3000);
+
+                // Step 4: Completion
+                AddAIResponse("I've successfully changed the name Cafeteria to Dining Area as you requested.");
+                ChatScrollViewer.ScrollToBottom();
+            }
+            // Handle roof removal multi-step flow
+            else if (lowerMessage.Contains("can you remove the roof from this structure"))
+            {
+                // Step 1: Analyzing
+                AddAIResponse("analyzing structure...");
+                ChatScrollViewer.ScrollToBottom();
+                await Task.Delay(2000);
+
+                // Step 2: Structure Assessment
+                AddAIResponse("I can see the roof structure in the current model. Let me proceed to remove it for you.");
+                ChatScrollViewer.ScrollToBottom();
+                await Task.Delay(3000);
+
+                // Step 3: Removing
+                AddAIResponse("removing roof elements...");
+                ChatScrollViewer.ScrollToBottom();
+                await Task.Delay(3000);
+
+                // Step 4: Completion
+                AddAIResponse("✅ I have successfully removed the roof from the structure as you requested.");
+                ChatScrollViewer.ScrollToBottom();
             }
         }
 
@@ -212,13 +295,8 @@ namespace RevitWebAppSync
         {
             string lowerMessage = userMessage.ToLower();
 
-            // Check if the user is asking about removing the roof
-            if (lowerMessage.Contains("can you remove the roof from this structure"))
-            {
-                return "✅ I have removed the roof from the structure for you";
-            }
             // Check if the user is asking who has the biggest d
-            else if (lowerMessage.Contains("who has the biggest d"))
+            if (lowerMessage.Contains("who has the biggest d"))
             {
                 return "Ammar has the biggest zettalodon";
             }
@@ -235,12 +313,7 @@ namespace RevitWebAppSync
             // Check if the user is asking for a brief description about the file
             else if (lowerMessage.Contains("can you give me a brief description about this file"))
             {
-                return "**Project Structure:**\n\nThis appears to be a comprehensive educational building model with a well-organized hierarchy typical of institutional architecture projects.\n\n**Key Components:**\n\n• **Floor Plans & Ceiling Plans** - Standard architectural layouts showing room arrangements and overhead ceiling systems\n\n• **3D Views & Elevations** - Three-dimensional perspectives and exterior building faces for design visualization\n\n• **Sections** - Both building sections (showing interior vertical cuts) and wall sections (detailed construction assemblies)\n\n• **Detail Views** - Close-up construction details for specific building components\n\n• **Renderings** - Photorealistic visualizations for presentation purposes\n\n• **Drafting Views** - 2D technical drawings and annotations\n\n**Documentation Elements:**\n\n• **Schedules/Quantities** - Automated lists of building components, materials, and quantities for cost estimation and construction\n\n• **Sheets** - Organized drawing sets ready for printing and construction documentation\n\n• **Legends** - Symbol explanations and drawing standards\n\n• **Area Plans** - Space calculations for building programming and code compliance";
-            }
-            // Check if the user is asking to change Cafeteria to Dining Area
-            else if (lowerMessage.Contains("in floor plan 01") && lowerMessage.Contains("change the cafeteria name to dining area"))
-            {
-                return "thinking...\n\nI see that there is a Cafeteria Section in Floor Plan: 01 - Entry Level, let me change the name to Dining Area\n\nexecuting...\n\nI've successfully changed the name Cafeteria to Dining Area as you requested.";
+                return "Project Structure:\n\nThis appears to be a comprehensive educational building model with a well-organized hierarchy typical of institutional architecture projects.\n\nKey Components:\n\n• Floor Plans & Ceiling Plans - Standard architectural layouts showing room arrangements and overhead ceiling systems\n\n• 3D Views & Elevations - Three-dimensional perspectives and exterior building faces for design visualization\n\n• Sections - Both building sections (showing interior vertical cuts) and wall sections (detailed construction assemblies)\n\n• Detail Views - Close-up construction details for specific building components\n\n• Renderings - Photorealistic visualizations for presentation purposes\n\n• Drafting Views - 2D technical drawings and annotations\n\nDocumentation Elements:\n\n• Schedules/Quantities - Automated lists of building components, materials, and quantities for cost estimation and construction\n\n• Sheets - Organized drawing sets ready for printing and construction documentation\n\n• Legends - Symbol explanations and drawing standards\n\n• Area Plans - Space calculations for building programming and code compliance";
             }
             else
             {
