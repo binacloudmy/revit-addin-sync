@@ -6,6 +6,7 @@ namespace RevitWebAppSync
     {
         public string DisciplineType { get; set; }
         public string FileUrl { get; set; }
+        public string FileName { get; set; }
     }
 
     public class BimDisciplineResponse

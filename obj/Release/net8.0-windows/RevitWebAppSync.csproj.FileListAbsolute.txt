@@ -12,3 +12,17 @@ D:\revit-addin-sync\obj\Release\net8.0-windows\RevitWebAppSync.dll
 D:\revit-addin-sync\obj\Release\net8.0-windows\refint\RevitWebAppSync.dll
 D:\revit-addin-sync\obj\Release\net8.0-windows\RevitWebAppSync.pdb
 D:\revit-addin-sync\obj\Release\net8.0-windows\ref\RevitWebAppSync.dll
+D:\revit-addin-sync\obj\Release\net8.0-windows\AIAssistantWindow.baml
+D:\revit-addin-sync\obj\Release\net8.0-windows\SyncResultsWindow.baml
+D:\revit-addin-sync\obj\Release\net8.0-windows\AIAssistantWindow.g.cs
+D:\revit-addin-sync\obj\Release\net8.0-windows\SyncResultsWindow.g.cs
+D:\revit-addin-sync\obj\Release\net8.0-windows\RevitWebAppSync_MarkupCompile.cache
+D:\revit-addin-sync\obj\Release\net8.0-windows\RevitWebAppSync.g.resources
+D:\revit-addin-sync\obj\Release\net8.0-windows\LoginWindow.baml
+D:\revit-addin-sync\obj\Release\net8.0-windows\ProjectPickerWindow.baml
+D:\revit-addin-sync\obj\Release\net8.0-windows\UserInfoWindow.baml
+D:\revit-addin-sync\obj\Release\net8.0-windows\LoginWindow.g.cs
+D:\revit-addin-sync\obj\Release\net8.0-windows\ProjectPickerWindow.g.cs
+D:\revit-addin-sync\obj\Release\net8.0-windows\UserInfoWindow.g.cs
+D:\revit-addin-sync\obj\Release\net8.0-windows\DownloadResultsWindow.baml
+D:\revit-addin-sync\obj\Release\net8.0-windows\DownloadResultsWindow.g.cs

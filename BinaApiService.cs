@@ -11,7 +11,7 @@ namespace RevitWebAppSync
     public class BinaApiService
     {
         private readonly HttpClient _httpClient;
-        private readonly string _baseUrl = "https://6231c60a791f.ngrok-free.app";
+        private readonly string _baseUrl = "https://81031dd59309.ngrok-free.app";
         private readonly string _email;
         private readonly string _password;
 
@@ -64,7 +64,7 @@ namespace RevitWebAppSync
                 System.Diagnostics.Debug.WriteLine($"[BINA] Attempting login to {_baseUrl}/api/auth/user/sign-in");
                 System.Diagnostics.Debug.WriteLine($"[BINA] Using email: {_email}");
                 LogToFile($"GetAccessTokenAsync: Attempting login to {_baseUrl}/api/auth/user/sign-in with email: {_email}");
-                
+
                 var loginData = new
                 {
                     email = _email,
@@ -80,8 +80,8 @@ namespace RevitWebAppSync
                 var response = await _httpClient.PostAsync($"{_baseUrl}/api/auth/user/sign-in", content);
                 System.Diagnostics.Debug.WriteLine($"[BINA] Login response status: {response.StatusCode}");
                 LogToFile($"GetAccessTokenAsync: Login response status: {response.StatusCode}");
-                
-                
+
+
                 if (!response.IsSuccessStatusCode)
                 {
                     string errorBody = await response.Content.ReadAsStringAsync();
@@ -90,17 +90,87 @@ namespace RevitWebAppSync
 
                 string responseBody = await response.Content.ReadAsStringAsync();
                 System.Diagnostics.Debug.WriteLine($"[BINA] Login response body: {responseBody}");
-                
+
                 var jsonResponse = JObject.Parse(responseBody);
                 string token = jsonResponse["accessToken"]?.ToString();
                 System.Diagnostics.Debug.WriteLine($"[BINA] Access token received: {!string.IsNullOrEmpty(token)}");
-                
+
                 return token;
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[BINA] Login failed with exception: {ex.Message}");
                 LogToFile($"GetAccessTokenAsync: Login failed with exception: {ex.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Login with email and password, returns full login response including tokens
+        /// </summary>
+        public static async Task<LoginResponse> LoginWithCredentialsAsync(string email, string password)
+        {
+            try
+            {
+                using var httpClient = new HttpClient();
+                httpClient.Timeout = TimeSpan.FromSeconds(10);
+                httpClient.DefaultRequestHeaders.Add("User-Agent", "RevitBinaSync/1.0");
+
+                var loginData = new
+                {
+                    email = email,
+                    password = password,
+                    rememberMe = true
+                };
+
+                string jsonContent = JsonConvert.SerializeObject(loginData);
+                var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+                var response = await httpClient.PostAsync("https://81031dd59309.ngrok-free.app/api/auth/user/sign-in", content);
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    return null;
+                }
+
+                string responseBody = await response.Content.ReadAsStringAsync();
+                var loginResponse = JsonConvert.DeserializeObject<LoginResponse>(responseBody);
+
+                return loginResponse;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Get list of projects available to the user
+        /// </summary>
+        public static async Task<System.Collections.Generic.List<ProjectInfo>> GetUserProjectsAsync(string accessToken)
+        {
+            try
+            {
+                using var httpClient = new HttpClient();
+                httpClient.Timeout = TimeSpan.FromSeconds(10);
+                httpClient.DefaultRequestHeaders.Add("User-Agent", "RevitBinaSync/1.0");
+                httpClient.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await httpClient.GetAsync("https://81031dd59309.ngrok-free.app/api/cloud-docs/bim-discipline/user/projects");
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    return null;
+                }
+
+                string responseBody = await response.Content.ReadAsStringAsync();
+                var projects = JsonConvert.DeserializeObject<System.Collections.Generic.List<ProjectInfo>>(responseBody);
+
+                return projects;
+            }
+            catch (Exception)
+            {
                 return null;
             }
         }

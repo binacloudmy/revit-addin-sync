@@ -11,6 +11,13 @@ namespace RevitWebAppSync
         public int ProjectId { get; set; }
         public int UserId { get; set; }
 
+        // Session data
+        public string UserName { get; set; }
+        public string ProjectName { get; set; }
+        public string AccessToken { get; set; }
+        public string RefreshToken { get; set; }
+        public DateTime TokenExpiry { get; set; }
+
         private static readonly string ConfigPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "RevitWebAppSync",
@@ -55,6 +62,26 @@ namespace RevitWebAppSync
         public bool IsValid()
         {
             return !string.IsNullOrEmpty(Email) && !string.IsNullOrEmpty(Password) && ProjectId > 0 && UserId > 0;
+        }
+
+        public bool IsLoggedIn()
+        {
+            return !string.IsNullOrEmpty(AccessToken)
+                && !string.IsNullOrEmpty(UserName)
+                && ProjectId > 0;
+        }
+
+        public void ClearSession()
+        {
+            Email = null;
+            Password = null;
+            UserName = null;
+            ProjectName = null;
+            AccessToken = null;
+            RefreshToken = null;
+            TokenExpiry = DateTime.MinValue;
+            ProjectId = 0;
+            UserId = 0;
         }
     }
 }

@@ -74,65 +74,46 @@ namespace RevitWebAppSync
 
                 System.Diagnostics.Debug.WriteLine($"[BINA] Selected discipline type: {selectedDiscipline}");
 
-                // Hardcoded credentials for testing
-                BinaConfig config = new BinaConfig
-                {
-                    Email = "ammar@bina.cloud",
-                    Password = "Passw0rd"
-                };
+                // Load saved config
+                BinaConfig config = BinaConfig.Load();
 
-                // Show progress message
-                TaskDialog progressDialog = new TaskDialog("BINA Login");
-                progressDialog.MainContent = "Logging in to BINA...";
-                progressDialog.CommonButtons = TaskDialogCommonButtons.Ok;
-                progressDialog.DefaultButton = TaskDialogResult.Ok;
-                
-                // Start login in background
+                // Check if user is logged in
+                if (!config.IsLoggedIn())
+                {
+                    TaskDialog.Show("Not Logged In", "Please login first using the 'Login' button before syncing.");
+                    return Result.Cancelled;
+                }
+
+                // Use stored access token from login
+                string accessToken = config.AccessToken;
                 var binaService = new BinaApiService(config.Email, config.Password);
-                var loginTask = Task.Run(() => binaService.LoginAsync());
-                
-                // Show the progress dialog and wait for user to click or login to complete
-                progressDialog.Show();
-                
-                // Wait for login to complete
+
                 try
                 {
-                    string accessToken = loginTask.Result;
+                    // Start dual upload process: BINA (OBS) + Autodesk OSS
+                    var uploadTask = Task.Run(() => UploadToMultiplePlatforms(doc, accessToken, binaService, selectedDiscipline, config));
+                    var resultData = uploadTask.Result;
 
-                    if (!string.IsNullOrEmpty(accessToken))
+                    // Show results window on main UI thread
+                    if (resultData != null)
                     {
-                        string shortToken = accessToken.Length > 50 ? accessToken.Substring(0, 50) + "..." : accessToken;
-                        TaskDialog.Show("Login Success!", $"Successfully logged in to BINA!\n\nAccess Token:\n{shortToken}");
-                        
-                        // Start dual upload process: BINA (OBS) + Autodesk OSS
-                        var uploadTask = Task.Run(() => UploadToMultiplePlatforms(doc, accessToken, binaService, selectedDiscipline));
-                        var resultData = uploadTask.Result;
-                        
-                        // Show results window on main UI thread
-                        if (resultData != null)
+                        try
                         {
-                            try
-                            {
-                                var resultsWindow = new SyncResultsWindow(resultData);
-                                resultsWindow.ShowDialog();
-                            }
-                            catch (Exception windowEx)
-                            {
-                                System.Diagnostics.Debug.WriteLine($"[BINA] Error showing results window: {windowEx.Message}");
-                                // Fallback to TaskDialog if window fails
-                                string fallbackMessage = $"Upload completed!\n\nFile: {resultData.FileName}\nDiscipline: {resultData.DisciplineType}\n" +
-                                                        $"BINA Storage: {(resultData.BinaObsSuccess ? "✅ Success" : "❌ Failed")}\n" +
-                                                        $"Autodesk Viewer: {(resultData.AutodeskOssSuccess ? "✅ Ready" : "❌ Failed")}\n" +
-                                                        $"Registration: {(resultData.RegistrationSuccess ? "✅ Saved" : "❌ Failed")}";
-                                TaskDialog.Show("Upload Results", fallbackMessage);
-                            }
+                            var resultsWindow = new SyncResultsWindow(resultData);
+                            resultsWindow.ShowDialog();
+                        }
+                        catch (Exception windowEx)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[BINA] Error showing results window: {windowEx.Message}");
+                            // Fallback to TaskDialog if window fails
+                            string fallbackMessage = $"Upload completed!\n\nFile: {resultData.FileName}\nDiscipline: {resultData.DisciplineType}\n" +
+                                                    $"BINA Storage: {(resultData.BinaObsSuccess ? "✅ Success" : "❌ Failed")}\n" +
+                                                    $"Autodesk Viewer: {(resultData.AutodeskOssSuccess ? "✅ Ready" : "❌ Failed")}\n" +
+                                                    $"Registration: {(resultData.RegistrationSuccess ? "✅ Saved" : "❌ Failed")}";
+                            TaskDialog.Show("Upload Results", fallbackMessage);
                         }
                     }
-                    else
-                    {
-                        TaskDialog.Show("Login Failed", "Failed to login to BINA.\n\nPossible issues:\n- Invalid credentials\n- Network connectivity\n\nCheck the log file on Desktop for more details.");
-                    }
-                    
+
                     binaService.Dispose();
                 }
                 catch (AggregateException aex)
@@ -156,7 +137,7 @@ namespace RevitWebAppSync
             }
         }
 
-        private async Task<SyncResultData> UploadToMultiplePlatforms(Document doc, string binaAccessToken, BinaApiService binaService, string disciplineType)
+        private async Task<SyncResultData> UploadToMultiplePlatforms(Document doc, string binaAccessToken, BinaApiService binaService, string disciplineType, BinaConfig config)
         {
             var autodeskService = new AutodeskApiService();
             
@@ -219,16 +200,7 @@ namespace RevitWebAppSync
                 // Step 3: Save file information to BINA backend
                 System.Diagnostics.Debug.WriteLine("[BINA] Saving file metadata to BINA backend...");
                 
-                // Load configuration for project and user IDs
-                BinaConfig config = BinaConfig.Load();
-                if (string.IsNullOrEmpty(config.Email) || string.IsNullOrEmpty(config.Password))
-                {
-                    config.Email = "ammar@bina.cloud";
-                    config.Password = "Passw0rd";
-                }
-                // Always set hardcoded values for testing (same as federate function)
-                if (config.ProjectId <= 0) config.ProjectId = 240;
-                if (config.UserId <= 0) config.UserId = 9;
+                // Use the config loaded at the start (already validated as logged in)
 
                 string cleanFileUrl = presignedUrl.Split('?')[0]; // Remove query parameters from OBS URL
                 cleanFileUrl = cleanFileUrl.Replace(":443", ""); // Remove port 443

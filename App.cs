@@ -51,14 +51,14 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
             };
 
-            PushButtonData choosePathButtonData = new PushButtonData(
-                "ChoosePath",
-                "Choose Path",
+            PushButtonData loginButtonData = new PushButtonData(
+                "Login",
+                "Login",
                 Assembly.GetExecutingAssembly().Location,
-                "RevitWebAppSync.ChoosePathCommand")
+                "RevitWebAppSync.LoginCommand")
             {
-                ToolTip = "Choose Path - Open BINA Cloud",
-                LongDescription = "Opens BINA Cloud in your default browser to choose your path.",
+                ToolTip = "Login to BINA Cloud",
+                LongDescription = "Opens BINA Cloud in your default browser to login.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
@@ -100,7 +100,7 @@ namespace RevitWebAppSync
             };
 
             ribbonPanel.AddItem(buttonData);
-            ribbonPanel.AddItem(choosePathButtonData);
+            ribbonPanel.AddItem(loginButtonData);
             ribbonPanel.AddItem(bimDisciplineButtonData);
             ribbonPanel.AddItem(askAiButtonData);
             // ribbonPanel.AddItem(federateButtonData); // Hidden as requested
