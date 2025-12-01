@@ -11,14 +11,14 @@ namespace RevitWebAppSync
     public class BinaApiService
     {
         private readonly HttpClient _httpClient;
-        private readonly string _baseUrl = "https://81031dd59309.ngrok-free.app";
+        private readonly string _baseUrl = "https://6d9e82978eba.ngrok-free.app";
         private readonly string _email;
         private readonly string _password;
 
         public BinaApiService(string email, string password)
         {
             _httpClient = new HttpClient();
-            _httpClient.Timeout = TimeSpan.FromSeconds(10); // 10 second timeout
+            _httpClient.Timeout = TimeSpan.FromMinutes(5); // 5 minute timeout for large uploads
             _httpClient.DefaultRequestHeaders.Add("User-Agent", "RevitBinaSync/1.0");
             _email = email;
             _password = password;
@@ -126,7 +126,7 @@ namespace RevitWebAppSync
                 string jsonContent = JsonConvert.SerializeObject(loginData);
                 var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
-                var response = await httpClient.PostAsync("https://81031dd59309.ngrok-free.app/api/auth/user/sign-in", content);
+                var response = await httpClient.PostAsync("https://6d9e82978eba.ngrok-free.app/api/auth/user/sign-in", content);
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -157,7 +157,7 @@ namespace RevitWebAppSync
                 httpClient.DefaultRequestHeaders.Authorization =
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
 
-                var response = await httpClient.GetAsync("https://81031dd59309.ngrok-free.app/api/cloud-docs/bim-discipline/user/projects");
+                var response = await httpClient.GetAsync("https://6d9e82978eba.ngrok-free.app/api/cloud-docs/bim-discipline/user/projects");
 
                 if (!response.IsSuccessStatusCode)
                 {
