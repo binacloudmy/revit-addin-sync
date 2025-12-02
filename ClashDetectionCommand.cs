@@ -65,11 +65,11 @@ namespace RevitWebAppSync
                 // Get configuration from dialog
                 var setA = dialog.SetA;
                 var setB = dialog.SetB;
-                var externalFiles = dialog.SelectedFiles;
+                var linkedFiles = dialog.SelectedLinkedFiles;
                 var tolerance = dialog.Tolerance;
 
                 // Validate selections
-                var validation = ValidateSelections(setA, setB, externalFiles);
+                var validation = ValidateSelections(setA, setB, linkedFiles);
                 if (!validation.IsValid)
                 {
                     TaskDialog.Show("Validation Error", validation.ErrorMessage);
@@ -78,7 +78,7 @@ namespace RevitWebAppSync
                 }
 
                 // Run clash detection
-                var clashReport = RunClashDetection(doc, externalFiles, setA, setB, tolerance);
+                var clashReport = RunClashDetection(doc, linkedFiles, setA, setB, tolerance);
 
                 // Show success message with results
                 ShowClashDetectionResults(clashReport);
@@ -109,9 +109,9 @@ namespace RevitWebAppSync
         /// </summary>
         /// <param name="setA">Set A element selection</param>
         /// <param name="setB">Set B element selection</param>
-        /// <param name="externalFiles">List of external files</param>
+        /// <param name="linkedFiles">List of linked files</param>
         /// <returns>Validation result</returns>
-        private ValidationResult ValidateSelections(ElementSelectionSet setA, ElementSelectionSet setB, List<string> externalFiles)
+        private ValidationResult ValidateSelections(ElementSelectionSet setA, ElementSelectionSet setB, List<RevitLinkedFileInfo> linkedFiles)
         {
             var result = new ValidationResult { IsValid = true };
 
@@ -147,23 +147,21 @@ namespace RevitWebAppSync
                 return result;
             }
 
-            // Validate external files
-            if (externalFiles == null || externalFiles.Count == 0)
+            // Validate linked files
+            if (linkedFiles == null || linkedFiles.Count == 0)
             {
                 result.IsValid = false;
-                result.ErrorMessage = "No external files selected. Please select at least one external file.";
+                result.ErrorMessage = "No linked files selected. Please select at least one linked file.";
                 return result;
             }
 
-            // Check if external files exist
-            foreach (var filePath in externalFiles)
+            // Check if linked files are loaded
+            var unloadedFiles = linkedFiles.Where(lf => !lf.IsLoaded).ToList();
+            if (unloadedFiles.Count > 0)
             {
-                if (!System.IO.File.Exists(filePath))
-                {
-                    result.IsValid = false;
-                    result.ErrorMessage = $"External file not found: {filePath}";
-                    return result;
-                }
+                result.IsValid = false;
+                result.ErrorMessage = $"The following linked files are not loaded:\n{string.Join("\n", unloadedFiles.Select(f => f.FileName))}\n\nPlease reload the links first.";
+                return result;
             }
 
             // Check if both sets have elements
@@ -188,14 +186,14 @@ namespace RevitWebAppSync
         /// Runs the actual clash detection using ClashDetectionService
         /// </summary>
         /// <param name="currentDoc">The current Revit document</param>
-        /// <param name="externalFiles">List of external file paths</param>
+        /// <param name="linkedFiles">List of linked file info</param>
         /// <param name="setA">Element selection set A</param>
         /// <param name="setB">Element selection set B</param>
         /// <param name="tolerance">Clash tolerance in millimeters</param>
         /// <returns>Clash detection report</returns>
         private ClashReport RunClashDetection(
             Document currentDoc,
-            List<string> externalFiles,
+            List<RevitLinkedFileInfo> linkedFiles,
             ElementSelectionSet setA,
             ElementSelectionSet setB,
             double tolerance)
@@ -216,7 +214,7 @@ namespace RevitWebAppSync
                 {
                     return clashService.RunClashDetection(
                         currentDoc,
-                        externalFiles,
+                        linkedFiles,
                         setA,
                         setB,
                         tolerance,
@@ -252,7 +250,7 @@ namespace RevitWebAppSync
                         Address = currentDoc.ProjectInformation.Address ?? "",
                         ClientName = currentDoc.ProjectInformation.ClientName ?? ""
                     },
-                    FilesInvolved = new List<string> { currentDoc.PathName }.Concat(externalFiles).ToList(),
+                    FilesInvolved = new List<string> { currentDoc.PathName }.Concat(linkedFiles.Select(lf => lf.FilePath)).ToList(),
                     SetA = setA,
                     SetB = setB,
                     ToleranceUsed = tolerance,

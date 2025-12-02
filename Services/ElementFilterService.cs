@@ -397,9 +397,10 @@ namespace RevitWebAppSync.Services
                     var worksetParam = e.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
                     if (worksetParam != null && worksetParam.HasValue)
                     {
-                        var worksetId = worksetParam.AsElementId();
-                        if (worksetId != null && worksetId != ElementId.InvalidElementId)
+                        var worksetIdInt = worksetParam.AsInteger();
+                        if (worksetIdInt > 0)
                         {
+                            var worksetId = new WorksetId(worksetIdInt);
                             var workset = e.Document.GetWorksetTable().GetWorkset(worksetId);
                             if (workset != null)
                             {

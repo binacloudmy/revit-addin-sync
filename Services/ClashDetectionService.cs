@@ -9,7 +9,7 @@ namespace RevitWebAppSync.Services
 {
     /// <summary>
     /// Service responsible for performing clash detection between element sets
-    /// Handles geometric intersection detection, external file loading, and clash result generation
+    /// Handles geometric intersection detection, linked file processing, and clash result generation
     /// </summary>
     public class ClashDetectionService
     {
@@ -26,19 +26,19 @@ namespace RevitWebAppSync.Services
         #region Public Methods
 
         /// <summary>
-        /// Runs clash detection between two element sets
+        /// Runs clash detection between current document elements and linked file elements
         /// </summary>
         /// <param name="currentDocument">The current active Revit document</param>
-        /// <param name="externalFiles">List of external file paths to clash against</param>
-        /// <param name="setA">Element selection set A (typically from current model)</param>
-        /// <param name="setB">Element selection set B (typically from external files)</param>
+        /// <param name="linkedFiles">List of linked file info to clash against</param>
+        /// <param name="setA">Element selection set A (from current model)</param>
+        /// <param name="setB">Element selection set B (from linked files)</param>
         /// <param name="tolerance">Clash tolerance in millimeters (0 = hard clash only)</param>
         /// <param name="progress">Optional progress reporter for UI updates</param>
         /// <param name="cancellationToken">Token to support operation cancellation</param>
         /// <returns>List of detected clashes</returns>
         public List<ClashResult> RunClashDetection(
             Document currentDocument,
-            List<string> externalFiles,
+            List<RevitLinkedFileInfo> linkedFiles,
             ElementSelectionSet setA,
             ElementSelectionSet setB,
             double tolerance,
@@ -47,8 +47,8 @@ namespace RevitWebAppSync.Services
         {
             if (currentDocument == null)
                 throw new ArgumentNullException(nameof(currentDocument));
-            if (externalFiles == null || externalFiles.Count == 0)
-                throw new ArgumentException("External files list cannot be null or empty", nameof(externalFiles));
+            if (linkedFiles == null || linkedFiles.Count == 0)
+                throw new ArgumentException("Linked files list cannot be null or empty", nameof(linkedFiles));
             if (setA == null)
                 throw new ArgumentNullException(nameof(setA));
             if (setB == null)
@@ -70,14 +70,14 @@ namespace RevitWebAppSync.Services
                 if (setAElements.Count == 0)
                     throw new InvalidOperationException("Set A contains no elements after filtering");
 
-                // Step 2: Load external files and get Set B elements
+                // Step 2: Get elements from linked files (Set B)
                 progress?.Report(new ClashDetectionProgress
                 {
-                    Phase = "Loading External Files",
+                    Phase = "Loading Linked File Elements",
                     PercentComplete = 20
                 });
 
-                var setBElements = LoadExternalFileElements(currentDocument, externalFiles, setB, cancellationToken);
+                var setBElements = GetLinkedFileElements(linkedFiles, setB, cancellationToken);
 
                 if (setBElements.Count == 0)
                     throw new InvalidOperationException("Set B contains no elements after filtering");
@@ -130,104 +130,31 @@ namespace RevitWebAppSync.Services
 
         #endregion
 
-        #region Private Methods - External File Loading
+        #region Private Methods - Linked File Element Loading
 
         /// <summary>
-        /// Loads elements from external files based on Set B configuration
+        /// Gets elements from linked files based on Set B configuration
         /// </summary>
-        private List<Element> LoadExternalFileElements(
-            Document currentDocument,
-            List<string> externalFiles,
+        private List<Element> GetLinkedFileElements(
+            List<RevitLinkedFileInfo> linkedFiles,
             ElementSelectionSet setB,
             CancellationToken cancellationToken)
         {
             var allElements = new List<Element>();
 
-            foreach (var filePath in externalFiles)
+            foreach (var linkedFile in linkedFiles)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Load external file as RevitLinkInstance
-                var linkElements = LoadElementsFromLink(currentDocument, filePath, setB);
-                allElements.AddRange(linkElements);
+                if (linkedFile.LinkedDocument != null && linkedFile.IsLoaded)
+                {
+                    // Get filtered elements from linked document
+                    var filteredElements = _filterService.GetFilteredElements(linkedFile.LinkedDocument, setB);
+                    allElements.AddRange(filteredElements);
+                }
             }
 
             return allElements;
-        }
-
-        /// <summary>
-        /// Loads elements from a linked Revit file
-        /// </summary>
-        private List<Element> LoadElementsFromLink(
-            Document currentDocument,
-            string linkFilePath,
-            ElementSelectionSet setB)
-        {
-            var elements = new List<Element>();
-
-            try
-            {
-                // Create a link type for the external file
-                using (Transaction trans = new Transaction(currentDocument, "Load Link for Clash Detection"))
-                {
-                    trans.Start();
-
-                    // Load the link
-                    ModelPath modelPath = ModelPathUtils.ConvertUserVisiblePathToModelPath(linkFilePath);
-                    RevitLinkOptions linkOptions = new RevitLinkOptions(false);
-                    LinkLoadResult loadResult = RevitLinkType.Create(currentDocument, modelPath, linkOptions);
-
-                    if (loadResult.LoadResult != LoadResult.ModelAlreadyLoaded)
-                    {
-                        trans.Commit();
-                    }
-                    else
-                    {
-                        trans.RollBack();
-                    }
-                }
-
-                // Find the RevitLinkInstance
-                FilteredElementCollector linkCollector = new FilteredElementCollector(currentDocument)
-                    .OfClass(typeof(RevitLinkInstance));
-
-                RevitLinkInstance linkInstance = null;
-                foreach (RevitLinkInstance instance in linkCollector)
-                {
-                    if (instance.GetLinkDocument() != null)
-                    {
-                        var linkDoc = instance.GetLinkDocument();
-                        if (linkDoc.PathName.Equals(linkFilePath, StringComparison.OrdinalIgnoreCase))
-                        {
-                            linkInstance = instance;
-                            break;
-                        }
-                    }
-                }
-
-                if (linkInstance == null)
-                    throw new InvalidOperationException($"Failed to load link: {linkFilePath}");
-
-                // Get the linked document
-                Document linkedDoc = linkInstance.GetLinkDocument();
-                if (linkedDoc == null)
-                    throw new InvalidOperationException($"Linked document is null: {linkFilePath}");
-
-                // Get filtered elements from linked document
-                var filteredElements = _filterService.GetFilteredElements(linkedDoc, setB);
-
-                // Transform elements to current document coordinate system
-                Transform linkTransform = linkInstance.GetTotalTransform();
-
-                // Store elements with their transform for later geometry extraction
-                elements.AddRange(filteredElements);
-
-                return elements;
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException($"Failed to load elements from link {linkFilePath}: {ex.Message}", ex);
-            }
         }
 
         #endregion
@@ -473,8 +400,8 @@ namespace RevitWebAppSync.Services
             var categoryA = elementA.Category?.Name ?? "Unknown";
             var categoryB = elementB.Category?.Name ?? "Unknown";
 
-            var nameA = elementA.Name ?? $"Element {elementA.Id.IntegerValue}";
-            var nameB = elementB.Name ?? $"Element {elementB.Id.IntegerValue}";
+            var nameA = elementA.Name ?? $"Element {elementA.Id.Value}";
+            var nameB = elementB.Name ?? $"Element {elementB.Id.Value}";
 
             // Determine severity based on clash type and volume
             string severity = DetermineSeverity(clashType, overlapVolume, clearanceDistance);
@@ -482,10 +409,10 @@ namespace RevitWebAppSync.Services
             return new ClashResult
             {
                 ClashId = $"CLS-{Guid.NewGuid().ToString().Substring(0, 8)}",
-                ElementId1 = elementA.Id.IntegerValue.ToString(),
+                ElementId1 = elementA.Id.Value.ToString(),
                 ElementName1 = nameA,
                 Category1 = categoryA,
-                ElementId2 = elementB.Id.IntegerValue.ToString(),
+                ElementId2 = elementB.Id.Value.ToString(),
                 ElementName2 = nameB,
                 Category2 = categoryB,
                 ClashPoint = clashPoint,
@@ -493,7 +420,7 @@ namespace RevitWebAppSync.Services
                 OverlapVolume = overlapVolume,
                 ClearanceDistance = clearanceDistance * 304.8, // Convert feet to mm
                 Severity = severity,
-                DetectedAt = DateTime.UtcNow
+                DetectedDate = DateTime.UtcNow
             };
         }
 

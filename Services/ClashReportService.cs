@@ -310,7 +310,7 @@ namespace RevitWebAppSync.Services
                                        $"{clash.ClashPoint.Y:F3}," +
                                        $"{clash.ClashPoint.Z:F3}," +
                                        $"{clash.OverlapVolume:F6}," +
-                                       $"{clash.Distance:F3}," +
+                                       $"{clash.ClearanceDistance:F3}," +
                                        $"{EscapeCSV(clash.CategoryPair)}");
                     }
                 }

@@ -60,37 +60,42 @@
                        Margin="5,0,5,5"/>
         </StackPanel>
 
-        <!-- File Selection Section -->
-        <GroupBox Grid.Row="1" Header="File Selection">
+        <!-- Linked Files Selection Section -->
+        <GroupBox Grid.Row="1" Header="Linked Files Selection">
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- File List -->
+                <!-- Linked Files List -->
                 <Grid Grid.Row="0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <ListBox Name="SelectedFilesListBox"
+                    <ListBox Name="LinkedFilesListBox"
                              Grid.Column="0"
-                             Height="80"
+                             Height="100"
                              Margin="5"
-                             SelectionMode="Single">
+                             SelectionMode="Extended"
+                             SelectionChanged="LinkedFilesListBox_SelectionChanged">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
-                                <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis"/>
+                                <CheckBox Content="{Binding DisplayName}"
+                                          IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                          Tag="{Binding}"
+                                          Checked="LinkedFileCheckBox_Changed"
+                                          Unchecked="LinkedFileCheckBox_Changed"/>
                             </DataTemplate>
                         </ListBox.ItemTemplate>
                     </ListBox>
 
                     <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                        <Button Name="BrowseFilesButton" Content="Browse..." Click="BrowseFilesButton_Click" ToolTip="Select external Revit files"/>
-                        <Button Name="RemoveFileButton" Content="Remove" Click="RemoveFileButton_Click" IsEnabled="False" ToolTip="Remove selected file"/>
-                        <Button Name="LoadCategoriesButton" Content="Load Categories" Click="LoadCategoriesButton_Click" ToolTip="Load element categories from selected files"/>
+                        <Button Name="SelectAllLinksButton" Content="Select All" Click="SelectAllLinksButton_Click" ToolTip="Select all linked files"/>
+                        <Button Name="ClearAllLinksButton" Content="Clear All" Click="ClearAllLinksButton_Click" ToolTip="Clear all linked file selections"/>
+                        <Button Name="RefreshLinksButton" Content="Refresh" Click="RefreshLinksButton_Click" ToolTip="Refresh linked files list"/>
                     </StackPanel>
                 </Grid>
 
@@ -187,8 +192,8 @@
                 </Grid>
             </GroupBox>
 
-            <!-- Set B Panel (External Files) -->
-            <GroupBox Grid.Column="1" Header="Set B: External File Elements">
+            <!-- Set B Panel (Linked Files) -->
+            <GroupBox Grid.Column="1" Header="Set B: Linked File Elements">
                 <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -232,7 +237,7 @@
                     <!-- Placeholder Text -->
                     <TextBlock Name="SetBPlaceholderText"
                                Grid.Row="1"
-                               Text="Please select external files and click 'Load Categories'"
+                               Text="Please select linked files from the list above"
                                Foreground="Gray"
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"

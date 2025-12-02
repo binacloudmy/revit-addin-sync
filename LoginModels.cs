@@ -16,6 +16,14 @@ namespace RevitWebAppSync
         public int Id { get; set; }
         public string Name { get; set; }
         public string Description { get; set; }
+        public string Number { get; set; }
+        public string Address { get; set; }
+        public string ClientName { get; set; }
+
+        /// <summary>
+        /// Gets a display-friendly name for the project
+        /// </summary>
+        public string DisplayName => !string.IsNullOrEmpty(Name) ? Name : "Unknown Project";
     }
 
     public class UserProjectsResponse

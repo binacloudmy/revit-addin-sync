@@ -8,7 +8,7 @@ using Newtonsoft.Json.Linq;
 
 namespace RevitWebAppSync
 {
-    public class BinaApiService
+    public class BinaApiService : IDisposable
     {
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl = "https://6d9e82978eba.ngrok-free.app";

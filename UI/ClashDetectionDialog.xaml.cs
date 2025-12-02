@@ -5,7 +5,6 @@ using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
-using Microsoft.Win32;
 using Autodesk.Revit.DB;
 using RevitWebAppSync.Models;
 using RevitWebAppSync.Services;
@@ -22,7 +21,7 @@ namespace RevitWebAppSync.UI
 
         private readonly Document _currentDocument;
         private readonly ElementFilterService _filterService;
-        private List<string> _selectedFiles;
+        private ObservableCollection<RevitLinkedFileInfo> _linkedFiles;
         private ElementSelectionSet _setA;
         private ElementSelectionSet _setB;
         private bool _categoriesLoaded;
@@ -64,9 +63,14 @@ namespace RevitWebAppSync.UI
         }
 
         /// <summary>
-        /// List of selected external file paths
+        /// List of linked files in the document
         /// </summary>
-        public List<string> SelectedFiles => _selectedFiles;
+        public ObservableCollection<RevitLinkedFileInfo> LinkedFiles => _linkedFiles;
+
+        /// <summary>
+        /// List of selected linked files for clash detection
+        /// </summary>
+        public List<RevitLinkedFileInfo> SelectedLinkedFiles => _linkedFiles?.Where(lf => lf.IsSelected).ToList() ?? new List<RevitLinkedFileInfo>();
 
         /// <summary>
         /// Tolerance value for clash detection
@@ -100,7 +104,7 @@ namespace RevitWebAppSync.UI
 
             _currentDocument = currentDocument ?? throw new ArgumentNullException(nameof(currentDocument));
             _filterService = new ElementFilterService();
-            _selectedFiles = new List<string>();
+            _linkedFiles = new ObservableCollection<RevitLinkedFileInfo>();
             _categoriesLoaded = false;
 
             // Initialize selection sets
@@ -122,6 +126,9 @@ namespace RevitWebAppSync.UI
 
             // Load current document info
             LoadCurrentDocumentInfo();
+
+            // Load linked files from the document
+            LoadLinkedFiles();
         }
 
         #endregion
@@ -215,138 +222,219 @@ namespace RevitWebAppSync.UI
             }
         }
 
-        #endregion
-
-        #region File Selection Event Handlers
-
         /// <summary>
-        /// Browse for external Revit files
+        /// Loads linked files from the current document
         /// </summary>
-        private void BrowseFilesButton_Click(object sender, RoutedEventArgs e)
+        private void LoadLinkedFiles()
         {
             try
             {
-                var dialog = new OpenFileDialog
-                {
-                    Title = "Select Revit Files for Clash Detection",
-                    Filter = "Revit Files (*.rvt)|*.rvt|All Files (*.*)|*.*",
-                    Multiselect = true,
-                    CheckFileExists = true
-                };
+                _linkedFiles.Clear();
 
-                if (dialog.ShowDialog() == true)
+                // Get all RevitLinkInstances in the document
+                var linkInstances = new FilteredElementCollector(_currentDocument)
+                    .OfClass(typeof(RevitLinkInstance))
+                    .Cast<RevitLinkInstance>()
+                    .ToList();
+
+                if (linkInstances.Count == 0)
                 {
-                    foreach (var fileName in dialog.FileNames)
+                    // No linked files found
+                    LinkedFilesListBox.ItemsSource = null;
+                    MessageBox.Show(
+                        "No linked Revit files found in the current document.\n\nPlease link Revit files first using 'Insert > Link Revit' before running clash detection.",
+                        "No Linked Files",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Information);
+                    return;
+                }
+
+                foreach (var linkInstance in linkInstances)
+                {
+                    var linkDoc = linkInstance.GetLinkDocument();
+                    var linkType = _currentDocument.GetElement(linkInstance.GetTypeId()) as RevitLinkType;
+
+                    string fileName = "Unknown";
+                    string filePath = "";
+
+                    if (linkType != null)
                     {
-                        if (!_selectedFiles.Contains(fileName))
+                        var externalRef = linkType.GetExternalFileReference();
+                        if (externalRef != null)
                         {
-                            _selectedFiles.Add(fileName);
+                            filePath = ModelPathUtils.ConvertModelPathToUserVisiblePath(externalRef.GetAbsolutePath());
+                            fileName = System.IO.Path.GetFileName(filePath);
                         }
                     }
 
-                    SelectedFilesListBox.ItemsSource = null;
-                    SelectedFilesListBox.ItemsSource = _selectedFiles;
+                    if (string.IsNullOrEmpty(fileName) || fileName == "Unknown")
+                    {
+                        fileName = linkInstance.Name;
+                    }
 
-                    UpdateUI();
+                    var linkedFileInfo = new RevitLinkedFileInfo
+                    {
+                        LinkInstance = linkInstance,
+                        LinkedDocument = linkDoc,
+                        LinkInstanceId = linkInstance.Id,
+                        FileName = fileName,
+                        FilePath = filePath,
+                        DisplayName = $"{fileName} {(linkDoc != null ? "(Loaded)" : "(Not Loaded)")}",
+                        IsLoaded = linkDoc != null,
+                        IsSelected = false,
+                        LinkTransform = linkInstance.GetTotalTransform(),
+                        ElementCount = linkDoc != null ? new FilteredElementCollector(linkDoc).WhereElementIsNotElementType().GetElementCount() : 0
+                    };
+
+                    _linkedFiles.Add(linkedFileInfo);
                 }
+
+                LinkedFilesListBox.ItemsSource = _linkedFiles;
+                UpdateUI();
             }
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    $"Failed to select files: {ex.Message}",
+                    $"Failed to load linked files: {ex.Message}",
                     "Error",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
             }
         }
 
+        #endregion
+
+        #region Linked Files Event Handlers
+
         /// <summary>
-        /// Remove selected file from list
+        /// Handle linked file checkbox change
         /// </summary>
-        private void RemoveFileButton_Click(object sender, RoutedEventArgs e)
+        private void LinkedFileCheckBox_Changed(object sender, RoutedEventArgs e)
         {
-            try
+            OnLinkedFilesSelectionChanged();
+        }
+
+        /// <summary>
+        /// Handle linked files list selection change
+        /// </summary>
+        private void LinkedFilesListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // Selection changed in list box - no action needed as we use checkboxes
+        }
+
+        /// <summary>
+        /// Select all linked files
+        /// </summary>
+        private void SelectAllLinksButton_Click(object sender, RoutedEventArgs e)
+        {
+            foreach (var linkedFile in _linkedFiles)
             {
-                if (SelectedFilesListBox.SelectedItem is string selectedFile)
+                if (linkedFile.IsLoaded)
                 {
-                    _selectedFiles.Remove(selectedFile);
-                    SelectedFilesListBox.ItemsSource = null;
-                    SelectedFilesListBox.ItemsSource = _selectedFiles;
-
-                    UpdateUI();
+                    linkedFile.IsSelected = true;
                 }
             }
-            catch (Exception ex)
-            {
-                MessageBox.Show(
-                    $"Failed to remove file: {ex.Message}",
-                    "Error",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
-            }
+            LinkedFilesListBox.Items.Refresh();
+            OnLinkedFilesSelectionChanged();
         }
 
         /// <summary>
-        /// Load categories from selected external files
+        /// Clear all linked file selections
         /// </summary>
-        private void LoadCategoriesButton_Click(object sender, RoutedEventArgs e)
+        private void ClearAllLinksButton_Click(object sender, RoutedEventArgs e)
         {
-            if (_selectedFiles.Count == 0)
+            foreach (var linkedFile in _linkedFiles)
             {
-                MessageBox.Show(
-                    "Please select at least one external file first.",
-                    "No Files Selected",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
-                return;
+                linkedFile.IsSelected = false;
             }
+            LinkedFilesListBox.Items.Refresh();
+            OnLinkedFilesSelectionChanged();
+        }
 
+        /// <summary>
+        /// Refresh the linked files list
+        /// </summary>
+        private void RefreshLinksButton_Click(object sender, RoutedEventArgs e)
+        {
+            LoadLinkedFiles();
+        }
+
+        /// <summary>
+        /// Called when linked files selection changes
+        /// Loads categories from selected linked files
+        /// </summary>
+        private void OnLinkedFilesSelectionChanged()
+        {
             try
             {
-                ShowLoading(true, "Loading categories from external files...");
+                var selectedLinks = SelectedLinkedFiles;
 
-                // TODO: For now, we'll show a simplified version
-                // In full implementation, we would load the external file as RevitLinkInstance
-                // and extract categories from it
+                if (selectedLinks.Count == 0)
+                {
+                    // No links selected, hide categories
+                    SetBPlaceholderText.Visibility = System.Windows.Visibility.Visible;
+                    SetBCategoryTreeView.Visibility = System.Windows.Visibility.Collapsed;
+                    _categoriesLoaded = false;
+                    SetBStatusText.Text = "Selected: 0 elements";
+                    UpdateUI();
+                    return;
+                }
 
-                // For demonstration, use categories from current document
-                var categories = _filterService.GetAllCategories(_currentDocument);
-                PopulateCategoryTree(SetBCategoryTreeView, categories, false);
+                // Get categories from all selected linked documents
+                var allCategories = new Dictionary<string, CategoryInfo>();
 
-                // Hide placeholder
-                SetBPlaceholderText.Visibility = Visibility.Collapsed;
-                SetBCategoryTreeView.Visibility = Visibility.Visible;
+                foreach (var linkedFile in selectedLinks)
+                {
+                    if (linkedFile.LinkedDocument != null)
+                    {
+                        var categories = _filterService.GetAllCategories(linkedFile.LinkedDocument);
+                        foreach (var cat in categories)
+                        {
+                            if (allCategories.ContainsKey(cat.Name))
+                            {
+                                // Add element counts
+                                allCategories[cat.Name].ElementCount += cat.ElementCount;
+                            }
+                            else
+                            {
+                                allCategories[cat.Name] = new CategoryInfo
+                                {
+                                    Name = cat.Name,
+                                    ElementCount = cat.ElementCount,
+                                    DisciplineGroup = cat.DisciplineGroup
+                                };
+                            }
+                        }
+                    }
+                }
 
-                // Load Set B filters
-                LoadSetBFilters();
+                var categoryList = allCategories.Values.OrderBy(c => c.DisciplineGroup).ThenBy(c => c.Name).ToList();
+                PopulateCategoryTree(SetBCategoryTreeView, categoryList, false);
+
+                // Show category tree, hide placeholder
+                SetBPlaceholderText.Visibility = System.Windows.Visibility.Collapsed;
+                SetBCategoryTreeView.Visibility = System.Windows.Visibility.Visible;
+
+                // Load Set B filters from first selected linked document
+                LoadSetBFiltersFromLinks();
 
                 _categoriesLoaded = true;
                 UpdateUI();
-
-                MessageBox.Show(
-                    $"Loaded categories from {_selectedFiles.Count} file(s).",
-                    "Categories Loaded",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
                 MessageBox.Show(
-                    $"Failed to load categories: {ex.Message}",
+                    $"Failed to load categories from linked files: {ex.Message}",
                     "Error",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
             }
-            finally
-            {
-                ShowLoading(false);
-            }
         }
 
         /// <summary>
-        /// Loads filter options for Set B
+        /// Loads filter options for Set B from linked files
         /// </summary>
-        private void LoadSetBFilters()
+        private void LoadSetBFiltersFromLinks()
         {
             try
             {
@@ -763,11 +851,11 @@ namespace RevitWebAppSync.UI
                 return;
             }
 
-            if (_selectedFiles.Count == 0)
+            if (SelectedLinkedFiles.Count == 0)
             {
                 MessageBox.Show(
-                    "Please select at least one external file.",
-                    "No Files Selected",
+                    "Please select at least one linked file.",
+                    "No Linked Files Selected",
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
                 return;
@@ -801,11 +889,9 @@ namespace RevitWebAppSync.UI
         /// </summary>
         private void UpdateUI()
         {
-            // Enable/disable file list selection
-            RemoveFileButton.IsEnabled = SelectedFilesListBox.SelectedItem != null;
-
             // Enable/disable "Run" button
-            bool canRun = _selectedFiles.Count > 0 &&
+            bool hasSelectedLinks = SelectedLinkedFiles.Count > 0;
+            bool canRun = hasSelectedLinks &&
                          _categoriesLoaded &&
                          SetA.HasValidSelection &&
                          SetB.HasValidSelection;
@@ -818,7 +904,7 @@ namespace RevitWebAppSync.UI
         /// </summary>
         private void ShowLoading(bool show, string message = "Loading...")
         {
-            LoadingOverlay.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            LoadingOverlay.Visibility = show ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
             LoadingText.Text = message;
         }
 
