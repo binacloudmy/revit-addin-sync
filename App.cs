@@ -99,10 +99,23 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.microchip.png", 32)
             };
 
+            PushButtonData clashDetectionButtonData = new PushButtonData(
+                "ClashDetection",
+                "Clash Detection",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.ClashDetectionCommand")
+            {
+                ToolTip = "Run Clash Detection",
+                LongDescription = "Detect clashes between elements in the current model and external files.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
+            };
+
             ribbonPanel.AddItem(buttonData);
             ribbonPanel.AddItem(loginButtonData);
             ribbonPanel.AddItem(bimDisciplineButtonData);
             ribbonPanel.AddItem(askAiButtonData);
+            ribbonPanel.AddItem(clashDetectionButtonData);
             // ribbonPanel.AddItem(federateButtonData); // Hidden as requested
         }
 
