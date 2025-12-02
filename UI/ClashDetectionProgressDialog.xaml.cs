@@ -52,11 +52,13 @@ namespace RevitWebAppSync.UI
         /// <param name="progress">Progress information</param>
         public void Report(ClashDetectionProgress progress)
         {
-            // Update UI on the dispatcher thread
-            Dispatcher.Invoke(() =>
+            // Update UI on the dispatcher thread using BeginInvoke to avoid deadlock
+            // Invoke() blocks until the UI thread processes, but if UI thread is blocked
+            // by ShowDialog(), this causes a deadlock. BeginInvoke() is non-blocking.
+            Dispatcher.BeginInvoke(new Action(() =>
             {
                 UpdateProgress(progress);
-            });
+            }));
         }
 
         #endregion

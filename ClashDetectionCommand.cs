@@ -200,6 +200,7 @@ namespace RevitWebAppSync
         {
             ClashReport report = null;
             List<ClashResult> clashes = null;
+            Exception taskException = null;
 
             // Create and show progress dialog
             var progressDialog = new ClashDetectionProgressDialog();
@@ -212,22 +213,36 @@ namespace RevitWebAppSync
                 // Run clash detection on a background task
                 var clashTask = Task.Run(() =>
                 {
-                    return clashService.RunClashDetection(
-                        currentDoc,
-                        linkedFiles,
-                        setA,
-                        setB,
-                        tolerance,
-                        progress: progressDialog, // Wire up progress reporting
-                        cancellationToken: progressDialog.CancellationToken
-                    );
+                    try
+                    {
+                        return clashService.RunClashDetection(
+                            currentDoc,
+                            linkedFiles,
+                            setA,
+                            setB,
+                            tolerance,
+                            progress: progressDialog, // Wire up progress reporting
+                            cancellationToken: progressDialog.CancellationToken
+                        );
+                    }
+                    catch (Exception ex)
+                    {
+                        taskException = ex;
+                        return null;
+                    }
                 });
+
+                // Use ContinueWith to close dialog when task completes, avoiding deadlock
+                clashTask.ContinueWith(t =>
+                {
+                    if (t.IsCompleted && !t.IsFaulted && !progressDialog.WasCancelled)
+                    {
+                        clashes = t.Result;
+                    }
+                }, TaskScheduler.Default);
 
                 // Show progress dialog (blocks until completed or cancelled)
                 var dialogResult = progressDialog.ShowDialog();
-
-                // Wait for the task to complete
-                clashTask.Wait();
 
                 // Check if operation was cancelled
                 if (progressDialog.WasCancelled)
@@ -235,8 +250,17 @@ namespace RevitWebAppSync
                     throw new OperationCanceledException("Clash detection was cancelled by user");
                 }
 
-                // Get results
-                clashes = clashTask.Result;
+                // Check for task exception
+                if (taskException != null)
+                {
+                    throw taskException;
+                }
+
+                // Get results if not already set
+                if (clashes == null && clashTask.IsCompleted && !clashTask.IsFaulted)
+                {
+                    clashes = clashTask.Result;
+                }
 
                 // Generate report
                 report = new ClashReport
@@ -277,7 +301,7 @@ namespace RevitWebAppSync
                     TaskDialog.Show("Warning", $"Failed to save report locally: {saveEx.Message}\n\nReport will still be uploaded to server.");
                 }
 
-                // Task 7 - Upload to server
+                // Task 7 - Upload to server (run async with timeout to prevent hanging)
                 try
                 {
                     // Load config to get credentials
@@ -298,15 +322,26 @@ namespace RevitWebAppSync
                             string accessToken = config.AccessToken;
                             if (string.IsNullOrEmpty(accessToken) || config.TokenExpiry < DateTime.Now)
                             {
+                                // Use GetAwaiter().GetResult() with timeout to avoid deadlock
                                 var loginTask = binaService.LoginAsync();
-                                loginTask.Wait();
-                                accessToken = loginTask.Result;
-
-                                if (!string.IsNullOrEmpty(accessToken))
+                                if (loginTask.Wait(TimeSpan.FromSeconds(30)))
                                 {
-                                    config.AccessToken = accessToken;
-                                    config.TokenExpiry = DateTime.Now.AddHours(1);
-                                    config.Save();
+                                    accessToken = loginTask.Result;
+
+                                    if (!string.IsNullOrEmpty(accessToken))
+                                    {
+                                        config.AccessToken = accessToken;
+                                        config.TokenExpiry = DateTime.Now.AddHours(1);
+                                        config.Save();
+                                    }
+                                }
+                                else
+                                {
+                                    TaskDialog.Show("Upload Warning",
+                                        $"Login timed out after 30 seconds.\n" +
+                                        $"Clash report was saved locally only.\n\n" +
+                                        $"Local report saved at:\n{reportPath ?? "Unknown location"}");
+                                    accessToken = null;
                                 }
                             }
 
@@ -320,13 +355,23 @@ namespace RevitWebAppSync
                             else
                             {
                                 var uploadTask = binaService.UploadClashReportAsync(report, accessToken);
-                                uploadTask.Wait();
-                                var uploadResult = uploadTask.Result;
+                                // Use timeout to prevent indefinite hanging
+                                if (uploadTask.Wait(TimeSpan.FromSeconds(60)))
+                                {
+                                    var uploadResult = uploadTask.Result;
 
-                                if (!uploadResult.Success)
+                                    if (!uploadResult.Success)
+                                    {
+                                        TaskDialog.Show("Upload Warning",
+                                            $"Clash report was saved locally but failed to upload to server:\n{uploadResult.ErrorMessage}\n\n" +
+                                            $"Local report saved at:\n{reportPath ?? "Unknown location"}");
+                                    }
+                                }
+                                else
                                 {
                                     TaskDialog.Show("Upload Warning",
-                                        $"Clash report was saved locally but failed to upload to server:\n{uploadResult.ErrorMessage}\n\n" +
+                                        $"Upload timed out after 60 seconds.\n" +
+                                        $"Clash report was saved locally only.\n\n" +
                                         $"Local report saved at:\n{reportPath ?? "Unknown location"}");
                                 }
                             }
