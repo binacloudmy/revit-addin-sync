@@ -21,9 +21,9 @@ namespace RevitWebAppSync.Commands
                     return Result.Cancelled;
                 }
 
-                // Open chat window with ExternalEvent and Handler from App
+                // Open chat window as modeless (non-blocking) so ExternalEvent can be processed
                 var window = new AIAssistantWindow(uidoc, App.AIExternalEvent, App.AIHandler);
-                window.ShowDialog();
+                window.Show();
 
                 return Result.Succeeded;
             }
