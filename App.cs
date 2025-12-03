@@ -2,10 +2,9 @@ using System;
 using System.IO;
 using System.Reflection;
 using System.Windows.Media.Imaging;
-using Autodesk.Revit.ApplicationServices;
 using Autodesk.Revit.Attributes;
-using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using RevitWebAppSync.Handlers;
 
 namespace RevitWebAppSync
 {
@@ -13,10 +12,18 @@ namespace RevitWebAppSync
     [Regeneration(RegenerationOption.Manual)]
     public class App : IExternalApplication
     {
+        // Static properties for ExternalEvent access from commands
+        public static ExternalEvent AIExternalEvent { get; private set; }
+        public static CodeExecutionHandler AIHandler { get; private set; }
+
         public Result OnStartup(UIControlledApplication application)
         {
             try
             {
+                // Create external event handler for AI code execution
+                AIHandler = new CodeExecutionHandler();
+                AIExternalEvent = ExternalEvent.Create(AIHandler);
+
                 CreateRibbonTab(application);
                 return Result.Succeeded;
             }
@@ -89,12 +96,12 @@ namespace RevitWebAppSync
 
             PushButtonData askAiButtonData = new PushButtonData(
                 "AskAI",
-                "Ask AI",
+                "AI Assistant",
                 Assembly.GetExecutingAssembly().Location,
-                "RevitWebAppSync.AskAICommand")
+                "RevitWebAppSync.Commands.OpenAssistantCommand")
             {
-                ToolTip = "Ask AI Assistant",
-                LongDescription = "Open the AI Assistant to get help with your Revit project and BINA sync operations.",
+                ToolTip = "Open AI Assistant",
+                LongDescription = "Open the AI Assistant to automate Revit tasks with natural language. Examples: Hide all furniture, Count doors on Level 1, Color walls by phase.",
                 Image = LoadImage("RevitWebAppSync.Resources.microchip.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.microchip.png", 32)
             };
@@ -112,7 +119,7 @@ namespace RevitWebAppSync
             {
                 Assembly assembly = Assembly.GetExecutingAssembly();
                 Stream stream = assembly.GetManifestResourceStream(resourceName);
-                
+
                 if (stream == null)
                     return null;
 
@@ -123,7 +130,7 @@ namespace RevitWebAppSync
                 bitmapImage.DecodePixelHeight = size;
                 bitmapImage.EndInit();
                 bitmapImage.Freeze();
-                
+
                 return bitmapImage;
             }
             catch
