@@ -1,11 +1,13 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using Microsoft.CSharp;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using System;
-using System.CodeDom.Compiler;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
+using System.Runtime.Loader;
 using System.Text;
 
 namespace RevitWebAppSync.Services
@@ -51,7 +53,6 @@ namespace RevitWebAppSync.Services
             }
             catch (TargetInvocationException ex)
             {
-                // Unwrap the inner exception (actual error from generated code)
                 var innerEx = ex.InnerException ?? ex;
                 return new ExecutionResult
                 {
@@ -84,7 +85,6 @@ namespace RevitWebAppSync.Services
         {
             var sb = new StringBuilder();
 
-            // Add using statements
             sb.AppendLine("using System;");
             sb.AppendLine("using System.Collections.Generic;");
             sb.AppendLine("using System.Linq;");
@@ -93,14 +93,10 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("using Autodesk.Revit.DB.Architecture;");
             sb.AppendLine("using Autodesk.Revit.UI;");
             sb.AppendLine();
-
-            // Namespace and class
             sb.AppendLine("namespace RevitWebAppSync.Dynamic");
             sb.AppendLine("{");
             sb.AppendLine("    public class AIGeneratedCode");
             sb.AppendLine("    {");
-
-            // Helper method for safe parameter access
             sb.AppendLine("        private string GetParameterValue(Element elem, BuiltInParameter param)");
             sb.AppendLine("        {");
             sb.AppendLine("            var p = elem.get_Parameter(param);");
@@ -108,12 +104,9 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("            return p.AsString() ?? p.AsValueString() ?? \"N/A\";");
             sb.AppendLine("        }");
             sb.AppendLine();
-
-            // Main execute method
             sb.AppendLine("        public object Execute(Document doc, UIDocument uidoc, View activeView)");
             sb.AppendLine("        {");
 
-            // Indent user code
             var lines = userCode.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
             foreach (var line in lines)
             {
@@ -130,62 +123,77 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
-        /// Compile code using legacy CSharpCodeProvider - no Roslyn needed
+        /// Compile code using Roslyn
         /// </summary>
         private Assembly CompileCode(string code)
         {
-            var providerOptions = new Dictionary<string, string>
+            var syntaxTree = CSharpSyntaxTree.ParseText(code);
+
+            // Collect all necessary references
+            var references = new List<MetadataReference>();
+
+            // Add references from all currently loaded assemblies that have a location
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
-                { "CompilerVersion", "v4.0" }
-            };
-
-            var provider = new CSharpCodeProvider(providerOptions);
-
-            var parameters = new CompilerParameters
-            {
-                GenerateInMemory = true,
-                GenerateExecutable = false,
-                TreatWarningsAsErrors = false,
-                CompilerOptions = "/optimize"
-            };
-
-            // Add system references
-            parameters.ReferencedAssemblies.Add("System.dll");
-            parameters.ReferencedAssemblies.Add("System.Core.dll");
-            parameters.ReferencedAssemblies.Add("mscorlib.dll");
-
-            // Add Revit API references
-            string revitPath = GetRevitInstallPath();
-            parameters.ReferencedAssemblies.Add(Path.Combine(revitPath, "RevitAPI.dll"));
-            parameters.ReferencedAssemblies.Add(Path.Combine(revitPath, "RevitAPIUI.dll"));
-
-            var results = provider.CompileAssemblyFromSource(parameters, code);
-
-            if (results.Errors.HasErrors)
-            {
-                var errors = new StringBuilder("Compilation failed:\n");
-                foreach (CompilerError error in results.Errors)
+                try
                 {
-                    if (!error.IsWarning)
+                    if (!assembly.IsDynamic && !string.IsNullOrEmpty(assembly.Location))
                     {
-                        // Adjust line number for wrapper code offset
-                        int adjustedLine = error.Line - 17;
-                        errors.AppendLine($"Line {adjustedLine}: {error.ErrorText}");
+                        references.Add(MetadataReference.CreateFromFile(assembly.Location));
                     }
                 }
-                throw new CompilationException(errors.ToString());
+                catch
+                {
+                    // Skip assemblies that can't be referenced
+                }
             }
 
-            return results.CompiledAssembly;
-        }
+            // Ensure Revit API is included
+            var revitApiAssembly = typeof(Document).Assembly;
+            var revitApiUiAssembly = typeof(UIDocument).Assembly;
 
-        /// <summary>
-        /// Get Revit installation path from loaded assembly
-        /// </summary>
-        private string GetRevitInstallPath()
-        {
-            var revitAssembly = typeof(Document).Assembly;
-            return Path.GetDirectoryName(revitAssembly.Location);
+            if (!references.Any(r => r.Display?.Contains("RevitAPI") == true))
+            {
+                references.Add(MetadataReference.CreateFromFile(revitApiAssembly.Location));
+            }
+            if (!references.Any(r => r.Display?.Contains("RevitAPIUI") == true))
+            {
+                references.Add(MetadataReference.CreateFromFile(revitApiUiAssembly.Location));
+            }
+
+            var compilationOptions = new CSharpCompilationOptions(
+                OutputKind.DynamicallyLinkedLibrary,
+                optimizationLevel: OptimizationLevel.Release,
+                allowUnsafe: false);
+
+            var compilation = CSharpCompilation.Create(
+                $"AIGenerated_{Guid.NewGuid():N}",
+                new[] { syntaxTree },
+                references,
+                compilationOptions);
+
+            using var ms = new MemoryStream();
+            var emitResult = compilation.Emit(ms);
+
+            if (!emitResult.Success)
+            {
+                var errors = emitResult.Diagnostics
+                    .Where(d => d.Severity == DiagnosticSeverity.Error)
+                    .Select(d =>
+                    {
+                        var lineSpan = d.Location.GetLineSpan();
+                        var adjustedLine = Math.Max(1, lineSpan.StartLinePosition.Line - 16);
+                        return $"Line {adjustedLine}: {d.GetMessage()}";
+                    });
+
+                throw new CompilationException("Compilation failed:\n" + string.Join("\n", errors));
+            }
+
+            ms.Seek(0, SeekOrigin.Begin);
+
+            // Load into collectible context to allow unloading
+            var context = new AssemblyLoadContext(null, isCollectible: true);
+            return context.LoadFromStream(ms);
         }
     }
 

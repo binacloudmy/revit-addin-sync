@@ -6,13 +6,15 @@
     <OutputType>Library</OutputType>
     <AssemblyName>RevitWebAppSync</AssemblyName>
     <UseWPF>true</UseWPF>
+    <!-- Ensure all NuGet dependencies are copied to output -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
 
   <PropertyGroup>
     <RevitPath Condition="'$(RevitPath)' == ''">D:\Autodesk\Revit2026\Revit 2026</RevitPath>
     <RevitVersion Condition="'$(RevitVersion)' == ''">2026</RevitVersion>
   </PropertyGroup>
-  
+
   <ItemGroup>
     <Reference Include="RevitAPI">
       <HintPath>$(RevitPath)\RevitAPI.dll</HintPath>
@@ -25,8 +27,9 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Roslyn compiler for runtime code compilation -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
-    <PackageReference Include="System.Net.Http" Version="4.3.4" />
   </ItemGroup>
 
   <ItemGroup>
@@ -35,16 +38,21 @@
     <EmbeddedResource Include="Resources\microchip.png" />
   </ItemGroup>
 
-  <!-- Post-build events -->
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+  <!-- Post-build: Copy addin manifest and ALL DLLs to Revit folder -->
+  <Target Name="PostBuild" AfterTargets="Build">
+    <ItemGroup>
+      <OutputDlls Include="$(TargetDir)*.dll" />
+    </ItemGroup>
+
     <Copy SourceFiles="$(ProjectDir)RevitWebAppSync.addin"
           DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\"
           Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\')" />
 
-    <!-- Copy main DLL and all dependencies -->
-    <Copy SourceFiles="$(TargetDir)\*.dll"
+    <Copy SourceFiles="@(OutputDlls)"
           DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\"
           Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\')" />
+
+    <Message Text="Copied $(TargetDir)*.dll to Revit Addins folder" Importance="high" />
   </Target>
 
 </Project>
