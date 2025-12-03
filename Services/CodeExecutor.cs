@@ -1,14 +1,11 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
-using Microsoft.CodeAnalysis;
-using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.Emit;
+using Microsoft.CSharp;
 using System;
+using System.CodeDom.Compiler;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Reflection;
-using System.Runtime.Loader;
 using System.Text;
 
 namespace RevitWebAppSync.Services
@@ -133,66 +130,62 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
-        /// Compile code using Roslyn to in-memory assembly
+        /// Compile code using legacy CSharpCodeProvider - no Roslyn needed
         /// </summary>
         private Assembly CompileCode(string code)
         {
-            var syntaxTree = CSharpSyntaxTree.ParseText(code);
-
-            // Gather references
-            var references = new List<MetadataReference>();
-
-            // Add core runtime references
-            var runtimePath = Path.GetDirectoryName(typeof(object).Assembly.Location);
-            references.Add(MetadataReference.CreateFromFile(Path.Combine(runtimePath, "System.Runtime.dll")));
-            references.Add(MetadataReference.CreateFromFile(Path.Combine(runtimePath, "System.Private.CoreLib.dll")));
-            references.Add(MetadataReference.CreateFromFile(Path.Combine(runtimePath, "System.Collections.dll")));
-            references.Add(MetadataReference.CreateFromFile(Path.Combine(runtimePath, "System.Linq.dll")));
-            references.Add(MetadataReference.CreateFromFile(Path.Combine(runtimePath, "netstandard.dll")));
-
-            // Add Revit API references from the loaded assemblies
-            var revitApiAssembly = typeof(Document).Assembly;
-            var revitApiUiAssembly = typeof(UIDocument).Assembly;
-            references.Add(MetadataReference.CreateFromFile(revitApiAssembly.Location));
-            references.Add(MetadataReference.CreateFromFile(revitApiUiAssembly.Location));
-
-            // Also add any additional system assemblies that might be needed
-            references.Add(MetadataReference.CreateFromFile(typeof(System.Text.StringBuilder).Assembly.Location));
-
-            var compilationOptions = new CSharpCompilationOptions(
-                OutputKind.DynamicallyLinkedLibrary,
-                optimizationLevel: OptimizationLevel.Release,
-                allowUnsafe: false);
-
-            var compilation = CSharpCompilation.Create(
-                $"AIGeneratedAssembly_{Guid.NewGuid():N}",
-                new[] { syntaxTree },
-                references,
-                compilationOptions);
-
-            using var ms = new MemoryStream();
-            EmitResult emitResult = compilation.Emit(ms);
-
-            if (!emitResult.Success)
+            var providerOptions = new Dictionary<string, string>
             {
-                var errors = emitResult.Diagnostics
-                    .Where(d => d.Severity == DiagnosticSeverity.Error)
-                    .Select(d =>
-                    {
-                        var lineSpan = d.Location.GetLineSpan();
-                        // Adjust line number to account for wrapper code (approximately 25 lines)
-                        var adjustedLine = lineSpan.StartLinePosition.Line - 25;
-                        return $"Line {adjustedLine}: {d.GetMessage()}";
-                    });
+                { "CompilerVersion", "v4.0" }
+            };
 
-                throw new CompilationException("Compilation failed:\n" + string.Join("\n", errors));
+            var provider = new CSharpCodeProvider(providerOptions);
+
+            var parameters = new CompilerParameters
+            {
+                GenerateInMemory = true,
+                GenerateExecutable = false,
+                TreatWarningsAsErrors = false,
+                CompilerOptions = "/optimize"
+            };
+
+            // Add system references
+            parameters.ReferencedAssemblies.Add("System.dll");
+            parameters.ReferencedAssemblies.Add("System.Core.dll");
+            parameters.ReferencedAssemblies.Add("mscorlib.dll");
+
+            // Add Revit API references
+            string revitPath = GetRevitInstallPath();
+            parameters.ReferencedAssemblies.Add(Path.Combine(revitPath, "RevitAPI.dll"));
+            parameters.ReferencedAssemblies.Add(Path.Combine(revitPath, "RevitAPIUI.dll"));
+
+            var results = provider.CompileAssemblyFromSource(parameters, code);
+
+            if (results.Errors.HasErrors)
+            {
+                var errors = new StringBuilder("Compilation failed:\n");
+                foreach (CompilerError error in results.Errors)
+                {
+                    if (!error.IsWarning)
+                    {
+                        // Adjust line number for wrapper code offset
+                        int adjustedLine = error.Line - 17;
+                        errors.AppendLine($"Line {adjustedLine}: {error.ErrorText}");
+                    }
+                }
+                throw new CompilationException(errors.ToString());
             }
 
-            ms.Seek(0, SeekOrigin.Begin);
+            return results.CompiledAssembly;
+        }
 
-            // Load assembly in a separate context to avoid conflicts
-            var assemblyLoadContext = new AssemblyLoadContext(null, isCollectible: true);
-            return assemblyLoadContext.LoadFromStream(ms);
+        /// <summary>
+        /// Get Revit installation path from loaded assembly
+        /// </summary>
+        private string GetRevitInstallPath()
+        {
+            var revitAssembly = typeof(Document).Assembly;
+            return Path.GetDirectoryName(revitAssembly.Location);
         }
     }
 
