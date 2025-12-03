@@ -200,67 +200,37 @@ namespace RevitWebAppSync
         {
             ClashReport report = null;
             List<ClashResult> clashes = null;
-            Exception taskException = null;
 
-            // Create and show progress dialog
-            var progressDialog = new ClashDetectionProgressDialog();
+            // IMPORTANT: Revit API is NOT thread-safe. All API calls must be made from the main thread.
+            // We cannot use Task.Run() or background threads to access Revit objects.
+            // Instead, we run clash detection synchronously and use a simple progress reporter.
+
+            // Create a simple progress reporter that updates via TaskDialog or status bar
+            var progressReporter = new Progress<ClashDetectionProgress>(progress =>
+            {
+                // Progress updates are handled here - could update Revit status bar
+                // For now, we just let the operation run without visual progress
+            });
 
             try
             {
                 // Initialize clash detection service
                 var clashService = new ClashDetectionService();
 
-                // Run clash detection on a background task
-                var clashTask = Task.Run(() =>
-                {
-                    try
-                    {
-                        return clashService.RunClashDetection(
-                            currentDoc,
-                            linkedFiles,
-                            setA,
-                            setB,
-                            tolerance,
-                            progress: progressDialog, // Wire up progress reporting
-                            cancellationToken: progressDialog.CancellationToken
-                        );
-                    }
-                    catch (Exception ex)
-                    {
-                        taskException = ex;
-                        return null;
-                    }
-                });
+                // Show a wait message
+                // Note: We can't show a modal dialog while running since everything is on the main thread
+                // The UI will be blocked during processing, which is expected for Revit add-ins
 
-                // Use ContinueWith to close dialog when task completes, avoiding deadlock
-                clashTask.ContinueWith(t =>
-                {
-                    if (t.IsCompleted && !t.IsFaulted && !progressDialog.WasCancelled)
-                    {
-                        clashes = t.Result;
-                    }
-                }, TaskScheduler.Default);
-
-                // Show progress dialog (blocks until completed or cancelled)
-                var dialogResult = progressDialog.ShowDialog();
-
-                // Check if operation was cancelled
-                if (progressDialog.WasCancelled)
-                {
-                    throw new OperationCanceledException("Clash detection was cancelled by user");
-                }
-
-                // Check for task exception
-                if (taskException != null)
-                {
-                    throw taskException;
-                }
-
-                // Get results if not already set
-                if (clashes == null && clashTask.IsCompleted && !clashTask.IsFaulted)
-                {
-                    clashes = clashTask.Result;
-                }
+                // Run clash detection synchronously on the main thread
+                clashes = clashService.RunClashDetection(
+                    currentDoc,
+                    linkedFiles,
+                    setA,
+                    setB,
+                    tolerance,
+                    progress: progressReporter,
+                    cancellationToken: CancellationToken.None
+                );
 
                 // Generate report
                 report = new ClashReport
@@ -391,13 +361,11 @@ namespace RevitWebAppSync
             catch (OperationCanceledException)
             {
                 // User cancelled the operation
-                progressDialog?.SetCompleted(false);
                 throw;
             }
             catch (Exception ex)
             {
                 // Operation failed
-                progressDialog?.SetCompleted(false);
                 throw new InvalidOperationException($"Clash detection failed: {ex.Message}", ex);
             }
         }

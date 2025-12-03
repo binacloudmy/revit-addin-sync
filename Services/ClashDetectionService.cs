@@ -70,28 +70,28 @@ namespace RevitWebAppSync.Services
                 if (setAElements.Count == 0)
                     throw new InvalidOperationException("Set A contains no elements after filtering");
 
-                // Step 2: Get elements from linked files (Set B)
+                // Step 2: Get elements from linked files (Set B) with their transforms
                 progress?.Report(new ClashDetectionProgress
                 {
                     Phase = "Loading Linked File Elements",
                     PercentComplete = 20
                 });
 
-                var setBElements = GetLinkedFileElements(linkedFiles, setB, cancellationToken);
+                var setBElementsWithTransforms = GetLinkedFileElementsWithTransforms(linkedFiles, setB, cancellationToken);
 
-                if (setBElements.Count == 0)
+                if (setBElementsWithTransforms.Count == 0)
                     throw new InvalidOperationException("Set B contains no elements after filtering");
 
-                // Step 3: Run clash detection
+                // Step 3: Run clash detection with proper coordinate transforms
                 progress?.Report(new ClashDetectionProgress
                 {
                     Phase = "Detecting Clashes",
                     PercentComplete = 40
                 });
 
-                clashes = DetectClashes(
+                clashes = DetectClashesWithTransforms(
                     setAElements,
-                    setBElements,
+                    setBElementsWithTransforms,
                     tolerance,
                     progress,
                     cancellationToken);
@@ -134,13 +134,14 @@ namespace RevitWebAppSync.Services
 
         /// <summary>
         /// Gets elements from linked files based on Set B configuration
+        /// Returns a list of tuples containing the element and its link transform
         /// </summary>
-        private List<Element> GetLinkedFileElements(
+        private List<(Element Element, Transform LinkTransform)> GetLinkedFileElementsWithTransforms(
             List<RevitLinkedFileInfo> linkedFiles,
             ElementSelectionSet setB,
             CancellationToken cancellationToken)
         {
-            var allElements = new List<Element>();
+            var allElements = new List<(Element, Transform)>();
 
             foreach (var linkedFile in linkedFiles)
             {
@@ -150,7 +151,13 @@ namespace RevitWebAppSync.Services
                 {
                     // Get filtered elements from linked document
                     var filteredElements = _filterService.GetFilteredElements(linkedFile.LinkedDocument, setB);
-                    allElements.AddRange(filteredElements);
+
+                    // Store each element with its link transform for proper coordinate conversion
+                    var transform = linkedFile.LinkTransform ?? Transform.Identity;
+                    foreach (var element in filteredElements)
+                    {
+                        allElements.Add((element, transform));
+                    }
                 }
             }
 
@@ -162,62 +169,95 @@ namespace RevitWebAppSync.Services
         #region Private Methods - Clash Detection
 
         /// <summary>
-        /// Detects clashes between two element sets using geometric intersection
+        /// Detects clashes using Revit's native ElementIntersectsSolidFilter for optimal performance.
+        /// This approach is much faster than manual Boolean operations because Revit optimizes
+        /// the intersection detection internally.
         /// </summary>
-        private List<ClashResult> DetectClashes(
+        private List<ClashResult> DetectClashesWithTransforms(
             List<Element> setAElements,
-            List<Element> setBElements,
+            List<(Element Element, Transform LinkTransform)> setBElementsWithTransforms,
             double tolerance,
             IProgress<ClashDetectionProgress> progress,
             CancellationToken cancellationToken)
         {
             var clashes = new List<ClashResult>();
-            var totalComparisons = setAElements.Count * setBElements.Count;
-            var completedComparisons = 0;
+            var processedCount = 0;
+            var totalElements = setBElementsWithTransforms.Count;
 
             // Convert tolerance from mm to feet (Revit internal units)
             double toleranceFeet = tolerance / 304.8;
 
-            foreach (var elementA in setAElements)
+            // Build a lookup of Set A element IDs for quick access
+            var setAElementIds = new HashSet<long>(setAElements.Select(e => e.Id.Value));
+            var setADocument = setAElements.FirstOrDefault()?.Document;
+
+            if (setADocument == null)
+                return clashes;
+
+            // Strategy: For each linked file element, use ElementIntersectsSolidFilter
+            // to find all intersecting elements in the current document.
+            // This is MUCH faster than comparing every pair manually.
+
+            foreach (var (elementB, linkTransform) in setBElementsWithTransforms)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Get geometry of element A
-                var geometryA = GetElementSolids(elementA);
-                if (geometryA.Count == 0)
+                processedCount++;
+
+                // Get transformed solid from linked element
+                var solidsB = GetElementSolids(elementB, linkTransform);
+                if (solidsB.Count == 0)
                     continue;
 
-                foreach (var elementB in setBElements)
+                // For each solid in the linked element, find intersecting elements in host document
+                foreach (var solidB in solidsB)
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    // Skip if same element (shouldn't happen but safeguard)
-                    if (elementA.Id == elementB.Id)
-                        continue;
-
-                    // Get geometry of element B
-                    var geometryB = GetElementSolids(elementB);
-                    if (geometryB.Count == 0)
-                        continue;
-
-                    // Check for clash between geometries
-                    var clash = CheckGeometricClash(elementA, geometryA, elementB, geometryB, toleranceFeet);
-                    if (clash != null)
+                    try
                     {
-                        clashes.Add(clash);
-                    }
+                        // Use Revit's native filter - this is optimized internally
+                        var intersectFilter = new ElementIntersectsSolidFilter(solidB);
 
-                    // Update progress
-                    completedComparisons++;
-                    if (completedComparisons % 100 == 0)
-                    {
-                        var percent = 40 + (int)((completedComparisons / (double)totalComparisons) * 55);
-                        progress?.Report(new ClashDetectionProgress
+                        // Find all elements in Set A that intersect with this solid
+                        var intersectingElements = new FilteredElementCollector(setADocument)
+                            .WherePasses(intersectFilter)
+                            .ToList();
+
+                        // Filter to only include elements that are in our Set A
+                        foreach (var elementA in intersectingElements)
                         {
-                            Phase = $"Detecting Clashes ({clashes.Count} found)",
-                            PercentComplete = percent
-                        });
+                            if (!setAElementIds.Contains(elementA.Id.Value))
+                                continue;
+
+                            // Create clash result - this is a hard clash (geometric intersection)
+                            var clash = CreateClashResultFromIntersection(elementA, elementB, solidB, linkTransform);
+                            if (clash != null)
+                            {
+                                clashes.Add(clash);
+                            }
+                        }
                     }
+                    catch (Exception)
+                    {
+                        // Filter failed for this solid, skip it
+                        continue;
+                    }
+                }
+
+                // Check for clearance clashes if tolerance is set
+                if (toleranceFeet > 0)
+                {
+                    DetectClearanceClashes(setADocument, setAElementIds, elementB, solidsB, toleranceFeet, clashes);
+                }
+
+                // Update progress
+                if (processedCount % 10 == 0 || processedCount == totalElements)
+                {
+                    var percent = 40 + (int)((processedCount / (double)totalElements) * 55);
+                    progress?.Report(new ClashDetectionProgress
+                    {
+                        Phase = $"Detecting Clashes ({clashes.Count} found)",
+                        PercentComplete = percent
+                    });
                 }
             }
 
@@ -225,9 +265,144 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
-        /// Extracts solid geometries from an element
+        /// Detects clearance clashes by expanding the solid and checking for nearby elements
         /// </summary>
-        private List<Solid> GetElementSolids(Element element)
+        private void DetectClearanceClashes(
+            Document hostDocument,
+            HashSet<long> setAElementIds,
+            Element elementB,
+            List<Solid> solidsB,
+            double toleranceFeet,
+            List<ClashResult> clashes)
+        {
+            // For clearance detection, we create an expanded bounding box and find nearby elements
+            foreach (var solidB in solidsB)
+            {
+                try
+                {
+                    var bbox = solidB.GetBoundingBox();
+                    if (bbox == null) continue;
+
+                    // Create an expanded outline for proximity search
+                    var minPoint = new XYZ(
+                        bbox.Min.X - toleranceFeet,
+                        bbox.Min.Y - toleranceFeet,
+                        bbox.Min.Z - toleranceFeet);
+                    var maxPoint = new XYZ(
+                        bbox.Max.X + toleranceFeet,
+                        bbox.Max.Y + toleranceFeet,
+                        bbox.Max.Z + toleranceFeet);
+
+                    var outline = new Outline(minPoint, maxPoint);
+                    var bboxFilter = new BoundingBoxIntersectsFilter(outline);
+
+                    // Find elements within the expanded bounding box
+                    var nearbyElements = new FilteredElementCollector(hostDocument)
+                        .WherePasses(bboxFilter)
+                        .ToList();
+
+                    foreach (var elementA in nearbyElements)
+                    {
+                        if (!setAElementIds.Contains(elementA.Id.Value))
+                            continue;
+
+                        // Check if we already have a hard clash for this pair
+                        var existingClash = clashes.Any(c =>
+                            (c.ElementId1 == elementA.Id.Value.ToString() && c.ElementId2 == elementB.Id.Value.ToString()) ||
+                            (c.ElementId2 == elementA.Id.Value.ToString() && c.ElementId1 == elementB.Id.Value.ToString()));
+
+                        if (existingClash)
+                            continue;
+
+                        // Calculate actual clearance distance
+                        var solidsA = GetElementSolids(elementA, Transform.Identity);
+                        foreach (var solidA in solidsA)
+                        {
+                            var clearance = CalculateClearanceDistance(solidA, solidB);
+                            if (clearance > 0 && clearance < toleranceFeet)
+                            {
+                                var clash = CreateClashResult(
+                                    elementA,
+                                    elementB,
+                                    solidA,
+                                    "Clearance",
+                                    0,
+                                    clearance);
+                                clashes.Add(clash);
+                                break; // One clearance clash per element pair is enough
+                            }
+                        }
+                    }
+                }
+                catch
+                {
+                    // Skip this solid if there's an error
+                    continue;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Creates a clash result from an intersection found by ElementIntersectsSolidFilter
+        /// </summary>
+        private ClashResult CreateClashResultFromIntersection(
+            Element elementA,
+            Element elementB,
+            Solid solidB,
+            Transform linkTransform)
+        {
+            try
+            {
+                // Get element A's solid for volume calculation
+                var solidsA = GetElementSolids(elementA, Transform.Identity);
+                if (solidsA.Count == 0)
+                    return null;
+
+                // Calculate intersection volume using Boolean operation
+                double maxVolume = 0;
+                Solid intersectionSolid = null;
+
+                foreach (var solidA in solidsA)
+                {
+                    try
+                    {
+                        var intersection = BooleanOperationsUtils.ExecuteBooleanOperation(
+                            solidA,
+                            solidB,
+                            BooleanOperationsType.Intersect);
+
+                        if (intersection != null && intersection.Volume > maxVolume)
+                        {
+                            maxVolume = intersection.Volume;
+                            intersectionSolid = intersection;
+                        }
+                    }
+                    catch
+                    {
+                        // Boolean operation failed, continue with other solids
+                        continue;
+                    }
+                }
+
+                if (intersectionSolid == null || maxVolume < 0.0001)
+                    return null;
+
+                return CreateClashResult(elementA, elementB, intersectionSolid, "Hard", maxVolume);
+            }
+            catch
+            {
+                // If we can't calculate volume, create a basic clash result
+                return CreateClashResult(elementA, elementB, solidB, "Hard", 0.001);
+            }
+        }
+
+        /// <summary>
+        /// Extracts solid geometries from an element with an optional coordinate transform
+        /// </summary>
+        /// <param name="element">The element to extract geometry from</param>
+        /// <param name="transform">Transform to apply (use Transform.Identity for no transformation)</param>
+        /// <returns>List of solid geometries in the transformed coordinate system</returns>
+        private List<Solid> GetElementSolids(Element element, Transform transform)
         {
             var solids = new List<Solid>();
 
@@ -251,6 +426,30 @@ namespace RevitWebAppSync.Services
 
                 // Filter out very small solids (likely errors or insignificant geometry)
                 solids = solids.Where(s => s.Volume > 0.001).ToList();
+
+                // Apply transform if it's not identity
+                if (transform != null && !transform.IsIdentity)
+                {
+                    var transformedSolids = new List<Solid>();
+                    foreach (var solid in solids)
+                    {
+                        try
+                        {
+                            // Transform the solid to the target coordinate system
+                            var transformedSolid = SolidUtils.CreateTransformed(solid, transform);
+                            if (transformedSolid != null && transformedSolid.Volume > 0.001)
+                            {
+                                transformedSolids.Add(transformedSolid);
+                            }
+                        }
+                        catch
+                        {
+                            // If transformation fails, use original solid
+                            transformedSolids.Add(solid);
+                        }
+                    }
+                    return transformedSolids;
+                }
 
                 return solids;
             }
