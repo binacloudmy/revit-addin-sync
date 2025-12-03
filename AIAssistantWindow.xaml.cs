@@ -325,6 +325,29 @@ namespace RevitWebAppSync
         {
             PromptInput.IsEnabled = enabled;
             SendButton.IsEnabled = enabled;
+
+            // Also enable/disable quick action buttons
+            foreach (var child in QuickActionsPanel.Children)
+            {
+                if (child is Button btn)
+                {
+                    btn.IsEnabled = enabled;
+                }
+            }
+        }
+
+        #endregion
+
+        #region Quick Actions
+
+        private void QuickAction_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button button && button.Tag is string prompt)
+            {
+                // Set the prompt text and trigger send
+                PromptInput.Text = prompt;
+                SendButton_Click(sender, e);
+            }
         }
 
         #endregion
