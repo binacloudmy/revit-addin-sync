@@ -87,6 +87,7 @@ namespace RevitWebAppSync.Services
 
             sb.AppendLine("using System;");
             sb.AppendLine("using System.Collections.Generic;");
+            sb.AppendLine("using System.IO;");
             sb.AppendLine("using System.Linq;");
             sb.AppendLine("using System.Text;");
             sb.AppendLine("using Autodesk.Revit.DB;");
@@ -97,11 +98,29 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("{");
             sb.AppendLine("    public class AIGeneratedCode");
             sb.AppendLine("    {");
+            sb.AppendLine("        // Helper: Get desktop path for file exports");
+            sb.AppendLine("        private string DesktopPath => Environment.GetFolderPath(Environment.SpecialFolder.Desktop);");
+            sb.AppendLine();
+            sb.AppendLine("        // Helper: Safe parameter value extraction");
             sb.AppendLine("        private string GetParameterValue(Element elem, BuiltInParameter param)");
             sb.AppendLine("        {");
             sb.AppendLine("            var p = elem.get_Parameter(param);");
             sb.AppendLine("            if (p == null) return \"N/A\";");
             sb.AppendLine("            return p.AsString() ?? p.AsValueString() ?? \"N/A\";");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        // Helper: Get parameter by name");
+            sb.AppendLine("        private string GetParamByName(Element elem, string paramName)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            var p = elem.LookupParameter(paramName);");
+            sb.AppendLine("            if (p == null) return \"N/A\";");
+            sb.AppendLine("            return p.AsString() ?? p.AsValueString() ?? \"N/A\";");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        // Helper: Show message to user");
+            sb.AppendLine("        private void ShowMessage(string title, string message)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            TaskDialog.Show(title, message);");
             sb.AppendLine("        }");
             sb.AppendLine();
             sb.AppendLine("        public object Execute(Document doc, UIDocument uidoc, View activeView)");
