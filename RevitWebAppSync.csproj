@@ -38,12 +38,13 @@
 
   <!-- Post-build events -->
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
-    <Copy SourceFiles="$(ProjectDir)RevitWebAppSync.addin" 
-          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\" 
+    <Copy SourceFiles="$(ProjectDir)RevitWebAppSync.addin"
+          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\"
           Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\')" />
-    
-    <Copy SourceFiles="$(TargetPath)" 
-          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\" 
+
+    <!-- Copy main DLL and all dependencies -->
+    <Copy SourceFiles="$(TargetDir)\*.dll"
+          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\"
           Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\')" />
   </Target>
 
