@@ -202,16 +202,40 @@ namespace RevitWebAppSync.Services
             // to find all intersecting elements in the current document.
             // This is MUCH faster than comparing every pair manually.
 
+            // Limit maximum clashes to prevent memory issues
+            const int MAX_CLASHES = 5000;
+            int skippedElements = 0;
+
             foreach (var (elementB, linkTransform) in setBElementsWithTransforms)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
+                // Stop if we've found too many clashes
+                if (clashes.Count >= MAX_CLASHES)
+                {
+                    progress?.Report(new ClashDetectionProgress
+                    {
+                        Phase = $"Stopped at {MAX_CLASHES} clashes (limit reached)",
+                        PercentComplete = 95
+                    });
+                    break;
+                }
+
                 processedCount++;
 
                 // Get transformed solid from linked element
-                var solidsB = GetElementSolids(elementB, linkTransform);
-                if (solidsB.Count == 0)
+                List<Solid> solidsB;
+                try
+                {
+                    solidsB = GetElementSolids(elementB, linkTransform);
+                    if (solidsB.Count == 0)
+                        continue;
+                }
+                catch (Exception)
+                {
+                    skippedElements++;
                     continue;
+                }
 
                 // For each solid in the linked element, find intersecting elements in host document
                 foreach (var solidB in solidsB)
@@ -237,8 +261,15 @@ namespace RevitWebAppSync.Services
                             if (clash != null)
                             {
                                 clashes.Add(clash);
+
+                                // Check limit after adding
+                                if (clashes.Count >= MAX_CLASHES)
+                                    break;
                             }
                         }
+
+                        if (clashes.Count >= MAX_CLASHES)
+                            break;
                     }
                     catch (Exception)
                     {
@@ -247,20 +278,13 @@ namespace RevitWebAppSync.Services
                     }
                 }
 
-                // DISABLED: Clearance detection is very slow and causes performance issues.
-                // If needed in the future, uncomment the following:
-                // if (toleranceFeet > 0)
-                // {
-                //     DetectClearanceClashes(setADocument, setAElementIds, elementB, solidsB, toleranceFeet, clashes);
-                // }
-
-                // Update progress
+                // Update progress every 10 elements or at the end
                 if (processedCount % 10 == 0 || processedCount == totalElements)
                 {
                     var percent = 40 + (int)((processedCount / (double)totalElements) * 55);
                     progress?.Report(new ClashDetectionProgress
                     {
-                        Phase = $"Detecting Clashes ({clashes.Count} found)",
+                        Phase = $"Checking elements ({processedCount}/{totalElements}) - {clashes.Count} clashes found",
                         PercentComplete = percent
                     });
                 }

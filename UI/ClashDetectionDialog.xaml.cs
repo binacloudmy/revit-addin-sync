@@ -520,6 +520,12 @@ namespace RevitWebAppSync.UI
             // Disable category tree if using current selection
             SetACategoryTreeView.IsEnabled = !SetA.UseCurrentSelection;
 
+            // If unchecking "Use Current Selection" and no categories selected, show hint
+            if (!SetA.UseCurrentSelection && GetSelectedCategories(SetACategoryTreeView).Count == 0)
+            {
+                SetAStatusText.Text = "Please select categories or click 'Select All'";
+            }
+
             UpdateSetASelection();
         }
 
@@ -859,6 +865,31 @@ namespace RevitWebAppSync.UI
                     MessageBoxButton.OK,
                     MessageBoxImage.Warning);
                 return;
+            }
+
+            // Warning for large element sets - can cause performance issues
+            int totalSetAElements = SetA.TotalElementCount;
+            int totalSetBElements = SetB.TotalElementCount;
+            int estimatedOperations = totalSetBElements; // We process each Set B element
+
+            if (totalSetAElements > 1000 || totalSetBElements > 500)
+            {
+                var result = MessageBox.Show(
+                    $"Warning: Large element sets selected!\n\n" +
+                    $"Set A: {totalSetAElements:N0} elements\n" +
+                    $"Set B: {totalSetBElements:N0} elements\n\n" +
+                    $"This may take a long time and could cause Revit to become unresponsive.\n\n" +
+                    $"Recommendations:\n" +
+                    $"• Select specific categories instead of 'All'\n" +
+                    $"• Filter by Level to reduce elements\n" +
+                    $"• Use preset buttons (Arch vs MEP, etc.)\n\n" +
+                    $"Continue anyway?",
+                    "Performance Warning",
+                    MessageBoxButton.YesNo,
+                    MessageBoxImage.Warning);
+
+                if (result != MessageBoxResult.Yes)
+                    return;
             }
 
             DialogResult = true;
