@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
@@ -462,18 +463,84 @@ namespace RevitWebAppSync
             }
         }
 
-        public async Task<ClashReportUploadResult> UploadClashReportAsync(object clashReport, string accessToken)
+        public async Task<ClashReportUploadResult> UploadClashReportAsync(Models.ClashReport clashReport, string accessToken, int binaProjectId)
         {
             try
             {
                 LogToFile("Attempting to upload clash report...");
 
-                // Serialize the clash report to JSON
-                string jsonContent = JsonConvert.SerializeObject(clashReport, new JsonSerializerSettings
+                // Transform ClashReport to match API specification
+                var apiPayload = new
                 {
-                    ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver(),
+                    reportId = clashReport.ReportId,
+                    timestamp = clashReport.Timestamp.ToString("o"), // ISO 8601 format
+                    generatedByVersion = clashReport.GeneratedByVersion ?? "1.0.0",
+                    binaProjectId = binaProjectId,
+
+                    projectInfo = clashReport.ProjectInfo != null ? new
+                    {
+                        id = clashReport.ProjectInfo.Id ?? "",
+                        name = clashReport.ProjectInfo.Name ?? "",
+                        number = clashReport.ProjectInfo.Number ?? "",
+                        clientName = clashReport.ProjectInfo.ClientName ?? "",
+                        address = clashReport.ProjectInfo.Address ?? ""
+                    } : null,
+
+                    filesInvolved = clashReport.FilesInvolved ?? new System.Collections.Generic.List<string>(),
+
+                    setA = clashReport.SetA != null ? new
+                    {
+                        selectedCategories = clashReport.SetA.SelectedCategories ?? new System.Collections.Generic.List<string>(),
+                        totalElementCount = clashReport.SetA.TotalElementCount,
+                        selectionType = clashReport.SetA.SelectAll ? "All" : "Category"
+                    } : null,
+
+                    setB = clashReport.SetB != null ? new
+                    {
+                        selectedCategories = clashReport.SetB.SelectedCategories ?? new System.Collections.Generic.List<string>(),
+                        totalElementCount = clashReport.SetB.TotalElementCount,
+                        selectionType = clashReport.SetB.SelectAll ? "All" : "Category"
+                    } : null,
+
+                    toleranceUsed = clashReport.ToleranceUsed,
+                    clashTypesChecked = clashReport.ClashTypesChecked ?? new System.Collections.Generic.List<string> { "Hard" },
+                    runByUser = clashReport.RunByUser ?? Environment.UserName,
+
+                    totalClashCount = clashReport.TotalClashCount,
+                    criticalClashCount = clashReport.CriticalClashCount,
+                    warningClashCount = clashReport.WarningClashCount,
+                    infoClashCount = clashReport.InfoClashCount,
+
+                    clashes = clashReport.Clashes?.Select(c => new
+                    {
+                        clashId = c.ClashId,
+                        elementId1 = c.ElementId1,
+                        elementId2 = c.ElementId2,
+                        category1 = c.Category1,
+                        category2 = c.Category2,
+                        clashType = c.ClashType,
+                        severity = c.Severity,
+                        clashPoint = c.ClashPoint != null ? new
+                        {
+                            x = c.ClashPoint.X,
+                            y = c.ClashPoint.Y,
+                            z = c.ClashPoint.Z
+                        } : new { x = 0.0, y = 0.0, z = 0.0 },
+                        distance = c.ClearanceDistance,
+                        description = $"{c.Category1} intersects with {c.Category2}"
+                    }).ToList(),
+
+                    executionTimeSeconds = clashReport.ExecutionTimeSeconds,
+                    totalComparisons = clashReport.TotalComparisons,
+                    machineName = Environment.MachineName
+                };
+
+                string jsonContent = JsonConvert.SerializeObject(apiPayload, new JsonSerializerSettings
+                {
                     NullValueHandling = NullValueHandling.Ignore
                 });
+
+                LogToFile($"Payload: {jsonContent.Substring(0, Math.Min(500, jsonContent.Length))}...");
 
                 var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
@@ -481,13 +548,14 @@ namespace RevitWebAppSync
                 _httpClient.DefaultRequestHeaders.Remove("Authorization");
                 _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {accessToken}");
 
-                LogToFile($"Uploading to: https://632012de7dc1.ngrok-free.app/clash-reports");
+                string uploadUrl = $"{_baseUrl}/api/clash-reports";
+                LogToFile($"Uploading to: {uploadUrl}");
 
-                // Send to the hardcoded ngrok endpoint
-                var response = await _httpClient.PostAsync("https://632012de7dc1.ngrok-free.app/clash-reports", content);
+                var response = await _httpClient.PostAsync(uploadUrl, content);
 
                 string responseBody = await response.Content.ReadAsStringAsync();
                 LogToFile($"Upload response status: {response.StatusCode}");
+                LogToFile($"Upload response body: {responseBody}");
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -508,7 +576,7 @@ namespace RevitWebAppSync
                     return new ClashReportUploadResult
                     {
                         Success = true,
-                        Message = $"Clash report uploaded successfully. Server ID: {result?["serverId"]?.ToString() ?? "unknown"}"
+                        Message = $"Clash report uploaded successfully. Server ID: {result?["id"]?.ToString() ?? result?["reportId"]?.ToString() ?? "unknown"}"
                     };
                 }
                 catch
@@ -523,6 +591,7 @@ namespace RevitWebAppSync
             catch (Exception ex)
             {
                 LogToFile($"❌ UploadClashReportAsync failed with exception: {ex.Message}");
+                LogToFile($"Stack trace: {ex.StackTrace}");
                 return new ClashReportUploadResult
                 {
                     Success = false,

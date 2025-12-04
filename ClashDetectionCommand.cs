@@ -324,25 +324,37 @@ namespace RevitWebAppSync
                             }
                             else
                             {
-                                var uploadTask = binaService.UploadClashReportAsync(report, accessToken);
-                                // Use timeout to prevent indefinite hanging
-                                if (uploadTask.Wait(TimeSpan.FromSeconds(60)))
+                                // Get project ID from config
+                                int binaProjectId = config.ProjectId;
+                                if (binaProjectId <= 0)
                                 {
-                                    var uploadResult = uploadTask.Result;
-
-                                    if (!uploadResult.Success)
-                                    {
-                                        TaskDialog.Show("Upload Warning",
-                                            $"Clash report was saved locally but failed to upload to server:\n{uploadResult.ErrorMessage}\n\n" +
-                                            $"Local report saved at:\n{reportPath ?? "Unknown location"}");
-                                    }
+                                    TaskDialog.Show("Upload Warning",
+                                        $"No project selected. Please login and select a project first.\n" +
+                                        $"Clash report was saved locally only.\n\n" +
+                                        $"Local report saved at:\n{reportPath ?? "Unknown location"}");
                                 }
                                 else
                                 {
-                                    TaskDialog.Show("Upload Warning",
-                                        $"Upload timed out after 60 seconds.\n" +
-                                        $"Clash report was saved locally only.\n\n" +
-                                        $"Local report saved at:\n{reportPath ?? "Unknown location"}");
+                                    var uploadTask = binaService.UploadClashReportAsync(report, accessToken, binaProjectId);
+                                    // Use timeout to prevent indefinite hanging
+                                    if (uploadTask.Wait(TimeSpan.FromSeconds(60)))
+                                    {
+                                        var uploadResult = uploadTask.Result;
+
+                                        if (!uploadResult.Success)
+                                        {
+                                            TaskDialog.Show("Upload Warning",
+                                                $"Clash report was saved locally but failed to upload to server:\n{uploadResult.ErrorMessage}\n\n" +
+                                                $"Local report saved at:\n{reportPath ?? "Unknown location"}");
+                                        }
+                                    }
+                                    else
+                                    {
+                                        TaskDialog.Show("Upload Warning",
+                                            $"Upload timed out after 60 seconds.\n" +
+                                            $"Clash report was saved locally only.\n\n" +
+                                            $"Local report saved at:\n{reportPath ?? "Unknown location"}");
+                                    }
                                 }
                             }
                         }
