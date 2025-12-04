@@ -337,8 +337,8 @@ namespace RevitWebAppSync
                             using (var binaService = new BinaApiService(config.Email ?? "", config.Password ?? ""))
                             {
                                 var uploadTask = binaService.UploadClashReportAsync(report, accessToken, binaProjectId);
-                                // Use timeout to prevent indefinite hanging
-                                if (uploadTask.Wait(TimeSpan.FromSeconds(60)))
+                                // Use timeout to prevent indefinite hanging (2 minutes for large reports)
+                                if (uploadTask.Wait(TimeSpan.FromSeconds(120)))
                                 {
                                     uploadProgress?.Close();
                                     var uploadResult = uploadTask.Result;
@@ -360,8 +360,9 @@ namespace RevitWebAppSync
                                 {
                                     uploadProgress?.Close();
                                     TaskDialog.Show("Upload Warning",
-                                        $"Upload timed out after 60 seconds.\n" +
+                                        $"Upload timed out after 120 seconds.\n" +
                                         $"Clash report was saved locally only.\n\n" +
+                                        $"Check the log file at Desktop\\bina_upload_log.txt for details.\n\n" +
                                         $"Local report saved at:\n{reportPath ?? "Unknown location"}");
                                 }
                             }

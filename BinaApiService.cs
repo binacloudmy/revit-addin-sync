@@ -544,48 +544,56 @@ namespace RevitWebAppSync
 
                 var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
-                // Add authorization header
-                _httpClient.DefaultRequestHeaders.Remove("Authorization");
-                _httpClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {accessToken}");
-
-                string uploadUrl = $"{_baseUrl}/api/clash-reports";
-                LogToFile($"Uploading to: {uploadUrl}");
-
-                var response = await _httpClient.PostAsync(uploadUrl, content);
-
-                string responseBody = await response.Content.ReadAsStringAsync();
-                LogToFile($"Upload response status: {response.StatusCode}");
-                LogToFile($"Upload response body: {responseBody}");
-
-                if (!response.IsSuccessStatusCode)
+                // Create a new HttpClient with proper timeout for this request
+                using (var uploadClient = new HttpClient())
                 {
-                    LogToFile($"❌ Failed to upload clash report. Status: {response.StatusCode}, Response: {responseBody}");
-                    return new ClashReportUploadResult
-                    {
-                        Success = false,
-                        ErrorMessage = $"HTTP {response.StatusCode}: {responseBody}"
-                    };
-                }
+                    uploadClient.Timeout = TimeSpan.FromMinutes(2); // 2 minute timeout
 
-                LogToFile($"✅ Successfully uploaded clash report. Response: {responseBody}");
+                    // Add required headers
+                    uploadClient.DefaultRequestHeaders.Add("Authorization", $"Bearer {accessToken}");
+                    uploadClient.DefaultRequestHeaders.Add("User-Agent", "RevitBinaSync/1.0");
+                    uploadClient.DefaultRequestHeaders.Add("ngrok-skip-browser-warning", "true"); // Required for ngrok
 
-                // Try to parse the server response
-                try
-                {
-                    var result = JsonConvert.DeserializeObject<JObject>(responseBody);
-                    return new ClashReportUploadResult
+                    string uploadUrl = $"{_baseUrl}/api/clash-reports";
+                    LogToFile($"Uploading to: {uploadUrl}");
+                    LogToFile($"Payload size: {jsonContent.Length} bytes");
+
+                    var response = await uploadClient.PostAsync(uploadUrl, content);
+
+                    string responseBody = await response.Content.ReadAsStringAsync();
+                    LogToFile($"Upload response status: {response.StatusCode}");
+                    LogToFile($"Upload response body: {responseBody}");
+
+                    if (!response.IsSuccessStatusCode)
                     {
-                        Success = true,
-                        Message = $"Clash report uploaded successfully. Server ID: {result?["id"]?.ToString() ?? result?["reportId"]?.ToString() ?? "unknown"}"
-                    };
-                }
-                catch
-                {
-                    return new ClashReportUploadResult
+                        LogToFile($"❌ Failed to upload clash report. Status: {response.StatusCode}, Response: {responseBody}");
+                        return new ClashReportUploadResult
+                        {
+                            Success = false,
+                            ErrorMessage = $"HTTP {response.StatusCode}: {responseBody}"
+                        };
+                    }
+
+                    LogToFile($"✅ Successfully uploaded clash report. Response: {responseBody}");
+
+                    // Try to parse the server response
+                    try
                     {
-                        Success = true,
-                        Message = "Clash report uploaded successfully"
-                    };
+                        var result = JsonConvert.DeserializeObject<JObject>(responseBody);
+                        return new ClashReportUploadResult
+                        {
+                            Success = true,
+                            Message = $"Clash report uploaded successfully. Server ID: {result?["id"]?.ToString() ?? result?["reportId"]?.ToString() ?? "unknown"}"
+                        };
+                    }
+                    catch
+                    {
+                        return new ClashReportUploadResult
+                        {
+                            Success = true,
+                            Message = "Clash report uploaded successfully"
+                        };
+                    }
                 }
             }
             catch (Exception ex)
