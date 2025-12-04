@@ -277,7 +277,8 @@ namespace RevitWebAppSync
                     // Load config to get credentials
                     var config = BinaConfig.Load();
 
-                    if (!config.IsValid())
+                    // Check if user is logged in (has valid token and project)
+                    if (!config.IsLoggedIn())
                     {
                         TaskDialog.Show("Upload Info",
                             $"Clash report was saved locally but not uploaded to server.\n" +
@@ -286,75 +287,68 @@ namespace RevitWebAppSync
                     }
                     else
                     {
-                        using (var binaService = new BinaApiService(config.Email, config.Password))
+                        // Use existing access token from login
+                        string accessToken = config.AccessToken;
+
+                        // Check if token is expired and we have credentials to refresh
+                        if (config.TokenExpiry < DateTime.Now && !string.IsNullOrEmpty(config.Email) && !string.IsNullOrEmpty(config.Password))
                         {
-                            // Get fresh access token if needed
-                            string accessToken = config.AccessToken;
-                            if (string.IsNullOrEmpty(accessToken) || config.TokenExpiry < DateTime.Now)
+                            using (var binaService = new BinaApiService(config.Email, config.Password))
                             {
-                                // Use GetAwaiter().GetResult() with timeout to avoid deadlock
                                 var loginTask = binaService.LoginAsync();
                                 if (loginTask.Wait(TimeSpan.FromSeconds(30)))
                                 {
-                                    accessToken = loginTask.Result;
-
-                                    if (!string.IsNullOrEmpty(accessToken))
+                                    var newToken = loginTask.Result;
+                                    if (!string.IsNullOrEmpty(newToken))
                                     {
+                                        accessToken = newToken;
                                         config.AccessToken = accessToken;
                                         config.TokenExpiry = DateTime.Now.AddHours(1);
                                         config.Save();
                                     }
                                 }
-                                else
-                                {
-                                    TaskDialog.Show("Upload Warning",
-                                        $"Login timed out after 30 seconds.\n" +
-                                        $"Clash report was saved locally only.\n\n" +
-                                        $"Local report saved at:\n{reportPath ?? "Unknown location"}");
-                                    accessToken = null;
-                                }
                             }
+                        }
 
-                            if (string.IsNullOrEmpty(accessToken))
+                        if (string.IsNullOrEmpty(accessToken))
+                        {
+                            TaskDialog.Show("Upload Warning",
+                                $"No valid access token. Please login again.\n" +
+                                $"Clash report was saved locally only.\n\n" +
+                                $"Local report saved at:\n{reportPath ?? "Unknown location"}");
+                        }
+                        else
+                        {
+                            // Get project ID from config
+                            int binaProjectId = config.ProjectId;
+
+                            using (var binaService = new BinaApiService(config.Email ?? "", config.Password ?? ""))
                             {
-                                TaskDialog.Show("Upload Warning",
-                                    $"Failed to authenticate with server.\n" +
-                                    $"Clash report was saved locally only.\n\n" +
-                                    $"Local report saved at:\n{reportPath ?? "Unknown location"}");
-                            }
-                            else
-                            {
-                                // Get project ID from config
-                                int binaProjectId = config.ProjectId;
-                                if (binaProjectId <= 0)
+                                var uploadTask = binaService.UploadClashReportAsync(report, accessToken, binaProjectId);
+                                // Use timeout to prevent indefinite hanging
+                                if (uploadTask.Wait(TimeSpan.FromSeconds(60)))
                                 {
-                                    TaskDialog.Show("Upload Warning",
-                                        $"No project selected. Please login and select a project first.\n" +
-                                        $"Clash report was saved locally only.\n\n" +
-                                        $"Local report saved at:\n{reportPath ?? "Unknown location"}");
-                                }
-                                else
-                                {
-                                    var uploadTask = binaService.UploadClashReportAsync(report, accessToken, binaProjectId);
-                                    // Use timeout to prevent indefinite hanging
-                                    if (uploadTask.Wait(TimeSpan.FromSeconds(60)))
+                                    var uploadResult = uploadTask.Result;
+
+                                    if (uploadResult.Success)
                                     {
-                                        var uploadResult = uploadTask.Result;
-
-                                        if (!uploadResult.Success)
-                                        {
-                                            TaskDialog.Show("Upload Warning",
-                                                $"Clash report was saved locally but failed to upload to server:\n{uploadResult.ErrorMessage}\n\n" +
-                                                $"Local report saved at:\n{reportPath ?? "Unknown location"}");
-                                        }
+                                        TaskDialog.Show("Upload Success",
+                                            $"Clash report uploaded successfully!\n\n{uploadResult.Message}\n\n" +
+                                            $"Local copy saved at:\n{reportPath ?? "Unknown location"}");
                                     }
                                     else
                                     {
                                         TaskDialog.Show("Upload Warning",
-                                            $"Upload timed out after 60 seconds.\n" +
-                                            $"Clash report was saved locally only.\n\n" +
+                                            $"Clash report was saved locally but failed to upload to server:\n{uploadResult.ErrorMessage}\n\n" +
                                             $"Local report saved at:\n{reportPath ?? "Unknown location"}");
                                     }
+                                }
+                                else
+                                {
+                                    TaskDialog.Show("Upload Warning",
+                                        $"Upload timed out after 60 seconds.\n" +
+                                        $"Clash report was saved locally only.\n\n" +
+                                        $"Local report saved at:\n{reportPath ?? "Unknown location"}");
                                 }
                             }
                         }
