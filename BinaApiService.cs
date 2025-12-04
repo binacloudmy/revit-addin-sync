@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -514,12 +515,14 @@ namespace RevitWebAppSync
                     clashes = clashReport.Clashes?.Select(c => new
                     {
                         clashId = c.ClashId,
-                        elementId1 = long.TryParse(c.ElementId1, out var id1) ? id1 : 0,  // Convert to number
-                        elementId2 = long.TryParse(c.ElementId2, out var id2) ? id2 : 0,  // Convert to number
-                        category1 = c.Category1,
-                        category2 = c.Category2,
-                        clashType = c.ClashType,
-                        severity = c.Severity,
+                        elementId1 = c.ElementId1,
+                        elementId2 = c.ElementId2,
+                        elementName1 = c.ElementName1 ?? "",
+                        elementName2 = c.ElementName2 ?? "",
+                        category1 = c.Category1 ?? "",
+                        category2 = c.Category2 ?? "",
+                        clashType = c.ClashType ?? "Hard",
+                        severity = c.Severity ?? "Major",
                         clashPoint = c.ClashPoint != null ? new
                         {
                             x = Math.Round(c.ClashPoint.X, 4),
@@ -527,10 +530,19 @@ namespace RevitWebAppSync
                             z = Math.Round(c.ClashPoint.Z, 4)
                         } : new { x = 0.0, y = 0.0, z = 0.0 },
                         overlapVolume = Math.Round(c.OverlapVolume, 6),
+                        clearanceDistance = Math.Round(c.ClearanceDistance, 4),
                         distance = Math.Round(c.ClearanceDistance, 4),
-                        description = $"{c.Category1} intersects with {c.Category2}"
+                        description = $"{c.Category1} intersects with {c.Category2}",
+                        detectedDate = c.DetectedDate.ToString("o"),
+                        categoryPair = c.CategoryPair,
+                        clashTypeSummary = c.ClashTypeSummary,
+                        isCritical = c.IsCritical,
+                        formattedClashPoint = c.FormattedClashPoint,
+                        formattedOverlapVolume = c.FormattedOverlapVolume,
+                        formattedClearanceDistance = c.FormattedClearanceDistance
                     }).ToList(),
 
+                    clashStatistics = clashReport.ClashStatistics ?? new Dictionary<string, int>(),
                     executionTimeSeconds = clashReport.ExecutionTimeSeconds,
                     totalComparisons = clashReport.TotalComparisons,
                     machineName = Environment.MachineName
