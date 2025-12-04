@@ -200,26 +200,31 @@ namespace RevitWebAppSync
         {
             ClashReport report = null;
             List<ClashResult> clashes = null;
+            UI.SimpleProgressWindow progressWindow = null;
 
             // IMPORTANT: Revit API is NOT thread-safe. All API calls must be made from the main thread.
-            // We cannot use Task.Run() or background threads to access Revit objects.
-            // Instead, we run clash detection synchronously and use a simple progress reporter.
+            // We use a non-modal progress window that updates during the operation.
 
-            // Create a simple progress reporter that updates via TaskDialog or status bar
+            // Create a progress reporter that updates the progress window
             var progressReporter = new Progress<ClashDetectionProgress>(progress =>
             {
-                // Progress updates are handled here - could update Revit status bar
-                // For now, we just let the operation run without visual progress
+                if (progressWindow != null && progress != null)
+                {
+                    progressWindow.Update("Clash Detection", progress.Phase);
+                    if (progress.PercentComplete > 0)
+                    {
+                        progressWindow.SetProgress(progress.PercentComplete);
+                    }
+                }
             });
 
             try
             {
+                // Show progress window
+                progressWindow = UI.SimpleProgressWindow.Show("Clash Detection", "Initializing...");
+
                 // Initialize clash detection service
                 var clashService = new ClashDetectionService();
-
-                // Show a wait message
-                // Note: We can't show a modal dialog while running since everything is on the main thread
-                // The UI will be blocked during processing, which is expected for Revit add-ins
 
                 // Run clash detection synchronously on the main thread
                 clashes = clashService.RunClashDetection(
@@ -257,6 +262,10 @@ namespace RevitWebAppSync
 
                 // Add user information
                 report.RunByUser = Environment.UserName;
+
+                // Close clash detection progress window
+                progressWindow?.Close();
+                progressWindow = null;
 
                 // Task 6 - Save report locally using ClashReportService
                 string reportPath = null;
@@ -322,12 +331,16 @@ namespace RevitWebAppSync
                             // Get project ID from config
                             int binaProjectId = config.ProjectId;
 
+                            // Show upload progress
+                            var uploadProgress = UI.SimpleProgressWindow.Show("Uploading Report", "Uploading clash report to server...");
+
                             using (var binaService = new BinaApiService(config.Email ?? "", config.Password ?? ""))
                             {
                                 var uploadTask = binaService.UploadClashReportAsync(report, accessToken, binaProjectId);
                                 // Use timeout to prevent indefinite hanging
                                 if (uploadTask.Wait(TimeSpan.FromSeconds(60)))
                                 {
+                                    uploadProgress?.Close();
                                     var uploadResult = uploadTask.Result;
 
                                     if (uploadResult.Success)
@@ -345,6 +358,7 @@ namespace RevitWebAppSync
                                 }
                                 else
                                 {
+                                    uploadProgress?.Close();
                                     TaskDialog.Show("Upload Warning",
                                         $"Upload timed out after 60 seconds.\n" +
                                         $"Clash report was saved locally only.\n\n" +
@@ -367,11 +381,13 @@ namespace RevitWebAppSync
             catch (OperationCanceledException)
             {
                 // User cancelled the operation
+                progressWindow?.Close();
                 throw;
             }
             catch (Exception ex)
             {
                 // Operation failed
+                progressWindow?.Close();
                 throw new InvalidOperationException($"Clash detection failed: {ex.Message}", ex);
             }
         }
