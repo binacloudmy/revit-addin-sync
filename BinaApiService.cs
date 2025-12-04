@@ -514,19 +514,20 @@ namespace RevitWebAppSync
                     clashes = clashReport.Clashes?.Select(c => new
                     {
                         clashId = c.ClashId,
-                        elementId1 = c.ElementId1,
-                        elementId2 = c.ElementId2,
+                        elementId1 = long.TryParse(c.ElementId1, out var id1) ? id1 : 0,  // Convert to number
+                        elementId2 = long.TryParse(c.ElementId2, out var id2) ? id2 : 0,  // Convert to number
                         category1 = c.Category1,
                         category2 = c.Category2,
                         clashType = c.ClashType,
                         severity = c.Severity,
                         clashPoint = c.ClashPoint != null ? new
                         {
-                            x = c.ClashPoint.X,
-                            y = c.ClashPoint.Y,
-                            z = c.ClashPoint.Z
+                            x = Math.Round(c.ClashPoint.X, 4),
+                            y = Math.Round(c.ClashPoint.Y, 4),
+                            z = Math.Round(c.ClashPoint.Z, 4)
                         } : new { x = 0.0, y = 0.0, z = 0.0 },
-                        distance = c.ClearanceDistance,
+                        overlapVolume = Math.Round(c.OverlapVolume, 6),
+                        distance = Math.Round(c.ClearanceDistance, 4),
                         description = $"{c.Category1} intersects with {c.Category2}"
                     }).ToList(),
 
