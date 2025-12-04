@@ -173,9 +173,10 @@ namespace RevitWebAppSync.Services
         #region Private Methods - Clash Detection
 
         /// <summary>
-        /// Detects clashes using Revit's native ElementIntersectsSolidFilter for optimal performance.
-        /// This approach is much faster than manual Boolean operations because Revit optimizes
-        /// the intersection detection internally.
+        /// Detects clashes using a two-phase approach:
+        /// 1. Fast bounding box filter to find candidate pairs
+        /// 2. Precise ElementIntersectsSolidFilter only on candidates
+        /// This dramatically reduces the number of expensive operations.
         /// </summary>
         private List<ClashResult> DetectClashesWithTransforms(
             List<Element> setAElements,
@@ -185,37 +186,116 @@ namespace RevitWebAppSync.Services
             CancellationToken cancellationToken)
         {
             var clashes = new List<ClashResult>();
-            var processedCount = 0;
-            var totalElements = setBElementsWithTransforms.Count;
+            const int MAX_CLASHES = 5000;
 
-            // Convert tolerance from mm to feet (Revit internal units)
-            double toleranceFeet = tolerance / 304.8;
-
-            // Build a lookup of Set A element IDs for quick access
-            var setAElementIds = new HashSet<long>(setAElements.Select(e => e.Id.Value));
             var setADocument = setAElements.FirstOrDefault()?.Document;
-
             if (setADocument == null)
                 return clashes;
 
-            // Strategy: For each linked file element, use ElementIntersectsSolidFilter
-            // to find all intersecting elements in the current document.
-            // This is MUCH faster than comparing every pair manually.
+            // PHASE 1: Build spatial index of Set A elements using bounding boxes
+            progress?.Report(new ClashDetectionProgress
+            {
+                Phase = "Building spatial index...",
+                PercentComplete = 40
+            });
 
-            // Limit maximum clashes to prevent memory issues
-            const int MAX_CLASHES = 5000;
-            int skippedElements = 0;
+            var setABounds = new Dictionary<long, BoundingBoxXYZ>();
+            foreach (var element in setAElements)
+            {
+                try
+                {
+                    var bbox = element.get_BoundingBox(null);
+                    if (bbox != null)
+                    {
+                        setABounds[element.Id.Value] = bbox;
+                    }
+                }
+                catch { }
+            }
+
+            if (setABounds.Count == 0)
+                return clashes;
+
+            // Calculate overall bounds of Set A for quick rejection
+            var setAMinX = setABounds.Values.Min(b => b.Min.X);
+            var setAMinY = setABounds.Values.Min(b => b.Min.Y);
+            var setAMinZ = setABounds.Values.Min(b => b.Min.Z);
+            var setAMaxX = setABounds.Values.Max(b => b.Max.X);
+            var setAMaxY = setABounds.Values.Max(b => b.Max.Y);
+            var setAMaxZ = setABounds.Values.Max(b => b.Max.Z);
+
+            // PHASE 2: Process Set B elements, skip those outside Set A bounds entirely
+            progress?.Report(new ClashDetectionProgress
+            {
+                Phase = "Filtering candidates...",
+                PercentComplete = 50
+            });
+
+            var candidateSetB = new List<(Element Element, Transform LinkTransform, BoundingBoxXYZ Bounds)>();
 
             foreach (var (elementB, linkTransform) in setBElementsWithTransforms)
             {
+                try
+                {
+                    var bbox = elementB.get_BoundingBox(null);
+                    if (bbox == null) continue;
+
+                    // Transform bounding box to host coordinates
+                    var transformedMin = linkTransform.OfPoint(bbox.Min);
+                    var transformedMax = linkTransform.OfPoint(bbox.Max);
+
+                    // Create proper min/max after transform
+                    var minX = Math.Min(transformedMin.X, transformedMax.X);
+                    var minY = Math.Min(transformedMin.Y, transformedMax.Y);
+                    var minZ = Math.Min(transformedMin.Z, transformedMax.Z);
+                    var maxX = Math.Max(transformedMin.X, transformedMax.X);
+                    var maxY = Math.Max(transformedMin.Y, transformedMax.Y);
+                    var maxZ = Math.Max(transformedMin.Z, transformedMax.Z);
+
+                    // Quick rejection: if completely outside Set A bounds, skip
+                    if (maxX < setAMinX || minX > setAMaxX ||
+                        maxY < setAMinY || minY > setAMaxY ||
+                        maxZ < setAMinZ || minZ > setAMaxZ)
+                    {
+                        continue; // No possible clash
+                    }
+
+                    var transformedBbox = new BoundingBoxXYZ
+                    {
+                        Min = new XYZ(minX, minY, minZ),
+                        Max = new XYZ(maxX, maxY, maxZ)
+                    };
+
+                    candidateSetB.Add((elementB, linkTransform, transformedBbox));
+                }
+                catch { }
+            }
+
+            progress?.Report(new ClashDetectionProgress
+            {
+                Phase = $"Found {candidateSetB.Count} candidates (filtered from {setBElementsWithTransforms.Count})",
+                PercentComplete = 55
+            });
+
+            // If no candidates, no clashes possible
+            if (candidateSetB.Count == 0)
+                return clashes;
+
+            // PHASE 3: For each candidate, use ElementIntersectsSolidFilter
+            var processedCount = 0;
+            var totalCandidates = candidateSetB.Count;
+            var setAElementIds = new HashSet<long>(setAElements.Select(e => e.Id.Value));
+            var processedPairs = new HashSet<string>(); // Prevent duplicate clashes
+
+            foreach (var (elementB, linkTransform, bboxB) in candidateSetB)
+            {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                // Stop if we've found too many clashes
                 if (clashes.Count >= MAX_CLASHES)
                 {
                     progress?.Report(new ClashDetectionProgress
                     {
-                        Phase = $"Stopped at {MAX_CLASHES} clashes (limit reached)",
+                        Phase = $"Limit reached: {MAX_CLASHES} clashes",
                         PercentComplete = 95
                     });
                     break;
@@ -223,74 +303,85 @@ namespace RevitWebAppSync.Services
 
                 processedCount++;
 
-                // Get transformed solid from linked element
+                // Get solids for this element
                 List<Solid> solidsB;
                 try
                 {
                     solidsB = GetElementSolids(elementB, linkTransform);
-                    if (solidsB.Count == 0)
-                        continue;
+                    if (solidsB.Count == 0) continue;
                 }
-                catch (Exception)
-                {
-                    skippedElements++;
-                    continue;
-                }
+                catch { continue; }
 
-                // For each solid in the linked element, find intersecting elements in host document
+                // Find Set A elements whose bounding boxes overlap with this element
+                var potentialSetA = setABounds
+                    .Where(kvp => BoundingBoxesOverlap(kvp.Value, bboxB))
+                    .Select(kvp => kvp.Key)
+                    .ToList();
+
+                if (potentialSetA.Count == 0) continue;
+
+                // Use ElementIntersectsSolidFilter for precise detection
                 foreach (var solidB in solidsB)
                 {
                     try
                     {
-                        // Use Revit's native filter - this is optimized internally
                         var intersectFilter = new ElementIntersectsSolidFilter(solidB);
-
-                        // Find all elements in Set A that intersect with this solid
                         var intersectingElements = new FilteredElementCollector(setADocument)
                             .WherePasses(intersectFilter)
                             .ToList();
 
-                        // Filter to only include elements that are in our Set A
                         foreach (var elementA in intersectingElements)
                         {
-                            if (!setAElementIds.Contains(elementA.Id.Value))
+                            var elementAId = elementA.Id.Value;
+
+                            // Must be in Set A and in our potential list
+                            if (!setAElementIds.Contains(elementAId))
+                                continue;
+                            if (!potentialSetA.Contains(elementAId))
                                 continue;
 
-                            // Create clash result - this is a hard clash (geometric intersection)
+                            // Prevent duplicate pairs
+                            var pairKey = $"{Math.Min(elementAId, elementB.Id.Value)}_{Math.Max(elementAId, elementB.Id.Value)}";
+                            if (processedPairs.Contains(pairKey))
+                                continue;
+                            processedPairs.Add(pairKey);
+
                             var clash = CreateClashResultFromIntersection(elementA, elementB, solidB, linkTransform);
                             if (clash != null)
                             {
                                 clashes.Add(clash);
-
-                                // Check limit after adding
-                                if (clashes.Count >= MAX_CLASHES)
-                                    break;
+                                if (clashes.Count >= MAX_CLASHES) break;
                             }
                         }
 
-                        if (clashes.Count >= MAX_CLASHES)
-                            break;
+                        if (clashes.Count >= MAX_CLASHES) break;
                     }
-                    catch (Exception)
-                    {
-                        // Filter failed for this solid, skip it
-                        continue;
-                    }
+                    catch { continue; }
                 }
 
-                // Update progress every 10 elements or at the end
-                if (processedCount % 10 == 0 || processedCount == totalElements)
+                // Update progress
+                if (processedCount % 20 == 0 || processedCount == totalCandidates)
                 {
-                    var percent = 40 + (int)((processedCount / (double)totalElements) * 55);
+                    var percent = 55 + (int)((processedCount / (double)totalCandidates) * 40);
                     progress?.Report(new ClashDetectionProgress
                     {
-                        Phase = $"Checking elements ({processedCount}/{totalElements}) - {clashes.Count} clashes found",
+                        Phase = $"Checking ({processedCount}/{totalCandidates}) - {clashes.Count} clashes",
                         PercentComplete = percent
                     });
                 }
             }
 
             return clashes;
+        }
+
+        /// <summary>
+        /// Checks if two bounding boxes overlap
+        /// </summary>
+        private bool BoundingBoxesOverlap(BoundingBoxXYZ a, BoundingBoxXYZ b)
+        {
+            return !(a.Max.X < b.Min.X || a.Min.X > b.Max.X ||
+                     a.Max.Y < b.Min.Y || a.Min.Y > b.Max.Y ||
+                     a.Max.Z < b.Min.Z || a.Min.Z > b.Max.Z);
         }
 
         /// <summary>
