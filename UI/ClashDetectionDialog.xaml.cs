@@ -594,26 +594,36 @@ namespace RevitWebAppSync.UI
                     {
                         Content = category.DisplayName,
                         Tag = category.Name,
-                        Margin = new Thickness(2)
+                        Margin = new Thickness(2),
+                        Focusable = true
                     };
 
                     // Attach event handler
                     if (isSetA)
-                        checkBox.Checked += (s, e) => UpdateSetASelection();
-                    else
-                        checkBox.Checked += (s, e) => UpdateSetBSelection();
-
-                    checkBox.Unchecked += (s, e) =>
                     {
-                        if (isSetA)
-                            UpdateSetASelection();
-                        else
-                            UpdateSetBSelection();
-                    };
+                        checkBox.Checked += (s, e) => { e.Handled = true; UpdateSetASelection(); };
+                        checkBox.Unchecked += (s, e) => { e.Handled = true; UpdateSetASelection(); };
+                    }
+                    else
+                    {
+                        checkBox.Checked += (s, e) => { e.Handled = true; UpdateSetBSelection(); };
+                        checkBox.Unchecked += (s, e) => { e.Handled = true; UpdateSetBSelection(); };
+                    }
 
                     var categoryItem = new TreeViewItem
                     {
-                        Header = checkBox
+                        Header = checkBox,
+                        Focusable = false  // Prevent TreeViewItem from stealing focus/clicks
+                    };
+
+                    // Handle click on TreeViewItem to toggle checkbox
+                    categoryItem.PreviewMouseLeftButtonDown += (s, e) =>
+                    {
+                        if (e.OriginalSource is System.Windows.Controls.Primitives.ToggleButton)
+                            return; // Let checkbox handle its own clicks
+
+                        checkBox.IsChecked = !checkBox.IsChecked;
+                        e.Handled = true;
                     };
 
                     disciplineItem.Items.Add(categoryItem);
