@@ -29,14 +29,16 @@ namespace RevitWebAppSync.Services
 
             try
             {
-                // Get all categories that have instances in the model
+                // Get all model elements (NOT element types, NOT view-specific annotations)
+                // We want: Walls, Floors, Ducts, Pipes, etc. - actual 3D geometry
                 var collector = new FilteredElementCollector(doc)
-                    .WhereElementIsNotElementType()
-                    .WhereElementIsViewIndependent();
+                    .WhereElementIsNotElementType();
 
-                // Group elements by category
+                // Group elements by category, filtering for categories that have geometry
                 var elementsByCategory = collector
-                    .Where(e => e.Category != null)
+                    .Where(e => e.Category != null &&
+                               e.Category.CategoryType == CategoryType.Model &&
+                               e.Category.CanAddSubcategory) // This filters to real model categories
                     .GroupBy(e => e.Category.Name);
 
                 foreach (var group in elementsByCategory)
@@ -107,10 +109,11 @@ namespace RevitWebAppSync.Services
             try
             {
                 var collector = new FilteredElementCollector(doc)
-                    .WhereElementIsNotElementType()
-                    .WhereElementIsViewIndependent();
+                    .WhereElementIsNotElementType();
 
-                return collector.Count(e => e.Category != null && e.Category.Name == categoryName);
+                return collector.Count(e => e.Category != null &&
+                                           e.Category.CategoryType == CategoryType.Model &&
+                                           e.Category.Name == categoryName);
             }
             catch (Exception ex)
             {
@@ -235,18 +238,18 @@ namespace RevitWebAppSync.Services
                         .ToList();
                 }
 
-                // Start with all elements
-                var collector = new FilteredElementCollector(doc)
-                    .WhereElementIsNotElementType()
-                    .WhereElementIsViewIndependent();
-
                 List<Element> elements;
 
                 // Filter by categories
                 if (selectionSet.SelectAll)
                 {
-                    // Get all elements
-                    elements = collector.ToList();
+                    // Get all model elements
+                    var collector = new FilteredElementCollector(doc)
+                        .WhereElementIsNotElementType();
+
+                    elements = collector
+                        .Where(e => e.Category != null && e.Category.CategoryType == CategoryType.Model)
+                        .ToList();
                 }
                 else if (selectionSet.SelectedCategories != null && selectionSet.SelectedCategories.Count > 0)
                 {
@@ -299,12 +302,14 @@ namespace RevitWebAppSync.Services
 
             try
             {
+                // Get all model elements (NOT view-independent - that filters out walls, floors, etc!)
                 var collector = new FilteredElementCollector(doc)
-                    .WhereElementIsNotElementType()
-                    .WhereElementIsViewIndependent();
+                    .WhereElementIsNotElementType();
 
                 var elements = collector
-                    .Where(e => e.Category != null && categoryNames.Contains(e.Category.Name))
+                    .Where(e => e.Category != null &&
+                               e.Category.CategoryType == CategoryType.Model &&
+                               categoryNames.Contains(e.Category.Name))
                     .ToList();
 
                 return elements;
