@@ -13,7 +13,7 @@ namespace RevitWebAppSync
     public class BinaApiService : IDisposable
     {
         private readonly HttpClient _httpClient;
-        private readonly string _baseUrl = "https://632012de7dc1.ngrok-free.app";
+        private readonly string _baseUrl = "https://771af3abfbd2.ngrok-free.app";
         private readonly string _email;
         private readonly string _password;
 
