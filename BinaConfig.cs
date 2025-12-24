@@ -18,6 +18,21 @@ namespace RevitWebAppSync
         public string RefreshToken { get; set; }
         public DateTime TokenExpiry { get; set; }
 
+        // Download settings
+        public string DownloadPath { get; set; }
+
+        /// <summary>
+        /// Gets the download path, defaulting to Desktop/BINA_Downloads if not set
+        /// </summary>
+        public string GetDownloadPath()
+        {
+            if (!string.IsNullOrEmpty(DownloadPath) && Directory.Exists(Path.GetDirectoryName(DownloadPath)))
+            {
+                return DownloadPath;
+            }
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "BINA_Downloads");
+        }
+
         private static readonly string ConfigPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             "RevitWebAppSync",

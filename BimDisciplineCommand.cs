@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using System.Collections.Generic;
+using System.Windows.Forms;
 using Autodesk.Revit.ApplicationServices;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
@@ -32,8 +33,18 @@ namespace RevitWebAppSync
                 // Use project ID from config
                 int projectId = config.ProjectId;
 
-                // Create download directory
-                string downloadDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "BINA_Downloads");
+                // Show folder picker dialog
+                string downloadDir = ShowFolderPickerDialog(config.GetDownloadPath());
+
+                if (string.IsNullOrEmpty(downloadDir))
+                {
+                    // User cancelled the folder picker
+                    return Result.Cancelled;
+                }
+
+                // Save the selected path for future use
+                config.DownloadPath = downloadDir;
+                config.Save();
 
                 // Start the download process using saved credentials
                 var binaService = new BinaApiService(config.Email, config.Password);
@@ -141,6 +152,40 @@ namespace RevitWebAppSync
         {
             var resultsWindow = new DownloadResultsWindow(resultData);
             resultsWindow.ShowDialog();
+        }
+
+        private string ShowFolderPickerDialog(string defaultPath)
+        {
+            using (var dialog = new FolderBrowserDialog())
+            {
+                dialog.Description = "Select folder to save downloaded BIM discipline files";
+                dialog.ShowNewFolderButton = true;
+                dialog.UseDescriptionForTitle = true;
+
+                // Set initial directory to the default or previously selected path
+                if (!string.IsNullOrEmpty(defaultPath) && Directory.Exists(defaultPath))
+                {
+                    dialog.SelectedPath = defaultPath;
+                }
+                else if (!string.IsNullOrEmpty(defaultPath))
+                {
+                    // Try to use parent directory if the exact path doesn't exist
+                    string parentDir = Path.GetDirectoryName(defaultPath);
+                    if (!string.IsNullOrEmpty(parentDir) && Directory.Exists(parentDir))
+                    {
+                        dialog.SelectedPath = parentDir;
+                    }
+                }
+
+                DialogResult result = dialog.ShowDialog();
+
+                if (result == DialogResult.OK && !string.IsNullOrWhiteSpace(dialog.SelectedPath))
+                {
+                    return dialog.SelectedPath;
+                }
+
+                return null;
+            }
         }
     }
 }

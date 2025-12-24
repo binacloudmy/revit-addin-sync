@@ -36,8 +36,9 @@ namespace RevitWebAppSync
                     return Result.Failed;
                 }
 
-                // Find the BINA Downloads directory
-                string downloadDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "BINA_Downloads");
+                // Find the BINA Downloads directory from saved config
+                BinaConfig config = BinaConfig.Load();
+                string downloadDir = config.GetDownloadPath();
                 
                 if (!Directory.Exists(downloadDir))
                 {
