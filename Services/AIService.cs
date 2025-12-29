@@ -13,7 +13,7 @@ namespace RevitWebAppSync.Services
         private readonly string _baseUrl;
 
         // Ngrok public URL for the NestJS backend
-        private const string DEFAULT_BASE_URL = "https://771af3abfbd2.ngrok-free.app";
+        private const string DEFAULT_BASE_URL = "https://7439284735f6.ngrok-free.app";
 
         public AIService(string baseUrl = null)
         {
