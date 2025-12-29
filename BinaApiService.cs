@@ -345,7 +345,7 @@ namespace RevitWebAppSync
                 _httpClient.DefaultRequestHeaders.Authorization = 
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
 
-                string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}/latest-urls";
+                string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}/latest-shared-urls";
                 
                 LogToFile($"Requesting URL: {url}");
 
