@@ -26,7 +26,7 @@ namespace RevitWebAppSync
                 // Check if user is logged in
                 if (!config.IsLoggedIn())
                 {
-                    TaskDialog.Show("Not Logged In", "Please login first using the 'Login' button before downloading.");
+                    Autodesk.Revit.UI.TaskDialog.Show("Not Logged In", "Please login first using the 'Login' button before downloading.");
                     return Result.Cancelled;
                 }
 
@@ -143,7 +143,7 @@ namespace RevitWebAppSync
             }
             catch (Exception ex)
             {
-                TaskDialog.Show("Error", $"An error occurred: {ex.Message}");
+                Autodesk.Revit.UI.TaskDialog.Show("Error", $"An error occurred: {ex.Message}");
                 return Result.Failed;
             }
         }
