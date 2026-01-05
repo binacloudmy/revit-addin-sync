@@ -62,7 +62,7 @@ The code will have access to: Document doc, UIDocument uidoc, View activeView";
                 var json = JsonConvert.SerializeObject(agnoRequest);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-                var response = await _httpClient.PostAsync($"{_baseUrl}/v1/teams/revit-ai/runs", content);
+                var response = await _httpClient.PostAsync($"{_baseUrl}/teams/revit-ai/runs", content);
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
