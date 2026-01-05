@@ -50,19 +50,20 @@ Generate C# code for Revit API. Return ONLY the code that goes inside the Execut
 Do NOT include the class wrapper, using statements, or method signature.
 The code will have access to: Document doc, UIDocument uidoc, View activeView";
 
-            // Agno API format
-            var agnoRequest = new
-            {
-                message = contextInfo,
-                stream = false
-            };
+            // Generate session/user IDs for tracking
+            var sessionId = Guid.NewGuid().ToString();
+            var userId = "revit-user";
 
             try
             {
-                var json = JsonConvert.SerializeObject(agnoRequest);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                // Use multipart/form-data as required by the API
+                var formData = new MultipartFormDataContent();
+                formData.Add(new StringContent(contextInfo), "message");
+                formData.Add(new StringContent("false"), "stream");
+                formData.Add(new StringContent(sessionId), "session_id");
+                formData.Add(new StringContent(userId), "user_id");
 
-                var response = await _httpClient.PostAsync($"{_baseUrl}/teams/revit-ai/runs", content);
+                var response = await _httpClient.PostAsync($"{_baseUrl}/teams/revit-ai/runs", formData);
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
