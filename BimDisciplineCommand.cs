@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using System.Windows.Forms;
+using System.Windows.Threading;
 using Autodesk.Revit.ApplicationServices;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.DB;
@@ -54,6 +55,11 @@ namespace RevitWebAppSync
                     DownloadLocation = downloadDir
                 };
 
+                // Create and show progress window
+                var progressWindow = new DownloadProgressWindow();
+                progressWindow.SetSaveLocation(downloadDir);
+                progressWindow.Show();
+
                 try
                 {
                     // Login
@@ -63,6 +69,7 @@ namespace RevitWebAppSync
                     if (string.IsNullOrEmpty(accessToken))
                     {
                         resultData.ErrorMessage = "Failed to login to BINA. Check the log file on Desktop for more details.";
+                        progressWindow.Close();
                         ShowResultsWindow(resultData);
                         binaService.Dispose();
                         return Result.Failed;
@@ -75,12 +82,14 @@ namespace RevitWebAppSync
                     if (disciplineResponse == null)
                     {
                         resultData.ErrorMessage = $"Failed to fetch BIM discipline files for project {projectId}. Check the log file on Desktop for more details.";
+                        progressWindow.Close();
                         ShowResultsWindow(resultData);
                         binaService.Dispose();
                         return Result.Failed;
                     }
 
-                    // Download available discipline files from all folders
+                    // Count total files to download
+                    var downloadItems = new List<(string DisciplineName, DisciplineFolderInfo Folder)>();
                     var disciplines = new[]
                     {
                         ("Architecture", disciplineResponse.Architecture),
@@ -99,35 +108,66 @@ namespace RevitWebAppSync
                             if (folder?.LatestFile == null || string.IsNullOrEmpty(folder.LatestFile.FileUrl))
                                 continue;
 
-                            // Create path: downloadDir/DisciplineName/FolderName/
-                            string folderDir = Path.Combine(downloadDir, disciplineName, folder.Name ?? "Default");
-                            if (!Directory.Exists(folderDir))
-                            {
-                                Directory.CreateDirectory(folderDir);
-                            }
-
-                            var downloadTask = Task.Run(() => binaService.DownloadFileAsync(
-                                folder.LatestFile.FileUrl,
-                                folderDir,
-                                folder.LatestFile.FileName
-                            ));
-
-                            string downloadedPath = downloadTask.Result;
-
-                            resultData.DownloadedFiles.Add(new DownloadedFileInfo
-                            {
-                                DisciplineName = disciplineName,
-                                FolderName = folder.Name,
-                                FileName = folder.LatestFile.FileName,
-                                FilePath = downloadedPath,
-                                Success = !string.IsNullOrEmpty(downloadedPath)
-                            });
+                            downloadItems.Add((disciplineName, folder));
                         }
+                    }
+
+                    progressWindow.SetTotalFiles(downloadItems.Count);
+
+                    // Download files with progress updates
+                    foreach (var (disciplineName, folder) in downloadItems)
+                    {
+                        // Create path: downloadDir/DisciplineName/FolderName/
+                        string folderDir = Path.Combine(downloadDir, disciplineName, folder.Name ?? "Default");
+                        if (!Directory.Exists(folderDir))
+                        {
+                            Directory.CreateDirectory(folderDir);
+                        }
+
+                        var downloadTask = Task.Run(() => binaService.DownloadFileAsync(
+                            folder.LatestFile.FileUrl,
+                            folderDir,
+                            folder.LatestFile.FileName
+                        ));
+
+                        string downloadedPath = downloadTask.Result;
+                        bool success = !string.IsNullOrEmpty(downloadedPath);
+
+                        // Update progress window
+                        progressWindow.AddFileResult(
+                            disciplineName,
+                            folder.Name,
+                            folder.LatestFile.FileName,
+                            downloadedPath ?? folderDir,
+                            success
+                        );
+
+                        // Allow UI to update
+                        DoEvents();
+
+                        resultData.DownloadedFiles.Add(new DownloadedFileInfo
+                        {
+                            DisciplineName = disciplineName,
+                            FolderName = folder.Name,
+                            FileName = folder.LatestFile.FileName,
+                            FilePath = downloadedPath,
+                            Success = success
+                        });
                     }
 
                     binaService.Dispose();
 
-                    // Show results window
+                    // Mark progress as complete
+                    progressWindow.SetCompleted();
+
+                    // Wait for user to close progress window
+                    while (progressWindow.IsVisible)
+                    {
+                        DoEvents();
+                        System.Threading.Thread.Sleep(100);
+                    }
+
+                    // Show detailed results window
                     ShowResultsWindow(resultData);
 
                     return Result.Succeeded;
@@ -137,6 +177,8 @@ namespace RevitWebAppSync
                     binaService.Dispose();
                     var innerEx = aex.InnerException ?? aex;
                     resultData.ErrorMessage = $"Download failed: {innerEx.Message}\n\nFull error: {innerEx.GetType().Name}";
+                    if (progressWindow.IsVisible)
+                        progressWindow.Close();
                     ShowResultsWindow(resultData);
                     return Result.Failed;
                 }
@@ -144,6 +186,8 @@ namespace RevitWebAppSync
                 {
                     binaService.Dispose();
                     resultData.ErrorMessage = $"Download failed: {ex.Message}\n\nError type: {ex.GetType().Name}";
+                    if (progressWindow.IsVisible)
+                        progressWindow.Close();
                     ShowResultsWindow(resultData);
                     return Result.Failed;
                 }
@@ -153,6 +197,20 @@ namespace RevitWebAppSync
                 Autodesk.Revit.UI.TaskDialog.Show("Error", $"An error occurred: {ex.Message}");
                 return Result.Failed;
             }
+        }
+
+        private void DoEvents()
+        {
+            var frame = new DispatcherFrame();
+            Dispatcher.CurrentDispatcher.BeginInvoke(DispatcherPriority.Background,
+                new DispatcherOperationCallback(ExitFrame), frame);
+            Dispatcher.PushFrame(frame);
+        }
+
+        private static object ExitFrame(object f)
+        {
+            ((DispatcherFrame)f).Continue = false;
+            return null;
         }
 
         private void ShowResultsWindow(DownloadResultData resultData)

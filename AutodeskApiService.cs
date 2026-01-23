@@ -11,7 +11,7 @@ namespace RevitWebAppSync
     public class AutodeskApiService
     {
         private readonly HttpClient _httpClient;
-        private readonly string _backendUrl = "https://f1c6f2c5d971.ngrok-free.app";
+        private readonly string _backendUrl = "https://bina-design-stg.bina.cloud";
 
         public AutodeskApiService()
         {

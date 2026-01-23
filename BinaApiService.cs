@@ -11,7 +11,7 @@ namespace RevitWebAppSync
     public class BinaApiService
     {
         private readonly HttpClient _httpClient;
-        private readonly string _baseUrl = "https://f1c6f2c5d971.ngrok-free.app";
+        private readonly string _baseUrl = "https://bina-design-stg.bina.cloud";
         private readonly string _email;
         private readonly string _password;
 
@@ -126,7 +126,7 @@ namespace RevitWebAppSync
                 string jsonContent = JsonConvert.SerializeObject(loginData);
                 var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
-                var response = await httpClient.PostAsync("https://f1c6f2c5d971.ngrok-free.app/api/auth/user/sign-in", content);
+                var response = await httpClient.PostAsync("https://bina-design-stg.bina.cloud/api/auth/user/sign-in", content);
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -157,7 +157,7 @@ namespace RevitWebAppSync
                 httpClient.DefaultRequestHeaders.Authorization =
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
 
-                var response = await httpClient.GetAsync("https://f1c6f2c5d971.ngrok-free.app/api/cloud-docs/bim-discipline/user/projects");
+                var response = await httpClient.GetAsync("https://bina-design-stg.bina.cloud/api/cloud-docs/bim-discipline/user/projects");
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -191,7 +191,7 @@ namespace RevitWebAppSync
                 httpClient.DefaultRequestHeaders.Authorization =
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
 
-                string url = $"https://f1c6f2c5d971.ngrok-free.app/api/cloud-docs/bim-discipline/project/{projectId}/wip-folders";
+                string url = $"https://bina-design-stg.bina.cloud/api/cloud-docs/bim-discipline/project/{projectId}/wip-folders";
 
                 if (!string.IsNullOrEmpty(disciplineType))
                 {
