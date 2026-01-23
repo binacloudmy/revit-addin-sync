@@ -11,7 +11,7 @@ namespace RevitWebAppSync
     public class BinaApiService
     {
         private readonly HttpClient _httpClient;
-        private readonly string _baseUrl = "https://7439284735f6.ngrok-free.app";
+        private readonly string _baseUrl = "https://f1c6f2c5d971.ngrok-free.app";
         private readonly string _email;
         private readonly string _password;
 
@@ -126,7 +126,7 @@ namespace RevitWebAppSync
                 string jsonContent = JsonConvert.SerializeObject(loginData);
                 var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
-                var response = await httpClient.PostAsync("https://7439284735f6.ngrok-free.app/api/auth/user/sign-in", content);
+                var response = await httpClient.PostAsync("https://f1c6f2c5d971.ngrok-free.app/api/auth/user/sign-in", content);
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -157,7 +157,7 @@ namespace RevitWebAppSync
                 httpClient.DefaultRequestHeaders.Authorization =
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
 
-                var response = await httpClient.GetAsync("https://7439284735f6.ngrok-free.app/api/cloud-docs/bim-discipline/user/projects");
+                var response = await httpClient.GetAsync("https://f1c6f2c5d971.ngrok-free.app/api/cloud-docs/bim-discipline/user/projects");
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -173,6 +173,68 @@ namespace RevitWebAppSync
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Get list of WorkInProgress folders for a project
+        /// </summary>
+        public static async Task<System.Collections.Generic.List<WipFolderInfo>> GetWipFoldersAsync(
+            string accessToken,
+            int projectId,
+            string disciplineType = null)
+        {
+            try
+            {
+                using var httpClient = new HttpClient();
+                httpClient.Timeout = TimeSpan.FromSeconds(10);
+                httpClient.DefaultRequestHeaders.Add("User-Agent", "RevitBinaSync/1.0");
+                httpClient.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+
+                string url = $"https://f1c6f2c5d971.ngrok-free.app/api/cloud-docs/bim-discipline/project/{projectId}/wip-folders";
+
+                if (!string.IsNullOrEmpty(disciplineType))
+                {
+                    url += $"?disciplineType={Uri.EscapeDataString(disciplineType)}";
+                }
+
+                LogToDesktop($"GetWipFoldersAsync: Requesting URL: {url}");
+
+                var response = await httpClient.GetAsync(url);
+
+                LogToDesktop($"GetWipFoldersAsync: Response status: {response.StatusCode}");
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    string errorBody = await response.Content.ReadAsStringAsync();
+                    LogToDesktop($"GetWipFoldersAsync: Error response: {errorBody}");
+                    return null;
+                }
+
+                string responseBody = await response.Content.ReadAsStringAsync();
+                LogToDesktop($"GetWipFoldersAsync: Response body: {responseBody}");
+
+                var folders = JsonConvert.DeserializeObject<System.Collections.Generic.List<WipFolderInfo>>(responseBody);
+                LogToDesktop($"GetWipFoldersAsync: Deserialized {folders?.Count ?? 0} folders");
+
+                return folders;
+            }
+            catch (Exception ex)
+            {
+                LogToDesktop($"GetWipFoldersAsync: Exception: {ex.Message}");
+                return null;
+            }
+        }
+
+        private static void LogToDesktop(string message)
+        {
+            try
+            {
+                string logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "bina_folder_log.txt");
+                string timestampedMessage = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}";
+                File.AppendAllText(logPath, timestampedMessage + Environment.NewLine);
+            }
+            catch { /* Ignore logging errors */ }
         }
 
         public async Task<string> GetPresignedUrlAsync(string accessToken, string key, long size, string mimeType)
@@ -415,7 +477,7 @@ namespace RevitWebAppSync
             try
             {
                 LogToFile($"✨ Saving federated file to backend... ✨");
-                LogToFile($"Project ID: {request.ProjectId}, File: {request.Name}");
+                LogToFile($"Project ID: {request.ProjectId}, File: {request.Name}, ParentId: {request.ParentId?.ToString() ?? "NULL"}");
                 
                 _httpClient.DefaultRequestHeaders.Authorization = 
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
@@ -426,9 +488,10 @@ namespace RevitWebAppSync
                 };
                 string jsonContent = JsonConvert.SerializeObject(request, settings);
                 var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-                
+
                 string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/save-discipline";
                 LogToFile($"Requesting URL: {url}");
+                LogToFile($"Request body: {jsonContent}");
 
                 var response = await _httpClient.PostAsync(url, content);
                 string responseBody = await response.Content.ReadAsStringAsync();

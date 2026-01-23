@@ -83,10 +83,11 @@ namespace RevitWebAppSync
                     // Download available discipline files
                     var disciplines = new[]
                     {
-                        ("Structure", disciplineResponse.Structure),
                         ("Architecture", disciplineResponse.Architecture),
-                        ("HVAC", disciplineResponse.HVAC),
-                        ("Electrical", disciplineResponse.Electrical)
+                        ("Structure", disciplineResponse.Structure),
+                        ("Mechanical", disciplineResponse.Mechanical),
+                        ("Electrical", disciplineResponse.Electrical),
+                        ("MainFile", disciplineResponse.MainFile)
                     };
 
                     foreach (var (disciplineName, disciplineFile) in disciplines)

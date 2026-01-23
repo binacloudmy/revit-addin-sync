@@ -35,54 +35,34 @@ namespace RevitWebAppSync
                     return Result.Failed;
                 }
 
-                // Show discipline selection dialog
-                TaskDialog disciplineDialog = new TaskDialog("Select Discipline Type");
-                disciplineDialog.MainInstruction = "What type of discipline file are you uploading?";
-                disciplineDialog.MainContent = $"File: {Path.GetFileName(doc.PathName)}\n\nPlease select the discipline type for this file:\n\nClick 'OK' for MainFile/General model.";
-                
-                disciplineDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Architecture", "Architectural design elements, walls, doors, windows, etc.");
-                disciplineDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Structure", "Structural elements, beams, columns, foundations, etc.");
-                disciplineDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink3, "HVAC", "Heating, ventilation, and air conditioning systems.");
-                disciplineDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink4, "Electrical", "Electrical systems, lighting, power distribution, etc.");
-                
-                disciplineDialog.CommonButtons = TaskDialogCommonButtons.Ok | TaskDialogCommonButtons.Cancel;
-                disciplineDialog.DefaultButton = TaskDialogResult.Ok;
-
-                var disciplineResult = disciplineDialog.Show();
-                
-                string selectedDiscipline;
-                switch (disciplineResult)
-                {
-                    case TaskDialogResult.CommandLink1:
-                        selectedDiscipline = "Architecture";
-                        break;
-                    case TaskDialogResult.CommandLink2:
-                        selectedDiscipline = "Structure";
-                        break;
-                    case TaskDialogResult.CommandLink3:
-                        selectedDiscipline = "HVAC";
-                        break;
-                    case TaskDialogResult.CommandLink4:
-                        selectedDiscipline = "Electrical";
-                        break;
-                    case TaskDialogResult.Ok:
-                        selectedDiscipline = "MainFile"; // Default to MainFile if OK is clicked
-                        break;
-                    default:
-                        return Result.Cancelled;
-                }
-
-                System.Diagnostics.Debug.WriteLine($"[BINA] Selected discipline type: {selectedDiscipline}");
-
-                // Load saved config
+                // Load config to get user's discipline access
                 BinaConfig config = BinaConfig.Load();
 
-                // Check if user is logged in
+                // Check if user is logged in before showing discipline dialog
                 if (!config.IsLoggedIn())
                 {
                     TaskDialog.Show("Not Logged In", "Please login first using the 'Login' button before syncing.");
                     return Result.Cancelled;
                 }
+
+                // Show WPF discipline selection dialog with user's allowed disciplines
+                var disciplineDialog = new DisciplineSelectionDialog(
+                    Path.GetFileName(doc.PathName),
+                    config.DisciplineTypes,
+                    config.BimRole,
+                    config.ProjectId,
+                    config.AccessToken);
+                bool? dialogResult = disciplineDialog.ShowDialog();
+
+                if (dialogResult != true || !disciplineDialog.Confirmed || !disciplineDialog.SelectedDiscipline.HasValue)
+                {
+                    return Result.Cancelled;
+                }
+
+                string selectedDiscipline = disciplineDialog.SelectedDiscipline.Value.ToValue();
+                int? selectedFolderId = disciplineDialog.SelectedFolderId;
+
+                System.Diagnostics.Debug.WriteLine($"[BINA] Selected discipline type: {selectedDiscipline}");
 
                 // Use stored access token from login
                 string accessToken = config.AccessToken;
@@ -91,7 +71,7 @@ namespace RevitWebAppSync
                 try
                 {
                     // Start dual upload process: BINA (OBS) + Autodesk OSS
-                    var uploadTask = Task.Run(() => UploadToMultiplePlatforms(doc, accessToken, binaService, selectedDiscipline, config));
+                    var uploadTask = Task.Run(() => UploadToMultiplePlatforms(doc, accessToken, binaService, selectedDiscipline, config, selectedFolderId));
                     var resultData = uploadTask.Result;
 
                     // Show results window on main UI thread
@@ -137,7 +117,7 @@ namespace RevitWebAppSync
             }
         }
 
-        private async Task<SyncResultData> UploadToMultiplePlatforms(Document doc, string binaAccessToken, BinaApiService binaService, string disciplineType, BinaConfig config)
+        private async Task<SyncResultData> UploadToMultiplePlatforms(Document doc, string binaAccessToken, BinaApiService binaService, string disciplineType, BinaConfig config, int? parentId)
         {
             var autodeskService = new AutodeskApiService();
             
@@ -216,6 +196,7 @@ namespace RevitWebAppSync
                     UploadedBy = config.UserId,
                     UrnInBase64 = autodeskUploadResult?.UrnInBase64, // Autodesk URN for viewer (null if failed)
                     DisciplineType = disciplineType, // Selected discipline from dropdown
+                    ParentId = parentId, // Selected folder ID
                     Metadata = new FederatedFileMetadata
                     {
                         LinkedFiles = ExtractRevitLinks(doc)
@@ -282,20 +263,20 @@ namespace RevitWebAppSync
         private static string GetDisciplineTypeFromFileName(string fileName)
         {
             if (string.IsNullOrEmpty(fileName))
-                return "MainFile";
+                return DisciplineType.MainFile.ToValue();
 
             string fileNameUpper = fileName.ToUpper();
-            
-            if (fileNameUpper.StartsWith("ARCHITECTURE"))
-                return "Architecture";
-            else if (fileNameUpper.StartsWith("STRUCTURE"))
-                return "Structure";
-            else if (fileNameUpper.StartsWith("HVAC"))
-                return "HVAC";
-            else if (fileNameUpper.StartsWith("ELECTRICAL"))
-                return "Electrical";
+
+            if (fileNameUpper.Contains("ARCHITECTURE") || fileNameUpper.Contains("ARCH"))
+                return DisciplineType.Architecture.ToValue();
+            else if (fileNameUpper.Contains("STRUCTURE") || fileNameUpper.Contains("STRUCT"))
+                return DisciplineType.Structure.ToValue();
+            else if (fileNameUpper.Contains("MECHANICAL") || fileNameUpper.Contains("MECH") || fileNameUpper.Contains("HVAC"))
+                return DisciplineType.Mechanical.ToValue();
+            else if (fileNameUpper.Contains("ELECTRICAL") || fileNameUpper.Contains("ELEC"))
+                return DisciplineType.Electrical.ToValue();
             else
-                return "MainFile";
+                return DisciplineType.MainFile.ToValue();
         }
 
         private static List<LinkedFileInfo> ExtractRevitLinks(Document doc)

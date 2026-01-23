@@ -13,6 +13,7 @@ namespace RevitWebAppSync
         public int UploadedBy { get; set; }
         public string UrnInBase64 { get; set; }
         public string DisciplineType { get; set; }
+        public int? ParentId { get; set; }
         public FederatedFileMetadata Metadata { get; set; }
     }
 

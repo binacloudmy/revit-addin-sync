@@ -138,7 +138,7 @@ namespace RevitWebAppSync
                 // Open BINA Cloud in default browser
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = "https://7439284735f6.ngrok-free.app",
+                    FileName = "https://f1c6f2c5d971.ngrok-free.app",
                     UseShellExecute = true
                 });
             }

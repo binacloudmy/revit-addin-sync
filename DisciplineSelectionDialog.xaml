@@ -1,0 +1,299 @@
+<Window x:Class="RevitWebAppSync.DisciplineSelectionDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Select Discipline Type"
+        Height="560"
+        Width="500"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Background="#F5F5F5">
+
+    <Window.Resources>
+        <!-- Button Style for Discipline Options -->
+        <Style x:Key="DisciplineButtonStyle" TargetType="RadioButton">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="border"
+                                Background="White"
+                                BorderBrush="#E0E0E0"
+                                BorderThickness="1"
+                                CornerRadius="8"
+                                Padding="15,12"
+                                Margin="0,4"
+                                Cursor="Hand">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="40"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Icon Circle -->
+                                <Border Grid.Column="0"
+                                        Width="32" Height="32"
+                                        CornerRadius="16"
+                                        Background="{TemplateBinding Tag}"
+                                        HorizontalAlignment="Center">
+                                    <TextBlock Text="{Binding Content.Children[0].Text, RelativeSource={RelativeSource TemplatedParent}}"
+                                               FontWeight="Bold"
+                                               FontSize="14"
+                                               Foreground="White"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Border>
+
+                                <!-- Text Content -->
+                                <ContentPresenter Grid.Column="1"
+                                                  Margin="10,0,0,0"
+                                                  VerticalAlignment="Center"/>
+
+                                <!-- Checkmark -->
+                                <Border x:Name="checkmark"
+                                        Grid.Column="2"
+                                        Width="24" Height="24"
+                                        CornerRadius="12"
+                                        Background="#4CAF50"
+                                        Visibility="Hidden">
+                                    <TextBlock Text="&#10003;"
+                                               Foreground="White"
+                                               FontWeight="Bold"
+                                               HorizontalAlignment="Center"
+                                               VerticalAlignment="Center"/>
+                                </Border>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="border" Property="BorderBrush" Value="#1976D2"/>
+                                <Setter TargetName="border" Property="BorderThickness" Value="2"/>
+                                <Setter TargetName="border" Property="Background" Value="#E3F2FD"/>
+                                <Setter TargetName="checkmark" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#FAFAFA"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <TextBlock Text="Sync to BINA Cloud"
+                       FontSize="22"
+                       FontWeight="Bold"
+                       Foreground="#1976D2"
+                       HorizontalAlignment="Center"/>
+            <TextBlock Text="Select the discipline type for your file"
+                       FontSize="13"
+                       Foreground="#666"
+                       HorizontalAlignment="Center"
+                       Margin="0,8,0,0"/>
+        </StackPanel>
+
+        <!-- File Info -->
+        <Border Grid.Row="1"
+                Background="#E3F2FD"
+                CornerRadius="6"
+                Padding="12"
+                Margin="0,0,0,16">
+            <StackPanel Orientation="Horizontal">
+                <TextBlock Text="File:" FontWeight="Bold" Foreground="#1976D2" Margin="0,0,8,0"/>
+                <TextBlock x:Name="FileNameText"
+                           Text="filename.rvt"
+                           Foreground="#333"
+                           TextTrimming="CharacterEllipsis"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Discipline Options -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="DisciplineOptionsPanel">
+
+                <RadioButton x:Name="ArchitectureOption"
+                             GroupName="Discipline"
+                             Style="{StaticResource DisciplineButtonStyle}"
+                             Tag="#2196F3">
+                    <StackPanel>
+                        <TextBlock Text="A" Visibility="Collapsed"/>
+                        <StackPanel Margin="0,0,0,0">
+                            <TextBlock Text="Architecture" FontWeight="SemiBold" FontSize="14" Foreground="#333"/>
+                            <TextBlock Text="Walls, doors, windows, rooms, spaces" FontSize="11" Foreground="#888"/>
+                        </StackPanel>
+                    </StackPanel>
+                </RadioButton>
+
+                <RadioButton x:Name="StructureOption"
+                             GroupName="Discipline"
+                             Style="{StaticResource DisciplineButtonStyle}"
+                             Tag="#FF5722">
+                    <StackPanel>
+                        <TextBlock Text="S" Visibility="Collapsed"/>
+                        <StackPanel>
+                            <TextBlock Text="Structure" FontWeight="SemiBold" FontSize="14" Foreground="#333"/>
+                            <TextBlock Text="Beams, columns, foundations, framing" FontSize="11" Foreground="#888"/>
+                        </StackPanel>
+                    </StackPanel>
+                </RadioButton>
+
+                <RadioButton x:Name="MechanicalOption"
+                             GroupName="Discipline"
+                             Style="{StaticResource DisciplineButtonStyle}"
+                             Tag="#4CAF50">
+                    <StackPanel>
+                        <TextBlock Text="M" Visibility="Collapsed"/>
+                        <StackPanel>
+                            <TextBlock Text="Mechanical" FontWeight="SemiBold" FontSize="14" Foreground="#333"/>
+                            <TextBlock Text="HVAC, ducts, pipes, mechanical equipment" FontSize="11" Foreground="#888"/>
+                        </StackPanel>
+                    </StackPanel>
+                </RadioButton>
+
+                <RadioButton x:Name="ElectricalOption"
+                             GroupName="Discipline"
+                             Style="{StaticResource DisciplineButtonStyle}"
+                             Tag="#FFC107">
+                    <StackPanel>
+                        <TextBlock Text="E" Visibility="Collapsed"/>
+                        <StackPanel>
+                            <TextBlock Text="Electrical" FontWeight="SemiBold" FontSize="14" Foreground="#333"/>
+                            <TextBlock Text="Lighting, power distribution, circuits" FontSize="11" Foreground="#888"/>
+                        </StackPanel>
+                    </StackPanel>
+                </RadioButton>
+
+                <RadioButton x:Name="MainFileOption"
+                             GroupName="Discipline"
+                             Style="{StaticResource DisciplineButtonStyle}"
+                             Tag="#9C27B0"
+                             IsChecked="True">
+                    <StackPanel>
+                        <TextBlock Text="F" Visibility="Collapsed"/>
+                        <StackPanel>
+                            <TextBlock Text="Main File" FontWeight="SemiBold" FontSize="14" Foreground="#333"/>
+                            <TextBlock Text="Federated model or general project file" FontSize="11" Foreground="#888"/>
+                        </StackPanel>
+                    </StackPanel>
+                </RadioButton>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Folder Selection -->
+        <StackPanel Grid.Row="3" Margin="0,16,0,0">
+            <TextBlock Text="Select Folder"
+                       FontWeight="SemiBold"
+                       FontSize="13"
+                       Foreground="#333"
+                       Margin="0,0,0,8"/>
+            <Grid>
+                <ComboBox x:Name="FolderComboBox"
+                          Height="38"
+                          FontSize="13"
+                          DisplayMemberPath="Name"
+                          SelectedValuePath="Id"
+                          IsEnabled="False">
+                    <ComboBox.Resources>
+                        <Style TargetType="ComboBox">
+                            <Setter Property="Padding" Value="12,8"/>
+                        </Style>
+                    </ComboBox.Resources>
+                </ComboBox>
+                <!-- Loading indicator -->
+                <StackPanel x:Name="FolderLoadingPanel"
+                            Orientation="Horizontal"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Visibility="Collapsed">
+                    <TextBlock Text="Loading folders..."
+                               FontSize="12"
+                               Foreground="#666"/>
+                </StackPanel>
+            </Grid>
+            <!-- No folders message -->
+            <TextBlock x:Name="NoFoldersMessage"
+                       Text="No WorkInProgress folders available for this discipline"
+                       FontSize="11"
+                       Foreground="#F44336"
+                       Margin="0,4,0,0"
+                       Visibility="Collapsed"/>
+        </StackPanel>
+
+        <!-- Footer Buttons -->
+        <Grid Grid.Row="4" Margin="0,20,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Button x:Name="CancelButton"
+                    Grid.Column="1"
+                    Content="Cancel"
+                    Width="100"
+                    Height="38"
+                    Margin="0,0,12,0"
+                    Background="#E0E0E0"
+                    Foreground="#333"
+                    BorderThickness="0"
+                    Cursor="Hand"
+                    Click="CancelButton_Click">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="6"
+                                Padding="16,8">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#BDBDBD"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+
+            <Button x:Name="UploadButton"
+                    Grid.Column="2"
+                    Content="Upload to BINA"
+                    Width="140"
+                    Height="38"
+                    Background="#1976D2"
+                    Foreground="White"
+                    BorderThickness="0"
+                    Cursor="Hand"
+                    FontWeight="SemiBold"
+                    Click="UploadButton_Click">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="border"
+                                Background="{TemplateBinding Background}"
+                                CornerRadius="6"
+                                Padding="16,8">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="border" Property="Background" Value="#1565C0"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Button.Template>
+            </Button>
+        </Grid>
+    </Grid>
+</Window>

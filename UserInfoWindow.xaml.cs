@@ -18,6 +18,8 @@ namespace RevitWebAppSync
             // Display user info
             UserNameText.Text = config.UserName ?? config.Email ?? "Unknown";
             ProjectNameText.Text = config.ProjectName ?? $"Project ID: {config.ProjectId}";
+            RoleText.Text = FormatRole(config.BimRole);
+            DisciplinesText.Text = FormatDisciplines(config.DisciplineTypes);
         }
 
         private void LogoutButton_Click(object sender, RoutedEventArgs e)
@@ -47,6 +49,28 @@ namespace RevitWebAppSync
         {
             DialogResult = false;
             Close();
+        }
+
+        private string FormatRole(string bimRole)
+        {
+            if (string.IsNullOrEmpty(bimRole))
+                return "No role assigned";
+
+            return bimRole switch
+            {
+                "BIM_MANAGER" => "BIM Manager",
+                "BIM_COORDINATOR" => "BIM Coordinator",
+                "BIM_MODELLER" => "BIM Modeller",
+                _ => bimRole
+            };
+        }
+
+        private string FormatDisciplines(System.Collections.Generic.List<string> disciplines)
+        {
+            if (disciplines == null || disciplines.Count == 0)
+                return "All disciplines";
+
+            return string.Join(", ", disciplines);
         }
     }
 }

@@ -13,7 +13,8 @@ namespace RevitWebAppSync
     {
         public BimDisciplineFile Structure { get; set; }
         public BimDisciplineFile Architecture { get; set; }
-        public BimDisciplineFile HVAC { get; set; }
+        public BimDisciplineFile Mechanical { get; set; }
         public BimDisciplineFile Electrical { get; set; }
+        public BimDisciplineFile MainFile { get; set; }
     }
 }

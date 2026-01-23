@@ -62,6 +62,8 @@ namespace RevitWebAppSync
                         {
                             config.ProjectId = projectPicker.SelectedProjectId;
                             config.ProjectName = projectPicker.SelectedProjectName;
+                            config.BimRole = projectPicker.SelectedBimRole;
+                            config.DisciplineTypes = projectPicker.SelectedDisciplineTypes;
                             config.Save();
 
                             TaskDialog.Show("Login Successful",
@@ -94,6 +96,8 @@ namespace RevitWebAppSync
             {
                 config.ProjectId = projectPicker.SelectedProjectId;
                 config.ProjectName = projectPicker.SelectedProjectName;
+                config.BimRole = projectPicker.SelectedBimRole;
+                config.DisciplineTypes = projectPicker.SelectedDisciplineTypes;
                 config.Save();
 
                 TaskDialog.Show("Project Changed",

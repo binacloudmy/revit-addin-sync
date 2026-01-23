@@ -56,3 +56,5 @@ D:\revit-addin-sync\obj\Debug\net8.0-windows\LoginWindow.g.cs
 D:\revit-addin-sync\obj\Debug\net8.0-windows\ProjectPickerWindow.g.cs
 D:\revit-addin-sync\obj\Debug\net8.0-windows\UserInfoWindow.g.cs
 D:\revit-addin-sync\obj\Debug\net8.0-windows\RevitWeb.5F17FE62.Up2Date
+D:\revit-addin-sync\obj\Debug\net8.0-windows\DisciplineSelectionDialog.baml
+D:\revit-addin-sync\obj\Debug\net8.0-windows\DisciplineSelectionDialog.g.cs

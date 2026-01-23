@@ -13,6 +13,8 @@ namespace RevitWebAppSync
 
         public int SelectedProjectId { get; private set; }
         public string SelectedProjectName { get; private set; }
+        public string SelectedBimRole { get; private set; }
+        public List<string> SelectedDisciplineTypes { get; private set; }
 
         public ProjectPickerWindow(string accessToken)
         {
@@ -88,6 +90,8 @@ namespace RevitWebAppSync
 
             SelectedProjectId = selectedProject.Id;
             SelectedProjectName = selectedProject.Name;
+            SelectedBimRole = selectedProject.BimRole;
+            SelectedDisciplineTypes = selectedProject.DisciplineTypes;
 
             DialogResult = true;
             Close();

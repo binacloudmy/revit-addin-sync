@@ -10,11 +10,11 @@ none
 false
 TRACE;DEBUG;NET;NET8_0;NETCOREAPP
 
-6-1853499851
+7-1902938844
 
-24274852786
+261461882682
 212-1147233466
-AIAssistantWindow.xaml;DownloadResultsWindow.xaml;LoginWindow.xaml;ProjectPickerWindow.xaml;SyncResultsWindow.xaml;UserInfoWindow.xaml;
+AIAssistantWindow.xaml;DisciplineSelectionDialog.xaml;DownloadResultsWindow.xaml;LoginWindow.xaml;ProjectPickerWindow.xaml;SyncResultsWindow.xaml;UserInfoWindow.xaml;
 
 False
 

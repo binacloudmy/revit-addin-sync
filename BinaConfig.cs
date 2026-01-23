@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using Newtonsoft.Json;
 
@@ -17,6 +18,10 @@ namespace RevitWebAppSync
         public string AccessToken { get; set; }
         public string RefreshToken { get; set; }
         public DateTime TokenExpiry { get; set; }
+
+        // BIM role and disciplines
+        public string BimRole { get; set; }
+        public List<string> DisciplineTypes { get; set; }
 
         // Download settings
         public string DownloadPath { get; set; }
@@ -97,6 +102,8 @@ namespace RevitWebAppSync
             TokenExpiry = DateTime.MinValue;
             ProjectId = 0;
             UserId = 0;
+            BimRole = null;
+            DisciplineTypes = null;
         }
     }
 }
