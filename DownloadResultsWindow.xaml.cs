@@ -53,10 +53,15 @@ namespace RevitWebAppSync
                 var displayItems = new List<DownloadedFileDisplay>();
                 foreach (var file in _resultData.DownloadedFiles)
                 {
+                    // Build display name with folder info if available
+                    string displayName = !string.IsNullOrEmpty(file.FolderName)
+                        ? $"{file.DisciplineName} / {file.FolderName}"
+                        : file.DisciplineName;
+
                     displayItems.Add(new DownloadedFileDisplay
                     {
                         Icon = GetDisciplineIcon(file.DisciplineName),
-                        DisciplineName = file.DisciplineName,
+                        DisciplineName = displayName,
                         FileName = file.FileName,
                         StatusText = file.Success ? "Downloaded" : "Failed",
                         StatusColor = file.Success
@@ -130,6 +135,7 @@ namespace RevitWebAppSync
     public class DownloadedFileInfo
     {
         public string DisciplineName { get; set; }
+        public string FolderName { get; set; }
         public string FileName { get; set; }
         public string FilePath { get; set; }
         public bool Success { get; set; }

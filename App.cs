@@ -106,8 +106,8 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.microchip.png", 32)
             };
 
-            ribbonPanel.AddItem(buttonData);
             ribbonPanel.AddItem(loginButtonData);
+            ribbonPanel.AddItem(buttonData);
             ribbonPanel.AddItem(bimDisciplineButtonData);
             ribbonPanel.AddItem(askAiButtonData);
             // ribbonPanel.AddItem(federateButtonData); // Hidden as requested

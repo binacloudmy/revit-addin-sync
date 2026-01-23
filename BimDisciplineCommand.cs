@@ -80,31 +80,36 @@ namespace RevitWebAppSync
                         return Result.Failed;
                     }
 
-                    // Download available discipline files
+                    // Download available discipline files from all folders
                     var disciplines = new[]
                     {
                         ("Architecture", disciplineResponse.Architecture),
                         ("Structure", disciplineResponse.Structure),
                         ("Mechanical", disciplineResponse.Mechanical),
-                        ("Electrical", disciplineResponse.Electrical),
-                        ("MainFile", disciplineResponse.MainFile)
+                        ("Electrical", disciplineResponse.Electrical)
                     };
 
-                    foreach (var (disciplineName, disciplineFile) in disciplines)
+                    foreach (var (disciplineName, disciplineData) in disciplines)
                     {
-                        if (disciplineFile != null && !string.IsNullOrEmpty(disciplineFile.FileUrl))
+                        if (disciplineData?.Folders == null || disciplineData.Folders.Count == 0)
+                            continue;
+
+                        foreach (var folder in disciplineData.Folders)
                         {
-                            // Create discipline-specific folder
-                            string disciplineDir = Path.Combine(downloadDir, disciplineName);
-                            if (!Directory.Exists(disciplineDir))
+                            if (folder?.LatestFile == null || string.IsNullOrEmpty(folder.LatestFile.FileUrl))
+                                continue;
+
+                            // Create path: downloadDir/DisciplineName/FolderName/
+                            string folderDir = Path.Combine(downloadDir, disciplineName, folder.Name ?? "Default");
+                            if (!Directory.Exists(folderDir))
                             {
-                                Directory.CreateDirectory(disciplineDir);
+                                Directory.CreateDirectory(folderDir);
                             }
 
                             var downloadTask = Task.Run(() => binaService.DownloadFileAsync(
-                                disciplineFile.FileUrl,
-                                disciplineDir,
-                                disciplineFile.FileName
+                                folder.LatestFile.FileUrl,
+                                folderDir,
+                                folder.LatestFile.FileName
                             ));
 
                             string downloadedPath = downloadTask.Result;
@@ -112,7 +117,8 @@ namespace RevitWebAppSync
                             resultData.DownloadedFiles.Add(new DownloadedFileInfo
                             {
                                 DisciplineName = disciplineName,
-                                FileName = disciplineFile.FileName,
+                                FolderName = folder.Name,
+                                FileName = folder.LatestFile.FileName,
                                 FilePath = downloadedPath,
                                 Success = !string.IsNullOrEmpty(downloadedPath)
                             });
