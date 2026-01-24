@@ -1,0 +1,156 @@
+<Window x:Class="RevitWebAppSync.UploadProgressWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Sync to BINA"
+        Height="350"
+        Width="450"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <TextBlock x:Name="HeaderText"
+                   Grid.Row="0"
+                   Text="Uploading to BINA..."
+                   FontSize="20"
+                   FontWeight="Bold"
+                   Foreground="#1976D2"
+                   HorizontalAlignment="Center"
+                   Margin="0,0,0,10"/>
+
+        <!-- File Name -->
+        <TextBlock x:Name="FileNameText"
+                   Grid.Row="1"
+                   Text=""
+                   FontSize="12"
+                   Foreground="#666"
+                   HorizontalAlignment="Center"
+                   TextTrimming="CharacterEllipsis"
+                   Margin="0,0,0,20"/>
+
+        <!-- Progress Bar -->
+        <Grid Grid.Row="2" Margin="0,0,0,20">
+            <ProgressBar x:Name="UploadProgressBar"
+                         Height="8"
+                         Minimum="0"
+                         Maximum="100"
+                         Value="0"
+                         Background="#E0E0E0"
+                         Foreground="#4CAF50"/>
+        </Grid>
+
+        <!-- Step List -->
+        <Border Grid.Row="3"
+                Background="White"
+                BorderBrush="#E0E0E0"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="15">
+            <StackPanel x:Name="StepListPanel" VerticalAlignment="Center">
+                <!-- Step 1: BINA Cloud Storage -->
+                <Grid Margin="0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="60"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border x:Name="Step1Badge"
+                            Background="#9E9E9E"
+                            CornerRadius="3"
+                            Padding="8,4"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center">
+                        <TextBlock x:Name="Step1Text"
+                                   Text="..."
+                                   FontSize="11"
+                                   FontWeight="Bold"
+                                   Foreground="White"/>
+                    </Border>
+                    <TextBlock Grid.Column="1"
+                               Text="BINA Cloud Storage"
+                               FontSize="13"
+                               VerticalAlignment="Center"
+                               Foreground="#333"/>
+                </Grid>
+
+                <!-- Step 2: 3D Viewer -->
+                <Grid Margin="0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="60"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border x:Name="Step2Badge"
+                            Background="#9E9E9E"
+                            CornerRadius="3"
+                            Padding="8,4"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center">
+                        <TextBlock x:Name="Step2Text"
+                                   Text="..."
+                                   FontSize="11"
+                                   FontWeight="Bold"
+                                   Foreground="White"/>
+                    </Border>
+                    <TextBlock Grid.Column="1"
+                               Text="3D Viewer"
+                               FontSize="13"
+                               VerticalAlignment="Center"
+                               Foreground="#333"/>
+                </Grid>
+
+                <!-- Step 3: Registration -->
+                <Grid Margin="0,8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="60"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border x:Name="Step3Badge"
+                            Background="#9E9E9E"
+                            CornerRadius="3"
+                            Padding="8,4"
+                            HorizontalAlignment="Left"
+                            VerticalAlignment="Center">
+                        <TextBlock x:Name="Step3Text"
+                                   Text="..."
+                                   FontSize="11"
+                                   FontWeight="Bold"
+                                   Foreground="White"/>
+                    </Border>
+                    <TextBlock Grid.Column="1"
+                               Text="Registration"
+                               FontSize="13"
+                               VerticalAlignment="Center"
+                               Foreground="#333"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- Close Button -->
+        <Button x:Name="CloseButton"
+                Grid.Row="5"
+                Content="Close"
+                Width="100"
+                Height="35"
+                Margin="0,15,0,0"
+                HorizontalAlignment="Center"
+                Background="#424242"
+                Foreground="White"
+                BorderThickness="0"
+                IsEnabled="False"
+                Click="CloseButton_Click">
+            <Button.Resources>
+                <Style TargetType="Border">
+                    <Setter Property="CornerRadius" Value="6"/>
+                </Style>
+            </Button.Resources>
+        </Button>
+    </Grid>
+</Window>

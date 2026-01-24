@@ -81,7 +81,7 @@ namespace RevitWebAppSync
                 BinaLocationText.Text = "Upload failed";
             }
             
-            // Autodesk OSS Status
+            // 3D Viewer Status
             if (_resultData.AutodeskOssSuccess)
             {
                 AutodeskStatusText.Text = "✅ Ready";
@@ -92,7 +92,7 @@ namespace RevitWebAppSync
             {
                 AutodeskStatusText.Text = "❌ Failed";
                 AutodeskStatusText.Foreground = System.Windows.Media.Brushes.Red;
-                AutodeskUrnText.Text = "Autodesk viewer not available";
+                AutodeskUrnText.Text = "3D viewer not available";
             }
             
             // Registration Status
@@ -138,7 +138,7 @@ namespace RevitWebAppSync
                 // Open BINA Cloud in default browser
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = "https://bina-design-stg.bina.cloud",
+                    FileName = "https://api-stg.bina.cloud",
                     UseShellExecute = true
                 });
             }

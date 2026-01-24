@@ -103,17 +103,17 @@
                             <TextBlock x:Name="BinaStatusText" Grid.Column="2" Text="✅ Uploaded" Foreground="#2E7D32" FontWeight="Bold"/>
                         </Grid>
                         
-                        <!-- Autodesk OSS Status -->
+                        <!-- 3D Viewer Status -->
                         <Grid Margin="0,15,0,5">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto"/>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="Auto"/>
                             </Grid.ColumnDefinitions>
-                            
+
                             <TextBlock Grid.Column="0" Text="🏢" FontSize="16" Margin="0,0,10,0"/>
                             <StackPanel Grid.Column="1">
-                                <TextBlock Text="Autodesk OSS &amp; Viewer" FontWeight="Bold" FontSize="12"/>
+                                <TextBlock Text="3D Viewer" FontWeight="Bold" FontSize="12"/>
                                 <TextBlock x:Name="AutodeskUrnText" Text="" FontSize="10" Foreground="#666"/>
                             </StackPanel>
                             <TextBlock x:Name="AutodeskStatusText" Grid.Column="2" Text="✅ Ready" Foreground="#2E7D32" FontWeight="Bold"/>

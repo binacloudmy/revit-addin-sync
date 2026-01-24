@@ -60,3 +60,5 @@ D:\revit-addin-sync\obj\Debug\net8.0-windows\DisciplineSelectionDialog.baml
 D:\revit-addin-sync\obj\Debug\net8.0-windows\DisciplineSelectionDialog.g.cs
 D:\revit-addin-sync\obj\Debug\net8.0-windows\DownloadProgressWindow.baml
 D:\revit-addin-sync\obj\Debug\net8.0-windows\DownloadProgressWindow.g.cs
+D:\revit-addin-sync\obj\Debug\net8.0-windows\UploadProgressWindow.baml
+D:\revit-addin-sync\obj\Debug\net8.0-windows\UploadProgressWindow.g.cs

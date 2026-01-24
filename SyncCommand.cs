@@ -68,11 +68,34 @@ namespace RevitWebAppSync
                 string accessToken = config.AccessToken;
                 var binaService = new BinaApiService(config.Email, config.Password);
 
+                // Show progress window
+                var progressWindow = new UploadProgressWindow();
+                progressWindow.SetFileName(Path.GetFileName(doc.PathName));
+                progressWindow.Show();
+
+                // Force UI to render
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+                    System.Windows.Threading.DispatcherPriority.Background,
+                    new System.Action(delegate { }));
+
                 try
                 {
                     // Start dual upload process: BINA (OBS) + Autodesk OSS
-                    var uploadTask = Task.Run(() => UploadToMultiplePlatforms(doc, accessToken, binaService, selectedDiscipline, config, selectedFolderId));
+                    var uploadTask = Task.Run(() => UploadToMultiplePlatforms(doc, accessToken, binaService, selectedDiscipline, config, selectedFolderId, progressWindow));
                     var resultData = uploadTask.Result;
+
+                    // Mark as completed
+                    bool hasErrors = resultData == null || !resultData.BinaObsSuccess || !resultData.AutodeskOssSuccess || !resultData.RegistrationSuccess;
+                    progressWindow.SetCompleted(hasErrors);
+
+                    // Wait for user to close progress window
+                    while (progressWindow.IsVisible)
+                    {
+                        System.Windows.Threading.Dispatcher.CurrentDispatcher.Invoke(
+                            System.Windows.Threading.DispatcherPriority.Background,
+                            new System.Action(delegate { }));
+                        System.Threading.Thread.Sleep(50);
+                    }
 
                     // Show results window on main UI thread
                     if (resultData != null)
@@ -98,12 +121,14 @@ namespace RevitWebAppSync
                 }
                 catch (AggregateException aex)
                 {
+                    progressWindow.SetCompleted(true);
                     binaService.Dispose();
                     var innerEx = aex.InnerException ?? aex;
                     TaskDialog.Show("Error", $"Upload failed: {innerEx.Message}\n\nFull error: {innerEx.GetType().Name}");
                 }
                 catch (Exception ex)
                 {
+                    progressWindow.SetCompleted(true);
                     binaService.Dispose();
                     TaskDialog.Show("Error", $"Upload failed: {ex.Message}\n\nError type: {ex.GetType().Name}");
                 }
@@ -117,68 +142,71 @@ namespace RevitWebAppSync
             }
         }
 
-        private async Task<SyncResultData> UploadToMultiplePlatforms(Document doc, string binaAccessToken, BinaApiService binaService, string disciplineType, BinaConfig config, int? parentId)
+        private async Task<SyncResultData> UploadToMultiplePlatforms(Document doc, string binaAccessToken, BinaApiService binaService, string disciplineType, BinaConfig config, int? parentId, UploadProgressWindow progressWindow)
         {
             var autodeskService = new AutodeskApiService();
-            
+            bool obsUploadSuccess = false;
+            AutodeskUploadResult autodeskUploadResult = null;
+
             try
             {
                 // Step 1: Upload to BINA (OBS) - Original functionality
                 System.Diagnostics.Debug.WriteLine("[BINA] Starting upload to OBS (Original BINA storage)...");
-                
+                progressWindow.Dispatcher.BeginInvoke(() => progressWindow.UpdateStep(0, StepStatus.InProgress));
+
                 var fileParams = binaService.GetFileParameters(doc.PathName);
                 if (string.IsNullOrEmpty(fileParams.key))
                 {
-                    TaskDialog.Show("Upload Failed", "Failed to calculate file parameters for BINA upload.");
+                    progressWindow.Dispatcher.BeginInvoke(() => progressWindow.UpdateStep(0, StepStatus.Failed));
                     return null;
                 }
-
-                TaskDialog uploadDialog = new TaskDialog("BINA Upload");
-                uploadDialog.MainContent = $"Uploading {Path.GetFileName(doc.PathName)} to BINA OBS...";
-                uploadDialog.CommonButtons = TaskDialogCommonButtons.Ok;
-                uploadDialog.DefaultButton = TaskDialogResult.Ok;
-                uploadDialog.Show();
 
                 var presignedUrlTask = Task.Run(() => binaService.GetPresignedUrlAsync(binaAccessToken, fileParams.key, fileParams.size, fileParams.mimeType));
                 string presignedUrl = await presignedUrlTask;
 
                 if (string.IsNullOrEmpty(presignedUrl))
                 {
-                    TaskDialog.Show("Upload Failed", "Failed to obtain presigned URL from BINA for OBS upload.");
+                    progressWindow.Dispatcher.BeginInvoke(() => progressWindow.UpdateStep(0, StepStatus.Failed));
                     return null;
                 }
 
                 var obsUploadTask = Task.Run(() => binaService.UploadFileAsync(presignedUrl, doc.PathName, fileParams.mimeType));
-                bool obsUploadSuccess = await obsUploadTask;
+                obsUploadSuccess = await obsUploadTask;
 
                 if (!obsUploadSuccess)
                 {
-                    TaskDialog.Show("Upload Failed", "Failed to upload file to BINA OBS storage.");
+                    progressWindow.Dispatcher.BeginInvoke(() => progressWindow.UpdateStep(0, StepStatus.Failed));
                     return null;
                 }
 
+                progressWindow.Dispatcher.BeginInvoke(() => progressWindow.UpdateStep(0, StepStatus.Success));
                 System.Diagnostics.Debug.WriteLine("[BINA] ✅ OBS upload completed successfully");
 
                 // Step 2: Upload to Autodesk OSS
                 System.Diagnostics.Debug.WriteLine("[BINA] Starting upload to Autodesk OSS...");
-                
-                TaskDialog autodeskDialog = new TaskDialog("Autodesk Upload");
-                autodeskDialog.MainContent = $"Uploading {Path.GetFileName(doc.PathName)} to Autodesk OSS...";
-                autodeskDialog.CommonButtons = TaskDialogCommonButtons.Ok;
-                autodeskDialog.DefaultButton = TaskDialogResult.Ok;
-                autodeskDialog.Show();
-                
-                var autodeskUploadResult = await Task.Run(() => autodeskService.UploadFileAsync(
-                    binaAccessToken, 
-                    doc.PathName, 
+                progressWindow.Dispatcher.BeginInvoke(() => progressWindow.UpdateStep(1, StepStatus.InProgress));
+
+                autodeskUploadResult = await Task.Run(() => autodeskService.UploadFileAsync(
+                    binaAccessToken,
+                    doc.PathName,
                     disciplineType, // Selected discipline type
                     (progress) => {
                         System.Diagnostics.Debug.WriteLine($"[AUTODESK] Upload progress: {progress}%");
                     }
                 ));
 
+                if (autodeskUploadResult != null)
+                {
+                    progressWindow.Dispatcher.BeginInvoke(() => progressWindow.UpdateStep(1, StepStatus.Success));
+                }
+                else
+                {
+                    progressWindow.Dispatcher.BeginInvoke(() => progressWindow.UpdateStep(1, StepStatus.Failed));
+                }
+
                 // Step 3: Save file information to BINA backend
                 System.Diagnostics.Debug.WriteLine("[BINA] Saving file metadata to BINA backend...");
+                progressWindow.Dispatcher.BeginInvoke(() => progressWindow.UpdateStep(2, StepStatus.InProgress));
                 
                 // Use the config loaded at the start (already validated as logged in)
 
@@ -206,24 +234,33 @@ namespace RevitWebAppSync
                 var saveTask = Task.Run(() => binaService.SaveFederatedFileAsync(binaAccessToken, saveFileDto));
                 var saveResult = await saveTask;
 
-                // Step 4: Show results in dedicated window
-                System.Diagnostics.Debug.WriteLine("[BINA] Showing results window...");
-                
+                if (saveResult.Success)
+                {
+                    progressWindow.Dispatcher.BeginInvoke(() => progressWindow.UpdateStep(2, StepStatus.Success));
+                }
+                else
+                {
+                    progressWindow.Dispatcher.BeginInvoke(() => progressWindow.UpdateStep(2, StepStatus.Failed));
+                }
+
+                // Return results
+                System.Diagnostics.Debug.WriteLine("[BINA] Upload steps completed.");
+
                 var resultData = new SyncResultData
                 {
                     FileName = Path.GetFileName(doc.PathName),
                     DisciplineType = disciplineType,
                     FileSize = fileParams.size,
                     Version = saveResult.Data?.Version,
-                    
+
                     BinaObsSuccess = obsUploadSuccess,
                     BinaLocation = fileParams.key,
-                    
+
                     AutodeskOssSuccess = autodeskUploadResult != null,
                     AutodeskUrn = autodeskUploadResult?.UrnInBase64,
-                    
+
                     RegistrationSuccess = saveResult.Success,
-                    
+
                     LinkedFiles = ExtractRevitLinks(doc),
                     ErrorMessage = GetErrorMessage(autodeskUploadResult, saveResult)
                 };
@@ -233,7 +270,6 @@ namespace RevitWebAppSync
             }
             catch (Exception ex)
             {
-                TaskDialog.Show("Upload Error", $"An error occurred during dual platform upload: {ex.Message}\n\nCheck the log files on Desktop for more details.");
                 System.Diagnostics.Debug.WriteLine($"[BINA] Dual upload error: {ex}");
                 return null;
             }
