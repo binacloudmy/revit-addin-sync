@@ -10,6 +10,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace RevitWebAppSync.Services
 {
@@ -165,10 +166,43 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Sanitize AI-generated code by removing transaction blocks and confirmation dialogs
+        /// </summary>
+        private string SanitizeCode(string code)
+        {
+            // Remove using statements (we add our own)
+            code = Regex.Replace(code, @"^\s*using\s+[\w\.]+;\s*$", "", RegexOptions.Multiline);
+
+            // Remove transaction blocks but keep the inner code
+            // Pattern: using (Transaction tx = new Transaction(...)) { tx.Start(); ... tx.Commit(); }
+            var transactionPattern = @"using\s*\(\s*Transaction\s+\w+\s*=\s*new\s+Transaction\s*\([^)]+\)\s*\)\s*\{\s*\w+\.Start\(\);\s*([\s\S]*?)\s*\w+\.Commit\(\);\s*\}";
+            code = Regex.Replace(code, transactionPattern, "$1", RegexOptions.Multiline);
+
+            // Remove standalone tx.Start() and tx.Commit() calls
+            code = Regex.Replace(code, @"^\s*\w+\.(Start|Commit|RollBack)\(\);\s*$", "", RegexOptions.Multiline);
+
+            // Remove Transaction variable declarations
+            code = Regex.Replace(code, @"^\s*(using\s+)?(var\s+)?\w+\s*=\s*new\s+Transaction\s*\([^)]+\);\s*$", "", RegexOptions.Multiline);
+
+            // Remove TaskDialog confirmation dialogs (but keep info dialogs for results)
+            // Remove: TaskDialog.Show("Confirm", ...) or if (TaskDialog.Show(...) == ...)
+            code = Regex.Replace(code, @"if\s*\(\s*TaskDialog\.Show\s*\([^)]+\)\s*[!=]=\s*TaskDialogResult\.\w+\s*\)\s*\{[^}]*return[^}]*\}", "", RegexOptions.Multiline);
+            code = Regex.Replace(code, @"if\s*\(\s*TaskDialog\.Show\s*\([^)]+\)\s*[!=]=\s*TaskDialogResult\.\w+\s*\)\s*return;", "", RegexOptions.Multiline);
+
+            // Remove empty lines created by removals
+            code = Regex.Replace(code, @"(\r?\n){3,}", "\n\n");
+
+            return code.Trim();
+        }
+
+        /// <summary>
         /// Wrap user code in a class structure
         /// </summary>
         private string WrapCode(string userCode)
         {
+            // Sanitize the code first
+            userCode = SanitizeCode(userCode);
+
             var sb = new StringBuilder();
 
             sb.AppendLine("using System;");
