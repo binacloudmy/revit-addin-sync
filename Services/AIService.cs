@@ -16,7 +16,7 @@ namespace RevitWebAppSync.Services
 
         // Ngrok public URL for bina-ai-agent (Agno)
         // Update this with your ngrok URL when running: ngrok http 8000
-        private const string DEFAULT_BASE_URL = "https://api-stg.bina.cloud";
+        private const string DEFAULT_BASE_URL = "https://120d-2001-f40-935-7c0f-7c5b-b0e4-9e86-6d86.ngrok-free.app";
 
         public AIService(string baseUrl = null)
         {
@@ -63,7 +63,7 @@ The code will have access to: Document doc, UIDocument uidoc, View activeView";
                 formData.Add(new StringContent(sessionId), "session_id");
                 formData.Add(new StringContent(userId), "user_id");
 
-                var response = await _httpClient.PostAsync($"{_baseUrl}/teams/revit-ai/runs", formData);
+                var response = await _httpClient.PostAsync($"{_baseUrl}/agents/revit-ai/runs", formData);
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
