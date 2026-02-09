@@ -2,6 +2,7 @@ using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using RevitWebAppSync.Models;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -26,7 +27,92 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
-        /// Compile and execute AI-generated code
+        /// Preview execution - runs code in a transaction that gets rolled back
+        /// Returns what would change without actually committing
+        /// </summary>
+        public ExecutionPreview PreviewExecute(string code, string explanation = null)
+        {
+            var preview = new ExecutionPreview
+            {
+                Code = code,
+                Explanation = explanation
+            };
+
+            try
+            {
+                // Wrap and compile code first (fail fast if compilation error)
+                string fullCode = WrapCode(code);
+                var assembly = CompileCode(fullCode);
+
+                var type = assembly.GetType("RevitWebAppSync.Dynamic.AIGeneratedCode");
+                var method = type.GetMethod("Execute");
+                var instance = Activator.CreateInstance(type);
+
+                // Create state tracker to detect changes
+                var stateTracker = new ModelStateTracker(_doc, _uidoc);
+
+                // Start a transaction group to allow rollback
+                using (var transGroup = new TransactionGroup(_doc, "AI Preview"))
+                {
+                    transGroup.Start();
+
+                    // Capture state before execution
+                    stateTracker.CaptureBeforeState();
+
+                    // Execute code in a transaction
+                    using (var transaction = new Transaction(_doc, "AI Code Execution"))
+                    {
+                        transaction.Start();
+
+                        try
+                        {
+                            var result = method.Invoke(instance, new object[] { _doc, _uidoc, _activeView });
+                            preview.ExecutionMessage = result?.ToString();
+                            transaction.Commit();
+                        }
+                        catch (TargetInvocationException ex)
+                        {
+                            transaction.RollBack();
+                            var innerEx = ex.InnerException ?? ex;
+                            preview.Success = false;
+                            preview.Error = $"Execution error: {innerEx.Message}";
+                            return preview;
+                        }
+                        catch (Exception ex)
+                        {
+                            transaction.RollBack();
+                            preview.Success = false;
+                            preview.Error = $"Error: {ex.Message}";
+                            return preview;
+                        }
+                    }
+
+                    // Detect what changed
+                    preview.Changes = stateTracker.DetectChanges();
+                    preview.Success = true;
+
+                    // ROLLBACK - don't commit the changes yet
+                    transGroup.RollBack();
+                }
+
+                return preview;
+            }
+            catch (CompilationException ex)
+            {
+                preview.Success = false;
+                preview.Error = ex.Message;
+                return preview;
+            }
+            catch (Exception ex)
+            {
+                preview.Success = false;
+                preview.Error = $"Preview error: {ex.Message}";
+                return preview;
+            }
+        }
+
+        /// <summary>
+        /// Compile and execute AI-generated code (commits changes)
         /// </summary>
         public ExecutionResult Execute(string code)
         {

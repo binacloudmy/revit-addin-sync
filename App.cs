@@ -16,6 +16,10 @@ namespace RevitWebAppSync
         public static ExternalEvent AIExternalEvent { get; private set; }
         public static CodeExecutionHandler AIHandler { get; private set; }
 
+        // Preview execution (HITL - Human in the Loop)
+        public static ExternalEvent PreviewExternalEvent { get; private set; }
+        public static PreviewExecutionHandler PreviewHandler { get; private set; }
+
         public Result OnStartup(UIControlledApplication application)
         {
             try
@@ -23,6 +27,10 @@ namespace RevitWebAppSync
                 // Create external event handler for AI code execution
                 AIHandler = new CodeExecutionHandler();
                 AIExternalEvent = ExternalEvent.Create(AIHandler);
+
+                // Create external event handler for preview execution (HITL)
+                PreviewHandler = new PreviewExecutionHandler();
+                PreviewExternalEvent = ExternalEvent.Create(PreviewHandler);
 
                 CreateRibbonTab(application);
                 return Result.Succeeded;

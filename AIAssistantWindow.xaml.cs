@@ -3,6 +3,7 @@ using Autodesk.Revit.UI;
 using RevitWebAppSync.Handlers;
 using RevitWebAppSync.Models;
 using RevitWebAppSync.Services;
+using RevitWebAppSync.Windows;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -22,8 +23,12 @@ namespace RevitWebAppSync
         private readonly AIService _aiService;
         private readonly ExternalEvent _externalEvent;
         private readonly CodeExecutionHandler _handler;
+        private readonly ExternalEvent _previewExternalEvent;
+        private readonly PreviewExecutionHandler _previewHandler;
 
         private int _totalTokens = 0;
+        private string _pendingCode = null;
+        private string _pendingExplanation = null;
 
         public AIAssistantWindow(UIDocument uidoc, ExternalEvent externalEvent, CodeExecutionHandler handler)
         {
@@ -33,6 +38,10 @@ namespace RevitWebAppSync
             _doc = uidoc.Document;
             _externalEvent = externalEvent;
             _handler = handler;
+
+            // Get preview handlers from App
+            _previewExternalEvent = App.PreviewExternalEvent;
+            _previewHandler = App.PreviewHandler;
 
             // Use default ngrok URL from AIService
             _aiService = new AIService();
@@ -93,8 +102,7 @@ namespace RevitWebAppSync
                 if (response.Success && !string.IsNullOrEmpty(response.Code))
                 {
                     // Add AI response to chat
-                    AddMessage(response.Explanation ?? "Executing code...", isUser: false);
-                    AddCodeBlock(response.Code);
+                    AddMessage(response.Explanation ?? "Processing request...", isUser: false);
 
                     // Update tokens
                     if (response.TokensUsed.HasValue)
@@ -109,9 +117,9 @@ namespace RevitWebAppSync
                         AddWarning(string.Join("\n", response.Warnings));
                     }
 
-                    // Execute code via ExternalEvent (thread-safe)
-                    StatusText.Text = "Executing in Revit...";
-                    ExecuteCode(response.Code);
+                    // Preview code first (HITL - Human in the Loop)
+                    StatusText.Text = "Analyzing changes...";
+                    PreviewAndExecuteCode(response.Code, response.Explanation);
                 }
                 else
                 {
@@ -130,6 +138,61 @@ namespace RevitWebAppSync
             }
         }
 
+        /// <summary>
+        /// Preview changes and show approval dialog before executing
+        /// </summary>
+        private void PreviewAndExecuteCode(string code, string explanation)
+        {
+            _pendingCode = code;
+            _pendingExplanation = explanation;
+
+            _previewHandler.CodeToPreview = code;
+            _previewHandler.Explanation = explanation;
+            _previewHandler.OnCompleted = (preview) =>
+            {
+                // This callback runs on Revit's thread, dispatch to UI thread
+                Dispatcher.Invoke(() =>
+                {
+                    if (!preview.Success)
+                    {
+                        AddError(preview.Error ?? "Preview failed");
+                        StatusText.Text = "Preview failed";
+                        StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 82, 82));
+                        SetInputEnabled(true);
+                        return;
+                    }
+
+                    // Show preview window for user approval
+                    var previewWindow = new PreviewWindow(preview, _uidoc);
+                    previewWindow.Owner = this;
+                    var result = previewWindow.ShowDialog();
+
+                    if (previewWindow.Approved)
+                    {
+                        // User approved - execute the code
+                        StatusText.Text = "Applying changes...";
+                        ExecuteCode(_pendingCode);
+                    }
+                    else
+                    {
+                        // User cancelled
+                        AddInfo("Changes cancelled by user");
+                        StatusText.Text = "Cancelled";
+                        StatusText.Foreground = new SolidColorBrush(Color.FromRgb(136, 136, 136));
+                        SetInputEnabled(true);
+                    }
+
+                    _pendingCode = null;
+                    _pendingExplanation = null;
+                });
+            };
+
+            _previewExternalEvent.Raise();
+        }
+
+        /// <summary>
+        /// Execute code directly (after preview approval)
+        /// </summary>
         private void ExecuteCode(string code)
         {
             _handler.CodeToExecute = code;
@@ -140,7 +203,7 @@ namespace RevitWebAppSync
                 {
                     if (result.Success)
                     {
-                        AddSuccess(result.Message ?? "Executed successfully");
+                        AddSuccess(result.Message ?? "Changes applied successfully");
                         StatusText.Text = "Ready";
                         StatusText.Foreground = new SolidColorBrush(Color.FromRgb(0, 200, 83));
                     }
@@ -308,6 +371,20 @@ namespace RevitWebAppSync
             {
                 Text = $"[Warning] {message}",
                 Foreground = new SolidColorBrush(Color.FromRgb(255, 193, 7)),
+                Margin = new Thickness(0, 4, 0, 4),
+                TextWrapping = TextWrapping.Wrap
+            };
+
+            ChatHistory.Children.Add(textBlock);
+            ScrollToBottom();
+        }
+
+        private void AddInfo(string message)
+        {
+            var textBlock = new TextBlock
+            {
+                Text = $"[Info] {message}",
+                Foreground = new SolidColorBrush(Color.FromRgb(136, 136, 136)),
                 Margin = new Thickness(0, 4, 0, 4),
                 TextWrapping = TextWrapping.Wrap
             };
