@@ -3,7 +3,6 @@ using Autodesk.Revit.UI;
 using RevitWebAppSync.Handlers;
 using RevitWebAppSync.Models;
 using RevitWebAppSync.Services;
-using RevitWebAppSync.Windows;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -11,6 +10,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using Color = System.Windows.Media.Color;
 using TextBox = System.Windows.Controls.TextBox;
 
@@ -28,7 +28,8 @@ namespace RevitWebAppSync
 
         private int _totalTokens = 0;
         private string _pendingCode = null;
-        private string _pendingExplanation = null;
+        private ExecutionPreview _currentPreview = null;
+        private bool _isDrawerOpen = false;
 
         public AIAssistantWindow(UIDocument uidoc, ExternalEvent externalEvent, CodeExecutionHandler handler)
         {
@@ -82,6 +83,9 @@ namespace RevitWebAppSync
             var prompt = PromptInput.Text?.Trim();
             if (string.IsNullOrEmpty(prompt)) return;
 
+            // Close drawer if open
+            if (_isDrawerOpen) CloseDrawer();
+
             // Disable input while processing
             SetInputEnabled(false);
             StatusText.Text = "Generating code...";
@@ -119,7 +123,7 @@ namespace RevitWebAppSync
 
                     // Preview code first (HITL - Human in the Loop)
                     StatusText.Text = "Analyzing changes...";
-                    PreviewAndExecuteCode(response.Code, response.Explanation);
+                    PreviewAndShowDrawer(response.Code, response.Explanation);
                 }
                 else
                 {
@@ -138,19 +142,16 @@ namespace RevitWebAppSync
             }
         }
 
-        /// <summary>
-        /// Preview changes and show approval dialog before executing
-        /// </summary>
-        private void PreviewAndExecuteCode(string code, string explanation)
+        #region Side Drawer
+
+        private void PreviewAndShowDrawer(string code, string explanation)
         {
             _pendingCode = code;
-            _pendingExplanation = explanation;
 
             _previewHandler.CodeToPreview = code;
             _previewHandler.Explanation = explanation;
             _previewHandler.OnCompleted = (preview) =>
             {
-                // This callback runs on Revit's thread, dispatch to UI thread
                 Dispatcher.Invoke(() =>
                 {
                     if (!preview.Success)
@@ -162,33 +163,249 @@ namespace RevitWebAppSync
                         return;
                     }
 
-                    // Show preview window for user approval
-                    var previewWindow = new PreviewWindow(preview, _uidoc);
-                    previewWindow.Owner = this;
-                    var result = previewWindow.ShowDialog();
-
-                    if (previewWindow.Approved)
-                    {
-                        // User approved - execute the code
-                        StatusText.Text = "Applying changes...";
-                        ExecuteCode(_pendingCode);
-                    }
-                    else
-                    {
-                        // User cancelled
-                        AddInfo("Changes cancelled by user");
-                        StatusText.Text = "Cancelled";
-                        StatusText.Foreground = new SolidColorBrush(Color.FromRgb(136, 136, 136));
-                        SetInputEnabled(true);
-                    }
-
-                    _pendingCode = null;
-                    _pendingExplanation = null;
+                    _currentPreview = preview;
+                    PopulateDrawer(preview);
+                    OpenDrawer();
+                    StatusText.Text = "Review changes";
+                    StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 193, 7));
                 });
             };
 
             _previewExternalEvent.Raise();
         }
+
+        private void PopulateDrawer(ExecutionPreview preview)
+        {
+            // Set explanation
+            DrawerExplanation.Text = preview.Explanation ?? preview.ExecutionMessage ?? "";
+
+            // Set risk badge
+            SetRiskBadge(preview.Risk);
+
+            // Set summary
+            DrawerSummary.Text = preview.Summary;
+
+            // Clear and populate badges
+            SummaryBadges.Children.Clear();
+            if (preview.DeletedElements.Count > 0)
+                AddBadge($"{preview.DeletedElements.Count} deleted", "#F44336");
+            if (preview.ModifiedElements.Count > 0)
+                AddBadge($"{preview.ModifiedElements.Count} modified", "#FF9800");
+            if (preview.CreatedElements.Count > 0)
+                AddBadge($"{preview.CreatedElements.Count} created", "#4CAF50");
+            if (preview.SelectedElements.Count > 0)
+                AddBadge($"{preview.SelectedElements.Count} selected", "#2196F3");
+
+            // Clear and populate changes list
+            DrawerChangesList.Children.Clear();
+
+            // Add deleted elements
+            foreach (var elem in preview.DeletedElements.Take(20))
+                AddChangeItem(elem, "#F44336");
+
+            // Add modified elements
+            foreach (var elem in preview.ModifiedElements.Take(20))
+                AddChangeItem(elem, "#FF9800", showParams: true);
+
+            // Add created elements
+            foreach (var elem in preview.CreatedElements.Take(20))
+                AddChangeItem(elem, "#4CAF50");
+
+            // Add selected elements
+            foreach (var elem in preview.SelectedElements.Take(20))
+                AddChangeItem(elem, "#2196F3");
+
+            // Show highlight button if there are elements
+            HighlightBtn.Visibility = preview.TotalAffected > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            // Update approve button style based on risk
+            if (preview.Risk == RiskLevel.High)
+            {
+                ApproveBtn.Style = (Style)FindResource("DangerButton");
+                ApproveBtn.Content = "Delete Elements";
+            }
+            else
+            {
+                ApproveBtn.Style = (Style)FindResource("ApproveButton");
+                ApproveBtn.Content = preview.IsReadOnly ? "Continue" : "Apply Changes";
+            }
+        }
+
+        private void SetRiskBadge(RiskLevel risk)
+        {
+            switch (risk)
+            {
+                case RiskLevel.High:
+                    RiskBadge.Background = new SolidColorBrush(Color.FromRgb(244, 67, 54));
+                    RiskText.Text = "HIGH";
+                    break;
+                case RiskLevel.Medium:
+                    RiskBadge.Background = new SolidColorBrush(Color.FromRgb(255, 152, 0));
+                    RiskText.Text = "MEDIUM";
+                    break;
+                case RiskLevel.Low:
+                    RiskBadge.Background = new SolidColorBrush(Color.FromRgb(76, 175, 80));
+                    RiskText.Text = "LOW";
+                    break;
+                default:
+                    RiskBadge.Background = new SolidColorBrush(Color.FromRgb(33, 150, 243));
+                    RiskText.Text = "SAFE";
+                    break;
+            }
+        }
+
+        private void AddBadge(string text, string hexColor)
+        {
+            var color = (Color)ColorConverter.ConvertFromString(hexColor);
+            var border = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(50, color.R, color.G, color.B)),
+                BorderBrush = new SolidColorBrush(color),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(6, 2, 6, 2),
+                Margin = new Thickness(0, 0, 6, 0)
+            };
+            border.Child = new TextBlock
+            {
+                Text = text,
+                Foreground = new SolidColorBrush(color),
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold
+            };
+            SummaryBadges.Children.Add(border);
+        }
+
+        private void AddChangeItem(ElementChange elem, string hexColor, bool showParams = false)
+        {
+            var color = (Color)ColorConverter.ConvertFromString(hexColor);
+
+            var border = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(30, 30, 30)),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(10, 6, 10, 6),
+                Margin = new Thickness(0, 0, 0, 4),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(80, color.R, color.G, color.B)),
+                BorderThickness = new Thickness(0, 0, 3, 0)
+            };
+
+            var stack = new StackPanel();
+
+            // Main row
+            var mainRow = new StackPanel { Orientation = Orientation.Horizontal };
+            mainRow.Children.Add(new TextBlock
+            {
+                Text = elem.Category,
+                Foreground = new SolidColorBrush(Color.FromRgb(120, 120, 120)),
+                FontSize = 10,
+                Margin = new Thickness(0, 0, 6, 0),
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            mainRow.Children.Add(new TextBlock
+            {
+                Text = elem.ElementName,
+                Foreground = Brushes.White,
+                FontSize = 12,
+                FontWeight = FontWeights.SemiBold
+            });
+            stack.Children.Add(mainRow);
+
+            // Parameter changes
+            if (showParams && elem.ParameterChanges?.Count > 0)
+            {
+                foreach (var pc in elem.ParameterChanges.Take(2))
+                {
+                    var paramRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 3, 0, 0) };
+                    paramRow.Children.Add(new TextBlock
+                    {
+                        Text = $"{pc.ParameterName}: ",
+                        Foreground = new SolidColorBrush(Color.FromRgb(100, 100, 100)),
+                        FontSize = 10
+                    });
+                    paramRow.Children.Add(new TextBlock
+                    {
+                        Text = pc.BeforeValue,
+                        Foreground = new SolidColorBrush(Color.FromRgb(244, 67, 54)),
+                        FontSize = 10,
+                        TextDecorations = TextDecorations.Strikethrough
+                    });
+                    paramRow.Children.Add(new TextBlock
+                    {
+                        Text = " -> ",
+                        Foreground = new SolidColorBrush(Color.FromRgb(100, 100, 100)),
+                        FontSize = 10
+                    });
+                    paramRow.Children.Add(new TextBlock
+                    {
+                        Text = pc.AfterValue,
+                        Foreground = new SolidColorBrush(Color.FromRgb(76, 175, 80)),
+                        FontSize = 10,
+                        FontWeight = FontWeights.SemiBold
+                    });
+                    stack.Children.Add(paramRow);
+                }
+            }
+
+            border.Child = stack;
+            DrawerChangesList.Children.Add(border);
+        }
+
+        private void OpenDrawer()
+        {
+            _isDrawerOpen = true;
+            var storyboard = (Storyboard)FindResource("OpenDrawer");
+            storyboard.Begin(this);
+        }
+
+        private void CloseDrawer()
+        {
+            _isDrawerOpen = false;
+            var storyboard = (Storyboard)FindResource("CloseDrawer");
+            storyboard.Begin(this);
+        }
+
+        private void HighlightButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (_currentPreview == null) return;
+
+            try
+            {
+                var elementIds = _currentPreview.Changes
+                    .Where(c => c.ChangeType != ChangeType.Deleted)
+                    .Select(c => new ElementId(c.ElementId))
+                    .ToList();
+
+                if (elementIds.Count > 0)
+                {
+                    _uidoc.Selection.SetElementIds(elementIds);
+                    try { _uidoc.ShowElements(elementIds); } catch { }
+                }
+            }
+            catch { }
+        }
+
+        private void ApproveButton_Click(object sender, RoutedEventArgs e)
+        {
+            CloseDrawer();
+            StatusText.Text = "Applying changes...";
+            ExecuteCode(_pendingCode);
+            _pendingCode = null;
+            _currentPreview = null;
+        }
+
+        private void CancelButton_Click(object sender, RoutedEventArgs e)
+        {
+            CloseDrawer();
+            AddInfo("Changes cancelled");
+            StatusText.Text = "Cancelled";
+            StatusText.Foreground = new SolidColorBrush(Color.FromRgb(136, 136, 136));
+            SetInputEnabled(true);
+            _pendingCode = null;
+            _currentPreview = null;
+        }
+
+        #endregion
 
         /// <summary>
         /// Execute code directly (after preview approval)
@@ -198,7 +415,6 @@ namespace RevitWebAppSync
             _handler.CodeToExecute = code;
             _handler.OnCompleted = (result) =>
             {
-                // This callback runs on Revit's thread, dispatch to UI thread
                 Dispatcher.Invoke(() =>
                 {
                     if (result.Success)
@@ -300,7 +516,7 @@ namespace RevitWebAppSync
                 Text = text,
                 Foreground = Brushes.White,
                 TextWrapping = TextWrapping.Wrap,
-                MaxWidth = 350
+                MaxWidth = 300
             };
 
             border.Child = textBlock;
