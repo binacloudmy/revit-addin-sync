@@ -189,10 +189,12 @@ namespace RevitWebAppSync.Services
             code = Regex.Replace(code, @"if\s*\(\s*TaskDialog\.Show\s*\([^)]+\)\s*[!=]=\s*TaskDialogResult\.\w+\s*\)\s*\{[^}]*return[^}]*\}", "", RegexOptions.Multiline);
             code = Regex.Replace(code, @"if\s*\(\s*TaskDialog\.Show\s*\([^)]+\)\s*[!=]=\s*TaskDialogResult\.\w+\s*\)\s*return;", "", RegexOptions.Multiline);
 
-            // Remove return statements (we add our own "return Success" at the end)
-            // Remove: return; or return "something"; or return value;
-            code = Regex.Replace(code, @"^\s*return\s*;?\s*$", "", RegexOptions.Multiline);
-            code = Regex.Replace(code, @"^\s*return\s+[^;]+;\s*$", "", RegexOptions.Multiline);
+            // Remove simple return statements only (we add our own "return Success" at the end)
+            // Only remove: return; or return "string"; or return true/false;
+            // Do NOT remove: return doc.Delete(...) or other method calls
+            code = Regex.Replace(code, @"^\s*return\s*;\s*$", "", RegexOptions.Multiline);
+            code = Regex.Replace(code, @"^\s*return\s+""[^""]*""\s*;\s*$", "", RegexOptions.Multiline);
+            code = Regex.Replace(code, @"^\s*return\s+(true|false|null)\s*;\s*$", "", RegexOptions.Multiline);
 
             // Remove empty lines created by removals
             code = Regex.Replace(code, @"(\r?\n){3,}", "\n\n");
