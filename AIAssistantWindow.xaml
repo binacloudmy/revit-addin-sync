@@ -102,6 +102,33 @@
             </Style.Triggers>
         </Style>
 
+        <!-- Mention Autocomplete Styles -->
+        <Style x:Key="MentionListItem" TargetType="ListBoxItem">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="Padding" Value="10,6"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Border"
+                                Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#3E3E42"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#0078D4"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- Storyboards for drawer animation -->
         <Storyboard x:Key="OpenDrawer">
             <DoubleAnimation Storyboard.TargetName="DrawerPanel"
@@ -212,16 +239,99 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <TextBox x:Name="PromptInput"
-                         Grid.Column="0"
-                         Style="{StaticResource DarkTextBox}"
-                         AcceptsReturn="True"
-                         TextWrapping="Wrap"
-                         MaxHeight="100"
-                         VerticalScrollBarVisibility="Auto"
-                         KeyDown="PromptInput_KeyDown"
-                         Text=""
-                         ToolTip="Enter your prompt (Ctrl+Enter to send)"/>
+                <Grid Grid.Column="0">
+                    <TextBox x:Name="PromptInput"
+                             Style="{StaticResource DarkTextBox}"
+                             AcceptsReturn="True"
+                             TextWrapping="Wrap"
+                             MaxHeight="100"
+                             VerticalScrollBarVisibility="Auto"
+                             KeyDown="PromptInput_KeyDown"
+                             TextChanged="PromptInput_TextChanged"
+                             PreviewKeyDown="PromptInput_PreviewKeyDown"
+                             Text=""
+                             ToolTip="Type @ to mention categories, levels, or views (Ctrl+Enter to send)"/>
+
+                    <!-- Mention Autocomplete Popup -->
+                    <Popup x:Name="MentionPopup"
+                           PlacementTarget="{Binding ElementName=PromptInput}"
+                           Placement="Top"
+                           StaysOpen="False"
+                           AllowsTransparency="True"
+                           PopupAnimation="Fade">
+                        <Border Background="#2D2D30"
+                                BorderBrush="#0078D4"
+                                BorderThickness="1"
+                                CornerRadius="6"
+                                MaxHeight="250"
+                                MinWidth="250">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+
+                                <!-- Header -->
+                                <Border Grid.Row="0"
+                                        Background="#252526"
+                                        Padding="10,6"
+                                        CornerRadius="6,6,0,0">
+                                    <TextBlock Text="Mention an element"
+                                               FontSize="11"
+                                               Foreground="#888888"/>
+                                </Border>
+
+                                <!-- Items List -->
+                                <ListBox x:Name="MentionListBox"
+                                         Grid.Row="1"
+                                         Background="Transparent"
+                                         BorderThickness="0"
+                                         ItemContainerStyle="{StaticResource MentionListItem}"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                         SelectionChanged="MentionListBox_SelectionChanged"
+                                         MouseDoubleClick="MentionListBox_MouseDoubleClick">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+
+                                                <!-- Icon -->
+                                                <TextBlock Grid.Column="0"
+                                                           Text="{Binding Icon}"
+                                                           FontSize="14"
+                                                           Margin="0,0,8,0"
+                                                           VerticalAlignment="Center"/>
+
+                                                <!-- Name -->
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Name}"
+                                                               FontSize="12"
+                                                               FontWeight="SemiBold"
+                                                               Foreground="#FFFFFF"/>
+                                                    <TextBlock Text="{Binding Group}"
+                                                               FontSize="10"
+                                                               Foreground="#888888"/>
+                                                </StackPanel>
+
+                                                <!-- Info -->
+                                                <TextBlock Grid.Column="2"
+                                                           Text="{Binding Info}"
+                                                           FontSize="10"
+                                                           Foreground="#888888"
+                                                           VerticalAlignment="Center"
+                                                           Margin="8,0,0,0"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </Grid>
+                        </Border>
+                    </Popup>
+                </Grid>
 
                 <Button x:Name="SendButton"
                         Grid.Column="1"

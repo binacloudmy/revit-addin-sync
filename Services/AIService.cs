@@ -15,8 +15,8 @@ namespace RevitWebAppSync.Services
         private readonly string _baseUrl;
 
         // Ngrok public URL for bina-ai-agent (Agno)
-        // Update this with your ngrok URL when running: ngrok http 8000
-        private const string DEFAULT_BASE_URL = "https://120d-2001-f40-935-7c0f-7c5b-b0e4-9e86-6d86.ngrok-free.app";
+        // Update this with your ngrok URL when running: ngrok http 3000
+        private const string DEFAULT_BASE_URL = "https://a811-2001-f40-935-7c0f-1919-f9ac-b189-5aa1.ngrok-free.app";
 
         public AIService(string baseUrl = null)
         {
@@ -32,8 +32,17 @@ namespace RevitWebAppSync.Services
         /// <summary>
         /// Send prompt to Agno Revit AI Team and get generated code
         /// </summary>
-        public async Task<AIResponse> GenerateCodeAsync(string prompt, ModelContext context)
+        public async Task<AIResponse> GenerateCodeAsync(string prompt, ModelContext context, MentionContext mentionContext = null)
         {
+            // Build mention context string if mentions exist
+            var mentionInfo = "";
+            if (mentionContext?.Mentions?.Count > 0)
+            {
+                mentionInfo = $@"
+
+{mentionContext.ToContextString()}";
+            }
+
             // Build context string for the AI
             var contextInfo = $@"
 Revit Model Context:
@@ -42,7 +51,7 @@ Revit Model Context:
 - Active View: {context.ActiveViewName} ({context.ActiveViewType})
 - Levels: {string.Join(", ", context.Levels ?? new System.Collections.Generic.List<string>())}
 - Phases: {string.Join(", ", context.Phases ?? new System.Collections.Generic.List<string>())}
-- Selected Elements: {(context.SelectedElementIds?.Count > 0 ? string.Join(", ", context.SelectedElementIds) : "None")}
+- Selected Elements: {(context.SelectedElementIds?.Count > 0 ? string.Join(", ", context.SelectedElementIds) : "None")}{mentionInfo}
 
 User Request: {prompt}
 

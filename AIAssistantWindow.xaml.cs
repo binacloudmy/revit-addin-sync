@@ -21,6 +21,7 @@ namespace RevitWebAppSync
         private readonly UIDocument _uidoc;
         private readonly Document _doc;
         private readonly AIService _aiService;
+        private readonly MentionService _mentionService;
         private readonly ExternalEvent _externalEvent;
         private readonly CodeExecutionHandler _handler;
         private readonly ExternalEvent _previewExternalEvent;
@@ -30,6 +31,10 @@ namespace RevitWebAppSync
         private string _pendingCode = null;
         private ExecutionPreview _currentPreview = null;
         private bool _isDrawerOpen = false;
+
+        // Mention autocomplete state
+        private int _mentionStartIndex = -1;
+        private bool _isMentionMode = false;
 
         public AIAssistantWindow(UIDocument uidoc, ExternalEvent externalEvent, CodeExecutionHandler handler)
         {
@@ -46,6 +51,9 @@ namespace RevitWebAppSync
 
             // Use default ngrok URL from AIService
             _aiService = new AIService();
+
+            // Initialize mention service for @mentions
+            _mentionService = new MentionService(_doc, _uidoc);
 
             // Check backend connection on load
             CheckBackendConnection();
@@ -78,10 +86,147 @@ namespace RevitWebAppSync
             }
         }
 
+        #region Mention Autocomplete
+
+        private void PromptInput_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            var text = PromptInput.Text;
+            var caretIndex = PromptInput.CaretIndex;
+
+            // Check if we should enter mention mode
+            if (caretIndex > 0)
+            {
+                // Find the last @ before caret
+                var lastAtIndex = text.LastIndexOf('@', caretIndex - 1);
+
+                if (lastAtIndex >= 0)
+                {
+                    // Check if there's a space between @ and caret (not in mention mode)
+                    var textAfterAt = text.Substring(lastAtIndex + 1, caretIndex - lastAtIndex - 1);
+
+                    // If no space after @, we're in mention mode
+                    if (!textAfterAt.Contains(" ") || textAfterAt.Split(' ').Length <= 2)
+                    {
+                        _isMentionMode = true;
+                        _mentionStartIndex = lastAtIndex;
+
+                        // Filter items based on text after @
+                        var searchText = textAfterAt.TrimStart();
+                        var items = _mentionService.FilterItems(searchText);
+
+                        if (items.Count > 0)
+                        {
+                            MentionListBox.ItemsSource = items;
+                            MentionListBox.SelectedIndex = 0;
+                            MentionPopup.IsOpen = true;
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Close popup if not in mention mode
+            CloseMentionPopup();
+        }
+
+        private void PromptInput_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (!MentionPopup.IsOpen) return;
+
+            switch (e.Key)
+            {
+                case Key.Down:
+                    // Navigate down in list
+                    if (MentionListBox.SelectedIndex < MentionListBox.Items.Count - 1)
+                    {
+                        MentionListBox.SelectedIndex++;
+                        MentionListBox.ScrollIntoView(MentionListBox.SelectedItem);
+                    }
+                    e.Handled = true;
+                    break;
+
+                case Key.Up:
+                    // Navigate up in list
+                    if (MentionListBox.SelectedIndex > 0)
+                    {
+                        MentionListBox.SelectedIndex--;
+                        MentionListBox.ScrollIntoView(MentionListBox.SelectedItem);
+                    }
+                    e.Handled = true;
+                    break;
+
+                case Key.Enter:
+                case Key.Tab:
+                    // Insert selected mention
+                    if (MentionListBox.SelectedItem is MentionItem selectedItem)
+                    {
+                        InsertMention(selectedItem);
+                        e.Handled = true;
+                    }
+                    break;
+
+                case Key.Escape:
+                    // Close popup
+                    CloseMentionPopup();
+                    e.Handled = true;
+                    break;
+            }
+        }
+
+        private void MentionListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // Keep focus on text box
+            PromptInput.Focus();
+        }
+
+        private void MentionListBox_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (MentionListBox.SelectedItem is MentionItem selectedItem)
+            {
+                InsertMention(selectedItem);
+            }
+        }
+
+        private void InsertMention(MentionItem item)
+        {
+            if (_mentionStartIndex < 0) return;
+
+            var text = PromptInput.Text;
+            var caretIndex = PromptInput.CaretIndex;
+
+            // Build the mention text
+            var mentionText = item.Name.Contains(" ") ? $"@\"{item.Name}\"" : $"@{item.Name}";
+
+            // Replace text from @ to caret with the mention
+            var newText = text.Substring(0, _mentionStartIndex) + mentionText;
+            if (caretIndex < text.Length)
+            {
+                newText += text.Substring(caretIndex);
+            }
+
+            PromptInput.Text = newText;
+            PromptInput.CaretIndex = _mentionStartIndex + mentionText.Length;
+
+            CloseMentionPopup();
+            PromptInput.Focus();
+        }
+
+        private void CloseMentionPopup()
+        {
+            MentionPopup.IsOpen = false;
+            _isMentionMode = false;
+            _mentionStartIndex = -1;
+        }
+
+        #endregion
+
         private async void SendButton_Click(object sender, RoutedEventArgs e)
         {
             var prompt = PromptInput.Text?.Trim();
             if (string.IsNullOrEmpty(prompt)) return;
+
+            // Close mention popup if open
+            CloseMentionPopup();
 
             // Close drawer if open
             if (_isDrawerOpen) CloseDrawer();
@@ -97,11 +242,14 @@ namespace RevitWebAppSync
 
             try
             {
+                // Resolve @mentions in the prompt
+                var mentionContext = _mentionService.ResolveMentions(prompt);
+
                 // Get model context from current Revit state
                 var context = GetModelContext();
 
-                // Call AI service
-                var response = await _aiService.GenerateCodeAsync(prompt, context);
+                // Call AI service with mention context
+                var response = await _aiService.GenerateCodeAsync(prompt, context, mentionContext);
 
                 if (response.Success && !string.IsNullOrEmpty(response.Code))
                 {
