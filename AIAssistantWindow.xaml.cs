@@ -269,9 +269,9 @@ namespace RevitWebAppSync
                         AddWarning(string.Join("\n", response.Warnings));
                     }
 
-                    // Preview code first (HITL - Human in the Loop)
-                    StatusText.Text = "Analyzing changes...";
-                    PreviewAndShowDrawer(response.Code, response.Explanation);
+                    // Execute code directly (no preview)
+                    StatusText.Text = "Executing...";
+                    ExecuteCode(response.Code);
                 }
                 else
                 {
