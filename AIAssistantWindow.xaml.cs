@@ -22,6 +22,7 @@ namespace RevitWebAppSync
         private readonly Document _doc;
         private readonly AIService _aiService;
         private readonly MentionService _mentionService;
+        private readonly CommandLibraryService _commandLibrary;
         private readonly ExternalEvent _externalEvent;
         private readonly CodeExecutionHandler _handler;
         private readonly ExternalEvent _previewExternalEvent;
@@ -35,6 +36,12 @@ namespace RevitWebAppSync
         // Mention autocomplete state
         private int _mentionStartIndex = -1;
         private bool _isMentionMode = false;
+
+        // Last successful execution (for save command)
+        private string _lastPrompt = null;
+        private string _lastCode = null;
+        private string _lastExplanation = null;
+        private string _currentCategoryFilter = "All";
 
         public AIAssistantWindow(UIDocument uidoc, ExternalEvent externalEvent, CodeExecutionHandler handler)
         {
@@ -55,8 +62,30 @@ namespace RevitWebAppSync
             // Initialize mention service for @mentions
             _mentionService = new MentionService(_doc, _uidoc);
 
+            // Initialize command library
+            _commandLibrary = new CommandLibraryService();
+            LoadCommandLibrary();
+
             // Check backend connection on load
             CheckBackendConnection();
+        }
+
+        private void LoadCommandLibrary(string categoryFilter = "All")
+        {
+            _currentCategoryFilter = categoryFilter;
+            List<SavedCommand> commands;
+
+            if (categoryFilter == "All")
+            {
+                commands = _commandLibrary.GetAllCommands();
+            }
+            else
+            {
+                commands = _commandLibrary.GetCommandsByCategory(categoryFilter);
+            }
+
+            CommandsList.ItemsSource = commands;
+            CommandCountText.Text = $"({commands.Count} commands)";
         }
 
         private async void CheckBackendConnection()
@@ -240,6 +269,12 @@ namespace RevitWebAppSync
             AddMessage(prompt, isUser: true);
             PromptInput.Text = "";
 
+            // Hide save button from previous execution
+            SaveCommandBtn.Visibility = Visibility.Collapsed;
+            _lastPrompt = prompt;
+            _lastCode = null;
+            _lastExplanation = null;
+
             try
             {
                 // Resolve @mentions in the prompt
@@ -253,6 +288,9 @@ namespace RevitWebAppSync
 
                 if (response.Success && !string.IsNullOrEmpty(response.Code))
                 {
+                    // Store for potential save
+                    _lastExplanation = response.Explanation;
+
                     // Add AI response to chat
                     AddMessage(response.Explanation ?? "Processing request...", isUser: false);
 
@@ -558,7 +596,7 @@ namespace RevitWebAppSync
         /// <summary>
         /// Execute code directly (after preview approval)
         /// </summary>
-        private void ExecuteCode(string code)
+        private void ExecuteCode(string code, bool fromSavedCommand = false)
         {
             _handler.CodeToExecute = code;
             _handler.OnCompleted = (result) =>
@@ -567,15 +605,23 @@ namespace RevitWebAppSync
                 {
                     if (result.Success)
                     {
-                        AddSuccess(result.Message ?? "Changes applied successfully");
+                        AddSuccess(result.Message ?? "Executed successfully");
                         StatusText.Text = "Ready";
                         StatusText.Foreground = new SolidColorBrush(Color.FromRgb(0, 200, 83));
+
+                        // Show save button only for AI-generated commands (not saved ones)
+                        if (!fromSavedCommand && !string.IsNullOrEmpty(_lastPrompt))
+                        {
+                            _lastCode = code;
+                            SaveCommandBtn.Visibility = Visibility.Visible;
+                        }
                     }
                     else
                     {
                         AddError(result.Error ?? "Execution failed");
                         StatusText.Text = "Execution failed";
                         StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 82, 82));
+                        SaveCommandBtn.Visibility = Visibility.Collapsed;
                     }
 
                     SetInputEnabled(true);
@@ -779,15 +825,70 @@ namespace RevitWebAppSync
 
         #endregion
 
-        #region Quick Actions
+        #region Command Library
 
-        private void QuickAction_Click(object sender, RoutedEventArgs e)
+        private void FilterCategory_Click(object sender, RoutedEventArgs e)
         {
-            if (sender is Button button && button.Tag is string prompt)
+            if (sender is Button button && button.Tag is string category)
             {
-                // Set the prompt text and trigger send
-                PromptInput.Text = prompt;
-                SendButton_Click(sender, e);
+                LoadCommandLibrary(category);
+            }
+        }
+
+        private void Command_Click(object sender, MouseButtonEventArgs e)
+        {
+            if (sender is FrameworkElement element && element.DataContext is SavedCommand command)
+            {
+                // Close mention popup if open
+                CloseMentionPopup();
+
+                // Disable input while executing
+                SetInputEnabled(false);
+                StatusText.Text = "Executing command...";
+                StatusText.Foreground = new SolidColorBrush(Color.FromRgb(136, 136, 136));
+
+                // Add to chat
+                AddMessage($"Running: {command.Name}", isUser: true);
+
+                // Record usage
+                _commandLibrary.RecordUsage(command.Id);
+                LoadCommandLibrary(_currentCategoryFilter);
+
+                // Execute the saved code directly
+                ExecuteCode(command.Code, fromSavedCommand: true);
+            }
+        }
+
+        private void SaveCommand_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(_lastCode) || string.IsNullOrEmpty(_lastPrompt))
+            {
+                return;
+            }
+
+            // Show save dialog
+            var dialog = new SaveCommandDialog(_lastPrompt, _lastExplanation);
+            dialog.Owner = this;
+
+            if (dialog.ShowDialog() == true)
+            {
+                // Save the command
+                var command = _commandLibrary.SaveCommand(
+                    name: dialog.CommandName,
+                    prompt: _lastPrompt,
+                    code: _lastCode,
+                    description: _lastExplanation ?? dialog.CommandName,
+                    category: dialog.Category,
+                    icon: dialog.Icon
+                );
+
+                // Refresh library
+                LoadCommandLibrary(_currentCategoryFilter);
+
+                // Hide save button
+                SaveCommandBtn.Visibility = Visibility.Collapsed;
+
+                AddSuccess($"Command '{command.Name}' saved to library");
             }
         }
 

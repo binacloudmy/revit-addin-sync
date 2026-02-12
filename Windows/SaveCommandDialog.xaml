@@ -1,0 +1,147 @@
+<Window x:Class="RevitWebAppSync.SaveCommandDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Save Command"
+        Width="400" Height="320"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="#1E1E1E">
+
+    <Window.Resources>
+        <Style x:Key="DarkTextBox" TargetType="TextBox">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
+            <Setter Property="CaretBrush" Value="#FFFFFF"/>
+            <Setter Property="Padding" Value="8"/>
+        </Style>
+
+        <Style x:Key="DarkComboBox" TargetType="ComboBox">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
+            <Setter Property="Padding" Value="8"/>
+        </Style>
+
+        <Style x:Key="DarkButton" TargetType="Button">
+            <Setter Property="Background" Value="#0078D4"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+
+        <Style x:Key="SecondaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#3F3F46"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="Cursor" Value="Hand"/>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Title -->
+        <TextBlock Grid.Row="0"
+                   Text="Save Command to Library"
+                   FontSize="16"
+                   FontWeight="Bold"
+                   Foreground="#FFFFFF"
+                   Margin="0,0,0,16"/>
+
+        <!-- Command Name -->
+        <StackPanel Grid.Row="1" Margin="0,0,0,12">
+            <TextBlock Text="Command Name"
+                       FontSize="12"
+                       Foreground="#888888"
+                       Margin="0,0,0,4"/>
+            <TextBox x:Name="NameInput"
+                     Style="{StaticResource DarkTextBox}"
+                     MaxLength="50"/>
+        </StackPanel>
+
+        <!-- Category -->
+        <StackPanel Grid.Row="2" Margin="0,0,0,12">
+            <TextBlock Text="Category"
+                       FontSize="12"
+                       Foreground="#888888"
+                       Margin="0,0,0,4"/>
+            <ComboBox x:Name="CategoryCombo"
+                      Style="{StaticResource DarkComboBox}"
+                      IsEditable="True">
+                <ComboBoxItem Content="General"/>
+                <ComboBoxItem Content="Export"/>
+                <ComboBoxItem Content="Selection"/>
+                <ComboBoxItem Content="Audit"/>
+                <ComboBoxItem Content="Modification"/>
+                <ComboBoxItem Content="View"/>
+                <ComboBoxItem Content="Documentation"/>
+            </ComboBox>
+        </StackPanel>
+
+        <!-- Icon -->
+        <StackPanel Grid.Row="3" Margin="0,0,0,12">
+            <TextBlock Text="Icon"
+                       FontSize="12"
+                       Foreground="#888888"
+                       Margin="0,0,0,4"/>
+            <StackPanel Orientation="Horizontal">
+                <Button Content="⚡" Tag="⚡" Click="IconSelect_Click" Padding="8,4" Margin="0,0,4,0" Background="#2D2D30" Foreground="White" BorderThickness="0"/>
+                <Button Content="📊" Tag="📊" Click="IconSelect_Click" Padding="8,4" Margin="0,0,4,0" Background="#2D2D30" Foreground="White" BorderThickness="0"/>
+                <Button Content="🚪" Tag="🚪" Click="IconSelect_Click" Padding="8,4" Margin="0,0,4,0" Background="#2D2D30" Foreground="White" BorderThickness="0"/>
+                <Button Content="🔍" Tag="🔍" Click="IconSelect_Click" Padding="8,4" Margin="0,0,4,0" Background="#2D2D30" Foreground="White" BorderThickness="0"/>
+                <Button Content="📏" Tag="📏" Click="IconSelect_Click" Padding="8,4" Margin="0,0,4,0" Background="#2D2D30" Foreground="White" BorderThickness="0"/>
+                <Button Content="🏷️" Tag="🏷️" Click="IconSelect_Click" Padding="8,4" Margin="0,0,4,0" Background="#2D2D30" Foreground="White" BorderThickness="0"/>
+                <Button Content="🗑️" Tag="🗑️" Click="IconSelect_Click" Padding="8,4" Margin="0,0,4,0" Background="#2D2D30" Foreground="White" BorderThickness="0"/>
+                <Button Content="✏️" Tag="✏️" Click="IconSelect_Click" Padding="8,4" Margin="0,0,4,0" Background="#2D2D30" Foreground="White" BorderThickness="0"/>
+                <TextBlock x:Name="SelectedIcon"
+                           Text="⚡"
+                           FontSize="20"
+                           Margin="10,0,0,0"
+                           VerticalAlignment="Center"/>
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Original Prompt Preview -->
+        <StackPanel Grid.Row="4" Margin="0,0,0,12">
+            <TextBlock Text="Original Prompt"
+                       FontSize="12"
+                       Foreground="#888888"
+                       Margin="0,0,0,4"/>
+            <Border Background="#2D2D30"
+                    CornerRadius="4"
+                    Padding="8">
+                <TextBlock x:Name="PromptPreview"
+                           Text=""
+                           FontSize="11"
+                           Foreground="#AAAAAA"
+                           TextWrapping="Wrap"
+                           TextTrimming="CharacterEllipsis"
+                           MaxHeight="40"/>
+            </Border>
+        </StackPanel>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="6"
+                    Orientation="Horizontal"
+                    HorizontalAlignment="Right">
+            <Button Content="Cancel"
+                    Style="{StaticResource SecondaryButton}"
+                    Margin="0,0,8,0"
+                    Click="Cancel_Click"/>
+            <Button Content="Save Command"
+                    Style="{StaticResource DarkButton}"
+                    Click="Save_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>
