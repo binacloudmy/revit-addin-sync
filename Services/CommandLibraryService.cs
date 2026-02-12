@@ -460,6 +460,7 @@ else
     double marginFeet = 50 / 304.8;
     int count = 0;
     var createdViews = new List<string>();
+    View3D lastView = null;
 
     foreach (var room in rooms)
     {
@@ -486,6 +487,13 @@ else
         view3D.SetSectionBox(sectionBox);
         count++;
         createdViews.Add(view3D.Name);
+        lastView = view3D;
+    }
+
+    // Open the first created view
+    if (lastView != null)
+    {
+        uidoc.ActiveView = lastView;
     }
 
     var viewList = string.Join(""\\n"", createdViews.Take(10));
