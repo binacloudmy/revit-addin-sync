@@ -147,12 +147,28 @@ namespace RevitWebAppSync.Services
                 // Compile
                 var assembly = CompileCode(fullCode);
 
-                // Execute
+                // Execute within a transaction
                 var type = assembly.GetType("RevitWebAppSync.Dynamic.AIGeneratedCode");
                 var method = type.GetMethod("Execute");
                 var instance = Activator.CreateInstance(type);
 
-                var result = method.Invoke(instance, new object[] { _doc, _uidoc, _activeView });
+                object result = null;
+
+                using (var transaction = new Transaction(_doc, "AI Code Execution"))
+                {
+                    transaction.Start();
+
+                    try
+                    {
+                        result = method.Invoke(instance, new object[] { _doc, _uidoc, _activeView });
+                        transaction.Commit();
+                    }
+                    catch (Exception ex)
+                    {
+                        transaction.RollBack();
+                        throw;
+                    }
+                }
 
                 return new ExecutionResult
                 {
