@@ -113,6 +113,28 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Validate code by compiling without executing
+        /// Returns null if valid, error message if invalid
+        /// </summary>
+        public string ValidateCode(string code)
+        {
+            try
+            {
+                string fullCode = WrapCode(code);
+                CompileCode(fullCode);
+                return null; // Code is valid
+            }
+            catch (CompilationException ex)
+            {
+                return ex.Message;
+            }
+            catch (Exception ex)
+            {
+                return $"Validation error: {ex.Message}";
+            }
+        }
+
+        /// <summary>
         /// Compile and execute AI-generated code (commits changes)
         /// </summary>
         public ExecutionResult Execute(string code)

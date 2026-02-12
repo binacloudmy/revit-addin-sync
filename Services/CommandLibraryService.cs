@@ -432,6 +432,140 @@ else
                     Category = "Modification",
                     Icon = "🗑️",
                     IsBuiltIn = true
+                },
+
+                // View Commands
+                new SavedCommand
+                {
+                    Name = "Create 3D Views for Rooms",
+                    Prompt = "For each room in the current view, create a 3D view with section box and 50mm margin",
+                    Code = @"var viewFamilyType = new FilteredElementCollector(doc)
+    .OfClass(typeof(ViewFamilyType))
+    .Cast<ViewFamilyType>()
+    .FirstOrDefault(vft => vft.ViewFamily == ViewFamily.ThreeDimensional);
+
+if (viewFamilyType == null)
+{
+    ShowMessage(""Error"", ""No 3D view type found in the project"");
+}
+else
+{
+    var rooms = new FilteredElementCollector(doc, activeView.Id)
+        .OfCategory(BuiltInCategory.OST_Rooms)
+        .WhereElementIsNotElementType()
+        .Cast<Autodesk.Revit.DB.Architecture.Room>()
+        .Where(r => r.Area > 0)
+        .ToList();
+
+    double marginFeet = 50 / 304.8;
+    int count = 0;
+    var createdViews = new List<string>();
+
+    foreach (var room in rooms)
+    {
+        var bb = room.get_BoundingBox(null);
+        if (bb == null) continue;
+
+        var view3D = View3D.CreateIsometric(doc, viewFamilyType.Id);
+        string roomName = room.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString() ?? ""Room"";
+        string roomNumber = room.Number ?? """";
+
+        try
+        {
+            view3D.Name = $""3D - {roomName} ({roomNumber})"";
+        }
+        catch
+        {
+            view3D.Name = $""3D - {roomName} ({roomNumber}) - {count}"";
+        }
+
+        var sectionBox = new BoundingBoxXYZ();
+        sectionBox.Min = new XYZ(bb.Min.X - marginFeet, bb.Min.Y - marginFeet, bb.Min.Z - marginFeet);
+        sectionBox.Max = new XYZ(bb.Max.X + marginFeet, bb.Max.Y + marginFeet, bb.Max.Z + marginFeet);
+
+        view3D.SetSectionBox(sectionBox);
+        count++;
+        createdViews.Add(view3D.Name);
+    }
+
+    var viewList = string.Join(""\\n"", createdViews.Take(10));
+    if (createdViews.Count > 10) viewList += $""\\n...and {createdViews.Count - 10} more"";
+    ShowMessage(""3D Views Created"", $""Created {count} 3D views with section boxes:\\n{viewList}"");
+}",
+                    Description = "Creates individual 3D views for each room with section box boundaries",
+                    Category = "View",
+                    Icon = "🎯",
+                    IsBuiltIn = true
+                },
+
+                new SavedCommand
+                {
+                    Name = "Create 3D View for Selection",
+                    Prompt = "Create a 3D view with section box around the selected elements",
+                    Code = @"var selectedIds = uidoc.Selection.GetElementIds();
+if (selectedIds.Count == 0)
+{
+    ShowMessage(""Error"", ""Please select some elements first"");
+}
+else
+{
+    var viewFamilyType = new FilteredElementCollector(doc)
+        .OfClass(typeof(ViewFamilyType))
+        .Cast<ViewFamilyType>()
+        .FirstOrDefault(vft => vft.ViewFamily == ViewFamily.ThreeDimensional);
+
+    if (viewFamilyType == null)
+    {
+        ShowMessage(""Error"", ""No 3D view type found"");
+    }
+    else
+    {
+        BoundingBoxXYZ combinedBox = null;
+        foreach (var id in selectedIds)
+        {
+            var elem = doc.GetElement(id);
+            var bb = elem.get_BoundingBox(null);
+            if (bb == null) continue;
+
+            if (combinedBox == null)
+            {
+                combinedBox = new BoundingBoxXYZ();
+                combinedBox.Min = bb.Min;
+                combinedBox.Max = bb.Max;
+            }
+            else
+            {
+                combinedBox.Min = new XYZ(
+                    Math.Min(combinedBox.Min.X, bb.Min.X),
+                    Math.Min(combinedBox.Min.Y, bb.Min.Y),
+                    Math.Min(combinedBox.Min.Z, bb.Min.Z));
+                combinedBox.Max = new XYZ(
+                    Math.Max(combinedBox.Max.X, bb.Max.X),
+                    Math.Max(combinedBox.Max.Y, bb.Max.Y),
+                    Math.Max(combinedBox.Max.Z, bb.Max.Z));
+            }
+        }
+
+        if (combinedBox != null)
+        {
+            double margin = 1.0;
+            var view3D = View3D.CreateIsometric(doc, viewFamilyType.Id);
+            view3D.Name = $""3D - Selection ({selectedIds.Count} elements)"";
+
+            var sectionBox = new BoundingBoxXYZ();
+            sectionBox.Min = new XYZ(combinedBox.Min.X - margin, combinedBox.Min.Y - margin, combinedBox.Min.Z - margin);
+            sectionBox.Max = new XYZ(combinedBox.Max.X + margin, combinedBox.Max.Y + margin, combinedBox.Max.Z + margin);
+            view3D.SetSectionBox(sectionBox);
+
+            uidoc.ActiveView = view3D;
+            ShowMessage(""Success"", $""Created 3D view with section box for {selectedIds.Count} elements"");
+        }
+    }
+}",
+                    Description = "Creates a 3D view with section box around selected elements",
+                    Category = "View",
+                    Icon = "📦",
+                    IsBuiltIn = true
                 }
             };
         }

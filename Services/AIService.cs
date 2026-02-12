@@ -222,6 +222,50 @@ The code will have access to: Document doc, UIDocument uidoc, View activeView";
         }
 
         /// <summary>
+        /// Retry code generation with error feedback
+        /// </summary>
+        public async Task<AIResponse> RetryWithErrorAsync(string originalPrompt, string failedCode, string errorMessage, int attempt = 1)
+        {
+            try
+            {
+                var requestBody = new
+                {
+                    original_prompt = originalPrompt,
+                    original_code = failedCode,
+                    error_message = errorMessage,
+                    attempt = attempt
+                };
+
+                var json = JsonConvert.SerializeObject(requestBody);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.PostAsync($"{_baseUrl}/agents/revit-ai/retry", content);
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                if (response.IsSuccessStatusCode)
+                {
+                    return ParseAgnoResponse(responseBody);
+                }
+                else
+                {
+                    return new AIResponse
+                    {
+                        Success = false,
+                        Error = $"Retry failed - HTTP {(int)response.StatusCode}: {responseBody}"
+                    };
+                }
+            }
+            catch (Exception ex)
+            {
+                return new AIResponse
+                {
+                    Success = false,
+                    Error = $"Retry error: {ex.Message}"
+                };
+            }
+        }
+
+        /// <summary>
         /// Check if backend is available
         /// </summary>
         public async Task<bool> HealthCheckAsync()

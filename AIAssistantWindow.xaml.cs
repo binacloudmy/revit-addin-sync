@@ -6,6 +6,7 @@ using RevitWebAppSync.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -137,6 +138,8 @@ namespace RevitWebAppSync
             }
         }
 
+        private const int MAX_RETRY_ATTEMPTS = 3;
+
         private async void SendButton_Click(object sender, RoutedEventArgs e)
         {
             var prompt = PromptInput.Text?.Trim();
@@ -173,8 +176,8 @@ namespace RevitWebAppSync
                         _totalTokens += response.TokensUsed.Value;
                     }
 
-                    SetStatus("Executing...", "#FFA000");
-                    ExecuteCode(response.Code, response.Explanation);
+                    // Validate code before execution
+                    await ValidateAndExecuteWithRetry(prompt, response.Code, response.Explanation, mentionContext);
                 }
                 else
                 {
@@ -186,6 +189,56 @@ namespace RevitWebAppSync
             catch (Exception ex)
             {
                 AddErrorMessage($"Error: {ex.Message}");
+                SetInputEnabled(true);
+                SetStatus("Error", "#D32F2F");
+            }
+        }
+
+        /// <summary>
+        /// Validate code and retry with AI if compilation fails
+        /// </summary>
+        private async Task ValidateAndExecuteWithRetry(string originalPrompt, string code, string explanation, MentionContext mentionContext, int attempt = 1)
+        {
+            // Create a temporary CodeExecutor to validate
+            var tempExecutor = new CodeExecutor(_uidoc);
+            var validationError = tempExecutor.ValidateCode(code);
+
+            if (validationError == null)
+            {
+                // Code is valid, execute it
+                SetStatus("Executing...", "#FFA000");
+                ExecuteCode(code, explanation);
+            }
+            else if (attempt < MAX_RETRY_ATTEMPTS)
+            {
+                // Code has errors, retry with AI
+                SetStatus($"Fixing code (attempt {attempt + 1}/{MAX_RETRY_ATTEMPTS})...", "#FFA000");
+
+                var retryResponse = await _aiService.RetryWithErrorAsync(originalPrompt, code, validationError, attempt);
+
+                if (retryResponse.Success && !string.IsNullOrEmpty(retryResponse.Code))
+                {
+                    _lastCode = retryResponse.Code;
+                    if (!string.IsNullOrEmpty(retryResponse.Explanation))
+                    {
+                        _lastExplanation = retryResponse.Explanation;
+                    }
+
+                    // Recursively try to validate and execute the fixed code
+                    await ValidateAndExecuteWithRetry(originalPrompt, retryResponse.Code, _lastExplanation, mentionContext, attempt + 1);
+                }
+                else
+                {
+                    // Retry failed to generate code
+                    AddErrorMessage($"Failed to fix code after {attempt} attempts.\n\nLast error: {validationError}");
+                    SetInputEnabled(true);
+                    SetStatus("Error", "#D32F2F");
+                }
+            }
+            else
+            {
+                // Max retries exceeded
+                AddErrorMessage($"Code failed after {MAX_RETRY_ATTEMPTS} attempts.\n\nError: {validationError}");
                 SetInputEnabled(true);
                 SetStatus("Error", "#D32F2F");
             }
