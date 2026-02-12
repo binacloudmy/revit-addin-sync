@@ -16,7 +16,7 @@ namespace RevitWebAppSync.Services
 
         // Ngrok public URL for bina-ai-agent (Agno)
         // Update this with your ngrok URL when running: ngrok http 3000
-        private const string DEFAULT_BASE_URL = "https://a811-2001-f40-935-7c0f-1919-f9ac-b189-5aa1.ngrok-free.app";
+        private const string DEFAULT_BASE_URL = "https://b1d8-2001-f40-935-7c0f-adde-46e0-99c9-3d22.ngrok-free.app";
 
         public AIService(string baseUrl = null)
         {
