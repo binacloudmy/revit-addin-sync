@@ -152,6 +152,9 @@ namespace RevitWebAppSync.Services
                 var method = type.GetMethod("Execute");
                 var instance = Activator.CreateInstance(type);
 
+                // Get the PendingViewToActivate property
+                var pendingViewProperty = type.GetProperty("PendingViewToActivate");
+
                 object result = null;
 
                 using (var transaction = new Transaction(_doc, "AI Code Execution"))
@@ -167,6 +170,16 @@ namespace RevitWebAppSync.Services
                     {
                         transaction.RollBack();
                         throw;
+                    }
+                }
+
+                // After transaction commits, activate pending view if any
+                if (pendingViewProperty != null)
+                {
+                    var pendingView = pendingViewProperty.GetValue(instance) as View;
+                    if (pendingView != null)
+                    {
+                        _uidoc.ActiveView = pendingView;
                     }
                 }
 
@@ -263,6 +276,9 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("{");
             sb.AppendLine("    public class AIGeneratedCode");
             sb.AppendLine("    {");
+            sb.AppendLine("        // Property to store view to activate after transaction completes");
+            sb.AppendLine("        public View PendingViewToActivate { get; private set; }");
+            sb.AppendLine();
             sb.AppendLine("        // Helper: Get desktop path for file exports");
             sb.AppendLine("        private string DesktopPath => Environment.GetFolderPath(Environment.SpecialFolder.Desktop);");
             sb.AppendLine();
@@ -286,6 +302,12 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("        private void ShowMessage(string title, string message)");
             sb.AppendLine("        {");
             sb.AppendLine("            TaskDialog.Show(title, message);");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        // Helper: Open a view after execution (deferred, outside transaction)");
+            sb.AppendLine("        private void OpenView(View view)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            PendingViewToActivate = view;");
             sb.AppendLine("        }");
             sb.AppendLine();
             sb.AppendLine("        public object Execute(Document doc, UIDocument uidoc, View activeView)");

@@ -490,10 +490,10 @@ else
         lastView = view3D;
     }
 
-    // Open the first created view
+    // Open the last created view (deferred, after transaction)
     if (lastView != null)
     {
-        uidoc.ActiveView = lastView;
+        OpenView(lastView);
     }
 
     var viewList = string.Join(""\\n"", createdViews.Take(10));
@@ -565,7 +565,7 @@ else
             sectionBox.Max = new XYZ(combinedBox.Max.X + margin, combinedBox.Max.Y + margin, combinedBox.Max.Z + margin);
             view3D.SetSectionBox(sectionBox);
 
-            uidoc.ActiveView = view3D;
+            OpenView(view3D);
             ShowMessage(""Success"", $""Created 3D view with section box for {selectedIds.Count} elements"");
         }
     }
