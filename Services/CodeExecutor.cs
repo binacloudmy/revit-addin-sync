@@ -1,5 +1,6 @@
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using ClosedXML.Excel;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using RevitWebAppSync.Models;
@@ -439,6 +440,27 @@ namespace RevitWebAppSync.Services
             if (!references.Any(r => r.Display?.Contains("RevitAPIUI") == true))
             {
                 references.Add(MetadataReference.CreateFromFile(revitApiUiAssembly.Location));
+            }
+
+            // Ensure ClosedXML and its dependencies are included for Excel support
+            try
+            {
+                var closedXmlAssembly = typeof(XLWorkbook).Assembly;
+                if (!references.Any(r => r.Display?.Contains("ClosedXML") == true))
+                {
+                    references.Add(MetadataReference.CreateFromFile(closedXmlAssembly.Location));
+                }
+
+                // Also add DocumentFormat.OpenXml (ClosedXML dependency)
+                var openXmlAssembly = typeof(DocumentFormat.OpenXml.OpenXmlElement).Assembly;
+                if (!references.Any(r => r.Display?.Contains("DocumentFormat.OpenXml") == true))
+                {
+                    references.Add(MetadataReference.CreateFromFile(openXmlAssembly.Location));
+                }
+            }
+            catch
+            {
+                // ClosedXML not available, Excel features will not work
             }
 
             var compilationOptions = new CSharpCompilationOptions(
