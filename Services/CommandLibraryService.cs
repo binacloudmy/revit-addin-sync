@@ -574,6 +574,195 @@ else
                     Category = "View",
                     Icon = "📦",
                     IsBuiltIn = true
+                },
+
+                // Excel Import/Export Commands
+                new SavedCommand
+                {
+                    Name = "Import Parameters from Excel",
+                    Prompt = "Import parameter values from Excel file. The Excel should have element identifier in first column and parameter value in second column.",
+                    Code = @"// EXAMPLE: Modify the file path, category, and parameter names to match your Excel file
+// Excel format: Column A = Mark, Column B = Parameter Value to import
+
+var excelPath = FindExcelFile(@""C:\Data"", ""Parameter Import"");
+if (string.IsNullOrEmpty(excelPath))
+{
+    ShowMessage(""Error"", ""Could not find Excel file. Please place your Excel file in C:\\Data"");
+    return;
+}
+
+// Read Excel as dictionary: Mark (column 1) -> Value (column 2)
+var importData = ReadExcelAsDictionary(excelPath, 1, 2, 2);
+
+// Get elements - MODIFY THIS LINE to match your element category
+var elements = new FilteredElementCollector(doc)
+    .OfCategory(BuiltInCategory.OST_GenericModel) // Change to OST_Doors, OST_Rooms, etc.
+    .WhereElementIsNotElementType()
+    .ToElements();
+
+int updated = 0;
+int notFound = 0;
+string targetParameter = ""Comments""; // Change to your parameter name
+
+foreach (var elem in elements)
+{
+    var markParam = elem.get_Parameter(BuiltInParameter.ALL_MODEL_MARK);
+    var mark = markParam?.AsString();
+
+    if (!string.IsNullOrEmpty(mark) && importData.TryGetValue(mark, out var newValue))
+    {
+        var param = elem.LookupParameter(targetParameter);
+        if (param != null && !param.IsReadOnly)
+        {
+            param.Set(newValue);
+            updated++;
+        }
+    }
+    else if (!string.IsNullOrEmpty(mark))
+    {
+        notFound++;
+    }
+}
+
+ShowMessage(""Import Complete"", $""Updated {updated} elements.\n{notFound} marks not found in Excel."");",
+                    Description = "Template for importing parameter values from Excel file",
+                    Category = "Excel",
+                    Icon = "📥",
+                    IsBuiltIn = true
+                },
+
+                new SavedCommand
+                {
+                    Name = "Export Elements to Excel",
+                    Prompt = "Export element data to an Excel file with Mark, Type, and selected parameters",
+                    Code = @"// MODIFY: Change category and parameters to export
+var elements = new FilteredElementCollector(doc)
+    .OfCategory(BuiltInCategory.OST_Doors) // Change category as needed
+    .WhereElementIsNotElementType()
+    .Cast<FamilyInstance>()
+    .ToList();
+
+var headers = new List<string> { ""Mark"", ""Type Name"", ""Level"", ""Comments"" };
+var rows = new List<List<string>>();
+
+foreach (var elem in elements)
+{
+    var mark = elem.get_Parameter(BuiltInParameter.ALL_MODEL_MARK)?.AsString() ?? """";
+    var typeName = elem.Symbol?.Name ?? """";
+    var level = elem.LevelId != ElementId.InvalidElementId
+        ? doc.GetElement(elem.LevelId)?.Name ?? """" : """";
+    var comments = elem.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)?.AsString() ?? """";
+
+    rows.Add(new List<string> { mark, typeName, level, comments });
+}
+
+var outputPath = Path.Combine(DesktopPath, ""Element_Export.xlsx"");
+WriteExcel(outputPath, headers, rows);
+
+ShowMessage(""Export Complete"", $""Exported {elements.Count} elements to:\n{outputPath}"");",
+                    Description = "Template for exporting element data to Excel",
+                    Category = "Excel",
+                    Icon = "📤",
+                    IsBuiltIn = true
+                },
+
+                new SavedCommand
+                {
+                    Name = "Import Room Data from Excel",
+                    Prompt = "Import room finishes and other data from Excel file. Match rooms by room number.",
+                    Code = @"var excelPath = FindExcelFile(@""C:\Data"", ""Room Data"");
+if (string.IsNullOrEmpty(excelPath))
+{
+    ShowMessage(""Error"", ""Could not find 'Room Data' Excel file in C:\\Data"");
+    return;
+}
+
+// Read all rows with headers
+var excelRows = ReadExcelAsRows(excelPath, 1);
+
+var rooms = new FilteredElementCollector(doc)
+    .OfCategory(BuiltInCategory.OST_Rooms)
+    .WhereElementIsNotElementType()
+    .Cast<Autodesk.Revit.DB.Architecture.Room>()
+    .Where(r => r.Area > 0)
+    .ToList();
+
+int updated = 0;
+int notMatched = 0;
+
+foreach (var row in excelRows)
+{
+    // Find room number column (try common names)
+    string roomNumber = null;
+    if (row.TryGetValue(""Room Number"", out var rn)) roomNumber = rn;
+    else if (row.TryGetValue(""Number"", out var n)) roomNumber = n;
+    else if (row.TryGetValue(""Room No"", out var rno)) roomNumber = rno;
+
+    if (string.IsNullOrEmpty(roomNumber)) continue;
+
+    var room = rooms.FirstOrDefault(r => r.Number == roomNumber);
+    if (room == null)
+    {
+        notMatched++;
+        continue;
+    }
+
+    // Update each parameter found in Excel
+    foreach (var kvp in row)
+    {
+        if (kvp.Key == ""Room Number"" || kvp.Key == ""Number"" || kvp.Key == ""Room No"") continue;
+
+        var param = room.LookupParameter(kvp.Key);
+        if (param != null && !param.IsReadOnly && !string.IsNullOrEmpty(kvp.Value))
+        {
+            param.Set(kvp.Value);
+        }
+    }
+    updated++;
+}
+
+ShowMessage(""Import Complete"", $""Updated {updated} rooms.\n{notMatched} room numbers not found in model."");",
+                    Description = "Import room data from Excel by matching room numbers",
+                    Category = "Excel",
+                    Icon = "🏠",
+                    IsBuiltIn = true
+                },
+
+                new SavedCommand
+                {
+                    Name = "Export Rooms to Excel",
+                    Prompt = "Export all rooms with their properties to Excel",
+                    Code = @"var rooms = new FilteredElementCollector(doc)
+    .OfCategory(BuiltInCategory.OST_Rooms)
+    .WhereElementIsNotElementType()
+    .Cast<Autodesk.Revit.DB.Architecture.Room>()
+    .Where(r => r.Area > 0)
+    .ToList();
+
+var headers = new List<string> { ""Room Number"", ""Room Name"", ""Level"", ""Area (sqm)"", ""Floor Finish"", ""Wall Finish"", ""Ceiling Finish"" };
+var rows = new List<List<string>>();
+
+foreach (var room in rooms)
+{
+    var number = room.Number ?? """";
+    var name = room.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString() ?? """";
+    var level = room.Level?.Name ?? """";
+    var area = (room.Area * 0.092903).ToString(""F2""); // Convert to sqm
+    var floorFinish = room.LookupParameter(""Floor Finish"")?.AsString() ?? """";
+    var wallFinish = room.LookupParameter(""Wall Finish"")?.AsString() ?? """";
+    var ceilingFinish = room.LookupParameter(""Ceiling Finish"")?.AsString() ?? """";
+
+    rows.Add(new List<string> { number, name, level, area, floorFinish, wallFinish, ceilingFinish });
+}
+
+var outputPath = Path.Combine(DesktopPath, ""Room_Export.xlsx"");
+WriteExcel(outputPath, headers, rows);
+
+ShowMessage(""Export Complete"", $""Exported {rooms.Count} rooms to:\n{outputPath}"");",
+                    Description = "Export all rooms with finishes to Excel file",
+                    Category = "Excel",
+                    Icon = "📋",
+                    IsBuiltIn = true
                 }
             };
         }
