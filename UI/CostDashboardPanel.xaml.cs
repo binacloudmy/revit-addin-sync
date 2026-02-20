@@ -12,6 +12,11 @@ using Autodesk.Revit.UI;
 using RevitWebAppSync.Events;
 using RevitWebAppSync.Models;
 using RevitWebAppSync.Services;
+using Color = System.Windows.Media.Color;
+using ComboBox = System.Windows.Controls.ComboBox;
+using Grid = System.Windows.Controls.Grid;
+using Point = System.Windows.Point;
+using Visibility = System.Windows.Visibility;
 
 namespace RevitWebAppSync.UI
 {
