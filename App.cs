@@ -114,10 +114,38 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.microchip.png", 32)
             };
 
+            // Cost Tracker buttons
+            PushButtonData costExportButtonData = new PushButtonData(
+                "CostExport",
+                "Export\nCost Items",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.Commands.CostExportCommand")
+            {
+                ToolTip = "Export Cost Items to Excel",
+                LongDescription = "Extract all model elements with quantities, JKR codes, and levels. Export to Excel for QS to fill in prices.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            };
+
+            PushButtonData costImportButtonData = new PushButtonData(
+                "CostImport",
+                "Import\nPrices",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.Commands.CostImportCommand")
+            {
+                ToolTip = "Import Prices from Excel",
+                LongDescription = "Import unit prices from a filled Excel file. Prices are saved locally and applied to the cost tracker.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
+            };
+
             ribbonPanel.AddItem(loginButtonData);
             ribbonPanel.AddItem(buttonData);
             ribbonPanel.AddItem(bimDisciplineButtonData);
             ribbonPanel.AddItem(askAiButtonData);
+            ribbonPanel.AddSeparator();
+            ribbonPanel.AddItem(costExportButtonData);
+            ribbonPanel.AddItem(costImportButtonData);
             // ribbonPanel.AddItem(federateButtonData); // Hidden as requested
         }
 
