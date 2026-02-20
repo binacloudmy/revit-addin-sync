@@ -29,6 +29,7 @@
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>   <!-- Header -->
+            <RowDefinition Height="Auto"/>   <!-- Change Notification Banner -->
             <RowDefinition Height="Auto"/>   <!-- Total Card -->
             <RowDefinition Height="Auto"/>   <!-- Filter Bar -->
             <RowDefinition Height="*"/>      <!-- Scrollable Content -->
@@ -43,8 +44,37 @@
             </StackPanel>
         </Border>
 
+        <!-- Change Notification Banner (hidden by default) -->
+        <Border x:Name="ChangeBanner" Grid.Row="1" Background="#1a3a1a" 
+                Padding="10,8" Visibility="Collapsed" Cursor="Hand"
+                MouseLeftButtonUp="ChangeBanner_Click">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" Orientation="Horizontal">
+                    <TextBlock Text="⚡" FontSize="13" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                    <StackPanel>
+                        <TextBlock x:Name="ChangeText" Text="Model changed" FontSize="11" 
+                                   Foreground="#88cc88" FontWeight="Medium"/>
+                        <TextBlock x:Name="ChangeDeltaText" Text="" FontSize="10" 
+                                   Foreground="#668866" Margin="0,1,0,0"/>
+                    </StackPanel>
+                </StackPanel>
+                <TextBlock Grid.Column="1" x:Name="LiveIndicator" Text="● LIVE" 
+                           FontSize="9" Foreground="#44cc44" FontWeight="Bold"
+                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <Button Grid.Column="2" Content="✕" Click="DismissBanner_Click"
+                        Background="Transparent" Foreground="#668866" 
+                        BorderThickness="0" FontSize="10" Padding="4,2"
+                        VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
         <!-- Grand Total Card -->
-        <Border Grid.Row="1" Margin="12,12,12,0" CornerRadius="10" Padding="20">
+        <Border Grid.Row="2" Margin="12,12,12,0" CornerRadius="10" Padding="20">
             <Border.Background>
                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
                     <GradientStop Color="#0f3460" Offset="0"/>
@@ -63,7 +93,7 @@
         </Border>
 
         <!-- Filter Bar -->
-        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="12,8,12,0">
+        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="12,8,12,0">
             <RadioButton x:Name="ByLevelRadio" Content="By Level" IsChecked="True" 
                          GroupName="ViewMode" Click="ViewMode_Click"
                          Style="{StaticResource {x:Type ToggleButton}}"
@@ -84,7 +114,7 @@
         </StackPanel>
 
         <!-- Scrollable Content -->
-        <ScrollViewer Grid.Row="3" Margin="12,8,12,0" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer Grid.Row="4" Margin="12,8,12,0" VerticalScrollBarVisibility="Auto">
             <StackPanel x:Name="ContentPanel">
                 <!-- Dynamic cost rows will be added here -->
                 <TextBlock x:Name="EmptyText" Text="Click 'Refresh' to calculate costs" 
@@ -94,7 +124,7 @@
         </ScrollViewer>
 
         <!-- Action Bar -->
-        <Border Grid.Row="4" BorderThickness="0,1,0,0" BorderBrush="#333333" Padding="12">
+        <Border Grid.Row="5" BorderThickness="0,1,0,0" BorderBrush="#333333" Padding="12">
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                 <Button Content="📊 Export" Click="Export_Click" 
                         Padding="16,8" Margin="0,0,8,0" FontSize="12"

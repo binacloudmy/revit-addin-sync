@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Windows.Media.Imaging;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.UI;
+using RevitWebAppSync.Events;
 using RevitWebAppSync.Handlers;
 using RevitWebAppSync.UI;
 
@@ -20,6 +21,9 @@ namespace RevitWebAppSync
         // Cost Dashboard dockable pane host
         public static CostDashboardHost CostDashboardHost { get; private set; }
 
+        // Live cost update handler
+        public static CostUpdateHandler CostUpdateHandler { get; private set; }
+
         public Result OnStartup(UIControlledApplication application)
         {
             try
@@ -35,6 +39,10 @@ namespace RevitWebAppSync
                     "BINA Cost Tracker",
                     CostDashboardHost);
 
+                // Subscribe to document changes for live cost updates
+                CostUpdateHandler = new CostUpdateHandler(application);
+                CostUpdateHandler.Subscribe();
+
                 CreateRibbonTab(application);
                 return Result.Succeeded;
             }
@@ -47,6 +55,9 @@ namespace RevitWebAppSync
 
         public Result OnShutdown(UIControlledApplication application)
         {
+            // Unsubscribe from document change events
+            CostUpdateHandler?.Unsubscribe();
+
             return Result.Succeeded;
         }
 

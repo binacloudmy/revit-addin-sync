@@ -5,8 +5,11 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Threading;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using RevitWebAppSync.Events;
 using RevitWebAppSync.Models;
 using RevitWebAppSync.Services;
 
@@ -20,6 +23,13 @@ namespace RevitWebAppSync.UI
         private PriceDatabase _priceDb;
         private bool _showByLevel = true;
 
+        // Live update tracking
+        private double _previousTotal;
+        private int _previousItemCount;
+        private DispatcherTimer _bannerAutoHideTimer;
+        private readonly List<string> _recentChanges = new List<string>();
+        private const int MaxRecentChanges = 5;
+
         // Color palette for categories/levels
         private static readonly string[] Colors = {
             "#4a9eff", "#4aff7a", "#ffaa4a", "#aa4aff",
@@ -29,6 +39,14 @@ namespace RevitWebAppSync.UI
         public CostDashboardPanel()
         {
             InitializeComponent();
+
+            // Auto-hide banner after 8 seconds
+            _bannerAutoHideTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(8) };
+            _bannerAutoHideTimer.Tick += (s, e) =>
+            {
+                _bannerAutoHideTimer.Stop();
+                ChangeBanner.Visibility = Visibility.Collapsed;
+            };
         }
 
         /// <summary>
@@ -379,6 +397,111 @@ namespace RevitWebAppSync.UI
         {
             if (string.IsNullOrEmpty(name)) return "";
             return name.Length <= maxLen ? name : name.Substring(0, maxLen) + "...";
+        }
+
+        // --- Live Update ---
+
+        /// <summary>
+        /// Called by CostUpdateHandler when the Revit model changes (after debounce).
+        /// Recalculates costs and shows a change notification banner.
+        /// </summary>
+        public void OnModelChanged(ChangeSummary changeSummary)
+        {
+            try
+            {
+                if (_uiApp?.ActiveUIDocument?.Document == null) return;
+
+                // Snapshot previous totals for delta display
+                _previousTotal = _summary?.GrandTotal ?? 0;
+                _previousItemCount = _summary?.TotalItems ?? 0;
+
+                // Recalculate
+                RefreshData();
+
+                // Calculate delta
+                double newTotal = _summary?.GrandTotal ?? 0;
+                double delta = newTotal - _previousTotal;
+                int itemDelta = (_summary?.TotalItems ?? 0) - _previousItemCount;
+
+                // Build notification
+                string changeText = changeSummary.ToNotificationText();
+                string deltaText = BuildDeltaText(delta, itemDelta);
+
+                // Track recent changes
+                string logEntry = $"{DateTime.Now:HH:mm} — {changeText}";
+                if (!string.IsNullOrEmpty(deltaText))
+                    logEntry += $" → {deltaText}";
+
+                _recentChanges.Insert(0, logEntry);
+                if (_recentChanges.Count > MaxRecentChanges)
+                    _recentChanges.RemoveAt(_recentChanges.Count - 1);
+
+                // Show banner
+                ShowChangeBanner(changeText, deltaText, delta);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA Cost] OnModelChanged error: {ex.Message}");
+            }
+        }
+
+        private string BuildDeltaText(double costDelta, int itemDelta)
+        {
+            var parts = new List<string>();
+
+            if (Math.Abs(costDelta) >= 1)
+            {
+                string sign = costDelta > 0 ? "↑" : "↓";
+                parts.Add($"{sign} RM {Math.Abs(costDelta):N0}");
+            }
+
+            if (itemDelta != 0)
+            {
+                string sign = itemDelta > 0 ? "+" : "";
+                parts.Add($"{sign}{itemDelta} items");
+            }
+
+            return parts.Count > 0 ? string.Join(" · ", parts) : null;
+        }
+
+        private void ShowChangeBanner(string changeText, string deltaText, double costDelta)
+        {
+            ChangeText.Text = changeText;
+            ChangeDeltaText.Text = deltaText ?? "";
+            ChangeDeltaText.Visibility = string.IsNullOrEmpty(deltaText) ? Visibility.Collapsed : Visibility.Visible;
+
+            // Color the banner based on cost change direction
+            if (costDelta > 0)
+                ChangeBanner.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1a2a3a")); // Blue-ish for increase
+            else if (costDelta < 0)
+                ChangeBanner.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#1a3a1a")); // Green-ish for decrease
+            else
+                ChangeBanner.Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#2a2a1a")); // Neutral
+
+            ChangeBanner.Visibility = Visibility.Visible;
+
+            // Subtle flash animation
+            var anim = new DoubleAnimation(0.5, 1.0, TimeSpan.FromMilliseconds(400));
+            ChangeBanner.BeginAnimation(OpacityProperty, anim);
+
+            // Restart auto-hide timer
+            _bannerAutoHideTimer.Stop();
+            _bannerAutoHideTimer.Start();
+        }
+
+        private void ChangeBanner_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            // Click banner to see recent change log
+            if (_recentChanges.Count == 0) return;
+
+            string log = string.Join("\n", _recentChanges);
+            MessageBox.Show(log, "Recent Model Changes", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private void DismissBanner_Click(object sender, RoutedEventArgs e)
+        {
+            _bannerAutoHideTimer.Stop();
+            ChangeBanner.Visibility = Visibility.Collapsed;
         }
 
         // --- Event Handlers ---
