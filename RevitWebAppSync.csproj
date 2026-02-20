@@ -30,6 +30,8 @@
     <!-- Roslyn compiler for runtime code compilation -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- Excel support for import/export -->
+    <PackageReference Include="ClosedXML" Version="0.102.2" />
   </ItemGroup>
 
   <ItemGroup>

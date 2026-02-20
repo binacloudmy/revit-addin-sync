@@ -12,6 +12,9 @@ using Autodesk.Revit.UI;
 using RevitWebAppSync.Events;
 using RevitWebAppSync.Models;
 using RevitWebAppSync.Services;
+using Color = System.Windows.Media.Color;
+using Grid = System.Windows.Controls.Grid;
+using Visibility = System.Windows.Visibility;
 
 namespace RevitWebAppSync.UI
 {

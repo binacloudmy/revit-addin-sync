@@ -102,7 +102,7 @@ namespace RevitWebAppSync.Services
 
                 items.Add(new CostItem
                 {
-                    ElementId = elem.Id.IntegerValue,
+                    ElementId = (int)elem.Id.Value,
                     Name = displayName,
                     FamilyName = familyName,
                     TypeName = typeName,
@@ -142,8 +142,6 @@ namespace RevitWebAppSync.Services
                 levelParam = elem.get_Parameter(BuiltInParameter.SCHEDULE_LEVEL_PARAM);
             if (levelParam == null)
                 levelParam = elem.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT);
-            if (levelParam == null)
-                levelParam = elem.get_Parameter(BuiltInParameter.FLOOR_PARAM_LEVEL);
 
             if (levelParam != null && levelParam.StorageType == StorageType.ElementId)
             {
@@ -190,14 +188,12 @@ namespace RevitWebAppSync.Services
         {
             if (elem.Category == null) return (1, "unit");
 
-            var bic = (BuiltInCategory)elem.Category.Id.IntegerValue;
+            var bic = (BuiltInCategory)elem.Category.Id.Value;
 
             // Area-based elements
             if (AreaCategories.Contains(bic))
             {
                 double area = GetParameterDouble(elem, BuiltInParameter.HOST_AREA_COMPUTED);
-                if (area <= 0)
-                    area = GetParameterDouble(elem, BuiltInParameter.WALL_ATTR_AREA);
                 if (area > 0)
                     return (UnitUtils.ConvertFromInternalUnits(area, UnitTypeId.SquareMeters), "m²");
                 return (1, "m²");
