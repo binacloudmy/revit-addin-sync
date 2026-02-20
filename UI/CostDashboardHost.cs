@@ -17,8 +17,26 @@ namespace RevitWebAppSync.UI
 
         public CostDashboardHost()
         {
-            _dashboardPanel = new CostDashboardPanel();
-            this.Content = new Frame { Content = _dashboardPanel, NavigationUIVisibility = System.Windows.Navigation.NavigationUIVisibility.Hidden };
+            try
+            {
+                _dashboardPanel = new CostDashboardPanel();
+                this.Content = new Frame
+                {
+                    Content = _dashboardPanel,
+                    NavigationUIVisibility = System.Windows.Navigation.NavigationUIVisibility.Hidden
+                };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] CostDashboardHost init error: {ex.Message}");
+                // Fallback: empty page so registration doesn't blow up
+                this.Content = new TextBlock
+                {
+                    Text = $"Cost Tracker failed to load: {ex.Message}",
+                    Foreground = System.Windows.Media.Brushes.Red,
+                    Margin = new System.Windows.Thickness(10)
+                };
+            }
         }
 
         public CostDashboardPanel DashboardPanel => _dashboardPanel;
@@ -28,9 +46,7 @@ namespace RevitWebAppSync.UI
             data.FrameworkElement = this;
             data.InitialState = new DockablePaneState
             {
-                DockPosition = DockPosition.Right,
-                MinimumWidth = 340,
-                MinimumHeight = 400
+                DockPosition = DockPosition.Right
             };
             data.VisibleByDefault = false;
         }

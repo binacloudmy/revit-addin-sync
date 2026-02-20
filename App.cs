@@ -33,15 +33,30 @@ namespace RevitWebAppSync
                 AIExternalEvent = ExternalEvent.Create(AIHandler);
 
                 // Register Cost Dashboard dockable pane
-                CostDashboardHost = new CostDashboardHost();
-                application.RegisterDockablePane(
-                    CostDashboardHost.PaneId,
-                    "BINA Cost Tracker",
-                    CostDashboardHost);
+                try
+                {
+                    CostDashboardHost = new CostDashboardHost();
+                    application.RegisterDockablePane(
+                        CostDashboardHost.PaneId,
+                        "BINA Cost Tracker",
+                        CostDashboardHost);
+                }
+                catch (Exception dockEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Dockable pane registration failed: {dockEx.Message}");
+                    // Non-fatal — addin still works without dockable panel
+                }
 
                 // Subscribe to document changes for live cost updates
-                CostUpdateHandler = new CostUpdateHandler(application);
-                CostUpdateHandler.Subscribe();
+                try
+                {
+                    CostUpdateHandler = new CostUpdateHandler(application);
+                    CostUpdateHandler.Subscribe();
+                }
+                catch (Exception evtEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Cost update handler failed: {evtEx.Message}");
+                }
 
                 CreateRibbonTab(application);
                 return Result.Succeeded;
