@@ -572,6 +572,206 @@ namespace RevitWebAppSync.UI
             }
         }
 
+        private async void AutoMatch_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_allItems.Count == 0)
+                {
+                    MessageBox.Show("No data loaded. Click Refresh first.", "BINA Cost");
+                    return;
+                }
+
+                var masterDb = MasterPriceDatabase.Instance;
+
+                if (masterDb.Count == 0)
+                {
+                    MessageBox.Show(
+                        "Master price database is empty.\n\n" +
+                        "Import prices first using 'Import to Master' button.\n" +
+                        "This builds a reusable rate library across all projects.",
+                        "BINA Cost — No Master Prices");
+                    return;
+                }
+
+                // Auto-match from master DB
+                int matched = masterDb.AutoMatchPrices(_allItems, _priceDb);
+
+                // Recalculate
+                _summary = CostCalculator.Calculate(_allItems);
+                UpdateTotalCard();
+                UpdateContent();
+
+                int remaining = _allItems.Count(i => i.UnitPrice <= 0);
+
+                MessageBox.Show(
+                    $"✅ Matched {matched} items from master database.\n" +
+                    $"📊 Total: RM {_summary.GrandTotal:N0}\n" +
+                    $"⚠️ {remaining} items still need prices.",
+                    "BINA Cost — Auto-Match");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Auto-match failed: {ex.Message}", "BINA Cost");
+            }
+        }
+
+        private async void AIInsights_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_summary == null || _allItems.Count == 0)
+                {
+                    MessageBox.Show("No data loaded. Click Refresh first.", "BINA Cost");
+                    return;
+                }
+
+                Document doc = _uiApp?.ActiveUIDocument?.Document;
+                string projectName = Path.GetFileNameWithoutExtension(doc?.PathName ?? "Untitled");
+
+                var estimator = new AICostEstimator();
+
+                // Check if AI is available
+                bool available = await estimator.IsAvailableAsync();
+                if (!available)
+                {
+                    // Show offline analysis (rule-based, still useful)
+                    ShowOfflineInsights();
+                    return;
+                }
+
+                // Get AI analysis
+                var result = await estimator.AnalyzeCostsAsync(_summary, _allItems, projectName);
+
+                if (!result.Success)
+                {
+                    ShowOfflineInsights();
+                    return;
+                }
+
+                // Display insights
+                ShowInsightsPanel(result);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"AI analysis failed: {ex.Message}", "BINA Cost");
+            }
+        }
+
+        private void ShowOfflineInsights()
+        {
+            // Basic rule-based insights when AI backend is not available
+            var lines = new List<string>();
+            lines.Add("📊 Cost Analysis (Offline Mode)\n");
+
+            // Pricing coverage
+            int pricedPct = _summary.TotalItems > 0
+                ? (int)((_summary.PricedItems / (double)_summary.TotalItems) * 100)
+                : 0;
+            lines.Add($"📋 Pricing coverage: {pricedPct}% ({_summary.PricedItems}/{_summary.TotalItems})");
+
+            // Cost per m²
+            double floorArea = _allItems.Where(i => i.Category == "Floors" && i.Unit == "m²").Sum(i => i.Quantity);
+            if (floorArea > 0 && _summary.GrandTotal > 0)
+            {
+                double costPerM2 = _summary.GrandTotal / floorArea;
+                lines.Add($"📐 Cost per m²: RM {costPerM2:N0}");
+                if (costPerM2 < 1500)
+                    lines.Add("   ⚠️ Below typical range (RM 1,500-3,000/m²)");
+                else if (costPerM2 > 3000)
+                    lines.Add("   ⚠️ Above typical range (RM 1,500-3,000/m²)");
+                else
+                    lines.Add("   ✅ Within typical JKR building range");
+            }
+
+            // Top categories
+            lines.Add("\n🏗️ Top cost drivers:");
+            foreach (var cat in _summary.ByCategory.Take(3))
+            {
+                lines.Add($"   • {cat.Name}: RM {cat.TotalCost:N0} ({cat.Percentage:F1}%)");
+            }
+
+            // Unpriced count
+            int unpriced = _allItems.Count(i => i.UnitPrice <= 0);
+            if (unpriced > 0)
+                lines.Add($"\n⚠️ {unpriced} items have no price — import prices or use 'Match Prices'");
+
+            MessageBox.Show(string.Join("\n", lines), "BINA Cost — Analysis");
+        }
+
+        private void ShowInsightsPanel(CostAnalysisResult result)
+        {
+            var lines = new List<string>();
+            lines.Add("🧠 AI Cost Analysis\n");
+
+            if (!string.IsNullOrEmpty(result.SummaryText))
+                lines.Add($"📊 {result.SummaryText}");
+
+            if (!string.IsNullOrEmpty(result.BenchmarkComparison))
+                lines.Add($"📐 {result.BenchmarkComparison}");
+
+            lines.Add("");
+
+            foreach (var insight in result.Insights)
+            {
+                string icon = insight.Type switch
+                {
+                    "warning" => "⚠️",
+                    "suggestion" => "💡",
+                    "saving" => "💰",
+                    _ => "ℹ️"
+                };
+
+                lines.Add($"{icon} {insight.Title}");
+                lines.Add($"   {insight.Description}");
+
+                if (insight.PotentialSaving.HasValue && insight.PotentialSaving > 0)
+                    lines.Add($"   💰 Potential saving: RM {insight.PotentialSaving:N0}");
+
+                lines.Add("");
+            }
+
+            MessageBox.Show(string.Join("\n", lines), "BINA Cost — AI Insights");
+        }
+
+        private void ImportMaster_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var openDialog = new Microsoft.Win32.OpenFileDialog
+                {
+                    Title = "Import Prices to Master Database",
+                    Filter = "Excel Files (*.xlsx)|*.xlsx"
+                };
+
+                if (openDialog.ShowDialog() == true)
+                {
+                    var prices = ExcelService.ImportPrices(openDialog.FileName);
+                    if (prices.Count == 0)
+                    {
+                        MessageBox.Show("No prices found in the file.", "BINA Cost");
+                        return;
+                    }
+
+                    var masterDb = MasterPriceDatabase.Instance;
+                    var (added, updated) = masterDb.ImportEntries(prices);
+                    masterDb.Save();
+
+                    MessageBox.Show(
+                        $"✅ Master database updated!\n\n" +
+                        $"📥 Added: {added} new entries\n" +
+                        $"🔄 Updated: {updated} existing entries\n" +
+                        $"📚 Total master entries: {masterDb.Count}\n\n" +
+                        $"These prices will be available across all projects.",
+                        "BINA Cost — Master Import");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Master import failed: {ex.Message}", "BINA Cost");
+            }
+        }
+
         private void Import_Click(object sender, RoutedEventArgs e)
         {
             try

@@ -124,18 +124,36 @@
         </ScrollViewer>
 
         <!-- Action Bar -->
-        <Border Grid.Row="5" BorderThickness="0,1,0,0" BorderBrush="#333333" Padding="12">
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                <Button Content="📊 Export" Click="Export_Click" 
-                        Padding="16,8" Margin="0,0,8,0" FontSize="12"
-                        Background="#333333" Foreground="#e0e0e0" BorderBrush="#444444"/>
-                <Button Content="📥 Import" Click="Import_Click"
-                        Padding="16,8" Margin="0,0,8,0" FontSize="12"
-                        Background="#333333" Foreground="#e0e0e0" BorderBrush="#444444"/>
-                <Button Content="🔄 Refresh" Click="Refresh_Click"
-                        Padding="16,8" FontSize="12"
-                        Background="#0078d4" Foreground="White" BorderBrush="#0078d4"
-                        FontWeight="SemiBold"/>
+        <Border Grid.Row="5" BorderThickness="0,1,0,0" BorderBrush="#333333" Padding="8">
+            <StackPanel>
+                <!-- Primary actions -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,4">
+                    <Button Content="🎯 Match Prices" Click="AutoMatch_Click"
+                            Padding="12,6" Margin="0,0,6,0" FontSize="11"
+                            Background="#1a5c1a" Foreground="#88cc88" BorderBrush="#2a6c2a"
+                            FontWeight="SemiBold" ToolTip="Auto-match from master price database"/>
+                    <Button Content="🧠 AI Insights" Click="AIInsights_Click"
+                            Padding="12,6" Margin="0,0,6,0" FontSize="11"
+                            Background="#1a3a5c" Foreground="#88aacc" BorderBrush="#2a4a6c"
+                            ToolTip="Analyze costs with AI (no price hallucination)"/>
+                    <Button Content="🔄 Refresh" Click="Refresh_Click"
+                            Padding="12,6" FontSize="11"
+                            Background="#0078d4" Foreground="White" BorderBrush="#0078d4"
+                            FontWeight="SemiBold"/>
+                </StackPanel>
+                <!-- Secondary actions -->
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                    <Button Content="📊 Export" Click="Export_Click" 
+                            Padding="10,4" Margin="0,0,6,0" FontSize="10"
+                            Background="#333333" Foreground="#aaaaaa" BorderBrush="#444444"/>
+                    <Button Content="📥 Import Prices" Click="Import_Click"
+                            Padding="10,4" Margin="0,0,6,0" FontSize="10"
+                            Background="#333333" Foreground="#aaaaaa" BorderBrush="#444444"/>
+                    <Button Content="📚 Import to Master" Click="ImportMaster_Click"
+                            Padding="10,4" FontSize="10"
+                            Background="#333333" Foreground="#aaaaaa" BorderBrush="#444444"
+                            ToolTip="Import prices into the master database for reuse across projects"/>
+                </StackPanel>
             </StackPanel>
         </Border>
     </Grid>
