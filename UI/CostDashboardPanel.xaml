@@ -1,0 +1,112 @@
+<Page x:Class="RevitWebAppSync.UI.CostDashboardPanel"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Background="#252526">
+    
+    <Page.Resources>
+        <!-- Dark theme styles -->
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="#2a2a2a"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="Margin" Value="0,0,0,4"/>
+        </Style>
+        
+        <Style x:Key="SectionHeader" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="Margin" Value="0,12,0,8"/>
+        </Style>
+
+        <Style x:Key="AmountText" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+    </Page.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>   <!-- Header -->
+            <RowDefinition Height="Auto"/>   <!-- Total Card -->
+            <RowDefinition Height="Auto"/>   <!-- Filter Bar -->
+            <RowDefinition Height="*"/>      <!-- Scrollable Content -->
+            <RowDefinition Height="Auto"/>   <!-- Action Bar -->
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="#1a1a2e" Padding="16">
+            <StackPanel>
+                <TextBlock Text="💰 BINA Cost Tracker" FontSize="14" FontWeight="SemiBold" Foreground="White"/>
+                <TextBlock x:Name="SubtitleText" Text="No model loaded" FontSize="11" Foreground="#888888" Margin="0,4,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Grand Total Card -->
+        <Border Grid.Row="1" Margin="12,12,12,0" CornerRadius="10" Padding="20">
+            <Border.Background>
+                <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                    <GradientStop Color="#0f3460" Offset="0"/>
+                    <GradientStop Color="#16213e" Offset="1"/>
+                </LinearGradientBrush>
+            </Border.Background>
+            <StackPanel>
+                <TextBlock Text="ESTIMATED TOTAL COST" FontSize="11" Foreground="#7eb8da" FontWeight="SemiBold"/>
+                <TextBlock x:Name="GrandTotalText" Text="RM 0" FontSize="32" FontWeight="Bold" Foreground="White" Margin="0,4,0,0"/>
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                    <TextBlock x:Name="ItemCountText" Text="📐 0 items" FontSize="11" Foreground="#7eb8da" Margin="0,0,16,0"/>
+                    <TextBlock x:Name="LevelCountText" Text="🏢 0 levels" FontSize="11" Foreground="#7eb8da" Margin="0,0,16,0"/>
+                    <TextBlock x:Name="PricedPercentText" Text="✅ 0% priced" FontSize="11" Foreground="#7eb8da"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Filter Bar -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="12,8,12,0">
+            <RadioButton x:Name="ByLevelRadio" Content="By Level" IsChecked="True" 
+                         GroupName="ViewMode" Click="ViewMode_Click"
+                         Style="{StaticResource {x:Type ToggleButton}}"
+                         Background="Transparent" Foreground="#aaaaaa" 
+                         BorderBrush="#444444" Padding="8,5" Margin="0,0,6,0"
+                         FontSize="11"/>
+            <RadioButton x:Name="ByCategoryRadio" Content="By Category" 
+                         GroupName="ViewMode" Click="ViewMode_Click"
+                         Style="{StaticResource {x:Type ToggleButton}}"
+                         Background="Transparent" Foreground="#aaaaaa"
+                         BorderBrush="#444444" Padding="8,5"
+                         FontSize="11"/>
+            
+            <ComboBox x:Name="LevelFilter" Margin="12,0,0,0" MinWidth="120"
+                      FontSize="11" SelectionChanged="LevelFilter_Changed">
+                <ComboBoxItem Content="All Levels" IsSelected="True"/>
+            </ComboBox>
+        </StackPanel>
+
+        <!-- Scrollable Content -->
+        <ScrollViewer Grid.Row="3" Margin="12,8,12,0" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="ContentPanel">
+                <!-- Dynamic cost rows will be added here -->
+                <TextBlock x:Name="EmptyText" Text="Click 'Refresh' to calculate costs" 
+                           Foreground="#666666" FontSize="12" HorizontalAlignment="Center"
+                           Margin="0,40,0,0"/>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Action Bar -->
+        <Border Grid.Row="4" BorderThickness="0,1,0,0" BorderBrush="#333333" Padding="12">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <Button Content="📊 Export" Click="Export_Click" 
+                        Padding="16,8" Margin="0,0,8,0" FontSize="12"
+                        Background="#333333" Foreground="#e0e0e0" BorderBrush="#444444"/>
+                <Button Content="📥 Import" Click="Import_Click"
+                        Padding="16,8" Margin="0,0,8,0" FontSize="12"
+                        Background="#333333" Foreground="#e0e0e0" BorderBrush="#444444"/>
+                <Button Content="🔄 Refresh" Click="Refresh_Click"
+                        Padding="16,8" FontSize="12"
+                        Background="#0078d4" Foreground="White" BorderBrush="#0078d4"
+                        FontWeight="SemiBold"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Page>

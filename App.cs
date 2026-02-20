@@ -5,6 +5,7 @@ using System.Windows.Media.Imaging;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.UI;
 using RevitWebAppSync.Handlers;
+using RevitWebAppSync.UI;
 
 namespace RevitWebAppSync
 {
@@ -16,6 +17,9 @@ namespace RevitWebAppSync
         public static ExternalEvent AIExternalEvent { get; private set; }
         public static CodeExecutionHandler AIHandler { get; private set; }
 
+        // Cost Dashboard dockable pane host
+        public static CostDashboardHost CostDashboardHost { get; private set; }
+
         public Result OnStartup(UIControlledApplication application)
         {
             try
@@ -23,6 +27,13 @@ namespace RevitWebAppSync
                 // Create external event handler for AI code execution
                 AIHandler = new CodeExecutionHandler();
                 AIExternalEvent = ExternalEvent.Create(AIHandler);
+
+                // Register Cost Dashboard dockable pane
+                CostDashboardHost = new CostDashboardHost();
+                application.RegisterDockablePane(
+                    CostDashboardHost.PaneId,
+                    "BINA Cost Tracker",
+                    CostDashboardHost);
 
                 CreateRibbonTab(application);
                 return Result.Succeeded;
@@ -106,10 +117,51 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.microchip.png", 32)
             };
 
+            // Cost Tracker buttons
+            PushButtonData costExportButtonData = new PushButtonData(
+                "CostExport",
+                "Export\nCost Items",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.Commands.CostExportCommand")
+            {
+                ToolTip = "Export Cost Items to Excel",
+                LongDescription = "Extract all model elements with quantities, JKR codes, and levels. Export to Excel for QS to fill in prices.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            };
+
+            PushButtonData costImportButtonData = new PushButtonData(
+                "CostImport",
+                "Import\nPrices",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.Commands.CostImportCommand")
+            {
+                ToolTip = "Import Prices from Excel",
+                LongDescription = "Import unit prices from a filled Excel file. Prices are saved locally and applied to the cost tracker.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
+            };
+
+            PushButtonData costDashboardButtonData = new PushButtonData(
+                "CostDashboard",
+                "Cost\nTracker",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.Commands.CostDashboardCommand")
+            {
+                ToolTip = "Open Cost Tracker Dashboard",
+                LongDescription = "Show the cost tracker panel with total cost breakdown by level and category.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            };
+
             ribbonPanel.AddItem(buttonData);
             ribbonPanel.AddItem(loginButtonData);
             ribbonPanel.AddItem(bimDisciplineButtonData);
             ribbonPanel.AddItem(askAiButtonData);
+            ribbonPanel.AddSeparator();
+            ribbonPanel.AddItem(costExportButtonData);
+            ribbonPanel.AddItem(costImportButtonData);
+            ribbonPanel.AddItem(costDashboardButtonData);
             // ribbonPanel.AddItem(federateButtonData); // Hidden as requested
         }
 
