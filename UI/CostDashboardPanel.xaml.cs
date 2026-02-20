@@ -63,38 +63,7 @@ namespace RevitWebAppSync.UI
         private static readonly Color RowHover = Color.FromRgb(235, 243, 252);         // #EBF3FC
         private static readonly Color RowAlt = Color.FromRgb(248, 248, 248);           // #F8F8F8
 
-        // Category icons (Revit-style text symbols)
-        private static readonly Dictionary<string, (string Icon, Color Color)> CategoryIcons = new Dictionary<string, (string, Color)>(StringComparer.OrdinalIgnoreCase)
-        {
-            { "Walls",                  ("W", Color.FromRgb(120, 85, 72)) },    // Brown
-            { "Stacked Walls",          ("W", Color.FromRgb(141, 110, 99)) },
-            { "Wall Sweeps",            ("W", Color.FromRgb(161, 136, 127)) },
-            { "Floors",                 ("F", Color.FromRgb(33, 150, 243)) },   // Blue
-            { "Ceilings",              ("C", Color.FromRgb(156, 39, 176)) },    // Purple
-            { "Roofs",                  ("R", Color.FromRgb(233, 30, 99)) },    // Pink
-            { "Roof Soffits",           ("R", Color.FromRgb(240, 98, 146)) },
-            { "Doors",                  ("D", Color.FromRgb(255, 152, 0)) },    // Orange
-            { "Windows",               ("T", Color.FromRgb(0, 188, 212)) },     // Cyan (T for Tingkap)
-            { "Stairs",                 ("S", Color.FromRgb(76, 175, 80)) },    // Green
-            { "Railings",              ("Sr", Color.FromRgb(129, 199, 132)) },
-            { "Casework",              ("K", Color.FromRgb(121, 85, 72)) },     // Brown
-            { "Furniture",             ("Pr", Color.FromRgb(255, 193, 7)) },    // Amber
-            { "Plumbing Fixtures",     ("Pb", Color.FromRgb(3, 169, 244)) },    // Light Blue
-            { "Mechanical Equipment",  ("Mk", Color.FromRgb(255, 87, 34)) },   // Deep Orange
-            { "Electrical Fixtures",   ("El", Color.FromRgb(255, 235, 59)) },   // Yellow
-            { "Electrical Equipment",  ("El", Color.FromRgb(255, 235, 59)) },
-            { "Lighting Fixtures",     ("Lp", Color.FromRgb(255, 241, 118)) },
-            { "Generic Models",        ("Gn", Color.FromRgb(158, 158, 158)) },  // Grey
-            { "Fascias",               ("Fs", Color.FromRgb(188, 170, 164)) },
-            { "Gutters",               ("Gt", Color.FromRgb(144, 164, 174)) },
-            { "Reveals",               ("Rv", Color.FromRgb(176, 190, 197)) },
-            { "Legend Components",     ("Lg", Color.FromRgb(189, 189, 189)) },
-            { "Materials",             ("Mt", Color.FromRgb(224, 224, 224)) },
-            { "Ramps",                 ("Rm", Color.FromRgb(100, 181, 246)) },
-            { "Work Plane Grid",       ("Gd", Color.FromRgb(200, 200, 200)) },
-        };
-
-        // Level icons
+        // Level colors for fallback
         private static readonly Color[] LevelColors = {
             Color.FromRgb(0, 120, 215),
             Color.FromRgb(16, 124, 16),
@@ -435,12 +404,10 @@ namespace RevitWebAppSync.UI
             return btn;
         }
 
-        private (string icon, Color color) GetCategoryStyle(string categoryName, int index)
+        private Color GetGroupColor(string name, int index, bool isLevel)
         {
-            if (CategoryIcons.TryGetValue(categoryName, out var style))
-                return style;
-            return (categoryName.Length > 0 ? categoryName.Substring(0, Math.Min(2, categoryName.Length)) : "?",
-                    LevelColors[index % LevelColors.Length]);
+            if (!isLevel) return UI.CategoryIcons.GetColor(name);
+            return LevelColors[index % LevelColors.Length];
         }
 
         // ── Data ──
@@ -508,10 +475,7 @@ namespace RevitWebAppSync.UI
 
         private Border CreateCostRow(CostGroup group, int index, double maxCost)
         {
-            var (iconText, iconColor) = _showByLevel
-                ? (group.Name.Length > 0 ? group.Name.Substring(0, Math.Min(2, group.Name.Length)) : "?", LevelColors[index % LevelColors.Length])
-                : GetCategoryStyle(group.Name, index);
-
+            var iconColor = GetGroupColor(group.Name, index, _showByLevel);
             double barPct = maxCost > 0 ? (group.TotalCost / maxCost) * 100 : 0;
 
             var row = new Border
@@ -533,22 +497,15 @@ namespace RevitWebAppSync.UI
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            // Icon
-            var iconBorder = new Border
-            {
-                Width = 30, Height = 30, CornerRadius = new CornerRadius(4),
-                Background = new SolidColorBrush(Color.FromArgb(30, iconColor.R, iconColor.G, iconColor.B)),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            iconBorder.Child = new TextBlock
-            {
-                Text = iconText, FontSize = 11, FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(iconColor),
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            Grid.SetColumn(iconBorder, 0);
-            grid.Children.Add(iconBorder);
+            // Icon — vector icon for categories, numbered circle for levels
+            UIElement iconElement;
+            if (_showByLevel)
+                iconElement = UI.CategoryIcons.CreateLevelIcon(group.Name, index, 30);
+            else
+                iconElement = UI.CategoryIcons.CreateIconBadge(group.Name, 30);
+
+            Grid.SetColumn(iconElement, 0);
+            grid.Children.Add(iconElement);
 
             // Name + count + bar
             var nameStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) };
