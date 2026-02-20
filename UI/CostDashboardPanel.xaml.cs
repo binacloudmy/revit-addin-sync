@@ -110,13 +110,13 @@ namespace RevitWebAppSync.UI
             if (_summary == null) return;
 
             GrandTotalText.Text = $"RM {_summary.GrandTotal:N0}";
-            ItemCountText.Text = $"📐 {_summary.TotalItems:N0} items";
-            LevelCountText.Text = $"🏢 {_summary.LevelCount} levels";
+            ItemCountText.Text = $"{_summary.TotalItems:N0} items";
+            LevelCountText.Text = $"{_summary.LevelCount} levels";
 
             int pricedPct = _summary.TotalItems > 0
                 ? (int)((_summary.PricedItems / (double)_summary.TotalItems) * 100)
                 : 0;
-            PricedPercentText.Text = $"✅ {pricedPct}% priced";
+            PricedPercentText.Text = $"{pricedPct}% priced";
         }
 
         private void UpdateLevelFilter(Document doc)

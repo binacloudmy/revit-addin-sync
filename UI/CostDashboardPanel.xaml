@@ -2,44 +2,21 @@
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       Background="#252526">
-    
-    <Page.Resources>
-        <!-- Dark theme styles -->
-        <Style x:Key="CardStyle" TargetType="Border">
-            <Setter Property="Background" Value="#2a2a2a"/>
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="Padding" Value="12"/>
-            <Setter Property="Margin" Value="0,0,0,4"/>
-        </Style>
-        
-        <Style x:Key="SectionHeader" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="11"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="#888888"/>
-            <Setter Property="Margin" Value="0,12,0,8"/>
-        </Style>
-
-        <Style x:Key="AmountText" TargetType="TextBlock">
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="FontSize" Value="13"/>
-        </Style>
-    </Page.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>   <!-- Header -->
-            <RowDefinition Height="Auto"/>   <!-- Change Notification Banner -->
-            <RowDefinition Height="Auto"/>   <!-- Total Card -->
-            <RowDefinition Height="Auto"/>   <!-- Filter Bar -->
-            <RowDefinition Height="*"/>      <!-- Scrollable Content -->
-            <RowDefinition Height="Auto"/>   <!-- Action Bar -->
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Header -->
         <Border Grid.Row="0" Background="#1a1a2e" Padding="16">
             <StackPanel>
-                <TextBlock Text="💰 BINA Cost Tracker" FontSize="14" FontWeight="SemiBold" Foreground="White"/>
+                <TextBlock Text="BINA Cost Tracker" FontSize="14" FontWeight="SemiBold" Foreground="White"/>
                 <TextBlock x:Name="SubtitleText" Text="No model loaded" FontSize="11" Foreground="#888888" Margin="0,4,0,0"/>
             </StackPanel>
         </Border>
@@ -54,19 +31,16 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <StackPanel Grid.Column="0" Orientation="Horizontal">
-                    <TextBlock Text="⚡" FontSize="13" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                    <StackPanel>
-                        <TextBlock x:Name="ChangeText" Text="Model changed" FontSize="11" 
-                                   Foreground="#88cc88" FontWeight="Medium"/>
-                        <TextBlock x:Name="ChangeDeltaText" Text="" FontSize="10" 
-                                   Foreground="#668866" Margin="0,1,0,0"/>
-                    </StackPanel>
+                <StackPanel Grid.Column="0">
+                    <TextBlock x:Name="ChangeText" Text="Model changed" FontSize="11" 
+                               Foreground="#88cc88" FontWeight="Medium"/>
+                    <TextBlock x:Name="ChangeDeltaText" Text="" FontSize="10" 
+                               Foreground="#668866" Margin="0,1,0,0"/>
                 </StackPanel>
-                <TextBlock Grid.Column="1" x:Name="LiveIndicator" Text="● LIVE" 
+                <TextBlock Grid.Column="1" x:Name="LiveIndicator" Text="LIVE" 
                            FontSize="9" Foreground="#44cc44" FontWeight="Bold"
                            VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <Button Grid.Column="2" Content="✕" Click="DismissBanner_Click"
+                <Button Grid.Column="2" Content="X" Click="DismissBanner_Click"
                         Background="Transparent" Foreground="#668866" 
                         BorderThickness="0" FontSize="10" Padding="4,2"
                         VerticalAlignment="Center"/>
@@ -85,9 +59,9 @@
                 <TextBlock Text="ESTIMATED TOTAL COST" FontSize="11" Foreground="#7eb8da" FontWeight="SemiBold"/>
                 <TextBlock x:Name="GrandTotalText" Text="RM 0" FontSize="32" FontWeight="Bold" Foreground="White" Margin="0,4,0,0"/>
                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                    <TextBlock x:Name="ItemCountText" Text="📐 0 items" FontSize="11" Foreground="#7eb8da" Margin="0,0,16,0"/>
-                    <TextBlock x:Name="LevelCountText" Text="🏢 0 levels" FontSize="11" Foreground="#7eb8da" Margin="0,0,16,0"/>
-                    <TextBlock x:Name="PricedPercentText" Text="✅ 0% priced" FontSize="11" Foreground="#7eb8da"/>
+                    <TextBlock x:Name="ItemCountText" Text="0 items" FontSize="11" Foreground="#7eb8da" Margin="0,0,16,0"/>
+                    <TextBlock x:Name="LevelCountText" Text="0 levels" FontSize="11" Foreground="#7eb8da" Margin="0,0,16,0"/>
+                    <TextBlock x:Name="PricedPercentText" Text="0% priced" FontSize="11" Foreground="#7eb8da"/>
                 </StackPanel>
             </StackPanel>
         </Border>
@@ -96,15 +70,11 @@
         <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="12,8,12,0">
             <RadioButton x:Name="ByLevelRadio" Content="By Level" IsChecked="True" 
                          GroupName="ViewMode" Click="ViewMode_Click"
-                         Style="{StaticResource {x:Type ToggleButton}}"
-                         Background="Transparent" Foreground="#aaaaaa" 
-                         BorderBrush="#444444" Padding="8,5" Margin="0,0,6,0"
+                         Foreground="#aaaaaa" Padding="8,5" Margin="0,0,6,0"
                          FontSize="11"/>
             <RadioButton x:Name="ByCategoryRadio" Content="By Category" 
                          GroupName="ViewMode" Click="ViewMode_Click"
-                         Style="{StaticResource {x:Type ToggleButton}}"
-                         Background="Transparent" Foreground="#aaaaaa"
-                         BorderBrush="#444444" Padding="8,5"
+                         Foreground="#aaaaaa" Padding="8,5"
                          FontSize="11"/>
             
             <ComboBox x:Name="LevelFilter" Margin="12,0,0,0" MinWidth="120"
@@ -116,8 +86,7 @@
         <!-- Scrollable Content -->
         <ScrollViewer Grid.Row="4" Margin="12,8,12,0" VerticalScrollBarVisibility="Auto">
             <StackPanel x:Name="ContentPanel">
-                <!-- Dynamic cost rows will be added here -->
-                <TextBlock x:Name="EmptyText" Text="Click 'Refresh' to calculate costs" 
+                <TextBlock x:Name="EmptyText" Text="Click Refresh to calculate costs" 
                            Foreground="#666666" FontSize="12" HorizontalAlignment="Center"
                            Margin="0,40,0,0"/>
             </StackPanel>
@@ -126,30 +95,28 @@
         <!-- Action Bar -->
         <Border Grid.Row="5" BorderThickness="0,1,0,0" BorderBrush="#333333" Padding="8">
             <StackPanel>
-                <!-- Primary actions -->
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,0,0,4">
-                    <Button Content="🎯 Match Prices" Click="AutoMatch_Click"
+                    <Button Content="Match Prices" Click="AutoMatch_Click"
                             Padding="12,6" Margin="0,0,6,0" FontSize="11"
                             Background="#1a5c1a" Foreground="#88cc88" BorderBrush="#2a6c2a"
                             FontWeight="SemiBold" ToolTip="Auto-match from master price database"/>
-                    <Button Content="🧠 AI Insights" Click="AIInsights_Click"
+                    <Button Content="AI Insights" Click="AIInsights_Click"
                             Padding="12,6" Margin="0,0,6,0" FontSize="11"
                             Background="#1a3a5c" Foreground="#88aacc" BorderBrush="#2a4a6c"
                             ToolTip="Analyze costs with AI (no price hallucination)"/>
-                    <Button Content="🔄 Refresh" Click="Refresh_Click"
+                    <Button Content="Refresh" Click="Refresh_Click"
                             Padding="12,6" FontSize="11"
                             Background="#0078d4" Foreground="White" BorderBrush="#0078d4"
                             FontWeight="SemiBold"/>
                 </StackPanel>
-                <!-- Secondary actions -->
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                    <Button Content="📊 Export" Click="Export_Click" 
+                    <Button Content="Export" Click="Export_Click" 
                             Padding="10,4" Margin="0,0,6,0" FontSize="10"
                             Background="#333333" Foreground="#aaaaaa" BorderBrush="#444444"/>
-                    <Button Content="📥 Import Prices" Click="Import_Click"
+                    <Button Content="Import Prices" Click="Import_Click"
                             Padding="10,4" Margin="0,0,6,0" FontSize="10"
                             Background="#333333" Foreground="#aaaaaa" BorderBrush="#444444"/>
-                    <Button Content="📚 Import to Master" Click="ImportMaster_Click"
+                    <Button Content="Import to Master" Click="ImportMaster_Click"
                             Padding="10,4" FontSize="10"
                             Background="#333333" Foreground="#aaaaaa" BorderBrush="#444444"
                             ToolTip="Import prices into the master database for reuse across projects"/>
