@@ -261,6 +261,46 @@ namespace RevitWebAppSync.Services
             {
                 System.Diagnostics.Debug.WriteLine($"[BINA Cost] Failed to load master DB: {ex.Message}");
             }
+
+            // Auto-seed from bundled data if DB is empty
+            if (_entries.Count == 0)
+            {
+                LoadSeedData();
+            }
+        }
+
+        /// <summary>
+        /// Load bundled seed prices from Data/master_prices_seed.json (shipped with addin).
+        /// Only runs when master DB is empty (first launch).
+        /// </summary>
+        private void LoadSeedData()
+        {
+            try
+            {
+                // Look for seed file next to the DLL
+                string dllDir = Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location) ?? "";
+                string seedPath = Path.Combine(dllDir, "Data", "master_prices_seed.json");
+
+                if (!File.Exists(seedPath))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA Cost] No seed file found at: {seedPath}");
+                    return;
+                }
+
+                string json = File.ReadAllText(seedPath);
+                var seedEntries = JsonConvert.DeserializeObject<Dictionary<string, MasterPriceEntry>>(json);
+
+                if (seedEntries != null && seedEntries.Count > 0)
+                {
+                    _entries = new Dictionary<string, MasterPriceEntry>(seedEntries, StringComparer.OrdinalIgnoreCase);
+                    Save(); // Persist to AppData so it loads faster next time
+                    System.Diagnostics.Debug.WriteLine($"[BINA Cost] Seeded master DB with {_entries.Count} entries");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA Cost] Failed to load seed data: {ex.Message}");
+            }
         }
 
         /// <summary>

@@ -1,0 +1,902 @@
+{
+  "DBb100a": {
+    "JkrCode": "DBb100a",
+    "Description": "Dinding bata biasa 100mm tebal (Common brick wall 100mm thick)",
+    "UnitPrice": 45.00,
+    "Unit": "m²",
+    "Category": "Walls",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Half brick wall — internal partition"
+  },
+  "DBb200a": {
+    "JkrCode": "DBb200a",
+    "Description": "Dinding bata biasa 200mm tebal (Common brick wall 200mm thick)",
+    "UnitPrice": 78.00,
+    "Unit": "m²",
+    "Category": "Walls",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "One brick wall — external/load bearing"
+  },
+  "DBb300a": {
+    "JkrCode": "DBb300a",
+    "Description": "Dinding bata biasa 300mm tebal (Common brick wall 300mm thick)",
+    "UnitPrice": 110.00,
+    "Unit": "m²",
+    "Category": "Walls",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "One and half brick wall"
+  },
+  "DKk100a": {
+    "JkrCode": "DKk100a",
+    "Description": "Dinding konkrit ringan 100mm (Lightweight concrete block wall 100mm)",
+    "UnitPrice": 52.00,
+    "Unit": "m²",
+    "Category": "Walls",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "AAC / lightweight block partition"
+  },
+  "DKk150a": {
+    "JkrCode": "DKk150a",
+    "Description": "Dinding konkrit ringan 150mm (Lightweight concrete block wall 150mm)",
+    "UnitPrice": 68.00,
+    "Unit": "m²",
+    "Category": "Walls",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "AAC block — common for internal walls"
+  },
+  "DKk200a": {
+    "JkrCode": "DKk200a",
+    "Description": "Dinding konkrit ringan 200mm (Lightweight concrete block wall 200mm)",
+    "UnitPrice": 85.00,
+    "Unit": "m²",
+    "Category": "Walls",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "External wall with lightweight block"
+  },
+  "DDb100a": {
+    "JkrCode": "DDb100a",
+    "Description": "Dinding drywall gypsum single layer 12.5mm both sides (100mm stud)",
+    "UnitPrice": 62.00,
+    "Unit": "m²",
+    "Category": "Walls",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Metal stud + single layer gypsum board"
+  },
+  "DDb100b": {
+    "JkrCode": "DDb100b",
+    "Description": "Dinding drywall gypsum double layer 12.5mm both sides (100mm stud)",
+    "UnitPrice": 88.00,
+    "Unit": "m²",
+    "Category": "Walls",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Double layer for fire rating"
+  },
+  "DDg100a": {
+    "JkrCode": "DDg100a",
+    "Description": "Dinding kaca tempered 10mm (Tempered glass partition 10mm)",
+    "UnitPrice": 280.00,
+    "Unit": "m²",
+    "Category": "Walls",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Frameless tempered glass partition"
+  },
+  "DDg100b": {
+    "JkrCode": "DDg100b",
+    "Description": "Dinding kaca tempered 12mm (Tempered glass partition 12mm)",
+    "UnitPrice": 350.00,
+    "Unit": "m²",
+    "Category": "Walls",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Frameless glass — office partitions"
+  },
+  "DPl100a": {
+    "JkrCode": "DPl100a",
+    "Description": "Dinding plaster simen dua belah (Cement plaster both sides)",
+    "UnitPrice": 25.00,
+    "Unit": "m²",
+    "Category": "Walls",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "12mm plaster on brick/block walls"
+  },
+  "DCt100a": {
+    "JkrCode": "DCt100a",
+    "Description": "Cat dinding dalaman emulsi (Interior wall emulsion paint)",
+    "UnitPrice": 12.00,
+    "Unit": "m²",
+    "Category": "Walls",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "2 coats emulsion on plastered wall"
+  },
+  "DCt100b": {
+    "JkrCode": "DCt100b",
+    "Description": "Cat dinding luaran weathershield (Exterior weathershield paint)",
+    "UnitPrice": 18.00,
+    "Unit": "m²",
+    "Category": "Walls",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "2 coats exterior grade paint"
+  },
+  "DTl100a": {
+    "JkrCode": "DTl100a",
+    "Description": "Jubin dinding seramik 200x300mm (Ceramic wall tile 200x300mm)",
+    "UnitPrice": 55.00,
+    "Unit": "m²",
+    "Category": "Walls",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Toilet/kitchen wall tiling with adhesive"
+  },
+  "PTk100a": {
+    "JkrCode": "PTk100a",
+    "Description": "Pintu kayu keras padat 900x2100mm (Solid hardwood door 900x2100mm)",
+    "UnitPrice": 1800.00,
+    "Unit": "unit",
+    "Category": "Doors",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Including frame, hinges, lock set"
+  },
+  "PTk100b": {
+    "JkrCode": "PTk100b",
+    "Description": "Pintu kayu keras padat 800x2100mm (Solid hardwood door 800x2100mm)",
+    "UnitPrice": 1650.00,
+    "Unit": "unit",
+    "Category": "Doors",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Including frame, hinges, lock set"
+  },
+  "PTk200a": {
+    "JkrCode": "PTk200a",
+    "Description": "Pintu kayu berkembar 1800x2100mm (Double leaf timber door)",
+    "UnitPrice": 3800.00,
+    "Unit": "unit",
+    "Category": "Doors",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Including frame, hinges, lock set — lobby/entrance"
+  },
+  "PTf100a": {
+    "JkrCode": "PTf100a",
+    "Description": "Pintu tahan api 1 jam 900x2100mm (1-hour fire rated door)",
+    "UnitPrice": 2800.00,
+    "Unit": "unit",
+    "Category": "Doors",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Bomba-certified fire door with closer"
+  },
+  "PTf200a": {
+    "JkrCode": "PTf200a",
+    "Description": "Pintu tahan api 2 jam 900x2100mm (2-hour fire rated door)",
+    "UnitPrice": 3500.00,
+    "Unit": "unit",
+    "Category": "Doors",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Bomba-certified 2HR fire door — staircase"
+  },
+  "PTg100a": {
+    "JkrCode": "PTg100a",
+    "Description": "Pintu kaca tempered frameless 900x2100mm (Frameless glass door)",
+    "UnitPrice": 2400.00,
+    "Unit": "unit",
+    "Category": "Doors",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "12mm tempered glass with floor spring"
+  },
+  "PTg200a": {
+    "JkrCode": "PTg200a",
+    "Description": "Pintu kaca tempered automatik (Auto sliding glass door)",
+    "UnitPrice": 12000.00,
+    "Unit": "unit",
+    "Category": "Doors",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Automatic sliding sensor door — lobby entrance"
+  },
+  "PTs100a": {
+    "JkrCode": "PTs100a",
+    "Description": "Pintu bilik air PVC 700x2000mm (PVC toilet door)",
+    "UnitPrice": 450.00,
+    "Unit": "unit",
+    "Category": "Doors",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Moisture resistant PVC door"
+  },
+  "PTr100a": {
+    "JkrCode": "PTr100a",
+    "Description": "Roller shutter door manual 3000x3000mm (Manual roller shutter)",
+    "UnitPrice": 6500.00,
+    "Unit": "unit",
+    "Category": "Doors",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Galvanised steel roller shutter — loading bay"
+  },
+  "TKa100a": {
+    "JkrCode": "TKa100a",
+    "Description": "Tingkap aluminium casement 600x1200mm (Aluminium casement window)",
+    "UnitPrice": 380.00,
+    "Unit": "unit",
+    "Category": "Windows",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Powder coated aluminium with 5mm clear glass"
+  },
+  "TKa100b": {
+    "JkrCode": "TKa100b",
+    "Description": "Tingkap aluminium casement 1200x1200mm (Aluminium casement window)",
+    "UnitPrice": 650.00,
+    "Unit": "unit",
+    "Category": "Windows",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Powder coated aluminium with 5mm clear glass"
+  },
+  "TKa200a": {
+    "JkrCode": "TKa200a",
+    "Description": "Tingkap aluminium sliding 1800x1200mm (Aluminium sliding window)",
+    "UnitPrice": 850.00,
+    "Unit": "unit",
+    "Category": "Windows",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "2-track sliding with insect screen"
+  },
+  "TKa300a": {
+    "JkrCode": "TKa300a",
+    "Description": "Tingkap aluminium fixed panel 1200x1500mm (Fixed glass panel)",
+    "UnitPrice": 520.00,
+    "Unit": "unit",
+    "Category": "Windows",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Fixed glazing — non-openable"
+  },
+  "TKl100a": {
+    "JkrCode": "TKl100a",
+    "Description": "Tingkap aluminium louvre 600x600mm (Aluminium louvre window)",
+    "UnitPrice": 280.00,
+    "Unit": "unit",
+    "Category": "Windows",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "For ventilation — toilet/staircase"
+  },
+  "LFc100a": {
+    "JkrCode": "LFc100a",
+    "Description": "Lantai jubin seramik 300x300mm (Ceramic floor tile 300x300mm)",
+    "UnitPrice": 48.00,
+    "Unit": "m²",
+    "Category": "Floors",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Standard ceramic — corridors/rooms"
+  },
+  "LFc200a": {
+    "JkrCode": "LFc200a",
+    "Description": "Lantai jubin homogeneous 600x600mm (Homogeneous tile 600x600mm)",
+    "UnitPrice": 75.00,
+    "Unit": "m²",
+    "Category": "Floors",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Full body porcelain — lobbies/office"
+  },
+  "LFc300a": {
+    "JkrCode": "LFc300a",
+    "Description": "Lantai jubin porcelain 600x600mm polished (Polished porcelain tile)",
+    "UnitPrice": 95.00,
+    "Unit": "m²",
+    "Category": "Floors",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Polished porcelain — premium lobby"
+  },
+  "LFv100a": {
+    "JkrCode": "LFv100a",
+    "Description": "Lantai vinyl tile 3mm (Vinyl tile flooring 3mm)",
+    "UnitPrice": 35.00,
+    "Unit": "m²",
+    "Category": "Floors",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Commercial grade vinyl tile"
+  },
+  "LFv200a": {
+    "JkrCode": "LFv200a",
+    "Description": "Lantai SPC vinyl 5mm click (SPC vinyl plank 5mm)",
+    "UnitPrice": 58.00,
+    "Unit": "m²",
+    "Category": "Floors",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Stone polymer composite — wood look"
+  },
+  "LFe100a": {
+    "JkrCode": "LFe100a",
+    "Description": "Lantai epoxy coating (Epoxy floor coating)",
+    "UnitPrice": 42.00,
+    "Unit": "m²",
+    "Category": "Floors",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Self-levelling epoxy — car park/plant room"
+  },
+  "LFk100a": {
+    "JkrCode": "LFk100a",
+    "Description": "Lantai konkrit tetulang 150mm (RC floor slab 150mm)",
+    "UnitPrice": 120.00,
+    "Unit": "m²",
+    "Category": "Floors",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Reinforced concrete slab c/w rebar"
+  },
+  "LFk200a": {
+    "JkrCode": "LFk200a",
+    "Description": "Lantai konkrit tetulang 200mm (RC floor slab 200mm)",
+    "UnitPrice": 155.00,
+    "Unit": "m²",
+    "Category": "Floors",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Thicker slab for higher loads"
+  },
+  "LFn100a": {
+    "JkrCode": "LFn100a",
+    "Description": "Lantai jubin anti-slip 300x300mm (Anti-slip tile — wet area)",
+    "UnitPrice": 55.00,
+    "Unit": "m²",
+    "Category": "Floors",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "R11 anti-slip for toilets/wet areas"
+  },
+  "LFr100a": {
+    "JkrCode": "LFr100a",
+    "Description": "Raised access floor 600x600mm (Raised floor system)",
+    "UnitPrice": 180.00,
+    "Unit": "m²",
+    "Category": "Floors",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Steel pedestal + panel — server room/office"
+  },
+  "SFm100a": {
+    "JkrCode": "SFm100a",
+    "Description": "Siling mineral fibre 600x600mm exposed grid (Mineral fibre ceiling tile)",
+    "UnitPrice": 38.00,
+    "Unit": "m²",
+    "Category": "Ceilings",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "T-grid suspended ceiling — offices"
+  },
+  "SFm200a": {
+    "JkrCode": "SFm200a",
+    "Description": "Siling mineral fibre 600x600mm concealed grid (Concealed grid ceiling)",
+    "UnitPrice": 52.00,
+    "Unit": "m²",
+    "Category": "Ceilings",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Concealed edge — premium look"
+  },
+  "SFg100a": {
+    "JkrCode": "SFg100a",
+    "Description": "Siling plasterboard 9mm (Gypsum board ceiling 9mm)",
+    "UnitPrice": 32.00,
+    "Unit": "m²",
+    "Category": "Ceilings",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Flat gypsum ceiling on metal frame"
+  },
+  "SFg200a": {
+    "JkrCode": "SFg200a",
+    "Description": "Siling plasterboard 12mm tahan api (Fire rated gypsum ceiling 12mm)",
+    "UnitPrice": 48.00,
+    "Unit": "m²",
+    "Category": "Ceilings",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Fire rated — corridors/staircase lobbies"
+  },
+  "SFa100a": {
+    "JkrCode": "SFa100a",
+    "Description": "Siling aluminium strip 100mm (Metal strip ceiling)",
+    "UnitPrice": 85.00,
+    "Unit": "m²",
+    "Category": "Ceilings",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Aluminium strip/baffle — car park/canopy"
+  },
+  "BUz100a": {
+    "JkrCode": "BUz100a",
+    "Description": "Bumbung zink 0.47mm (Metal deck roofing 0.47mm)",
+    "UnitPrice": 42.00,
+    "Unit": "m²",
+    "Category": "Roofs",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Colorbond/zincalume long span roofing"
+  },
+  "BUz200a": {
+    "JkrCode": "BUz200a",
+    "Description": "Bumbung zink insulated sandwich panel 50mm (Insulated roof panel)",
+    "UnitPrice": 95.00,
+    "Unit": "m²",
+    "Category": "Roofs",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "PIR/PU core sandwich panel"
+  },
+  "BUk100a": {
+    "JkrCode": "BUk100a",
+    "Description": "Bumbung konkrit RC 150mm dengan kalis air (RC roof slab with waterproofing)",
+    "UnitPrice": 165.00,
+    "Unit": "m²",
+    "Category": "Roofs",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Flat RC roof + torch-on membrane"
+  },
+  "BUt100a": {
+    "JkrCode": "BUt100a",
+    "Description": "Bumbung genting tanah liat (Clay roof tile — Marseille pattern)",
+    "UnitPrice": 58.00,
+    "Unit": "m²",
+    "Category": "Roofs",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Clay tile on timber/steel battens"
+  },
+  "PPd100a": {
+    "JkrCode": "PPd100a",
+    "Description": "Mangkuk tandas duduk (WC suite — close coupled)",
+    "UnitPrice": 850.00,
+    "Unit": "unit",
+    "Category": "Plumbing Fixtures",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Including cistern, seat, supply pipe"
+  },
+  "PPd100b": {
+    "JkrCode": "PPd100b",
+    "Description": "Mangkuk tandas duduk wall-hung (Wall-hung WC suite)",
+    "UnitPrice": 1800.00,
+    "Unit": "unit",
+    "Category": "Plumbing Fixtures",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Concealed cistern + wall-hung bowl"
+  },
+  "PPj100a": {
+    "JkrCode": "PPj100a",
+    "Description": "Mangkuk tandas jongkok (Squat pan)",
+    "UnitPrice": 350.00,
+    "Unit": "unit",
+    "Category": "Plumbing Fixtures",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Ceramic squat pan with flushing valve"
+  },
+  "PPb100a": {
+    "JkrCode": "PPb100a",
+    "Description": "Besen cuci tangan (Wash basin — pedestal type)",
+    "UnitPrice": 450.00,
+    "Unit": "unit",
+    "Category": "Plumbing Fixtures",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Including pedestal, tap, waste"
+  },
+  "PPb200a": {
+    "JkrCode": "PPb200a",
+    "Description": "Besen cuci tangan countertop (Countertop basin)",
+    "UnitPrice": 650.00,
+    "Unit": "unit",
+    "Category": "Plumbing Fixtures",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Above counter vessel basin + mixer tap"
+  },
+  "PPu100a": {
+    "JkrCode": "PPu100a",
+    "Description": "Urinal (Urinal bowl — wall mounted)",
+    "UnitPrice": 550.00,
+    "Unit": "unit",
+    "Category": "Plumbing Fixtures",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Including flush valve and waste"
+  },
+  "PPp100a": {
+    "JkrCode": "PPp100a",
+    "Description": "Paip air PPR 20mm (PPR water pipe 20mm)",
+    "UnitPrice": 18.00,
+    "Unit": "m",
+    "Category": "Plumbing Fixtures",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Including fittings per metre run"
+  },
+  "PPp200a": {
+    "JkrCode": "PPp200a",
+    "Description": "Paip air PPR 25mm (PPR water pipe 25mm)",
+    "UnitPrice": 24.00,
+    "Unit": "m",
+    "Category": "Plumbing Fixtures",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Including fittings per metre run"
+  },
+  "PPw100a": {
+    "JkrCode": "PPw100a",
+    "Description": "Pemanas air elektrik 30L (Electric water heater 30L)",
+    "UnitPrice": 1200.00,
+    "Unit": "unit",
+    "Category": "Plumbing Fixtures",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Storage type water heater"
+  },
+  "MKs100a": {
+    "JkrCode": "MKs100a",
+    "Description": "Unit penyaman udara split 1.0HP (Split unit aircond 1.0HP)",
+    "UnitPrice": 1800.00,
+    "Unit": "unit",
+    "Category": "Mechanical Equipment",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Wall-mounted inverter — small room"
+  },
+  "MKs100b": {
+    "JkrCode": "MKs100b",
+    "Description": "Unit penyaman udara split 1.5HP (Split unit aircond 1.5HP)",
+    "UnitPrice": 2200.00,
+    "Unit": "unit",
+    "Category": "Mechanical Equipment",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Wall-mounted inverter — standard room"
+  },
+  "MKs200a": {
+    "JkrCode": "MKs200a",
+    "Description": "Unit penyaman udara split 2.0HP (Split unit aircond 2.0HP)",
+    "UnitPrice": 2800.00,
+    "Unit": "unit",
+    "Category": "Mechanical Equipment",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Wall-mounted inverter — medium room"
+  },
+  "MKs300a": {
+    "JkrCode": "MKs300a",
+    "Description": "Unit penyaman udara kaset 3.0HP (Cassette type aircond 3.0HP)",
+    "UnitPrice": 5500.00,
+    "Unit": "unit",
+    "Category": "Mechanical Equipment",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Ceiling cassette 4-way — office"
+  },
+  "MKd100a": {
+    "JkrCode": "MKd100a",
+    "Description": "Ducting GI rectangular (GI ductwork — rectangular)",
+    "UnitPrice": 120.00,
+    "Unit": "m²",
+    "Category": "Mechanical Equipment",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Galvanised iron duct per m² surface area"
+  },
+  "MKf100a": {
+    "JkrCode": "MKf100a",
+    "Description": "Kipas ekzos bilik air (Toilet exhaust fan)",
+    "UnitPrice": 180.00,
+    "Unit": "unit",
+    "Category": "Mechanical Equipment",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Ceiling mounted ventilation fan"
+  },
+  "PEp100a": {
+    "JkrCode": "PEp100a",
+    "Description": "Soket kuasa 13A (13A switched socket outlet)",
+    "UnitPrice": 85.00,
+    "Unit": "unit",
+    "Category": "Electrical Fixtures",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Including wiring from DB — per point"
+  },
+  "PEp200a": {
+    "JkrCode": "PEp200a",
+    "Description": "Soket kuasa 13A berkembar (Twin 13A socket outlet)",
+    "UnitPrice": 120.00,
+    "Unit": "unit",
+    "Category": "Electrical Fixtures",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Double gang — including wiring"
+  },
+  "PEs100a": {
+    "JkrCode": "PEs100a",
+    "Description": "Suis lampu 1 gang (1-gang light switch)",
+    "UnitPrice": 45.00,
+    "Unit": "unit",
+    "Category": "Electrical Fixtures",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Including wiring from lighting circuit"
+  },
+  "PEd100a": {
+    "JkrCode": "PEd100a",
+    "Description": "Papan agihan 3-fasa TPN (3-phase distribution board TPN)",
+    "UnitPrice": 2800.00,
+    "Unit": "unit",
+    "Category": "Electrical Equipment",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "12-way TPN DB c/w MCCB and MCBs"
+  },
+  "PEd200a": {
+    "JkrCode": "PEd200a",
+    "Description": "Papan agihan 1-fasa SPN (Single phase distribution board SPN)",
+    "UnitPrice": 1200.00,
+    "Unit": "unit",
+    "Category": "Electrical Equipment",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "8-way SPN DB c/w RCCB and MCBs"
+  },
+  "PEc100a": {
+    "JkrCode": "PEc100a",
+    "Description": "Kabel PVC 3C x 2.5mm (PVC cable 3-core 2.5mm²)",
+    "UnitPrice": 8.50,
+    "Unit": "m",
+    "Category": "Electrical Fixtures",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Standard power circuit wiring"
+  },
+  "PEc200a": {
+    "JkrCode": "PEc200a",
+    "Description": "Kabel PVC 3C x 4.0mm (PVC cable 3-core 4.0mm²)",
+    "UnitPrice": 12.00,
+    "Unit": "m",
+    "Category": "Electrical Fixtures",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Heavy duty circuit / aircond"
+  },
+  "PEt100a": {
+    "JkrCode": "PEt100a",
+    "Description": "Cable tray perforated 300mm (Perforated cable tray 300mm wide)",
+    "UnitPrice": 65.00,
+    "Unit": "m",
+    "Category": "Electrical Equipment",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Hot-dip galvanised — riser/ceiling void"
+  },
+  "LEf100a": {
+    "JkrCode": "LEf100a",
+    "Description": "Lampu LED panel 600x600mm 40W (LED panel light 600x600 40W)",
+    "UnitPrice": 120.00,
+    "Unit": "unit",
+    "Category": "Lighting Fixtures",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Recessed in T-grid ceiling — office"
+  },
+  "LEf200a": {
+    "JkrCode": "LEf200a",
+    "Description": "Lampu LED downlight 6 inci 18W (LED downlight 6\" 18W)",
+    "UnitPrice": 65.00,
+    "Unit": "unit",
+    "Category": "Lighting Fixtures",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Recessed downlight — corridors/lobbies"
+  },
+  "LEf300a": {
+    "JkrCode": "LEf300a",
+    "Description": "Lampu LED downlight 4 inci 12W (LED downlight 4\" 12W)",
+    "UnitPrice": 45.00,
+    "Unit": "unit",
+    "Category": "Lighting Fixtures",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Recessed downlight — toilets/pantry"
+  },
+  "LEw100a": {
+    "JkrCode": "LEw100a",
+    "Description": "Lampu dinding LED (LED wall light / wall sconce)",
+    "UnitPrice": 180.00,
+    "Unit": "unit",
+    "Category": "Lighting Fixtures",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Decorative wall mounted — lobby/corridor"
+  },
+  "LEe100a": {
+    "JkrCode": "LEe100a",
+    "Description": "Lampu kecemasan LED (Emergency LED luminaire)",
+    "UnitPrice": 220.00,
+    "Unit": "unit",
+    "Category": "Lighting Fixtures",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Self-contained battery backup — Bomba requirement"
+  },
+  "LEe200a": {
+    "JkrCode": "LEe200a",
+    "Description": "Tanda keluar EXIT LED (LED exit sign — running man)",
+    "UnitPrice": 180.00,
+    "Unit": "unit",
+    "Category": "Lighting Fixtures",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Illuminated exit sign — Bomba requirement"
+  },
+  "KSk100a": {
+    "JkrCode": "KSk100a",
+    "Description": "Kabinet dapur atas melamine (Kitchen wall cabinet — melamine)",
+    "UnitPrice": 450.00,
+    "Unit": "m",
+    "Category": "Casework",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Per metre run — standard height"
+  },
+  "KSk200a": {
+    "JkrCode": "KSk200a",
+    "Description": "Kabinet dapur bawah melamine (Kitchen base cabinet — melamine)",
+    "UnitPrice": 550.00,
+    "Unit": "m",
+    "Category": "Casework",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Per metre run — including countertop"
+  },
+  "KSk300a": {
+    "JkrCode": "KSk300a",
+    "Description": "Countertop granit (Granite kitchen countertop)",
+    "UnitPrice": 280.00,
+    "Unit": "m",
+    "Category": "Casework",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "20mm granite slab per metre run"
+  },
+  "PRm100a": {
+    "JkrCode": "PRm100a",
+    "Description": "Meja kerja pejabat standard (Standard office workstation)",
+    "UnitPrice": 1200.00,
+    "Unit": "unit",
+    "Category": "Furniture",
+    "Source": "manual",
+    "LastUpdated": "2026-01-01",
+    "Notes": "L-shape desk with pedestal"
+  },
+  "PRm200a": {
+    "JkrCode": "PRm200a",
+    "Description": "Kerusi pejabat ergonomik (Ergonomic office chair)",
+    "UnitPrice": 650.00,
+    "Unit": "unit",
+    "Category": "Furniture",
+    "Source": "manual",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Mesh back with lumbar support"
+  },
+  "PRs100a": {
+    "JkrCode": "PRs100a",
+    "Description": "Sofa 3-seater kulit PU (3-seater PU leather sofa)",
+    "UnitPrice": 2800.00,
+    "Unit": "unit",
+    "Category": "Furniture",
+    "Source": "manual",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Lobby/waiting area furniture"
+  },
+  "STk100a": {
+    "JkrCode": "STk100a",
+    "Description": "Tangga konkrit tetulang (RC staircase — per flight)",
+    "UnitPrice": 4500.00,
+    "Unit": "unit",
+    "Category": "Stairs",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "One flight including landing — typical 3m floor-to-floor"
+  },
+  "STr100a": {
+    "JkrCode": "STr100a",
+    "Description": "Susur tangan keluli tahan karat (Stainless steel handrail/balustrade)",
+    "UnitPrice": 350.00,
+    "Unit": "m",
+    "Category": "Stairs",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "SS304 handrail with glass/wire infill"
+  },
+  "CWa100a": {
+    "JkrCode": "CWa100a",
+    "Description": "Curtain wall aluminium + kaca tempered (Aluminium curtain wall system)",
+    "UnitPrice": 650.00,
+    "Unit": "m²",
+    "Category": "Curtain Panels",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Stick system — tempered glass + aluminium mullion"
+  },
+  "CWa200a": {
+    "JkrCode": "CWa200a",
+    "Description": "Curtain wall aluminium + kaca double glazed (DGU curtain wall)",
+    "UnitPrice": 950.00,
+    "Unit": "m²",
+    "Category": "Curtain Panels",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Double glazed unit for energy efficiency"
+  },
+  "SKk100a": {
+    "JkrCode": "SKk100a",
+    "Description": "Tiang konkrit tetulang 300x300mm (RC column 300x300mm)",
+    "UnitPrice": 850.00,
+    "Unit": "m",
+    "Category": "Structural Columns",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Per metre height — Grade 30 concrete"
+  },
+  "SKk200a": {
+    "JkrCode": "SKk200a",
+    "Description": "Tiang konkrit tetulang 400x400mm (RC column 400x400mm)",
+    "UnitPrice": 1100.00,
+    "Unit": "m",
+    "Category": "Structural Columns",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Per metre height — Grade 35 concrete"
+  },
+  "SKk300a": {
+    "JkrCode": "SKk300a",
+    "Description": "Tiang konkrit tetulang 600x600mm (RC column 600x600mm)",
+    "UnitPrice": 1650.00,
+    "Unit": "m",
+    "Category": "Structural Columns",
+    "Source": "jkr",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Per metre height — heavy duty"
+  },
+  "SKs100a": {
+    "JkrCode": "SKs100a",
+    "Description": "Tiang keluli UC 203x203x46 (Steel column UC 203x203x46)",
+    "UnitPrice": 380.00,
+    "Unit": "m",
+    "Category": "Structural Columns",
+    "Source": "cidb",
+    "LastUpdated": "2026-01-01",
+    "Notes": "Per metre — fabricated, painted, erected"
+  }
+}

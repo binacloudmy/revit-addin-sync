@@ -40,6 +40,12 @@
     <EmbeddedResource Include="Resources\microchip.png" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Include="Data\master_prices_seed.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
   <!-- Post-build: Copy addin manifest and ALL DLLs to Revit folder -->
   <Target Name="PostBuild" AfterTargets="Build">
     <ItemGroup>
