@@ -759,28 +759,22 @@ namespace RevitWebAppSync.UI
 
                     if (aiAvailable)
                     {
-                        // Process in batches of 50 for speed (each batch = 1 API call)
-                        int batchSize = 50;
-                        for (int i = 0; i < unpriced.Count; i += batchSize)
+                        ShowBanner($"🤖 AI matching {unpriced.Count} items...", "Server deduplicates automatically", Color.FromRgb(0, 120, 215));
+                        await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+
+                        // Send ALL items in one call — server deduplicates by type name
+                        var suggestions = await aiEstimator.SuggestMatchesAsync(unpriced, new List<MasterPriceEntry>());
+
+                        foreach (var suggestion in suggestions)
                         {
-                            var batch = unpriced.Skip(i).Take(batchSize).ToList();
-                            int progress = Math.Min(i + batchSize, unpriced.Count);
-                            ShowBanner($"🤖 AI matching... ({progress}/{unpriced.Count})", $"{aiMatched} matched so far", Color.FromRgb(0, 120, 215));
-                            await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
-
-                            var suggestions = await aiEstimator.SuggestMatchesAsync(batch, new List<MasterPriceEntry>());
-
-                            foreach (var suggestion in suggestions)
+                            var item = _allItems.FirstOrDefault(x => x.ElementId == suggestion.ElementId);
+                            if (item != null && item.UnitPrice <= 0 && suggestion.SuggestedPrice > 0)
                             {
-                                var item = _allItems.FirstOrDefault(x => x.ElementId == suggestion.ElementId);
-                                if (item != null && item.UnitPrice <= 0 && suggestion.SuggestedPrice > 0)
-                                {
-                                    item.UnitPrice = suggestion.SuggestedPrice;
-                                    item.JkrCode = suggestion.SuggestedJkrCode;
-                                    item.PriceSource = "ai";
-                                    _priceDb?.SavePrice(item.JkrCode, item.UnitPrice, item.Unit);
-                                    aiMatched++;
-                                }
+                                item.UnitPrice = suggestion.SuggestedPrice;
+                                item.JkrCode = suggestion.SuggestedJkrCode;
+                                item.PriceSource = "ai";
+                                _priceDb?.SavePrice(item.JkrCode, item.UnitPrice, item.Unit);
+                                aiMatched++;
                             }
                         }
                     }

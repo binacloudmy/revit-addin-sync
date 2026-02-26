@@ -31,7 +31,7 @@ namespace RevitWebAppSync.Services
             _baseUrl = baseUrl ?? DEFAULT_BASE_URL;
             _httpClient = new HttpClient
             {
-                Timeout = TimeSpan.FromSeconds(90)
+                Timeout = TimeSpan.FromSeconds(300)  // 5 min for large batch matching
             };
             // ngrok requires this header to skip the browser warning
             _httpClient.DefaultRequestHeaders.Add("ngrok-skip-browser-warning", "true");
