@@ -819,27 +819,95 @@ namespace RevitWebAppSync.UI
 
         private async void AIInsights_Click(object sender, RoutedEventArgs e)
         {
+            var btn = sender as Button;
             try
             {
-                if (_summary == null || _allItems.Count == 0) { MessageBox.Show("No data. Click Refresh first.", "BINA Cost"); return; }
-                var lines = new List<string> { "Cost Analysis\n" };
-                int pricedPct = _summary.TotalItems > 0 ? (int)((_summary.PricedItems / (double)_summary.TotalItems) * 100) : 0;
-                lines.Add($"Coverage: {pricedPct}% ({_summary.PricedItems}/{_summary.TotalItems})");
-                double floorArea = _allItems.Where(i => i.Category == "Floors" && i.Unit == "m2").Sum(i => i.Quantity);
-                if (floorArea > 0 && _summary.GrandTotal > 0)
+                if (_summary == null || _allItems.Count == 0)
                 {
-                    double cpm2 = _summary.GrandTotal / floorArea;
-                    lines.Add($"Cost/m2: RM {cpm2:N0}");
-                    lines.Add(cpm2 < 1500 ? "  Below typical (RM 1,500-3,000/m2)" : cpm2 > 3000 ? "  Above typical (RM 1,500-3,000/m2)" : "  Within typical JKR range");
+                    RefreshData();
+                    if (_summary == null || _allItems.Count == 0) { MessageBox.Show("No elements found.", "BINA Cost"); return; }
                 }
-                lines.Add("\nTop cost drivers:");
-                foreach (var c in _summary.ByCategory.Take(5))
-                    lines.Add($"  {c.Name}: RM {c.TotalCost:N0} ({c.Percentage:F1}%)");
-                int unpriced = _allItems.Count(i => i.UnitPrice <= 0);
-                if (unpriced > 0) lines.Add($"\n{unpriced} items unpriced");
-                MessageBox.Show(string.Join("\n", lines), "BINA Cost - Analysis");
+
+                if (btn != null) { btn.IsEnabled = false; btn.Content = "⏳ Analyzing..."; }
+                ShowBanner("🧠 Analyzing costs...", "Getting AI insights", Color.FromRgb(0, 120, 215));
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+
+                var aiEstimator = new AICostEstimator();
+                bool aiAvailable = await aiEstimator.IsAvailableAsync();
+
+                if (aiAvailable)
+                {
+                    // Call server-side analysis (benchmarks + LLM insights)
+                    string projectName = _subtitleText?.Text?.Split('|')?.FirstOrDefault()?.Trim() ?? "Untitled";
+                    var result = await aiEstimator.AnalyzeCostsAsync(_summary, _allItems, projectName);
+
+                    if (result.Success && result.Insights.Any())
+                    {
+                        var lines = new List<string>();
+
+                        if (!string.IsNullOrEmpty(result.BenchmarkComparison))
+                            lines.Add($"📊 {result.BenchmarkComparison}\n");
+
+                        foreach (var insight in result.Insights)
+                        {
+                            string icon = insight.Type switch
+                            {
+                                "warning" => "⚠️",
+                                "suggestion" => "💡",
+                                "saving" => "💰",
+                                _ => "ℹ️"
+                            };
+                            lines.Add($"{icon} {insight.Title}");
+                            lines.Add($"   {insight.Description}");
+                            if (insight.PotentialSaving.HasValue && insight.PotentialSaving > 0)
+                                lines.Add($"   Potential saving: RM {insight.PotentialSaving:N0}");
+                            lines.Add("");
+                        }
+
+                        if (!string.IsNullOrEmpty(result.SummaryText))
+                            lines.Add($"\n{result.SummaryText}");
+
+                        ShowBanner("✅ Analysis complete", $"{result.Insights.Count} insights", SuccessGreen);
+                        MessageBox.Show(string.Join("\n", lines), "BINA Cost — AI Insights");
+                    }
+                    else
+                    {
+                        // Fallback to local analysis
+                        ShowLocalInsights();
+                    }
+                }
+                else
+                {
+                    // Offline fallback
+                    ShowBanner("⚠️ AI server offline", "Showing local analysis", WarningAmber);
+                    ShowLocalInsights();
+                }
             }
             catch (Exception ex) { MessageBox.Show($"Analysis failed: {ex.Message}", "BINA Cost"); }
+            finally
+            {
+                if (btn != null) { btn.IsEnabled = true; btn.Content = "AI Insights"; }
+            }
+        }
+
+        private void ShowLocalInsights()
+        {
+            var lines = new List<string> { "Cost Analysis (Offline)\n" };
+            int pricedPct = _summary.TotalItems > 0 ? (int)((_summary.PricedItems / (double)_summary.TotalItems) * 100) : 0;
+            lines.Add($"Coverage: {pricedPct}% ({_summary.PricedItems}/{_summary.TotalItems})");
+            double floorArea = _allItems.Where(i => i.Category == "Floors" && (i.Unit == "m²" || i.Unit == "m2")).Sum(i => i.Quantity);
+            if (floorArea > 0 && _summary.GrandTotal > 0)
+            {
+                double cpm2 = _summary.GrandTotal / floorArea;
+                lines.Add($"Cost/m²: RM {cpm2:N0}");
+                lines.Add(cpm2 < 1500 ? "  Below typical (RM 1,500-3,000/m²)" : cpm2 > 3000 ? "  Above typical (RM 1,500-3,000/m²)" : "  Within typical JKR range");
+            }
+            lines.Add("\nTop cost drivers:");
+            foreach (var c in _summary.ByCategory.Take(5))
+                lines.Add($"  {c.Name}: RM {c.TotalCost:N0} ({c.Percentage:F1}%)");
+            int unpriced = _allItems.Count(i => i.UnitPrice <= 0);
+            if (unpriced > 0) lines.Add($"\n{unpriced} items unpriced");
+            MessageBox.Show(string.Join("\n", lines), "BINA Cost - Analysis");
         }
 
         private void ImportMaster_Click(object sender, RoutedEventArgs e)
