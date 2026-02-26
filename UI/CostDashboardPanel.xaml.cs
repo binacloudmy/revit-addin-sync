@@ -759,8 +759,8 @@ namespace RevitWebAppSync.UI
 
                     if (aiAvailable)
                     {
-                        // Process in batches of 10 for progress updates
-                        int batchSize = 10;
+                        // Process in batches of 50 for speed (each batch = 1 API call)
+                        int batchSize = 50;
                         for (int i = 0; i < unpriced.Count; i += batchSize)
                         {
                             var batch = unpriced.Skip(i).Take(batchSize).ToList();
