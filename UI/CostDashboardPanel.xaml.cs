@@ -844,146 +844,17 @@ namespace RevitWebAppSync.UI
                     return;
                 }
 
-                // Get stats first
                 var stats = await aiEstimator.GetReviewStatsAsync();
-
-                // Get pending reviews
-                var reviews = await aiEstimator.GetPendingReviewsAsync(100);
+                var reviews = await aiEstimator.GetPendingReviewsAsync(200);
 
                 if (!reviews.Any())
                 {
-                    ShowBanner("✅ No items pending review!", 
-                        $"System knows {stats.JkrEntries} JKR codes + {stats.LearnedMappings} learned mappings", SuccessGreen);
+                    ShowBanner("✅ No items pending review!",
+                        $"🧠 {stats.JkrEntries} JKR codes + {stats.LearnedMappings} learned mappings", SuccessGreen);
                     return;
                 }
 
-                // Build review dialog
-                var sb = new StringBuilder();
-                sb.AppendLine($"📋 REVIEW QUEUE — {reviews.Count} items need your confirmation");
-                sb.AppendLine($"System knows {stats.JkrEntries} JKR codes + {stats.LearnedMappings} learned mappings\n");
-                sb.AppendLine("Each confirmation teaches the system permanently.\n");
-                sb.AppendLine("─────────────────────────────────────────────\n");
-
-                foreach (var review in reviews)
-                {
-                    string cat = review.Category ?? "?";
-                    sb.AppendLine($"🔸 {review.ElementName}");
-                    sb.AppendLine($"   Category: {cat} | Qty: {review.Qty:F1} {review.Unit}");
-
-                    if (review.AiSuggestions != null && review.AiSuggestions.Any())
-                    {
-                        sb.AppendLine("   AI Suggestions:");
-                        foreach (var sugg in review.AiSuggestions.Take(3))
-                        {
-                            sb.AppendLine($"     → {sugg.JkrCode}: {sugg.Description} — RM {sugg.UnitPrice:N0} (sim: {sugg.Similarity:F2})");
-                        }
-                    }
-                    else
-                    {
-                        sb.AppendLine("   No AI suggestions — needs manual JKR code");
-                    }
-                    sb.AppendLine();
-                }
-
-                sb.AppendLine("─────────────────────────────────────────────");
-                sb.AppendLine("\nTo confirm a mapping, use the web review panel");
-                sb.AppendLine($"or call POST /cost/review/resolve with the review ID.");
-
-                // Show as scrollable window
-                var window = new Window
-                {
-                    Title = $"BINA Cost — Review Queue ({reviews.Count} items)",
-                    Width = 700, Height = 600,
-                    WindowStartupLocation = WindowStartupLocation.CenterScreen,
-                    Background = new SolidColorBrush(Color.FromRgb(30, 30, 30))
-                };
-
-                var mainGrid = new Grid();
-                mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-                mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-
-                var scroll = new ScrollViewer { Padding = new Thickness(16), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
-                var textBlock = new TextBlock
-                {
-                    Text = sb.ToString(),
-                    Foreground = new SolidColorBrush(Color.FromRgb(220, 220, 220)),
-                    FontFamily = new System.Windows.Media.FontFamily("Consolas"),
-                    FontSize = 12,
-                    TextWrapping = TextWrapping.Wrap
-                };
-                scroll.Content = textBlock;
-                Grid.SetRow(scroll, 0);
-                mainGrid.Children.Add(scroll);
-
-                // Action buttons at bottom
-                var buttonPanel = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    Margin = new Thickness(0, 8, 0, 12)
-                };
-
-                // Auto-accept top suggestions button
-                var autoAcceptBtn = new Button
-                {
-                    Content = $"✅ Accept All Top Suggestions ({reviews.Count(r => r.AiSuggestions != null && r.AiSuggestions.Any())} items)",
-                    Padding = new Thickness(20, 8, 20, 8),
-                    FontSize = 13, FontWeight = FontWeights.SemiBold,
-                    Background = new SolidColorBrush(SuccessGreen),
-                    Foreground = Brushes.White,
-                    BorderThickness = new Thickness(0),
-                    Cursor = System.Windows.Input.Cursors.Hand,
-                    Margin = new Thickness(0, 0, 8, 0)
-                };
-                autoAcceptBtn.Click += async (s, ev) =>
-                {
-                    autoAcceptBtn.IsEnabled = false;
-                    autoAcceptBtn.Content = "⏳ Confirming...";
-                    int confirmed = 0;
-                    int failed = 0;
-
-                    foreach (var review in reviews.Where(r => r.AiSuggestions != null && r.AiSuggestions.Any()))
-                    {
-                        var topSugg = review.AiSuggestions.First();
-                        var result = await aiEstimator.ResolveReviewAsync(
-                            review.Id, topSugg.JkrCode, topSugg.UnitPrice,
-                            review.Unit ?? "unit", topSugg.Description ?? "");
-
-                        if (result.Success) confirmed++;
-                        else failed++;
-                    }
-
-                    MessageBox.Show(
-                        $"✅ Confirmed {confirmed} mappings\n" +
-                        (failed > 0 ? $"❌ Failed: {failed}\n" : "") +
-                        $"\nThese will auto-match in all future projects!",
-                        "BINA Cost — Review Complete");
-
-                    window.Close();
-
-                    // Re-run pipeline to apply newly learned mappings
-                    ShowBanner($"✅ {confirmed} mappings learned!", "Re-run Match Prices to apply them", SuccessGreen);
-                };
-                buttonPanel.Children.Add(autoAcceptBtn);
-
-                var closeBtn = new Button
-                {
-                    Content = "Close",
-                    Padding = new Thickness(20, 8, 20, 8),
-                    FontSize = 13,
-                    Background = new SolidColorBrush(Color.FromRgb(80, 80, 80)),
-                    Foreground = Brushes.White,
-                    BorderThickness = new Thickness(0),
-                    Cursor = System.Windows.Input.Cursors.Hand
-                };
-                closeBtn.Click += (s, ev) => window.Close();
-                buttonPanel.Children.Add(closeBtn);
-
-                Grid.SetRow(buttonPanel, 1);
-                mainGrid.Children.Add(buttonPanel);
-
-                window.Content = mainGrid;
-                window.Show();
+                BuildReviewWindow(aiEstimator, reviews, stats);
 
                 ShowBanner($"📋 {reviews.Count} items need review",
                     $"{stats.LearnedMappings} mappings learned so far", Color.FromRgb(156, 39, 176));
@@ -993,6 +864,510 @@ namespace RevitWebAppSync.UI
             {
                 if (btn != null) { btn.IsEnabled = true; btn.Content = "Review"; }
             }
+        }
+
+        private void BuildReviewWindow(AICostEstimator aiEstimator, List<ReviewItem> reviews, ReviewStats stats)
+        {
+            // Colors
+            var bgDark = Color.FromRgb(24, 24, 27);           // zinc-950
+            var bgCard = Color.FromRgb(39, 39, 42);            // zinc-800
+            var bgCardHover = Color.FromRgb(52, 52, 56);       // zinc-700
+            var bgHeader = Color.FromRgb(88, 28, 135);         // purple-900
+            var accentPurple = Color.FromRgb(168, 85, 247);    // purple-500
+            var accentGreen = Color.FromRgb(34, 197, 94);      // green-500
+            var accentAmber = Color.FromRgb(245, 158, 11);     // amber-500
+            var accentRed = Color.FromRgb(239, 68, 68);        // red-500
+            var accentBlue = Color.FromRgb(59, 130, 246);      // blue-500
+            var textWhite = Color.FromRgb(250, 250, 250);
+            var textMuted = Color.FromRgb(161, 161, 170);      // zinc-400
+            var textDim = Color.FromRgb(113, 113, 122);        // zinc-500
+            var borderSubtle = Color.FromRgb(63, 63, 70);      // zinc-700
+
+            var window = new Window
+            {
+                Title = "BINA Cost — Review Queue",
+                Width = 860, Height = 720,
+                MinWidth = 700, MinHeight = 500,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                Background = new SolidColorBrush(bgDark),
+                ResizeMode = ResizeMode.CanResize
+            };
+
+            var rootGrid = new Grid();
+            rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // Header
+            rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // Stats bar
+            rootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // List
+            rootGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });   // Footer
+
+            // ══════════════════════════════════════════════
+            // HEADER
+            // ══════════════════════════════════════════════
+            var headerBorder = new Border
+            {
+                Background = new LinearGradientBrush(bgHeader, Color.FromRgb(59, 7, 100), new Point(0, 0), new Point(1, 0)),
+                Padding = new Thickness(24, 18, 24, 18)
+            };
+            var headerStack = new StackPanel();
+            headerStack.Children.Add(new TextBlock
+            {
+                Text = "📋 Review Queue",
+                FontSize = 22, FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White
+            });
+            headerStack.Children.Add(new TextBlock
+            {
+                Text = $"{reviews.Count} items need your confirmation  •  Each confirmation teaches the AI permanently",
+                FontSize = 12, Foreground = new SolidColorBrush(Color.FromRgb(216, 180, 254)), // purple-300
+                Margin = new Thickness(0, 4, 0, 0)
+            });
+            headerBorder.Child = headerStack;
+            Grid.SetRow(headerBorder, 0);
+            rootGrid.Children.Add(headerBorder);
+
+            // ══════════════════════════════════════════════
+            // STATS BAR
+            // ══════════════════════════════════════════════
+            var statsBorder = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(30, 30, 34)),
+                Padding = new Thickness(24, 10, 24, 10),
+                BorderBrush = new SolidColorBrush(borderSubtle),
+                BorderThickness = new Thickness(0, 0, 0, 1)
+            };
+            var statsRow = new StackPanel { Orientation = Orientation.Horizontal };
+
+            Action<string, string, Color> addStat = (label, value, color) =>
+            {
+                var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 24, 0) };
+                sp.Children.Add(new Border
+                {
+                    Width = 8, Height = 8, CornerRadius = new CornerRadius(4),
+                    Background = new SolidColorBrush(color),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 6, 0)
+                });
+                sp.Children.Add(new TextBlock
+                {
+                    FontSize = 12, VerticalAlignment = VerticalAlignment.Center,
+                    Foreground = new SolidColorBrush(textMuted)
+                });
+                var tb = sp.Children[1] as TextBlock;
+                tb.Inlines.Add(new System.Windows.Documents.Run(value + " ") { FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(textWhite) });
+                tb.Inlines.Add(new System.Windows.Documents.Run(label));
+                statsRow.Children.Add(sp);
+            };
+
+            int withSuggestions = reviews.Count(r => r.AiSuggestions != null && r.AiSuggestions.Any());
+            int noSuggestions = reviews.Count - withSuggestions;
+
+            addStat("JKR Codes", stats.JkrEntries.ToString(), accentBlue);
+            addStat("Learned", stats.LearnedMappings.ToString(), accentGreen);
+            addStat("Pending", reviews.Count.ToString(), accentAmber);
+            addStat("With Suggestions", withSuggestions.ToString(), accentPurple);
+            if (noSuggestions > 0) addStat("Manual Needed", noSuggestions.ToString(), accentRed);
+
+            statsBorder.Child = statsRow;
+            Grid.SetRow(statsBorder, 1);
+            rootGrid.Children.Add(statsBorder);
+
+            // ══════════════════════════════════════════════
+            // REVIEW CARDS LIST
+            // ══════════════════════════════════════════════
+            var scroll = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Padding = new Thickness(16, 12, 16, 12)
+            };
+            var cardsPanel = new StackPanel();
+
+            // Track per-card state for individual accept
+            var cardStates = new Dictionary<string, Border>();
+
+            foreach (var review in reviews)
+            {
+                bool hasSugg = review.AiSuggestions != null && review.AiSuggestions.Any();
+                var topSugg = hasSugg ? review.AiSuggestions.First() : null;
+
+                // ── Card container ──
+                var card = new Border
+                {
+                    Background = new SolidColorBrush(bgCard),
+                    CornerRadius = new CornerRadius(8),
+                    Margin = new Thickness(0, 0, 0, 8),
+                    Padding = new Thickness(16, 12, 16, 12),
+                    BorderBrush = new SolidColorBrush(borderSubtle),
+                    BorderThickness = new Thickness(1),
+                    Tag = review.Id
+                };
+                cardStates[review.Id] = card;
+
+                var cardGrid = new Grid();
+                cardGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                cardGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                // ── Left: Item info ──
+                var infoStack = new StackPanel();
+
+                // Element name
+                var nameRow = new StackPanel { Orientation = Orientation.Horizontal };
+                nameRow.Children.Add(new TextBlock
+                {
+                    Text = review.ElementName ?? "Unknown",
+                    FontSize = 14, FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(textWhite),
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    MaxWidth = 450
+                });
+                infoStack.Children.Add(nameRow);
+
+                // Category + qty row
+                var metaRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 0) };
+
+                if (!string.IsNullOrEmpty(review.Category))
+                {
+                    metaRow.Children.Add(new Border
+                    {
+                        Background = new SolidColorBrush(Color.FromArgb(30, accentBlue.R, accentBlue.G, accentBlue.B)),
+                        CornerRadius = new CornerRadius(4),
+                        Padding = new Thickness(6, 2, 6, 2),
+                        Margin = new Thickness(0, 0, 8, 0),
+                        Child = new TextBlock
+                        {
+                            Text = review.Category,
+                            FontSize = 10, Foreground = new SolidColorBrush(accentBlue)
+                        }
+                    });
+                }
+
+                metaRow.Children.Add(new TextBlock
+                {
+                    Text = $"Qty: {review.Qty:F1} {review.Unit}",
+                    FontSize = 11, Foreground = new SolidColorBrush(textDim),
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+                infoStack.Children.Add(metaRow);
+
+                // ── Suggestions ──
+                if (hasSugg)
+                {
+                    var suggStack = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+
+                    for (int si = 0; si < Math.Min(review.AiSuggestions.Count, 3); si++)
+                    {
+                        var sugg = review.AiSuggestions[si];
+                        bool isTop = si == 0;
+                        var simPct = (sugg.Similarity * 100);
+
+                        var suggRow = new Border
+                        {
+                            Background = new SolidColorBrush(isTop ? Color.FromArgb(20, accentGreen.R, accentGreen.G, accentGreen.B) : Colors.Transparent),
+                            CornerRadius = new CornerRadius(4),
+                            Padding = new Thickness(8, 4, 8, 4),
+                            Margin = new Thickness(0, 0, 0, 2),
+                            BorderBrush = isTop ? new SolidColorBrush(Color.FromArgb(40, accentGreen.R, accentGreen.G, accentGreen.B)) : null,
+                            BorderThickness = isTop ? new Thickness(1) : new Thickness(0)
+                        };
+
+                        var suggContent = new StackPanel { Orientation = Orientation.Horizontal };
+
+                        // Rank indicator
+                        suggContent.Children.Add(new TextBlock
+                        {
+                            Text = isTop ? "★" : $"#{si + 1}",
+                            FontSize = 10,
+                            Foreground = new SolidColorBrush(isTop ? accentGreen : textDim),
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Margin = new Thickness(0, 0, 6, 0),
+                            FontWeight = isTop ? FontWeights.Bold : FontWeights.Normal
+                        });
+
+                        // JKR code badge
+                        suggContent.Children.Add(new Border
+                        {
+                            Background = new SolidColorBrush(Color.FromArgb(25, accentPurple.R, accentPurple.G, accentPurple.B)),
+                            CornerRadius = new CornerRadius(3),
+                            Padding = new Thickness(5, 1, 5, 1),
+                            Margin = new Thickness(0, 0, 6, 0),
+                            Child = new TextBlock
+                            {
+                                Text = sugg.JkrCode ?? "?",
+                                FontSize = 11, FontWeight = FontWeights.SemiBold,
+                                Foreground = new SolidColorBrush(accentPurple),
+                                FontFamily = new System.Windows.Media.FontFamily("Consolas")
+                            }
+                        });
+
+                        // Description (truncated)
+                        string desc = sugg.Description ?? "";
+                        if (desc.Length > 40) desc = desc.Substring(0, 40) + "…";
+                        suggContent.Children.Add(new TextBlock
+                        {
+                            Text = desc,
+                            FontSize = 11, Foreground = new SolidColorBrush(textMuted),
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Margin = new Thickness(0, 0, 8, 0)
+                        });
+
+                        // Price
+                        suggContent.Children.Add(new TextBlock
+                        {
+                            Text = $"RM {sugg.UnitPrice:N0}",
+                            FontSize = 11, FontWeight = FontWeights.SemiBold,
+                            Foreground = new SolidColorBrush(isTop ? accentGreen : textWhite),
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Margin = new Thickness(0, 0, 8, 0)
+                        });
+
+                        // Similarity bar
+                        var simColor = simPct >= 60 ? accentGreen : simPct >= 45 ? accentAmber : accentRed;
+                        var barBg = new Border
+                        {
+                            Width = 40, Height = 4, CornerRadius = new CornerRadius(2),
+                            Background = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+                            VerticalAlignment = VerticalAlignment.Center,
+                            Margin = new Thickness(0, 0, 4, 0)
+                        };
+                        var barFill = new Border
+                        {
+                            Width = Math.Max(4, 40 * sugg.Similarity), Height = 4,
+                            CornerRadius = new CornerRadius(2),
+                            Background = new SolidColorBrush(simColor),
+                            HorizontalAlignment = HorizontalAlignment.Left
+                        };
+                        barBg.Child = barFill;
+                        suggContent.Children.Add(barBg);
+
+                        suggContent.Children.Add(new TextBlock
+                        {
+                            Text = $"{simPct:F0}%",
+                            FontSize = 9, Foreground = new SolidColorBrush(simColor),
+                            VerticalAlignment = VerticalAlignment.Center
+                        });
+
+                        suggRow.Child = suggContent;
+                        suggStack.Children.Add(suggRow);
+                    }
+                    infoStack.Children.Add(suggStack);
+                }
+                else
+                {
+                    infoStack.Children.Add(new TextBlock
+                    {
+                        Text = "⚠ No AI suggestions — needs manual JKR code",
+                        FontSize = 11, Foreground = new SolidColorBrush(accentAmber),
+                        Margin = new Thickness(0, 6, 0, 0),
+                        FontStyle = FontStyles.Italic
+                    });
+                }
+
+                Grid.SetColumn(infoStack, 0);
+                cardGrid.Children.Add(infoStack);
+
+                // ── Right: Action buttons ──
+                var actionStack = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+
+                if (hasSugg)
+                {
+                    var acceptBtn = new Button
+                    {
+                        Content = "✓ Accept",
+                        FontSize = 11, FontWeight = FontWeights.SemiBold,
+                        Padding = new Thickness(14, 6, 14, 6),
+                        Background = new SolidColorBrush(accentGreen),
+                        Foreground = Brushes.White,
+                        BorderThickness = new Thickness(0),
+                        Cursor = System.Windows.Input.Cursors.Hand,
+                        Margin = new Thickness(0, 0, 0, 4),
+                        Tag = review // store review for click handler
+                    };
+                    acceptBtn.Click += async (s, ev) =>
+                    {
+                        var r = (ReviewItem)((Button)s).Tag;
+                        var top = r.AiSuggestions.First();
+                        ((Button)s).IsEnabled = false;
+                        ((Button)s).Content = "⏳...";
+
+                        var result = await aiEstimator.ResolveReviewAsync(
+                            r.Id, top.JkrCode, top.UnitPrice, r.Unit ?? "unit", top.Description ?? "");
+
+                        if (result.Success)
+                        {
+                            card.Background = new SolidColorBrush(Color.FromArgb(20, accentGreen.R, accentGreen.G, accentGreen.B));
+                            card.BorderBrush = new SolidColorBrush(Color.FromArgb(60, accentGreen.R, accentGreen.G, accentGreen.B));
+                            ((Button)s).Content = "✓ Learned";
+                            ((Button)s).Background = new SolidColorBrush(Color.FromRgb(22, 101, 52)); // green-800
+
+                            // Update the count in the header if we track it
+                        }
+                        else
+                        {
+                            ((Button)s).Content = "✗ Error";
+                            ((Button)s).Background = new SolidColorBrush(accentRed);
+                        }
+                    };
+                    actionStack.Children.Add(acceptBtn);
+                }
+
+                var skipBtn = new Button
+                {
+                    Content = "Skip",
+                    FontSize = 10,
+                    Padding = new Thickness(14, 4, 14, 4),
+                    Background = new SolidColorBrush(Color.FromRgb(63, 63, 70)),
+                    Foreground = new SolidColorBrush(textMuted),
+                    BorderThickness = new Thickness(0),
+                    Cursor = System.Windows.Input.Cursors.Hand
+                };
+                skipBtn.Click += (s, ev) =>
+                {
+                    card.Opacity = 0.3;
+                    card.IsHitTestVisible = false;
+                };
+                actionStack.Children.Add(skipBtn);
+
+                Grid.SetColumn(actionStack, 1);
+                cardGrid.Children.Add(actionStack);
+
+                card.Child = cardGrid;
+
+                // Hover effect
+                card.MouseEnter += (s, ev) => card.Background = new SolidColorBrush(bgCardHover);
+                card.MouseLeave += (s, ev) =>
+                {
+                    // Don't reset if accepted
+                    if (card.BorderBrush is SolidColorBrush b && b.Color.G > 150) return;
+                    card.Background = new SolidColorBrush(bgCard);
+                };
+
+                cardsPanel.Children.Add(card);
+            }
+
+            scroll.Content = cardsPanel;
+            Grid.SetRow(scroll, 2);
+            rootGrid.Children.Add(scroll);
+
+            // ══════════════════════════════════════════════
+            // FOOTER
+            // ══════════════════════════════════════════════
+            var footer = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(30, 30, 34)),
+                Padding = new Thickness(24, 12, 24, 12),
+                BorderBrush = new SolidColorBrush(borderSubtle),
+                BorderThickness = new Thickness(0, 1, 0, 0)
+            };
+
+            var footerGrid = new Grid();
+            footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            footerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            // Left: info text
+            var footerInfo = new TextBlock
+            {
+                Text = "💡 Accepted mappings persist forever — next project, same elements auto-match instantly.",
+                FontSize = 11, Foreground = new SolidColorBrush(textDim),
+                VerticalAlignment = VerticalAlignment.Center,
+                TextWrapping = TextWrapping.Wrap
+            };
+            Grid.SetColumn(footerInfo, 0);
+            footerGrid.Children.Add(footerInfo);
+
+            // Right: buttons
+            var footerButtons = new StackPanel { Orientation = Orientation.Horizontal };
+
+            // Accept All button
+            var acceptAllBtn = new Button
+            {
+                Padding = new Thickness(20, 8, 20, 8),
+                FontSize = 13, FontWeight = FontWeights.SemiBold,
+                Background = new SolidColorBrush(accentGreen),
+                Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            // Use a StackPanel for rich button content
+            var acceptAllContent = new StackPanel { Orientation = Orientation.Horizontal };
+            acceptAllContent.Children.Add(new TextBlock { Text = "✓ Accept All", FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center });
+            acceptAllContent.Children.Add(new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(60, 255, 255, 255)),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(6, 1, 6, 1),
+                Margin = new Thickness(8, 0, 0, 0),
+                Child = new TextBlock { Text = withSuggestions.ToString(), FontSize = 11, Foreground = Brushes.White, FontWeight = FontWeights.Bold }
+            });
+            acceptAllBtn.Content = acceptAllContent;
+
+            var progressText = new TextBlock
+            {
+                Text = "",
+                FontSize = 11, Foreground = new SolidColorBrush(accentGreen),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 12, 0)
+            };
+
+            acceptAllBtn.Click += async (s, ev) =>
+            {
+                acceptAllBtn.IsEnabled = false;
+                var reviewsWithSugg = reviews.Where(r => r.AiSuggestions != null && r.AiSuggestions.Any()).ToList();
+                int confirmed = 0;
+                int total = reviewsWithSugg.Count;
+
+                foreach (var review in reviewsWithSugg)
+                {
+                    var top = review.AiSuggestions.First();
+                    var result = await aiEstimator.ResolveReviewAsync(
+                        review.Id, top.JkrCode, top.UnitPrice, review.Unit ?? "unit", top.Description ?? "");
+
+                    if (result.Success)
+                    {
+                        confirmed++;
+                        // Update the card visually
+                        if (cardStates.ContainsKey(review.Id))
+                        {
+                            var c = cardStates[review.Id];
+                            c.Background = new SolidColorBrush(Color.FromArgb(15, accentGreen.R, accentGreen.G, accentGreen.B));
+                            c.BorderBrush = new SolidColorBrush(Color.FromArgb(40, accentGreen.R, accentGreen.G, accentGreen.B));
+                        }
+                    }
+
+                    progressText.Text = $"✓ {confirmed}/{total}";
+                    await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+                }
+
+                progressText.Text = $"✅ {confirmed} learned!";
+                acceptAllBtn.Content = new TextBlock { Text = $"✓ Done — {confirmed} learned", Foreground = Brushes.White, FontWeight = FontWeights.SemiBold };
+                acceptAllBtn.Background = new SolidColorBrush(Color.FromRgb(22, 101, 52));
+
+                ShowBanner($"✅ {confirmed} mappings learned!", "Re-run Match Prices to apply", SuccessGreen);
+            };
+
+            footerButtons.Children.Add(progressText);
+            footerButtons.Children.Add(acceptAllBtn);
+
+            var closeBtn = new Button
+            {
+                Content = "Close",
+                Padding = new Thickness(16, 8, 16, 8),
+                FontSize = 12,
+                Background = new SolidColorBrush(Color.FromRgb(63, 63, 70)),
+                Foreground = new SolidColorBrush(textMuted),
+                BorderThickness = new Thickness(0),
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
+            closeBtn.Click += (s, ev) => window.Close();
+            footerButtons.Children.Add(closeBtn);
+
+            Grid.SetColumn(footerButtons, 1);
+            footerGrid.Children.Add(footerButtons);
+
+            footer.Child = footerGrid;
+            Grid.SetRow(footer, 3);
+            rootGrid.Children.Add(footer);
+
+            window.Content = rootGrid;
+            window.Show();
         }
 
         private void ShowBanner(string text, string detail, Color bgColor)
