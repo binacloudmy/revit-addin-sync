@@ -719,6 +719,7 @@ namespace RevitWebAppSync.UI
 
         private async void AutoMatch_Click(object sender, RoutedEventArgs e)
         {
+            var btn = sender as Button;
             try
             {
                 // Auto-refresh if no data loaded yet
@@ -728,6 +729,10 @@ namespace RevitWebAppSync.UI
                     if (_allItems.Count == 0) { MessageBox.Show("No elements found in the model.", "BINA Cost"); return; }
                 }
 
+                // Disable button and show loading state
+                if (btn != null) { btn.IsEnabled = false; btn.Content = "⏳ Matching..."; }
+                ShowBanner("🔍 Matching prices...", "", Color.FromRgb(0, 120, 215));
+
                 int localMatched = 0;
                 int aiMatched = 0;
 
@@ -736,46 +741,86 @@ namespace RevitWebAppSync.UI
                 if (masterDb.Count > 0)
                 {
                     localMatched = masterDb.AutoMatchPrices(_allItems, _priceDb);
+                    if (localMatched > 0)
+                        ShowBanner($"✅ Local DB: {localMatched} matched", "", SuccessGreen);
                 }
 
                 // Step 2: AI vector search for remaining unpriced items
                 var unpriced = _allItems.Where(i => i.UnitPrice <= 0).ToList();
                 if (unpriced.Any())
                 {
+                    ShowBanner($"🤖 AI matching {unpriced.Count} items...", "Searching JKR knowledge base", Color.FromRgb(0, 120, 215));
+
+                    // Allow UI to update
+                    await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+
                     var aiEstimator = new AICostEstimator();
                     bool aiAvailable = await aiEstimator.IsAvailableAsync();
 
                     if (aiAvailable)
                     {
-                        var suggestions = await aiEstimator.SuggestMatchesAsync(unpriced, new List<MasterPriceEntry>());
-
-                        foreach (var suggestion in suggestions)
+                        // Process in batches of 10 for progress updates
+                        int batchSize = 10;
+                        for (int i = 0; i < unpriced.Count; i += batchSize)
                         {
-                            var item = _allItems.FirstOrDefault(i => i.ElementId == suggestion.ElementId);
-                            if (item != null && item.UnitPrice <= 0 && suggestion.SuggestedPrice > 0)
+                            var batch = unpriced.Skip(i).Take(batchSize).ToList();
+                            int progress = Math.Min(i + batchSize, unpriced.Count);
+                            ShowBanner($"🤖 AI matching... ({progress}/{unpriced.Count})", $"{aiMatched} matched so far", Color.FromRgb(0, 120, 215));
+                            await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+
+                            var suggestions = await aiEstimator.SuggestMatchesAsync(batch, new List<MasterPriceEntry>());
+
+                            foreach (var suggestion in suggestions)
                             {
-                                item.UnitPrice = suggestion.SuggestedPrice;
-                                item.JkrCode = suggestion.SuggestedJkrCode;
-                                item.PriceSource = "ai";
-                                _priceDb?.SavePrice(item.JkrCode, item.UnitPrice, item.Unit);
-                                aiMatched++;
+                                var item = _allItems.FirstOrDefault(x => x.ElementId == suggestion.ElementId);
+                                if (item != null && item.UnitPrice <= 0 && suggestion.SuggestedPrice > 0)
+                                {
+                                    item.UnitPrice = suggestion.SuggestedPrice;
+                                    item.JkrCode = suggestion.SuggestedJkrCode;
+                                    item.PriceSource = "ai";
+                                    _priceDb?.SavePrice(item.JkrCode, item.UnitPrice, item.Unit);
+                                    aiMatched++;
+                                }
                             }
                         }
+                    }
+                    else
+                    {
+                        ShowBanner("⚠️ AI server not available", "Using local matching only", WarningAmber);
+                        await Task.Delay(1500);
                     }
                 }
 
                 _summary = CostCalculator.Calculate(_allItems); UpdateTotalCard(); UpdateContent();
 
+                int totalMatched = localMatched + aiMatched;
                 int stillUnpriced = _allItems.Count(i => i.UnitPrice <= 0);
-                var msg = $"Matched {localMatched + aiMatched} items.\n";
-                if (localMatched > 0) msg += $"  Local DB: {localMatched}\n";
-                if (aiMatched > 0) msg += $"  AI Vector Search: {aiMatched}\n";
-                msg += $"\nTotal: RM {_summary.GrandTotal:N0}";
-                if (stillUnpriced > 0) msg += $"\n{stillUnpriced} items still unpriced.";
+                var parts = new List<string>();
+                if (localMatched > 0) parts.Add($"Local DB: {localMatched}");
+                if (aiMatched > 0) parts.Add($"AI: {aiMatched}");
+                string detail = parts.Any() ? string.Join(" | ", parts) : "No matches found";
 
-                MessageBox.Show(msg, "BINA Cost");
+                ShowBanner($"✅ Matched {totalMatched} items — RM {_summary.GrandTotal:N0}", detail, SuccessGreen);
+
+                if (totalMatched == 0 && stillUnpriced > 0)
+                    ShowBanner($"⚠️ No matches found", $"{stillUnpriced} items unpriced — try importing a master price list", WarningAmber);
             }
             catch (Exception ex) { MessageBox.Show($"Match failed: {ex.Message}", "BINA Cost"); }
+            finally
+            {
+                // Restore button
+                if (btn != null) { btn.IsEnabled = true; btn.Content = "Match Prices"; }
+            }
+        }
+
+        private void ShowBanner(string text, string detail, Color bgColor)
+        {
+            _changeBanner.Background = new SolidColorBrush(Color.FromArgb(40, bgColor.R, bgColor.G, bgColor.B));
+            _changeBanner.BorderBrush = new SolidColorBrush(bgColor);
+            _changeText.Text = text;
+            _changeDeltaText.Text = detail;
+            _changeBanner.Visibility = Visibility.Visible;
+            _bannerAutoHideTimer.Stop();
         }
 
         private async void AIInsights_Click(object sender, RoutedEventArgs e)
