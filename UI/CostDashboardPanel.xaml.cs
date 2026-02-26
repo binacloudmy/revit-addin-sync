@@ -412,7 +412,12 @@ namespace RevitWebAppSync.UI
 
         // ── Data ──
 
-        public void SetRevitApp(UIApplication uiApp) { _uiApp = uiApp; }
+        public void SetRevitApp(UIApplication uiApp)
+        {
+            _uiApp = uiApp;
+            // Auto-refresh when app is set and no data loaded
+            if (_allItems.Count == 0) RefreshData();
+        }
 
         public void RefreshData()
         {
@@ -716,7 +721,12 @@ namespace RevitWebAppSync.UI
         {
             try
             {
-                if (_allItems.Count == 0) { MessageBox.Show("No data. Click Refresh first.", "BINA Cost"); return; }
+                // Auto-refresh if no data loaded yet
+                if (_allItems.Count == 0)
+                {
+                    RefreshData();
+                    if (_allItems.Count == 0) { MessageBox.Show("No elements found in the model.", "BINA Cost"); return; }
+                }
 
                 int localMatched = 0;
                 int aiMatched = 0;
