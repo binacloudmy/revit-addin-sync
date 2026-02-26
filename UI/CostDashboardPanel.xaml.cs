@@ -765,16 +765,25 @@ namespace RevitWebAppSync.UI
                         // Send ALL items in one call — server deduplicates by type name
                         var suggestions = await aiEstimator.SuggestMatchesAsync(unpriced, new List<MasterPriceEntry>());
 
+                        int lowConfidence = 0;
                         foreach (var suggestion in suggestions)
                         {
                             var item = _allItems.FirstOrDefault(x => x.ElementId == suggestion.ElementId);
                             if (item != null && item.UnitPrice <= 0 && suggestion.SuggestedPrice > 0)
                             {
-                                item.UnitPrice = suggestion.SuggestedPrice;
-                                item.JkrCode = suggestion.SuggestedJkrCode;
-                                item.PriceSource = "ai";
-                                _priceDb?.SavePrice(item.JkrCode, item.UnitPrice, item.Unit);
-                                aiMatched++;
+                                // Only auto-apply high/medium confidence matches
+                                if (suggestion.Confidence == "high" || suggestion.Confidence == "medium")
+                                {
+                                    item.UnitPrice = suggestion.SuggestedPrice;
+                                    item.JkrCode = suggestion.SuggestedJkrCode;
+                                    item.PriceSource = "ai";
+                                    _priceDb?.SavePrice(item.JkrCode, item.UnitPrice, item.Unit);
+                                    aiMatched++;
+                                }
+                                else
+                                {
+                                    lowConfidence++;
+                                }
                             }
                         }
                     }
@@ -798,6 +807,8 @@ namespace RevitWebAppSync.UI
 
                 if (totalMatched == 0 && stillUnpriced > 0)
                     ShowBanner($"⚠️ No matches found", $"{stillUnpriced} items unpriced — try importing a master price list", WarningAmber);
+                else if (stillUnpriced > 0)
+                    ShowBanner($"✅ Matched {totalMatched} items — RM {_summary.GrandTotal:N0}", $"{stillUnpriced} items skipped (low confidence) | {detail}", WarningAmber);
             }
             catch (Exception ex) { MessageBox.Show($"Match failed: {ex.Message}", "BINA Cost"); }
             finally
