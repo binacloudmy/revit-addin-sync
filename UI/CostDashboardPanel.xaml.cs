@@ -717,11 +717,53 @@ namespace RevitWebAppSync.UI
             try
             {
                 if (_allItems.Count == 0) { MessageBox.Show("No data. Click Refresh first.", "BINA Cost"); return; }
+
+                int localMatched = 0;
+                int aiMatched = 0;
+
+                // Step 1: Local master DB match (fast, offline)
                 var masterDb = MasterPriceDatabase.Instance;
-                if (masterDb.Count == 0) { MessageBox.Show("Master database is empty.\n\nUse 'Import to Master DB' first.", "BINA Cost"); return; }
-                int matched = masterDb.AutoMatchPrices(_allItems, _priceDb);
+                if (masterDb.Count > 0)
+                {
+                    localMatched = masterDb.AutoMatchPrices(_allItems, _priceDb);
+                }
+
+                // Step 2: AI vector search for remaining unpriced items
+                var unpriced = _allItems.Where(i => i.UnitPrice <= 0).ToList();
+                if (unpriced.Any())
+                {
+                    var aiEstimator = new AICostEstimator();
+                    bool aiAvailable = await aiEstimator.IsAvailableAsync();
+
+                    if (aiAvailable)
+                    {
+                        var suggestions = await aiEstimator.SuggestMatchesAsync(unpriced, new List<MasterPriceEntry>());
+
+                        foreach (var suggestion in suggestions)
+                        {
+                            var item = _allItems.FirstOrDefault(i => i.ElementId == suggestion.ElementId);
+                            if (item != null && item.UnitPrice <= 0 && suggestion.SuggestedPrice > 0)
+                            {
+                                item.UnitPrice = suggestion.SuggestedPrice;
+                                item.JkrCode = suggestion.SuggestedJkrCode;
+                                item.PriceSource = "ai";
+                                _priceDb?.SavePrice(item.JkrCode, item.UnitPrice, item.Unit);
+                                aiMatched++;
+                            }
+                        }
+                    }
+                }
+
                 _summary = CostCalculator.Calculate(_allItems); UpdateTotalCard(); UpdateContent();
-                MessageBox.Show($"Matched {matched} items.\nTotal: RM {_summary.GrandTotal:N0}\n{_allItems.Count(i => i.UnitPrice <= 0)} items still unpriced.", "BINA Cost");
+
+                int stillUnpriced = _allItems.Count(i => i.UnitPrice <= 0);
+                var msg = $"Matched {localMatched + aiMatched} items.\n";
+                if (localMatched > 0) msg += $"  Local DB: {localMatched}\n";
+                if (aiMatched > 0) msg += $"  AI Vector Search: {aiMatched}\n";
+                msg += $"\nTotal: RM {_summary.GrandTotal:N0}";
+                if (stillUnpriced > 0) msg += $"\n{stillUnpriced} items still unpriced.";
+
+                MessageBox.Show(msg, "BINA Cost");
             }
             catch (Exception ex) { MessageBox.Show($"Match failed: {ex.Message}", "BINA Cost"); }
         }
