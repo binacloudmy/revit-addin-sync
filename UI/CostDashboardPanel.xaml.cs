@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -317,6 +319,7 @@ namespace RevitWebAppSync.UI
 
             var primaryRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 4) };
             primaryRow.Children.Add(MakeActionButton("Match Prices", AutoMatch_Click, SuccessGreen, true));
+            primaryRow.Children.Add(MakeActionButton("Review", ReviewQueue_Click, Color.FromRgb(156, 39, 176), false));
             primaryRow.Children.Add(MakeActionButton("AI Insights", AIInsights_Click, Color.FromRgb(100, 100, 100), false));
             primaryRow.Children.Add(MakeActionButton("Refresh", Refresh_Click, PrimaryBlue, true));
 
@@ -731,10 +734,10 @@ namespace RevitWebAppSync.UI
 
                 // Disable button and show loading state
                 if (btn != null) { btn.IsEnabled = false; btn.Content = "⏳ Matching..."; }
-                ShowBanner("🔍 Matching prices...", "", Color.FromRgb(0, 120, 215));
+                ShowBanner("🔍 Running 4-layer matching pipeline...", "Exact → Learned → AI → Review", Color.FromRgb(0, 120, 215));
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
 
                 int localMatched = 0;
-                int aiMatched = 0;
 
                 // Step 1: Local master DB match (fast, offline)
                 var masterDb = MasterPriceDatabase.Instance;
@@ -742,79 +745,253 @@ namespace RevitWebAppSync.UI
                 {
                     localMatched = masterDb.AutoMatchPrices(_allItems, _priceDb);
                     if (localMatched > 0)
-                        ShowBanner($"✅ Local DB: {localMatched} matched", "", SuccessGreen);
+                        ShowBanner($"✅ Local DB: {localMatched} matched", "Now running AI pipeline...", SuccessGreen);
                 }
 
-                // Step 2: AI vector search for remaining unpriced items
-                var unpriced = _allItems.Where(i => i.UnitPrice <= 0).ToList();
-                if (unpriced.Any())
-                {
-                    ShowBanner($"🤖 AI matching {unpriced.Count} items...", "Searching JKR knowledge base", Color.FromRgb(0, 120, 215));
+                // Step 2: AI 4-layer pipeline for ALL items (server handles dedup + layers)
+                var aiEstimator = new AICostEstimator();
+                bool aiAvailable = await aiEstimator.IsAvailableAsync();
 
-                    // Allow UI to update
+                int pipelineMatched = 0;
+                int reviewQueued = 0;
+                string matchRate = "0%";
+
+                if (aiAvailable)
+                {
+                    ShowBanner($"🤖 AI pipeline: {_allItems.Count} items...", "Layer 1: Exact code → Layer 2: Learned → Layer 3: Vector search", Color.FromRgb(0, 120, 215));
                     await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
 
-                    var aiEstimator = new AICostEstimator();
-                    bool aiAvailable = await aiEstimator.IsAvailableAsync();
+                    string projectName = _subtitleText?.Text?.Split('|')?.FirstOrDefault()?.Trim() ?? "Untitled";
+                    var result = await aiEstimator.MatchPipelineAsync(_allItems, projectName);
 
-                    if (aiAvailable)
+                    if (result.Success)
                     {
-                        ShowBanner($"🤖 AI matching {unpriced.Count} items...", "Server deduplicates automatically", Color.FromRgb(0, 120, 215));
-                        await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+                        var stats = result.Stats;
+                        pipelineMatched = stats.TotalMatched;
+                        reviewQueued = stats.Layer4Review;
+                        matchRate = stats.MatchRate;
 
-                        // Send ALL items in one call — server deduplicates by type name
-                        var suggestions = await aiEstimator.SuggestMatchesAsync(unpriced, new List<MasterPriceEntry>());
-
-                        int lowConfidence = 0;
-                        foreach (var suggestion in suggestions)
+                        // Apply matched prices
+                        foreach (var match in result.Matches)
                         {
-                            var item = _allItems.FirstOrDefault(x => x.ElementId == suggestion.ElementId);
-                            if (item != null && item.UnitPrice <= 0 && suggestion.SuggestedPrice > 0)
+                            // Only apply confirmed/high/medium confidence
+                            if (match.Confidence == "confirmed" || match.Confidence == "high" || match.Confidence == "medium")
                             {
-                                // Only auto-apply high/medium confidence matches
-                                if (suggestion.Confidence == "high" || suggestion.Confidence == "medium")
+                                var item = _allItems.FirstOrDefault(x => x.ElementId == match.ElementId);
+                                if (item != null && item.UnitPrice <= 0 && match.UnitPrice > 0)
                                 {
-                                    item.UnitPrice = suggestion.SuggestedPrice;
-                                    item.JkrCode = suggestion.SuggestedJkrCode;
-                                    item.PriceSource = "ai";
+                                    item.UnitPrice = match.UnitPrice;
+                                    item.JkrCode = match.JkrCode;
+                                    item.PriceSource = match.MatchLayer == "exact" ? "master" : 
+                                                       match.MatchLayer == "learned" ? "learned" : "ai";
                                     _priceDb?.SavePrice(item.JkrCode, item.UnitPrice, item.Unit);
-                                    aiMatched++;
-                                }
-                                else
-                                {
-                                    lowConfidence++;
                                 }
                             }
                         }
                     }
                     else
                     {
-                        ShowBanner("⚠️ AI server not available", "Using local matching only", WarningAmber);
-                        await Task.Delay(1500);
+                        ShowBanner("⚠️ Pipeline error", result.Error ?? "Unknown error", WarningAmber);
+                        await Task.Delay(2000);
                     }
+                }
+                else
+                {
+                    ShowBanner("⚠️ AI server not available", "Using local matching only", WarningAmber);
+                    await Task.Delay(1500);
                 }
 
                 _summary = CostCalculator.Calculate(_allItems); UpdateTotalCard(); UpdateContent();
 
-                int totalMatched = localMatched + aiMatched;
-                int stillUnpriced = _allItems.Count(i => i.UnitPrice <= 0);
+                int totalMatched = localMatched + pipelineMatched;
                 var parts = new List<string>();
-                if (localMatched > 0) parts.Add($"Local DB: {localMatched}");
-                if (aiMatched > 0) parts.Add($"AI: {aiMatched}");
-                string detail = parts.Any() ? string.Join(" | ", parts) : "No matches found";
+                if (localMatched > 0) parts.Add($"Local: {localMatched}");
+                if (pipelineMatched > 0) parts.Add($"Pipeline: {pipelineMatched}");
+                parts.Add($"Rate: {matchRate}");
+                string detail = string.Join(" | ", parts);
 
-                ShowBanner($"✅ Matched {totalMatched} items — RM {_summary.GrandTotal:N0}", detail, SuccessGreen);
-
-                if (totalMatched == 0 && stillUnpriced > 0)
-                    ShowBanner($"⚠️ No matches found", $"{stillUnpriced} items unpriced — try importing a master price list", WarningAmber);
-                else if (stillUnpriced > 0)
-                    ShowBanner($"✅ Matched {totalMatched} items — RM {_summary.GrandTotal:N0}", $"{stillUnpriced} items skipped (low confidence) | {detail}", WarningAmber);
+                if (reviewQueued > 0)
+                {
+                    ShowBanner($"✅ Matched {totalMatched} items — RM {_summary.GrandTotal:N0}",
+                        $"{detail} | 📋 {reviewQueued} items need review — click Review", WarningAmber);
+                }
+                else
+                {
+                    ShowBanner($"✅ Matched {totalMatched} items — RM {_summary.GrandTotal:N0}", detail, SuccessGreen);
+                }
             }
             catch (Exception ex) { MessageBox.Show($"Match failed: {ex.Message}", "BINA Cost"); }
             finally
             {
-                // Restore button
                 if (btn != null) { btn.IsEnabled = true; btn.Content = "Match Prices"; }
+            }
+        }
+
+        private async void ReviewQueue_Click(object sender, RoutedEventArgs e)
+        {
+            var btn = sender as Button;
+            try
+            {
+                if (btn != null) { btn.IsEnabled = false; btn.Content = "⏳ Loading..."; }
+                ShowBanner("📋 Loading review queue...", "", Color.FromRgb(156, 39, 176));
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+
+                var aiEstimator = new AICostEstimator();
+                bool available = await aiEstimator.IsAvailableAsync();
+                if (!available)
+                {
+                    ShowBanner("⚠️ AI server not available", "Cannot load review queue", WarningAmber);
+                    return;
+                }
+
+                // Get stats first
+                var stats = await aiEstimator.GetReviewStatsAsync();
+
+                // Get pending reviews
+                var reviews = await aiEstimator.GetPendingReviewsAsync(100);
+
+                if (!reviews.Any())
+                {
+                    ShowBanner("✅ No items pending review!", 
+                        $"System knows {stats.JkrEntries} JKR codes + {stats.LearnedMappings} learned mappings", SuccessGreen);
+                    return;
+                }
+
+                // Build review dialog
+                var sb = new StringBuilder();
+                sb.AppendLine($"📋 REVIEW QUEUE — {reviews.Count} items need your confirmation");
+                sb.AppendLine($"System knows {stats.JkrEntries} JKR codes + {stats.LearnedMappings} learned mappings\n");
+                sb.AppendLine("Each confirmation teaches the system permanently.\n");
+                sb.AppendLine("─────────────────────────────────────────────\n");
+
+                foreach (var review in reviews)
+                {
+                    string cat = review.Category ?? "?";
+                    sb.AppendLine($"🔸 {review.ElementName}");
+                    sb.AppendLine($"   Category: {cat} | Qty: {review.Qty:F1} {review.Unit}");
+
+                    if (review.AiSuggestions != null && review.AiSuggestions.Any())
+                    {
+                        sb.AppendLine("   AI Suggestions:");
+                        foreach (var sugg in review.AiSuggestions.Take(3))
+                        {
+                            sb.AppendLine($"     → {sugg.JkrCode}: {sugg.Description} — RM {sugg.UnitPrice:N0} (sim: {sugg.Similarity:F2})");
+                        }
+                    }
+                    else
+                    {
+                        sb.AppendLine("   No AI suggestions — needs manual JKR code");
+                    }
+                    sb.AppendLine();
+                }
+
+                sb.AppendLine("─────────────────────────────────────────────");
+                sb.AppendLine("\nTo confirm a mapping, use the web review panel");
+                sb.AppendLine($"or call POST /cost/review/resolve with the review ID.");
+
+                // Show as scrollable window
+                var window = new Window
+                {
+                    Title = $"BINA Cost — Review Queue ({reviews.Count} items)",
+                    Width = 700, Height = 600,
+                    WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                    Background = new SolidColorBrush(Color.FromRgb(30, 30, 30))
+                };
+
+                var mainGrid = new Grid();
+                mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+                mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+                var scroll = new ScrollViewer { Padding = new Thickness(16), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+                var textBlock = new TextBlock
+                {
+                    Text = sb.ToString(),
+                    Foreground = new SolidColorBrush(Color.FromRgb(220, 220, 220)),
+                    FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+                    FontSize = 12,
+                    TextWrapping = TextWrapping.Wrap
+                };
+                scroll.Content = textBlock;
+                Grid.SetRow(scroll, 0);
+                mainGrid.Children.Add(scroll);
+
+                // Action buttons at bottom
+                var buttonPanel = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 8, 0, 12)
+                };
+
+                // Auto-accept top suggestions button
+                var autoAcceptBtn = new Button
+                {
+                    Content = $"✅ Accept All Top Suggestions ({reviews.Count(r => r.AiSuggestions != null && r.AiSuggestions.Any())} items)",
+                    Padding = new Thickness(20, 8, 20, 8),
+                    FontSize = 13, FontWeight = FontWeights.SemiBold,
+                    Background = new SolidColorBrush(SuccessGreen),
+                    Foreground = Brushes.White,
+                    BorderThickness = new Thickness(0),
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                    Margin = new Thickness(0, 0, 8, 0)
+                };
+                autoAcceptBtn.Click += async (s, ev) =>
+                {
+                    autoAcceptBtn.IsEnabled = false;
+                    autoAcceptBtn.Content = "⏳ Confirming...";
+                    int confirmed = 0;
+                    int failed = 0;
+
+                    foreach (var review in reviews.Where(r => r.AiSuggestions != null && r.AiSuggestions.Any()))
+                    {
+                        var topSugg = review.AiSuggestions.First();
+                        var result = await aiEstimator.ResolveReviewAsync(
+                            review.Id, topSugg.JkrCode, topSugg.UnitPrice,
+                            review.Unit ?? "unit", topSugg.Description ?? "");
+
+                        if (result.Success) confirmed++;
+                        else failed++;
+                    }
+
+                    MessageBox.Show(
+                        $"✅ Confirmed {confirmed} mappings\n" +
+                        (failed > 0 ? $"❌ Failed: {failed}\n" : "") +
+                        $"\nThese will auto-match in all future projects!",
+                        "BINA Cost — Review Complete");
+
+                    window.Close();
+
+                    // Re-run pipeline to apply newly learned mappings
+                    ShowBanner($"✅ {confirmed} mappings learned!", "Re-run Match Prices to apply them", SuccessGreen);
+                };
+                buttonPanel.Children.Add(autoAcceptBtn);
+
+                var closeBtn = new Button
+                {
+                    Content = "Close",
+                    Padding = new Thickness(20, 8, 20, 8),
+                    FontSize = 13,
+                    Background = new SolidColorBrush(Color.FromRgb(80, 80, 80)),
+                    Foreground = Brushes.White,
+                    BorderThickness = new Thickness(0),
+                    Cursor = System.Windows.Input.Cursors.Hand
+                };
+                closeBtn.Click += (s, ev) => window.Close();
+                buttonPanel.Children.Add(closeBtn);
+
+                Grid.SetRow(buttonPanel, 1);
+                mainGrid.Children.Add(buttonPanel);
+
+                window.Content = mainGrid;
+                window.Show();
+
+                ShowBanner($"📋 {reviews.Count} items need review",
+                    $"{stats.LearnedMappings} mappings learned so far", Color.FromRgb(156, 39, 176));
+            }
+            catch (Exception ex) { MessageBox.Show($"Review failed: {ex.Message}", "BINA Cost"); }
+            finally
+            {
+                if (btn != null) { btn.IsEnabled = true; btn.Content = "Review"; }
             }
         }
 

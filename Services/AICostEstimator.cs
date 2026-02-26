@@ -186,6 +186,122 @@ namespace RevitWebAppSync.Services
             return totalFloorArea > 0 ? summary.GrandTotal / totalFloorArea : 0;
         }
 
+        // ========== PIPELINE API ==========
+
+        /// <summary>
+        /// Call the 4-layer matching pipeline for 100% coverage.
+        /// Layer 1: Exact JKR code → Layer 2: Learned mappings → Layer 3: AI vector → Layer 4: Review queue
+        /// </summary>
+        public async Task<PipelineResult> MatchPipelineAsync(
+            List<CostItem> items,
+            string projectName,
+            double similarityThreshold = 0.50)
+        {
+            try
+            {
+                var payload = new
+                {
+                    items = items.Select(i => new
+                    {
+                        element_id = i.ElementId,
+                        name = i.Name,
+                        family_name = i.FamilyName,
+                        type_name = i.TypeName,
+                        category = i.Category,
+                        jkr_code = i.JkrCode,
+                        qty = i.Quantity,
+                        unit = i.Unit
+                    }).ToList(),
+                    project_name = projectName,
+                    auto_queue_review = true,
+                    similarity_threshold = similarityThreshold
+                };
+
+                var json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                var response = await _httpClient.PostAsync($"{_baseUrl}/cost/match-pipeline", content);
+                var responseBody = await response.Content.ReadAsStringAsync();
+
+                if (response.IsSuccessStatusCode)
+                {
+                    return JsonConvert.DeserializeObject<PipelineResult>(responseBody);
+                }
+
+                return new PipelineResult { Success = false, Error = $"API {(int)response.StatusCode}: {responseBody}" };
+            }
+            catch (Exception ex)
+            {
+                return new PipelineResult { Success = false, Error = ex.Message };
+            }
+        }
+
+        /// <summary>
+        /// Get pending review items that need human confirmation.
+        /// </summary>
+        public async Task<List<ReviewItem>> GetPendingReviewsAsync(int limit = 50)
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync($"{_baseUrl}/cost/review/pending?limit={limit}");
+                var body = await response.Content.ReadAsStringAsync();
+                if (response.IsSuccessStatusCode)
+                    return JsonConvert.DeserializeObject<List<ReviewItem>>(body) ?? new List<ReviewItem>();
+                return new List<ReviewItem>();
+            }
+            catch { return new List<ReviewItem>(); }
+        }
+
+        /// <summary>
+        /// Human confirms a mapping — system learns forever.
+        /// </summary>
+        public async Task<ReviewResolveResult> ResolveReviewAsync(
+            string reviewId, string jkrCode, double unitPrice, string unit, string description)
+        {
+            try
+            {
+                var payload = new
+                {
+                    review_id = reviewId,
+                    jkr_code = jkrCode,
+                    unit_price = unitPrice,
+                    unit = unit,
+                    description = description,
+                    resolved_by = "revit_user"
+                };
+
+                var json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var response = await _httpClient.PostAsync($"{_baseUrl}/cost/review/resolve", content);
+                var body = await response.Content.ReadAsStringAsync();
+
+                if (response.IsSuccessStatusCode)
+                    return JsonConvert.DeserializeObject<ReviewResolveResult>(body);
+
+                return new ReviewResolveResult { Success = false, Message = $"API {(int)response.StatusCode}" };
+            }
+            catch (Exception ex)
+            {
+                return new ReviewResolveResult { Success = false, Message = ex.Message };
+            }
+        }
+
+        /// <summary>
+        /// Get review queue stats.
+        /// </summary>
+        public async Task<ReviewStats> GetReviewStatsAsync()
+        {
+            try
+            {
+                var response = await _httpClient.GetAsync($"{_baseUrl}/cost/review/stats");
+                var body = await response.Content.ReadAsStringAsync();
+                if (response.IsSuccessStatusCode)
+                    return JsonConvert.DeserializeObject<ReviewStats>(body);
+                return new ReviewStats();
+            }
+            catch { return new ReviewStats(); }
+        }
+
         public void Dispose()
         {
             _httpClient?.Dispose();
@@ -279,5 +395,187 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("reasoning")]
         public string Reasoning { get; set; }
+    }
+
+    // --- Pipeline Models ---
+
+    public class PipelineResult
+    {
+        [JsonProperty("success")]
+        public bool Success { get; set; }
+
+        [JsonProperty("error")]
+        public string Error { get; set; }
+
+        [JsonProperty("stats")]
+        public PipelineStats Stats { get; set; } = new PipelineStats();
+
+        [JsonProperty("matches")]
+        public List<PipelineMatch> Matches { get; set; } = new List<PipelineMatch>();
+
+        [JsonProperty("review_items")]
+        public List<ReviewItemBrief> ReviewItems { get; set; } = new List<ReviewItemBrief>();
+    }
+
+    public class PipelineStats
+    {
+        [JsonProperty("total_items")]
+        public int TotalItems { get; set; }
+
+        [JsonProperty("skipped_non_construction")]
+        public int SkippedNonConstruction { get; set; }
+
+        [JsonProperty("layer1_exact")]
+        public int Layer1Exact { get; set; }
+
+        [JsonProperty("layer2_learned")]
+        public int Layer2Learned { get; set; }
+
+        [JsonProperty("layer3_vector")]
+        public int Layer3Vector { get; set; }
+
+        [JsonProperty("layer4_review")]
+        public int Layer4Review { get; set; }
+
+        [JsonProperty("total_matched")]
+        public int TotalMatched { get; set; }
+
+        [JsonProperty("total_cost")]
+        public double TotalCost { get; set; }
+
+        [JsonProperty("match_rate")]
+        public string MatchRate { get; set; }
+    }
+
+    public class PipelineMatch
+    {
+        [JsonProperty("element_id")]
+        public int ElementId { get; set; }
+
+        [JsonProperty("element_name")]
+        public string ElementName { get; set; }
+
+        [JsonProperty("jkr_code")]
+        public string JkrCode { get; set; }
+
+        [JsonProperty("description")]
+        public string Description { get; set; }
+
+        [JsonProperty("unit_price")]
+        public double UnitPrice { get; set; }
+
+        [JsonProperty("unit")]
+        public string Unit { get; set; }
+
+        [JsonProperty("qty")]
+        public double Qty { get; set; }
+
+        [JsonProperty("total_price")]
+        public double TotalPrice { get; set; }
+
+        [JsonProperty("confidence")]
+        public string Confidence { get; set; }
+
+        [JsonProperty("match_layer")]
+        public string MatchLayer { get; set; }
+
+        [JsonProperty("reasoning")]
+        public string Reasoning { get; set; }
+    }
+
+    public class ReviewItemBrief
+    {
+        [JsonProperty("element_id")]
+        public int ElementId { get; set; }
+
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("category")]
+        public string Category { get; set; }
+
+        [JsonProperty("qty")]
+        public double Qty { get; set; }
+
+        [JsonProperty("ai_suggestions")]
+        public List<AISuggestion> AiSuggestions { get; set; } = new List<AISuggestion>();
+    }
+
+    public class AISuggestion
+    {
+        [JsonProperty("jkr_code")]
+        public string JkrCode { get; set; }
+
+        [JsonProperty("description")]
+        public string Description { get; set; }
+
+        [JsonProperty("unit_price")]
+        public double UnitPrice { get; set; }
+
+        [JsonProperty("similarity")]
+        public double Similarity { get; set; }
+    }
+
+    public class ReviewItem
+    {
+        [JsonProperty("id")]
+        public string Id { get; set; }
+
+        [JsonProperty("element_name")]
+        public string ElementName { get; set; }
+
+        [JsonProperty("category")]
+        public string Category { get; set; }
+
+        [JsonProperty("family_name")]
+        public string FamilyName { get; set; }
+
+        [JsonProperty("type_name")]
+        public string TypeName { get; set; }
+
+        [JsonProperty("qty")]
+        public double Qty { get; set; }
+
+        [JsonProperty("unit")]
+        public string Unit { get; set; }
+
+        [JsonProperty("project")]
+        public string Project { get; set; }
+
+        [JsonProperty("ai_suggestions")]
+        public List<AISuggestion> AiSuggestions { get; set; } = new List<AISuggestion>();
+
+        [JsonProperty("created_at")]
+        public string CreatedAt { get; set; }
+    }
+
+    public class ReviewResolveResult
+    {
+        [JsonProperty("success")]
+        public bool Success { get; set; }
+
+        [JsonProperty("message")]
+        public string Message { get; set; }
+
+        [JsonProperty("learned_mapping_id")]
+        public string LearnedMappingId { get; set; }
+    }
+
+    public class ReviewStats
+    {
+        [JsonProperty("review_pending")]
+        public int ReviewPending { get; set; }
+
+        [JsonProperty("review_resolved")]
+        public int ReviewResolved { get; set; }
+
+        [JsonProperty("learned_mappings")]
+        public int LearnedMappings { get; set; }
+
+        [JsonProperty("jkr_entries")]
+        public int JkrEntries { get; set; }
+
+        [JsonProperty("message")]
+        public string Message { get; set; }
     }
 }
