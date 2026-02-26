@@ -12,8 +12,8 @@ namespace RevitWebAppSync.Services
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
 
-        // Ngrok public URL for the NestJS backend
-        private const string DEFAULT_BASE_URL = "https://632012de7dc1.ngrok-free.app";
+        // AI Agent backend (ngrok tunnel to Mac running bina-ai-agent-agno)
+        private const string DEFAULT_BASE_URL = "https://02cc-2001-f40-935-7c0f-9053-82bf-7d3a-6d8e.ngrok-free.app";
 
         public AIService(string baseUrl = null)
         {

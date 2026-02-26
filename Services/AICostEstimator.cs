@@ -23,8 +23,8 @@ namespace RevitWebAppSync.Services
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
 
-        // Uses same ngrok URL as AIService
-        private const string DEFAULT_BASE_URL = "https://632012de7dc1.ngrok-free.app";
+        // AI Agent backend (ngrok tunnel to Mac running bina-ai-agent-agno)
+        private const string DEFAULT_BASE_URL = "https://02cc-2001-f40-935-7c0f-9053-82bf-7d3a-6d8e.ngrok-free.app";
 
         public AICostEstimator(string baseUrl = null)
         {
@@ -76,7 +76,7 @@ namespace RevitWebAppSync.Services
                 var json = JsonConvert.SerializeObject(payload);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-                var response = await _httpClient.PostAsync($"{_baseUrl}/v1/cost/analyze", content);
+                var response = await _httpClient.PostAsync($"{_baseUrl}/cost/analyze", content);
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
@@ -102,7 +102,9 @@ namespace RevitWebAppSync.Services
 
         /// <summary>
         /// Ask AI to suggest master DB matches for unmatched items.
-        /// Returns suggested JKR codes from the master database — NOT invented prices.
+        /// Uses semantic vector search (Azure OpenAI embeddings + PgVector)
+        /// to find the best JKR code match for each Revit element.
+        /// Returns suggested JKR codes from the knowledge base — NOT invented prices.
         /// </summary>
         public async Task<List<MatchSuggestion>> SuggestMatchesAsync(
             List<CostItem> unmatchedItems,
@@ -110,13 +112,13 @@ namespace RevitWebAppSync.Services
         {
             try
             {
-                if (!unmatchedItems.Any() || !masterEntries.Any())
+                if (!unmatchedItems.Any())
                     return new List<MatchSuggestion>();
 
-                // Send unmatched items + available master entries for AI to match
+                // Use vector search endpoint — sends elements, gets semantic matches from JKR knowledge base
                 var payload = new
                 {
-                    unmatched_items = unmatchedItems.Take(50).Select(i => new
+                    items = unmatchedItems.Take(50).Select(i => new
                     {
                         element_id = i.ElementId,
                         name = i.Name,
@@ -126,28 +128,29 @@ namespace RevitWebAppSync.Services
                         jkr_code = i.JkrCode,
                         unit = i.Unit
                     }).ToList(),
-                    master_entries = masterEntries.Select(e => new
-                    {
-                        jkr_code = e.JkrCode,
-                        description = e.Description,
-                        unit_price = e.UnitPrice,
-                        unit = e.Unit,
-                        category = e.Category
-                    }).ToList()
+                    top_k = 3
                 };
 
                 var json = JsonConvert.SerializeObject(payload);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-                var response = await _httpClient.PostAsync($"{_baseUrl}/v1/cost/suggest-matches", content);
+                var response = await _httpClient.PostAsync($"{_baseUrl}/cost/vector-match", content);
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
                 {
-                    var result = JsonConvert.DeserializeObject<SuggestMatchesResponse>(responseBody);
-                    return result?.Suggestions ?? new List<MatchSuggestion>();
+                    var result = JsonConvert.DeserializeObject<VectorMatchResponse>(responseBody);
+                    if (result?.Results != null)
+                    {
+                        // Take the best match (first) from each result
+                        return result.Results
+                            .Where(r => r.Matches != null && r.Matches.Any())
+                            .Select(r => r.Matches.First())
+                            .ToList();
+                    }
                 }
 
+                System.Diagnostics.Debug.WriteLine($"[BINA Cost] Vector match returned {(int)response.StatusCode}: {responseBody}");
                 return new List<MatchSuggestion>();
             }
             catch (Exception ex)
@@ -164,7 +167,7 @@ namespace RevitWebAppSync.Services
         {
             try
             {
-                var response = await _httpClient.GetAsync($"{_baseUrl}/v1/health");
+                var response = await _httpClient.GetAsync($"{_baseUrl}/health");
                 return response.IsSuccessStatusCode;
             }
             catch
@@ -231,6 +234,24 @@ namespace RevitWebAppSync.Services
     {
         [JsonProperty("suggestions")]
         public List<MatchSuggestion> Suggestions { get; set; } = new List<MatchSuggestion>();
+    }
+
+    public class VectorMatchResponse
+    {
+        [JsonProperty("results")]
+        public List<VectorMatchResult> Results { get; set; } = new List<VectorMatchResult>();
+    }
+
+    public class VectorMatchResult
+    {
+        [JsonProperty("element_id")]
+        public int ElementId { get; set; }
+
+        [JsonProperty("element_name")]
+        public string ElementName { get; set; }
+
+        [JsonProperty("matches")]
+        public List<MatchSuggestion> Matches { get; set; } = new List<MatchSuggestion>();
     }
 
     public class MatchSuggestion
