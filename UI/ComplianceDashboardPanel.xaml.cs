@@ -977,13 +977,88 @@ namespace RevitWebAppSync.UI
             try
             {
                 if (_uiApp?.ActiveUIDocument == null) return;
-                var doc = _uiApp.ActiveUIDocument.Document;
+                var uidoc = _uiApp.ActiveUIDocument;
+                var doc = uidoc.Document;
                 var elemId = new ElementId(elementId);
                 var elem = doc.GetElement(elemId);
-                if (elem != null)
+                if (elem == null) return;
+
+                // Select the element
+                uidoc.Selection.SetElementIds(new List<ElementId> { elemId });
+
+                // Try to get the element's bounding box for zoom
+                var bb = elem.get_BoundingBox(doc.ActiveView);
+                if (bb != null)
                 {
-                    _uiApp.ActiveUIDocument.Selection.SetElementIds(new List<ElementId> { elemId });
-                    _uiApp.ActiveUIDocument.ShowElements(elemId);
+                    // Create a view that zooms to the element with some padding
+                    var view = doc.ActiveView;
+                    var uiView = uidoc.GetOpenUIViews()
+                        .FirstOrDefault(v => v.ViewId == view.Id);
+
+                    if (uiView != null)
+                    {
+                        // Add 20% padding around the element
+                        var diag = bb.Max - bb.Min;
+                        var padding = diag * 0.2;
+                        var min = bb.Min - padding;
+                        var max = bb.Max + padding;
+
+                        // Zoom to the bounding box corners
+                        uiView.ZoomAndCenterRectangle(
+                            new XYZ(min.X, min.Y, min.Z),
+                            new XYZ(max.X, max.Y, max.Z));
+                    }
+                }
+                else
+                {
+                    // Fallback: ShowElements does a basic zoom
+                    uidoc.ShowElements(elemId);
+                }
+
+                // Temporarily isolate the element in the view for highlight effect
+                // (user can reset with "Reset Temporary Hide/Isolate" or we auto-reset)
+                try
+                {
+                    var activeView = doc.ActiveView;
+                    if (activeView.CanUseTemporaryVisibilityModes())
+                    {
+                        using (var tx = new Transaction(doc, "BINA Highlight Element"))
+                        {
+                            tx.Start();
+                            // Clear any previous temp isolation first
+                            TemporaryViewMode currentMode = activeView.TemporaryViewMode;
+                            if (currentMode != TemporaryViewMode.TemporaryHideIsolate)
+                            {
+                                activeView.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
+                            }
+                            // Isolate just this element
+                            activeView.IsolateElementTemporary(elemId);
+                            tx.Commit();
+                        }
+
+                        // Auto-reset isolation after 3 seconds so user sees context again
+                        System.Windows.Threading.DispatcherTimer resetTimer = new System.Windows.Threading.DispatcherTimer();
+                        resetTimer.Interval = TimeSpan.FromSeconds(3);
+                        resetTimer.Tick += (s, ev) =>
+                        {
+                            resetTimer.Stop();
+                            try
+                            {
+                                using (var tx = new Transaction(doc, "BINA Reset Highlight"))
+                                {
+                                    tx.Start();
+                                    doc.ActiveView.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
+                                    tx.Commit();
+                                }
+                            }
+                            catch { /* view may have changed */ }
+                        };
+                        resetTimer.Start();
+                    }
+                }
+                catch (Exception isoEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Isolate highlight failed (non-fatal): {isoEx.Message}");
                 }
             }
             catch (Exception ex)
