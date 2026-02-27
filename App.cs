@@ -21,6 +21,9 @@ namespace RevitWebAppSync
         // Cost Dashboard dockable pane host
         public static CostDashboardHost CostDashboardHost { get; private set; }
 
+        // Fire Compliance dockable pane host
+        public static ComplianceDashboardHost ComplianceDashboardHost { get; private set; }
+
         // Live cost update handler
         public static CostUpdateHandler CostUpdateHandler { get; private set; }
 
@@ -43,8 +46,21 @@ namespace RevitWebAppSync
                 }
                 catch (Exception dockEx)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[BINA] Dockable pane registration failed: {dockEx.Message}");
-                    // Non-fatal — addin still works without dockable panel
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Cost dockable pane registration failed: {dockEx.Message}");
+                }
+
+                // Register Fire Compliance dockable pane
+                try
+                {
+                    ComplianceDashboardHost = new ComplianceDashboardHost();
+                    application.RegisterDockablePane(
+                        ComplianceDashboardHost.PaneId,
+                        "BINA Fire Compliance",
+                        ComplianceDashboardHost);
+                }
+                catch (Exception compEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Compliance dockable pane registration failed: {compEx.Message}");
                 }
 
                 // Subscribe to document changes for live cost updates
@@ -184,10 +200,23 @@ namespace RevitWebAppSync
             ribbonPanel.AddItem(loginButtonData);
             ribbonPanel.AddItem(bimDisciplineButtonData);
             ribbonPanel.AddItem(askAiButtonData);
+            PushButtonData complianceButtonData = new PushButtonData(
+                "FireCompliance",
+                "Fire\nCompliance",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.Commands.ComplianceDashboardCommand")
+            {
+                ToolTip = "Check Fire Compliance (UKBS 1984)",
+                LongDescription = "Check building elements against Malaysian UKBS 1984 fire safety requirements (Jadual 5-11). Shows non-compliant elements and allows querying the by-laws.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            };
+
             ribbonPanel.AddSeparator();
             ribbonPanel.AddItem(costExportButtonData);
             ribbonPanel.AddItem(costImportButtonData);
             ribbonPanel.AddItem(costDashboardButtonData);
+            ribbonPanel.AddItem(complianceButtonData);
             // ribbonPanel.AddItem(federateButtonData); // Hidden as requested
         }
 
