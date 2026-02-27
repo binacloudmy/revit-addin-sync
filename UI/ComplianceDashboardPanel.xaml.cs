@@ -983,83 +983,52 @@ namespace RevitWebAppSync.UI
                 var elem = doc.GetElement(elemId);
                 if (elem == null) return;
 
+                // If current view is a rendered/perspective 3D view, switch to a floor plan first
+                var activeView = doc.ActiveView;
+                bool needsViewSwitch = activeView.ViewType == ViewType.ThreeD ||
+                                       activeView.ViewType == ViewType.Rendering ||
+                                       activeView.ViewType == ViewType.Walkthrough;
+
+                if (needsViewSwitch)
+                {
+                    // Try to find the floor plan that contains this element's level
+                    View targetView = null;
+                    var levelParam = elem.get_Parameter(BuiltInParameter.WALL_BASE_CONSTRAINT)
+                                  ?? elem.get_Parameter(BuiltInParameter.FAMILY_LEVEL_PARAM)
+                                  ?? elem.get_Parameter(BuiltInParameter.SCHEDULE_LEVEL_PARAM);
+
+                    if (levelParam != null)
+                    {
+                        var levelId = levelParam.AsElementId();
+                        // Find a floor plan for this level
+                        targetView = new FilteredElementCollector(doc)
+                            .OfClass(typeof(ViewPlan))
+                            .Cast<ViewPlan>()
+                            .Where(v => !v.IsTemplate && v.ViewType == ViewType.FloorPlan && v.GenLevel?.Id == levelId)
+                            .FirstOrDefault();
+                    }
+
+                    // Fallback: any non-template floor plan
+                    if (targetView == null)
+                    {
+                        targetView = new FilteredElementCollector(doc)
+                            .OfClass(typeof(ViewPlan))
+                            .Cast<ViewPlan>()
+                            .Where(v => !v.IsTemplate && v.ViewType == ViewType.FloorPlan)
+                            .FirstOrDefault();
+                    }
+
+                    if (targetView != null)
+                    {
+                        uidoc.ActiveView = targetView;
+                    }
+                }
+
                 // Select the element
                 uidoc.Selection.SetElementIds(new List<ElementId> { elemId });
 
-                // Try to get the element's bounding box for zoom
-                var bb = elem.get_BoundingBox(doc.ActiveView);
-                if (bb != null)
-                {
-                    // Create a view that zooms to the element with some padding
-                    var view = doc.ActiveView;
-                    var uiView = uidoc.GetOpenUIViews()
-                        .FirstOrDefault(v => v.ViewId == view.Id);
-
-                    if (uiView != null)
-                    {
-                        // Add 20% padding around the element
-                        var diag = bb.Max - bb.Min;
-                        var padding = diag * 0.2;
-                        var min = bb.Min - padding;
-                        var max = bb.Max + padding;
-
-                        // Zoom to the bounding box corners
-                        uiView.ZoomAndCenterRectangle(
-                            new XYZ(min.X, min.Y, min.Z),
-                            new XYZ(max.X, max.Y, max.Z));
-                    }
-                }
-                else
-                {
-                    // Fallback: ShowElements does a basic zoom
-                    uidoc.ShowElements(elemId);
-                }
-
-                // Temporarily isolate the element in the view for highlight effect
-                // (user can reset with "Reset Temporary Hide/Isolate" or we auto-reset)
-                try
-                {
-                    var activeView = doc.ActiveView;
-                    if (activeView.CanUseTemporaryVisibilityModes())
-                    {
-                        using (var tx = new Transaction(doc, "BINA Highlight Element"))
-                        {
-                            tx.Start();
-                            // Clear any previous temp isolation first
-                            TemporaryViewMode currentMode = activeView.TemporaryViewMode;
-                            if (currentMode != TemporaryViewMode.TemporaryHideIsolate)
-                            {
-                                activeView.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
-                            }
-                            // Isolate just this element
-                            activeView.IsolateElementTemporary(elemId);
-                            tx.Commit();
-                        }
-
-                        // Auto-reset isolation after 3 seconds so user sees context again
-                        System.Windows.Threading.DispatcherTimer resetTimer = new System.Windows.Threading.DispatcherTimer();
-                        resetTimer.Interval = TimeSpan.FromSeconds(3);
-                        resetTimer.Tick += (s, ev) =>
-                        {
-                            resetTimer.Stop();
-                            try
-                            {
-                                using (var tx = new Transaction(doc, "BINA Reset Highlight"))
-                                {
-                                    tx.Start();
-                                    doc.ActiveView.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
-                                    tx.Commit();
-                                }
-                            }
-                            catch { /* view may have changed */ }
-                        };
-                        resetTimer.Start();
-                    }
-                }
-                catch (Exception isoEx)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[BINA] Isolate highlight failed (non-fatal): {isoEx.Message}");
-                }
+                // Zoom to the element
+                uidoc.ShowElements(elemId);
             }
             catch (Exception ex)
             {
