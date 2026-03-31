@@ -6,6 +6,7 @@ using RevitWebAppSync.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -20,10 +21,18 @@ namespace RevitWebAppSync
         private readonly UIDocument _uidoc;
         private readonly Document _doc;
         private readonly AIService _aiService;
+        private readonly JkrSpecService _jkrService;
         private readonly ExternalEvent _externalEvent;
         private readonly CodeExecutionHandler _handler;
 
         private int _totalTokens = 0;
+
+        // Track which tab is active
+        private bool IsJkrMode => ModeTabs.SelectedIndex == 1;
+
+        // Current chat panel based on active tab
+        private StackPanel ActiveChatHistory => IsJkrMode ? JkrChatHistory : CopilotChatHistory;
+        private ScrollViewer ActiveScrollViewer => IsJkrMode ? JkrScrollViewer : CopilotScrollViewer;
 
         public AIAssistantWindow(UIDocument uidoc, ExternalEvent externalEvent, CodeExecutionHandler handler)
         {
@@ -34,10 +43,9 @@ namespace RevitWebAppSync
             _externalEvent = externalEvent;
             _handler = handler;
 
-            // Use default ngrok URL from AIService
             _aiService = new AIService();
+            _jkrService = new JkrSpecService(AIService.DEFAULT_BASE_URL);
 
-            // Check backend connection on load
             CheckBackendConnection();
         }
 
@@ -58,9 +66,18 @@ namespace RevitWebAppSync
             }
         }
 
+        private void ModeTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // Update placeholder hint when switching tabs
+            if (PromptInput == null) return;
+
+            PromptInput.ToolTip = IsJkrMode
+                ? "Ask about JKR BIM specifications (Ctrl+Enter to send)"
+                : "Enter your prompt (Ctrl+Enter to send)";
+        }
+
         private void PromptInput_KeyDown(object sender, KeyEventArgs e)
         {
-            // Ctrl+Enter to send
             if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.Control)
             {
                 SendButton_Click(sender, e);
@@ -73,43 +90,48 @@ namespace RevitWebAppSync
             var prompt = PromptInput.Text?.Trim();
             if (string.IsNullOrEmpty(prompt)) return;
 
-            // Disable input while processing
+            if (IsJkrMode)
+            {
+                await SendJkrQuery(prompt);
+            }
+            else
+            {
+                await SendCodeGenQuery(prompt);
+            }
+        }
+
+        #region Revit Copilot (Code Gen)
+
+        private async Task SendCodeGenQuery(string prompt)
+        {
             SetInputEnabled(false);
             StatusText.Text = "Generating code...";
             StatusText.Foreground = new SolidColorBrush(Color.FromRgb(136, 136, 136));
 
-            // Add user message to chat
             AddMessage(prompt, isUser: true);
             PromptInput.Text = "";
 
             try
             {
-                // Get model context from current Revit state
                 var context = GetModelContext();
-
-                // Call AI service
                 var response = await _aiService.GenerateCodeAsync(prompt, context);
 
                 if (response.Success && !string.IsNullOrEmpty(response.Code))
                 {
-                    // Add AI response to chat
                     AddMessage(response.Explanation ?? "Executing code...", isUser: false);
                     AddCodeBlock(response.Code);
 
-                    // Update tokens
                     if (response.TokensUsed.HasValue)
                     {
                         _totalTokens += response.TokensUsed.Value;
                         TokensText.Text = $"Tokens: {_totalTokens}";
                     }
 
-                    // Show warnings if any
                     if (response.Warnings?.Count > 0)
                     {
                         AddWarning(string.Join("\n", response.Warnings));
                     }
 
-                    // Execute code via ExternalEvent (thread-safe)
                     StatusText.Text = "Executing in Revit...";
                     ExecuteCode(response.Code);
                 }
@@ -135,7 +157,6 @@ namespace RevitWebAppSync
             _handler.CodeToExecute = code;
             _handler.OnCompleted = (result) =>
             {
-                // This callback runs on Revit's thread, dispatch to UI thread
                 Dispatcher.Invoke(() =>
                 {
                     if (result.Success)
@@ -172,7 +193,6 @@ namespace RevitWebAppSync
 
             try
             {
-                // Get levels
                 var levels = new FilteredElementCollector(_doc)
                     .OfClass(typeof(Level))
                     .Cast<Level>()
@@ -181,7 +201,6 @@ namespace RevitWebAppSync
                     .ToList();
                 context.Levels = levels;
 
-                // Get active view info
                 var activeView = _doc.ActiveView;
                 if (activeView != null)
                 {
@@ -189,11 +208,9 @@ namespace RevitWebAppSync
                     context.ActiveViewType = activeView.ViewType.ToString();
                 }
 
-                // Get selected elements
                 var selection = _uidoc.Selection.GetElementIds();
                 context.SelectedElementIds = selection.Select(id => (int)id.Value).ToList();
 
-                // Get phases
                 var phases = new FilteredElementCollector(_doc)
                     .OfClass(typeof(Phase))
                     .Cast<Phase>()
@@ -201,7 +218,6 @@ namespace RevitWebAppSync
                     .ToList();
                 context.Phases = phases;
 
-                // Common categories available in the model
                 context.Categories = new List<string>
                 {
                     "Walls", "Doors", "Windows", "Floors", "Roofs",
@@ -211,11 +227,53 @@ namespace RevitWebAppSync
             }
             catch
             {
-                // Ignore errors in context gathering - proceed with partial context
+                // Ignore errors in context gathering
             }
 
             return context;
         }
+
+        #endregion
+
+        #region JKR Guide
+
+        private async Task SendJkrQuery(string question)
+        {
+            SetInputEnabled(false);
+            StatusText.Text = "Searching JKR specs...";
+            StatusText.Foreground = new SolidColorBrush(Color.FromRgb(136, 136, 136));
+
+            AddMessage(question, isUser: true);
+            PromptInput.Text = "";
+
+            try
+            {
+                var response = await _jkrService.AskAsync(question);
+
+                if (!string.IsNullOrEmpty(response?.Content))
+                {
+                    AddMessage(response.Content, isUser: false);
+                    StatusText.Text = "Ready";
+                    StatusText.Foreground = new SolidColorBrush(Color.FromRgb(0, 200, 83));
+                }
+                else
+                {
+                    AddError("No response from JKR Specialist agent.");
+                    StatusText.Text = "Error";
+                    StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 82, 82));
+                }
+            }
+            catch (Exception ex)
+            {
+                AddError($"Error: {ex.Message}");
+                StatusText.Text = "Error";
+                StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 82, 82));
+            }
+
+            SetInputEnabled(true);
+        }
+
+        #endregion
 
         #region Chat UI Helpers
 
@@ -241,7 +299,7 @@ namespace RevitWebAppSync
             };
 
             border.Child = textBlock;
-            ChatHistory.Children.Add(border);
+            ActiveChatHistory.Children.Add(border);
             ScrollToBottom();
         }
 
@@ -270,7 +328,7 @@ namespace RevitWebAppSync
             };
 
             border.Child = textBox;
-            ChatHistory.Children.Add(border);
+            ActiveChatHistory.Children.Add(border);
             ScrollToBottom();
         }
 
@@ -284,7 +342,7 @@ namespace RevitWebAppSync
                 TextWrapping = TextWrapping.Wrap
             };
 
-            ChatHistory.Children.Add(textBlock);
+            ActiveChatHistory.Children.Add(textBlock);
             ScrollToBottom();
         }
 
@@ -298,7 +356,7 @@ namespace RevitWebAppSync
                 TextWrapping = TextWrapping.Wrap
             };
 
-            ChatHistory.Children.Add(textBlock);
+            ActiveChatHistory.Children.Add(textBlock);
             ScrollToBottom();
         }
 
@@ -312,13 +370,13 @@ namespace RevitWebAppSync
                 TextWrapping = TextWrapping.Wrap
             };
 
-            ChatHistory.Children.Add(textBlock);
+            ActiveChatHistory.Children.Add(textBlock);
             ScrollToBottom();
         }
 
         private void ScrollToBottom()
         {
-            ChatScrollViewer.ScrollToEnd();
+            ActiveScrollViewer.ScrollToEnd();
         }
 
         private void SetInputEnabled(bool enabled)
