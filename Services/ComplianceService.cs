@@ -17,7 +17,7 @@ namespace RevitWebAppSync.Services
         private readonly string _baseUrl;
 
         // Same backend as AI cost service
-        private const string DEFAULT_BASE_URL = "https://02cc-2001-f40-935-7c0f-9053-82bf-7d3a-6d8e.ngrok-free.app";
+        private const string DEFAULT_BASE_URL = "https://gastrodermal-ace-overvaliantly.ngrok-free.dev";
 
         public ComplianceService(string baseUrl = null)
         {
