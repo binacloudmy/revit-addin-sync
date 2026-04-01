@@ -290,15 +290,23 @@ namespace RevitWebAppSync
                 HorizontalAlignment = isUser ? HorizontalAlignment.Right : HorizontalAlignment.Left
             };
 
-            var textBlock = new TextBlock
+            if (isUser)
             {
-                Text = text,
-                Foreground = Brushes.White,
-                TextWrapping = TextWrapping.Wrap,
-                MaxWidth = 350
-            };
+                var textBlock = new TextBlock
+                {
+                    Text = text,
+                    Foreground = Brushes.White,
+                    TextWrapping = TextWrapping.Wrap,
+                    MaxWidth = 350
+                };
+                border.Child = textBlock;
+            }
+            else
+            {
+                // Render markdown for bot responses
+                border.Child = Helpers.MarkdownRenderer.Render(text, 350);
+            }
 
-            border.Child = textBlock;
             ActiveChatHistory.Children.Add(border);
             ScrollToBottom();
         }
