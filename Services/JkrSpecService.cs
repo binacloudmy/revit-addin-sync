@@ -33,12 +33,12 @@ namespace RevitWebAppSync.Services
         {
             try
             {
-                // Agno AgentOS now requires multipart/form-data
-                var content = new MultipartFormDataContent();
-                content.Add(new StringContent(question), "message");
-                content.Add(new StringContent("false"), "stream");
+                // Send as JSON to our proxy endpoint
+                var payload = new { message = question, stream = false };
+                var json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-                var response = await _httpClient.PostAsync($"{_baseUrl}/agents/jkr-specialist/runs", content);
+                var response = await _httpClient.PostAsync($"{_baseUrl}/v1/agents/jkr-specialist/run", content);
                 var body = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
