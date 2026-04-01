@@ -2,6 +2,7 @@ using Newtonsoft.Json;
 using RevitWebAppSync.Models;
 using System;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -30,14 +31,14 @@ namespace RevitWebAppSync.Services
         /// </summary>
         public async Task<JkrAgentResponse> AskAsync(string question)
         {
-            var request = new JkrAgentRequest { Message = question };
-
             try
             {
-                var json = JsonConvert.SerializeObject(request);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                // Agno AgentOS now requires multipart/form-data
+                var content = new MultipartFormDataContent();
+                content.Add(new StringContent(question), "message");
+                content.Add(new StringContent("false"), "stream");
 
-                var response = await _httpClient.PostAsync($"{_baseUrl}/agents/jkr_specialist/runs", content);
+                var response = await _httpClient.PostAsync($"{_baseUrl}/agents/jkr-specialist/runs", content);
                 var body = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
