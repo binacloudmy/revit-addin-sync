@@ -1,0 +1,5 @@
+<Page x:Class="RevitWebAppSync.UI.JkrComplianceDashboardPanel"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Background="#F1F1F1">
+</Page>

@@ -24,6 +24,9 @@ namespace RevitWebAppSync
         // Fire Compliance dockable pane host
         public static ComplianceDashboardHost ComplianceDashboardHost { get; private set; }
 
+        // JKR BIM Compliance dockable pane host
+        public static JkrComplianceDashboardHost JkrComplianceDashboardHost { get; private set; }
+
         // Live cost update handler
         public static CostUpdateHandler CostUpdateHandler { get; private set; }
 
@@ -61,6 +64,20 @@ namespace RevitWebAppSync
                 catch (Exception compEx)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA] Compliance dockable pane registration failed: {compEx.Message}");
+                }
+
+                // Register JKR BIM Compliance dockable pane
+                try
+                {
+                    JkrComplianceDashboardHost = new JkrComplianceDashboardHost();
+                    application.RegisterDockablePane(
+                        JkrComplianceDashboardHost.PaneId,
+                        "BINA JKR Compliance",
+                        JkrComplianceDashboardHost);
+                }
+                catch (Exception jkrEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] JKR Compliance dockable pane registration failed: {jkrEx.Message}");
                 }
 
                 // Subscribe to document changes for live cost updates
@@ -217,6 +234,19 @@ namespace RevitWebAppSync
             ribbonPanel.AddItem(costImportButtonData);
             ribbonPanel.AddItem(costDashboardButtonData);
             ribbonPanel.AddItem(complianceButtonData);
+
+            PushButtonData jkrComplianceButtonData = new PushButtonData(
+                "JkrCompliance",
+                "JKR\nCompliance",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.Commands.JkrComplianceDashboardCommand")
+            {
+                ToolTip = "Check JKR BIM Compliance (Document 09)",
+                LongDescription = "Check model elements against JKR BIM Spesifikasi Parameter — naming, required parameters per LOi level, JKR codes. 53 categories, 5,478 parameter rules.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            };
+            ribbonPanel.AddItem(jkrComplianceButtonData);
             // ribbonPanel.AddItem(federateButtonData); // Hidden as requested
         }
 
