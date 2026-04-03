@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Threading;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using RevitWebAppSync.Handlers;
 using RevitWebAppSync.Services;
 using Color = System.Windows.Media.Color;
 using ComboBox = System.Windows.Controls.ComboBox;
@@ -390,13 +391,38 @@ namespace RevitWebAppSync.UI
             var failures = _issues.Where(i => i.Status == "fail").ToList();
             if (failures.Any())
             {
-                _contentPanel.Children.Add(new TextBlock
+                var failHeader = new Grid { Margin = new Thickness(0, 8, 0, 4) };
+                failHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                failHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                failHeader.Children.Add(new TextBlock
                 {
                     Text = $"❌ NON-COMPLIANT ({failures.Count})",
                     FontSize = 11, FontWeight = FontWeights.Bold,
                     Foreground = new SolidColorBrush(FailRed),
-                    Margin = new Thickness(0, 8, 0, 4)
+                    VerticalAlignment = VerticalAlignment.Center
                 });
+
+                // "Fix All Naming" button if there are auto-fixable naming issues
+                var namingFixes = failures.Where(i => CanAutoFix(i)).ToList();
+                if (namingFixes.Any())
+                {
+                    var fixAllBtn = new Button
+                    {
+                        Content = $"🔧 Auto-Fix All Naming ({namingFixes.Count})",
+                        FontSize = 9, Padding = new Thickness(8, 3, 8, 3),
+                        Background = new SolidColorBrush(Color.FromRgb(46, 125, 50)),
+                        Foreground = Brushes.White,
+                        BorderThickness = new Thickness(0),
+                        Cursor = System.Windows.Input.Cursors.Hand,
+                        VerticalAlignment = VerticalAlignment.Center
+                    };
+                    fixAllBtn.Click += AutoFixAllNaming_Click;
+                    Grid.SetColumn(fixAllBtn, 1);
+                    failHeader.Children.Add(fixAllBtn);
+                }
+
+                _contentPanel.Children.Add(failHeader);
                 foreach (var issue in failures)
                     _contentPanel.Children.Add(CreateIssueCard(issue));
             }
@@ -591,7 +617,8 @@ namespace RevitWebAppSync.UI
 
             // Fix suggestion (generated inline based on issue type)
             string fixText = GetFixSuggestion(issue);
-            if (!string.IsNullOrEmpty(fixText))
+            bool canAutoFix = CanAutoFix(issue);
+            if (!string.IsNullOrEmpty(fixText) || canAutoFix)
             {
                 var fixBorder = new Border
                 {
@@ -601,19 +628,49 @@ namespace RevitWebAppSync.UI
                     Margin = new Thickness(0, 6, 0, 0)
                 };
                 var fixStack = new StackPanel();
-                fixStack.Children.Add(new TextBlock
+
+                if (canAutoFix)
                 {
-                    Text = "💡 How to fix:",
-                    FontSize = 9, FontWeight = FontWeights.SemiBold,
-                    Foreground = new SolidColorBrush(Color.FromRgb(27, 94, 32)),
-                    Margin = new Thickness(0, 0, 0, 2)
-                });
-                fixStack.Children.Add(new TextBlock
+                    string disc = _extractionData?.Discipline ?? "AR";
+                    string newName = JkrRenameHandler.GenerateJkrName(disc, issue.Category ?? "", issue.ActualValue ?? issue.TypeName ?? "");
+
+                    fixStack.Children.Add(new TextBlock
+                    {
+                        Text = $"🔧 Auto-fix available — rename to: {newName}",
+                        FontSize = 9, FontWeight = FontWeights.SemiBold,
+                        Foreground = new SolidColorBrush(Color.FromRgb(27, 94, 32)),
+                        Margin = new Thickness(0, 0, 0, 4)
+                    });
+
+                    var autoFixBtn = new Button
+                    {
+                        Content = "🔧 Auto-Fix Rename",
+                        FontSize = 10, Padding = new Thickness(10, 4, 10, 4),
+                        Background = new SolidColorBrush(Color.FromRgb(46, 125, 50)),
+                        Foreground = Brushes.White,
+                        BorderThickness = new Thickness(0),
+                        Cursor = System.Windows.Input.Cursors.Hand,
+                        Tag = new AutoFixInfo { ElementId = issue.ElementId, NewName = newName }
+                    };
+                    autoFixBtn.Click += AutoFixRename_Click;
+                    fixStack.Children.Add(autoFixBtn);
+                }
+                else if (!string.IsNullOrEmpty(fixText))
                 {
-                    Text = fixText,
-                    FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(46, 125, 50)),
-                    TextWrapping = TextWrapping.Wrap
-                });
+                    fixStack.Children.Add(new TextBlock
+                    {
+                        Text = "💡 How to fix:",
+                        FontSize = 9, FontWeight = FontWeights.SemiBold,
+                        Foreground = new SolidColorBrush(Color.FromRgb(27, 94, 32)),
+                        Margin = new Thickness(0, 0, 0, 2)
+                    });
+                    fixStack.Children.Add(new TextBlock
+                    {
+                        Text = fixText,
+                        FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(46, 125, 50)),
+                        TextWrapping = TextWrapping.Wrap
+                    });
+                }
                 fixBorder.Child = fixStack;
                 stack.Children.Add(fixBorder);
             }
@@ -650,6 +707,88 @@ namespace RevitWebAppSync.UI
             }
 
             return card;
+        }
+
+        private bool CanAutoFix(ComplianceIssue issue)
+        {
+            if (issue.Status != "fail") return false;
+            string rule = (issue.Query ?? "").ToLower();
+            // Only naming convention issues can be auto-fixed
+            return (rule.Contains("naming convention not followed") || rule.Contains("naming convention"))
+                   && issue.ElementId > 0;
+        }
+
+        private void AutoFixRename_Click(object sender, RoutedEventArgs e)
+        {
+            var btn = sender as Button;
+            if (btn?.Tag is AutoFixInfo info)
+            {
+                btn.IsEnabled = false;
+                btn.Content = "⏳ Renaming...";
+
+                App.JkrRenameHandler.RenameQueue = new List<(int, string)> { (info.ElementId, info.NewName) };
+                App.JkrRenameHandler.OnCompleted = result =>
+                {
+                    Dispatcher.InvokeAsync(() =>
+                    {
+                        if (!string.IsNullOrEmpty(result.Error))
+                        {
+                            btn.Content = $"❌ {result.Error}";
+                            btn.IsEnabled = true;
+                        }
+                        else if (result.Renamed > 0)
+                        {
+                            btn.Content = "✅ Renamed!";
+                            btn.Background = new SolidColorBrush(Color.FromRgb(76, 175, 80));
+                        }
+                        else if (result.Failed > 0)
+                        {
+                            btn.Content = "❌ Name conflict — try manually";
+                            btn.IsEnabled = true;
+                        }
+                        else
+                        {
+                            btn.Content = "⚠️ Element not found";
+                            btn.IsEnabled = true;
+                        }
+                    });
+                };
+                App.JkrRenameEvent.Raise();
+            }
+        }
+
+        private void AutoFixAllNaming_Click(object sender, RoutedEventArgs e)
+        {
+            var btn = sender as Button;
+            if (btn == null) return;
+
+            string disc = _extractionData?.Discipline ?? "AR";
+            var namingIssues = _issues.Where(i => CanAutoFix(i)).ToList();
+            if (!namingIssues.Any()) return;
+
+            btn.IsEnabled = false;
+            btn.Content = $"⏳ Renaming {namingIssues.Count} elements...";
+
+            var queue = namingIssues.Select(i =>
+            {
+                string newName = JkrRenameHandler.GenerateJkrName(disc, i.Category ?? "", i.ActualValue ?? i.TypeName ?? "");
+                return (i.ElementId, newName);
+            }).ToList();
+
+            App.JkrRenameHandler.RenameQueue = queue;
+            App.JkrRenameHandler.OnCompleted = result =>
+            {
+                Dispatcher.InvokeAsync(() =>
+                {
+                    if (!string.IsNullOrEmpty(result.Error))
+                        btn.Content = $"❌ {result.Error}";
+                    else
+                        btn.Content = $"✅ Renamed {result.Renamed}, skipped {result.Skipped}, failed {result.Failed}";
+
+                    btn.IsEnabled = true;
+                });
+            };
+            App.JkrRenameEvent.Raise();
         }
 
         private string GetFixSuggestion(ComplianceIssue issue)
@@ -764,6 +903,12 @@ namespace RevitWebAppSync.UI
                 System.Diagnostics.Debug.WriteLine($"[BINA] Select element error: {ex.Message}");
             }
         }
+    }
+
+    public class AutoFixInfo
+    {
+        public int ElementId { get; set; }
+        public string NewName { get; set; }
     }
 
     // ComplianceIssue class is defined in ComplianceDashboardPanel.xaml.cs (shared)

@@ -18,6 +18,10 @@ namespace RevitWebAppSync
         public static ExternalEvent AIExternalEvent { get; private set; }
         public static CodeExecutionHandler AIHandler { get; private set; }
 
+        // JKR rename handler
+        public static ExternalEvent JkrRenameEvent { get; private set; }
+        public static JkrRenameHandler JkrRenameHandler { get; private set; }
+
         // Cost Dashboard dockable pane host
         public static CostDashboardHost CostDashboardHost { get; private set; }
 
@@ -37,6 +41,9 @@ namespace RevitWebAppSync
                 // Create external event handler for AI code execution
                 AIHandler = new CodeExecutionHandler();
                 AIExternalEvent = ExternalEvent.Create(AIHandler);
+
+                JkrRenameHandler = new JkrRenameHandler();
+                JkrRenameEvent = ExternalEvent.Create(JkrRenameHandler);
 
                 // Register Cost Dashboard dockable pane
                 try
