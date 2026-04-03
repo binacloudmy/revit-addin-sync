@@ -264,7 +264,7 @@ namespace RevitWebAppSync.UI
             Grid.SetRow(_totalCard, 2);
             root.Children.Add(_totalCard);
 
-            // ── Row 3: Sqft Estimate card ──
+            // ── Row 3: Sqft Estimate card (collapsible) ──
             _sqftEstimateCard = new Border
             {
                 Background = Brushes.White,
@@ -272,20 +272,22 @@ namespace RevitWebAppSync.UI
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(4),
                 Margin = new Thickness(12, 8, 12, 0),
-                Padding = new Thickness(12, 10, 12, 10)
+                Padding = new Thickness(12, 6, 12, 6)
             };
             var sqftStack = new StackPanel();
+            var sqftBody = new StackPanel { Visibility = Visibility.Collapsed }; // starts collapsed
 
-            // Header row
-            var sqftHeader = new Grid();
+            // Header row (always visible, acts as toggle)
+            var sqftHeader = new Grid { Cursor = System.Windows.Input.Cursors.Hand };
             sqftHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             sqftHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            sqftHeader.Children.Add(new TextBlock
+            var sqftToggleText = new TextBlock
             {
-                Text = "Quick Estimate (by Sqft)",
+                Text = "▶ Quick Estimate (by Sqft)",
                 FontSize = 11, FontWeight = FontWeights.Medium,
                 Foreground = new SolidColorBrush(TextSecondary)
-            });
+            };
+            sqftHeader.Children.Add(sqftToggleText);
             var sqftInfoTip = new TextBlock
             {
                 Text = "Rough estimate",
@@ -294,9 +296,16 @@ namespace RevitWebAppSync.UI
             };
             Grid.SetColumn(sqftInfoTip, 1);
             sqftHeader.Children.Add(sqftInfoTip);
+            sqftHeader.MouseLeftButtonDown += (s, ev) =>
+            {
+                sqftBody.Visibility = sqftBody.Visibility == Visibility.Visible
+                    ? Visibility.Collapsed : Visibility.Visible;
+                sqftToggleText.Text = sqftBody.Visibility == Visibility.Visible
+                    ? "▼ Quick Estimate (by Sqft)" : "▶ Quick Estimate (by Sqft)";
+            };
             sqftStack.Children.Add(sqftHeader);
 
-            // Building type selector row
+            // Building type selector row (inside collapsible body)
             var sqftInputRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
 
             sqftInputRow.Children.Add(new TextBlock
@@ -338,7 +347,7 @@ namespace RevitWebAppSync.UI
                 Visibility = Visibility.Collapsed
             });
 
-            sqftStack.Children.Add(sqftInputRow);
+            sqftBody.Children.Add(sqftInputRow);
 
             // Result display
             _sqftTotalText = new TextBlock
@@ -348,7 +357,7 @@ namespace RevitWebAppSync.UI
                 Foreground = new SolidColorBrush(PrimaryBlue),
                 Margin = new Thickness(0, 6, 0, 2)
             };
-            sqftStack.Children.Add(_sqftTotalText);
+            sqftBody.Children.Add(_sqftTotalText);
 
             _sqftAreaText = new TextBlock
             {
@@ -356,7 +365,9 @@ namespace RevitWebAppSync.UI
                 FontSize = 10, Foreground = new SolidColorBrush(TextMuted),
                 Margin = new Thickness(0, 0, 0, 0)
             };
-            sqftStack.Children.Add(_sqftAreaText);
+            sqftBody.Children.Add(_sqftAreaText);
+
+            sqftStack.Children.Add(sqftBody);
 
             _sqftEstimateCard.Child = sqftStack;
             Grid.SetRow(_sqftEstimateCard, 3);
