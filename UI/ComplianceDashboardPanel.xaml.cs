@@ -1162,5 +1162,8 @@ namespace RevitWebAppSync.UI
         public string TableSource { get; set; } // Actual UKBS table data
         public string RequiredValue { get; set; }
         public string ActualValue { get; set; }
+        public string Category { get; set; }
+        public string TypeName { get; set; }
+        public string LevelName { get; set; }
     }
 }

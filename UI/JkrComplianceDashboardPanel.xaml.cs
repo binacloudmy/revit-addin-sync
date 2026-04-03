@@ -358,6 +358,9 @@ namespace RevitWebAppSync.UI
                 TableSource = dto.TableSource ?? "",
                 RequiredValue = dto.RequiredValue,
                 ActualValue = dto.ActualValue,
+                Category = dto.Category ?? "",
+                TypeName = dto.TypeName ?? "",
+                LevelName = dto.LevelName ?? "",
             };
         }
 
@@ -586,6 +589,35 @@ namespace RevitWebAppSync.UI
                 stack.Children.Add(valRow);
             }
 
+            // Fix suggestion (generated inline based on issue type)
+            string fixText = GetFixSuggestion(issue);
+            if (!string.IsNullOrEmpty(fixText))
+            {
+                var fixBorder = new Border
+                {
+                    Background = new SolidColorBrush(Color.FromRgb(232, 245, 233)),
+                    CornerRadius = new CornerRadius(3),
+                    Padding = new Thickness(8, 6, 8, 6),
+                    Margin = new Thickness(0, 6, 0, 0)
+                };
+                var fixStack = new StackPanel();
+                fixStack.Children.Add(new TextBlock
+                {
+                    Text = "💡 How to fix:",
+                    FontSize = 9, FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(Color.FromRgb(27, 94, 32)),
+                    Margin = new Thickness(0, 0, 0, 2)
+                });
+                fixStack.Children.Add(new TextBlock
+                {
+                    Text = fixText,
+                    FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(46, 125, 50)),
+                    TextWrapping = TextWrapping.Wrap
+                });
+                fixBorder.Child = fixStack;
+                stack.Children.Add(fixBorder);
+            }
+
             // Table source
             if (!string.IsNullOrEmpty(issue.TableSource))
             {
@@ -618,6 +650,101 @@ namespace RevitWebAppSync.UI
             }
 
             return card;
+        }
+
+        private string GetFixSuggestion(ComplianceIssue issue)
+        {
+            if (issue.Status != "fail" && issue.Status != "warning") return null;
+
+            string rule = (issue.Query ?? "").ToLower();
+            string category = issue.Category ?? "";
+            string typeName = issue.TypeName ?? "";
+
+            // Naming convention issues
+            if (rule.Contains("naming convention not followed") || rule.Contains("naming convention"))
+            {
+                string disc = "AR"; // default
+                string catPart = category.Replace(" ", "").ToLower();
+                string suggested = $"jkr{disc}_{catPart}_{typeName.Replace(" ", "_").ToLower()}";
+                return $"Rename this element type in Revit:\n" +
+                       $"  1. Select the element → Edit Type → Rename\n" +
+                       $"  2. Use format: jkr{{Discipline}}_{{category}}_{{subcategory}}_{{spec}}\n" +
+                       $"  3. Example: {suggested}\n" +
+                       $"  Discipline codes: AR=Architecture, ST=Structure, ME=Mechanical, EL=Electrical";
+            }
+
+            // File naming
+            if (rule.Contains("file") && rule.Contains("prefix"))
+            {
+                return "Rename the Revit file to start with 'jkr' followed by the discipline code.\n" +
+                       "  Format: jkr{Discipline}{Code}_{Phase}_({ProjectID})_{Zone}_{Level}_{Status}_{Date}\n" +
+                       "  Example: jkrAR24_5a_(BEde1A_p14-001)_A1_w-01_(S)_DS_220222a";
+            }
+
+            // Invalid discipline code
+            if (rule.Contains("invalid discipline code"))
+            {
+                return "Change the discipline code in the element/file name to a valid JKR code:\n" +
+                       "  AR=Architecture, ST=Structure, ME=Mechanical, EL=Electrical,\n" +
+                       "  CD=Civil, LD=Landscape, ID=Interior Design, SP=Specialist";
+            }
+
+            // Missing parameter
+            if (rule.Contains("missing") && rule.Contains("parameter"))
+            {
+                string param = issue.RequiredValue ?? "unknown";
+                return $"Add the shared parameter '{param}' to this family:\n" +
+                       $"  1. Open the family in Family Editor (Edit Family)\n" +
+                       $"  2. Manage tab → Shared Parameters → Add '{param}'\n" +
+                       $"  3. Load the family back into the project\n" +
+                       $"  4. Fill in the parameter value for all instances\n" +
+                       $"  Tip: Use JKR shared parameter file if available from JKR BIM Unit.";
+            }
+
+            // Empty parameter
+            if (rule.Contains("empty") && rule.Contains("parameter"))
+            {
+                string param = issue.RequiredValue ?? "unknown";
+                return $"Fill in the value for parameter '{param}':\n" +
+                       $"  1. Select the element → Properties panel\n" +
+                       $"  2. Find '{param}' and enter the correct value\n" +
+                       $"  3. Use Schedule/Quantities view to bulk-fill across multiple elements";
+            }
+
+            // No JKR code
+            if (rule.Contains("no jkr code"))
+            {
+                return $"Assign a JKR code to this {category} element:\n" +
+                       $"  1. Add shared parameter 'Kod_Komponen_jkr_stt' or 'Kod_DAK_Komponen_jkr_stt'\n" +
+                       $"  2. Enter the correct JKR classification code (e.g., DFd311a for brick wall)\n" +
+                       $"  3. Refer to JKR Document 03, Section 5 for code tables\n" +
+                       $"  Tip: Consistent JKR codes enable automated cost tracking and BQ generation.";
+            }
+
+            // Element naming adoption (project-level)
+            if (rule.Contains("element naming adoption"))
+            {
+                return "Too few elements use JKR naming. Bulk-rename types:\n" +
+                       "  1. Use a Revit Dynamo script to batch-rename element types\n" +
+                       "  2. Or manually rename via Project Browser → Families → right-click Rename\n" +
+                       "  3. Target ≥80% adoption for compliance";
+            }
+
+            // No param rules defined
+            if (rule.Contains("no parameter rules defined"))
+            {
+                return $"Category '{category}' has no specific JKR parameter rules in Document 09.\n" +
+                       $"  This is informational — manually verify if this category needs JKR parameters.\n" +
+                       $"  Contact the JKR BIM Unit if your project requires custom parameter specs.";
+            }
+
+            // Element has no name
+            if (rule.Contains("element has no name"))
+            {
+                return "This element has no type name. Rename it in the Family Editor or via Properties.";
+            }
+
+            return null;
         }
 
         private void SelectElementInRevit(int elementId)
