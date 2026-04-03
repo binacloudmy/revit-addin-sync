@@ -83,7 +83,7 @@ namespace RevitWebAppSync.Services
         public string LevelName { get; set; } = "";
 
         [JsonProperty("jkr_code")]
-        public string JkrCode { get; set; }
+        public string JkrCode { get; set; } = "";
 
         [JsonProperty("parameters")]
         public Dictionary<string, string> Parameters { get; set; } = new Dictionary<string, string>();
