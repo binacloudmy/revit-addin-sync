@@ -213,10 +213,6 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
 
-            ribbonPanel.AddItem(buttonData);
-            ribbonPanel.AddItem(loginButtonData);
-            ribbonPanel.AddItem(bimDisciplineButtonData);
-            ribbonPanel.AddItem(askAiButtonData);
             PushButtonData complianceButtonData = new PushButtonData(
                 "FireCompliance",
                 "Fire\nCompliance",
@@ -229,12 +225,6 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
 
-            ribbonPanel.AddSeparator();
-            ribbonPanel.AddItem(costExportButtonData);
-            ribbonPanel.AddItem(costImportButtonData);
-            ribbonPanel.AddItem(costDashboardButtonData);
-            ribbonPanel.AddItem(complianceButtonData);
-
             PushButtonData jkrComplianceButtonData = new PushButtonData(
                 "JkrCompliance",
                 "JKR\nCompliance",
@@ -246,7 +236,20 @@ namespace RevitWebAppSync
                 Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
-            ribbonPanel.AddItem(jkrComplianceButtonData);
+
+            // Large buttons
+            ribbonPanel.AddItem(buttonData);
+            ribbonPanel.AddItem(loginButtonData);
+            ribbonPanel.AddItem(bimDisciplineButtonData);
+            ribbonPanel.AddItem(askAiButtonData);
+
+            ribbonPanel.AddSeparator();
+
+            // Stack: Export Cost Items / Import Prices
+            ribbonPanel.AddStackedItems(costExportButtonData, costImportButtonData);
+
+            // Stack: Cost Tracker / Fire Compliance / JKR Compliance
+            ribbonPanel.AddStackedItems(costDashboardButtonData, complianceButtonData, jkrComplianceButtonData);
             // ribbonPanel.AddItem(federateButtonData); // Hidden as requested
         }
 
