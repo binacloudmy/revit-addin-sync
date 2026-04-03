@@ -237,6 +237,94 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Call the streaming 4-layer matching pipeline with real-time progress via SSE.
+        /// Calls onProgress for each progress event, returns final PipelineResult.
+        /// </summary>
+        public async Task<PipelineResult> MatchPipelineStreamAsync(
+            List<CostItem> items,
+            string projectName,
+            Action<PipelineProgressEvent> onProgress,
+            double similarityThreshold = 0.50)
+        {
+            try
+            {
+                var payload = new
+                {
+                    items = items.Select(i => new
+                    {
+                        element_id = i.ElementId,
+                        name = i.Name,
+                        family_name = i.FamilyName,
+                        type_name = i.TypeName,
+                        category = i.Category,
+                        jkr_code = i.JkrCode,
+                        qty = i.Quantity,
+                        unit = i.Unit
+                    }).ToList(),
+                    project_name = projectName,
+                    auto_queue_review = true,
+                    similarity_threshold = similarityThreshold
+                };
+
+                var json = JsonConvert.SerializeObject(payload);
+                var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/cost/match-pipeline/stream")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+
+                var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                if (!response.IsSuccessStatusCode)
+                {
+                    var errorBody = await response.Content.ReadAsStringAsync();
+                    return new PipelineResult { Success = false, Error = $"API {(int)response.StatusCode}: {errorBody}" };
+                }
+
+                PipelineResult finalResult = null;
+
+                using (var stream = await response.Content.ReadAsStreamAsync())
+                using (var reader = new System.IO.StreamReader(stream))
+                {
+                    while (!reader.EndOfStream)
+                    {
+                        var line = await reader.ReadLineAsync();
+                        if (string.IsNullOrEmpty(line) || !line.StartsWith("data: "))
+                            continue;
+
+                        var jsonData = line.Substring(6); // Remove "data: " prefix
+                        try
+                        {
+                            var evt = JsonConvert.DeserializeObject<PipelineProgressEvent>(jsonData);
+                            if (evt == null) continue;
+
+                            if (evt.Event == "complete")
+                            {
+                                // The "data" field contains the full PipelineResult
+                                var dataToken = Newtonsoft.Json.Linq.JObject.Parse(jsonData)["data"];
+                                if (dataToken != null)
+                                    finalResult = dataToken.ToObject<PipelineResult>();
+                            }
+                            else if (evt.Event == "error")
+                            {
+                                return new PipelineResult { Success = false, Error = evt.Message };
+                            }
+                            else
+                            {
+                                onProgress?.Invoke(evt);
+                            }
+                        }
+                        catch { /* skip malformed SSE lines */ }
+                    }
+                }
+
+                return finalResult ?? new PipelineResult { Success = false, Error = "No complete event received" };
+            }
+            catch (Exception ex)
+            {
+                return new PipelineResult { Success = false, Error = ex.Message };
+            }
+        }
+
+        /// <summary>
         /// Get pending review items that need human confirmation.
         /// </summary>
         public async Task<List<ReviewItem>> GetPendingReviewsAsync(int limit = 50)
@@ -434,6 +522,9 @@ namespace RevitWebAppSync.Services
         [JsonProperty("layer3_vector")]
         public int Layer3Vector { get; set; }
 
+        [JsonProperty("layer3_provisional")]
+        public int Layer3Provisional { get; set; }
+
         [JsonProperty("layer4_review")]
         public int Layer4Review { get; set; }
 
@@ -445,6 +536,30 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("match_rate")]
         public string MatchRate { get; set; }
+    }
+
+    public class PipelineProgressEvent
+    {
+        [JsonProperty("event")]
+        public string Event { get; set; }  // "progress", "complete", "error"
+
+        [JsonProperty("layer")]
+        public string Layer { get; set; }
+
+        [JsonProperty("processed")]
+        public int Processed { get; set; }
+
+        [JsonProperty("total")]
+        public int Total { get; set; }
+
+        [JsonProperty("batch")]
+        public int Batch { get; set; }
+
+        [JsonProperty("total_batches")]
+        public int TotalBatches { get; set; }
+
+        [JsonProperty("message")]
+        public string Message { get; set; }
     }
 
     public class PipelineMatch
@@ -481,6 +596,9 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("reasoning")]
         public string Reasoning { get; set; }
+
+        [JsonProperty("provisional")]
+        public bool Provisional { get; set; }
     }
 
     public class ReviewItemBrief

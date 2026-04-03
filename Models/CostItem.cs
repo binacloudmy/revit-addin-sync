@@ -58,4 +58,16 @@ namespace RevitWebAppSync.Models
         public double Percentage { get; set; }
         public List<CostItem> Items { get; set; } = new List<CostItem>();
     }
+
+    /// <summary>
+    /// Quick cost estimate based on total floor area and rate per sqft
+    /// </summary>
+    public class SqftEstimate
+    {
+        public double TotalFloorAreaM2 { get; set; }
+        public double TotalFloorAreaSqft => TotalFloorAreaM2 * 10.764;
+        public double RatePerSqft { get; set; }
+        public string BuildingType { get; set; }
+        public double EstimatedTotal => TotalFloorAreaSqft * RatePerSqft;
+    }
 }

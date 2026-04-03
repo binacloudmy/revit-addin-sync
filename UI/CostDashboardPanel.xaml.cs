@@ -51,6 +51,19 @@ namespace RevitWebAppSync.UI
         private Border _totalCard;
         private ProgressBar _coverageBar;
 
+        // Sqft estimate UI
+        private Border _sqftEstimateCard;
+        private TextBlock _sqftTotalText;
+        private TextBlock _sqftAreaText;
+        private ComboBox _buildingTypeCombo;
+        private TextBox _customRateBox;
+
+        // Loading overlay UI
+        private Border _loadingOverlay;
+        private StackPanel _loadingStepsPanel;
+        private ProgressBar _loadingProgressBar;
+        private TextBlock _loadingStatusText;
+
         // Revit-style colors (light mode)
         private static readonly Color PrimaryBlue = Color.FromRgb(0, 120, 215);       // #0078D7
         private static readonly Color HeaderBg = Color.FromRgb(0, 99, 177);            // #0063B1
@@ -88,12 +101,13 @@ namespace RevitWebAppSync.UI
         private void BuildUI()
         {
             var root = new Grid { Background = new SolidColorBrush(PageBg) };
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // Header
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // Banner
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // Total
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // Filter
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // Content
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // Actions
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 0: Header
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 1: Banner
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 2: Total
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 3: Sqft Estimate
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 4: Filter
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 5: Content
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 6: Actions
 
             // ── Row 0: Header ──
             var header = new Border
@@ -250,7 +264,105 @@ namespace RevitWebAppSync.UI
             Grid.SetRow(_totalCard, 2);
             root.Children.Add(_totalCard);
 
-            // ── Row 3: Filter bar ──
+            // ── Row 3: Sqft Estimate card ──
+            _sqftEstimateCard = new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = new SolidColorBrush(BorderColor),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Margin = new Thickness(12, 8, 12, 0),
+                Padding = new Thickness(12, 10, 12, 10)
+            };
+            var sqftStack = new StackPanel();
+
+            // Header row
+            var sqftHeader = new Grid();
+            sqftHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            sqftHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            sqftHeader.Children.Add(new TextBlock
+            {
+                Text = "Quick Estimate (by Sqft)",
+                FontSize = 11, FontWeight = FontWeights.Medium,
+                Foreground = new SolidColorBrush(TextSecondary)
+            });
+            var sqftInfoTip = new TextBlock
+            {
+                Text = "Rough estimate",
+                FontSize = 9, Foreground = new SolidColorBrush(TextMuted),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(sqftInfoTip, 1);
+            sqftHeader.Children.Add(sqftInfoTip);
+            sqftStack.Children.Add(sqftHeader);
+
+            // Building type selector row
+            var sqftInputRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+
+            sqftInputRow.Children.Add(new TextBlock
+            {
+                Text = "Type:", FontSize = 10,
+                Foreground = new SolidColorBrush(TextSecondary),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 6, 0)
+            });
+
+            _buildingTypeCombo = new ComboBox
+            {
+                MinWidth = 160, FontSize = 10,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            foreach (var type in CostCalculator.BuildingTypeRates.Keys)
+                _buildingTypeCombo.Items.Add(new ComboBoxItem { Content = type });
+            // Default to "Residential (Medium)"
+            _buildingTypeCombo.SelectedIndex = 1;
+            _buildingTypeCombo.SelectionChanged += (s, ev) => UpdateSqftEstimate();
+            sqftInputRow.Children.Add(_buildingTypeCombo);
+
+            _customRateBox = new TextBox
+            {
+                Width = 70, Height = 22, FontSize = 10,
+                Visibility = Visibility.Collapsed,
+                Margin = new Thickness(0, 0, 4, 0),
+                Padding = new Thickness(4, 2, 4, 2)
+            };
+            _customRateBox.TextChanged += (s, ev) => UpdateSqftEstimate();
+            sqftInputRow.Children.Add(_customRateBox);
+            sqftInputRow.Children.Add(new TextBlock
+            {
+                Text = "RM/sqft", FontSize = 9,
+                Foreground = new SolidColorBrush(TextMuted),
+                VerticalAlignment = VerticalAlignment.Center,
+                Tag = "customLabel",
+                Visibility = Visibility.Collapsed
+            });
+
+            sqftStack.Children.Add(sqftInputRow);
+
+            // Result display
+            _sqftTotalText = new TextBlock
+            {
+                Text = "RM 0",
+                FontSize = 22, FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(PrimaryBlue),
+                Margin = new Thickness(0, 6, 0, 2)
+            };
+            sqftStack.Children.Add(_sqftTotalText);
+
+            _sqftAreaText = new TextBlock
+            {
+                Text = "Floor area: — sqft (— m²)",
+                FontSize = 10, Foreground = new SolidColorBrush(TextMuted),
+                Margin = new Thickness(0, 0, 0, 0)
+            };
+            sqftStack.Children.Add(_sqftAreaText);
+
+            _sqftEstimateCard.Child = sqftStack;
+            Grid.SetRow(_sqftEstimateCard, 3);
+            root.Children.Add(_sqftEstimateCard);
+
+            // ── Row 4: Filter bar ──
             var filterCard = new Border
             {
                 Background = Brushes.White,
@@ -291,10 +403,10 @@ namespace RevitWebAppSync.UI
             filterRow.Children.Add(_levelFilter);
 
             filterCard.Child = filterRow;
-            Grid.SetRow(filterCard, 3);
+            Grid.SetRow(filterCard, 4);
             root.Children.Add(filterCard);
 
-            // ── Row 4: Scrollable content ──
+            // ── Row 5: Scrollable content ──
             var scroll = new ScrollViewer { Margin = new Thickness(12, 8, 12, 4), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             _contentPanel = new StackPanel();
             _contentPanel.Children.Add(new TextBlock
@@ -304,10 +416,10 @@ namespace RevitWebAppSync.UI
                 HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 40, 0, 0)
             });
             scroll.Content = _contentPanel;
-            Grid.SetRow(scroll, 4);
+            Grid.SetRow(scroll, 5);
             root.Children.Add(scroll);
 
-            // ── Row 5: Action bar ──
+            // ── Row 6: Action bar ──
             var actionBar = new Border
             {
                 Background = Brushes.White,
@@ -333,10 +445,165 @@ namespace RevitWebAppSync.UI
             actionStack.Children.Add(primaryRow);
             actionStack.Children.Add(secondaryRow);
             actionBar.Child = actionStack;
-            Grid.SetRow(actionBar, 5);
+            Grid.SetRow(actionBar, 6);
             root.Children.Add(actionBar);
 
+            // ── Loading overlay (spans all rows, on top) ──
+            BuildLoadingOverlay(root);
+
             this.Content = root;
+        }
+
+        private void BuildLoadingOverlay(Grid root)
+        {
+            _loadingOverlay = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(230, 241, 241, 241)),
+                Visibility = Visibility.Collapsed
+            };
+            Grid.SetRow(_loadingOverlay, 0);
+            Grid.SetRowSpan(_loadingOverlay, 7);
+
+            var centerPanel = new StackPanel
+            {
+                VerticalAlignment = VerticalAlignment.Center,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Width = 320
+            };
+
+            // Title
+            centerPanel.Children.Add(new TextBlock
+            {
+                Text = "Matching Pipeline",
+                FontSize = 16, FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(TextPrimary),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 16)
+            });
+
+            // Progress bar
+            _loadingProgressBar = new ProgressBar
+            {
+                Height = 6,
+                IsIndeterminate = true,
+                Foreground = new SolidColorBrush(PrimaryBlue),
+                Background = new SolidColorBrush(Color.FromRgb(220, 220, 220)),
+                BorderThickness = new Thickness(0),
+                Margin = new Thickness(0, 0, 0, 16)
+            };
+            centerPanel.Children.Add(_loadingProgressBar);
+
+            // Steps panel
+            _loadingStepsPanel = new StackPanel();
+            string[] stepLabels = { "Local DB matching", "Layer 1: Exact JKR code", "Layer 2: Learned mappings", "Layer 3: AI vector search", "Layer 4: Review queue" };
+            foreach (var label in stepLabels)
+            {
+                var stepRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+
+                // Circle indicator
+                var circle = new Border
+                {
+                    Width = 18, Height = 18,
+                    CornerRadius = new CornerRadius(9),
+                    Background = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
+                    Margin = new Thickness(0, 0, 10, 0),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                circle.Child = new TextBlock
+                {
+                    Text = "·",
+                    Foreground = Brushes.White, FontSize = 10, FontWeight = FontWeights.Bold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                stepRow.Children.Add(circle);
+
+                // Label + status
+                var stepText = new TextBlock
+                {
+                    Text = label,
+                    FontSize = 11, Foreground = new SolidColorBrush(TextMuted),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                stepRow.Children.Add(stepText);
+
+                _loadingStepsPanel.Children.Add(stepRow);
+            }
+            centerPanel.Children.Add(_loadingStepsPanel);
+
+            // Status text
+            _loadingStatusText = new TextBlock
+            {
+                Text = "",
+                FontSize = 10, Foreground = new SolidColorBrush(TextSecondary),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 12, 0, 0)
+            };
+            centerPanel.Children.Add(_loadingStatusText);
+
+            _loadingOverlay.Child = centerPanel;
+            root.Children.Add(_loadingOverlay);
+        }
+
+        private void ShowLoadingOverlay()
+        {
+            _loadingOverlay.Visibility = Visibility.Visible;
+            _loadingProgressBar.IsIndeterminate = true;
+            _loadingStatusText.Text = "";
+
+            // Reset all steps to gray/pending
+            foreach (StackPanel stepRow in _loadingStepsPanel.Children)
+            {
+                var circle = stepRow.Children[0] as Border;
+                var text = stepRow.Children[1] as TextBlock;
+                circle.Background = new SolidColorBrush(Color.FromRgb(200, 200, 200));
+                ((TextBlock)circle.Child).Text = "·";
+                text.Foreground = new SolidColorBrush(TextMuted);
+                // Remove extra status text if any
+                while (stepRow.Children.Count > 2)
+                    stepRow.Children.RemoveAt(2);
+            }
+        }
+
+        private void HideLoadingOverlay()
+        {
+            _loadingOverlay.Visibility = Visibility.Collapsed;
+        }
+
+        private void UpdateLoadingStep(int stepIndex, string status, bool complete)
+        {
+            if (stepIndex < 0 || stepIndex >= _loadingStepsPanel.Children.Count) return;
+            var stepRow = _loadingStepsPanel.Children[stepIndex] as StackPanel;
+            var circle = stepRow.Children[0] as Border;
+            var text = stepRow.Children[1] as TextBlock;
+
+            if (complete)
+            {
+                circle.Background = new SolidColorBrush(SuccessGreen);
+                ((TextBlock)circle.Child).Text = "✓";
+                text.Foreground = new SolidColorBrush(SuccessGreen);
+            }
+            else
+            {
+                circle.Background = new SolidColorBrush(PrimaryBlue);
+                ((TextBlock)circle.Child).Text = "→";
+                text.Foreground = new SolidColorBrush(TextPrimary);
+                text.FontWeight = FontWeights.SemiBold;
+            }
+
+            // Add status detail
+            while (stepRow.Children.Count > 2)
+                stepRow.Children.RemoveAt(2);
+            if (!string.IsNullOrEmpty(status))
+            {
+                stepRow.Children.Add(new TextBlock
+                {
+                    Text = $"  {status}",
+                    FontSize = 10,
+                    Foreground = new SolidColorBrush(complete ? SuccessGreen : PrimaryBlue),
+                    VerticalAlignment = VerticalAlignment.Center
+                });
+            }
         }
 
         // ── UI Helpers ──
@@ -431,7 +698,8 @@ namespace RevitWebAppSync.UI
                 string projectName = Path.GetFileNameWithoutExtension(doc.PathName ?? "Untitled");
                 _priceDb = new PriceDatabase(projectName);
                 _allItems = RevitModelWalker.GetAllItems(doc);
-                _priceDb.ApplyPrices(_allItems);
+                // Don't apply saved prices — start fresh so Match Prices re-matches everything
+                // Prices will be set by Match Prices pipeline
                 _summary = CostCalculator.Calculate(_allItems);
                 UpdateHeader(projectName);
                 UpdateTotalCard();
@@ -456,6 +724,46 @@ namespace RevitWebAppSync.UI
             UpdateStatBlock(_pricedPercentText, $"{pricedPct}%");
             _coverageBar.Value = pricedPct;
             _coverageBar.Foreground = new SolidColorBrush(pricedPct >= 80 ? SuccessGreen : pricedPct >= 50 ? WarningAmber : Color.FromRgb(200, 50, 50));
+
+            UpdateSqftEstimate();
+        }
+
+        private void UpdateSqftEstimate()
+        {
+            if (_allItems.Count == 0 || _buildingTypeCombo == null) return;
+
+            string type = (_buildingTypeCombo.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Residential (Medium)";
+
+            // Show/hide custom rate input
+            bool isCustom = type == "Custom";
+            _customRateBox.Visibility = isCustom ? Visibility.Visible : Visibility.Collapsed;
+            // Also toggle the "RM/sqft" label next to it
+            var sqftInputRow = _customRateBox.Parent as StackPanel;
+            if (sqftInputRow != null)
+            {
+                foreach (var child in sqftInputRow.Children)
+                {
+                    if (child is TextBlock tb && tb.Tag as string == "customLabel")
+                        tb.Visibility = isCustom ? Visibility.Visible : Visibility.Collapsed;
+                }
+            }
+
+            double customRate = 0;
+            if (isCustom) double.TryParse(_customRateBox.Text, out customRate);
+
+            var estimate = CostCalculator.CalculateSqftEstimate(_allItems, type, customRate);
+
+            if (estimate.TotalFloorAreaM2 > 0)
+            {
+                _sqftTotalText.Text = $"RM {estimate.EstimatedTotal:N0}";
+                _sqftAreaText.Text = $"Floor area: {estimate.TotalFloorAreaSqft:N0} sqft ({estimate.TotalFloorAreaM2:N0} m²)  •  RM {estimate.RatePerSqft:N0}/sqft";
+            }
+            else
+            {
+                _sqftTotalText.Text = "No floor data";
+                _sqftTotalText.FontSize = 14;
+                _sqftAreaText.Text = "No Floor elements found in the model";
+            }
         }
 
         private void UpdateLevelFilter(Document doc)
@@ -732,9 +1040,10 @@ namespace RevitWebAppSync.UI
                     if (_allItems.Count == 0) { MessageBox.Show("No elements found in the model.", "BINA Cost"); return; }
                 }
 
-                // Disable button and show loading state
+                // Disable button and show loading overlay
                 if (btn != null) { btn.IsEnabled = false; btn.Content = "⏳ Matching..."; }
-                ShowBanner("🔍 Running 4-layer matching pipeline...", "Exact → Learned → AI → Review", Color.FromRgb(0, 120, 215));
+                ShowLoadingOverlay();
+                UpdateLoadingStep(0, $"Scanning {_allItems.Count} items...", false);
                 await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
 
                 int localMatched = 0;
@@ -744,11 +1053,11 @@ namespace RevitWebAppSync.UI
                 if (masterDb.Count > 0)
                 {
                     localMatched = masterDb.AutoMatchPrices(_allItems, _priceDb);
-                    if (localMatched > 0)
-                        ShowBanner($"✅ Local DB: {localMatched} matched", "Now running AI pipeline...", SuccessGreen);
                 }
+                UpdateLoadingStep(0, $"{localMatched} matched", true);
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
 
-                // Step 2: AI 4-layer pipeline for ALL items (server handles dedup + layers)
+                // Step 2: AI 4-layer pipeline for unpriced items only
                 var aiEstimator = new AICostEstimator();
                 bool aiAvailable = await aiEstimator.IsAvailableAsync();
 
@@ -758,48 +1067,123 @@ namespace RevitWebAppSync.UI
 
                 if (aiAvailable)
                 {
-                    ShowBanner($"🤖 AI pipeline: {_allItems.Count} items...", "Layer 1: Exact code → Layer 2: Learned → Layer 3: Vector search", Color.FromRgb(0, 120, 215));
-                    await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
-
-                    string projectName = _subtitleText?.Text?.Split('|')?.FirstOrDefault()?.Trim() ?? "Untitled";
-                    var result = await aiEstimator.MatchPipelineAsync(_allItems, projectName);
-
-                    if (result.Success)
+                    // Only send unpriced items — already-matched items don't need re-matching
+                    var unmatchedItems = _allItems.Where(i => i.UnitPrice <= 0).ToList();
+                    if (unmatchedItems.Count == 0)
                     {
-                        var stats = result.Stats;
-                        pipelineMatched = stats.TotalMatched;
-                        reviewQueued = stats.Layer4Review;
-                        matchRate = stats.MatchRate;
-
-                        // Apply matched prices
-                        foreach (var match in result.Matches)
-                        {
-                            // Only apply confirmed/high/medium confidence
-                            if (match.Confidence == "confirmed" || match.Confidence == "high" || match.Confidence == "medium")
-                            {
-                                var item = _allItems.FirstOrDefault(x => x.ElementId == match.ElementId);
-                                if (item != null && item.UnitPrice <= 0 && match.UnitPrice > 0)
-                                {
-                                    item.UnitPrice = match.UnitPrice;
-                                    item.JkrCode = match.JkrCode;
-                                    item.PriceSource = match.MatchLayer == "exact" ? "master" : 
-                                                       match.MatchLayer == "learned" ? "learned" : "ai";
-                                    _priceDb?.SavePrice(item.JkrCode, item.UnitPrice, item.Unit);
-                                }
-                            }
-                        }
+                        _loadingStatusText.Text = "All items already have prices!";
+                        UpdateLoadingStep(1, "skipped", true);
+                        UpdateLoadingStep(2, "skipped", true);
+                        UpdateLoadingStep(3, "skipped", true);
+                        UpdateLoadingStep(4, "skipped", true);
                     }
                     else
                     {
-                        ShowBanner("⚠️ Pipeline error", result.Error ?? "Unknown error", WarningAmber);
-                        await Task.Delay(2000);
+                        int skippedCount = _allItems.Count - unmatchedItems.Count;
+                        _loadingStatusText.Text = skippedCount > 0
+                            ? $"Sending {unmatchedItems.Count} items (skipping {skippedCount} already priced)..."
+                            : $"Sending {unmatchedItems.Count} items...";
+                        UpdateLoadingStep(1, "processing...", false);
+                        await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+
+                        string projectName = _subtitleText?.Text?.Split('|')?.FirstOrDefault()?.Trim() ?? "Untitled";
+
+                        // Use SSE streaming for real-time progress
+                        var result = await aiEstimator.MatchPipelineStreamAsync(
+                            unmatchedItems, projectName,
+                            onProgress: (evt) =>
+                            {
+                                // Update loading steps in real-time from SSE events
+                                Dispatcher.Invoke(() =>
+                                {
+                                    switch (evt.Layer)
+                                    {
+                                        case "starting":
+                                            _loadingStatusText.Text = evt.Message;
+                                            break;
+                                        case "layer1_exact":
+                                            UpdateLoadingStep(1, evt.Message, true);
+                                            _loadingStatusText.Text = evt.Message;
+                                            break;
+                                        case "layer2_learned":
+                                            UpdateLoadingStep(2, evt.Message, true);
+                                            _loadingStatusText.Text = evt.Message;
+                                            break;
+                                        case "layer3_vector":
+                                            if (evt.TotalBatches > 0)
+                                            {
+                                                UpdateLoadingStep(3, $"batch {evt.Batch}/{evt.TotalBatches}", false);
+                                                _loadingStatusText.Text = evt.Message;
+                                            }
+                                            else
+                                            {
+                                                UpdateLoadingStep(3, evt.Message, true);
+                                                _loadingStatusText.Text = evt.Message;
+                                            }
+                                            break;
+                                        case "layer4_review":
+                                            UpdateLoadingStep(4, evt.Message, true);
+                                            _loadingStatusText.Text = evt.Message;
+                                            break;
+                                        default:
+                                            _loadingStatusText.Text = evt.Message;
+                                            break;
+                                    }
+                                });
+                            });
+
+                        if (result.Success)
+                        {
+                            var stats = result.Stats;
+                            pipelineMatched = stats.TotalMatched;
+                            reviewQueued = stats.Layer4Review;
+                            matchRate = stats.MatchRate;
+
+                            // Final step updates
+                            UpdateLoadingStep(1, $"{stats.Layer1Exact} matched", true);
+                            UpdateLoadingStep(2, $"{stats.Layer2Learned} matched", true);
+                            UpdateLoadingStep(3, $"{stats.Layer3Vector + stats.Layer3Provisional} matched", true);
+                            UpdateLoadingStep(4, reviewQueued > 0 ? $"{reviewQueued} queued" : "0 queued", true);
+                            _loadingStatusText.Text = $"Done — {pipelineMatched} matched ({matchRate})";
+                            await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+
+                            // Apply matched prices
+                            foreach (var match in result.Matches)
+                            {
+                                // Only apply confirmed/high/medium confidence
+                                if (match.Confidence == "confirmed" || match.Confidence == "high" || match.Confidence == "medium")
+                                {
+                                    var item = _allItems.FirstOrDefault(x => x.ElementId == match.ElementId);
+                                    if (item != null && item.UnitPrice <= 0 && match.UnitPrice > 0)
+                                    {
+                                        item.UnitPrice = match.UnitPrice;
+                                        item.JkrCode = match.JkrCode;
+                                        item.PriceSource = match.MatchLayer == "exact" ? "master" :
+                                                           match.MatchLayer == "learned" ? "learned" : "ai";
+                                        _priceDb?.SavePrice(item.JkrCode, item.UnitPrice, item.Unit);
+                                    }
+                                }
+                            }
+                        }
+                        else
+                        {
+                            _loadingStatusText.Text = result.Error ?? "Pipeline error";
+                            UpdateLoadingStep(1, "error", false);
+                        }
                     }
                 }
                 else
                 {
-                    ShowBanner("⚠️ AI server not available", "Using local matching only", WarningAmber);
-                    await Task.Delay(1500);
+                    _loadingStatusText.Text = "AI server not available — local matching only";
+                    UpdateLoadingStep(1, "offline", false);
+                    UpdateLoadingStep(2, "offline", false);
+                    UpdateLoadingStep(3, "offline", false);
+                    UpdateLoadingStep(4, "offline", false);
                 }
+
+                // Brief pause to show final results in overlay
+                await Task.Delay(1500);
+                HideLoadingOverlay();
 
                 _summary = CostCalculator.Calculate(_allItems); UpdateTotalCard(); UpdateContent();
 
@@ -820,7 +1204,11 @@ namespace RevitWebAppSync.UI
                     ShowBanner($"✅ Matched {totalMatched} items — RM {_summary.GrandTotal:N0}", detail, SuccessGreen);
                 }
             }
-            catch (Exception ex) { MessageBox.Show($"Match failed: {ex.Message}", "BINA Cost"); }
+            catch (Exception ex)
+            {
+                HideLoadingOverlay();
+                MessageBox.Show($"Match failed: {ex.Message}", "BINA Cost");
+            }
             finally
             {
                 if (btn != null) { btn.IsEnabled = true; btn.Content = "Match Prices"; }
@@ -1153,12 +1541,133 @@ namespace RevitWebAppSync.UI
                 {
                     infoStack.Children.Add(new TextBlock
                     {
-                        Text = "⚠ No AI suggestions — needs manual JKR code",
+                        Text = "⚠ No AI suggestions — enter manually below",
                         FontSize = 11, Foreground = new SolidColorBrush(accentAmber),
                         Margin = new Thickness(0, 6, 0, 0),
                         FontStyle = FontStyles.Italic
                     });
                 }
+
+                // ── Manual input panel ──
+                var manualPanel = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+
+                // Toggle link for items with suggestions (collapsed by default)
+                if (hasSugg)
+                {
+                    manualPanel.Visibility = Visibility.Collapsed;
+                    var toggleLink = new TextBlock
+                    {
+                        Text = "✏ Enter price manually...",
+                        FontSize = 10, Foreground = new SolidColorBrush(accentBlue),
+                        Cursor = System.Windows.Input.Cursors.Hand,
+                        Margin = new Thickness(0, 6, 0, 0)
+                    };
+                    var capturedPanel = manualPanel;
+                    toggleLink.MouseLeftButtonDown += (s, ev) =>
+                    {
+                        capturedPanel.Visibility = capturedPanel.Visibility == Visibility.Visible
+                            ? Visibility.Collapsed : Visibility.Visible;
+                        toggleLink.Text = capturedPanel.Visibility == Visibility.Visible
+                            ? "✏ Hide manual input" : "✏ Enter price manually...";
+                    };
+                    infoStack.Children.Add(toggleLink);
+                }
+
+                var manualInputRow = new StackPanel { Orientation = Orientation.Horizontal };
+
+                var jkrBox = new TextBox
+                {
+                    Width = 120, Height = 26, FontSize = 11,
+                    Background = new SolidColorBrush(Color.FromRgb(52, 52, 56)),
+                    Foreground = new SolidColorBrush(textWhite),
+                    BorderBrush = new SolidColorBrush(borderSubtle),
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(6, 3, 6, 3),
+                    Margin = new Thickness(0, 0, 6, 0),
+                    Text = "JKR Code",
+                    CaretBrush = new SolidColorBrush(textWhite)
+                };
+                // Placeholder behavior
+                jkrBox.GotFocus += (s, ev) => { if (jkrBox.Text == "JKR Code") { jkrBox.Text = ""; jkrBox.Foreground = new SolidColorBrush(textWhite); } };
+                jkrBox.LostFocus += (s, ev) => { if (string.IsNullOrWhiteSpace(jkrBox.Text)) { jkrBox.Text = "JKR Code"; jkrBox.Foreground = new SolidColorBrush(textDim); } };
+                jkrBox.Foreground = new SolidColorBrush(textDim);
+                manualInputRow.Children.Add(jkrBox);
+
+                var priceBox = new TextBox
+                {
+                    Width = 80, Height = 26, FontSize = 11,
+                    Background = new SolidColorBrush(Color.FromRgb(52, 52, 56)),
+                    Foreground = new SolidColorBrush(textWhite),
+                    BorderBrush = new SolidColorBrush(borderSubtle),
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(6, 3, 6, 3),
+                    Margin = new Thickness(0, 0, 6, 0),
+                    Text = "RM",
+                    CaretBrush = new SolidColorBrush(textWhite)
+                };
+                priceBox.GotFocus += (s, ev) => { if (priceBox.Text == "RM") { priceBox.Text = ""; priceBox.Foreground = new SolidColorBrush(textWhite); } };
+                priceBox.LostFocus += (s, ev) => { if (string.IsNullOrWhiteSpace(priceBox.Text)) { priceBox.Text = "RM"; priceBox.Foreground = new SolidColorBrush(textDim); } };
+                priceBox.Foreground = new SolidColorBrush(textDim);
+                manualInputRow.Children.Add(priceBox);
+
+                manualInputRow.Children.Add(new TextBlock
+                {
+                    Text = $"/{review.Unit ?? "unit"}",
+                    FontSize = 10, Foreground = new SolidColorBrush(textDim),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 8, 0)
+                });
+
+                var confirmBtn = new Button
+                {
+                    Content = "Confirm",
+                    FontSize = 10, FontWeight = FontWeights.SemiBold,
+                    Padding = new Thickness(10, 4, 10, 4),
+                    Background = new SolidColorBrush(accentPurple),
+                    Foreground = Brushes.White,
+                    BorderThickness = new Thickness(0),
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                    Tag = review
+                };
+                confirmBtn.Click += async (s, ev) =>
+                {
+                    string jkr = jkrBox.Text.Trim();
+                    if (jkr == "JKR Code") jkr = "";
+                    string priceText = priceBox.Text.Trim();
+                    if (priceText == "RM") priceText = "";
+
+                    if (string.IsNullOrEmpty(jkr) || !double.TryParse(priceText, out double price) || price <= 0)
+                    {
+                        jkrBox.BorderBrush = string.IsNullOrEmpty(jkr) ? new SolidColorBrush(accentRed) : new SolidColorBrush(borderSubtle);
+                        priceBox.BorderBrush = (price <= 0 || priceText == "") ? new SolidColorBrush(accentRed) : new SolidColorBrush(borderSubtle);
+                        return;
+                    }
+
+                    confirmBtn.IsEnabled = false;
+                    confirmBtn.Content = "⏳...";
+
+                    var r = (ReviewItem)((Button)s).Tag;
+                    var result = await aiEstimator.ResolveReviewAsync(
+                        r.Id, jkr, price, r.Unit ?? "unit", r.ElementName ?? "");
+
+                    if (result.Success)
+                    {
+                        card.Background = new SolidColorBrush(Color.FromArgb(20, accentGreen.R, accentGreen.G, accentGreen.B));
+                        card.BorderBrush = new SolidColorBrush(Color.FromArgb(60, accentGreen.R, accentGreen.G, accentGreen.B));
+                        confirmBtn.Content = "✓ Saved";
+                        confirmBtn.Background = new SolidColorBrush(Color.FromRgb(22, 101, 52));
+                    }
+                    else
+                    {
+                        confirmBtn.Content = "✗ Error";
+                        confirmBtn.Background = new SolidColorBrush(accentRed);
+                        confirmBtn.IsEnabled = true;
+                    }
+                };
+                manualInputRow.Children.Add(confirmBtn);
+
+                manualPanel.Children.Add(manualInputRow);
+                infoStack.Children.Add(manualPanel);
 
                 Grid.SetColumn(infoStack, 0);
                 cardGrid.Children.Add(infoStack);
