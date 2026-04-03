@@ -120,7 +120,7 @@ namespace RevitWebAppSync.Services
                     ElementName = elementName,
                     FamilyName = familyName,
                     LevelName = levelName,
-                    JkrCode = jkrCode,
+                    JkrCode = jkrCode ?? "",
                     Parameters = jkrParams,
                 });
             }
