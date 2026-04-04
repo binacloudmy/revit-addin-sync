@@ -1165,5 +1165,13 @@ namespace RevitWebAppSync.UI
         public string Category { get; set; }
         public string TypeName { get; set; }
         public string LevelName { get; set; }
+
+        // V2: Fix action from backend
+        public string FixAction { get; set; }          // "rename_type", "set_parameter", etc.
+        public string FixParameterName { get; set; }   // target parameter
+        public string FixValue { get; set; }            // corrected value
+        public string FixOldValue { get; set; }         // current value
+        public string FixSuggestion { get; set; }       // human-readable suggestion
+        public bool IsFixable => !string.IsNullOrEmpty(FixAction) && !string.IsNullOrEmpty(FixValue);
     }
 }

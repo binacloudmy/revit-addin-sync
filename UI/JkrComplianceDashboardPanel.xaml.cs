@@ -26,6 +26,7 @@ namespace RevitWebAppSync.UI
         private List<ComplianceIssue> _issues = new List<ComplianceIssue>();
         private string _aiReport = "";
         private List<AIRecommendationDto> _aiRecommendations = new List<AIRecommendationDto>();
+        private JkrFixApplicator _fixApplicator;
 
         // UI refs
         private TextBlock _subtitleText;
@@ -360,6 +361,12 @@ namespace RevitWebAppSync.UI
                 Category = dto.Category ?? "",
                 TypeName = dto.TypeName ?? "",
                 LevelName = dto.LevelName ?? "",
+                // V2 fix data
+                FixAction = dto.FixAction ?? "",
+                FixParameterName = dto.FixParameterName ?? "",
+                FixValue = dto.FixValue ?? "",
+                FixOldValue = dto.FixOldValue ?? "",
+                FixSuggestion = dto.FixSuggestion ?? "",
             };
         }
 
@@ -629,12 +636,48 @@ namespace RevitWebAppSync.UI
 
                 if (canAutoFix)
                 {
-                    string disc = _extractionData?.Discipline ?? "AR";
-                    string newName = JkrRenameHandler.GenerateJkrName(disc, issue.Category ?? "", issue.ActualValue ?? issue.TypeName ?? "");
+                    string fixLabel;
+                    string btnLabel;
+                    AutoFixInfo fixInfo;
+
+                    if (issue.FixAction == "set_parameter" && !string.IsNullOrEmpty(issue.FixValue))
+                    {
+                        // Parameter fix from backend
+                        fixLabel = $"🔧 Auto-fix: set {issue.FixParameterName} = \"{issue.FixValue}\"";
+                        btnLabel = $"🔧 Fix {issue.FixParameterName}";
+                        fixInfo = new AutoFixInfo
+                        {
+                            ElementId = issue.ElementId,
+                            NewName = issue.FixValue,
+                            FixAction = "set_parameter",
+                            ParameterName = issue.FixParameterName,
+                            OldValue = issue.FixOldValue,
+                        };
+                    }
+                    else
+                    {
+                        // Rename fix — prefer backend suggestion, fall back to local generation
+                        string newName = !string.IsNullOrEmpty(issue.FixValue)
+                            ? issue.FixValue
+                            : JkrRenameHandler.GenerateJkrName(
+                                _extractionData?.Discipline ?? "AR",
+                                issue.Category ?? "",
+                                issue.ActualValue ?? issue.TypeName ?? "");
+
+                        fixLabel = $"🔧 Auto-fix: rename to \"{newName}\"";
+                        btnLabel = "🔧 Fix Name";
+                        fixInfo = new AutoFixInfo
+                        {
+                            ElementId = issue.ElementId,
+                            NewName = newName,
+                            FixAction = "rename_type",
+                            OldValue = issue.ActualValue ?? issue.TypeName ?? "",
+                        };
+                    }
 
                     fixStack.Children.Add(new TextBlock
                     {
-                        Text = $"🔧 Auto-fix available — rename to: {newName}",
+                        Text = fixLabel,
                         FontSize = 9, FontWeight = FontWeights.SemiBold,
                         Foreground = new SolidColorBrush(Color.FromRgb(27, 94, 32)),
                         Margin = new Thickness(0, 0, 0, 4)
@@ -642,13 +685,13 @@ namespace RevitWebAppSync.UI
 
                     var autoFixBtn = new Button
                     {
-                        Content = "🔧 Auto-Fix Rename",
+                        Content = btnLabel,
                         FontSize = 10, Padding = new Thickness(10, 4, 10, 4),
                         Background = new SolidColorBrush(Color.FromRgb(46, 125, 50)),
                         Foreground = Brushes.White,
                         BorderThickness = new Thickness(0),
                         Cursor = System.Windows.Input.Cursors.Hand,
-                        Tag = new AutoFixInfo { ElementId = issue.ElementId, NewName = newName }
+                        Tag = fixInfo,
                     };
                     autoFixBtn.Click += AutoFixRename_Click;
                     fixStack.Children.Add(autoFixBtn);
@@ -709,9 +752,13 @@ namespace RevitWebAppSync.UI
 
         private bool CanAutoFix(ComplianceIssue issue)
         {
+            // V2: backend says if it's fixable
+            if (issue.IsFixable && issue.ElementId > 0)
+                return true;
+
+            // V1 fallback: naming convention issues
             if (issue.Status != "fail") return false;
             string rule = (issue.Query ?? "").ToLower();
-            // Only naming convention issues can be auto-fixed
             return (rule.Contains("naming convention not followed") || rule.Contains("naming convention"))
                    && issue.ElementId > 0;
         }
@@ -722,9 +769,32 @@ namespace RevitWebAppSync.UI
             if (btn?.Tag is AutoFixInfo info)
             {
                 btn.IsEnabled = false;
-                btn.Content = "⏳ Renaming...";
+                btn.Content = "⏳ Fixing...";
 
-                App.JkrRenameHandler.RenameQueue = new List<(int, string)> { (info.ElementId, info.NewName) };
+                // Determine fix type
+                if (info.FixAction == "set_parameter")
+                {
+                    // Parameter fix
+                    App.JkrRenameHandler.RenameQueue = new List<(int, string)>();
+                    App.JkrRenameHandler.ParamFixQueue = new List<JkrFixAction>
+                    {
+                        new JkrFixAction
+                        {
+                            Action = "set_parameter",
+                            ElementId = info.ElementId,
+                            ParameterName = info.ParameterName,
+                            Value = info.NewName, // NewName doubles as Value for param fixes
+                            OldValue = info.OldValue,
+                        }
+                    };
+                }
+                else
+                {
+                    // Rename fix
+                    App.JkrRenameHandler.RenameQueue = new List<(int, string)> { (info.ElementId, info.NewName) };
+                    App.JkrRenameHandler.ParamFixQueue = new List<JkrFixAction>();
+                }
+
                 App.JkrRenameHandler.OnCompleted = result =>
                 {
                     Dispatcher.InvokeAsync(() =>
@@ -734,14 +804,14 @@ namespace RevitWebAppSync.UI
                             btn.Content = $"❌ {result.Error}";
                             btn.IsEnabled = true;
                         }
-                        else if (result.Renamed > 0)
+                        else if (result.Renamed > 0 || result.ParamFixed > 0)
                         {
-                            btn.Content = "✅ Renamed!";
+                            btn.Content = "✅ Fixed!";
                             btn.Background = new SolidColorBrush(Color.FromRgb(76, 175, 80));
                         }
                         else if (result.Failed > 0)
                         {
-                            btn.Content = "❌ Name conflict — try manually";
+                            btn.Content = "❌ Failed — try manually";
                             btn.IsEnabled = true;
                         }
                         else
@@ -761,27 +831,55 @@ namespace RevitWebAppSync.UI
             if (btn == null) return;
 
             string disc = _extractionData?.Discipline ?? "AR";
-            var namingIssues = _issues.Where(i => CanAutoFix(i)).ToList();
-            if (!namingIssues.Any()) return;
+            var fixableIssues = _issues.Where(i => CanAutoFix(i)).ToList();
+            if (!fixableIssues.Any()) return;
 
             btn.IsEnabled = false;
-            btn.Content = $"⏳ Renaming {namingIssues.Count} elements...";
 
-            var queue = namingIssues.Select(i =>
+            // Separate rename fixes from parameter fixes
+            var renameIssues = fixableIssues.Where(i => i.FixAction == "rename_type" || 
+                (string.IsNullOrEmpty(i.FixAction) && (i.Query ?? "").ToLower().Contains("naming convention"))).ToList();
+            var paramIssues = fixableIssues.Where(i => i.FixAction == "set_parameter").ToList();
+
+            int totalFixes = renameIssues.Count + paramIssues.Count;
+            btn.Content = $"⏳ Applying {totalFixes} fixes...";
+
+            // Build rename queue — prefer backend-suggested name, fall back to local generation
+            var queue = renameIssues.Select(i =>
             {
-                string newName = JkrRenameHandler.GenerateJkrName(disc, i.Category ?? "", i.ActualValue ?? i.TypeName ?? "");
+                string newName = !string.IsNullOrEmpty(i.FixValue) 
+                    ? i.FixValue  // Backend suggested name (from jkr_reference.json)
+                    : JkrRenameHandler.GenerateJkrName(disc, i.Category ?? "", i.ActualValue ?? i.TypeName ?? "");
                 return (i.ElementId, newName);
             }).ToList();
 
+            // Apply parameter fixes via JkrFixApplicator (also needs ExternalEvent for Revit thread)
+            // Stash param fixes to apply after rename completes
+            var paramFixActions = paramIssues.Select(i => new JkrFixAction
+            {
+                Action = i.FixAction,
+                ElementId = i.ElementId,
+                ParameterName = i.FixParameterName,
+                Value = i.FixValue,
+                OldValue = i.FixOldValue,
+            }).ToList();
+
             App.JkrRenameHandler.RenameQueue = queue;
+            App.JkrRenameHandler.ParamFixQueue = paramFixActions;
             App.JkrRenameHandler.OnCompleted = result =>
             {
                 Dispatcher.InvokeAsync(() =>
                 {
+                    var parts = new List<string>();
+                    if (result.Renamed > 0) parts.Add($"{result.Renamed} renamed");
+                    if (result.ParamFixed > 0) parts.Add($"{result.ParamFixed} params fixed");
+                    if (result.Failed > 0) parts.Add($"{result.Failed} failed");
+                    if (result.Skipped > 0) parts.Add($"{result.Skipped} skipped");
+
                     if (!string.IsNullOrEmpty(result.Error))
                         btn.Content = $"❌ {result.Error}";
                     else
-                        btn.Content = $"✅ Renamed {result.Renamed}, skipped {result.Skipped}, failed {result.Failed}";
+                        btn.Content = $"✅ {string.Join(", ", parts)}";
 
                     btn.IsEnabled = true;
                 });
@@ -906,7 +1004,10 @@ namespace RevitWebAppSync.UI
     public class AutoFixInfo
     {
         public int ElementId { get; set; }
-        public string NewName { get; set; }
+        public string NewName { get; set; }          // For rename: new name. For set_parameter: new value.
+        public string FixAction { get; set; } = "";   // "rename_type" or "set_parameter"
+        public string ParameterName { get; set; } = "";
+        public string OldValue { get; set; } = "";
     }
 
     // ComplianceIssue class is defined in ComplianceDashboardPanel.xaml.cs (shared)

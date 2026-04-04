@@ -131,6 +131,12 @@ namespace RevitWebAppSync.Services
                             Reason = check.Reason ?? "",
                             RequiredValue = check.ExpectedValue ?? "",
                             ActualValue = check.ActualValue ?? "",
+                            // V2 fix data
+                            FixAction = check.FixAction?.Action ?? "",
+                            FixParameterName = check.FixAction?.ParameterName ?? "",
+                            FixValue = check.FixAction?.Value ?? "",
+                            FixOldValue = check.FixAction?.OldValue ?? "",
+                            FixSuggestion = check.FixSuggestion ?? "",
                         };
 
                         if (check.ElementId == 0)
@@ -356,6 +362,29 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("evidence")]
         public JkrSpecEvidenceV2 Evidence { get; set; }
+
+        [JsonProperty("fix_action")]
+        public JkrFixActionV2 FixAction { get; set; }
+
+        public bool IsFixable => FixAction != null && !string.IsNullOrEmpty(FixAction.Action);
+    }
+
+    public class JkrFixActionV2
+    {
+        [JsonProperty("action")]
+        public string Action { get; set; }
+
+        [JsonProperty("element_id")]
+        public int ElementId { get; set; }
+
+        [JsonProperty("parameter_name")]
+        public string ParameterName { get; set; } = "";
+
+        [JsonProperty("value")]
+        public string Value { get; set; } = "";
+
+        [JsonProperty("old_value")]
+        public string OldValue { get; set; } = "";
     }
 
     public class JkrSpecEvidenceV2

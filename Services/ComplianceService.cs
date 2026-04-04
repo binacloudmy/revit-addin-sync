@@ -294,6 +294,13 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("actual_value")]
         public string ActualValue { get; set; }
+
+        // V2 fix data (populated when response comes from V2 endpoint)
+        public string FixAction { get; set; }
+        public string FixParameterName { get; set; }
+        public string FixValue { get; set; }
+        public string FixOldValue { get; set; }
+        public string FixSuggestion { get; set; }
     }
 
     public class AIRecommendationDto
