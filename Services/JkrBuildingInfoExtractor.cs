@@ -35,6 +35,9 @@ namespace RevitWebAppSync.Services
             // Detect discipline from filename (jkrAR..., jkrST..., jkrME..., jkrEL...)
             result.Discipline = DetectDiscipline(result.FileName);
 
+            // V2: Extract project-level metadata
+            ExtractProjectMetadata(doc, result);
+
             // Get all model elements (not element types)
             var collector = new FilteredElementCollector(doc)
                 .WhereElementIsNotElementType()
@@ -147,6 +150,71 @@ namespace RevitWebAppSync.Services
             return result;
         }
 
+        /// <summary>
+        /// Extract project-level metadata: template, shared params, linked models.
+        /// </summary>
+        private static void ExtractProjectMetadata(Document doc, JkrExtractionResult result)
+        {
+            try
+            {
+                // Template used — check ProjectInfo or doc properties
+                var projInfo = doc.ProjectInformation;
+                if (projInfo != null)
+                {
+                    // Check for template parameter
+                    var templateParam = projInfo.LookupParameter("Project Template")
+                        ?? projInfo.LookupParameter("Template");
+                    if (templateParam != null && templateParam.HasValue)
+                        result.TemplateUsed = templateParam.AsString() ?? "";
+
+                    // Fallback: use document's creation path hint
+                    if (string.IsNullOrEmpty(result.TemplateUsed))
+                    {
+                        try
+                        {
+                            var basicFileInfo = BasicFileInfo.Extract(doc.PathName);
+                            if (basicFileInfo != null && !string.IsNullOrEmpty(basicFileInfo.AllLocalChangesSavedToCentral.ToString()))
+                            {
+                                // Can't directly get template name from BasicFileInfo easily,
+                                // but we check if filename contains "jkr" as a proxy
+                                if (doc.PathName != null && doc.PathName.ToLower().Contains("jkr"))
+                                    result.TemplateUsed = "JKR Template (inferred from filename)";
+                            }
+                        }
+                        catch { /* ignore */ }
+                    }
+                }
+
+                // Shared parameter files — check if jkr shared params are loaded
+                // We can detect this by checking if any _jkr_ parameters exist in the model
+                // (actual shared param file paths aren't directly accessible via API)
+                var defFile = doc.Application?.OpenSharedParameterFile();
+                if (defFile != null)
+                {
+                    result.SharedParamFiles.Add(defFile.Filename ?? "shared_params.txt");
+                }
+
+                // Linked models
+                var linkCollector = new FilteredElementCollector(doc)
+                    .OfClass(typeof(RevitLinkInstance));
+                var links = linkCollector.ToElements();
+                if (links.Count > 0)
+                {
+                    result.HasLinkedModels = true;
+                    foreach (var link in links)
+                    {
+                        var linkName = link.Name;
+                        if (!string.IsNullOrEmpty(linkName) && !result.LinkedModelNames.Contains(linkName))
+                            result.LinkedModelNames.Add(linkName);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ExtractProjectMetadata warning: {ex.Message}");
+            }
+        }
+
         private static string DetectDiscipline(string fileName)
         {
             if (string.IsNullOrEmpty(fileName)) return "AR";
@@ -192,9 +260,42 @@ namespace RevitWebAppSync.Services
         public string Discipline { get; set; } = "AR";
         public List<JkrElementData> Elements { get; set; } = new List<JkrElementData>();
 
+        // V2: Project-level metadata
+        public string TemplateUsed { get; set; } = "";
+        public List<string> SharedParamFiles { get; set; } = new List<string>();
+        public bool HasLinkedModels { get; set; } = false;
+        public List<string> LinkedModelNames { get; set; } = new List<string>();
+
         public int TotalElements => Elements.Count;
         public int ElementsWithJkrParams => Elements.Count(e => e.Parameters.Count > 0);
         public int ElementsWithJkrCode => Elements.Count(e => !string.IsNullOrEmpty(e.JkrCode));
         public HashSet<string> Categories => new HashSet<string>(Elements.Select(e => e.Category));
+
+        /// <summary>
+        /// Build a V2 request from extracted data.
+        /// </summary>
+        public JkrComplianceRequestV2 ToV2Request(int loiLevel = 300, string projectPhase = "", bool hasBpep = false)
+        {
+            return new JkrComplianceRequestV2
+            {
+                Project = new JkrProjectMetadata
+                {
+                    ProjectName = ProjectName,
+                    FileName = FileName,
+                    Discipline = Discipline,
+                    LoiLevel = loiLevel,
+                    ProjectPhase = projectPhase,
+                    HasBpep = hasBpep,
+                    TemplateUsed = TemplateUsed,
+                    SharedParamFiles = SharedParamFiles,
+                },
+                Model = new JkrModelMetadata
+                {
+                    HasLinkedModels = HasLinkedModels,
+                    LinkedModelNames = LinkedModelNames,
+                },
+                Elements = Elements,
+            };
+        }
     }
 }

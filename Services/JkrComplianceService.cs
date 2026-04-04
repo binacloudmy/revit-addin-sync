@@ -36,8 +36,7 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
-        /// Full JKR BIM compliance check — param presence, naming, JKR codes + AI report.
-        /// Returns same ModelCheckResponse shape as fire compliance for UI reuse.
+        /// V1: JKR BIM compliance check — legacy flat response.
         /// </summary>
         public async Task<ModelCheckResponse> CheckJkrComplianceAsync(JkrComplianceRequest request)
         {
@@ -57,6 +56,113 @@ namespace RevitWebAppSync.Services
             {
                 return new ModelCheckResponse { Error = ex.Message };
             }
+        }
+
+        /// <summary>
+        /// V2: Full JKR BIM compliance check with domain grouping, value validation, AI agents.
+        /// Falls back to V1 response shape for UI compatibility.
+        /// </summary>
+        public async Task<ModelCheckResponse> CheckJkrComplianceV2Async(JkrComplianceRequestV2 request)
+        {
+            try
+            {
+                var json = JsonConvert.SerializeObject(request);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+                // Try V2 endpoint first
+                var resp = await _httpClient.PostAsync($"{_baseUrl}/v1/compliance/jkr-check-v2", content);
+                var body = await resp.Content.ReadAsStringAsync();
+
+                if (resp.IsSuccessStatusCode)
+                {
+                    // V2 response — parse and convert to ModelCheckResponse for UI compat
+                    return ConvertV2ToModelCheckResponse(body);
+                }
+
+                // Fallback: try V1 endpoint with converted request
+                var v1Request = new JkrComplianceRequest
+                {
+                    ProjectName = request.Project.ProjectName,
+                    FileName = request.Project.FileName,
+                    Discipline = request.Project.Discipline,
+                    LoiLevel = request.Project.LoiLevel,
+                    Elements = request.Elements,
+                };
+                return await CheckJkrComplianceAsync(v1Request);
+            }
+            catch (Exception ex)
+            {
+                return new ModelCheckResponse { Error = ex.Message };
+            }
+        }
+
+        private ModelCheckResponse ConvertV2ToModelCheckResponse(string v2Json)
+        {
+            // The V2 backend already provides a V1-compatible shape via v2_response_to_v1.
+            // But the V2 endpoint returns V2 shape. We parse it here.
+            var v2 = JsonConvert.DeserializeObject<JkrComplianceResponseV2>(v2Json);
+            if (v2 == null)
+                return new ModelCheckResponse { Error = "Failed to parse V2 response" };
+
+            var response = new ModelCheckResponse
+            {
+                AIReport = v2.AiReport ?? "",
+            };
+
+            // Map V2 domain checks → V1 flat lists
+            if (v2.Domains != null)
+            {
+                foreach (var domain in v2.Domains)
+                {
+                    if (domain.Checks == null) continue;
+                    foreach (var check in domain.Checks)
+                    {
+                        var issue = new ComplianceIssueDto
+                        {
+                            ElementId = check.ElementId,
+                            Category = check.Category ?? "",
+                            TypeName = check.TypeName ?? "",
+                            LevelName = check.LevelName ?? "",
+                            Status = check.Status == "cannot_verify" ? "warning" : (check.Status ?? "warning"),
+                            Rule = check.Rule ?? "",
+                            Actual = check.ActualValue ?? "",
+                            Reason = check.Reason ?? "",
+                            RequiredValue = check.ExpectedValue ?? "",
+                            ActualValue = check.ActualValue ?? "",
+                        };
+
+                        if (check.ElementId == 0)
+                            response.BuildingRequirements.Add(issue);
+                        else
+                            response.ElementIssues.Add(issue);
+
+                        // Build recommendation for failures
+                        if (check.Status == "fail" && !string.IsNullOrEmpty(check.FixSuggestion))
+                        {
+                            response.AIRecommendations.Add(new AIRecommendationDto
+                            {
+                                ElementId = check.ElementId,
+                                FixSuggestion = check.FixSuggestion,
+                                Reference = check.Evidence?.DocName ?? "",
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Summary
+            if (v2.Summary != null)
+            {
+                response.Summary["total_elements"] = v2.Summary.TotalElements;
+                response.Summary["total_checks"] = v2.Summary.TotalChecks;
+                response.Summary["pass_count"] = v2.Summary.PassCount;
+                response.Summary["fail_count"] = v2.Summary.FailCount;
+                response.Summary["warning_count"] = v2.Summary.WarningCount;
+                response.Summary["compliance_percentage"] = v2.Summary.CompliancePercentage;
+                response.Summary["domains_checked"] = v2.Summary.DomainsChecked;
+            }
+
+            return response;
         }
     }
 
@@ -106,4 +212,161 @@ namespace RevitWebAppSync.Services
         [JsonProperty("elements")]
         public List<JkrElementData> Elements { get; set; } = new List<JkrElementData>();
     }
+
+    // --- V2 Request Models ---
+
+    public class JkrProjectMetadata
+    {
+        [JsonProperty("project_name")]
+        public string ProjectName { get; set; } = "";
+
+        [JsonProperty("file_name")]
+        public string FileName { get; set; } = "";
+
+        [JsonProperty("discipline")]
+        public string Discipline { get; set; } = "AR";
+
+        [JsonProperty("loi_level")]
+        public int LoiLevel { get; set; } = 300;
+
+        [JsonProperty("project_phase")]
+        public string ProjectPhase { get; set; } = "";
+
+        [JsonProperty("has_bpep")]
+        public bool HasBpep { get; set; } = false;
+
+        [JsonProperty("template_used")]
+        public string TemplateUsed { get; set; } = "";
+
+        [JsonProperty("shared_param_files")]
+        public List<string> SharedParamFiles { get; set; } = new List<string>();
+    }
+
+    public class JkrModelMetadata
+    {
+        [JsonProperty("has_linked_models")]
+        public bool HasLinkedModels { get; set; } = false;
+
+        [JsonProperty("linked_model_names")]
+        public List<string> LinkedModelNames { get; set; } = new List<string>();
+    }
+
+    public class JkrComplianceRequestV2
+    {
+        [JsonProperty("project")]
+        public JkrProjectMetadata Project { get; set; } = new JkrProjectMetadata();
+
+        [JsonProperty("model")]
+        public JkrModelMetadata Model { get; set; } = new JkrModelMetadata();
+
+        [JsonProperty("elements")]
+        public List<JkrElementData> Elements { get; set; } = new List<JkrElementData>();
+    }
 }
+
+    // --- V2 Response Models (for deserialization) ---
+
+    public class JkrComplianceResponseV2
+    {
+        [JsonProperty("summary")]
+        public JkrComplianceSummaryV2 Summary { get; set; }
+
+        [JsonProperty("domains")]
+        public List<JkrDomainResultV2> Domains { get; set; } = new List<JkrDomainResultV2>();
+
+        [JsonProperty("ai_report")]
+        public string AiReport { get; set; } = "";
+
+        [JsonProperty("error")]
+        public string Error { get; set; } = "";
+    }
+
+    public class JkrComplianceSummaryV2
+    {
+        [JsonProperty("total_elements")]
+        public int TotalElements { get; set; }
+
+        [JsonProperty("total_checks")]
+        public int TotalChecks { get; set; }
+
+        [JsonProperty("pass_count")]
+        public int PassCount { get; set; }
+
+        [JsonProperty("fail_count")]
+        public int FailCount { get; set; }
+
+        [JsonProperty("warning_count")]
+        public int WarningCount { get; set; }
+
+        [JsonProperty("compliance_percentage")]
+        public double CompliancePercentage { get; set; }
+
+        [JsonProperty("domains_checked")]
+        public List<string> DomainsChecked { get; set; } = new List<string>();
+    }
+
+    public class JkrDomainResultV2
+    {
+        [JsonProperty("domain")]
+        public string Domain { get; set; }
+
+        [JsonProperty("domain_name")]
+        public string DomainName { get; set; }
+
+        [JsonProperty("checks")]
+        public List<JkrComplianceCheckV2> Checks { get; set; } = new List<JkrComplianceCheckV2>();
+    }
+
+    public class JkrComplianceCheckV2
+    {
+        [JsonProperty("element_id")]
+        public int ElementId { get; set; }
+
+        [JsonProperty("category")]
+        public string Category { get; set; }
+
+        [JsonProperty("type_name")]
+        public string TypeName { get; set; }
+
+        [JsonProperty("level_name")]
+        public string LevelName { get; set; }
+
+        [JsonProperty("status")]
+        public string Status { get; set; }
+
+        [JsonProperty("confidence")]
+        public string Confidence { get; set; }
+
+        [JsonProperty("rule")]
+        public string Rule { get; set; }
+
+        [JsonProperty("actual_value")]
+        public string ActualValue { get; set; }
+
+        [JsonProperty("expected_value")]
+        public string ExpectedValue { get; set; }
+
+        [JsonProperty("reason")]
+        public string Reason { get; set; }
+
+        [JsonProperty("fix_suggestion")]
+        public string FixSuggestion { get; set; }
+
+        [JsonProperty("evidence")]
+        public JkrSpecEvidenceV2 Evidence { get; set; }
+    }
+
+    public class JkrSpecEvidenceV2
+    {
+        [JsonProperty("spec_quote")]
+        public string SpecQuote { get; set; }
+
+        [JsonProperty("doc_number")]
+        public string DocNumber { get; set; }
+
+        [JsonProperty("doc_name")]
+        public string DocName { get; set; }
+
+        [JsonProperty("page")]
+        public int? Page { get; set; }
+    }

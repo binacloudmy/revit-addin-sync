@@ -84,7 +84,7 @@ namespace RevitWebAppSync.UI
             titleRow.Children.Add(new TextBlock { Text = "BINA", FontSize = 16, FontWeight = FontWeights.Bold, Foreground = Brushes.White, Margin = new Thickness(0, 0, 6, 0) });
             titleRow.Children.Add(new TextBlock { Text = "JKR BIM Compliance", FontSize = 16, FontWeight = FontWeights.Light, Foreground = new SolidColorBrush(Color.FromRgb(180, 220, 240)) });
             headerStack.Children.Add(titleRow);
-            _subtitleText = new TextBlock { Text = "Document 09 — Spesifikasi Parameter JKR", FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(150, 200, 220)), Margin = new Thickness(0, 2, 0, 0) };
+            _subtitleText = new TextBlock { Text = "All 13 JKR BIM Specification Documents", FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(150, 200, 220)), Margin = new Thickness(0, 2, 0, 0) };
             headerStack.Children.Add(_subtitleText);
             header.Child = headerStack;
             Grid.SetRow(header, 0);
@@ -293,19 +293,17 @@ namespace RevitWebAppSync.UI
                 if (_extractionData == null) ScanModel();
                 if (_extractionData == null) return;
 
-                ShowStatus($"🔍 Checking {_extractionData.TotalElements} elements against JKR Doc 09 at LOi {_selectedLoi}...", Color.FromRgb(235, 243, 252));
+                ShowStatus($"🔍 Checking {_extractionData.TotalElements} elements against all 13 JKR docs at LOi {_selectedLoi}...", Color.FromRgb(235, 243, 252));
                 await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
 
-                var request = new JkrComplianceRequest
-                {
-                    ProjectName = _extractionData.ProjectName,
-                    FileName = _extractionData.FileName,
-                    Discipline = _extractionData.Discipline,
-                    LoiLevel = _selectedLoi,
-                    Elements = _extractionData.Elements,
-                };
+                // Use V2 request with project metadata
+                var v2Request = _extractionData.ToV2Request(
+                    loiLevel: _selectedLoi,
+                    projectPhase: "",  // TODO: add phase selector to UI
+                    hasBpep: false     // TODO: detect or let user declare
+                );
 
-                var response = await _service.CheckJkrComplianceAsync(request);
+                var response = await _service.CheckJkrComplianceV2Async(v2Request);
 
                 if (!string.IsNullOrEmpty(response.Error))
                 {
