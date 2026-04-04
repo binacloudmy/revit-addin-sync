@@ -22,7 +22,7 @@ namespace RevitWebAppSync.Services
         public JkrComplianceService(string baseUrl = null)
         {
             _baseUrl = baseUrl ?? DEFAULT_BASE_URL;
-            _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(120) };
+            _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(180) };
         }
 
         public async Task<bool> IsAvailableAsync()
@@ -62,7 +62,8 @@ namespace RevitWebAppSync.Services
         /// V2: Full JKR BIM compliance check with domain grouping, value validation, AI agents.
         /// Falls back to V1 response shape for UI compatibility.
         /// </summary>
-        public async Task<ModelCheckResponse> CheckJkrComplianceV2Async(JkrComplianceRequestV2 request)
+        /// <param name="skipAi">If true (default), run deterministic checks only (~0.1s). Set false for full AI analysis (~30-60s).</param>
+        public async Task<ModelCheckResponse> CheckJkrComplianceV2Async(JkrComplianceRequestV2 request, bool skipAi = true)
         {
             try
             {
@@ -70,7 +71,8 @@ namespace RevitWebAppSync.Services
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
                 // Try V2 endpoint first
-                var resp = await _httpClient.PostAsync($"{_baseUrl}/v1/compliance/jkr-check-v2", content);
+                var skipParam = skipAi ? "?skip_ai=true" : "";
+                var resp = await _httpClient.PostAsync($"{_baseUrl}/v1/compliance/jkr-check-v2{skipParam}", content);
                 var body = await resp.Content.ReadAsStringAsync();
 
                 if (resp.IsSuccessStatusCode)
