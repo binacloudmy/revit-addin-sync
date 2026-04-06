@@ -64,30 +64,30 @@ namespace RevitWebAppSync.UI
         private ProgressBar _loadingProgressBar;
         private TextBlock _loadingStatusText;
 
-        // Revit-style colors (light mode)
-        private static readonly Color PrimaryBlue = Color.FromRgb(0, 120, 215);       // #0078D7
-        private static readonly Color HeaderBg = Color.FromRgb(0, 99, 177);            // #0063B1
-        private static readonly Color CardBg = Color.FromRgb(255, 255, 255);           // White
-        private static readonly Color PageBg = Color.FromRgb(241, 241, 241);           // #F1F1F1
-        private static readonly Color BorderColor = Color.FromRgb(217, 217, 217);      // #D9D9D9
-        private static readonly Color TextPrimary = Color.FromRgb(51, 51, 51);         // #333333
-        private static readonly Color TextSecondary = Color.FromRgb(102, 102, 102);    // #666666
-        private static readonly Color TextMuted = Color.FromRgb(153, 153, 153);        // #999999
-        private static readonly Color SuccessGreen = Color.FromRgb(16, 124, 16);       // #107C10
-        private static readonly Color WarningAmber = Color.FromRgb(255, 140, 0);       // #FF8C00
-        private static readonly Color RowHover = Color.FromRgb(235, 243, 252);         // #EBF3FC
-        private static readonly Color RowAlt = Color.FromRgb(248, 248, 248);           // #F8F8F8
+        // Modern color palette (Slate + vibrant accents)
+        private static readonly Color PrimaryBlue = Color.FromRgb(37, 99, 235);       // #2563EB
+        private static readonly Color HeaderBg = Color.FromRgb(15, 23, 42);            // #0F172A Slate-900
+        private static readonly Color CardBg = Color.FromRgb(255, 255, 255);
+        private static readonly Color PageBg = Color.FromRgb(248, 250, 252);           // #F8FAFC Slate-50
+        private static readonly Color BorderColor = Color.FromRgb(226, 232, 240);      // #E2E8F0 Slate-200
+        private static readonly Color TextPrimary = Color.FromRgb(15, 23, 42);         // #0F172A Slate-900
+        private static readonly Color TextSecondary = Color.FromRgb(71, 85, 105);      // #475569 Slate-600
+        private static readonly Color TextMuted = Color.FromRgb(148, 163, 184);        // #94A3B8 Slate-400
+        private static readonly Color SuccessGreen = Color.FromRgb(22, 163, 74);       // #16A34A Green-600
+        private static readonly Color WarningAmber = Color.FromRgb(245, 158, 11);      // #F59E0B Amber-500
+        private static readonly Color RowHover = Color.FromRgb(241, 245, 249);         // #F1F5F9 Slate-100
+        private static readonly Color RowAlt = Color.FromRgb(248, 250, 252);           // #F8FAFC Slate-50
 
-        // Level colors for fallback
+        // Level colors (vibrant, distinct)
         private static readonly Color[] LevelColors = {
-            Color.FromRgb(0, 120, 215),
-            Color.FromRgb(16, 124, 16),
-            Color.FromRgb(255, 140, 0),
-            Color.FromRgb(156, 39, 176),
-            Color.FromRgb(233, 30, 99),
-            Color.FromRgb(0, 150, 136),
-            Color.FromRgb(255, 87, 34),
-            Color.FromRgb(63, 81, 181),
+            Color.FromRgb(37, 99, 235),    // Blue
+            Color.FromRgb(22, 163, 74),    // Green
+            Color.FromRgb(245, 158, 11),   // Amber
+            Color.FromRgb(99, 102, 241),   // Indigo
+            Color.FromRgb(244, 63, 94),    // Rose
+            Color.FromRgb(20, 184, 166),   // Teal
+            Color.FromRgb(249, 115, 22),   // Orange
+            Color.FromRgb(139, 92, 246),   // Violet
         };
 
         public CostDashboardPanel()
@@ -112,32 +112,34 @@ namespace RevitWebAppSync.UI
             // ── Row 0: Header ──
             var header = new Border
             {
-                Background = new LinearGradientBrush(HeaderBg, Color.FromRgb(0, 78, 140), new Point(0, 0), new Point(1, 0)),
-                Padding = new Thickness(16, 12, 16, 12)
+                Background = new SolidColorBrush(HeaderBg),
+                Padding = new Thickness(16, 14, 16, 14)
             };
             var headerGrid = new Grid();
             headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             headerGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var headerLeft = new StackPanel();
-            var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
+            var titleRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 3) };
             titleRow.Children.Add(new TextBlock
             {
                 Text = "BINA",
-                FontSize = 16, FontWeight = FontWeights.Bold, Foreground = Brushes.White,
-                Margin = new Thickness(0, 0, 6, 0)
+                FontSize = 18, FontWeight = FontWeights.Bold, Foreground = Brushes.White,
+                Margin = new Thickness(0, 0, 8, 0)
             });
             titleRow.Children.Add(new TextBlock
             {
                 Text = "Cost Tracker",
-                FontSize = 16, FontWeight = FontWeights.Light, Foreground = new SolidColorBrush(Color.FromRgb(180, 210, 240))
+                FontSize = 18, FontWeight = FontWeights.Light,
+                Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)),
+                VerticalAlignment = VerticalAlignment.Center
             });
             headerLeft.Children.Add(titleRow);
             _subtitleText = new TextBlock
             {
                 Text = "No model loaded",
-                FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(150, 190, 230)),
-                Margin = new Thickness(0, 2, 0, 0)
+                FontSize = 11, Foreground = new SolidColorBrush(Color.FromRgb(100, 116, 139)),
+                Margin = new Thickness(0, 0, 0, 0)
             };
             headerLeft.Children.Add(_subtitleText);
             Grid.SetColumn(headerLeft, 0);
@@ -146,12 +148,12 @@ namespace RevitWebAppSync.UI
             // Version badge
             var badge = new Border
             {
-                Background = new SolidColorBrush(Color.FromArgb(50, 255, 255, 255)),
-                CornerRadius = new CornerRadius(3),
-                Padding = new Thickness(6, 2, 6, 2),
+                Background = new SolidColorBrush(Color.FromArgb(30, 255, 255, 255)),
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(8, 3, 8, 3),
                 VerticalAlignment = VerticalAlignment.Center
             };
-            badge.Child = new TextBlock { Text = "v1.0", FontSize = 9, Foreground = Brushes.White };
+            badge.Child = new TextBlock { Text = "v1.0", FontSize = 9, Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)) };
             Grid.SetColumn(badge, 1);
             headerGrid.Children.Add(badge);
 
@@ -214,9 +216,9 @@ namespace RevitWebAppSync.UI
                 Background = Brushes.White,
                 BorderBrush = new SolidColorBrush(BorderColor),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
+                CornerRadius = new CornerRadius(8),
                 Margin = new Thickness(12, 12, 12, 0),
-                Padding = new Thickness(16)
+                Padding = new Thickness(18, 16, 18, 16)
             };
             var totalStack = new StackPanel();
 
@@ -229,7 +231,7 @@ namespace RevitWebAppSync.UI
             totalHeader.Children.Add(rmLabel);
             totalStack.Children.Add(totalHeader);
 
-            _grandTotalText = new TextBlock { Text = "RM 0", FontSize = 28, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(TextPrimary), Margin = new Thickness(0, 4, 0, 8) };
+            _grandTotalText = new TextBlock { Text = "RM 0", FontSize = 32, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(TextPrimary), Margin = new Thickness(0, 6, 0, 12) };
             totalStack.Children.Add(_grandTotalText);
 
             // Stats row
@@ -255,8 +257,8 @@ namespace RevitWebAppSync.UI
             // Coverage bar
             var coverageLabel = new TextBlock { Text = "Pricing Coverage", FontSize = 9, Foreground = new SolidColorBrush(TextMuted), Margin = new Thickness(0, 0, 0, 3) };
             totalStack.Children.Add(coverageLabel);
-            var barBg = new Border { Height = 4, CornerRadius = new CornerRadius(2), Background = new SolidColorBrush(Color.FromRgb(230, 230, 230)) };
-            _coverageBar = new ProgressBar { Height = 4, Minimum = 0, Maximum = 100, Value = 0, Foreground = new SolidColorBrush(SuccessGreen), Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
+            var barBg = new Border { Height = 6, CornerRadius = new CornerRadius(3), Background = new SolidColorBrush(Color.FromRgb(226, 232, 240)), Margin = new Thickness(0, 2, 0, 0) };
+            _coverageBar = new ProgressBar { Height = 6, Minimum = 0, Maximum = 100, Value = 0, Foreground = new SolidColorBrush(SuccessGreen), Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
             barBg.Child = _coverageBar;
             totalStack.Children.Add(barBg);
 
@@ -270,9 +272,9 @@ namespace RevitWebAppSync.UI
                 Background = Brushes.White,
                 BorderBrush = new SolidColorBrush(BorderColor),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
+                CornerRadius = new CornerRadius(8),
                 Margin = new Thickness(12, 8, 12, 0),
-                Padding = new Thickness(12, 6, 12, 6)
+                Padding = new Thickness(14, 8, 14, 8)
             };
             var sqftStack = new StackPanel();
             var sqftBody = new StackPanel { Visibility = Visibility.Collapsed }; // starts collapsed
@@ -379,9 +381,9 @@ namespace RevitWebAppSync.UI
                 Background = Brushes.White,
                 BorderBrush = new SolidColorBrush(BorderColor),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
+                CornerRadius = new CornerRadius(8),
                 Margin = new Thickness(12, 8, 12, 0),
-                Padding = new Thickness(10, 6, 10, 6)
+                Padding = new Thickness(12, 8, 12, 8)
             };
             var filterRow = new Grid();
             filterRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -420,12 +422,21 @@ namespace RevitWebAppSync.UI
             // ── Row 5: Scrollable content ──
             var scroll = new ScrollViewer { Margin = new Thickness(12, 8, 12, 4), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             _contentPanel = new StackPanel();
-            _contentPanel.Children.Add(new TextBlock
+            var emptyState = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 50, 0, 0) };
+            emptyState.Children.Add(new TextBlock
             {
-                Text = "Click Refresh to scan the model",
-                Foreground = new SolidColorBrush(TextMuted), FontSize = 12,
-                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 40, 0, 0)
+                Text = "No cost data yet",
+                Foreground = new SolidColorBrush(TextSecondary), FontSize = 14,
+                FontWeight = FontWeights.Medium,
+                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 6)
             });
+            emptyState.Children.Add(new TextBlock
+            {
+                Text = "Click Refresh to scan the model, then Match Prices",
+                Foreground = new SolidColorBrush(TextMuted), FontSize = 11,
+                HorizontalAlignment = HorizontalAlignment.Center
+            });
+            _contentPanel.Children.Add(emptyState);
             scroll.Content = _contentPanel;
             Grid.SetRow(scroll, 5);
             root.Children.Add(scroll);
@@ -436,11 +447,11 @@ namespace RevitWebAppSync.UI
                 Background = Brushes.White,
                 BorderBrush = new SolidColorBrush(BorderColor),
                 BorderThickness = new Thickness(0, 1, 0, 0),
-                Padding = new Thickness(10, 8, 10, 8)
+                Padding = new Thickness(12, 10, 12, 10)
             };
             var actionStack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
 
-            var primaryRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 4) };
+            var primaryRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 6) };
             primaryRow.Children.Add(MakeActionButton("Match Prices", AutoMatch_Click, SuccessGreen, true));
             primaryRow.Children.Add(MakeActionButton("Review", ReviewQueue_Click, Color.FromRgb(156, 39, 176), false));
             primaryRow.Children.Add(MakeActionButton("AI Insights", AIInsights_Click, Color.FromRgb(100, 100, 100), false));
@@ -621,12 +632,11 @@ namespace RevitWebAppSync.UI
 
         private TextBlock MakeStatBlock(string value, string label)
         {
-            // We use a single TextBlock with Run for simplicity
-            var tb = new TextBlock { TextAlignment = TextAlignment.Center };
-            tb.Inlines.Add(new System.Windows.Documents.Run(value) { FontSize = 16, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(TextPrimary) });
+            var tb = new TextBlock { TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 0, 0, 4) };
+            tb.Inlines.Add(new System.Windows.Documents.Run(value) { FontSize = 18, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(TextPrimary) });
             tb.Inlines.Add(new System.Windows.Documents.LineBreak());
-            tb.Inlines.Add(new System.Windows.Documents.Run(label) { FontSize = 9, Foreground = new SolidColorBrush(TextMuted) });
-            tb.Tag = label; // Store label for later update
+            tb.Inlines.Add(new System.Windows.Documents.Run(label) { FontSize = 10, Foreground = new SolidColorBrush(TextMuted) });
+            tb.Tag = label;
             return tb;
         }
 
@@ -634,9 +644,9 @@ namespace RevitWebAppSync.UI
         {
             string label = tb.Tag as string ?? "";
             tb.Inlines.Clear();
-            tb.Inlines.Add(new System.Windows.Documents.Run(value) { FontSize = 16, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(TextPrimary) });
+            tb.Inlines.Add(new System.Windows.Documents.Run(value) { FontSize = 18, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(TextPrimary) });
             tb.Inlines.Add(new System.Windows.Documents.LineBreak());
-            tb.Inlines.Add(new System.Windows.Documents.Run(label) { FontSize = 9, Foreground = new SolidColorBrush(TextMuted) });
+            tb.Inlines.Add(new System.Windows.Documents.Run(label) { FontSize = 10, Foreground = new SolidColorBrush(TextMuted) });
         }
 
         private RadioButton MakeToggle(string text, bool isChecked)
@@ -656,8 +666,8 @@ namespace RevitWebAppSync.UI
             {
                 Content = text,
                 FontSize = 11,
-                Padding = new Thickness(14, 5, 14, 5),
-                Margin = new Thickness(0, 0, 4, 0),
+                Padding = new Thickness(16, 7, 16, 7),
+                Margin = new Thickness(0, 0, 6, 0),
                 Background = new SolidColorBrush(bg),
                 Foreground = Brushes.White,
                 BorderBrush = new SolidColorBrush(bg),
@@ -665,6 +675,8 @@ namespace RevitWebAppSync.UI
                 FontWeight = primary ? FontWeights.SemiBold : FontWeights.Normal,
                 Cursor = System.Windows.Input.Cursors.Hand
             };
+            // Rounded corners via template-like approach
+            btn.Resources.Add(SystemParameters.FocusVisualStyleKey, null);
             btn.Click += click;
             return btn;
         }
@@ -675,11 +687,12 @@ namespace RevitWebAppSync.UI
             {
                 Content = text,
                 FontSize = 10,
-                Padding = new Thickness(4, 2, 4, 2),
+                Padding = new Thickness(6, 3, 6, 3),
                 Background = Brushes.Transparent,
                 Foreground = new SolidColorBrush(PrimaryBlue),
                 BorderThickness = new Thickness(0),
-                Cursor = System.Windows.Input.Cursors.Hand
+                Cursor = System.Windows.Input.Cursors.Hand,
+                FontWeight = FontWeights.Medium
             };
             btn.Click += click;
             return btn;
@@ -827,13 +840,13 @@ namespace RevitWebAppSync.UI
                 Background = Brushes.White,
                 BorderBrush = new SolidColorBrush(BorderColor),
                 BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(10, 8, 10, 8),
-                Margin = new Thickness(0, 0, 0, 4),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(12, 10, 12, 10),
+                Margin = new Thickness(0, 0, 0, 6),
                 Cursor = System.Windows.Input.Cursors.Hand
             };
-            row.MouseEnter += (s, e) => row.Background = new SolidColorBrush(RowHover);
-            row.MouseLeave += (s, e) => row.Background = Brushes.White;
+            row.MouseEnter += (s, e) => { row.Background = new SolidColorBrush(RowHover); row.BorderBrush = new SolidColorBrush(PrimaryBlue); };
+            row.MouseLeave += (s, e) => { row.Background = Brushes.White; row.BorderBrush = new SolidColorBrush(BorderColor); };
             row.MouseLeftButtonUp += (s, e) => ShowGroupDetail(group);
 
             var grid = new Grid();
@@ -883,12 +896,12 @@ namespace RevitWebAppSync.UI
             _contentPanel.Children.Clear();
 
             // Back button
-            var backBtn = new Button { Content = "< Back", Background = Brushes.Transparent, Foreground = new SolidColorBrush(PrimaryBlue), BorderThickness = new Thickness(0), FontSize = 11, Cursor = System.Windows.Input.Cursors.Hand, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 6) };
+            var backBtn = new Button { Content = "< Back", Background = Brushes.Transparent, Foreground = new SolidColorBrush(PrimaryBlue), BorderThickness = new Thickness(0), FontSize = 11, FontWeight = FontWeights.Medium, Cursor = System.Windows.Input.Cursors.Hand, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 8) };
             backBtn.Click += (s, e) => UpdateContent();
             _contentPanel.Children.Add(backBtn);
 
             // Title
-            var titleCard = new Border { Background = Brushes.White, BorderBrush = new SolidColorBrush(BorderColor), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Padding = new Thickness(12, 8, 12, 8), Margin = new Thickness(0, 0, 0, 8) };
+            var titleCard = new Border { Background = Brushes.White, BorderBrush = new SolidColorBrush(BorderColor), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(14, 10, 14, 10), Margin = new Thickness(0, 0, 0, 10) };
             var titleStack = new StackPanel();
             titleStack.Children.Add(new TextBlock { Text = group.Name, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(TextPrimary) });
             titleStack.Children.Add(new TextBlock { Text = $"RM {group.TotalCost:N0}  |  {group.ItemCount} items  |  {group.Percentage:F1}%", FontSize = 10, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 2, 0, 0) });
