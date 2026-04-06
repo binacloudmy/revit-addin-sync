@@ -27,6 +27,10 @@ namespace RevitWebAppSync.Services
                 Element elem = doc.GetElement(new ElementId(item.ElementId));
                 if (elem == null) continue;
 
+                // Skip elements inside groups (can't modify without group edit mode)
+                if (elem.GroupId != null && elem.GroupId != ElementId.InvalidElementId)
+                    continue;
+
                 try
                 {
                     bool updated = false;
@@ -86,6 +90,10 @@ namespace RevitWebAppSync.Services
             {
                 Element elem = doc.GetElement(new ElementId(item.ElementId));
                 if (elem == null) continue;
+
+                // Skip elements inside groups
+                if (elem.GroupId != null && elem.GroupId != ElementId.InvalidElementId)
+                    continue;
 
                 try
                 {
