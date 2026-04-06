@@ -18,6 +18,10 @@ namespace RevitWebAppSync
         public static ExternalEvent AIExternalEvent { get; private set; }
         public static CodeExecutionHandler AIHandler { get; private set; }
 
+        // Cost parameter writing (must run on Revit API thread)
+        public static ExternalEvent CostWriteEvent { get; private set; }
+        public static CostWriteHandler CostWriteHandler { get; private set; }
+
         // Cost Dashboard dockable pane host
         public static CostDashboardHost CostDashboardHost { get; private set; }
 
@@ -34,6 +38,10 @@ namespace RevitWebAppSync
                 // Create external event handler for AI code execution
                 AIHandler = new CodeExecutionHandler();
                 AIExternalEvent = ExternalEvent.Create(AIHandler);
+
+                // Create external event handler for cost parameter writing
+                CostWriteHandler = new CostWriteHandler();
+                CostWriteEvent = ExternalEvent.Create(CostWriteHandler);
 
                 // Register Cost Dashboard dockable pane
                 try

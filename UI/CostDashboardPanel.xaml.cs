@@ -1228,44 +1228,31 @@ namespace RevitWebAppSync.UI
 
                 _summary = CostCalculator.Calculate(_allItems); UpdateTotalCard(); UpdateContent();
 
-                // Write matched prices to Revit model parameters (enables native Schedule view)
+                // Write matched prices to Revit model parameters via ExternalEvent
+                // (must run on Revit's API thread, not the async/UI thread)
                 int writtenToModel = 0;
                 string writeError = null;
                 try
                 {
-                    Document doc = _uiApp?.ActiveUIDocument?.Document;
-                    if (doc != null)
+                    var handler = App.CostWriteHandler;
+                    var evt = App.CostWriteEvent;
+                    if (handler != null && evt != null)
                     {
-                        // Step 1: Create shared parameters
-                        using (Transaction tx1 = new Transaction(doc, "BINA: Create Cost Parameters"))
+                        handler.Items = _allItems;
+                        handler.OnCompleted = () =>
                         {
-                            tx1.Start();
-                            BINASharedParameters.EnsureParameters(doc);
-                            tx1.Commit();
-                        }
-
-                        // Step 2: Write prices to elements
-                        using (Transaction tx2 = new Transaction(doc, "BINA: Write Prices"))
-                        {
-                            tx2.Start();
-                            writtenToModel = CostParameterWriter.WritePricesToModel(doc, _allItems);
-                            tx2.Commit();
-                        }
-
-                        // Step 3: Create cost schedule (separate so it doesn't block prices)
-                        try
-                        {
-                            using (Transaction tx3 = new Transaction(doc, "BINA: Create Cost Schedule"))
+                            Dispatcher.Invoke(() =>
                             {
-                                tx3.Start();
-                                BINASharedParameters.CreateCostSchedule(doc);
-                                tx3.Commit();
-                            }
-                        }
-                        catch (Exception schedEx)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[BINA Cost] Schedule creation failed: {schedEx.Message}");
-                        }
+                                if (handler.Error != null)
+                                    ShowBanner("Write error: " + handler.Error, "", WarningAmber);
+                                else if (handler.WrittenCount > 0)
+                                    ShowBanner(
+                                        $"Wrote {handler.WrittenCount} prices to model",
+                                        handler.ScheduleCreated ? "Open 'BINA Cost Summary' in Project Browser > Schedules to edit prices" : "Edit prices in 'BINA Cost Summary' schedule",
+                                        SuccessGreen);
+                            });
+                        };
+                        evt.Raise();
                     }
                 }
                 catch (Exception writeEx)

@@ -1,0 +1,80 @@
+using System;
+using System.Collections.Generic;
+using Autodesk.Revit.DB;
+using Autodesk.Revit.UI;
+using RevitWebAppSync.Models;
+using RevitWebAppSync.Services;
+
+namespace RevitWebAppSync.Handlers
+{
+    /// <summary>
+    /// Handles writing cost parameters to Revit model on the main API thread.
+    /// Must be invoked via ExternalEvent.Raise() from async/UI code.
+    /// </summary>
+    public class CostWriteHandler : IExternalEventHandler
+    {
+        public List<CostItem> Items { get; set; }
+        public int WrittenCount { get; private set; }
+        public bool ScheduleCreated { get; private set; }
+        public string Error { get; private set; }
+        public Action OnCompleted { get; set; }
+
+        public void Execute(UIApplication app)
+        {
+            WrittenCount = 0;
+            ScheduleCreated = false;
+            Error = null;
+
+            try
+            {
+                var doc = app.ActiveUIDocument?.Document;
+                if (doc == null || Items == null || Items.Count == 0)
+                {
+                    Error = "No active document or no items to write";
+                    OnCompleted?.Invoke();
+                    return;
+                }
+
+                // Step 1: Create shared parameters
+                using (var tx1 = new Transaction(doc, "BINA: Create Cost Parameters"))
+                {
+                    tx1.Start();
+                    BINASharedParameters.EnsureParameters(doc);
+                    tx1.Commit();
+                }
+
+                // Step 2: Write prices to elements
+                using (var tx2 = new Transaction(doc, "BINA: Write Prices"))
+                {
+                    tx2.Start();
+                    WrittenCount = CostParameterWriter.WritePricesToModel(doc, Items);
+                    tx2.Commit();
+                }
+
+                // Step 3: Create cost schedule
+                try
+                {
+                    using (var tx3 = new Transaction(doc, "BINA: Create Cost Schedule"))
+                    {
+                        tx3.Start();
+                        ScheduleCreated = BINASharedParameters.CreateCostSchedule(doc);
+                        tx3.Commit();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA Cost] Schedule creation failed: {ex.Message}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Error = ex.Message;
+                System.Diagnostics.Debug.WriteLine($"[BINA Cost] CostWriteHandler failed: {ex.Message}");
+            }
+
+            OnCompleted?.Invoke();
+        }
+
+        public string GetName() => "BINA Cost Write Handler";
+    }
+}
