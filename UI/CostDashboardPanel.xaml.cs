@@ -56,7 +56,7 @@ namespace RevitWebAppSync.UI
         private TextBlock _sqftTotalText;
         private TextBlock _sqftAreaText;
         private ComboBox _buildingTypeCombo;
-        private TextBox _customRateBox;
+        private System.Windows.Controls.TextBox _customRateBox;
 
         // Loading overlay UI
         private Border _loadingOverlay;
@@ -329,7 +329,7 @@ namespace RevitWebAppSync.UI
             _buildingTypeCombo.SelectionChanged += (s, ev) => UpdateSqftEstimate();
             sqftInputRow.Children.Add(_buildingTypeCombo);
 
-            _customRateBox = new TextBox
+            _customRateBox = new System.Windows.Controls.TextBox
             {
                 Width = 70, Height = 22, FontSize = 10,
                 Visibility = Visibility.Collapsed,
@@ -1628,7 +1628,7 @@ namespace RevitWebAppSync.UI
 
                 var manualInputRow = new StackPanel { Orientation = Orientation.Horizontal };
 
-                var jkrBox = new TextBox
+                var jkrBox = new System.Windows.Controls.TextBox
                 {
                     Width = 120, Height = 26, FontSize = 11,
                     Background = new SolidColorBrush(Color.FromRgb(52, 52, 56)),
@@ -1646,7 +1646,7 @@ namespace RevitWebAppSync.UI
                 jkrBox.Foreground = new SolidColorBrush(textDim);
                 manualInputRow.Children.Add(jkrBox);
 
-                var priceBox = new TextBox
+                var priceBox = new System.Windows.Controls.TextBox
                 {
                     Width = 80, Height = 26, FontSize = 11,
                     Background = new SolidColorBrush(Color.FromRgb(52, 52, 56)),
@@ -1689,7 +1689,8 @@ namespace RevitWebAppSync.UI
                     string priceText = priceBox.Text.Trim();
                     if (priceText == "RM") priceText = "";
 
-                    if (string.IsNullOrEmpty(jkr) || !double.TryParse(priceText, out double price) || price <= 0)
+                    double price = 0;
+                    if (string.IsNullOrEmpty(jkr) || !double.TryParse(priceText, out price) || price <= 0)
                     {
                         jkrBox.BorderBrush = string.IsNullOrEmpty(jkr) ? new SolidColorBrush(accentRed) : new SolidColorBrush(borderSubtle);
                         priceBox.BorderBrush = (price <= 0 || priceText == "") ? new SolidColorBrush(accentRed) : new SolidColorBrush(borderSubtle);

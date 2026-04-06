@@ -112,7 +112,7 @@ namespace RevitWebAppSync.UI
             {
                 Background = new SolidColorBrush(Color.FromRgb(235, 243, 252)),
                 Padding = new Thickness(12, 6, 12, 6),
-                Visibility = Visibility.Collapsed
+                Visibility = System.Windows.Visibility.Collapsed
             };
             _statusText = new TextBlock { FontSize = 11, Foreground = new SolidColorBrush(TextPrimary) };
             _statusBanner.Child = _statusText;
@@ -315,10 +315,10 @@ namespace RevitWebAppSync.UI
         {
             _statusBanner.Background = new SolidColorBrush(bg);
             _statusText.Text = text;
-            _statusBanner.Visibility = Visibility.Visible;
+            _statusBanner.Visibility = System.Windows.Visibility.Visible;
         }
 
-        private void HideStatus() => _statusBanner.Visibility = Visibility.Collapsed;
+        private void HideStatus() => _statusBanner.Visibility = System.Windows.Visibility.Collapsed;
 
         // ── Events ──
 

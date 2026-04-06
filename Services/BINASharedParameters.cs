@@ -143,7 +143,7 @@ namespace RevitWebAppSync.Services
             {
                 // Already defined, just ensure it's bound
                 if (doc.ParameterBindings.get_Item(existingDef) == null)
-                    doc.ParameterBindings.Insert(existingDef, binding, BuiltInParameterGroup.PG_DATA);
+                    doc.ParameterBindings.Insert(existingDef, binding, GroupTypeId.Data);
                 return;
             }
 
@@ -155,7 +155,7 @@ namespace RevitWebAppSync.Services
             };
 
             var definition = group.Definitions.Create(options);
-            doc.ParameterBindings.Insert(definition, binding, BuiltInParameterGroup.PG_DATA);
+            doc.ParameterBindings.Insert(definition, binding, GroupTypeId.Data);
         }
     }
 }

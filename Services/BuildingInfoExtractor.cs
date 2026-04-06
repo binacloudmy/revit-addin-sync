@@ -81,7 +81,7 @@ namespace RevitWebAppSync.Services
             {
                 var elem = new ComplianceElement
                 {
-                    ElementId = wall.Id.IntegerValue,
+                    ElementId = (int)wall.Id.Value,
                     Category = "Walls",
                     FamilyName = wall.WallType?.FamilyName ?? "",
                     TypeName = wall.WallType?.Name ?? "",
@@ -114,7 +114,7 @@ namespace RevitWebAppSync.Services
             {
                 var elem = new ComplianceElement
                 {
-                    ElementId = door.Id.IntegerValue,
+                    ElementId = (int)door.Id.Value,
                     Category = "Doors",
                     FamilyName = door.Symbol?.Family?.Name ?? "",
                     TypeName = door.Symbol?.Name ?? "",
@@ -150,7 +150,7 @@ namespace RevitWebAppSync.Services
                 var floorType = doc.GetElement(floor.GetTypeId());
                 var elem = new ComplianceElement
                 {
-                    ElementId = floor.Id.IntegerValue,
+                    ElementId = (int)floor.Id.Value,
                     Category = "Floors",
                     FamilyName = floorType?.get_Parameter(BuiltInParameter.ALL_MODEL_FAMILY_NAME)?.AsString() ?? "",
                     TypeName = floorType?.Name ?? "",
@@ -180,14 +180,15 @@ namespace RevitWebAppSync.Services
             {
                 var elem = new ComplianceElement
                 {
-                    ElementId = stair.Id.IntegerValue,
+                    ElementId = (int)stair.Id.Value,
                     Category = "Stairs",
                     TypeName = doc.GetElement(stair.GetTypeId())?.Name ?? "",
                     LevelName = doc.GetElement(stair.LevelId)?.Name ?? "",
                 };
 
-                // Stair width
-                var widthParam = stair.get_Parameter(BuiltInParameter.STAIRS_ACTUAL_RUN_WIDTH);
+                // Stair width – try common parameter names
+                var widthParam = stair.LookupParameter("Actual Run Width")
+                              ?? stair.LookupParameter("Width");
                 if (widthParam != null)
                     elem.WidthMm = Math.Round(widthParam.AsDouble() * 304.8, 0);
 
