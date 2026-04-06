@@ -723,20 +723,19 @@ namespace RevitWebAppSync.UI
                 _priceDb = new PriceDatabase(projectName);
                 _allItems = RevitModelWalker.GetAllItems(doc);
 
-                // Read prices from model parameters (picks up user edits in Revit Schedule)
+                // Step 1: Read prices from model parameters (picks up user edits in Revit Schedule)
                 int fromModel = CostParameterWriter.ReadPricesFromModel(doc, _allItems);
 
-                // Apply saved local prices for items not yet priced from model
-                int fromDb = _priceDb.ApplyPrices(
-                    _allItems.FindAll(i => i.UnitPrice <= 0));
+                // Step 2: Apply saved local prices for ALL unpriced items
+                int fromDb = _priceDb.ApplyPrices(_allItems);
 
-                // Save any user-edited prices from model back to local DB
+                // Step 3: Save any user-edited prices from model back to local DB
                 if (fromModel > 0)
                 {
                     foreach (var item in _allItems)
                     {
-                        if (item.UnitPrice > 0 && item.PriceSource == "manual" && !string.IsNullOrEmpty(item.JkrCode))
-                            _priceDb.SetPrice(item.JkrCode, item.UnitPrice, item.Unit, item.Name, "manual");
+                        if (item.UnitPrice > 0 && !string.IsNullOrEmpty(item.JkrCode))
+                            _priceDb.SetPrice(item.JkrCode, item.UnitPrice, item.Unit, item.Name, item.PriceSource ?? "manual");
                     }
                     _priceDb.Save();
                 }

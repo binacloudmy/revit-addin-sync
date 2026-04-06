@@ -177,14 +177,20 @@ namespace RevitWebAppSync.Services
         /// </summary>
         public static bool CreateCostSchedule(Document doc)
         {
-            // Check if schedule already exists
+            // Check if schedule already exists with correct columns
             var existing = new FilteredElementCollector(doc)
                 .OfClass(typeof(ViewSchedule))
                 .Cast<ViewSchedule>()
                 .FirstOrDefault(v => v.Name == SCHEDULE_NAME);
 
             if (existing != null)
-                return false; // Already exists
+            {
+                // Recreate if it has fewer columns than expected (old version)
+                var fieldCount = existing.Definition.GetFieldOrder().Count;
+                if (fieldCount >= 7)
+                    return false; // Already up to date
+                doc.Delete(existing.Id);
+            }
 
             // Create a multi-category schedule
             var schedule = ViewSchedule.CreateSchedule(doc, new ElementId(BuiltInCategory.INVALID));
@@ -201,6 +207,10 @@ namespace RevitWebAppSync.Services
                 "Category",
                 "Family",
                 "Type",
+                "Level",
+                "Area",
+                "Length",
+                "Count",
                 PARAM_JKR_CODE,
                 PARAM_UNIT_PRICE,
                 PARAM_TOTAL_COST,
@@ -209,11 +219,19 @@ namespace RevitWebAppSync.Services
 
             foreach (var fieldName in desiredFields)
             {
+                // Exact match first, then partial match for built-in fields
                 var sf = schedulableFields.FirstOrDefault(f =>
                     f.GetName(doc) == fieldName);
 
+                if (sf == null)
+                    sf = schedulableFields.FirstOrDefault(f =>
+                        f.GetName(doc).Contains(fieldName));
+
                 if (sf != null)
-                    definition.AddField(sf);
+                {
+                    try { definition.AddField(sf); }
+                    catch { /* Field may not be schedulable for multi-category */ }
+                }
             }
 
             // Sort by Category then BINA_Total_Cost descending
