@@ -1086,6 +1086,7 @@ namespace RevitWebAppSync.UI
         private async void AutoMatch_Click(object sender, RoutedEventArgs e)
         {
             var btn = sender as Button;
+            _suppressModelChanged = true; // Suppress all model-changed events during matching
             try
             {
                 // Auto-refresh if no data loaded yet
@@ -1276,6 +1277,7 @@ namespace RevitWebAppSync.UI
                 catch (Exception writeEx)
                 {
                     writeError = writeEx.Message;
+                    _suppressModelChanged = false;
                     System.Diagnostics.Debug.WriteLine($"[BINA Cost] Parameter write failed: {writeEx.Message}");
                 }
 
