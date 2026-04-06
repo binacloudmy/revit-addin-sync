@@ -1203,23 +1203,19 @@ namespace RevitWebAppSync.UI
                             _loadingStatusText.Text = $"Done — {pipelineMatched} matched ({matchRate})";
                             await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
 
-                            // Apply matched prices
+                            // Apply ALL matched prices (low confidence items get priced too, user can review later)
                             foreach (var match in result.Matches)
                             {
-                                // Only apply confirmed/high/medium confidence
-                                if (match.Confidence == "confirmed" || match.Confidence == "high" || match.Confidence == "medium")
+                                if (match.UnitPrice <= 0) continue;
+                                var item = _allItems.FirstOrDefault(x => x.ElementId == match.ElementId);
+                                if (item != null && item.UnitPrice <= 0)
                                 {
-                                    var item = _allItems.FirstOrDefault(x => x.ElementId == match.ElementId);
-                                    if (item != null && item.UnitPrice <= 0 && match.UnitPrice > 0)
-                                    {
-                                        item.UnitPrice = match.UnitPrice;
-                                        item.JkrCode = match.JkrCode;
-                                        // Extract actual source from reasoning (e.g., "JKR JKHLS 2021, similarity: 0.731")
-                                        string source = match.Reasoning?.Split(',')[0] ?? match.MatchLayer;
-                                        item.PriceSource = match.MatchLayer == "layer1_exact" ? "master" :
-                                                           match.MatchLayer == "layer2_learned" ? "learned" : source;
-                                        _priceDb?.SetPrice(item.JkrCode, item.UnitPrice, item.Unit, item.Name, item.PriceSource);
-                                    }
+                                    item.UnitPrice = match.UnitPrice;
+                                    item.JkrCode = match.JkrCode;
+                                    string source = match.Reasoning?.Split(',')[0] ?? match.MatchLayer;
+                                    item.PriceSource = match.MatchLayer == "layer1_exact" ? "master" :
+                                                       match.MatchLayer == "layer2_learned" ? "learned" : source;
+                                    _priceDb?.SetPrice(item.JkrCode, item.UnitPrice, item.Unit, item.Name, item.PriceSource);
                                 }
                             }
                         }
