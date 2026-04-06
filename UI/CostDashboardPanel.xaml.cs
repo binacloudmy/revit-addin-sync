@@ -1230,23 +1230,47 @@ namespace RevitWebAppSync.UI
 
                 // Write matched prices to Revit model parameters (enables native Schedule view)
                 int writtenToModel = 0;
+                string writeError = null;
                 try
                 {
                     Document doc = _uiApp?.ActiveUIDocument?.Document;
                     if (doc != null)
                     {
-                        using (Transaction tx = new Transaction(doc, "BINA: Update Cost Parameters"))
+                        // Step 1: Create shared parameters
+                        using (Transaction tx1 = new Transaction(doc, "BINA: Create Cost Parameters"))
                         {
-                            tx.Start();
+                            tx1.Start();
                             BINASharedParameters.EnsureParameters(doc);
+                            tx1.Commit();
+                        }
+
+                        // Step 2: Write prices to elements
+                        using (Transaction tx2 = new Transaction(doc, "BINA: Write Prices"))
+                        {
+                            tx2.Start();
                             writtenToModel = CostParameterWriter.WritePricesToModel(doc, _allItems);
-                            BINASharedParameters.CreateCostSchedule(doc);
-                            tx.Commit();
+                            tx2.Commit();
+                        }
+
+                        // Step 3: Create cost schedule (separate so it doesn't block prices)
+                        try
+                        {
+                            using (Transaction tx3 = new Transaction(doc, "BINA: Create Cost Schedule"))
+                            {
+                                tx3.Start();
+                                BINASharedParameters.CreateCostSchedule(doc);
+                                tx3.Commit();
+                            }
+                        }
+                        catch (Exception schedEx)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[BINA Cost] Schedule creation failed: {schedEx.Message}");
                         }
                     }
                 }
                 catch (Exception writeEx)
                 {
+                    writeError = writeEx.Message;
                     System.Diagnostics.Debug.WriteLine($"[BINA Cost] Parameter write failed: {writeEx.Message}");
                 }
 
@@ -1262,6 +1286,7 @@ namespace RevitWebAppSync.UI
                 string detail = string.Join(" | ", parts);
 
                 string scheduleHint = writtenToModel > 0 ? " | Edit prices in 'BINA Cost Summary' schedule" : "";
+                if (writeError != null) scheduleHint = $" | Write error: {writeError}";
 
                 if (reviewQueued > 0)
                 {

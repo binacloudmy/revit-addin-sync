@@ -68,13 +68,13 @@ namespace RevitWebAppSync.Services
             try
             {
                 // Create a temporary shared parameter file
-                tempFile = Path.Combine(Path.GetTempPath(), "BINA_SharedParams.txt");
+                tempFile = Path.Combine(Path.GetTempPath(), $"BINA_SharedParams_{Guid.NewGuid():N}.txt");
                 File.WriteAllText(tempFile, "");
                 doc.Application.SharedParametersFilename = tempFile;
 
                 var defFile = doc.Application.OpenSharedParameterFile();
                 if (defFile == null)
-                    throw new InvalidOperationException("Failed to create shared parameter file");
+                    throw new InvalidOperationException("Failed to open shared parameter file");
 
                 // Create or get the BINA Cost group
                 var group = defFile.Groups.get_Item(GROUP_NAME)
@@ -84,17 +84,22 @@ namespace RevitWebAppSync.Services
                 var catSet = new CategorySet();
                 foreach (var bic in AllCategories)
                 {
-                    var cat = Category.GetCategory(doc, bic);
-                    if (cat != null)
-                        catSet.Insert(cat);
+                    try
+                    {
+                        var cat = Category.GetCategory(doc, bic);
+                        if (cat != null && cat.AllowsBoundParameters)
+                            catSet.Insert(cat);
+                    }
+                    catch { /* Some categories may not exist in this document */ }
                 }
 
                 if (catSet.Size == 0)
-                    return;
+                    throw new InvalidOperationException("No valid categories found for parameter binding");
 
                 var binding = doc.Application.Create.NewInstanceBinding(catSet);
 
-                // Create each parameter
+                // Use Number for numeric and String.Text for text
+                // Revit 2024+: SpecTypeId.Number and SpecTypeId.String.Text
                 CreateAndBind(doc, group, binding, PARAM_UNIT_PRICE, SpecTypeId.Number, false);
                 CreateAndBind(doc, group, binding, PARAM_TOTAL_COST, SpecTypeId.Number, false);
                 CreateAndBind(doc, group, binding, PARAM_JKR_CODE, SpecTypeId.String.Text, true);
@@ -103,11 +108,15 @@ namespace RevitWebAppSync.Services
             finally
             {
                 // Restore original shared parameter file
-                if (!string.IsNullOrEmpty(originalFile) && File.Exists(originalFile))
-                    doc.Application.SharedParametersFilename = originalFile;
+                try
+                {
+                    if (!string.IsNullOrEmpty(originalFile))
+                        doc.Application.SharedParametersFilename = originalFile;
+                }
+                catch { }
 
                 // Clean up temp file
-                if (tempFile != null && File.Exists(tempFile))
+                if (tempFile != null)
                 {
                     try { File.Delete(tempFile); } catch { }
                 }
