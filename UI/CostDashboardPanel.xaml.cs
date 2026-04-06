@@ -978,6 +978,28 @@ namespace RevitWebAppSync.UI
             return name.Length <= maxLen ? name : name.Substring(0, maxLen) + "...";
         }
 
+        /// <summary>
+        /// Apply a reviewed/accepted price to matching items in the dashboard and recalculate totals.
+        /// </summary>
+        private void ApplyReviewPrice(string elementName, string jkrCode, double unitPrice, string source)
+        {
+            if (unitPrice <= 0 || string.IsNullOrEmpty(elementName)) return;
+
+            foreach (var item in _allItems)
+            {
+                if (item.UnitPrice <= 0 && item.Name == elementName)
+                {
+                    item.UnitPrice = unitPrice;
+                    if (!string.IsNullOrEmpty(jkrCode)) item.JkrCode = jkrCode;
+                    item.PriceSource = source;
+                    _priceDb?.SetPrice(jkrCode ?? "", unitPrice, item.Unit, item.Name, source);
+                }
+            }
+            _priceDb?.Save();
+            _summary = CostCalculator.Calculate(_allItems);
+            UpdateTotalCard();
+        }
+
         // ── Live Update ──
 
         public void OnModelChanged(ChangeSummary changeSummary)
@@ -1754,6 +1776,9 @@ namespace RevitWebAppSync.UI
                         card.BorderBrush = new SolidColorBrush(Color.FromArgb(60, accentGreen.R, accentGreen.G, accentGreen.B));
                         confirmBtn.Content = "✓ Saved";
                         confirmBtn.Background = new SolidColorBrush(Color.FromRgb(22, 101, 52));
+
+                        // Apply price to dashboard immediately
+                        ApplyReviewPrice(r.ElementName, jkr, price, "manual");
                     }
                     else
                     {
@@ -1802,9 +1827,10 @@ namespace RevitWebAppSync.UI
                             card.Background = new SolidColorBrush(Color.FromArgb(20, accentGreen.R, accentGreen.G, accentGreen.B));
                             card.BorderBrush = new SolidColorBrush(Color.FromArgb(60, accentGreen.R, accentGreen.G, accentGreen.B));
                             ((Button)s).Content = "✓ Learned";
-                            ((Button)s).Background = new SolidColorBrush(Color.FromRgb(22, 101, 52)); // green-800
+                            ((Button)s).Background = new SolidColorBrush(Color.FromRgb(22, 101, 52));
 
-                            // Update the count in the header if we track it
+                            // Apply price to dashboard immediately
+                            ApplyReviewPrice(r.ElementName, top.JkrCode, top.UnitPrice, "learned");
                         }
                         else
                         {
@@ -1937,17 +1963,20 @@ namespace RevitWebAppSync.UI
                             c.Background = new SolidColorBrush(Color.FromArgb(15, accentGreen.R, accentGreen.G, accentGreen.B));
                             c.BorderBrush = new SolidColorBrush(Color.FromArgb(40, accentGreen.R, accentGreen.G, accentGreen.B));
                         }
+
+                        // Apply price to dashboard
+                        ApplyReviewPrice(review.ElementName, top.JkrCode, top.UnitPrice, "learned");
                     }
 
                     progressText.Text = $"✓ {confirmed}/{total}";
                     await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
                 }
 
-                progressText.Text = $"✅ {confirmed} learned!";
-                acceptAllBtn.Content = new TextBlock { Text = $"✓ Done — {confirmed} learned", Foreground = Brushes.White, FontWeight = FontWeights.SemiBold };
+                progressText.Text = $"{confirmed} learned!";
+                acceptAllBtn.Content = new TextBlock { Text = $"Done — {confirmed} learned", Foreground = Brushes.White, FontWeight = FontWeights.SemiBold };
                 acceptAllBtn.Background = new SolidColorBrush(Color.FromRgb(22, 101, 52));
 
-                ShowBanner($"✅ {confirmed} mappings learned!", "Re-run Match Prices to apply", SuccessGreen);
+                ShowBanner($"{confirmed} mappings learned — total updated", "", SuccessGreen);
             };
 
             footerButtons.Children.Add(progressText);
