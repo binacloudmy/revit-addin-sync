@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Autodesk.Revit.DB;
 
 namespace RevitWebAppSync.Services
@@ -156,6 +157,69 @@ namespace RevitWebAppSync.Services
 
             var definition = group.Definitions.Create(options);
             doc.ParameterBindings.Insert(definition, binding, GroupTypeId.Data);
+        }
+
+        private const string SCHEDULE_NAME = "BINA Cost Summary";
+
+        /// <summary>
+        /// Auto-create a multi-category schedule showing BINA cost parameters.
+        /// Idempotent — skips if schedule already exists.
+        /// Must be called inside a Transaction.
+        /// </summary>
+        public static bool CreateCostSchedule(Document doc)
+        {
+            // Check if schedule already exists
+            var existing = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewSchedule))
+                .Cast<ViewSchedule>()
+                .FirstOrDefault(v => v.Name == SCHEDULE_NAME);
+
+            if (existing != null)
+                return false; // Already exists
+
+            // Create a multi-category schedule
+            var schedule = ViewSchedule.CreateSchedule(doc, new ElementId(BuiltInCategory.INVALID));
+            schedule.Name = SCHEDULE_NAME;
+
+            var definition = schedule.Definition;
+
+            // Find and add schedulable fields
+            var schedulableFields = definition.GetSchedulableFields();
+
+            // Map of desired fields in display order
+            var desiredFields = new[]
+            {
+                "Category",
+                "Family",
+                "Type",
+                PARAM_JKR_CODE,
+                PARAM_UNIT_PRICE,
+                PARAM_TOTAL_COST,
+                PARAM_PRICE_SOURCE,
+            };
+
+            foreach (var fieldName in desiredFields)
+            {
+                var sf = schedulableFields.FirstOrDefault(f =>
+                    f.GetName(doc) == fieldName);
+
+                if (sf != null)
+                    definition.AddField(sf);
+            }
+
+            // Sort by Category then BINA_Total_Cost descending
+            var fields = definition.GetFieldOrder()
+                .Select(id => definition.GetField(id))
+                .ToList();
+
+            var categoryField = fields.FirstOrDefault(f => f.GetName() == "Category");
+            if (categoryField != null)
+            {
+                var sortGroup = new ScheduleSortGroupField(categoryField.FieldId);
+                definition.AddSortGroupField(sortGroup);
+            }
+
+            return true;
         }
     }
 }

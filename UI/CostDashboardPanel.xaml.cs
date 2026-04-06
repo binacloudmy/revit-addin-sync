@@ -761,7 +761,7 @@ namespace RevitWebAppSync.UI
             _grandTotalText.Text = $"RM {_summary.GrandTotal:N0}";
             UpdateStatBlock(_itemCountText, $"{_summary.TotalItems:N0}");
             UpdateStatBlock(_levelCountText, $"{_summary.LevelCount}");
-            int pricedPct = _summary.TotalItems > 0 ? (int)((_summary.PricedItems / (double)_summary.TotalItems) * 100) : 0;
+            int pricedPct = _summary.TotalItems > 0 ? (int)Math.Round((_summary.PricedItems / (double)_summary.TotalItems) * 100) : 0;
             UpdateStatBlock(_pricedPercentText, $"{pricedPct}%");
             _coverageBar.Value = pricedPct;
             _coverageBar.Foreground = new SolidColorBrush(pricedPct >= 80 ? SuccessGreen : pricedPct >= 50 ? WarningAmber : Color.FromRgb(200, 50, 50));
@@ -1240,6 +1240,7 @@ namespace RevitWebAppSync.UI
                             tx.Start();
                             BINASharedParameters.EnsureParameters(doc);
                             writtenToModel = CostParameterWriter.WritePricesToModel(doc, _allItems);
+                            BINASharedParameters.CreateCostSchedule(doc);
                             tx.Commit();
                         }
                     }
@@ -1260,14 +1261,16 @@ namespace RevitWebAppSync.UI
                 parts.Add($"Rate: {matchRate}");
                 string detail = string.Join(" | ", parts);
 
+                string scheduleHint = writtenToModel > 0 ? " | Edit prices in 'BINA Cost Summary' schedule" : "";
+
                 if (reviewQueued > 0)
                 {
-                    ShowBanner($"✅ Matched {totalMatched} items — RM {_summary.GrandTotal:N0}",
-                        $"{detail} | 📋 {reviewQueued} items need review — click Review", WarningAmber);
+                    ShowBanner($"Matched {totalMatched} items — RM {_summary.GrandTotal:N0}",
+                        $"{detail} | {reviewQueued} items need review{scheduleHint}", WarningAmber);
                 }
                 else
                 {
-                    ShowBanner($"✅ Matched {totalMatched} items — RM {_summary.GrandTotal:N0}", detail, SuccessGreen);
+                    ShowBanner($"Matched {totalMatched} items — RM {_summary.GrandTotal:N0}", $"{detail}{scheduleHint}", SuccessGreen);
                 }
             }
             catch (Exception ex)
@@ -2032,7 +2035,7 @@ namespace RevitWebAppSync.UI
         private void ShowLocalInsights()
         {
             var lines = new List<string> { "Cost Analysis (Offline)\n" };
-            int pricedPct = _summary.TotalItems > 0 ? (int)((_summary.PricedItems / (double)_summary.TotalItems) * 100) : 0;
+            int pricedPct = _summary.TotalItems > 0 ? (int)Math.Round((_summary.PricedItems / (double)_summary.TotalItems) * 100) : 0;
             lines.Add($"Coverage: {pricedPct}% ({_summary.PricedItems}/{_summary.TotalItems})");
             double floorArea = _allItems.Where(i => i.Category == "Floors" && (i.Unit == "m²" || i.Unit == "m2")).Sum(i => i.Quantity);
             if (floorArea > 0 && _summary.GrandTotal > 0)
