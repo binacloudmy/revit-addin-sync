@@ -28,6 +28,7 @@ namespace RevitWebAppSync.UI
         private CostSummary _summary;
         private PriceDatabase _priceDb;
         private bool _showByLevel = true;
+        private bool _suppressModelChanged = false;
 
         private double _previousTotal;
         private int _previousItemCount;
@@ -722,8 +723,32 @@ namespace RevitWebAppSync.UI
                 string projectName = Path.GetFileNameWithoutExtension(doc.PathName ?? "Untitled");
                 _priceDb = new PriceDatabase(projectName);
 
+                // Preserve matched prices from previous session
+                var previousPrices = new Dictionary<int, (double price, string code, string source)>();
+                foreach (var item in _allItems)
+                {
+                    if (item.UnitPrice > 0)
+                        previousPrices[item.ElementId] = (item.UnitPrice, item.JkrCode, item.PriceSource);
+                }
+
                 _allItems = RevitModelWalker.GetAllItems(doc);
-                // Start fresh — no prices applied until Match Prices is clicked
+
+                // Restore prices from previous match (covers grouped elements)
+                foreach (var item in _allItems)
+                {
+                    if (previousPrices.TryGetValue(item.ElementId, out var prev))
+                    {
+                        item.UnitPrice = prev.price;
+                        if (!string.IsNullOrEmpty(prev.code)) item.JkrCode = prev.code;
+                        item.PriceSource = prev.source;
+                    }
+                }
+
+                // Also read user edits from model parameters
+                CostParameterWriter.ReadPricesFromModel(doc, _allItems);
+
+                // Apply local DB prices for any remaining unpriced items
+                _priceDb.ApplyPrices(_allItems);
 
                 _summary = CostCalculator.Calculate(_allItems);
                 UpdateHeader(projectName);
@@ -959,6 +984,7 @@ namespace RevitWebAppSync.UI
         {
             try
             {
+                if (_suppressModelChanged) return;
                 if (_uiApp?.ActiveUIDocument?.Document == null) return;
                 _previousTotal = _summary?.GrandTotal ?? 0;
                 _previousItemCount = _summary?.TotalItems ?? 0;
@@ -1225,10 +1251,12 @@ namespace RevitWebAppSync.UI
                     if (handler != null && evt != null)
                     {
                         handler.Items = _allItems;
+                        _suppressModelChanged = true;
                         handler.OnCompleted = () =>
                         {
                             Dispatcher.Invoke(() =>
                             {
+                                _suppressModelChanged = false;
                                 if (handler.Error != null)
                                     ShowBanner("Write error: " + handler.Error, "", WarningAmber);
                                 else if (handler.WrittenCount > 0)

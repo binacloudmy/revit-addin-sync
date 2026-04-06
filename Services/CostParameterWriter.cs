@@ -43,11 +43,33 @@ namespace RevitWebAppSync.Services
                         updated = true;
                     }
 
-                    // Write total cost (qty x unit price)
+                    // Write total cost — use element's actual area/length if available
                     Parameter pTotal = elem.LookupParameter(BINASharedParameters.PARAM_TOTAL_COST);
                     if (pTotal != null && !pTotal.IsReadOnly)
                     {
-                        pTotal.Set(item.TotalPrice);
+                        double totalCost = item.TotalPrice;
+
+                        // For count-based items, check if element has area or length
+                        if (item.Quantity <= 1)
+                        {
+                            Parameter pArea = elem.get_Parameter(BuiltInParameter.HOST_AREA_COMPUTED);
+                            if (pArea != null && pArea.HasValue && pArea.AsDouble() > 0)
+                            {
+                                double areaM2 = UnitUtils.ConvertFromInternalUnits(pArea.AsDouble(), UnitTypeId.SquareMeters);
+                                totalCost = areaM2 * item.UnitPrice;
+                            }
+                            else
+                            {
+                                Parameter pLength = elem.get_Parameter(BuiltInParameter.CURVE_ELEM_LENGTH);
+                                if (pLength != null && pLength.HasValue && pLength.AsDouble() > 0)
+                                {
+                                    double lengthM = UnitUtils.ConvertFromInternalUnits(pLength.AsDouble(), UnitTypeId.Meters);
+                                    totalCost = lengthM * item.UnitPrice;
+                                }
+                            }
+                        }
+
+                        pTotal.Set(totalCost);
                     }
 
                     // Write JKR code
