@@ -721,15 +721,37 @@ namespace RevitWebAppSync.UI
                 Document doc = _uiApp.ActiveUIDocument.Document;
                 string projectName = Path.GetFileNameWithoutExtension(doc.PathName ?? "Untitled");
                 _priceDb = new PriceDatabase(projectName);
+
+                // Preserve existing prices before re-extracting
+                var previousPrices = new Dictionary<int, (double price, string code, string source)>();
+                foreach (var item in _allItems)
+                {
+                    if (item.UnitPrice > 0)
+                        previousPrices[item.ElementId] = (item.UnitPrice, item.JkrCode, item.PriceSource);
+                }
+
                 _allItems = RevitModelWalker.GetAllItems(doc);
 
-                // Step 1: Read prices from model parameters (picks up user edits in Revit Schedule)
+                // Step 1: Restore prices from previous session (covers grouped elements too)
+                int restored = 0;
+                foreach (var item in _allItems)
+                {
+                    if (previousPrices.TryGetValue(item.ElementId, out var prev))
+                    {
+                        item.UnitPrice = prev.price;
+                        if (!string.IsNullOrEmpty(prev.code)) item.JkrCode = prev.code;
+                        item.PriceSource = prev.source;
+                        restored++;
+                    }
+                }
+
+                // Step 2: Read prices from model parameters (picks up user edits in Revit Schedule)
                 int fromModel = CostParameterWriter.ReadPricesFromModel(doc, _allItems);
 
-                // Step 2: Apply saved local prices for ALL unpriced items
+                // Step 3: Apply saved local prices for remaining unpriced items
                 int fromDb = _priceDb.ApplyPrices(_allItems);
 
-                // Step 3: Save any user-edited prices from model back to local DB
+                // Step 4: Save any user-edited prices from model back to local DB
                 if (fromModel > 0)
                 {
                     foreach (var item in _allItems)
@@ -1198,8 +1220,10 @@ namespace RevitWebAppSync.UI
                                     {
                                         item.UnitPrice = match.UnitPrice;
                                         item.JkrCode = match.JkrCode;
-                                        item.PriceSource = match.MatchLayer == "exact" ? "master" :
-                                                           match.MatchLayer == "learned" ? "learned" : "ai";
+                                        // Extract actual source from reasoning (e.g., "JKR JKHLS 2021, similarity: 0.731")
+                                        string source = match.Reasoning?.Split(',')[0] ?? match.MatchLayer;
+                                        item.PriceSource = match.MatchLayer == "layer1_exact" ? "master" :
+                                                           match.MatchLayer == "layer2_learned" ? "learned" : source;
                                         _priceDb?.SetPrice(item.JkrCode, item.UnitPrice, item.Unit, item.Name, item.PriceSource);
                                     }
                                 }
