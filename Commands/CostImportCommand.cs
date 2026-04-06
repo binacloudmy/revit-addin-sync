@@ -7,7 +7,7 @@ using RevitWebAppSync.Services;
 
 namespace RevitWebAppSync.Commands
 {
-    [Transaction(TransactionMode.ReadOnly)]
+    [Transaction(TransactionMode.Manual)]
     [Regeneration(RegenerationOption.Manual)]
     public class CostImportCommand : IExternalCommand
     {
@@ -53,6 +53,16 @@ namespace RevitWebAppSync.Commands
                 int matched = priceDb.ApplyPrices(items);
                 var summary = CostCalculator.Calculate(items);
 
+                // Write imported prices to Revit model parameters
+                int writtenToModel = 0;
+                using (Transaction tx = new Transaction(doc, "BINA: Import Prices to Model"))
+                {
+                    tx.Start();
+                    BINASharedParameters.EnsureParameters(doc);
+                    writtenToModel = CostParameterWriter.WritePricesToModel(doc, items);
+                    tx.Commit();
+                }
+
                 // Build level breakdown string
                 string levelBreakdown = "";
                 foreach (var level in summary.ByLevel)
@@ -62,12 +72,13 @@ namespace RevitWebAppSync.Commands
                 }
 
                 TaskDialog.Show("BINA Cost — Import Complete",
-                    $"✅ Imported {imported} prices\n" +
-                    $"💰 {matched}/{items.Count} items now have prices\n\n" +
-                    $"📊 TOTAL: RM {summary.GrandTotal:N0}\n" +
+                    $"Imported {imported} prices\n" +
+                    $"{matched}/{items.Count} items now have prices\n" +
+                    $"{writtenToModel} elements updated in model\n\n" +
+                    $"TOTAL: RM {summary.GrandTotal:N0}\n" +
                     $"\nBy Level:{levelBreakdown}\n\n" +
-                    $"💾 Prices saved to local database\n" +
-                    $"(Reusable for future exports of this project)");
+                    $"Prices saved to local database and Revit model.\n" +
+                    $"View in Revit Schedule: BINA_Unit_Price, BINA_JKR_Code columns.");
 
                 return Result.Succeeded;
             }

@@ -709,8 +709,25 @@ namespace RevitWebAppSync.UI
                 string projectName = Path.GetFileNameWithoutExtension(doc.PathName ?? "Untitled");
                 _priceDb = new PriceDatabase(projectName);
                 _allItems = RevitModelWalker.GetAllItems(doc);
-                // Don't apply saved prices — start fresh so Match Prices re-matches everything
-                // Prices will be set by Match Prices pipeline
+
+                // Read prices from model parameters (picks up user edits in Revit Schedule)
+                int fromModel = CostParameterWriter.ReadPricesFromModel(doc, _allItems);
+
+                // Apply saved local prices for items not yet priced from model
+                int fromDb = _priceDb.ApplyPrices(
+                    _allItems.FindAll(i => i.UnitPrice <= 0));
+
+                // Save any user-edited prices from model back to local DB
+                if (fromModel > 0)
+                {
+                    foreach (var item in _allItems)
+                    {
+                        if (item.UnitPrice > 0 && item.PriceSource == "manual" && !string.IsNullOrEmpty(item.JkrCode))
+                            _priceDb.SetPrice(item.JkrCode, item.UnitPrice, item.Unit, item.Name, "manual");
+                    }
+                    _priceDb.Save();
+                }
+
                 _summary = CostCalculator.Calculate(_allItems);
                 UpdateHeader(projectName);
                 UpdateTotalCard();
@@ -1171,7 +1188,7 @@ namespace RevitWebAppSync.UI
                                         item.JkrCode = match.JkrCode;
                                         item.PriceSource = match.MatchLayer == "exact" ? "master" :
                                                            match.MatchLayer == "learned" ? "learned" : "ai";
-                                        _priceDb?.SavePrice(item.JkrCode, item.UnitPrice, item.Unit);
+                                        _priceDb?.SetPrice(item.JkrCode, item.UnitPrice, item.Unit, item.Name, item.PriceSource);
                                     }
                                 }
                             }
@@ -1198,10 +1215,35 @@ namespace RevitWebAppSync.UI
 
                 _summary = CostCalculator.Calculate(_allItems); UpdateTotalCard(); UpdateContent();
 
+                // Write matched prices to Revit model parameters (enables native Schedule view)
+                int writtenToModel = 0;
+                try
+                {
+                    Document doc = _uiApp?.ActiveUIDocument?.Document;
+                    if (doc != null)
+                    {
+                        using (Transaction tx = new Transaction(doc, "BINA: Update Cost Parameters"))
+                        {
+                            tx.Start();
+                            BINASharedParameters.EnsureParameters(doc);
+                            writtenToModel = CostParameterWriter.WritePricesToModel(doc, _allItems);
+                            tx.Commit();
+                        }
+                    }
+                }
+                catch (Exception writeEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA Cost] Parameter write failed: {writeEx.Message}");
+                }
+
+                // Persist prices to local DB
+                _priceDb?.Save();
+
                 int totalMatched = localMatched + pipelineMatched;
                 var parts = new List<string>();
                 if (localMatched > 0) parts.Add($"Local: {localMatched}");
                 if (pipelineMatched > 0) parts.Add($"Pipeline: {pipelineMatched}");
+                if (writtenToModel > 0) parts.Add($"Model: {writtenToModel}");
                 parts.Add($"Rate: {matchRate}");
                 string detail = string.Join(" | ", parts);
 
