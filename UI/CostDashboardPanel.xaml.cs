@@ -1041,7 +1041,11 @@ namespace RevitWebAppSync.UI
             }
         }
 
-        private void Refresh_Click(object sender, RoutedEventArgs e) { RefreshData(); }
+        private void Refresh_Click(object sender, RoutedEventArgs e)
+        {
+            _suppressModelChanged = false; // Reset in case it got stuck
+            RefreshData();
+        }
 
         private void Export_Click(object sender, RoutedEventArgs e)
         {
