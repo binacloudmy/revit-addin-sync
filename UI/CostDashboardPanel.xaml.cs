@@ -1160,6 +1160,10 @@ namespace RevitWebAppSync.UI
                 {
                     localMatched = masterDb.AutoMatchPrices(_allItems, _priceDb);
                 }
+                // Update cost display after local matching so user sees intermediate total
+                _summary = CostCalculator.Calculate(_allItems);
+                UpdateTotalCard();
+                System.Diagnostics.Debug.WriteLine($"=== COST BEFORE PIPELINE: RM {_summary.GrandTotal:N0} | Priced: {_summary.PricedItems}/{_summary.TotalItems} ({(int)Math.Round((_summary.PricedItems / (double)_summary.TotalItems) * 100)}%) | Local matched: {localMatched} ===");
                 UpdateLoadingStep(0, $"{localMatched} matched", true);
                 _loadingPercentText.Text = "5%";
                 _loadingProgressBar.Value = 5;
@@ -1289,6 +1293,41 @@ namespace RevitWebAppSync.UI
                                     _priceDb?.SetPrice(item.JkrCode, item.UnitPrice, item.Unit, item.Name, item.PriceSource);
                                 }
                             }
+                            // Update cost display progressively so user sees gradual increase
+                            _summary = CostCalculator.Calculate(_allItems);
+                            UpdateTotalCard();
+
+                            // Debug: log top cost items to identify what's driving the total
+                            var topItems = _allItems
+                                .Where(i => i.TotalPrice > 0)
+                                .OrderByDescending(i => i.TotalPrice)
+                                .Take(20)
+                                .ToList();
+                            System.Diagnostics.Debug.WriteLine("=== TOP 20 COST ITEMS (after pipeline) ===");
+                            System.Diagnostics.Debug.WriteLine($"Grand Total: RM {_summary.GrandTotal:N0} | Priced: {_summary.PricedItems}/{_summary.TotalItems}");
+                            foreach (var ti in topItems)
+                            {
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"  RM {ti.TotalPrice:N0} = {ti.Quantity:N2} {ti.Unit} x RM {ti.UnitPrice:N2} | {ti.Category} | {ti.Name} | JKR: {ti.JkrCode} | Source: {ti.PriceSource} | ElemId: {ti.ElementId}");
+                            }
+
+                            // Debug: log items matched by AI pipeline specifically
+                            var pipelineItems = _allItems
+                                .Where(i => i.PriceSource != null && i.PriceSource != "master" && i.PriceSource != "manual" && i.PriceSource != "imported" && i.UnitPrice > 0)
+                                .OrderByDescending(i => i.TotalPrice)
+                                .Take(20)
+                                .ToList();
+                            if (pipelineItems.Any())
+                            {
+                                double pipelineTotal = pipelineItems.Sum(i => i.TotalPrice);
+                                System.Diagnostics.Debug.WriteLine($"=== TOP AI-MATCHED ITEMS (total from AI: RM {_allItems.Where(i => i.PriceSource != "master" && i.PriceSource != "manual" && i.PriceSource != "imported" && i.UnitPrice > 0).Sum(i => i.TotalPrice):N0}) ===");
+                                foreach (var pi in pipelineItems)
+                                {
+                                    System.Diagnostics.Debug.WriteLine(
+                                        $"  RM {pi.TotalPrice:N0} = {pi.Quantity:N2} {pi.Unit} x RM {pi.UnitPrice:N2} | {pi.Category} | {pi.Name} | JKR: {pi.JkrCode} | Source: {pi.PriceSource}");
+                                }
+                            }
+                            System.Diagnostics.Debug.WriteLine("=== END COST DEBUG ===");
                         }
                         else
                         {
