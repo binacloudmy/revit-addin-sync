@@ -63,6 +63,8 @@ namespace RevitWebAppSync.UI
         private Border _loadingOverlay;
         private StackPanel _loadingStepsPanel;
         private ProgressBar _loadingProgressBar;
+        private TextBlock _loadingPercentText;
+        private TextBlock _loadingCountText;
         private TextBlock _loadingStatusText;
 
         // Modern color palette (Slate + vibrant accents)
@@ -504,11 +506,34 @@ namespace RevitWebAppSync.UI
                 Margin = new Thickness(0, 0, 0, 16)
             });
 
-            // Progress bar
+            // Percentage text (large)
+            _loadingPercentText = new TextBlock
+            {
+                Text = "0%",
+                FontSize = 32, FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(PrimaryBlue),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+            centerPanel.Children.Add(_loadingPercentText);
+
+            // Item count text
+            _loadingCountText = new TextBlock
+            {
+                Text = "",
+                FontSize = 10, Foreground = new SolidColorBrush(TextSecondary),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                Margin = new Thickness(0, 0, 0, 10)
+            };
+            centerPanel.Children.Add(_loadingCountText);
+
+            // Progress bar (determinate)
             _loadingProgressBar = new ProgressBar
             {
                 Height = 6,
-                IsIndeterminate = true,
+                IsIndeterminate = false,
+                Maximum = 100,
+                Value = 0,
                 Foreground = new SolidColorBrush(PrimaryBlue),
                 Background = new SolidColorBrush(Color.FromRgb(220, 220, 220)),
                 BorderThickness = new Thickness(0),
@@ -571,7 +596,10 @@ namespace RevitWebAppSync.UI
         private void ShowLoadingOverlay()
         {
             _loadingOverlay.Visibility = Visibility.Visible;
-            _loadingProgressBar.IsIndeterminate = true;
+            _loadingProgressBar.IsIndeterminate = false;
+            _loadingProgressBar.Value = 0;
+            _loadingPercentText.Text = "0%";
+            _loadingCountText.Text = "";
             _loadingStatusText.Text = "";
 
             // Reset all steps to gray/pending
@@ -1133,6 +1161,9 @@ namespace RevitWebAppSync.UI
                     localMatched = masterDb.AutoMatchPrices(_allItems, _priceDb);
                 }
                 UpdateLoadingStep(0, $"{localMatched} matched", true);
+                _loadingPercentText.Text = "5%";
+                _loadingProgressBar.Value = 5;
+                _loadingCountText.Text = $"{localMatched:N0} / {_allItems.Count:N0} items";
                 await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
 
                 // Step 2: AI 4-layer pipeline for unpriced items only
@@ -1166,40 +1197,53 @@ namespace RevitWebAppSync.UI
 
                         string projectName = _subtitleText?.Text?.Split('|')?.FirstOrDefault()?.Trim() ?? "Untitled";
 
+                        int totalForPipeline = unmatchedItems.Count;
+
                         // Use SSE streaming for real-time progress
                         var result = await aiEstimator.MatchPipelineStreamAsync(
                             unmatchedItems, projectName,
                             onProgress: (evt) =>
                             {
-                                // Update loading steps in real-time from SSE events
+                                // Update loading steps and percentage in real-time from SSE events
                                 Dispatcher.Invoke(() =>
                                 {
+                                    // Calculate overall percentage: Local=5%, L1=10%, L2=15%, L3=15-90%, L4=95%
+                                    int pct = 5; // Base from local DB step
                                     switch (evt.Layer)
                                     {
                                         case "starting":
+                                            pct = 6;
                                             _loadingStatusText.Text = evt.Message;
                                             break;
                                         case "layer1_exact":
+                                            pct = 10;
                                             UpdateLoadingStep(1, evt.Message, true);
                                             _loadingStatusText.Text = evt.Message;
                                             break;
                                         case "layer2_learned":
+                                            pct = 15;
                                             UpdateLoadingStep(2, evt.Message, true);
                                             _loadingStatusText.Text = evt.Message;
                                             break;
                                         case "layer3_vector":
-                                            if (evt.TotalBatches > 0)
-                                            {
-                                                UpdateLoadingStep(3, $"batch {evt.Batch}/{evt.TotalBatches}", false);
-                                                _loadingStatusText.Text = evt.Message;
-                                            }
+                                            // Layer 3 spans 15% to 90% — use processed/total for sub-progress
+                                            if (evt.Total > 0)
+                                                pct = 15 + (int)(75.0 * evt.Processed / evt.Total);
+                                            else if (evt.TotalBatches > 0)
+                                                pct = 15 + (int)(75.0 * evt.Batch / evt.TotalBatches);
                                             else
-                                            {
+                                                pct = 90;
+
+                                            if (evt.Total > 0)
+                                                UpdateLoadingStep(3, $"{evt.Processed}/{evt.Total} items", false);
+                                            else if (evt.TotalBatches > 0)
+                                                UpdateLoadingStep(3, $"batch {evt.Batch}/{evt.TotalBatches}", false);
+                                            else
                                                 UpdateLoadingStep(3, evt.Message, true);
-                                                _loadingStatusText.Text = evt.Message;
-                                            }
+                                            _loadingStatusText.Text = evt.Message;
                                             break;
                                         case "layer4_review":
+                                            pct = 95;
                                             UpdateLoadingStep(4, evt.Message, true);
                                             _loadingStatusText.Text = evt.Message;
                                             break;
@@ -1207,6 +1251,11 @@ namespace RevitWebAppSync.UI
                                             _loadingStatusText.Text = evt.Message;
                                             break;
                                     }
+
+                                    _loadingPercentText.Text = $"{pct}%";
+                                    _loadingProgressBar.Value = pct;
+                                    if (evt.Processed > 0 && evt.Total > 0)
+                                        _loadingCountText.Text = $"{evt.Processed:N0} / {evt.Total:N0} items";
                                 });
                             });
 
@@ -1257,8 +1306,11 @@ namespace RevitWebAppSync.UI
                     UpdateLoadingStep(4, "offline", false);
                 }
 
-                // Brief pause to show final results in overlay
-                await Task.Delay(1500);
+                // Show 100% before hiding
+                _loadingPercentText.Text = "100%";
+                _loadingProgressBar.Value = 100;
+                _loadingCountText.Text = $"{_allItems.Count:N0} items processed";
+                await Task.Delay(1000);
                 HideLoadingOverlay();
 
                 _summary = CostCalculator.Calculate(_allItems); UpdateTotalCard(); UpdateContent();
