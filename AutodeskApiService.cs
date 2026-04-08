@@ -5,13 +5,14 @@ using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using RevitWebAppSync.Services;
 
 namespace RevitWebAppSync
 {
     public class AutodeskApiService
     {
         private readonly HttpClient _httpClient;
-        private readonly string _backendUrl = "https://6d9e82978eba.ngrok-free.app";
+        private readonly string _backendUrl = BinaEndpoints.WebBaseUrl;
 
         public AutodeskApiService()
         {

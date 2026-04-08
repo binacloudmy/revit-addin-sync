@@ -12,12 +12,9 @@ namespace RevitWebAppSync.Services
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
 
-        // AI Agent backend (ngrok tunnel to Mac running bina-ai-agent-agno)
-        private const string DEFAULT_BASE_URL = "https://gastrodermal-ace-overvaliantly.ngrok-free.dev";
-
         public AIService(string baseUrl = null)
         {
-            _baseUrl = baseUrl ?? DEFAULT_BASE_URL;
+            _baseUrl = baseUrl ?? BinaEndpoints.AIBaseUrl;
             _httpClient = new HttpClient
             {
                 Timeout = TimeSpan.FromSeconds(60)

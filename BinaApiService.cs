@@ -5,13 +5,14 @@ using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using RevitWebAppSync.Services;
 
 namespace RevitWebAppSync
 {
     public class BinaApiService
     {
         private readonly HttpClient _httpClient;
-        private readonly string _baseUrl = "https://6d9e82978eba.ngrok-free.app";
+        private readonly string _baseUrl = BinaEndpoints.WebBaseUrl;
         private readonly string _email;
         private readonly string _password;
 
@@ -47,7 +48,7 @@ namespace RevitWebAppSync
                     LogToFile("Login failed - no access token received");
                     return null;
                 }
-                LogToFile($"Login successful - access token received: {accessToken.Substring(0, 20)}...");
+                LogToFile("Login successful - access token received");
                 return accessToken;
             }
             catch (Exception ex)
@@ -62,8 +63,7 @@ namespace RevitWebAppSync
             try
             {
                 System.Diagnostics.Debug.WriteLine($"[BINA] Attempting login to {_baseUrl}/api/auth/user/sign-in");
-                System.Diagnostics.Debug.WriteLine($"[BINA] Using email: {_email}");
-                LogToFile($"GetAccessTokenAsync: Attempting login to {_baseUrl}/api/auth/user/sign-in with email: {_email}");
+                LogToFile("GetAccessTokenAsync: Attempting login...");
 
                 var loginData = new
                 {
@@ -89,7 +89,6 @@ namespace RevitWebAppSync
                 }
 
                 string responseBody = await response.Content.ReadAsStringAsync();
-                System.Diagnostics.Debug.WriteLine($"[BINA] Login response body: {responseBody}");
 
                 var jsonResponse = JObject.Parse(responseBody);
                 string token = jsonResponse["accessToken"]?.ToString();
@@ -126,7 +125,7 @@ namespace RevitWebAppSync
                 string jsonContent = JsonConvert.SerializeObject(loginData);
                 var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
-                var response = await httpClient.PostAsync("https://6d9e82978eba.ngrok-free.app/api/auth/user/sign-in", content);
+                var response = await httpClient.PostAsync($"{BinaEndpoints.WebBaseUrl}/api/auth/user/sign-in", content);
 
                 if (!response.IsSuccessStatusCode)
                 {
@@ -157,7 +156,7 @@ namespace RevitWebAppSync
                 httpClient.DefaultRequestHeaders.Authorization =
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
 
-                var response = await httpClient.GetAsync("https://6d9e82978eba.ngrok-free.app/api/cloud-docs/bim-discipline/user/projects");
+                var response = await httpClient.GetAsync($"{BinaEndpoints.WebBaseUrl}/api/cloud-docs/bim-discipline/user/projects");
 
                 if (!response.IsSuccessStatusCode)
                 {
