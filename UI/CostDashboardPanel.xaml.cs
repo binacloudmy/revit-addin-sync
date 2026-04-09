@@ -428,9 +428,15 @@ namespace RevitWebAppSync.UI
             };
             compStack.Children.Add(compHeader);
 
-            // Component list (inside collapsible body)
+            // Component list (inside collapsible body, scrollable)
             _componentListPanel = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
-            _componentBody.Children.Add(_componentListPanel);
+            var componentScroll = new ScrollViewer
+            {
+                MaxHeight = 300,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Content = _componentListPanel
+            };
+            _componentBody.Children.Add(componentScroll);
             compStack.Children.Add(_componentBody);
 
             _componentCard.Child = compStack;

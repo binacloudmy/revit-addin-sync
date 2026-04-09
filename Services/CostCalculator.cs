@@ -112,20 +112,35 @@ namespace RevitWebAppSync.Services
             return Calculate(filtered);
         }
 
+        // Non-construction categories to hide from the component card
+        private static readonly HashSet<string> ComponentSkipCategories = new HashSet<string>(
+            System.StringComparer.OrdinalIgnoreCase)
+        {
+            "Entourage", "Planting", "Parking", "Mass", "Site",
+            "Topography", "Curtain Systems", "Curtain Panels",
+            "Curtain Wall Mullions",
+        };
+
         /// <summary>
         /// Calculate cost breakdown by Revit component type.
         /// Groups by Category, then sub-groups by FamilyName + TypeName.
+        /// Filters out non-construction categories from the display.
         /// </summary>
         public static ComponentSummary CalculateComponentSummary(List<CostItem> items)
         {
             items ??= new List<CostItem>();
+
+            // Filter to construction-relevant categories only
+            var filtered = items.Where(i =>
+                !ComponentSkipCategories.Contains(i.Category ?? "")).ToList();
+
             var summary = new ComponentSummary
             {
-                TotalItems = items.Count,
-                TotalCost = items.Sum(i => i.TotalPrice)
+                TotalItems = filtered.Count,
+                TotalCost = filtered.Sum(i => i.TotalPrice)
             };
 
-            summary.Groups = items
+            summary.Groups = filtered
                 .GroupBy(i => i.Category ?? "Other")
                 .Select(catGroup =>
                 {

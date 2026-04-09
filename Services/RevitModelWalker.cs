@@ -12,12 +12,16 @@ namespace RevitWebAppSync.Services
     /// </summary>
     public static class RevitModelWalker
     {
-        // Categories to skip (not priceable)
+        // Categories to skip (system/non-physical elements)
         private static readonly HashSet<string> SkipCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             "Rooms", "Areas", "Project Information", "Sheets", "Views",
             "Grids", "Levels", "Reference Planes", "Scope Boxes",
-            "Matchline", "Survey Point", "Project Base Point"
+            "Matchline", "Survey Point", "Project Base Point",
+            "Schedules", "Schedule Graphics", "Analytical Nodes",
+            "Analytical Links", "Analytical Surfaces", "Analytical Spaces",
+            "Boundary Conditions", "Structural Load Cases",
+            "Structural Loads", "HVAC Zones", "Switch System",
         };
 
         // Categories measured by area (m²)
@@ -77,9 +81,11 @@ namespace RevitWebAppSync.Services
             {
                 if (elem.Category == null) continue;
 
-                // Whitelist: only include categories we can price
-                var bic = (BuiltInCategory)elem.Category.Id.Value;
-                if (!PriceableCategories.Contains(bic)) continue;
+                string categoryName = elem.Category.Name;
+                if (SkipCategories.Contains(categoryName)) continue;
+
+                // Skip area/room boundaries and internal categories
+                if (categoryName.StartsWith("<")) continue;
 
                 // Get level
                 string levelName = GetElementLevel(elem, doc);
