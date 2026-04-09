@@ -32,11 +32,13 @@ namespace RevitWebAppSync.Services
         /// </summary>
         public static SqftEstimate CalculateSqftEstimate(List<CostItem> items, string buildingType, double customRate = 0)
         {
+            items ??= new List<CostItem>();
             double floorAreaM2 = items
                 .Where(i => i.Category == "Floors" && i.Unit == "m²")
                 .Sum(i => i.Quantity);
 
-            double rate = buildingType == "Custom" ? customRate :
+            double rate = string.IsNullOrEmpty(buildingType) ? 0 :
+                buildingType == "Custom" ? customRate :
                 BuildingTypeRates.ContainsKey(buildingType) ? BuildingTypeRates[buildingType] : 0;
 
             return new SqftEstimate
@@ -52,6 +54,7 @@ namespace RevitWebAppSync.Services
         /// </summary>
         public static CostSummary Calculate(List<CostItem> items)
         {
+            items ??= new List<CostItem>();
             var summary = new CostSummary
             {
                 TotalItems = items.Count,
@@ -115,6 +118,7 @@ namespace RevitWebAppSync.Services
         /// </summary>
         public static ComponentSummary CalculateComponentSummary(List<CostItem> items)
         {
+            items ??= new List<CostItem>();
             var summary = new ComponentSummary
             {
                 TotalItems = items.Count,

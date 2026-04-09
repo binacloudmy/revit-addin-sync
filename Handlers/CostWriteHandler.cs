@@ -58,7 +58,10 @@ namespace RevitWebAppSync.Handlers
                     {
                         tx3.Start();
                         ScheduleCreated = BINASharedParameters.CreateCostSchedule(doc);
-                        tx3.Commit();
+                        if (ScheduleCreated)
+                            tx3.Commit();
+                        else
+                            tx3.RollBack();
                     }
                 }
                 catch (Exception ex)
@@ -72,7 +75,11 @@ namespace RevitWebAppSync.Handlers
                 System.Diagnostics.Debug.WriteLine($"[BINA Cost] CostWriteHandler failed: {ex.Message}");
             }
 
-            OnCompleted?.Invoke();
+            try { OnCompleted?.Invoke(); }
+            catch (Exception cbEx)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA Cost] OnCompleted callback failed: {cbEx.Message}");
+            }
         }
 
         public string GetName() => "BINA Cost Write Handler";

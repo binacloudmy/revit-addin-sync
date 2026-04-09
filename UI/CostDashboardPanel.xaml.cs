@@ -481,7 +481,7 @@ namespace RevitWebAppSync.UI
             Grid.SetRow(filterCard, 5);
             root.Children.Add(filterCard);
 
-            // ── Row 5: Scrollable content ──
+            // ── Row 6: Scrollable content ──
             var scroll = new ScrollViewer { Margin = new Thickness(12, 8, 12, 4), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             _contentPanel = new StackPanel();
             var emptyState = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 50, 0, 0) };
@@ -503,7 +503,7 @@ namespace RevitWebAppSync.UI
             Grid.SetRow(scroll, 6);
             root.Children.Add(scroll);
 
-            // ── Row 6: Action bar ──
+            // ── Row 7: Action bar ──
             var actionBar = new Border
             {
                 Background = Brushes.White,
@@ -912,6 +912,7 @@ namespace RevitWebAppSync.UI
 
             if (estimate.TotalFloorAreaM2 > 0)
             {
+                _sqftTotalText.FontSize = 22;
                 _sqftTotalText.Text = $"RM {estimate.EstimatedTotal:N0}";
                 _sqftAreaText.Text = $"Floor area: {estimate.TotalFloorAreaSqft:N0} sqft ({estimate.TotalFloorAreaM2:N0} m²)  •  RM {estimate.RatePerSqft:N0}/sqft";
             }
@@ -1256,7 +1257,7 @@ namespace RevitWebAppSync.UI
 
             foreach (var item in _allItems)
             {
-                if (item.UnitPrice <= 0 && item.Name == elementName)
+                if ((item.UnitPrice <= 0 || item.PriceSource == "estimated") && item.Name == elementName)
                 {
                     item.UnitPrice = unitPrice;
                     if (!string.IsNullOrEmpty(jkrCode)) item.JkrCode = jkrCode;
@@ -1653,7 +1654,6 @@ namespace RevitWebAppSync.UI
 
                 // Write matched prices to Revit model parameters via ExternalEvent
                 // (must run on Revit's API thread, not the async/UI thread)
-                int writtenToModel = 0;
                 string writeError = null;
                 try
                 {
@@ -1663,10 +1663,14 @@ namespace RevitWebAppSync.UI
                     {
                         handler.Items = _allItems;
                         _suppressModelChanged = true;
+                        var suppressTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+                        suppressTimer.Tick += (t, te) => { _suppressModelChanged = false; suppressTimer.Stop(); };
+                        suppressTimer.Start();
                         handler.OnCompleted = () =>
                         {
                             Dispatcher.Invoke(() =>
                             {
+                                suppressTimer.Stop();
                                 _suppressModelChanged = false;
                                 if (handler.Error != null)
                                     ShowBanner("Write error: " + handler.Error, "", WarningAmber);
@@ -1694,11 +1698,10 @@ namespace RevitWebAppSync.UI
                 var parts = new List<string>();
                 if (localMatched > 0) parts.Add($"Local: {localMatched}");
                 if (pipelineMatched > 0) parts.Add($"Pipeline: {pipelineMatched}");
-                if (writtenToModel > 0) parts.Add($"Model: {writtenToModel}");
                 parts.Add($"Rate: {matchRate}");
                 string detail = string.Join(" | ", parts);
 
-                string scheduleHint = writtenToModel > 0 ? " | Edit prices in 'BINA Cost Summary' schedule" : "";
+                string scheduleHint = "";
                 if (writeError != null) scheduleHint = $" | Write error: {writeError}";
 
                 if (reviewQueued > 0)
@@ -2203,6 +2206,7 @@ namespace RevitWebAppSync.UI
                     acceptBtn.Click += async (s, ev) =>
                     {
                         var r = (ReviewItem)((Button)s).Tag;
+                        if (r.AiSuggestions == null || !r.AiSuggestions.Any()) { ((Button)s).Content = "No suggestions"; return; }
                         var top = r.AiSuggestions.First();
                         ((Button)s).IsEnabled = false;
                         ((Button)s).Content = "⏳...";

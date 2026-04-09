@@ -28,7 +28,7 @@ namespace RevitWebAppSync.Services
                 if (elem == null) continue;
 
                 // Skip elements inside groups (can't modify without group edit mode)
-                if (elem.GroupId != null && elem.GroupId != ElementId.InvalidElementId)
+                if (elem.GroupId != ElementId.InvalidElementId)
                     continue;
 
                 try
@@ -92,7 +92,7 @@ namespace RevitWebAppSync.Services
                 if (elem == null) continue;
 
                 // Skip elements inside groups
-                if (elem.GroupId != null && elem.GroupId != ElementId.InvalidElementId)
+                if (elem.GroupId != ElementId.InvalidElementId)
                     continue;
 
                 try

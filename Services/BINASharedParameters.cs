@@ -107,11 +107,10 @@ namespace RevitWebAppSync.Services
             }
             finally
             {
-                // Restore original shared parameter file
+                // Restore original shared parameter file (even if it was null/empty)
                 try
                 {
-                    if (!string.IsNullOrEmpty(originalFile))
-                        doc.Application.SharedParametersFilename = originalFile;
+                    doc.Application.SharedParametersFilename = originalFile ?? "";
                 }
                 catch { }
 
@@ -225,7 +224,8 @@ namespace RevitWebAppSync.Services
 
                 if (sf == null)
                     sf = schedulableFields.FirstOrDefault(f =>
-                        f.GetName(doc).Contains(fieldName));
+                        f.GetName(doc).Equals(fieldName, StringComparison.OrdinalIgnoreCase) ||
+                        f.GetName(doc).EndsWith("." + fieldName, StringComparison.OrdinalIgnoreCase));
 
                 if (sf != null)
                 {
