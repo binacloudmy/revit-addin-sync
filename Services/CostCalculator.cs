@@ -108,5 +108,60 @@ namespace RevitWebAppSync.Services
                 string.Equals(i.Level, levelName, System.StringComparison.OrdinalIgnoreCase)).ToList();
             return Calculate(filtered);
         }
+
+        /// <summary>
+        /// Calculate cost breakdown by Revit component type.
+        /// Groups by Category, then sub-groups by FamilyName + TypeName.
+        /// </summary>
+        public static ComponentSummary CalculateComponentSummary(List<CostItem> items)
+        {
+            var summary = new ComponentSummary
+            {
+                TotalItems = items.Count,
+                TotalCost = items.Sum(i => i.TotalPrice)
+            };
+
+            summary.Groups = items
+                .GroupBy(i => i.Category ?? "Other")
+                .Select(catGroup =>
+                {
+                    var subGroups = catGroup
+                        .GroupBy(i => $"{i.FamilyName ?? "Unknown"}: {i.TypeName ?? "Default"}")
+                        .Select(sg => new ComponentSubGroup
+                        {
+                            Name = sg.Key,
+                            ItemCount = sg.Count(),
+                            UnpricedCount = sg.Count(i => i.UnitPrice <= 0),
+                            TotalQuantity = sg.Sum(i => i.Quantity),
+                            Unit = sg.First().Unit ?? "unit",
+                            TotalCost = sg.Sum(i => i.TotalPrice),
+                            AverageUnitPrice = sg.Any(i => i.UnitPrice > 0)
+                                ? sg.Where(i => i.UnitPrice > 0).Average(i => i.UnitPrice)
+                                : 0
+                        })
+                        .OrderByDescending(sg => sg.TotalCost)
+                        .ToList();
+
+                    return new ComponentGroup
+                    {
+                        Category = catGroup.Key,
+                        ItemCount = catGroup.Count(),
+                        UnpricedCount = catGroup.Count(i => i.UnitPrice <= 0),
+                        TotalCost = catGroup.Sum(i => i.TotalPrice),
+                        SubGroups = subGroups
+                    };
+                })
+                .OrderByDescending(g => g.TotalCost)
+                .ToList();
+
+            if (summary.TotalCost > 0)
+            {
+                foreach (var group in summary.Groups)
+                    group.Percentage = (group.TotalCost / summary.TotalCost) * 100;
+            }
+
+            summary.TotalComponents = summary.Groups.Sum(g => g.SubGroups.Count);
+            return summary;
+        }
     }
 }

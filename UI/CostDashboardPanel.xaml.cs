@@ -59,6 +59,12 @@ namespace RevitWebAppSync.UI
         private ComboBox _buildingTypeCombo;
         private System.Windows.Controls.TextBox _customRateBox;
 
+        // Component cost UI
+        private Border _componentCard;
+        private StackPanel _componentBody;
+        private TextBlock _componentToggleText;
+        private StackPanel _componentListPanel;
+
         // Loading overlay UI
         private Border _loadingOverlay;
         private StackPanel _loadingStepsPanel;
@@ -108,9 +114,10 @@ namespace RevitWebAppSync.UI
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 1: Banner
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 2: Total
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 3: Sqft Estimate
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 4: Filter
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 5: Content
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 6: Actions
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 4: Component Cost
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 5: Filter
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 6: Content
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 7: Actions
 
             // ── Row 0: Header ──
             var header = new Border
@@ -378,7 +385,59 @@ namespace RevitWebAppSync.UI
             Grid.SetRow(_sqftEstimateCard, 3);
             root.Children.Add(_sqftEstimateCard);
 
-            // ── Row 4: Filter bar ──
+            // ── Row 4: Component Cost card (collapsible) ──
+            _componentCard = new Border
+            {
+                Background = Brushes.White,
+                BorderBrush = new SolidColorBrush(BorderColor),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Margin = new Thickness(12, 8, 12, 0),
+                Padding = new Thickness(14, 8, 14, 8)
+            };
+            var compStack = new StackPanel();
+            _componentBody = new StackPanel { Visibility = Visibility.Collapsed };
+
+            // Header row (always visible, acts as toggle)
+            var compHeader = new Grid { Cursor = System.Windows.Input.Cursors.Hand };
+            compHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            compHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            _componentToggleText = new TextBlock
+            {
+                Text = "\u25B6 Cost by Component",
+                FontSize = 11, FontWeight = FontWeights.Medium,
+                Foreground = new SolidColorBrush(TextSecondary)
+            };
+            compHeader.Children.Add(_componentToggleText);
+            var compInfoTip = new TextBlock
+            {
+                Text = "Per element type",
+                FontSize = 9, Foreground = new SolidColorBrush(TextMuted),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(compInfoTip, 1);
+            compHeader.Children.Add(compInfoTip);
+            compHeader.MouseLeftButtonDown += (s, ev) =>
+            {
+                _componentBody.Visibility = _componentBody.Visibility == Visibility.Visible
+                    ? Visibility.Collapsed : Visibility.Visible;
+                _componentToggleText.Text = _componentBody.Visibility == Visibility.Visible
+                    ? "\u25BC Cost by Component" : "\u25B6 Cost by Component";
+                if (_componentBody.Visibility == Visibility.Visible)
+                    UpdateComponentCard();
+            };
+            compStack.Children.Add(compHeader);
+
+            // Component list (inside collapsible body)
+            _componentListPanel = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
+            _componentBody.Children.Add(_componentListPanel);
+            compStack.Children.Add(_componentBody);
+
+            _componentCard.Child = compStack;
+            Grid.SetRow(_componentCard, 4);
+            root.Children.Add(_componentCard);
+
+            // ── Row 5: Filter bar ──
             var filterCard = new Border
             {
                 Background = Brushes.White,
@@ -419,7 +478,7 @@ namespace RevitWebAppSync.UI
             filterRow.Children.Add(_levelFilter);
 
             filterCard.Child = filterRow;
-            Grid.SetRow(filterCard, 4);
+            Grid.SetRow(filterCard, 5);
             root.Children.Add(filterCard);
 
             // ── Row 5: Scrollable content ──
@@ -441,7 +500,7 @@ namespace RevitWebAppSync.UI
             });
             _contentPanel.Children.Add(emptyState);
             scroll.Content = _contentPanel;
-            Grid.SetRow(scroll, 5);
+            Grid.SetRow(scroll, 6);
             root.Children.Add(scroll);
 
             // ── Row 6: Action bar ──
@@ -470,7 +529,7 @@ namespace RevitWebAppSync.UI
             actionStack.Children.Add(primaryRow);
             actionStack.Children.Add(secondaryRow);
             actionBar.Child = actionStack;
-            Grid.SetRow(actionBar, 6);
+            Grid.SetRow(actionBar, 7);
             root.Children.Add(actionBar);
 
             // ── Loading overlay (spans all rows, on top) ──
@@ -487,7 +546,7 @@ namespace RevitWebAppSync.UI
                 Visibility = Visibility.Collapsed
             };
             Grid.SetRow(_loadingOverlay, 0);
-            Grid.SetRowSpan(_loadingOverlay, 7);
+            Grid.SetRowSpan(_loadingOverlay, 8);
 
             var centerPanel = new StackPanel
             {
@@ -822,6 +881,8 @@ namespace RevitWebAppSync.UI
             _coverageBar.Foreground = new SolidColorBrush(pricedPct >= 80 ? SuccessGreen : pricedPct >= 50 ? WarningAmber : Color.FromRgb(200, 50, 50));
 
             UpdateSqftEstimate();
+            if (_componentBody != null && _componentBody.Visibility == Visibility.Visible)
+                UpdateComponentCard();
         }
 
         private void UpdateSqftEstimate()
@@ -859,6 +920,168 @@ namespace RevitWebAppSync.UI
                 _sqftTotalText.Text = "No floor data";
                 _sqftTotalText.FontSize = 14;
                 _sqftAreaText.Text = "No Floor elements found in the model";
+            }
+        }
+
+        private void UpdateComponentCard()
+        {
+            if (_allItems.Count == 0 || _componentListPanel == null) return;
+
+            _componentListPanel.Children.Clear();
+            var compSummary = CostCalculator.CalculateComponentSummary(_allItems);
+
+            if (compSummary.Groups.Count == 0)
+            {
+                _componentListPanel.Children.Add(new TextBlock
+                {
+                    Text = "No component data",
+                    FontSize = 11, Foreground = new SolidColorBrush(TextMuted),
+                    Margin = new Thickness(0, 4, 0, 0)
+                });
+                return;
+            }
+
+            foreach (var group in compSummary.Groups)
+            {
+                // Sub-group detail panel (lazy, starts collapsed)
+                var subPanel = new StackPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 0, 0, 4) };
+
+                // Category header row
+                var groupRow = new Border
+                {
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                    Padding = new Thickness(8, 6, 8, 6),
+                    Margin = new Thickness(0, 2, 0, 0),
+                    CornerRadius = new CornerRadius(4),
+                    Background = new SolidColorBrush(PageBg)
+                };
+                var groupGrid = new Grid();
+                groupGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                groupGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                groupGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                // Arrow + category name
+                var arrowText = new TextBlock
+                {
+                    Text = "\u25B6", FontSize = 8,
+                    Foreground = new SolidColorBrush(TextMuted),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    Margin = new Thickness(0, 0, 6, 0),
+                    Tag = "arrow"
+                };
+                Grid.SetColumn(arrowText, 0);
+                groupGrid.Children.Add(arrowText);
+
+                var nameStack = new StackPanel();
+                var catName = new TextBlock
+                {
+                    Text = group.Category,
+                    FontSize = 11, FontWeight = FontWeights.SemiBold,
+                    Foreground = new SolidColorBrush(TextPrimary)
+                };
+                nameStack.Children.Add(catName);
+
+                var subtitleParts = new List<string> { $"{group.ItemCount} items" };
+                if (group.Percentage > 0)
+                    subtitleParts.Add($"{group.Percentage:F1}%");
+                if (group.UnpricedCount > 0)
+                    subtitleParts.Add($"{group.UnpricedCount} unpriced");
+                var catSubtitle = new TextBlock
+                {
+                    Text = string.Join("  |  ", subtitleParts),
+                    FontSize = 9,
+                    Foreground = group.UnpricedCount > 0 ? new SolidColorBrush(WarningAmber) : new SolidColorBrush(TextMuted)
+                };
+                nameStack.Children.Add(catSubtitle);
+                Grid.SetColumn(nameStack, 1);
+                groupGrid.Children.Add(nameStack);
+
+                // Cost amount
+                var costText = new TextBlock
+                {
+                    Text = $"RM {group.TotalCost:N0}",
+                    FontSize = 11, FontWeight = FontWeights.Bold,
+                    Foreground = new SolidColorBrush(PrimaryBlue),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                Grid.SetColumn(costText, 2);
+                groupGrid.Children.Add(costText);
+
+                groupRow.Child = groupGrid;
+
+                // Hover effect
+                groupRow.MouseEnter += (s, ev) => groupRow.Background = new SolidColorBrush(RowHover);
+                groupRow.MouseLeave += (s, ev) => groupRow.Background = new SolidColorBrush(PageBg);
+
+                // Click to expand/collapse sub-groups
+                groupRow.MouseLeftButtonDown += (s, ev) =>
+                {
+                    bool expanding = subPanel.Visibility != Visibility.Visible;
+                    subPanel.Visibility = expanding ? Visibility.Visible : Visibility.Collapsed;
+                    arrowText.Text = expanding ? "\u25BC" : "\u25B6";
+
+                    // Lazy-build sub-group rows on first expand
+                    if (expanding && subPanel.Children.Count == 0)
+                    {
+                        foreach (var sub in group.SubGroups)
+                        {
+                            var subRow = new Grid { Margin = new Thickness(20, 1, 0, 1) };
+                            subRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                            subRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                            subRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+                            // Sub-group name + qty
+                            var subNameStack = new StackPanel();
+                            subNameStack.Children.Add(new TextBlock
+                            {
+                                Text = sub.Name,
+                                FontSize = 10, Foreground = new SolidColorBrush(TextPrimary),
+                                TextTrimming = TextTrimming.CharacterEllipsis
+                            });
+                            var qtyParts = $"{sub.TotalQuantity:N1} {sub.Unit}  ({sub.ItemCount} items)";
+                            if (sub.UnpricedCount > 0)
+                                qtyParts += $"  [{sub.UnpricedCount} unpriced]";
+                            subNameStack.Children.Add(new TextBlock
+                            {
+                                Text = qtyParts,
+                                FontSize = 9,
+                                Foreground = sub.UnpricedCount > 0 ? new SolidColorBrush(WarningAmber) : new SolidColorBrush(TextMuted)
+                            });
+                            Grid.SetColumn(subNameStack, 0);
+                            subRow.Children.Add(subNameStack);
+
+                            // Avg unit price
+                            if (sub.AverageUnitPrice > 0)
+                            {
+                                var avgText = new TextBlock
+                                {
+                                    Text = $"RM {sub.AverageUnitPrice:N2}/{sub.Unit}",
+                                    FontSize = 9, Foreground = new SolidColorBrush(TextSecondary),
+                                    VerticalAlignment = VerticalAlignment.Center,
+                                    Margin = new Thickness(8, 0, 8, 0)
+                                };
+                                Grid.SetColumn(avgText, 1);
+                                subRow.Children.Add(avgText);
+                            }
+
+                            // Total cost
+                            var subCostText = new TextBlock
+                            {
+                                Text = $"RM {sub.TotalCost:N0}",
+                                FontSize = 10, FontWeight = FontWeights.SemiBold,
+                                Foreground = new SolidColorBrush(TextPrimary),
+                                VerticalAlignment = VerticalAlignment.Center
+                            };
+                            Grid.SetColumn(subCostText, 2);
+                            subRow.Children.Add(subCostText);
+
+                            subPanel.Children.Add(subRow);
+                        }
+                    }
+                };
+
+                _componentListPanel.Children.Add(groupRow);
+                _componentListPanel.Children.Add(subPanel);
             }
         }
 

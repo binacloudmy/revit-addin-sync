@@ -70,4 +70,42 @@ namespace RevitWebAppSync.Models
         public string BuildingType { get; set; }
         public double EstimatedTotal => TotalFloorAreaSqft * RatePerSqft;
     }
+
+    /// <summary>
+    /// A sub-group within a component (e.g., "Column 450x600mm")
+    /// </summary>
+    public class ComponentSubGroup
+    {
+        public string Name { get; set; }
+        public int ItemCount { get; set; }
+        public int UnpricedCount { get; set; }
+        public double TotalQuantity { get; set; }
+        public string Unit { get; set; }
+        public double TotalCost { get; set; }
+        public double AverageUnitPrice { get; set; }
+    }
+
+    /// <summary>
+    /// A component group (e.g., "Structural Columns")
+    /// </summary>
+    public class ComponentGroup
+    {
+        public string Category { get; set; }
+        public int ItemCount { get; set; }
+        public int UnpricedCount { get; set; }
+        public double TotalCost { get; set; }
+        public double Percentage { get; set; }
+        public List<ComponentSubGroup> SubGroups { get; set; } = new List<ComponentSubGroup>();
+    }
+
+    /// <summary>
+    /// Summary of costs grouped by Revit component type
+    /// </summary>
+    public class ComponentSummary
+    {
+        public int TotalComponents { get; set; }
+        public int TotalItems { get; set; }
+        public double TotalCost { get; set; }
+        public List<ComponentGroup> Groups { get; set; } = new List<ComponentGroup>();
+    }
 }
