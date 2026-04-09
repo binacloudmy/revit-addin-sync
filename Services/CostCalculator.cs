@@ -122,6 +122,38 @@ namespace RevitWebAppSync.Services
         };
 
         /// <summary>
+        /// Categories that should NOT be auto-priced (skipped by AI pipeline and fallback estimation).
+        /// These are typically sub-elements that are rolled into parent element prices in Malaysian QS practice
+        /// (rebar in concrete, fittings in pipe runs, connections in steel framing, etc.)
+        /// They remain visible in the item list but contribute 0 to the total unless manually priced.
+        /// </summary>
+        public static readonly HashSet<string> NoAutoPriceCategories = new HashSet<string>(
+            System.StringComparer.OrdinalIgnoreCase)
+        {
+            // Site / cosmetic
+            "Entourage", "Planting", "Parking", "Mass", "Site", "Topography",
+
+            // Structural sub-elements (rolled into concrete/steel pricing)
+            "Structural Foundations", "Structural Connections",
+            "Rebar Shape", "Structural Rebar", "Structural Stiffener",
+            "Structural Trusses", "Structural Beam Systems",
+
+            // MEP sub-elements (rolled into pipe/duct runs)
+            "Pipe Fittings", "Pipe Accessories",
+            "Duct Fittings", "Duct Accessories",
+            "Flex Pipes", "Flex Ducts",
+
+            // Curtain wall sub-elements (rolled into curtain wall panels)
+            "Curtain Wall Mullions", "Curtain Panels", "Curtain Systems",
+        };
+
+        /// <summary>
+        /// Returns true if the category should be auto-priced via AI matching and fallback estimation.
+        /// </summary>
+        public static bool IsAutoPriceable(string category) =>
+            !NoAutoPriceCategories.Contains(category ?? "");
+
+        /// <summary>
         /// Calculate cost breakdown by Revit component type.
         /// Groups by Category, then sub-groups by FamilyName + TypeName.
         /// Filters out non-construction categories from the display.

@@ -843,8 +843,11 @@ namespace RevitWebAppSync.UI
                 // Apply local DB prices for any remaining unpriced items
                 _priceDb.ApplyPrices(_allItems);
 
-                // Fallback: estimate remaining unpriced items using category averages
-                var unpricedOnLoad = _allItems.Where(i => i.UnitPrice <= 0).ToList();
+                // Fallback: estimate remaining unpriced items using Category+Unit averages.
+                // Skip non-priceable categories (Rebar, Fittings, etc.) to avoid inflating the total.
+                var unpricedOnLoad = _allItems
+                    .Where(i => i.UnitPrice <= 0 && CostCalculator.IsAutoPriceable(i.Category))
+                    .ToList();
                 if (unpricedOnLoad.Count > 0)
                 {
                     var avgPrices = _allItems
@@ -1428,8 +1431,12 @@ namespace RevitWebAppSync.UI
 
                 if (aiAvailable)
                 {
-                    // Only send unpriced items — already-matched items don't need re-matching
-                    var unmatchedItems = _allItems.Where(i => i.UnitPrice <= 0).ToList();
+                    // Only send unpriced items — already-matched items don't need re-matching.
+                    // Skip categories like Rebar/Fittings/Connections that get rolled into parent prices
+                    // in Malaysian QS practice (would otherwise inflate the total via unit mismatches).
+                    var unmatchedItems = _allItems
+                        .Where(i => i.UnitPrice <= 0 && CostCalculator.IsAutoPriceable(i.Category))
+                        .ToList();
                     if (unmatchedItems.Count == 0)
                     {
                         _loadingStatusText.Text = "All items already have prices!";
@@ -1593,11 +1600,15 @@ namespace RevitWebAppSync.UI
                     UpdateLoadingStep(4, "offline", false);
                 }
 
-                // Fallback: price remaining unpriced items using average unit price from same Category+Unit
-                var stillUnpriced = _allItems.Where(i => i.UnitPrice <= 0).ToList();
+                // Fallback: price remaining unpriced items using average unit price from same Category+Unit.
+                // Only apply to auto-priceable categories (skip Rebar/Fittings/Connections etc. that
+                // would otherwise inflate the total via unit mismatches).
+                var stillUnpriced = _allItems
+                    .Where(i => i.UnitPrice <= 0 && CostCalculator.IsAutoPriceable(i.Category))
+                    .ToList();
                 if (stillUnpriced.Count > 0)
                 {
-                    // Build averages from priced items grouped by Category + Unit
+                    // Build averages from priced items grouped by Category + Unit (unit-aware, safer)
                     var avgPrices = _allItems
                         .Where(i => i.UnitPrice > 0)
                         .GroupBy(i => (i.Category, i.Unit))
@@ -1619,33 +1630,13 @@ namespace RevitWebAppSync.UI
                     if (fallbackMatched > 0)
                         System.Diagnostics.Debug.WriteLine($"[BINA Cost] Fallback: estimated {fallbackMatched} items using category averages");
 
-                    // Last resort: use category-only average (ignore unit) for any remaining
-                    var finalUnpriced = _allItems.Where(i => i.UnitPrice <= 0).ToList();
-                    if (finalUnpriced.Count > 0)
+                    // Log any truly unmatchable items (skipped categories or no matching unit average)
+                    var trulyUnpriced = _allItems.Where(i => i.UnitPrice <= 0).ToList();
+                    if (trulyUnpriced.Count > 0)
                     {
-                        var catAvg = _allItems
-                            .Where(i => i.UnitPrice > 0)
-                            .GroupBy(i => i.Category)
-                            .ToDictionary(g => g.Key, g => g.Average(i => i.UnitPrice));
-
-                        foreach (var item in finalUnpriced)
-                        {
-                            if (catAvg.TryGetValue(item.Category, out double avg))
-                            {
-                                item.UnitPrice = Math.Round(avg, 2);
-                                item.PriceSource = "estimated";
-                                fallbackMatched++;
-                            }
-                        }
-
-                        // Log any truly unmatchable items
-                        var trulyUnpriced = _allItems.Where(i => i.UnitPrice <= 0).ToList();
-                        if (trulyUnpriced.Count > 0)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[BINA Cost] {trulyUnpriced.Count} items still unpriced after all matching:");
-                            foreach (var u in trulyUnpriced.Take(20))
-                                System.Diagnostics.Debug.WriteLine($"  ElemId: {u.ElementId} | {u.Category} | {u.Name} | Qty: {u.Quantity} {u.Unit} | JKR: {u.JkrCode}");
-                        }
+                        System.Diagnostics.Debug.WriteLine($"[BINA Cost] {trulyUnpriced.Count} items still unpriced after all matching:");
+                        foreach (var u in trulyUnpriced.Take(20))
+                            System.Diagnostics.Debug.WriteLine($"  ElemId: {u.ElementId} | {u.Category} | {u.Name} | Qty: {u.Quantity} {u.Unit} | JKR: {u.JkrCode}");
                     }
                 }
 
