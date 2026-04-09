@@ -155,6 +155,7 @@ namespace RevitWebAppSync.Services
                         SubGroups = subGroups
                     };
                 })
+                .Where(g => g.TotalCost > 0 || g.ItemCount > 0)
                 .OrderByDescending(g => g.TotalCost)
                 .ToList();
 

@@ -55,6 +55,11 @@ namespace RevitWebAppSync.Services
             BuiltInCategory.OST_CableTray
         };
 
+        // Combined whitelist of all priceable categories
+        private static readonly HashSet<BuiltInCategory> PriceableCategories = new HashSet<BuiltInCategory>(
+            AreaCategories.Concat(CountCategories).Concat(LengthCategories)
+        );
+
         /// <summary>
         /// Extract all priceable elements from the Revit document.
         /// Optionally filter by level name.
@@ -72,11 +77,9 @@ namespace RevitWebAppSync.Services
             {
                 if (elem.Category == null) continue;
 
-                string categoryName = elem.Category.Name;
-                if (SkipCategories.Contains(categoryName)) continue;
-
-                // Skip area/room boundaries
-                if (categoryName.StartsWith("<")) continue;
+                // Whitelist: only include categories we can price
+                var bic = (BuiltInCategory)elem.Category.Id.Value;
+                if (!PriceableCategories.Contains(bic)) continue;
 
                 // Get level
                 string levelName = GetElementLevel(elem, doc);
