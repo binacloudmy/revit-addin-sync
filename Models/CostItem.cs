@@ -42,6 +42,10 @@ namespace RevitWebAppSync.Models
         public double GrandTotal { get; set; }
         public int TotalItems { get; set; }
         public int PricedItems { get; set; }
+        // Auto-priceable items (excludes Rebar, Fittings, Connections, etc. that are
+        // rolled into parent prices in Malaysian QS practice)
+        public int PriceableItems { get; set; }
+        public int PriceablePricedItems { get; set; }
         public int LevelCount { get; set; }
         public List<CostGroup> ByLevel { get; set; } = new List<CostGroup>();
         public List<CostGroup> ByCategory { get; set; } = new List<CostGroup>();

@@ -59,6 +59,8 @@ namespace RevitWebAppSync.Services
             {
                 TotalItems = items.Count,
                 PricedItems = items.Count(i => i.UnitPrice > 0),
+                PriceableItems = items.Count(i => IsAutoPriceable(i.Category)),
+                PriceablePricedItems = items.Count(i => IsAutoPriceable(i.Category) && i.UnitPrice > 0),
                 GrandTotal = items.Sum(i => i.TotalPrice)
             };
 

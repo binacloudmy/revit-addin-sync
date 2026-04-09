@@ -884,7 +884,9 @@ namespace RevitWebAppSync.UI
             _grandTotalText.Text = $"RM {_summary.GrandTotal:N0}";
             UpdateStatBlock(_itemCountText, $"{_summary.TotalItems:N0}");
             UpdateStatBlock(_levelCountText, $"{_summary.LevelCount}");
-            int pricedPct = _summary.TotalItems > 0 ? (int)Math.Round((_summary.PricedItems / (double)_summary.TotalItems) * 100) : 0;
+            // Coverage = priceable items priced / priceable items (excludes Rebar, Fittings, etc.
+            // that are rolled into parent prices in Malaysian QS practice)
+            int pricedPct = _summary.PriceableItems > 0 ? (int)Math.Round((_summary.PriceablePricedItems / (double)_summary.PriceableItems) * 100) : 0;
             UpdateStatBlock(_pricedPercentText, $"{pricedPct}%");
             _coverageBar.Value = pricedPct;
             _coverageBar.Foreground = new SolidColorBrush(pricedPct >= 80 ? SuccessGreen : pricedPct >= 50 ? WarningAmber : Color.FromRgb(200, 50, 50));
@@ -1414,7 +1416,7 @@ namespace RevitWebAppSync.UI
                 // Update cost display after local matching so user sees intermediate total
                 _summary = CostCalculator.Calculate(_allItems);
                 UpdateTotalCard();
-                System.Diagnostics.Debug.WriteLine($"=== COST BEFORE PIPELINE: RM {_summary.GrandTotal:N0} | Priced: {_summary.PricedItems}/{_summary.TotalItems} ({(int)Math.Round((_summary.PricedItems / (double)_summary.TotalItems) * 100)}%) | Local matched: {localMatched} ===");
+                System.Diagnostics.Debug.WriteLine($"=== COST BEFORE PIPELINE: RM {_summary.GrandTotal:N0} | Priced: {_summary.PriceablePricedItems}/{_summary.PriceableItems} priceable ({(_summary.PriceableItems > 0 ? (int)Math.Round((_summary.PriceablePricedItems / (double)_summary.PriceableItems) * 100) : 0)}%) | Local matched: {localMatched} ===");
                 UpdateLoadingStep(0, $"{localMatched} matched", true);
                 _loadingPercentText.Text = "5%";
                 _loadingProgressBar.Value = 5;
@@ -2481,8 +2483,8 @@ namespace RevitWebAppSync.UI
         private void ShowLocalInsights()
         {
             var lines = new List<string> { "Cost Analysis (Offline)\n" };
-            int pricedPct = _summary.TotalItems > 0 ? (int)Math.Round((_summary.PricedItems / (double)_summary.TotalItems) * 100) : 0;
-            lines.Add($"Coverage: {pricedPct}% ({_summary.PricedItems}/{_summary.TotalItems})");
+            int pricedPct = _summary.PriceableItems > 0 ? (int)Math.Round((_summary.PriceablePricedItems / (double)_summary.PriceableItems) * 100) : 0;
+            lines.Add($"Coverage: {pricedPct}% ({_summary.PriceablePricedItems}/{_summary.PriceableItems} priceable)");
             double floorArea = _allItems.Where(i => i.Category == "Floors" && (i.Unit == "m²" || i.Unit == "m2")).Sum(i => i.Quantity);
             if (floorArea > 0 && _summary.GrandTotal > 0)
             {
