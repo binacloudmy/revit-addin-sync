@@ -17,7 +17,7 @@ namespace RevitWebAppSync.Services
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
 
-        private const string DEFAULT_BASE_URL = "https://prorefugee-flocky-cecelia.ngrok-free.dev";
+        private const string DEFAULT_BASE_URL = "https://gastrodermal-ace-overvaliantly.ngrok-free.dev";
 
         public JkrComplianceService(string baseUrl = null)
         {
