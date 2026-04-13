@@ -265,7 +265,13 @@ namespace RevitWebAppSync.UI
             totalStack.Children.Add(statsGrid);
 
             // Coverage bar
-            var coverageLabel = new TextBlock { Text = "Pricing Coverage", FontSize = 9, Foreground = new SolidColorBrush(TextMuted), Margin = new Thickness(0, 0, 0, 3) };
+            var coverageLabel = new TextBlock
+            {
+                Text = "Pricing Coverage", FontSize = 9,
+                Foreground = new SolidColorBrush(TextMuted),
+                Margin = new Thickness(0, 0, 0, 3),
+                ToolTip = "Percentage of priceable items with prices.\nSub-elements (rebar, fittings, connections) are\nexcluded — their cost is included in parent items."
+            };
             totalStack.Children.Add(coverageLabel);
             var barBg = new Border { Height = 6, CornerRadius = new CornerRadius(3), Background = new SolidColorBrush(Color.FromRgb(226, 232, 240)), Margin = new Thickness(0, 2, 0, 0) };
             _coverageBar = new ProgressBar { Height = 6, Minimum = 0, Maximum = 100, Value = 0, Foreground = new SolidColorBrush(SuccessGreen), Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
@@ -1694,10 +1700,12 @@ namespace RevitWebAppSync.UI
                 _priceDb?.Save();
 
                 int totalMatched = localMatched + pipelineMatched;
+                int skippedCount = _allItems.Count(i => !CostCalculator.IsAutoPriceable(i.Category));
                 var parts = new List<string>();
                 if (localMatched > 0) parts.Add($"Local: {localMatched}");
                 if (pipelineMatched > 0) parts.Add($"Pipeline: {pipelineMatched}");
                 parts.Add($"Rate: {matchRate}");
+                if (skippedCount > 0) parts.Add($"{skippedCount} sub-elements excluded");
                 string detail = string.Join(" | ", parts);
 
                 string scheduleHint = "";
