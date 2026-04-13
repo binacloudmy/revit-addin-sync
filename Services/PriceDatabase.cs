@@ -84,7 +84,9 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
-        /// Apply prices to a list of cost items
+        /// Apply prices to a list of cost items.
+        /// Skips non-auto-priceable categories to prevent stale inflated prices
+        /// from previous sessions overriding the NoAutoPriceCategories filter.
         /// </summary>
         public int ApplyPrices(List<CostItem> items)
         {
@@ -92,6 +94,7 @@ namespace RevitWebAppSync.Services
             foreach (var item in items)
             {
                 if (string.IsNullOrEmpty(item.JkrCode)) continue;
+                if (!CostCalculator.IsAutoPriceable(item.Category)) continue;
 
                 var entry = GetEntry(item.JkrCode);
                 if (entry != null && entry.UnitPrice > 0)
