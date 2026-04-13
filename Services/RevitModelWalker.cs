@@ -15,13 +15,36 @@ namespace RevitWebAppSync.Services
         // Categories to skip (system/non-physical elements)
         private static readonly HashSet<string> SkipCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
+            // Core system
             "Rooms", "Areas", "Project Information", "Sheets", "Views",
             "Grids", "Levels", "Reference Planes", "Scope Boxes",
             "Matchline", "Survey Point", "Project Base Point",
-            "Schedules", "Schedule Graphics", "Analytical Nodes",
-            "Analytical Links", "Analytical Surfaces", "Analytical Spaces",
-            "Boundary Conditions", "Structural Load Cases",
-            "Structural Loads", "HVAC Zones", "Switch System",
+            "Schedules", "Schedule Graphics",
+            // Analytical
+            "Analytical Nodes", "Analytical Links", "Analytical Surfaces",
+            "Analytical Spaces", "Boundary Conditions",
+            "Structural Load Cases", "Structural Loads",
+            // MEP system settings
+            "HVAC Zones", "HVAC Load Schedules", "Switch System",
+            "Piping Systems", "Pipe Segments",
+            "Electrical Load Classifications", "Electrical Demand Factor Definitions",
+            "Electrical Load Classification Parameter Element",
+            "Panel Schedule Templates - Branch Panel",
+            "Panel Schedule Templates - Data Panel",
+            "Panel Schedule Templates - Switchboard",
+            "Space Type Settings", "Building Type Settings",
+            // Annotation / documentation
+            "Dimensions", "Elevations", "Cameras", "Section Boxes",
+            "Lines", "Center Line", "Constraints", "Reveals",
+            "Legend Components", "Guide Grid", "Work Plane Grid",
+            "Automatic Sketch Dimensions", "Primary Contours",
+            // Non-physical
+            "RVT Links", "Materials", "Material Assets", "Phases",
+            "Revision", "Revision Numbering Sequences",
+            "Model Groups", "Shared Site", "Sun Path", "Internal Origin",
+            "Color Fill Schema", "Runs",
+            "Railing Rail Path Extension Lines", "Top Rails",
+            "Wall Sweeps", "Fascias",
         };
 
         // Categories measured by area (m²)
