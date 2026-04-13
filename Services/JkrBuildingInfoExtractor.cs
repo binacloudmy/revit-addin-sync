@@ -117,7 +117,7 @@ namespace RevitWebAppSync.Services
 
                 result.Elements.Add(new JkrElementData
                 {
-                    ElementId = elem.Id.IntegerValue,
+                    ElementId = (int)elem.Id.Value,
                     Category = category,
                     TypeName = typeName,
                     ElementName = elementName,
@@ -246,7 +246,7 @@ namespace RevitWebAppSync.Services
                 case StorageType.ElementId:
                     var id = param.AsElementId();
                     if (id == ElementId.InvalidElementId) return null;
-                    return param.AsValueString() ?? id.IntegerValue.ToString();
+                    return param.AsValueString() ?? id.Value.ToString();
                 default:
                     return null;
             }

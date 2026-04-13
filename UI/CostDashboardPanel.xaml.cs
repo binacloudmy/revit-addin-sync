@@ -784,7 +784,7 @@ namespace RevitWebAppSync.UI
                                     item.JkrCode = match.JkrCode;
                                     item.PriceSource = match.MatchLayer == "exact" ? "master" : 
                                                        match.MatchLayer == "learned" ? "learned" : "ai";
-                                    _priceDb?.SavePrice(item.JkrCode, item.UnitPrice, item.Unit);
+                                    _priceDb?.SetPrice(item.JkrCode, item.UnitPrice, item.Unit);
                                 }
                             }
                         }
