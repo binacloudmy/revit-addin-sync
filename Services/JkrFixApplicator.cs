@@ -63,7 +63,9 @@ namespace RevitWebAppSync.Services
         /// </summary>
         public List<FixResult> ApplyAllFixable(List<JkrComplianceCheckV2> checks)
         {
-            var fixable = checks.Where(c => c.FixAction != null).ToList();
+            var fixable = checks.Where(c => c.FixAction != null)
+                .OrderBy(c => c.FixAction.Priority)
+                .ToList();
             var results = new List<FixResult>();
 
             foreach (var check in fixable)
@@ -235,6 +237,9 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("old_value")]
         public string OldValue { get; set; } = "";
+
+        [JsonProperty("priority")]
+        public int Priority { get; set; } = 10;
     }
 
     public class FixResult

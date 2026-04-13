@@ -290,48 +290,7 @@ namespace RevitWebAppSync.UI
             try
             {
                 if (btn != null) { btn.IsEnabled = false; btn.Content = "⏳ Checking..."; }
-
-                if (_extractionData == null) ScanModel();
-                if (_extractionData == null) return;
-
-                ShowStatus($"🔍 Checking {_extractionData.TotalElements} elements against all 13 JKR docs at LOi {_selectedLoi}...", Color.FromRgb(235, 243, 252));
-                await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
-
-                // Use V2 request with project metadata
-                var v2Request = _extractionData.ToV2Request(
-                    loiLevel: _selectedLoi,
-                    projectPhase: "",  // TODO: add phase selector to UI
-                    hasBpep: false     // TODO: detect or let user declare
-                );
-
-                var response = await _service.CheckJkrComplianceV2Async(v2Request);
-
-                if (!string.IsNullOrEmpty(response.Error))
-                {
-                    ShowStatus($"❌ {response.Error}", Color.FromRgb(253, 235, 208));
-                    return;
-                }
-
-                _issues = new List<ComplianceIssue>();
-                foreach (var req in response.BuildingRequirements)
-                    _issues.Add(DtoToIssue(req));
-                foreach (var elem in response.ElementIssues)
-                    _issues.Add(DtoToIssue(elem));
-
-                _aiReport = response.AIReport ?? "";
-                _aiRecommendations = response.AIRecommendations ?? new List<AIRecommendationDto>();
-
-                UpdateSummary();
-                UpdateIssuesList();
-
-                int fails = _issues.Count(i => i.Status == "fail");
-                double pct = response.Summary.ContainsKey("compliance_percentage")
-                    ? Convert.ToDouble(response.Summary["compliance_percentage"]) : 0;
-
-                if (fails > 0)
-                    ShowStatus($"📋 {pct:F1}% compliance — {fails} issue(s) found at LOi {_selectedLoi}", Color.FromRgb(253, 235, 220));
-                else
-                    ShowStatus($"✅ {pct:F1}% compliance — all checks pass at LOi {_selectedLoi}", Color.FromRgb(223, 246, 221));
+                await RunComplianceCheckAsync();
             }
             catch (Exception ex)
             {
@@ -341,6 +300,56 @@ namespace RevitWebAppSync.UI
             {
                 if (btn != null) { btn.IsEnabled = true; btn.Content = "Check JKR Compliance"; }
             }
+        }
+
+        /// <summary>
+        /// Runs a deterministic compliance check against the backend and refreshes the UI.
+        /// Called from the Check button and after Fix All applies fixes (re-check loop).
+        /// </summary>
+        private async Task RunComplianceCheckAsync(string statusPrefix = "")
+        {
+            if (_extractionData == null) ScanModel();
+            if (_extractionData == null) return;
+
+            string prefix = string.IsNullOrEmpty(statusPrefix) ? "" : $"{statusPrefix} ";
+            ShowStatus($"{prefix}🔍 Checking {_extractionData.TotalElements} elements against all 13 JKR docs at LOi {_selectedLoi}...", Color.FromRgb(235, 243, 252));
+            await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.Render);
+
+            // Use V2 request with project metadata
+            var v2Request = _extractionData.ToV2Request(
+                loiLevel: _selectedLoi,
+                projectPhase: "",  // TODO: add phase selector to UI
+                hasBpep: false     // TODO: detect or let user declare
+            );
+
+            var response = await _service.CheckJkrComplianceV2Async(v2Request);
+
+            if (!string.IsNullOrEmpty(response.Error))
+            {
+                ShowStatus($"❌ {response.Error}", Color.FromRgb(253, 235, 208));
+                return;
+            }
+
+            _issues = new List<ComplianceIssue>();
+            foreach (var req in response.BuildingRequirements)
+                _issues.Add(DtoToIssue(req));
+            foreach (var elem in response.ElementIssues)
+                _issues.Add(DtoToIssue(elem));
+
+            _aiReport = response.AIReport ?? "";
+            _aiRecommendations = response.AIRecommendations ?? new List<AIRecommendationDto>();
+
+            UpdateSummary();
+            UpdateIssuesList();
+
+            int fails = _issues.Count(i => i.Status == "fail");
+            double pct = response.Summary.ContainsKey("compliance_percentage")
+                ? Convert.ToDouble(response.Summary["compliance_percentage"]) : 0;
+
+            if (fails > 0)
+                ShowStatus($"{prefix}📋 {pct:F1}% compliance — {fails} issue(s) found at LOi {_selectedLoi}", Color.FromRgb(253, 235, 220));
+            else
+                ShowStatus($"{prefix}✅ {pct:F1}% compliance — all checks pass at LOi {_selectedLoi}", Color.FromRgb(223, 246, 221));
         }
 
         private ComplianceIssue DtoToIssue(ComplianceIssueDto dto)
@@ -367,6 +376,8 @@ namespace RevitWebAppSync.UI
                 FixValue = dto.FixValue ?? "",
                 FixOldValue = dto.FixOldValue ?? "",
                 FixSuggestion = dto.FixSuggestion ?? "",
+                FixPriority = dto.FixPriority,
+                Confidence = dto.Confidence ?? "",
             };
         }
 
@@ -640,10 +651,22 @@ namespace RevitWebAppSync.UI
                     string btnLabel;
                     AutoFixInfo fixInfo;
 
+                    // Confidence badge for fix reliability
+                    string confBadge = "";
+                    if (!string.IsNullOrEmpty(issue.Confidence))
+                    {
+                        switch (issue.Confidence.ToLower())
+                        {
+                            case "high": case "definite": confBadge = " [high confidence]"; break;
+                            case "medium": confBadge = " [medium confidence]"; break;
+                            case "low": confBadge = " [low confidence - review]"; break;
+                        }
+                    }
+
                     if (issue.FixAction == "set_parameter" && !string.IsNullOrEmpty(issue.FixValue))
                     {
                         // Parameter fix from backend
-                        fixLabel = $"🔧 Auto-fix: set {issue.FixParameterName} = \"{issue.FixValue}\"";
+                        fixLabel = $"🔧 Auto-fix: set {issue.FixParameterName} = \"{issue.FixValue}\"{confBadge}";
                         btnLabel = $"🔧 Fix {issue.FixParameterName}";
                         fixInfo = new AutoFixInfo
                         {
@@ -652,6 +675,7 @@ namespace RevitWebAppSync.UI
                             FixAction = "set_parameter",
                             ParameterName = issue.FixParameterName,
                             OldValue = issue.FixOldValue,
+                            Priority = issue.FixPriority,
                         };
                     }
                     else
@@ -664,7 +688,7 @@ namespace RevitWebAppSync.UI
                                 issue.Category ?? "",
                                 issue.ActualValue ?? issue.TypeName ?? "");
 
-                        fixLabel = $"🔧 Auto-fix: rename to \"{newName}\"";
+                        fixLabel = $"🔧 Auto-fix: rename to \"{newName}\"{confBadge}";
                         btnLabel = "🔧 Fix Name";
                         fixInfo = new AutoFixInfo
                         {
@@ -672,6 +696,7 @@ namespace RevitWebAppSync.UI
                             NewName = newName,
                             FixAction = "rename_type",
                             OldValue = issue.ActualValue ?? issue.TypeName ?? "",
+                            Priority = issue.FixPriority,
                         };
                     }
 
@@ -854,21 +879,24 @@ namespace RevitWebAppSync.UI
             }).ToList();
 
             // Apply parameter fixes via JkrFixApplicator (also needs ExternalEvent for Revit thread)
-            // Stash param fixes to apply after rename completes
-            var paramFixActions = paramIssues.Select(i => new JkrFixAction
-            {
-                Action = i.FixAction,
-                ElementId = i.ElementId,
-                ParameterName = i.FixParameterName,
-                Value = i.FixValue,
-                OldValue = i.FixOldValue,
-            }).ToList();
+            // Sorted by priority: classification params (1) before material (2) before renames (3)
+            var paramFixActions = paramIssues
+                .OrderBy(i => i.FixPriority)
+                .Select(i => new JkrFixAction
+                {
+                    Action = i.FixAction,
+                    ElementId = i.ElementId,
+                    ParameterName = i.FixParameterName,
+                    Value = i.FixValue,
+                    OldValue = i.FixOldValue,
+                    Priority = i.FixPriority,
+                }).ToList();
 
             App.JkrRenameHandler.RenameQueue = queue;
             App.JkrRenameHandler.ParamFixQueue = paramFixActions;
             App.JkrRenameHandler.OnCompleted = result =>
             {
-                Dispatcher.InvokeAsync(() =>
+                Dispatcher.InvokeAsync(async () =>
                 {
                     var parts = new List<string>();
                     if (result.Renamed > 0) parts.Add($"{result.Renamed} renamed");
@@ -877,9 +905,31 @@ namespace RevitWebAppSync.UI
                     if (result.Skipped > 0) parts.Add($"{result.Skipped} skipped");
 
                     if (!string.IsNullOrEmpty(result.Error))
+                    {
                         btn.Content = $"❌ {result.Error}";
-                    else
-                        btn.Content = $"✅ {string.Join(", ", parts)}";
+                        btn.IsEnabled = true;
+                        return;
+                    }
+
+                    string fixSummary = string.Join(", ", parts);
+                    btn.Content = $"✅ {fixSummary}";
+
+                    // Re-check loop: re-scan model and verify fixes, catch cascading issues
+                    int totalFixed = result.Renamed + result.ParamFixed;
+                    if (totalFixed > 0)
+                    {
+                        btn.Content = $"✅ {fixSummary} — re-checking...";
+                        try
+                        {
+                            // Re-scan so extraction data reflects the fixes just applied
+                            ScanModel();
+                            await RunComplianceCheckAsync(statusPrefix: $"✅ {fixSummary} —");
+                        }
+                        catch (Exception ex)
+                        {
+                            ShowStatus($"✅ {fixSummary} — re-check failed: {ex.Message}", Color.FromRgb(253, 235, 208));
+                        }
+                    }
 
                     btn.IsEnabled = true;
                 });
@@ -1008,6 +1058,7 @@ namespace RevitWebAppSync.UI
         public string FixAction { get; set; } = "";   // "rename_type" or "set_parameter"
         public string ParameterName { get; set; } = "";
         public string OldValue { get; set; } = "";
+        public int Priority { get; set; } = 10;       // execution order from backend
     }
 
     // ComplianceIssue class is defined in ComplianceDashboardPanel.xaml.cs (shared)

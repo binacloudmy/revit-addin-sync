@@ -1172,6 +1172,8 @@ namespace RevitWebAppSync.UI
         public string FixValue { get; set; }            // corrected value
         public string FixOldValue { get; set; }         // current value
         public string FixSuggestion { get; set; }       // human-readable suggestion
+        public int FixPriority { get; set; } = 10;     // execution order: 1=classification, 2=material, 3=rename
+        public string Confidence { get; set; } = "";    // high, medium, low — from backend
         public bool IsFixable => !string.IsNullOrEmpty(FixAction) && !string.IsNullOrEmpty(FixValue);
     }
 }

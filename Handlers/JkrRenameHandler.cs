@@ -78,11 +78,11 @@ namespace RevitWebAppSync.Handlers
                     }
                 }
 
-                // Phase 2: Parameter fixes
+                // Phase 2: Parameter fixes (sorted by priority — classification before material before renames)
                 if (ParamFixQueue.Any())
                 {
                     var applicator = new JkrFixApplicator(doc);
-                    foreach (var fix in ParamFixQueue)
+                    foreach (var fix in ParamFixQueue.OrderBy(f => f.Priority))
                     {
                         var fixResult = applicator.ApplyFix(fix);
                         if (fixResult.Success)

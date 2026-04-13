@@ -137,6 +137,8 @@ namespace RevitWebAppSync.Services
                             FixValue = check.FixAction?.Value ?? "",
                             FixOldValue = check.FixAction?.OldValue ?? "",
                             FixSuggestion = check.FixSuggestion ?? "",
+                            FixPriority = check.FixAction?.Priority ?? 10,
+                            Confidence = check.Confidence ?? "",
                         };
 
                         if (check.ElementId == 0)
@@ -385,6 +387,9 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("old_value")]
         public string OldValue { get; set; } = "";
+
+        [JsonProperty("priority")]
+        public int Priority { get; set; } = 10;
     }
 
     public class JkrSpecEvidenceV2

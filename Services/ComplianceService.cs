@@ -301,6 +301,8 @@ namespace RevitWebAppSync.Services
         public string FixValue { get; set; }
         public string FixOldValue { get; set; }
         public string FixSuggestion { get; set; }
+        public int FixPriority { get; set; } = 10;
+        public string Confidence { get; set; } = "";
     }
 
     public class AIRecommendationDto
