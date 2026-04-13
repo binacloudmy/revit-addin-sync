@@ -20,18 +20,23 @@ namespace RevitWebAppSync.Services
     /// </summary>
     public class AICostEstimator
     {
-        private readonly HttpClient _httpClient;
+        // Static shared HttpClient — reuses TCP connections across all calls.
+        // HttpClient is thread-safe; creating one per call causes socket exhaustion.
+        private static readonly HttpClient SharedClient;
         private readonly string _baseUrl;
+
+        static AICostEstimator()
+        {
+            SharedClient = new HttpClient
+            {
+                Timeout = TimeSpan.FromSeconds(300)  // 5 min for large batch matching
+            };
+            SharedClient.DefaultRequestHeaders.Add("ngrok-skip-browser-warning", "true");
+        }
 
         public AICostEstimator(string baseUrl = null)
         {
             _baseUrl = baseUrl ?? BinaEndpoints.AIBaseUrl;
-            _httpClient = new HttpClient
-            {
-                Timeout = TimeSpan.FromSeconds(300)  // 5 min for large batch matching
-            };
-            // ngrok requires this header to skip the browser warning
-            _httpClient.DefaultRequestHeaders.Add("ngrok-skip-browser-warning", "true");
         }
 
         /// <summary>
@@ -73,7 +78,7 @@ namespace RevitWebAppSync.Services
                 var json = JsonConvert.SerializeObject(payload);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-                var response = await _httpClient.PostAsync($"{_baseUrl}/cost/analyze", content);
+                var response = await SharedClient.PostAsync($"{_baseUrl}/cost/analyze", content);
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
@@ -131,7 +136,7 @@ namespace RevitWebAppSync.Services
                 var json = JsonConvert.SerializeObject(payload);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-                var response = await _httpClient.PostAsync($"{_baseUrl}/cost/vector-match", content);
+                var response = await SharedClient.PostAsync($"{_baseUrl}/cost/vector-match", content);
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
@@ -164,7 +169,7 @@ namespace RevitWebAppSync.Services
         {
             try
             {
-                var response = await _httpClient.GetAsync($"{_baseUrl}/health");
+                var response = await SharedClient.GetAsync($"{_baseUrl}/health");
                 return response.IsSuccessStatusCode;
             }
             catch
@@ -217,7 +222,7 @@ namespace RevitWebAppSync.Services
                 var json = JsonConvert.SerializeObject(payload);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-                var response = await _httpClient.PostAsync($"{_baseUrl}/cost/match-pipeline", content);
+                var response = await SharedClient.PostAsync($"{_baseUrl}/cost/match-pipeline", content);
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
@@ -269,7 +274,7 @@ namespace RevitWebAppSync.Services
                     Content = new StringContent(json, Encoding.UTF8, "application/json")
                 };
 
-                var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                var response = await SharedClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
                 if (!response.IsSuccessStatusCode)
                 {
                     var errorBody = await response.Content.ReadAsStringAsync();
@@ -328,7 +333,7 @@ namespace RevitWebAppSync.Services
         {
             try
             {
-                var response = await _httpClient.GetAsync($"{_baseUrl}/cost/review/pending?limit={limit}");
+                var response = await SharedClient.GetAsync($"{_baseUrl}/cost/review/pending?limit={limit}");
                 var body = await response.Content.ReadAsStringAsync();
                 if (response.IsSuccessStatusCode)
                     return JsonConvert.DeserializeObject<List<ReviewItem>>(body) ?? new List<ReviewItem>();
@@ -357,7 +362,7 @@ namespace RevitWebAppSync.Services
 
                 var json = JsonConvert.SerializeObject(payload);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var response = await _httpClient.PostAsync($"{_baseUrl}/cost/review/resolve", content);
+                var response = await SharedClient.PostAsync($"{_baseUrl}/cost/review/resolve", content);
                 var body = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
@@ -378,7 +383,7 @@ namespace RevitWebAppSync.Services
         {
             try
             {
-                var response = await _httpClient.GetAsync($"{_baseUrl}/cost/review/stats");
+                var response = await SharedClient.GetAsync($"{_baseUrl}/cost/review/stats");
                 var body = await response.Content.ReadAsStringAsync();
                 if (response.IsSuccessStatusCode)
                     return JsonConvert.DeserializeObject<ReviewStats>(body);
@@ -387,10 +392,6 @@ namespace RevitWebAppSync.Services
             catch { return new ReviewStats(); }
         }
 
-        public void Dispose()
-        {
-            _httpClient?.Dispose();
-        }
     }
 
     // --- Response Models ---
