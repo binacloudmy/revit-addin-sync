@@ -120,7 +120,10 @@ namespace RevitWebAppSync.Services
         {
             "Entourage", "Planting", "Parking", "Mass", "Site",
             "Topography", "Curtain Systems", "Curtain Panels",
-            "Curtain Wall Mullions",
+            "Curtain Wall Mullions", "Curtain Wall Grids",
+            "Wall Sweeps", "Fascias", "Reveals",
+            "Top Rails", "Railing Rail Path Extension Lines",
+            "Runs", "Stacked Walls", "Shaft Openings", "Ramps",
         };
 
         /// <summary>
@@ -147,6 +150,15 @@ namespace RevitWebAppSync.Services
 
             // Curtain wall sub-elements (rolled into curtain wall panels)
             "Curtain Wall Mullions", "Curtain Panels", "Curtain Systems",
+            "Curtain Wall Grids",
+
+            // Wall/Roof/Stair sub-elements (rolled into parent pricing)
+            "Wall Sweeps", "Fascias", "Reveals",
+            "Top Rails", "Railing Rail Path Extension Lines",
+            "Runs", "Stacked Walls",
+
+            // Other non-priceable physical elements
+            "Shaft Openings", "Ramps",
         };
 
         /// <summary>

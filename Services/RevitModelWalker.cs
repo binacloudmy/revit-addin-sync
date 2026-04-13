@@ -12,7 +12,10 @@ namespace RevitWebAppSync.Services
     /// </summary>
     public static class RevitModelWalker
     {
-        // Categories to skip (system/non-physical elements)
+        // Categories to skip (system/non-physical elements).
+        // Only block categories that are definitely NOT construction items.
+        // Physical sub-elements (Wall Sweeps, Fascias, Runs, Top Rails, Ramps)
+        // are kept — they're handled by NoAutoPriceCategories in CostCalculator.
         private static readonly HashSet<string> SkipCategories = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
             // Core system
@@ -24,7 +27,7 @@ namespace RevitWebAppSync.Services
             "Analytical Nodes", "Analytical Links", "Analytical Surfaces",
             "Analytical Spaces", "Boundary Conditions",
             "Structural Load Cases", "Structural Loads",
-            // MEP system settings
+            // MEP system settings (not physical)
             "HVAC Zones", "HVAC Load Schedules", "Switch System",
             "Piping Systems", "Pipe Segments",
             "Electrical Load Classifications", "Electrical Demand Factor Definitions",
@@ -33,18 +36,16 @@ namespace RevitWebAppSync.Services
             "Panel Schedule Templates - Data Panel",
             "Panel Schedule Templates - Switchboard",
             "Space Type Settings", "Building Type Settings",
-            // Annotation / documentation
+            // Annotation / documentation (not physical)
             "Dimensions", "Elevations", "Cameras", "Section Boxes",
-            "Lines", "Center Line", "Constraints", "Reveals",
+            "Lines", "Center Line", "Constraints",
             "Legend Components", "Guide Grid", "Work Plane Grid",
             "Automatic Sketch Dimensions", "Primary Contours",
-            // Non-physical
+            // Non-physical system objects
             "RVT Links", "Materials", "Material Assets", "Phases",
             "Revision", "Revision Numbering Sequences",
             "Model Groups", "Shared Site", "Sun Path", "Internal Origin",
-            "Color Fill Schema", "Runs",
-            "Railing Rail Path Extension Lines", "Top Rails",
-            "Wall Sweeps", "Fascias",
+            "Color Fill Schema", "Area Schemes",
         };
 
         // Categories measured by area (m²)
@@ -100,15 +101,23 @@ namespace RevitWebAppSync.Services
                 .WhereElementIsNotElementType()
                 .WhereElementIsViewIndependent();
 
+            // Debug: log all categories encountered and their counts
+            var categoryCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var skippedCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
             foreach (Element elem in collector)
             {
                 if (elem.Category == null) continue;
 
                 string categoryName = elem.Category.Name;
-                if (SkipCategories.Contains(categoryName)) continue;
 
-                // Skip area/room boundaries and internal categories
-                if (categoryName.StartsWith("<")) continue;
+                if (SkipCategories.Contains(categoryName) || categoryName.StartsWith("<"))
+                {
+                    skippedCounts[categoryName] = skippedCounts.GetValueOrDefault(categoryName) + 1;
+                    continue;
+                }
+
+                categoryCounts[categoryName] = categoryCounts.GetValueOrDefault(categoryName) + 1;
 
                 // Get level
                 string levelName = GetElementLevel(elem, doc);
@@ -147,6 +156,16 @@ namespace RevitWebAppSync.Services
                     PriceSource = null
                 });
             }
+
+            // Debug: log category breakdown
+            System.Diagnostics.Debug.WriteLine($"=== WALKER CATEGORY REPORT ({items.Count} items collected, {skippedCounts.Values.Sum()} skipped) ===");
+            System.Diagnostics.Debug.WriteLine("COLLECTED:");
+            foreach (var kv in categoryCounts.OrderByDescending(x => x.Value))
+                System.Diagnostics.Debug.WriteLine($"  {kv.Key,-45} {kv.Value,5} items");
+            System.Diagnostics.Debug.WriteLine("SKIPPED:");
+            foreach (var kv in skippedCounts.OrderByDescending(x => x.Value))
+                System.Diagnostics.Debug.WriteLine($"  {kv.Key,-45} {kv.Value,5} items");
+            System.Diagnostics.Debug.WriteLine("=== END WALKER REPORT ===");
 
             return items;
         }
