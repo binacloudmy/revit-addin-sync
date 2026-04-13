@@ -811,6 +811,13 @@ namespace RevitWebAppSync.UI
             _uiApp = uiApp;
             // Auto-refresh when app is set and no data loaded
             if (_allItems.Count == 0) RefreshData();
+
+            // Pre-warm the AI backend (async, non-blocking) so first Match Prices is fast
+            _ = Task.Run(async () =>
+            {
+                var estimator = new AICostEstimator();
+                await estimator.WarmupAsync();
+            });
         }
 
         public void RefreshData()
@@ -2343,32 +2350,39 @@ namespace RevitWebAppSync.UI
             {
                 acceptAllBtn.IsEnabled = false;
                 var reviewsWithSugg = reviews.Where(r => r.AiSuggestions != null && r.AiSuggestions.Any()).ToList();
-                int confirmed = 0;
                 int total = reviewsWithSugg.Count;
+                progressText.Text = $"Resolving {total} items...";
+                await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
 
+                // Build batch request
+                var batchItems = reviewsWithSugg.Select(r =>
+                {
+                    var top = r.AiSuggestions.First();
+                    return new BatchResolveItem
+                    {
+                        ReviewId = r.Id,
+                        JkrCode = top.JkrCode,
+                        UnitPrice = top.UnitPrice,
+                        Unit = r.Unit ?? "unit",
+                        Description = top.Description ?? "",
+                    };
+                }).ToList();
+
+                // Single batch call instead of N serial calls
+                var batchResult = await aiEstimator.ResolveReviewBatchAsync(batchItems);
+                int confirmed = batchResult.Resolved;
+
+                // Update cards visually and apply prices
                 foreach (var review in reviewsWithSugg)
                 {
-                    var top = review.AiSuggestions.First();
-                    var result = await aiEstimator.ResolveReviewAsync(
-                        review.Id, top.JkrCode, top.UnitPrice, review.Unit ?? "unit", top.Description ?? "");
-
-                    if (result.Success)
+                    if (cardStates.ContainsKey(review.Id))
                     {
-                        confirmed++;
-                        // Update the card visually
-                        if (cardStates.ContainsKey(review.Id))
-                        {
-                            var c = cardStates[review.Id];
-                            c.Background = new SolidColorBrush(Color.FromArgb(15, accentGreen.R, accentGreen.G, accentGreen.B));
-                            c.BorderBrush = new SolidColorBrush(Color.FromArgb(40, accentGreen.R, accentGreen.G, accentGreen.B));
-                        }
-
-                        // Apply price to dashboard
-                        ApplyReviewPrice(review.ElementName, top.JkrCode, top.UnitPrice, "learned");
+                        var c = cardStates[review.Id];
+                        c.Background = new SolidColorBrush(Color.FromArgb(15, accentGreen.R, accentGreen.G, accentGreen.B));
+                        c.BorderBrush = new SolidColorBrush(Color.FromArgb(40, accentGreen.R, accentGreen.G, accentGreen.B));
                     }
-
-                    progressText.Text = $"✓ {confirmed}/{total}";
-                    await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+                    var top = review.AiSuggestions.First();
+                    ApplyReviewPrice(review.ElementName, top.JkrCode, top.UnitPrice, "learned");
                 }
 
                 progressText.Text = $"{confirmed} learned!";

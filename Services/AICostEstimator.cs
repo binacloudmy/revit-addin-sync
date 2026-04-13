@@ -178,6 +178,22 @@ namespace RevitWebAppSync.Services
             }
         }
 
+        /// <summary>
+        /// Pre-initialize the backend's embedding client and DB connection.
+        /// Call on dashboard open so the first Match Prices click is fast.
+        /// </summary>
+        public async Task WarmupAsync()
+        {
+            try
+            {
+                await SharedClient.GetAsync($"{_baseUrl}/cost/warmup");
+            }
+            catch
+            {
+                // Warmup is best-effort — don't block the UI if it fails
+            }
+        }
+
         private double CalculateCostPerSqm(CostSummary summary, List<CostItem> items)
         {
             // Estimate GFA from floor areas
@@ -373,6 +389,45 @@ namespace RevitWebAppSync.Services
             catch (Exception ex)
             {
                 return new ReviewResolveResult { Success = false, Message = ex.Message };
+            }
+        }
+
+        /// <summary>
+        /// Batch resolve multiple review items in a single request.
+        /// Used by Accept All to avoid N serial HTTP calls.
+        /// </summary>
+        public async Task<BatchResolveResult> ResolveReviewBatchAsync(
+            List<BatchResolveItem> items)
+        {
+            try
+            {
+                var payload = new
+                {
+                    items = items.Select(i => new
+                    {
+                        review_id = i.ReviewId,
+                        jkr_code = i.JkrCode,
+                        unit_price = i.UnitPrice,
+                        unit = i.Unit,
+                        description = i.Description,
+                    }).ToList(),
+                    resolved_by = "revit_user"
+                };
+
+                var json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var response = await SharedClient.PostAsync($"{_baseUrl}/cost/review/resolve/batch", content);
+                var body = await response.Content.ReadAsStringAsync();
+
+                if (response.IsSuccessStatusCode)
+                    return JsonConvert.DeserializeObject<BatchResolveResult>(body);
+
+                return new BatchResolveResult { Success = false };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA Cost] Batch resolve failed: {ex.Message}");
+                return new BatchResolveResult { Success = false };
             }
         }
 
@@ -693,5 +748,29 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("message")]
         public string Message { get; set; }
+    }
+
+    public class BatchResolveItem
+    {
+        public string ReviewId { get; set; }
+        public string JkrCode { get; set; }
+        public double UnitPrice { get; set; }
+        public string Unit { get; set; } = "unit";
+        public string Description { get; set; } = "";
+    }
+
+    public class BatchResolveResult
+    {
+        [JsonProperty("success")]
+        public bool Success { get; set; }
+
+        [JsonProperty("resolved")]
+        public int Resolved { get; set; }
+
+        [JsonProperty("failed")]
+        public int Failed { get; set; }
+
+        [JsonProperty("errors")]
+        public List<string> Errors { get; set; } = new List<string>();
     }
 }
