@@ -1455,9 +1455,9 @@ namespace RevitWebAppSync.UI
                     }
                     else
                     {
-                        int skippedCount = _allItems.Count - unmatchedItems.Count;
-                        _loadingStatusText.Text = skippedCount > 0
-                            ? $"Sending {unmatchedItems.Count} items (skipping {skippedCount} already priced)..."
+                        int alreadyPricedCount = _allItems.Count - unmatchedItems.Count;
+                        _loadingStatusText.Text = alreadyPricedCount > 0
+                            ? $"Sending {unmatchedItems.Count} items (skipping {alreadyPricedCount} already priced)..."
                             : $"Sending {unmatchedItems.Count} items...";
                         UpdateLoadingStep(1, "processing...", false);
                         await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
