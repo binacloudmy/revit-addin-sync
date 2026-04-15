@@ -432,6 +432,41 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Queue fallback-estimated items for human review.
+        /// Items where AI found no good match but a category average exists.
+        /// </summary>
+        public async Task QueueEstimatedForReviewAsync(
+            List<CostItem> items, string projectName)
+        {
+            try
+            {
+                var payload = new
+                {
+                    items = items.Select(i => new
+                    {
+                        element_id = i.ElementId,
+                        name = i.Name,
+                        family_name = i.FamilyName,
+                        type_name = i.TypeName,
+                        category = i.Category,
+                        qty = i.Quantity,
+                        unit = i.Unit,
+                        estimated_price = i.UnitPrice,
+                    }).ToList(),
+                    project_name = projectName
+                };
+
+                var json = JsonConvert.SerializeObject(payload);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                await SharedClient.PostAsync($"{_baseUrl}/cost/review/queue-estimated", content);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA Cost] Queue estimated failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Get review queue stats.
         /// </summary>
         public async Task<ReviewStats> GetReviewStatsAsync()

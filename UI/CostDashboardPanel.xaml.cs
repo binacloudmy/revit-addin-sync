@@ -856,26 +856,11 @@ namespace RevitWebAppSync.UI
                 // Apply local DB prices for any remaining unpriced items
                 _priceDb.ApplyPrices(_allItems);
 
-                // Fallback: estimate remaining unpriced items using Category+Unit averages.
-                // Skip non-priceable categories (Rebar, Fittings, etc.) to avoid inflating the total.
-                var unpricedOnLoad = _allItems
-                    .Where(i => i.UnitPrice <= 0 && CostCalculator.IsAutoPriceable(i.Category))
-                    .ToList();
-                if (unpricedOnLoad.Count > 0)
-                {
-                    var avgPrices = _allItems
-                        .Where(i => i.UnitPrice > 0)
-                        .GroupBy(i => (i.Category, i.Unit))
-                        .ToDictionary(g => g.Key, g => g.Average(i => i.UnitPrice));
-                    foreach (var item in unpricedOnLoad)
-                    {
-                        if (avgPrices.TryGetValue((item.Category, item.Unit), out double avg))
-                        {
-                            item.UnitPrice = Math.Round(avg, 2);
-                            item.PriceSource = "estimated";
-                        }
-                    }
-                }
+                // No fallback estimation on load — unpriced items stay at RM 0 until
+                // user runs Match Prices and reviews them. Prices only come from:
+                // - Previous session (preserved prices)
+                // - Model parameters (manual edits in Revit schedule)
+                // - Project price DB (previously confirmed prices)
 
                 _summary = CostCalculator.Calculate(_allItems);
                 UpdateHeader(projectName);
@@ -1548,10 +1533,12 @@ namespace RevitWebAppSync.UI
                             _loadingStatusText.Text = $"Done — {pipelineMatched} matched ({matchRate})";
                             await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
 
-                            // Apply ALL matched prices (low confidence items get priced too, user can review later)
+                            // Apply only high/medium confidence matches — low confidence items
+                            // stay unpriced and go through Review for user confirmation
                             foreach (var match in result.Matches)
                             {
                                 if (match.UnitPrice <= 0) continue;
+                                if (match.Confidence == "low") continue;
                                 var item = _allItems.FirstOrDefault(x => x.ElementId == match.ElementId);
                                 if (item != null && item.UnitPrice <= 0)
                                 {
@@ -1615,15 +1602,14 @@ namespace RevitWebAppSync.UI
                     UpdateLoadingStep(4, "offline", false);
                 }
 
-                // Fallback: price remaining unpriced items using average unit price from same Category+Unit.
-                // Only apply to auto-priceable categories (skip Rebar/Fittings/Connections etc. that
-                // would otherwise inflate the total via unit mismatches).
+                // Fallback: queue remaining unpriced items for review with category average as suggestion.
+                // Do NOT apply estimated prices directly — user must confirm via Review first.
                 var stillUnpriced = _allItems
                     .Where(i => i.UnitPrice <= 0 && CostCalculator.IsAutoPriceable(i.Category))
                     .ToList();
                 if (stillUnpriced.Count > 0)
                 {
-                    // Build averages from priced items grouped by Category + Unit (unit-aware, safer)
+                    // Build averages from priced items grouped by Category + Unit
                     var avgPrices = _allItems
                         .Where(i => i.UnitPrice > 0)
                         .GroupBy(i => (i.Category, i.Unit))
@@ -1631,19 +1617,39 @@ namespace RevitWebAppSync.UI
                             g => g.Key,
                             g => g.Average(i => i.UnitPrice));
 
-                    int fallbackMatched = 0;
+                    // Collect items that have a category average → queue for review
+                    var estimatedItems = new List<CostItem>();
                     foreach (var item in stillUnpriced)
                     {
                         var key = (item.Category, item.Unit);
                         if (avgPrices.TryGetValue(key, out double avgPrice))
                         {
-                            item.UnitPrice = Math.Round(avgPrice, 2);
-                            item.PriceSource = "estimated";
-                            fallbackMatched++;
+                            // Store the estimated price temporarily for the queue request
+                            // (NOT applied to the item — stays at RM 0)
+                            var clone = new CostItem
+                            {
+                                ElementId = item.ElementId,
+                                Name = item.Name,
+                                FamilyName = item.FamilyName,
+                                TypeName = item.TypeName,
+                                Category = item.Category,
+                                Quantity = item.Quantity,
+                                Unit = item.Unit,
+                                UnitPrice = Math.Round(avgPrice, 2),
+                            };
+                            estimatedItems.Add(clone);
                         }
                     }
-                    if (fallbackMatched > 0)
-                        System.Diagnostics.Debug.WriteLine($"[BINA Cost] Fallback: estimated {fallbackMatched} items using category averages");
+
+                    // Queue estimated items for user review
+                    if (estimatedItems.Count > 0)
+                    {
+                        string projectName = _subtitleText?.Text?.Split('|')?.FirstOrDefault()?.Trim() ?? "Untitled";
+                        var est = new AICostEstimator();
+                        _ = est.QueueEstimatedForReviewAsync(estimatedItems, projectName);
+                        reviewQueued += estimatedItems.Count;
+                        System.Diagnostics.Debug.WriteLine($"[BINA Cost] Queued {estimatedItems.Count} items for review (category average estimates)");
+                    }
 
                     // Log any truly unmatchable items (skipped categories or no matching unit average)
                     var trulyUnpriced = _allItems.Where(i => i.UnitPrice <= 0).ToList();
