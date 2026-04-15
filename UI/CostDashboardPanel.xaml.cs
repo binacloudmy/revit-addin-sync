@@ -1533,20 +1533,26 @@ namespace RevitWebAppSync.UI
                             _loadingStatusText.Text = $"Done — {pipelineMatched} matched ({matchRate})";
                             await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
 
-                            // Apply only high/medium confidence matches — low confidence items
-                            // stay unpriced and go through Review for user confirmation
+                            // Apply ALL matches — low confidence items get price applied
+                            // but marked as "pending_review" so user can correct them
                             foreach (var match in result.Matches)
                             {
                                 if (match.UnitPrice <= 0) continue;
-                                if (match.Confidence == "low") continue;
                                 var item = _allItems.FirstOrDefault(x => x.ElementId == match.ElementId);
                                 if (item != null && item.UnitPrice <= 0)
                                 {
                                     item.UnitPrice = match.UnitPrice;
                                     item.JkrCode = match.JkrCode;
-                                    string source = match.Reasoning?.Split(',')[0] ?? match.MatchLayer;
-                                    item.PriceSource = match.MatchLayer == "layer1_exact" ? "master" :
-                                                       match.MatchLayer == "layer2_learned" ? "learned" : source;
+                                    if (match.Confidence == "low")
+                                    {
+                                        item.PriceSource = "pending_review";
+                                    }
+                                    else
+                                    {
+                                        string source = match.Reasoning?.Split(',')[0] ?? match.MatchLayer;
+                                        item.PriceSource = match.MatchLayer == "layer1_exact" ? "master" :
+                                                           match.MatchLayer == "layer2_learned" ? "learned" : source;
+                                    }
                                     _priceDb?.SetPrice(item.JkrCode, item.UnitPrice, item.Unit, item.Name, item.PriceSource);
                                 }
                             }
@@ -1602,8 +1608,9 @@ namespace RevitWebAppSync.UI
                     UpdateLoadingStep(4, "offline", false);
                 }
 
-                // Fallback: queue remaining unpriced items for review with category average as suggestion.
-                // Do NOT apply estimated prices directly — user must confirm via Review first.
+                // Fallback: apply category average to remaining unpriced items AND queue for review.
+                // Price is applied immediately (counts toward total) but marked "estimated"
+                // so user can correct via Review.
                 var stillUnpriced = _allItems
                     .Where(i => i.UnitPrice <= 0 && CostCalculator.IsAutoPriceable(i.Category))
                     .ToList();
@@ -1617,15 +1624,18 @@ namespace RevitWebAppSync.UI
                             g => g.Key,
                             g => g.Average(i => i.UnitPrice));
 
-                    // Collect items that have a category average → queue for review
+                    // Apply estimated price AND collect clones for review queue
                     var estimatedItems = new List<CostItem>();
                     foreach (var item in stillUnpriced)
                     {
                         var key = (item.Category, item.Unit);
                         if (avgPrices.TryGetValue(key, out double avgPrice))
                         {
-                            // Store the estimated price temporarily for the queue request
-                            // (NOT applied to the item — stays at RM 0)
+                            // Apply estimated price to the actual item (counts toward total)
+                            item.UnitPrice = Math.Round(avgPrice, 2);
+                            item.PriceSource = "estimated";
+
+                            // Clone for review queue so user can correct
                             var clone = new CostItem
                             {
                                 ElementId = item.ElementId,
@@ -1641,21 +1651,21 @@ namespace RevitWebAppSync.UI
                         }
                     }
 
-                    // Queue estimated items for user review
+                    // Queue estimated items for user review (correction flow)
                     if (estimatedItems.Count > 0)
                     {
                         string projectName = _subtitleText?.Text?.Split('|')?.FirstOrDefault()?.Trim() ?? "Untitled";
                         var est = new AICostEstimator();
                         _ = est.QueueEstimatedForReviewAsync(estimatedItems, projectName);
                         reviewQueued += estimatedItems.Count;
-                        System.Diagnostics.Debug.WriteLine($"[BINA Cost] Queued {estimatedItems.Count} items for review (category average estimates)");
+                        System.Diagnostics.Debug.WriteLine($"[BINA Cost] Applied + queued {estimatedItems.Count} estimated items for review");
                     }
 
-                    // Log any truly unmatchable items (skipped categories or no matching unit average)
-                    var trulyUnpriced = _allItems.Where(i => i.UnitPrice <= 0).ToList();
+                    // Log any truly unmatchable items (no category average available)
+                    var trulyUnpriced = _allItems.Where(i => i.UnitPrice <= 0 && CostCalculator.IsAutoPriceable(i.Category)).ToList();
                     if (trulyUnpriced.Count > 0)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[BINA Cost] {trulyUnpriced.Count} items still unpriced after all matching:");
+                        System.Diagnostics.Debug.WriteLine($"[BINA Cost] {trulyUnpriced.Count} items still unpriced (no category average):");
                         foreach (var u in trulyUnpriced.Take(20))
                             System.Diagnostics.Debug.WriteLine($"  ElemId: {u.ElementId} | {u.Category} | {u.Name} | Qty: {u.Quantity} {u.Unit} | JKR: {u.JkrCode}");
                     }
