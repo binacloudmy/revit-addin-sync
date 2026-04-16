@@ -116,6 +116,23 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Clear all prices and delete the file from disk
+        /// </summary>
+        public void Clear()
+        {
+            _prices.Clear();
+            try
+            {
+                if (File.Exists(_filePath))
+                    File.Delete(_filePath);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA Cost] Failed to delete price file: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// Save to disk
         /// </summary>
         public void Save()

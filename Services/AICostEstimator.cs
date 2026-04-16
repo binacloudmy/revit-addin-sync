@@ -467,6 +467,30 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Reset all backend cost data: clear review_queue and learned_mappings.
+        /// Does NOT touch price databases (n3c_material_costs, pwcic_costs, jkr_schedule_rates).
+        /// </summary>
+        public async Task<bool> ResetCostDataAsync()
+        {
+            try
+            {
+                var response = await SharedClient.PostAsync($"{_baseUrl}/cost/reset", null);
+                if (response.IsSuccessStatusCode)
+                {
+                    var body = await response.Content.ReadAsStringAsync();
+                    System.Diagnostics.Debug.WriteLine($"[BINA Cost] Reset response: {body}");
+                    return true;
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA Cost] Reset failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Get review queue stats.
         /// </summary>
         public async Task<ReviewStats> GetReviewStatsAsync()

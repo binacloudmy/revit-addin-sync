@@ -537,6 +537,8 @@ namespace RevitWebAppSync.UI
             secondaryRow.Children.Add(MakeLinkButton("Import Prices", Import_Click));
             secondaryRow.Children.Add(new TextBlock { Text = "|", Foreground = new SolidColorBrush(BorderColor), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 4, 0), FontSize = 10 });
             secondaryRow.Children.Add(MakeLinkButton("Import to Master DB", ImportMaster_Click));
+            secondaryRow.Children.Add(new TextBlock { Text = "|", Foreground = new SolidColorBrush(BorderColor), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 4, 0), FontSize = 10 });
+            secondaryRow.Children.Add(MakeLinkButton("Reset", Reset_Click));
 
             actionStack.Children.Add(primaryRow);
             actionStack.Children.Add(secondaryRow);
@@ -1346,6 +1348,49 @@ namespace RevitWebAppSync.UI
         {
             _suppressModelChanged = false; // Reset in case it got stuck
             RefreshData();
+        }
+
+        private async void Reset_Click(object sender, RoutedEventArgs e)
+        {
+            var result = MessageBox.Show(
+                "This will clear all prices, review queue, and learned mappings.\n\n" +
+                "Your price databases (N3C, PWCIC, JKR rates) will NOT be affected.\n\n" +
+                "Continue?",
+                "BINA Cost — Reset",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (result != MessageBoxResult.Yes) return;
+
+            try
+            {
+                // 1. Clear local price DB file
+                _priceDb?.Clear();
+
+                // 2. Clear all item prices in memory
+                foreach (var item in _allItems)
+                {
+                    item.UnitPrice = 0;
+                    item.JkrCode = null;
+                    item.PriceSource = null;
+                }
+
+                // 3. Clear backend review_queue + learned_mappings
+                var estimator = new AICostEstimator();
+                bool serverReset = await estimator.ResetCostDataAsync();
+                string serverMsg = serverReset ? "Server data cleared." : "Server not reachable — local data cleared only.";
+
+                // 4. Re-scan model fresh (no preserved prices)
+                _allItems.Clear();
+                _suppressModelChanged = false;
+                RefreshData();
+
+                MessageBox.Show($"Reset complete. {serverMsg}\n\nClick Match Prices to re-run the pipeline.", "BINA Cost");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Reset failed: {ex.Message}", "BINA Cost");
+            }
         }
 
         private void Export_Click(object sender, RoutedEventArgs e)
