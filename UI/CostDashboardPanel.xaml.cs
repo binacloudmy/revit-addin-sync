@@ -1768,7 +1768,7 @@ namespace RevitWebAppSync.UI
                     {
                         string projectName = _subtitleText?.Text?.Split('|')?.FirstOrDefault()?.Trim() ?? "Untitled";
                         var est = new AICostEstimator();
-                        _ = est.QueueEstimatedForReviewAsync(estimatedItems, projectName);
+                        await est.QueueEstimatedForReviewAsync(estimatedItems, projectName);
                         reviewQueued += estimatedItems.Count;
                         System.Diagnostics.Debug.WriteLine($"[BINA Cost] Applied + queued {estimatedItems.Count} estimated items for review");
                     }
