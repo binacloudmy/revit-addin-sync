@@ -29,6 +29,7 @@ namespace RevitWebAppSync.UI
         private PriceDatabase _priceDb;
         private bool _showByLevel = true;
         private bool _suppressModelChanged = false;
+        private bool _isResetting = false;
 
         private double _previousTotal;
         private int _previousItemCount;
@@ -852,11 +853,12 @@ namespace RevitWebAppSync.UI
                     }
                 }
 
-                // Also read user edits from model parameters
-                CostParameterWriter.ReadPricesFromModel(doc, _allItems);
-
-                // Apply local DB prices for any remaining unpriced items
-                _priceDb.ApplyPrices(_allItems);
+                // Read user edits from model parameters (skip during reset)
+                if (!_isResetting)
+                {
+                    CostParameterWriter.ReadPricesFromModel(doc, _allItems);
+                    _priceDb.ApplyPrices(_allItems);
+                }
 
                 // No fallback estimation on load — unpriced items stay at RM 0 until
                 // user runs Match Prices and reviews them. Prices only come from:
@@ -1383,10 +1385,12 @@ namespace RevitWebAppSync.UI
                 bool serverReset = await estimator.ResetCostDataAsync();
                 string serverMsg = serverReset ? "Server data cleared." : "Server not reachable — local data cleared only.";
 
-                // 4. Re-scan model fresh (no preserved prices)
+                // 4. Re-scan model fresh (no preserved prices, no model params)
                 _allItems.Clear();
                 _suppressModelChanged = false;
+                _isResetting = true;
                 RefreshData();
+                _isResetting = false;
 
                 MessageBox.Show($"Reset complete. {serverMsg}\n\nClick Match Prices to re-run the pipeline.", "BINA Cost");
             }
