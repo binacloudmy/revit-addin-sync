@@ -1268,7 +1268,10 @@ namespace RevitWebAppSync.UI
 
             foreach (var item in _allItems)
             {
-                if ((item.UnitPrice <= 0 || item.PriceSource == "estimated") && item.Name == elementName)
+                if (item.Name != elementName) continue;
+                // Override if: unpriced, or was a guess (estimated/pending_review)
+                bool isGuess = item.PriceSource == "estimated" || item.PriceSource == "pending_review";
+                if (item.UnitPrice <= 0 || isGuess)
                 {
                     item.UnitPrice = unitPrice;
                     if (!string.IsNullOrEmpty(jkrCode)) item.JkrCode = jkrCode;
