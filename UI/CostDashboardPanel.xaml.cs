@@ -1431,7 +1431,30 @@ namespace RevitWebAppSync.UI
                 // 1. Clear local price DB file
                 _priceDb?.Clear();
 
-                // 2. Clear all item prices in memory
+                // 2. Zero out cost parameters on Revit elements (so prices don't
+                //    come back after save + reopen). Uses the ExternalEvent
+                //    pattern — need to snapshot items before clearing memory.
+                var itemsToClear = new List<CostItem>(_allItems);
+                var handler = App.CostWriteHandler;
+                var evt = App.CostWriteEvent;
+                if (handler != null && evt != null && itemsToClear.Count > 0)
+                {
+                    var tcs = new System.Threading.Tasks.TaskCompletionSource<bool>();
+                    handler.Items = itemsToClear;
+                    handler.ClearMode = true;
+                    _suppressModelChanged = true;
+                    handler.OnCompleted = () =>
+                    {
+                        handler.ClearMode = false; // reset for next Match Prices run
+                        tcs.TrySetResult(true);
+                    };
+                    evt.Raise();
+                    // Wait for Revit to finish the transaction (max 10s safety)
+                    await System.Threading.Tasks.Task.WhenAny(tcs.Task, System.Threading.Tasks.Task.Delay(10000));
+                    _suppressModelChanged = false;
+                }
+
+                // 3. Clear all item prices in memory
                 foreach (var item in _allItems)
                 {
                     item.UnitPrice = 0;
@@ -1439,12 +1462,12 @@ namespace RevitWebAppSync.UI
                     item.PriceSource = null;
                 }
 
-                // 3. Clear backend review_queue + learned_mappings
+                // 4. Clear backend review_queue + learned_mappings
                 var estimator = new AICostEstimator();
                 bool serverReset = await estimator.ResetCostDataAsync();
                 string serverMsg = serverReset ? "Server data cleared." : "Server not reachable — local data cleared only.";
 
-                // 4. Re-scan model fresh (no preserved prices, no model params)
+                // 5. Re-scan model fresh (no preserved prices, no model params)
                 _allItems.Clear();
                 _suppressModelChanged = false;
                 _isResetting = true;

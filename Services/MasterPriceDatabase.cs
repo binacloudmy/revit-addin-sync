@@ -123,6 +123,7 @@ namespace RevitWebAppSync.Services
             foreach (var item in items)
             {
                 if (string.IsNullOrEmpty(item.JkrCode)) continue;
+                if (!CostCalculator.IsAutoPriceable(item.Category)) continue;
 
                 // Skip if already priced in project DB
                 if (item.UnitPrice > 0) continue;

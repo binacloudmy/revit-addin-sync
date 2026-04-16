@@ -77,6 +77,67 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Clear cost parameters on Revit elements (set to 0 / empty).
+        /// Used by Reset to wipe prices stored on the model itself so they
+        /// don't reappear after the user saves and reopens the file.
+        /// Must be called inside an active Transaction.
+        /// </summary>
+        /// <returns>Number of elements cleared</returns>
+        public static int ClearPricesFromModel(Document doc, List<CostItem> items)
+        {
+            int cleared = 0;
+
+            foreach (var item in items)
+            {
+                Element elem = doc.GetElement(new ElementId(item.ElementId));
+                if (elem == null) continue;
+
+                // Skip elements inside groups (can't modify without group edit mode)
+                if (elem.GroupId != ElementId.InvalidElementId)
+                    continue;
+
+                try
+                {
+                    bool updated = false;
+
+                    Parameter pPrice = elem.LookupParameter(BINASharedParameters.PARAM_UNIT_PRICE);
+                    if (pPrice != null && !pPrice.IsReadOnly)
+                    {
+                        pPrice.Set(0.0);
+                        updated = true;
+                    }
+
+                    Parameter pTotal = elem.LookupParameter(BINASharedParameters.PARAM_TOTAL_COST);
+                    if (pTotal != null && !pTotal.IsReadOnly)
+                    {
+                        pTotal.Set(0.0);
+                    }
+
+                    Parameter pCode = elem.LookupParameter(BINASharedParameters.PARAM_JKR_CODE);
+                    if (pCode != null && !pCode.IsReadOnly)
+                    {
+                        pCode.Set("");
+                    }
+
+                    Parameter pSource = elem.LookupParameter(BINASharedParameters.PARAM_PRICE_SOURCE);
+                    if (pSource != null && !pSource.IsReadOnly)
+                    {
+                        pSource.Set("");
+                    }
+
+                    if (updated) cleared++;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA Cost] Failed to clear params for element {item.ElementId}: {ex.Message}");
+                }
+            }
+
+            return cleared;
+        }
+
+        /// <summary>
         /// Read cost data from Revit element parameters back into CostItems.
         /// Detects user edits made in Revit Schedules and applies them.
         /// Does NOT require a Transaction (read-only).

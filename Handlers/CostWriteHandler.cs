@@ -14,6 +14,7 @@ namespace RevitWebAppSync.Handlers
     public class CostWriteHandler : IExternalEventHandler
     {
         public List<CostItem> Items { get; set; }
+        public bool ClearMode { get; set; } = false;
         public int WrittenCount { get; private set; }
         public bool ScheduleCreated { get; private set; }
         public string Error { get; private set; }
@@ -43,30 +44,35 @@ namespace RevitWebAppSync.Handlers
                     tx1.Commit();
                 }
 
-                // Step 2: Write prices to elements
-                using (var tx2 = new Transaction(doc, "BINA: Write Prices"))
+                // Step 2: Write or clear prices on elements
+                using (var tx2 = new Transaction(doc, ClearMode ? "BINA: Clear Prices" : "BINA: Write Prices"))
                 {
                     tx2.Start();
-                    WrittenCount = CostParameterWriter.WritePricesToModel(doc, Items);
+                    WrittenCount = ClearMode
+                        ? CostParameterWriter.ClearPricesFromModel(doc, Items)
+                        : CostParameterWriter.WritePricesToModel(doc, Items);
                     tx2.Commit();
                 }
 
-                // Step 3: Create cost schedule
-                try
+                // Step 3: Create cost schedule (skip in ClearMode — keep existing schedule)
+                if (!ClearMode)
                 {
-                    using (var tx3 = new Transaction(doc, "BINA: Create Cost Schedule"))
+                    try
                     {
-                        tx3.Start();
-                        ScheduleCreated = BINASharedParameters.CreateCostSchedule(doc);
-                        if (ScheduleCreated)
-                            tx3.Commit();
-                        else
-                            tx3.RollBack();
+                        using (var tx3 = new Transaction(doc, "BINA: Create Cost Schedule"))
+                        {
+                            tx3.Start();
+                            ScheduleCreated = BINASharedParameters.CreateCostSchedule(doc);
+                            if (ScheduleCreated)
+                                tx3.Commit();
+                            else
+                                tx3.RollBack();
+                        }
                     }
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[BINA Cost] Schedule creation failed: {ex.Message}");
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[BINA Cost] Schedule creation failed: {ex.Message}");
+                    }
                 }
             }
             catch (Exception ex)
