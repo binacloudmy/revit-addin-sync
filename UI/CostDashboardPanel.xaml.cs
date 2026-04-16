@@ -66,6 +66,10 @@ namespace RevitWebAppSync.UI
         private TextBlock _componentToggleText;
         private StackPanel _componentListPanel;
 
+        // Review badge
+        private Border _reviewBadge;
+        private TextBlock _reviewBadgeText;
+
         // Loading overlay UI
         private Border _loadingOverlay;
         private StackPanel _loadingStepsPanel;
@@ -528,7 +532,34 @@ namespace RevitWebAppSync.UI
 
             var primaryRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 6) };
             primaryRow.Children.Add(MakeActionButton("Match Prices", AutoMatch_Click, SuccessGreen, true));
-            primaryRow.Children.Add(MakeActionButton("Review", ReviewQueue_Click, Color.FromRgb(156, 39, 176), false));
+
+            // Review button with notification badge
+            var reviewBtnWrapper = new Grid { Margin = new Thickness(0, 0, 6, 0) };
+            var reviewBtn = MakeActionButton("Review", ReviewQueue_Click, Color.FromRgb(156, 39, 176), false);
+            reviewBtn.Margin = new Thickness(0); // wrapper handles margin
+            reviewBtnWrapper.Children.Add(reviewBtn);
+            _reviewBadgeText = new TextBlock
+            {
+                FontSize = 9, FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            _reviewBadge = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(220, 38, 38)),
+                CornerRadius = new CornerRadius(8),
+                MinWidth = 18, Height = 18,
+                Padding = new Thickness(4, 0, 4, 0),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(0, -6, -6, 0),
+                Child = _reviewBadgeText,
+                Visibility = Visibility.Collapsed,
+            };
+            reviewBtnWrapper.Children.Add(_reviewBadge);
+            primaryRow.Children.Add(reviewBtnWrapper);
+
             primaryRow.Children.Add(MakeActionButton("AI Insights", AIInsights_Click, Color.FromRgb(100, 100, 100), false));
             primaryRow.Children.Add(MakeActionButton("Refresh", Refresh_Click, PrimaryBlue, true));
 
@@ -815,6 +846,9 @@ namespace RevitWebAppSync.UI
             // Auto-refresh when app is set and no data loaded
             if (_allItems.Count == 0) RefreshData();
 
+            // Show review badge if there are pending items from previous session
+            UpdateReviewBadge();
+
             // Pre-warm the AI backend (async, non-blocking) so first Match Prices is fast
             _ = Task.Run(async () =>
             {
@@ -896,6 +930,31 @@ namespace RevitWebAppSync.UI
             UpdateSqftEstimate();
             if (_componentBody != null && _componentBody.Visibility == Visibility.Visible)
                 UpdateComponentCard();
+        }
+
+        private async void UpdateReviewBadge()
+        {
+            try
+            {
+                var stats = await new AICostEstimator().GetReviewStatsAsync();
+                int pending = stats?.ReviewPending ?? 0;
+                Dispatcher.Invoke(() =>
+                {
+                    if (pending > 0)
+                    {
+                        _reviewBadgeText.Text = pending.ToString();
+                        _reviewBadge.Visibility = Visibility.Visible;
+                    }
+                    else
+                    {
+                        _reviewBadge.Visibility = Visibility.Collapsed;
+                    }
+                });
+            }
+            catch
+            {
+                Dispatcher.Invoke(() => _reviewBadge.Visibility = Visibility.Collapsed);
+            }
         }
 
         private void UpdateSqftEstimate()
@@ -1392,6 +1451,7 @@ namespace RevitWebAppSync.UI
                 RefreshData();
                 _isResetting = false;
 
+                UpdateReviewBadge();
                 MessageBox.Show($"Reset complete. {serverMsg}\n\nClick Match Prices to re-run the pipeline.", "BINA Cost");
             }
             catch (Exception ex)
@@ -1819,6 +1879,9 @@ namespace RevitWebAppSync.UI
                 {
                     ShowBanner($"Matched {totalMatched} items — RM {_summary.GrandTotal:N0}", $"{detail}{scheduleHint}", SuccessGreen);
                 }
+
+                // Update review badge on Review button
+                UpdateReviewBadge();
             }
             catch (Exception ex)
             {
@@ -2482,6 +2545,7 @@ namespace RevitWebAppSync.UI
                 acceptAllBtn.Background = new SolidColorBrush(Color.FromRgb(22, 101, 52));
 
                 ShowBanner($"{confirmed} mappings learned — total updated", "", SuccessGreen);
+                UpdateReviewBadge();
             };
 
             footerButtons.Children.Add(progressText);
