@@ -1746,13 +1746,22 @@ namespace RevitWebAppSync.UI
                         var suppressTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
                         suppressTimer.Tick += (t, te) => { _suppressModelChanged = false; suppressTimer.Stop(); };
                         suppressTimer.Start();
-                        int reviewCount = reviewQueued; // capture for closure
                         handler.OnCompleted = () =>
                         {
-                            Dispatcher.Invoke(() =>
+                            Dispatcher.Invoke(async () =>
                             {
                                 suppressTimer.Stop();
                                 _suppressModelChanged = false;
+
+                                // Get actual review count from backend
+                                int pendingReview = 0;
+                                try
+                                {
+                                    var stats2 = await new AICostEstimator().GetReviewStatsAsync();
+                                    if (stats2 != null) pendingReview = stats2.ReviewPending;
+                                }
+                                catch { }
+
                                 if (handler.Error != null)
                                 {
                                     ShowBanner("Write error: " + handler.Error, "", WarningAmber);
@@ -1762,16 +1771,16 @@ namespace RevitWebAppSync.UI
                                     string writeDetail = handler.ScheduleCreated
                                         ? "Open 'BINA Cost Summary' in Project Browser > Schedules to edit prices"
                                         : "Edit prices in 'BINA Cost Summary' schedule";
-                                    if (reviewCount > 0)
-                                        writeDetail += $" | {reviewCount} items need review";
+                                    if (pendingReview > 0)
+                                        writeDetail += $" | {pendingReview} items need review";
                                     ShowBanner(
                                         $"Wrote {handler.WrittenCount} prices to model",
                                         writeDetail,
-                                        reviewCount > 0 ? WarningAmber : SuccessGreen);
+                                        pendingReview > 0 ? WarningAmber : SuccessGreen);
                                 }
-                                else if (reviewCount > 0)
+                                else if (pendingReview > 0)
                                 {
-                                    ShowBanner($"RM {_summary.GrandTotal:N0} — {reviewCount} items need review",
+                                    ShowBanner($"RM {_summary.GrandTotal:N0} — {pendingReview} items need review",
                                         "Click Review to confirm estimated prices", WarningAmber);
                                 }
                             });
