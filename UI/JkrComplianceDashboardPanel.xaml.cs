@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
@@ -202,6 +203,7 @@ namespace RevitWebAppSync.UI
             var actionRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
             actionRow.Children.Add(MakeActionButton("Check JKR Compliance", CheckCompliance_Click, PrimaryBlue, true));
             actionRow.Children.Add(MakeActionButton("Refresh", Refresh_Click, Color.FromRgb(100, 100, 100), false));
+            actionRow.Children.Add(MakeActionButton("Export for Benchmark", Export_Click, Color.FromRgb(100, 100, 100), false));
             actionBar.Child = actionRow;
             Grid.SetRow(actionBar, 5);
             root.Children.Add(actionBar);
@@ -263,6 +265,42 @@ namespace RevitWebAppSync.UI
         }
 
         private void Refresh_Click(object sender, RoutedEventArgs e) => ScanModel();
+
+        private void Export_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrEmpty(_service.LastRequestJson))
+            {
+                ShowStatus("Run 'Check JKR Compliance' first, then export.", Color.FromRgb(253, 235, 208));
+                return;
+            }
+
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = "Export JKR benchmark files",
+                FileName = $"jkr_benchmark_{DateTime.Now:yyyyMMdd_HHmmss}",
+                Filter = "JSON files (*.json)|*.json",
+                DefaultExt = ".json",
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            try
+            {
+                string dir = Path.GetDirectoryName(dlg.FileName);
+                string stem = Path.GetFileNameWithoutExtension(dlg.FileName);
+                string requestPath = Path.Combine(dir, $"{stem}_request.json");
+                string responsePath = Path.Combine(dir, $"{stem}_response.json");
+
+                File.WriteAllText(requestPath, _service.LastRequestJson);
+                if (!string.IsNullOrEmpty(_service.LastResponseJson))
+                    File.WriteAllText(responsePath, _service.LastResponseJson);
+
+                ShowStatus($"Exported: {stem}_request.json + _response.json", Color.FromRgb(223, 246, 221));
+            }
+            catch (Exception ex)
+            {
+                ShowStatus($"Export failed: {ex.Message}", Color.FromRgb(253, 235, 208));
+            }
+        }
 
         private void ScanModel()
         {

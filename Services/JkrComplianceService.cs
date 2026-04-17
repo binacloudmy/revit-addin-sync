@@ -19,6 +19,11 @@ namespace RevitWebAppSync.Services
 
         private const string DEFAULT_BASE_URL = "https://gastrodermal-ace-overvaliantly.ngrok-free.dev";
 
+        // Raw JSON of the last V2 request + response — used by the Export button for benchmark capture.
+        public string LastRequestJson { get; private set; } = "";
+        public string LastResponseJson { get; private set; } = "";
+        public DateTime? LastCallUtc { get; private set; }
+
         public JkrComplianceService(string baseUrl = null)
         {
             _baseUrl = baseUrl ?? DEFAULT_BASE_URL;
@@ -68,12 +73,17 @@ namespace RevitWebAppSync.Services
             try
             {
                 var json = JsonConvert.SerializeObject(request);
+                LastRequestJson = JsonConvert.SerializeObject(request, Formatting.Indented);
+                LastResponseJson = "";
+                LastCallUtc = DateTime.UtcNow;
+
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
                 // Try V2 endpoint first
                 var skipParam = skipAi ? "?skip_ai=true" : "";
                 var resp = await _httpClient.PostAsync($"{_baseUrl}/v1/compliance/jkr-check-v2{skipParam}", content);
                 var body = await resp.Content.ReadAsStringAsync();
+                LastResponseJson = body;
 
                 if (resp.IsSuccessStatusCode)
                 {
