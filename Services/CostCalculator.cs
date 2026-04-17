@@ -31,6 +31,23 @@ namespace RevitWebAppSync.Services
         };
 
         /// <summary>
+        /// Data sources for each building type rate
+        /// </summary>
+        public static readonly Dictionary<string, string> BuildingTypeRateSources = new Dictionary<string, string>
+        {
+            { "Residential (Low Cost)", "BCISM Costbook 2022 (CIDB/N3C), adj. 2024" },
+            { "Residential (Medium)", "BCISM Costbook 2022 (CIDB/N3C), adj. 2024" },
+            { "Residential (High End)", "JUBM Construction Cost Handbook 2024" },
+            { "Commercial (Office)", "BCISM Costbook 2022 (CIDB/N3C), adj. 2024" },
+            { "Commercial (Retail)", "JUBM Construction Cost Handbook 2024" },
+            { "Industrial (Warehouse)", "Arcadis Cost Handbook MY 2022, adj. 2024" },
+            { "Industrial (Factory)", "Arcadis Cost Handbook MY 2022, adj. 2024" },
+            { "Institutional (School)", "BCISM Costbook 2022 (CIDB/N3C), adj. 2024" },
+            { "Institutional (Hospital)", "JUBM Construction Cost Handbook 2024" },
+            { "Custom", "" }
+        };
+
+        /// <summary>
         /// Calculate a quick cost estimate based on total floor area and rate per sqft
         /// </summary>
         public static SqftEstimate CalculateSqftEstimate(List<CostItem> items, string buildingType, double customRate = 0)

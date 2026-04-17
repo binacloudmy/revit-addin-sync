@@ -986,7 +986,10 @@ namespace RevitWebAppSync.UI
             {
                 _sqftTotalText.FontSize = 22;
                 _sqftTotalText.Text = $"RM {estimate.EstimatedTotal:N0}";
-                _sqftAreaText.Text = $"Floor area: {estimate.TotalFloorAreaSqft:N0} sqft ({estimate.TotalFloorAreaM2:N0} m²)  •  RM {estimate.RatePerSqft:N0}/sqft";
+                string sourceRef = "";
+                if (!isCustom && CostCalculator.BuildingTypeRateSources.TryGetValue(type, out var src) && !string.IsNullOrEmpty(src))
+                    sourceRef = $"\nSource: {src}";
+                _sqftAreaText.Text = $"Floor area: {estimate.TotalFloorAreaSqft:N0} sqft ({estimate.TotalFloorAreaM2:N0} m²)  •  RM {estimate.RatePerSqft:N0}/sqft{sourceRef}";
             }
             else
             {
