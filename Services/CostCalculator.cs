@@ -11,19 +11,22 @@ namespace RevitWebAppSync.Services
     public static class CostCalculator
     {
         /// <summary>
-        /// Preset building type rates in RM per sqft for Malaysian construction
+        /// Preset building type rates in RM per sqft for Malaysian construction.
+        /// Sources: BCISM Costbook 2022 (CIDB/N3C), JUBM Construction Cost Handbook 2024,
+        ///          Arcadis Construction Cost Handbook MY 2022, adjusted for 2024/2025 levels.
+        /// Rates are inclusive of building + M&E + preliminaries (10%), exclusive of contingencies.
         /// </summary>
         public static readonly Dictionary<string, double> BuildingTypeRates = new Dictionary<string, double>
         {
-            { "Residential (Low Cost)", 45 },
-            { "Residential (Medium)", 75 },
-            { "Residential (High End)", 120 },
-            { "Commercial (Office)", 90 },
-            { "Commercial (Retail)", 100 },
-            { "Industrial (Warehouse)", 40 },
-            { "Industrial (Factory)", 55 },
-            { "Institutional (School)", 70 },
-            { "Institutional (Hospital)", 150 },
+            { "Residential (Low Cost)", 110 },    // BCISM 2022: RM 84-130/sqft (terrace), adj. 2024
+            { "Residential (Medium)", 180 },      // BCISM 2022: RM 126-200/sqft (semi-D/bungalow), adj. 2024
+            { "Residential (High End)", 320 },     // JUBM 2024: RM 305-633/sqft (luxury high-rise)
+            { "Commercial (Office)", 200 },        // BCISM 2022: RM 136-370/sqft (2-4 storey), adj. 2024
+            { "Commercial (Retail)", 250 },        // JUBM 2024: RM 200-350/sqft (retail/mixed-use)
+            { "Industrial (Warehouse)", 100 },     // Arcadis 2022: RM 88-108/sqft (heavy duty), adj. 2024
+            { "Industrial (Factory)", 130 },       // Arcadis 2022: RM 107-155/sqft (light duty flatted), adj. 2024
+            { "Institutional (School)", 250 },     // BCISM 2022: RM 200-513/sqft (conventional-IBS), adj. 2024
+            { "Institutional (Hospital)", 450 },   // JUBM 2024: RM 370-650+/sqft (M&E intensive)
             { "Custom", 0 }
         };
 
