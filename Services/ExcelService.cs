@@ -123,7 +123,8 @@ namespace RevitWebAppSync.Services
 
             using (var workbook = new XLWorkbook(filePath))
             {
-                var ws = workbook.Worksheets.First();
+                var ws = workbook.Worksheets.FirstOrDefault();
+                if (ws == null) throw new Exception("Excel file has no worksheets.");
 
                 // Find header row (look for "JKR Code" in first 10 rows)
                 int headerRow = -1;

@@ -1452,6 +1452,22 @@ namespace RevitWebAppSync.UI
                     // Wait for Revit to finish the transaction (max 10s safety)
                     await System.Threading.Tasks.Task.WhenAny(tcs.Task, System.Threading.Tasks.Task.Delay(10000));
                     _suppressModelChanged = false;
+                    // Defensive: ensure ClearMode is off even if callback didn't fire (timeout)
+                    handler.ClearMode = false;
+
+                    // If the Revit write failed, abort reset so we don't leave
+                    // model parameters out of sync with cleared local/backend state.
+                    if (handler.Error != null)
+                    {
+                        MessageBox.Show(
+                            $"Reset aborted — could not clear prices from Revit model.\n\n" +
+                            $"Error: {handler.Error}\n\n" +
+                            "Local data and backend were NOT cleared.",
+                            "BINA Cost — Reset Failed",
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Error);
+                        return;
+                    }
                 }
 
                 // 3. Clear all item prices in memory
@@ -1825,6 +1841,7 @@ namespace RevitWebAppSync.UI
                     if (handler != null && evt != null)
                     {
                         handler.Items = _allItems;
+                        handler.ClearMode = false; // defensive: ensure we write, not clear
                         _suppressModelChanged = true;
                         var suppressTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
                         suppressTimer.Tick += (t, te) => { _suppressModelChanged = false; suppressTimer.Stop(); };
