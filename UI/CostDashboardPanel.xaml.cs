@@ -2154,6 +2154,37 @@ namespace RevitWebAppSync.UI
                 });
                 infoStack.Children.Add(metaRow);
 
+                // ── Declare manual input controls early so suggestions can reference them ──
+                var manualPanel = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+                var jkrBox = new System.Windows.Controls.TextBox
+                {
+                    Width = 120, Height = 26, FontSize = 11,
+                    Background = new SolidColorBrush(Color.FromRgb(52, 52, 56)),
+                    Foreground = new SolidColorBrush(textDim),
+                    BorderBrush = new SolidColorBrush(borderSubtle),
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(6, 3, 6, 3),
+                    Margin = new Thickness(0, 0, 6, 0),
+                    Text = "JKR Code",
+                    CaretBrush = new SolidColorBrush(textWhite)
+                };
+                jkrBox.GotFocus += (s, ev) => { if (jkrBox.Text == "JKR Code") { jkrBox.Text = ""; jkrBox.Foreground = new SolidColorBrush(textWhite); } };
+                jkrBox.LostFocus += (s, ev) => { if (string.IsNullOrWhiteSpace(jkrBox.Text)) { jkrBox.Text = "JKR Code"; jkrBox.Foreground = new SolidColorBrush(textDim); } };
+                var priceBox = new System.Windows.Controls.TextBox
+                {
+                    Width = 80, Height = 26, FontSize = 11,
+                    Background = new SolidColorBrush(Color.FromRgb(52, 52, 56)),
+                    Foreground = new SolidColorBrush(textDim),
+                    BorderBrush = new SolidColorBrush(borderSubtle),
+                    BorderThickness = new Thickness(1),
+                    Padding = new Thickness(6, 3, 6, 3),
+                    Margin = new Thickness(0, 0, 6, 0),
+                    Text = "RM",
+                    CaretBrush = new SolidColorBrush(textWhite)
+                };
+                priceBox.GotFocus += (s, ev) => { if (priceBox.Text == "RM") { priceBox.Text = ""; priceBox.Foreground = new SolidColorBrush(textWhite); } };
+                priceBox.LostFocus += (s, ev) => { if (string.IsNullOrWhiteSpace(priceBox.Text)) { priceBox.Text = "RM"; priceBox.Foreground = new SolidColorBrush(textDim); } };
+
                 // ── Suggestions ──
                 if (hasSugg)
                 {
@@ -2281,8 +2312,7 @@ namespace RevitWebAppSync.UI
                     });
                 }
 
-                // ── Manual input panel ──
-                var manualPanel = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+                // ── Manual input panel (controls declared earlier for suggestion click access) ──
 
                 // Toggle link for items with suggestions (collapsed by default)
                 if (hasSugg)
@@ -2307,40 +2337,7 @@ namespace RevitWebAppSync.UI
                 }
 
                 var manualInputRow = new StackPanel { Orientation = Orientation.Horizontal };
-
-                var jkrBox = new System.Windows.Controls.TextBox
-                {
-                    Width = 120, Height = 26, FontSize = 11,
-                    Background = new SolidColorBrush(Color.FromRgb(52, 52, 56)),
-                    Foreground = new SolidColorBrush(textWhite),
-                    BorderBrush = new SolidColorBrush(borderSubtle),
-                    BorderThickness = new Thickness(1),
-                    Padding = new Thickness(6, 3, 6, 3),
-                    Margin = new Thickness(0, 0, 6, 0),
-                    Text = "JKR Code",
-                    CaretBrush = new SolidColorBrush(textWhite)
-                };
-                // Placeholder behavior
-                jkrBox.GotFocus += (s, ev) => { if (jkrBox.Text == "JKR Code") { jkrBox.Text = ""; jkrBox.Foreground = new SolidColorBrush(textWhite); } };
-                jkrBox.LostFocus += (s, ev) => { if (string.IsNullOrWhiteSpace(jkrBox.Text)) { jkrBox.Text = "JKR Code"; jkrBox.Foreground = new SolidColorBrush(textDim); } };
-                jkrBox.Foreground = new SolidColorBrush(textDim);
                 manualInputRow.Children.Add(jkrBox);
-
-                var priceBox = new System.Windows.Controls.TextBox
-                {
-                    Width = 80, Height = 26, FontSize = 11,
-                    Background = new SolidColorBrush(Color.FromRgb(52, 52, 56)),
-                    Foreground = new SolidColorBrush(textWhite),
-                    BorderBrush = new SolidColorBrush(borderSubtle),
-                    BorderThickness = new Thickness(1),
-                    Padding = new Thickness(6, 3, 6, 3),
-                    Margin = new Thickness(0, 0, 6, 0),
-                    Text = "RM",
-                    CaretBrush = new SolidColorBrush(textWhite)
-                };
-                priceBox.GotFocus += (s, ev) => { if (priceBox.Text == "RM") { priceBox.Text = ""; priceBox.Foreground = new SolidColorBrush(textWhite); } };
-                priceBox.LostFocus += (s, ev) => { if (string.IsNullOrWhiteSpace(priceBox.Text)) { priceBox.Text = "RM"; priceBox.Foreground = new SolidColorBrush(textDim); } };
-                priceBox.Foreground = new SolidColorBrush(textDim);
                 manualInputRow.Children.Add(priceBox);
 
                 manualInputRow.Children.Add(new TextBlock
