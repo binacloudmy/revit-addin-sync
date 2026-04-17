@@ -2172,8 +2172,22 @@ namespace RevitWebAppSync.UI
                             Padding = new Thickness(8, 4, 8, 4),
                             Margin = new Thickness(0, 0, 0, 2),
                             BorderBrush = isTop ? new SolidColorBrush(Color.FromArgb(40, accentGreen.R, accentGreen.G, accentGreen.B)) : null,
-                            BorderThickness = isTop ? new Thickness(1) : new Thickness(0)
+                            BorderThickness = isTop ? new Thickness(1) : new Thickness(0),
+                            Cursor = System.Windows.Input.Cursors.Hand,
+                            ToolTip = "Click to use this suggestion"
                         };
+                        // Click suggestion to pre-fill manual input
+                        var capturedSugg = sugg;
+                        suggRow.MouseLeftButtonDown += (s, ev) =>
+                        {
+                            jkrBox.Text = capturedSugg.JkrCode ?? "";
+                            jkrBox.Foreground = new SolidColorBrush(textWhite);
+                            priceBox.Text = capturedSugg.UnitPrice.ToString("F2");
+                            priceBox.Foreground = new SolidColorBrush(textWhite);
+                            manualPanel.Visibility = Visibility.Visible;
+                        };
+                        suggRow.MouseEnter += (s, ev) => suggRow.Background = new SolidColorBrush(Color.FromArgb(30, accentBlue.R, accentBlue.G, accentBlue.B));
+                        suggRow.MouseLeave += (s, ev) => suggRow.Background = new SolidColorBrush(isTop ? Color.FromArgb(20, accentGreen.R, accentGreen.G, accentGreen.B) : Colors.Transparent);
 
                         var suggContent = new StackPanel { Orientation = Orientation.Horizontal };
 
@@ -2584,7 +2598,29 @@ namespace RevitWebAppSync.UI
                 acceptAllBtn.Content = new TextBlock { Text = $"Done — {confirmed} learned", Foreground = Brushes.White, FontWeight = FontWeights.SemiBold };
                 acceptAllBtn.Background = new SolidColorBrush(Color.FromRgb(22, 101, 52));
 
-                ShowBanner($"{confirmed} mappings learned — total updated", "", SuccessGreen);
+                // Write updated prices back to Revit model parameters
+                // so the BINA Cost Summary schedule reflects the changes
+                var writeHandler = App.CostWriteHandler;
+                var writeEvt = App.CostWriteEvent;
+                if (writeHandler != null && writeEvt != null)
+                {
+                    writeHandler.Items = _allItems;
+                    writeHandler.ClearMode = false;
+                    _suppressModelChanged = true;
+                    writeHandler.OnCompleted = () =>
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            _suppressModelChanged = false;
+                            ShowBanner($"{confirmed} mappings learned — prices written to model", "", SuccessGreen);
+                        });
+                    };
+                    writeEvt.Raise();
+                }
+                else
+                {
+                    ShowBanner($"{confirmed} mappings learned — total updated", "", SuccessGreen);
+                }
                 UpdateReviewBadge();
             };
 
