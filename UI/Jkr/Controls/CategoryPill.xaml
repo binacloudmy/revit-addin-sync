@@ -1,0 +1,24 @@
+<UserControl x:Class="RevitWebAppSync.UI.Jkr.Controls.CategoryPill"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:jkr="clr-namespace:RevitWebAppSync.UI.Jkr"
+             x:Name="Root">
+    <Button x:Name="PillBtn" Click="PillBtn_Click" Cursor="Hand" BorderThickness="1">
+        <Button.Template>
+            <ControlTemplate TargetType="Button">
+                <Border x:Name="bd" CornerRadius="16" Padding="10,6,10,6"
+                        Background="{TemplateBinding Background}"
+                        BorderBrush="{TemplateBinding BorderBrush}"
+                        BorderThickness="{TemplateBinding BorderThickness}">
+                    <ContentPresenter/>
+                </Border>
+            </ControlTemplate>
+        </Button.Template>
+        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+            <jkr:IconGlyph x:Name="Ico" Size="12" Margin="0,0,6,0" VerticalAlignment="Center"/>
+            <TextBlock x:Name="Lbl" FontSize="11" FontWeight="Medium" VerticalAlignment="Center"
+                       FontFamily="{DynamicResource Font.Sans}"/>
+            <TextBlock x:Name="Cnt" FontSize="10" FontWeight="Bold" Margin="6,0,0,0" VerticalAlignment="Center"/>
+        </StackPanel>
+    </Button>
+</UserControl>

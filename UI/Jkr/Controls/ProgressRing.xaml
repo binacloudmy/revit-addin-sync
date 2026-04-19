@@ -1,0 +1,23 @@
+<UserControl x:Class="RevitWebAppSync.UI.Jkr.Controls.ProgressRing"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Width="54" Height="54" SnapsToDevicePixels="True">
+    <Grid>
+        <Grid.RenderTransform>
+            <RotateTransform CenterX="27" CenterY="27" Angle="-90"/>
+        </Grid.RenderTransform>
+
+        <!-- Track -->
+        <Ellipse Width="44" Height="44"
+                 HorizontalAlignment="Center" VerticalAlignment="Center"
+                 Stroke="#1FFFFFFF" StrokeThickness="4" Fill="Transparent"/>
+
+        <!-- Foreground arc -->
+        <Path x:Name="ArcPath" Stroke="#FFB089" StrokeThickness="4"
+              StrokeStartLineCap="Round" StrokeEndLineCap="Round" Fill="Transparent"/>
+    </Grid>
+
+    <UserControl.Resources>
+        <!-- Center % label sits on top without rotation, added in code-behind -->
+    </UserControl.Resources>
+</UserControl>

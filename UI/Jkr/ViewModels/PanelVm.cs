@@ -1,0 +1,291 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Windows.Data;
+using System.Windows.Threading;
+
+namespace RevitWebAppSync.UI.Jkr.ViewModels
+{
+    public class ToastVm : INotifyPropertyChanged
+    {
+        public string Message { get; set; } = "";
+        public event PropertyChangedEventHandler PropertyChanged;
+    }
+
+    public class UndoSnapshot
+    {
+        public string IssueId;
+        public IssueStatus PreviousStatus;
+    }
+
+    public enum TabKind { Open, Resolved }
+
+    public class PanelVm : INotifyPropertyChanged
+    {
+        public ObservableCollection<IssueVm> Issues { get; } = new ObservableCollection<IssueVm>();
+        public ObservableCollection<CategoryVm> Categories { get; } = new ObservableCollection<CategoryVm>();
+        public ObservableCollection<IssueVm> Filtered { get; } = new ObservableCollection<IssueVm>();
+
+        private UndoSnapshot _undo;
+        private DispatcherTimer _toastTimer;
+
+        // ─── State ───
+        private string _activeCategory; // null = All
+        public string ActiveCategory
+        {
+            get => _activeCategory;
+            set { _activeCategory = value; Raise(); Raise(nameof(ActiveCategoryLabel)); Refresh(); }
+        }
+        public string ActiveCategoryLabel => _activeCategory ?? "All";
+
+        private string _search = "";
+        public string Search
+        {
+            get => _search;
+            set { _search = value ?? ""; Raise(); Raise(nameof(HasSearch)); Refresh(); }
+        }
+        public bool HasSearch => !string.IsNullOrEmpty(_search);
+
+        private TabKind _tab = TabKind.Open;
+        public TabKind Tab
+        {
+            get => _tab;
+            set { _tab = value; Raise(); Raise(nameof(IsOpenTab)); Raise(nameof(IsResolvedTab)); Refresh(); }
+        }
+        public bool IsOpenTab => _tab == TabKind.Open;
+        public bool IsResolvedTab => _tab == TabKind.Resolved;
+
+        private IssueVm _activeIssue;
+        public IssueVm ActiveIssue
+        {
+            get => _activeIssue;
+            set { _activeIssue = value; Raise(); Raise(nameof(ActiveIndexDisplay)); Raise(nameof(QueueProgress)); }
+        }
+
+        private bool _scanning;
+        public bool Scanning
+        {
+            get => _scanning;
+            set { _scanning = value; Raise(); Raise(nameof(RescanLabel)); }
+        }
+        public string RescanLabel => _scanning ? "Scanning…" : "Re-scan";
+
+        private bool _focusOpen;
+        public bool FocusOpen { get => _focusOpen; set { _focusOpen = value; Raise(); } }
+
+        private ToastVm _toast;
+        public ToastVm Toast { get => _toast; set { _toast = value; Raise(); Raise(nameof(HasToast)); } }
+        public bool HasToast => _toast != null;
+
+        private bool _exportOpen;
+        public bool ExportOpen { get => _exportOpen; set { _exportOpen = value; Raise(); } }
+
+        // ─── Derived ───
+        public string Filename { get; set; } = "";
+        public int Total => Issues.Count;
+        public int ResolvedCount => Issues.Count(i => !i.IsOpen);
+        public int OpenCount => Issues.Count(i => i.IsOpen);
+        public int Percent => Total == 0 ? 0 : (int)Math.Round(ResolvedCount * 100.0 / Total);
+
+        public int HighOpen => Issues.Count(i => i.IsOpen && i.Priority == IssuePriority.High);
+        public int MedOpen  => Issues.Count(i => i.IsOpen && i.Priority == IssuePriority.Medium);
+        public int LowOpen  => Issues.Count(i => i.IsOpen && i.Priority == IssuePriority.Low);
+
+        public string SessionLine
+            => OpenCount > 0
+                ? $"{OpenCount} issue{(OpenCount == 1 ? "" : "s")} to go"
+                : "All clear — nice work.";
+
+        public int ActiveIndexDisplay
+        {
+            get
+            {
+                if (_activeIssue == null) return 0;
+                int idx = Filtered.IndexOf(_activeIssue);
+                return idx < 0 ? 0 : idx + 1;
+            }
+        }
+        public double QueueProgress => Filtered.Count == 0 ? 0 : (double)ActiveIndexDisplay / Filtered.Count;
+
+        public int FilteredCount => Filtered.Count;
+        public bool HasFiltered => Filtered.Count > 0;
+
+        // ─── Ctor ───
+        public PanelVm()
+        {
+            Issues.CollectionChanged += OnIssuesChanged;
+        }
+
+        public void ReplaceIssues(IEnumerable<IssueVm> items)
+        {
+            Issues.CollectionChanged -= OnIssuesChanged;
+            Issues.Clear();
+            foreach (var i in items) Issues.Add(i);
+            Issues.CollectionChanged += OnIssuesChanged;
+            RebuildAll();
+            if (_activeIssue == null || !Issues.Contains(_activeIssue))
+                ActiveIssue = Filtered.FirstOrDefault();
+        }
+
+        private void OnIssuesChanged(object s, System.Collections.Specialized.NotifyCollectionChangedEventArgs e) => RebuildAll();
+
+        private void RebuildAll()
+        {
+            RebuildCategories();
+            Refresh();
+            RaiseCounts();
+        }
+
+        private void RebuildCategories()
+        {
+            Categories.Clear();
+            Categories.Add(new CategoryVm
+            {
+                Label = "All", Icon = "diamond", IsAll = true,
+                OpenCount = OpenCount, TotalCount = Total,
+                IsActive = _activeCategory == null,
+            });
+            foreach (var cat in CategoryVm.Order.Concat(
+                         Issues.Select(i => i.Category)
+                               .Where(c => !CategoryVm.Order.Contains(c))
+                               .Distinct()))
+            {
+                var items = Issues.Where(i => i.Category == cat).ToList();
+                if (items.Count == 0 && CategoryVm.Order.Contains(cat)) continue;
+                Categories.Add(new CategoryVm
+                {
+                    Label = cat,
+                    Icon = CategoryVm.IconMap.TryGetValue(cat, out var ic) ? ic : "diamond",
+                    OpenCount = items.Count(i => i.IsOpen),
+                    TotalCount = items.Count,
+                    IsActive = _activeCategory == cat,
+                });
+            }
+        }
+
+        public void Refresh()
+        {
+            var q = (Search ?? "").ToLowerInvariant();
+            Filtered.Clear();
+            foreach (var i in Issues)
+            {
+                if (ActiveCategory != null && i.Category != ActiveCategory) continue;
+                if (Tab == TabKind.Open && !i.IsOpen) continue;
+                if (Tab == TabKind.Resolved && i.IsOpen) continue;
+                if (!string.IsNullOrEmpty(q)
+                    && i.Title.ToLowerInvariant().IndexOf(q, StringComparison.Ordinal) < 0
+                    && i.Description.ToLowerInvariant().IndexOf(q, StringComparison.Ordinal) < 0) continue;
+                Filtered.Add(i);
+            }
+            Raise(nameof(FilteredCount));
+            Raise(nameof(HasFiltered));
+            if (_activeIssue == null || !Filtered.Contains(_activeIssue))
+                ActiveIssue = Filtered.FirstOrDefault();
+
+            // Sync IsActive on categories
+            foreach (var c in Categories)
+                c.IsActive = c.IsAll ? _activeCategory == null : c.Label == _activeCategory;
+        }
+
+        public void ApplyAction(IssueVm issue, IssueStatus newStatus, bool advance)
+        {
+            if (issue == null) return;
+            var prev = issue.Status;
+            _undo = new UndoSnapshot { IssueId = issue.Id, PreviousStatus = prev };
+
+            // capture queue neighbour before status change flips filtering
+            IssueVm nextTarget = null;
+            if (advance)
+            {
+                int idx = Filtered.IndexOf(issue);
+                for (int j = idx + 1; j < Filtered.Count; j++)
+                    if (Filtered[j].IsOpen) { nextTarget = Filtered[j]; break; }
+                if (nextTarget == null)
+                {
+                    for (int j = 0; j < idx; j++)
+                        if (Filtered[j].IsOpen) { nextTarget = Filtered[j]; break; }
+                }
+            }
+
+            issue.Status = newStatus;
+
+            // Toast
+            var label = newStatus == IssueStatus.Open ? "Reopened" : StatusToLabel(newStatus);
+            var titleShort = issue.Title.Length > 40 ? issue.Title.Substring(0, 40) + "…" : issue.Title;
+            ShowToast($"{label} · {titleShort}");
+
+            // Recompute filtered list (may drop issue from current tab)
+            Refresh();
+            RaiseCounts();
+
+            if (advance)
+            {
+                if (nextTarget != null && Filtered.Contains(nextTarget))
+                {
+                    ActiveIssue = nextTarget;
+                }
+                else
+                {
+                    FocusOpen = false;
+                }
+            }
+        }
+
+        public void Undo()
+        {
+            if (_undo == null) return;
+            var issue = Issues.FirstOrDefault(i => i.Id == _undo.IssueId);
+            if (issue != null) issue.Status = _undo.PreviousStatus;
+            _undo = null;
+            Toast = null;
+            Refresh();
+            RaiseCounts();
+        }
+
+        private void ShowToast(string msg)
+        {
+            Toast = new ToastVm { Message = msg };
+            _toastTimer?.Stop();
+            _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+            _toastTimer.Tick += (_, __) => { _toastTimer.Stop(); Toast = null; };
+            _toastTimer.Start();
+        }
+
+        private static string StatusToLabel(IssueStatus s)
+        {
+            switch (s)
+            {
+                case IssueStatus.Fixed: return "Fixed";
+                case IssueStatus.Accepted: return "Accepted";
+                case IssueStatus.Approved: return "Approved";
+                default: return s.ToString();
+            }
+        }
+
+        private void RaiseCounts()
+        {
+            Raise(nameof(OpenCount)); Raise(nameof(ResolvedCount)); Raise(nameof(Total));
+            Raise(nameof(Percent)); Raise(nameof(HighOpen)); Raise(nameof(MedOpen)); Raise(nameof(LowOpen));
+            Raise(nameof(SessionLine));
+            foreach (var c in Categories)
+            {
+                if (c.IsAll)
+                {
+                    c.OpenCount = OpenCount; c.TotalCount = Total;
+                    continue;
+                }
+                var items = Issues.Where(i => i.Category == c.Label).ToList();
+                c.OpenCount = items.Count(i => i.IsOpen);
+                c.TotalCount = items.Count;
+            }
+        }
+
+        // ─── INotifyPropertyChanged ───
+        public event PropertyChangedEventHandler PropertyChanged;
+        protected void Raise([CallerMemberName] string p = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(p));
+    }
+}
