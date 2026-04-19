@@ -364,15 +364,29 @@ namespace RevitWebAppSync.UI
         {
             if (_focusWindow != null && _focusWindow.IsLoaded)
             {
-                _focusWindow.SetContext(_vm);
-                _focusWindow.Activate();
+                try { _focusWindow.SetContext(_vm); _focusWindow.Activate(); } catch { }
                 return;
             }
-            _focusWindow = new Jkr.Modals.IssueFocusWindow();
-            _focusWindow.SetContext(_vm);
-            _focusWindow.Closed += (_, __) => { _vm.FocusOpen = false; _focusWindow = null; };
-            try { _focusWindow.Owner = Window.GetWindow(this); } catch { }
-            _focusWindow.Show();
+            try
+            {
+                _focusWindow = new Jkr.Modals.IssueFocusWindow();
+                _focusWindow.SetContext(_vm);
+                _focusWindow.Closed += (_, __) => { _vm.FocusOpen = false; _focusWindow = null; };
+                try
+                {
+                    var owner = Window.GetWindow(this);
+                    if (owner != null) _focusWindow.Owner = owner;
+                }
+                catch { }
+                _focusWindow.Show();
+            }
+            catch (Exception ex)
+            {
+                _focusWindow = null;
+                _vm.FocusOpen = false;
+                TaskDialog.Show("BINA JKR Compliance — Modal Error",
+                    $"Failed to open issue detail:\n\n{ex.GetType().Name}: {ex.Message}\n\nInner: {ex.InnerException?.Message}");
+            }
         }
 
         private void CloseFocusWindow()

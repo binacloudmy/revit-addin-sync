@@ -12,8 +12,8 @@
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="/UI/Jkr/Tokens.xaml"/>
-                <ResourceDictionary Source="/UI/Jkr/Styles.xaml"/>
+                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Tokens.xaml"/>
+                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Styles.xaml"/>
             </ResourceDictionary.MergedDictionaries>
             <jkr:BoolToVisibilityConverter x:Key="B2V"/>
             <jkr:NonEmptyStringToVisibilityConverter x:Key="StrVis"/>

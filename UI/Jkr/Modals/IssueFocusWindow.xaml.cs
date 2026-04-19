@@ -19,18 +19,22 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         public IssueFocusWindow()
         {
             InitializeComponent();
-            Loaded += (_, __) =>
+            Loaded += OnLoaded;
+            KeyDown += OnKey;
+        }
+
+        private void OnLoaded(object s, RoutedEventArgs e)
+        {
+            try
             {
-                var sb = new DoubleAnimation(0.97, 1.0, TimeSpan.FromMilliseconds(200)) { EasingFunction = new CubicEase() };
                 var st = new ScaleTransform(0.97, 0.97);
                 Card.RenderTransform = st;
                 Card.RenderTransformOrigin = new Point(0.5, 0.5);
-                st.BeginAnimation(ScaleTransform.ScaleXProperty, sb);
-                st.BeginAnimation(ScaleTransform.ScaleYProperty, sb);
-                var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(150));
-                this.BeginAnimation(OpacityProperty, fade);
-            };
-            KeyDown += OnKey;
+                var grow = new DoubleAnimation(0.97, 1.0, TimeSpan.FromMilliseconds(200)) { EasingFunction = new CubicEase() };
+                st.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
+                st.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
+            }
+            catch { /* animation is cosmetic */ }
         }
 
         public void SetContext(PanelVm vm)
@@ -44,6 +48,15 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         private void Vm_Changed(object s, PropertyChangedEventArgs e) => Dispatcher.Invoke(Render);
 
         private void Render()
+        {
+            try { RenderInternal(); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] FocusWindow render error: {ex}");
+            }
+        }
+
+        private void RenderInternal()
         {
             if (_vm?.ActiveIssue == null) return;
             var i = _vm.ActiveIssue;
