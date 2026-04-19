@@ -8,6 +8,10 @@ namespace RevitWebAppSync.UI.Jkr
     /// Loads the shared Tokens + Styles dictionaries once so any XAML (or code-behind / VM)
     /// can resolve design tokens by key. Resources merge into Application.Current.Resources
     /// the first time any part of the JKR panel touches the class.
+    ///
+    /// Revit hosts the CLR, so Assembly.GetEntryAssembly() returns null — a bare
+    /// `pack://application:,,,/path` URI (which falls back to the entry assembly) crashes.
+    /// We build the full `pack://application:,,,/<asm>;component/path` form explicitly.
     /// </summary>
     public static class JkrTheme
     {
@@ -22,20 +26,26 @@ namespace RevitWebAppSync.UI.Jkr
                 if (_loaded) return;
                 if (Application.Current == null) return;
 
-                Merge("pack://application:,,,/UI/Jkr/Tokens.xaml");
-                Merge("pack://application:,,,/UI/Jkr/Styles.xaml");
+                var asm = typeof(JkrTheme).Assembly.GetName().Name;
+                Merge($"pack://application:,,,/{asm};component/UI/Jkr/Tokens.xaml");
+                Merge($"pack://application:,,,/{asm};component/UI/Jkr/Styles.xaml");
                 _loaded = true;
             }
         }
 
         private static void Merge(string uri)
         {
-            var dict = new ResourceDictionary { Source = new Uri(uri, UriKind.Absolute) };
-            foreach (var existing in Application.Current.Resources.MergedDictionaries)
+            try
             {
-                if (existing.Source != null && existing.Source.Equals(dict.Source)) return;
+                var src = new Uri(uri, UriKind.Absolute);
+                foreach (var existing in Application.Current.Resources.MergedDictionaries)
+                    if (existing.Source != null && existing.Source.Equals(src)) return;
+                Application.Current.Resources.MergedDictionaries.Add(new ResourceDictionary { Source = src });
             }
-            Application.Current.Resources.MergedDictionaries.Add(dict);
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] JkrTheme merge failed: {uri} — {ex.Message}");
+            }
         }
 
         public static Brush Brush(string key)
