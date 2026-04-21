@@ -112,4 +112,100 @@ namespace RevitWebAppSync.Models
         public double TotalCost { get; set; }
         public List<ComponentGroup> Groups { get; set; } = new List<ComponentGroup>();
     }
+
+    // ==================== M2 Cost Estimation Models ====================
+
+    /// <summary>
+    /// Request payload for POST /cost/m2-estimate
+    /// </summary>
+    public class M2EstimateRequest
+    {
+        public string jenis_bangunan { get; set; }
+        public string sub_jenis_bangunan { get; set; }
+        public string kawasan { get; set; }
+        public double luas_tapak { get; set; }
+        public string project_name { get; set; } = "Untitled";
+    }
+
+    /// <summary>
+    /// Response from POST /cost/m2-estimate
+    /// </summary>
+    public class M2EstimateResponse
+    {
+        public bool success { get; set; }
+        public string error { get; set; }
+        public M2CostBreakdown breakdown { get; set; }
+    }
+
+    /// <summary>
+    /// Full breakdown of m2 cost estimation
+    /// </summary>
+    public class M2CostBreakdown
+    {
+        // Inputs
+        public string jenis_bangunan { get; set; }
+        public string sub_jenis_bangunan { get; set; }
+        public string kategori_bangunan { get; set; }
+        public string kawasan { get; set; }
+        public double faktor_lokaliti { get; set; }
+        public double luas_tapak { get; set; }
+        // Step 1
+        public int bilangan_kajian { get; set; }
+        public int jumlah_bil_kajian { get; set; }
+        public double purata_sem_malaysia { get; set; }
+        public double kos_kerja_utama { get; set; }
+        public string fallback_kawasan { get; set; }
+        // Step 2
+        public List<M2SpecialistItem> kerja_pakar { get; set; } = new List<M2SpecialistItem>();
+        public double jumlah_kerja_pakar { get; set; }
+        // Step 3
+        public double kerja_luar_peratusan { get; set; }
+        public int kerja_luar_bilangan_contoh { get; set; }
+        public double kos_kerja_luar { get; set; }
+        // Step 4
+        public double kerja_awalan_peratusan { get; set; }
+        public string kerja_awalan_kategori { get; set; }
+        public double kos_kerja_awalan { get; set; }
+        // Step 5
+        public double jumlah_kecil { get; set; }
+        // Step 6
+        public double pelbagai_peratusan { get; set; }
+        public double kos_pelbagai { get; set; }
+        // Step 7
+        public double jumlah_kos_per_m2 { get; set; }
+        public double jumlah_anggaran_kos_projek { get; set; }
+        // Reference
+        public List<string> pengecualian { get; set; } = new List<string>();
+        public string sumber { get; set; }
+    }
+
+    /// <summary>
+    /// A single specialist works item in the m2 breakdown
+    /// </summary>
+    public class M2SpecialistItem
+    {
+        public string jenis_pemasangan { get; set; }
+        public double peratusan { get; set; }
+        public double jumlah { get; set; }
+    }
+
+    /// <summary>
+    /// Building type option from GET /cost/m2-estimate/building-types
+    /// </summary>
+    public class M2BuildingType
+    {
+        public string jenis_bangunan { get; set; }
+        public string kategori_bangunan { get; set; }
+        public List<string> sub_jenis { get; set; } = new List<string>();
+    }
+
+    /// <summary>
+    /// Region option from GET /cost/m2-estimate/regions
+    /// </summary>
+    public class M2Region
+    {
+        public string kawasan { get; set; }
+        public double faktor_lokaliti { get; set; }
+        public List<string> negeri { get; set; } = new List<string>();
+    }
 }

@@ -506,6 +506,45 @@ namespace RevitWebAppSync.Services
             catch { return new ReviewStats(); }
         }
 
+        // ==================== M2 Cost Estimation ====================
+
+        /// <summary>
+        /// Get available building types for m2 estimation dropdown.
+        /// </summary>
+        public async Task<List<M2BuildingType>> GetBuildingTypesAsync()
+        {
+            var response = await SharedClient.GetAsync($"{_baseUrl}/cost/m2-estimate/building-types");
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
+            var result = JsonConvert.DeserializeObject<Dictionary<string, List<M2BuildingType>>>(json);
+            return result.ContainsKey("building_types") ? result["building_types"] : new List<M2BuildingType>();
+        }
+
+        /// <summary>
+        /// Get available regions with faktor lokaliti and state mappings.
+        /// </summary>
+        public async Task<List<M2Region>> GetRegionsAsync()
+        {
+            var response = await SharedClient.GetAsync($"{_baseUrl}/cost/m2-estimate/regions");
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
+            var result = JsonConvert.DeserializeObject<Dictionary<string, List<M2Region>>>(json);
+            return result.ContainsKey("regions") ? result["regions"] : new List<M2Region>();
+        }
+
+        /// <summary>
+        /// Calculate m2 cost estimation using JKR Kos Purata method.
+        /// </summary>
+        public async Task<M2EstimateResponse> EstimateM2CostAsync(M2EstimateRequest request)
+        {
+            var json = JsonConvert.SerializeObject(request);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await SharedClient.PostAsync($"{_baseUrl}/cost/m2-estimate", content);
+            response.EnsureSuccessStatusCode();
+            var responseJson = await response.Content.ReadAsStringAsync();
+            return JsonConvert.DeserializeObject<M2EstimateResponse>(responseJson);
+        }
+
     }
 
     // --- Response Models ---
@@ -832,4 +871,5 @@ namespace RevitWebAppSync.Services
         [JsonProperty("errors")]
         public List<string> Errors { get; set; } = new List<string>();
     }
+
 }

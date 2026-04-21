@@ -53,12 +53,21 @@ namespace RevitWebAppSync.UI
         private Border _totalCard;
         private ProgressBar _coverageBar;
 
-        // Sqft estimate UI
-        private Border _sqftEstimateCard;
-        private TextBlock _sqftTotalText;
-        private TextBlock _sqftAreaText;
-        private ComboBox _buildingTypeCombo;
-        private System.Windows.Controls.TextBox _customRateBox;
+        // M2 Estimate UI (replaces Sqft)
+        private Border _m2EstimateCard;
+        private ComboBox _jenisBangunanCombo;
+        private ComboBox _subJenisCombo;
+        private ComboBox _negeriCombo;
+        private TextBlock _luasTapakText;
+        private TextBlock _m2ResultText;
+        private TextBlock _m2TotalText;
+        private StackPanel _m2BreakdownPanel;
+        private bool _m2BreakdownVisible = false;
+
+        // M2 data (loaded from API)
+        private List<M2BuildingType> _buildingTypes = new List<M2BuildingType>();
+        private List<M2Region> _regions = new List<M2Region>();
+        private M2CostBreakdown _lastM2Result;
 
         // Component cost UI
         private Border _componentCard;
@@ -287,114 +296,79 @@ namespace RevitWebAppSync.UI
             Grid.SetRow(_totalCard, 2);
             root.Children.Add(_totalCard);
 
-            // ── Row 3: Sqft Estimate card (collapsible) ──
-            _sqftEstimateCard = new Border
+            // ── Row 3: M2 Estimate card (JKR Kos Purata) ──
+            _m2EstimateCard = new Border
             {
                 Background = Brushes.White,
                 BorderBrush = new SolidColorBrush(BorderColor),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
                 Margin = new Thickness(12, 8, 12, 0),
-                Padding = new Thickness(14, 8, 14, 8)
+                Padding = new Thickness(14, 10, 14, 10)
             };
-            var sqftStack = new StackPanel();
-            var sqftBody = new StackPanel { Visibility = Visibility.Collapsed }; // starts collapsed
+            var m2Stack = new StackPanel();
+            var m2Body = new StackPanel { Visibility = Visibility.Collapsed };
 
-            // Header row (always visible, acts as toggle)
-            var sqftHeader = new Grid { Cursor = System.Windows.Input.Cursors.Hand };
-            sqftHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            sqftHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var sqftToggleText = new TextBlock
+            // Header (toggle)
+            var m2Header = new Grid { Cursor = System.Windows.Input.Cursors.Hand };
+            m2Header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            m2Header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var m2ToggleText = new TextBlock
             {
-                Text = "▶ Quick Estimate (by Sqft)",
+                Text = "\u25B6 Anggaran Kos Per Meter Persegi",
                 FontSize = 11, FontWeight = FontWeights.Medium,
                 Foreground = new SolidColorBrush(TextSecondary)
             };
-            sqftHeader.Children.Add(sqftToggleText);
-            var sqftInfoTip = new TextBlock
+            m2Header.Children.Add(m2ToggleText);
+            var m2Source = new TextBlock
             {
-                Text = "Rough estimate",
+                Text = "JKR Jilid 87",
                 FontSize = 9, Foreground = new SolidColorBrush(TextMuted),
                 VerticalAlignment = VerticalAlignment.Center
             };
-            Grid.SetColumn(sqftInfoTip, 1);
-            sqftHeader.Children.Add(sqftInfoTip);
-            sqftHeader.MouseLeftButtonDown += (s, ev) =>
+            Grid.SetColumn(m2Source, 1);
+            m2Header.Children.Add(m2Source);
+            m2Header.MouseLeftButtonDown += (s, ev) =>
             {
-                sqftBody.Visibility = sqftBody.Visibility == Visibility.Visible
+                m2Body.Visibility = m2Body.Visibility == Visibility.Visible
                     ? Visibility.Collapsed : Visibility.Visible;
-                sqftToggleText.Text = sqftBody.Visibility == Visibility.Visible
-                    ? "▼ Quick Estimate (by Sqft)" : "▶ Quick Estimate (by Sqft)";
+                m2ToggleText.Text = m2Body.Visibility == Visibility.Visible
+                    ? "\u25BC Anggaran Kos Per Meter Persegi" : "\u25B6 Anggaran Kos Per Meter Persegi";
             };
-            sqftStack.Children.Add(sqftHeader);
+            m2Stack.Children.Add(m2Header);
 
-            // Building type selector row (inside collapsible body)
-            var sqftInputRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+            // Jenis Bangunan
+            m2Body.Children.Add(new TextBlock { Text = "Jenis Bangunan", FontSize = 10, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 8, 0, 3) });
+            _jenisBangunanCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 6) };
+            _jenisBangunanCombo.SelectionChanged += JenisBangunan_Changed;
+            m2Body.Children.Add(_jenisBangunanCombo);
 
-            sqftInputRow.Children.Add(new TextBlock
+            // Sub Jenis Bangunan
+            m2Body.Children.Add(new TextBlock { Text = "Sub Jenis", FontSize = 10, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 3), Tag = "subJenisLabel" });
+            _subJenisCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 6) };
+            m2Body.Children.Add(_subJenisCombo);
+
+            // Negeri
+            m2Body.Children.Add(new TextBlock { Text = "Negeri", FontSize = 10, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 3) });
+            _negeriCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 6) };
+            m2Body.Children.Add(_negeriCombo);
+
+            // Luas Tapak (auto)
+            _luasTapakText = new TextBlock
             {
-                Text = "Type:", FontSize = 10,
-                Foreground = new SolidColorBrush(TextSecondary),
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 6, 0)
-            });
-
-            _buildingTypeCombo = new ComboBox
-            {
-                MinWidth = 160, FontSize = 10,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 8, 0)
-            };
-            foreach (var type in CostCalculator.BuildingTypeRates.Keys)
-                _buildingTypeCombo.Items.Add(new ComboBoxItem { Content = type });
-            // Default to "Residential (Medium)"
-            _buildingTypeCombo.SelectedIndex = 1;
-            _buildingTypeCombo.SelectionChanged += (s, ev) => UpdateSqftEstimate();
-            sqftInputRow.Children.Add(_buildingTypeCombo);
-
-            _customRateBox = new System.Windows.Controls.TextBox
-            {
-                Width = 70, Height = 22, FontSize = 10,
-                Visibility = Visibility.Collapsed,
-                Margin = new Thickness(0, 0, 4, 0),
-                Padding = new Thickness(4, 2, 4, 2)
-            };
-            _customRateBox.TextChanged += (s, ev) => UpdateSqftEstimate();
-            sqftInputRow.Children.Add(_customRateBox);
-            sqftInputRow.Children.Add(new TextBlock
-            {
-                Text = "RM/sqft", FontSize = 9,
-                Foreground = new SolidColorBrush(TextMuted),
-                VerticalAlignment = VerticalAlignment.Center,
-                Tag = "customLabel",
-                Visibility = Visibility.Collapsed
-            });
-
-            sqftBody.Children.Add(sqftInputRow);
-
-            // Result display
-            _sqftTotalText = new TextBlock
-            {
-                Text = "RM 0",
-                FontSize = 22, FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(PrimaryBlue),
-                Margin = new Thickness(0, 6, 0, 2)
-            };
-            sqftBody.Children.Add(_sqftTotalText);
-
-            _sqftAreaText = new TextBlock
-            {
-                Text = "Floor area: — sqft (— m²)",
+                Text = "Luas Tapak: — m\u00B2 (auto dari model)",
                 FontSize = 10, Foreground = new SolidColorBrush(TextMuted),
-                Margin = new Thickness(0, 0, 0, 0)
+                Margin = new Thickness(0, 4, 0, 0)
             };
-            sqftBody.Children.Add(_sqftAreaText);
+            m2Body.Children.Add(_luasTapakText);
 
-            sqftStack.Children.Add(sqftBody);
+            m2Stack.Children.Add(m2Body);
+            _m2EstimateCard.Child = m2Stack;
+            Grid.SetRow(_m2EstimateCard, 3);
+            root.Children.Add(_m2EstimateCard);
 
-            _sqftEstimateCard.Child = sqftStack;
-            Grid.SetRow(_sqftEstimateCard, 3);
-            root.Children.Add(_sqftEstimateCard);
+            // Load dropdowns from API (async, fire-and-forget on UI load)
+            LoadM2DropdownsAsync();
 
             // ── Row 4: Component Cost card (collapsible) ──
             _componentCard = new Border
@@ -927,7 +901,7 @@ namespace RevitWebAppSync.UI
             _coverageBar.Value = pricedPct;
             _coverageBar.Foreground = new SolidColorBrush(pricedPct >= 80 ? SuccessGreen : pricedPct >= 50 ? WarningAmber : Color.FromRgb(200, 50, 50));
 
-            UpdateSqftEstimate();
+            UpdateLuasTapakDisplay();
             if (_componentBody != null && _componentBody.Visibility == Visibility.Visible)
                 UpdateComponentCard();
         }
@@ -957,46 +931,102 @@ namespace RevitWebAppSync.UI
             }
         }
 
-        private void UpdateSqftEstimate()
+        // ==================== M2 Estimation Methods ====================
+
+        private async void LoadM2DropdownsAsync()
         {
-            if (_allItems.Count == 0 || _buildingTypeCombo == null) return;
-
-            string type = (_buildingTypeCombo.SelectedItem as ComboBoxItem)?.Content?.ToString() ?? "Residential (Medium)";
-
-            // Show/hide custom rate input
-            bool isCustom = type == "Custom";
-            _customRateBox.Visibility = isCustom ? Visibility.Visible : Visibility.Collapsed;
-            // Also toggle the "RM/sqft" label next to it
-            var sqftInputRow = _customRateBox.Parent as StackPanel;
-            if (sqftInputRow != null)
+            try
             {
-                foreach (var child in sqftInputRow.Children)
+                var aiEstimator = new AICostEstimator();
+                _buildingTypes = await aiEstimator.GetBuildingTypesAsync();
+                _regions = await aiEstimator.GetRegionsAsync();
+
+                Dispatcher.Invoke(() =>
                 {
-                    if (child is TextBlock tb && tb.Tag as string == "customLabel")
-                        tb.Visibility = isCustom ? Visibility.Visible : Visibility.Collapsed;
+                    // Populate Jenis Bangunan
+                    _jenisBangunanCombo.Items.Clear();
+                    foreach (var bt in _buildingTypes)
+                        _jenisBangunanCombo.Items.Add(new ComboBoxItem { Content = bt.jenis_bangunan, Tag = bt });
+                    if (_jenisBangunanCombo.Items.Count > 0)
+                        _jenisBangunanCombo.SelectedIndex = 0;
+
+                    // Populate Negeri (flattened from regions)
+                    _negeriCombo.Items.Clear();
+                    foreach (var region in _regions)
+                        foreach (var negeri in region.negeri)
+                            _negeriCombo.Items.Add(new ComboBoxItem { Content = negeri, Tag = region.kawasan });
+                    if (_negeriCombo.Items.Count > 0)
+                        _negeriCombo.SelectedIndex = 0;
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load M2 dropdowns: {ex.Message}");
+            }
+        }
+
+        private void JenisBangunan_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_jenisBangunanCombo.SelectedItem is ComboBoxItem item && item.Tag is M2BuildingType bt)
+            {
+                _subJenisCombo.Items.Clear();
+                if (bt.sub_jenis.Count > 0)
+                {
+                    _subJenisCombo.Visibility = Visibility.Visible;
+                    foreach (var sub in bt.sub_jenis)
+                        _subJenisCombo.Items.Add(new ComboBoxItem { Content = sub });
+                    _subJenisCombo.SelectedIndex = 0;
+                }
+                else
+                {
+                    _subJenisCombo.Visibility = Visibility.Collapsed;
                 }
             }
+        }
 
-            double customRate = 0;
-            if (isCustom) double.TryParse(_customRateBox.Text, out customRate);
+        private double GetLuasTapakFromModel()
+        {
+            return _allItems
+                .Where(i => i.Category == "Floors" && (i.Unit == "m\u00B2" || i.Unit == "m2"))
+                .Sum(i => i.Quantity);
+        }
 
-            var estimate = CostCalculator.CalculateSqftEstimate(_allItems, type, customRate);
+        private void UpdateLuasTapakDisplay()
+        {
+            double luas = GetLuasTapakFromModel();
+            _luasTapakText.Text = luas > 0
+                ? $"Luas Tapak: {luas:N0} m\u00B2 (auto dari model)"
+                : "Luas Tapak: -- m\u00B2 (tiada data lantai dalam model)";
+        }
 
-            if (estimate.TotalFloorAreaM2 > 0)
-            {
-                _sqftTotalText.FontSize = 22;
-                _sqftTotalText.Text = $"RM {estimate.EstimatedTotal:N0}";
-                string sourceRef = "";
-                if (!isCustom && CostCalculator.BuildingTypeRateSources.TryGetValue(type, out var src) && !string.IsNullOrEmpty(src))
-                    sourceRef = $"\nSource: {src}";
-                _sqftAreaText.Text = $"Floor area: {estimate.TotalFloorAreaSqft:N0} sqft ({estimate.TotalFloorAreaM2:N0} m²)  •  RM {estimate.RatePerSqft:N0}/sqft{sourceRef}";
-            }
-            else
-            {
-                _sqftTotalText.Text = "No floor data";
-                _sqftTotalText.FontSize = 14;
-                _sqftAreaText.Text = "No Floor elements found in the model";
-            }
+        private void DisplayM2Result(M2CostBreakdown result)
+        {
+            _lastM2Result = result;
+
+            // Update Total card (Row 2) with m2 result
+            _grandTotalText.Text = $"RM {result.jumlah_kos_per_m2:N2} /m\u00B2";
+            _grandTotalText.FontSize = 28;
+
+            // Update stats
+            var totalBlock = ((StackPanel)_totalCard.Child);
+
+            // Update item count to show jumlah anggaran
+            _itemCountText.Tag = "total";
+            UpdateStatBlock(_itemCountText, $"RM {result.jumlah_anggaran_kos_projek:N0}", "Jumlah Anggaran");
+            UpdateStatBlock(_levelCountText, $"{result.luas_tapak:N0} m\u00B2", "Luas Tapak");
+            UpdateStatBlock(_pricedPercentText, $"Kws {result.kawasan}", result.kategori_bangunan);
+
+            // Hide coverage bar
+            _coverageBar.Visibility = Visibility.Collapsed;
+        }
+
+        private void UpdateStatBlock(TextBlock tb, string value, string label)
+        {
+            tb.Tag = label;
+            tb.Inlines.Clear();
+            tb.Inlines.Add(new System.Windows.Documents.Run(value) { FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(TextPrimary) });
+            tb.Inlines.Add(new System.Windows.Documents.LineBreak());
+            tb.Inlines.Add(new System.Windows.Documents.Run(label) { FontSize = 9, Foreground = new SolidColorBrush(TextMuted) });
         }
 
         private void UpdateComponentCard()
@@ -1541,10 +1571,79 @@ namespace RevitWebAppSync.UI
         private async void AutoMatch_Click(object sender, RoutedEventArgs e)
         {
             var btn = sender as Button;
-            _suppressModelChanged = true; // Suppress all model-changed events during matching
+            _suppressModelChanged = true;
             try
             {
                 // Auto-refresh if no data loaded yet
+                if (_allItems.Count == 0)
+                {
+                    RefreshData();
+                    if (_allItems.Count == 0) { MessageBox.Show("No elements found in the model.", "BINA Cost"); return; }
+                }
+
+                // Get luas tapak from model
+                double luasTapak = GetLuasTapakFromModel();
+                if (luasTapak <= 0)
+                {
+                    MessageBox.Show("Tiada data lantai (Floor) dalam model.\nLuas tapak diperlukan untuk pengiraan.", "BINA Cost");
+                    return;
+                }
+
+                // Get selected values from dropdowns
+                string jenisBangunan = (_jenisBangunanCombo?.SelectedItem as ComboBoxItem)?.Content?.ToString();
+                string subJenis = (_subJenisCombo?.SelectedItem as ComboBoxItem)?.Content?.ToString();
+                string kawasan = (_negeriCombo?.SelectedItem as ComboBoxItem)?.Tag?.ToString();
+
+                if (string.IsNullOrEmpty(jenisBangunan) || string.IsNullOrEmpty(kawasan))
+                {
+                    MessageBox.Show("Sila pilih Jenis Bangunan dan Negeri.", "BINA Cost");
+                    return;
+                }
+
+                // Disable button
+                if (btn != null) { btn.IsEnabled = false; btn.Content = "\u23F3 Mengira..."; }
+
+                // Call m2 estimation API
+                var aiEstimator = new AICostEstimator();
+                var request = new M2EstimateRequest
+                {
+                    jenis_bangunan = jenisBangunan,
+                    sub_jenis_bangunan = subJenis,
+                    kawasan = kawasan,
+                    luas_tapak = luasTapak,
+                    project_name = _subtitleText?.Text?.Split('|')?.FirstOrDefault()?.Trim() ?? "Untitled"
+                };
+
+                var result = await aiEstimator.EstimateM2CostAsync(request);
+
+                if (result.success && result.breakdown != null)
+                {
+                    DisplayM2Result(result.breakdown);
+                    UpdateLuasTapakDisplay();
+                }
+                else
+                {
+                    MessageBox.Show($"Gagal mengira anggaran:\n{result.error}", "BINA Cost");
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error: {ex.Message}", "BINA Cost");
+            }
+            finally
+            {
+                if (btn != null) { btn.IsEnabled = true; btn.Content = "Match Prices"; }
+                _suppressModelChanged = false;
+            }
+        }
+
+        // Keep original pipeline method for reference (renamed, not called)
+        private async void AutoMatch_Pipeline_Original(object sender, RoutedEventArgs e)
+        {
+            var btn = sender as Button;
+            _suppressModelChanged = true;
+            try
+            {
                 if (_allItems.Count == 0)
                 {
                     RefreshData();
