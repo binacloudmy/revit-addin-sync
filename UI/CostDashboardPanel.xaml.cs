@@ -57,7 +57,10 @@ namespace RevitWebAppSync.UI
         private Border _m2EstimateCard;
         private ComboBox _jenisBangunanCombo;
         private ComboBox _subJenisCombo;
-        private ComboBox _namaBangunanCombo;
+        private System.Windows.Controls.TextBox _namaBangunanSearchBox;
+        private ListBox _namaBangunanSuggestList;
+        private List<string> _allNamaBangunan = new List<string>();
+        private string _selectedNamaBangunan;
         private TextBlock _namaBangunanLabel;
         private ComboBox _negeriCombo;
         private TextBlock _luasTapakText;
@@ -279,21 +282,51 @@ namespace RevitWebAppSync.UI
             _jenisBangunanCombo.SelectionChanged += JenisBangunan_Changed;
             m2Stack.Children.Add(_jenisBangunanCombo);
 
-            // Sub Jenis (hidden, used internally for hierarchy)
-            _subJenisCombo = new ComboBox { Visibility = Visibility.Collapsed };
+            // Jenis Bangunan (sub_jenis_bangunan — each has own price per kawasan)
+            m2Stack.Children.Add(MakeFieldLabel("Jenis Bangunan"));
+            _subJenisCombo = new ComboBox
+            {
+                FontSize = 11, Padding = new Thickness(6, 4, 6, 4),
+                Margin = new Thickness(0, 0, 0, 8)
+            };
             _subJenisCombo.SelectionChanged += SubJenis_Changed;
             m2Stack.Children.Add(_subJenisCombo);
 
-            m2Stack.Children.Add(MakeFieldLabel("Nama Bangunan"));
+            // Nama Bangunan (optional, searchable with suggestions)
             _namaBangunanLabel = new TextBlock { Visibility = Visibility.Collapsed };
             m2Stack.Children.Add(_namaBangunanLabel);
-            _namaBangunanCombo = new ComboBox
+            m2Stack.Children.Add(MakeFieldLabel("Nama Bangunan (pilihan)"));
+            _namaBangunanSearchBox = new System.Windows.Controls.TextBox
             {
-                FontSize = 11, IsEditable = true,
-                Padding = new Thickness(6, 4, 6, 4),
-                Margin = new Thickness(0, 0, 0, 8)
+                FontSize = 11, Padding = new Thickness(8, 6, 8, 6),
+                Margin = new Thickness(0, 0, 0, 2),
+                Background = new SolidColorBrush(PageBg),
+                BorderBrush = new SolidColorBrush(BorderColor),
+                BorderThickness = new Thickness(1)
             };
-            m2Stack.Children.Add(_namaBangunanCombo);
+            _namaBangunanSearchBox.GotFocus += (s, ev) => FilterNamaBangunanSuggestions();
+            _namaBangunanSearchBox.LostFocus += (s, ev) =>
+            {
+                // Delay hide so click on suggestion registers first
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (!_namaBangunanSuggestList.IsMouseOver)
+                        _namaBangunanSuggestList.Visibility = Visibility.Collapsed;
+                }), System.Windows.Threading.DispatcherPriority.Background);
+            };
+            _namaBangunanSearchBox.TextChanged += NamaBangunanSearch_Changed;
+            m2Stack.Children.Add(_namaBangunanSearchBox);
+
+            _namaBangunanSuggestList = new ListBox
+            {
+                FontSize = 10, MaxHeight = 150,
+                Margin = new Thickness(0, 0, 0, 8),
+                BorderBrush = new SolidColorBrush(BorderColor),
+                BorderThickness = new Thickness(1),
+                Visibility = Visibility.Collapsed
+            };
+            _namaBangunanSuggestList.SelectionChanged += NamaBangunanSuggestion_Selected;
+            m2Stack.Children.Add(_namaBangunanSuggestList);
 
             // ─── Section 2: Lokasi ───
             m2Stack.Children.Add(MakeSectionHeader("Lokasi"));
@@ -830,9 +863,12 @@ namespace RevitWebAppSync.UI
                 _buildingTypes = await aiEstimator.GetBuildingTypesAsync();
                 _regions = await aiEstimator.GetRegionsAsync();
 
-                // Try to extract from Revit Project Information
+                // Extract all available info from Revit Project Information
                 string revitAddress = "";
                 string revitBuildingType = "";
+                string revitBuildingName = "";
+                string revitProjectName = "";
+                string revitOrgName = "";
                 try
                 {
                     if (_uiApp?.ActiveUIDocument?.Document != null)
@@ -841,38 +877,81 @@ namespace RevitWebAppSync.UI
                         var projInfo = doc.ProjectInformation;
                         revitAddress = projInfo?.Address ?? "";
                         revitBuildingType = projInfo?.LookupParameter("Building Type")?.AsString() ?? "";
+                        revitBuildingName = projInfo?.BuildingName ?? "";
+                        revitProjectName = projInfo?.Name ?? "";
+                        revitOrgName = projInfo?.OrganizationName ?? "";
                     }
                 }
                 catch { }
 
+                // Combine all text sources for matching (building name, project name, etc.)
+                var matchTexts = new List<string> { revitBuildingType, revitBuildingName, revitProjectName, revitOrgName }
+                    .Where(t => !string.IsNullOrWhiteSpace(t)).ToList();
+                string combinedText = string.Join(" ", matchTexts).ToLower();
+
                 Dispatcher.Invoke(() =>
                 {
-                    // Populate Jenis Bangunan
+                    // ── 1. Populate & auto-select Kategori Bangunan ──
                     _jenisBangunanCombo.Items.Clear();
                     foreach (var bt in _buildingTypes)
                         _jenisBangunanCombo.Items.Add(new ComboBoxItem { Content = bt.kategori_bangunan, Tag = bt });
 
-                    // Try to auto-select from Revit BuildingType
-                    int selectedJenis = 0;
-                    if (!string.IsNullOrEmpty(revitBuildingType))
+                    int selectedKategori = 0;
+                    if (!string.IsNullOrEmpty(combinedText))
                     {
+                        int bestScore = 0;
                         for (int i = 0; i < _jenisBangunanCombo.Items.Count; i++)
                         {
                             var ci = _jenisBangunanCombo.Items[i] as ComboBoxItem;
-                            if (ci?.Content?.ToString()?.IndexOf(revitBuildingType, StringComparison.OrdinalIgnoreCase) >= 0)
-                            { selectedJenis = i; break; }
+                            string kategori = ci?.Content?.ToString() ?? "";
+                            int score = FuzzyMatchScore(combinedText: combinedText, candidate: kategori);
+                            if (score > bestScore) { bestScore = score; selectedKategori = i; }
                         }
                     }
                     if (_jenisBangunanCombo.Items.Count > 0)
-                        _jenisBangunanCombo.SelectedIndex = selectedJenis;
+                        _jenisBangunanCombo.SelectedIndex = selectedKategori;
+                    // JenisBangunan_Changed fires here → populates _subJenisCombo
 
-                    // Populate Negeri (flattened from regions)
+                    // ── 2. Auto-select Jenis Bangunan (sub_jenis) ──
+                    if (_subJenisCombo.Items.Count > 0 && !string.IsNullOrEmpty(combinedText))
+                    {
+                        int bestSubIdx = 0;
+                        int bestSubScore = 0;
+                        for (int i = 0; i < _subJenisCombo.Items.Count; i++)
+                        {
+                            var ci = _subJenisCombo.Items[i] as ComboBoxItem;
+                            string subName = ci?.Content?.ToString() ?? "";
+                            int score = FuzzyMatchScore(combinedText: combinedText, candidate: subName);
+                            if (score > bestSubScore) { bestSubScore = score; bestSubIdx = i; }
+                        }
+                        if (bestSubScore > 0)
+                            _subJenisCombo.SelectedIndex = bestSubIdx;
+                        // SubJenis_Changed fires here → populates _allNamaBangunan
+                    }
+
+                    // ── 3. Auto-select Nama Bangunan ──
+                    if (_allNamaBangunan.Count > 0 && !string.IsNullOrEmpty(combinedText))
+                    {
+                        int bestNamaScore = 0;
+                        string bestNama = null;
+                        foreach (var nama in _allNamaBangunan)
+                        {
+                            int score = FuzzyMatchScore(combinedText: combinedText, candidate: nama);
+                            if (score > bestNamaScore) { bestNamaScore = score; bestNama = nama; }
+                        }
+                        if (bestNama != null && bestNamaScore > 0)
+                        {
+                            _selectedNamaBangunan = bestNama;
+                            _namaBangunanSearchBox.Text = bestNama;
+                        }
+                    }
+
+                    // ── 4. Populate & auto-select Negeri ──
                     _negeriCombo.Items.Clear();
                     foreach (var region in _regions)
                         foreach (var negeri in region.negeri)
                             _negeriCombo.Items.Add(new ComboBoxItem { Content = negeri, Tag = region.kawasan });
 
-                    // Try to auto-select from Revit Address (match state name)
                     int selectedNegeri = 0;
                     if (!string.IsNullOrEmpty(revitAddress))
                     {
@@ -894,11 +973,32 @@ namespace RevitWebAppSync.UI
             }
         }
 
+        /// <summary>
+        /// Score how well a candidate string matches the combined Revit project text.
+        /// Returns number of matching words (case-insensitive). 0 = no match.
+        /// </summary>
+        private int FuzzyMatchScore(string combinedText, string candidate)
+        {
+            if (string.IsNullOrEmpty(candidate)) return 0;
+            string lower = combinedText.ToLower();
+            // Check if the whole candidate appears as substring
+            if (lower.Contains(candidate.ToLower())) return candidate.Length;
+            // Check word-by-word overlap
+            var words = candidate.ToLower().Split(new[] { ' ', '/', '-', '(', ')' }, StringSplitOptions.RemoveEmptyEntries);
+            int score = 0;
+            foreach (var word in words)
+            {
+                if (word.Length < 2) continue; // skip tiny words
+                if (lower.Contains(word)) score += word.Length;
+            }
+            return score;
+        }
+
         private void JenisBangunan_Changed(object sender, SelectionChangedEventArgs e)
         {
             if (_jenisBangunanCombo.SelectedItem is ComboBoxItem item && item.Tag is M2BuildingType bt)
             {
-                // Populate sub_jenis internally (hidden combo)
+                // Populate Jenis Bangunan (sub_jenis) dropdown
                 _subJenisCombo.Items.Clear();
                 if (bt.sub_jenis.Count > 0)
                 {
@@ -906,15 +1006,12 @@ namespace RevitWebAppSync.UI
                         _subJenisCombo.Items.Add(new ComboBoxItem { Content = sub.name, Tag = sub });
                     _subJenisCombo.SelectedIndex = 0;
                 }
-
-                // Flatten all nama_bangunan from all sub_jenis into one searchable list
-                var allNama = new List<string>();
-                foreach (var sub in bt.sub_jenis)
-                    allNama.AddRange(sub.nama_bangunan);
-                if (bt.nama_bangunan != null)
-                    allNama.AddRange(bt.nama_bangunan);
-                allNama = allNama.Distinct().OrderBy(n => n).ToList();
-                UpdateNamaBangunanDropdown(allNama);
+                else
+                {
+                    // No sub_jenis — populate nama_bangunan directly from kategori
+                    var directNama = bt.nama_bangunan ?? new List<string>();
+                    UpdateNamaBangunanList(directNama);
+                }
 
                 // Update kerja pakar checkboxes based on building type
                 UpdateKerjaPakarCheckboxes(bt.kategori_bangunan);
@@ -925,27 +1022,79 @@ namespace RevitWebAppSync.UI
         {
             if (_subJenisCombo.SelectedItem is ComboBoxItem item && item.Tag is M2SubJenis sub)
             {
-                UpdateNamaBangunanDropdown(sub.nama_bangunan);
+                UpdateNamaBangunanList(sub.nama_bangunan);
             }
         }
 
-        private void UpdateNamaBangunanDropdown(List<string> namaBangunanList)
+        private void UpdateNamaBangunanList(List<string> namaBangunanList)
         {
-            _namaBangunanCombo.Items.Clear();
-            if (namaBangunanList != null && namaBangunanList.Count > 0)
+            _allNamaBangunan = namaBangunanList != null
+                ? namaBangunanList.Distinct().OrderBy(n => n).ToList()
+                : new List<string>();
+            _selectedNamaBangunan = null;
+            _namaBangunanSearchBox.Text = "";
+            _namaBangunanSuggestList.Visibility = Visibility.Collapsed;
+
+            if (_allNamaBangunan.Count > 0)
             {
-                _namaBangunanLabel.Visibility = Visibility.Visible;
-                _namaBangunanCombo.Visibility = Visibility.Visible;
-                // Add empty option for "use aggregate"
-                _namaBangunanCombo.Items.Add(new ComboBoxItem { Content = "(Purata Keseluruhan)", Tag = "" });
-                foreach (var nama in namaBangunanList)
-                    _namaBangunanCombo.Items.Add(new ComboBoxItem { Content = nama, Tag = nama });
-                _namaBangunanCombo.SelectedIndex = 0;
+                _namaBangunanSearchBox.Visibility = Visibility.Visible;
             }
             else
             {
-                _namaBangunanLabel.Visibility = Visibility.Collapsed;
-                _namaBangunanCombo.Visibility = Visibility.Collapsed;
+                _namaBangunanSearchBox.Visibility = Visibility.Collapsed;
+                _namaBangunanSuggestList.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void NamaBangunanSearch_Changed(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            // If user edits after selecting, clear the selection
+            if (_selectedNamaBangunan != null && _namaBangunanSearchBox.Text != _selectedNamaBangunan)
+                _selectedNamaBangunan = null;
+
+            FilterNamaBangunanSuggestions();
+        }
+
+        private void FilterNamaBangunanSuggestions()
+        {
+            string query = _namaBangunanSearchBox.Text?.Trim() ?? "";
+            _namaBangunanSuggestList.Items.Clear();
+
+            var filtered = string.IsNullOrEmpty(query)
+                ? _allNamaBangunan
+                : _allNamaBangunan
+                    .Where(n => n.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                    .ToList();
+
+            if (filtered.Count > 0)
+            {
+                _namaBangunanSuggestList.Visibility = Visibility.Visible;
+                foreach (var nama in filtered)
+                {
+                    _namaBangunanSuggestList.Items.Add(new ListBoxItem
+                    {
+                        Content = nama,
+                        Tag = nama,
+                        FontSize = 10,
+                        Padding = new Thickness(6, 3, 6, 3)
+                    });
+                }
+            }
+            else
+            {
+                _namaBangunanSuggestList.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void NamaBangunanSuggestion_Selected(object sender, SelectionChangedEventArgs e)
+        {
+            if (_namaBangunanSuggestList.SelectedItem is ListBoxItem selected)
+            {
+                _selectedNamaBangunan = selected.Tag?.ToString();
+                _namaBangunanSearchBox.Text = _selectedNamaBangunan;
+                _namaBangunanSuggestList.Visibility = Visibility.Collapsed;
+                // Move caret to end
+                _namaBangunanSearchBox.CaretIndex = _namaBangunanSearchBox.Text.Length;
             }
         }
 
@@ -1668,14 +1817,8 @@ namespace RevitWebAppSync.UI
 
                 // Call m2 estimation API
                 var aiEstimator = new AICostEstimator();
-                // Get nama_bangunan if selected
-                string namaBangunan = null;
-                if (_namaBangunanCombo?.SelectedItem is ComboBoxItem namaItem)
-                {
-                    var tag = namaItem.Tag?.ToString();
-                    if (!string.IsNullOrEmpty(tag))
-                        namaBangunan = tag;
-                }
+                // Get nama_bangunan from search box (if user selected a suggestion)
+                string namaBangunan = _selectedNamaBangunan;
 
                 var request = new M2EstimateRequest
                 {
