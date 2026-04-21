@@ -306,46 +306,27 @@ namespace RevitWebAppSync.UI
             };
             m2Stack.Children.Add(_negeriCombo);
 
-            _luasTapakText = new TextBlock
-            {
-                Text = "Luas Tapak: \u2014 m\u00B2 (auto dari model)",
-                FontSize = 10, FontStyle = FontStyles.Italic,
-                Foreground = new SolidColorBrush(TextMuted),
-                Margin = new Thickness(0, 0, 0, 8)
-            };
-            m2Stack.Children.Add(_luasTapakText);
-
             // ─── Section 3: Kerja Pakar ───
             m2Stack.Children.Add(MakeSectionHeader("Kerja Pakar (Utilities)"));
 
             _kerjaPakarPanel = new WrapPanel { Margin = new Thickness(0, 2, 0, 8) };
             m2Stack.Children.Add(_kerjaPakarPanel);
 
-            // ─── Section 4: Kerja Luar ───
-            m2Stack.Children.Add(MakeSectionHeader("Kerja Luar Bangunan"));
+            // ─── Section 4: Luas Tapak ───
+            m2Stack.Children.Add(MakeSectionHeader("Luas Tapak"));
 
-            m2Stack.Children.Add(MakeFieldLabel("Cari jenis bangunan luar"));
-            _kerjaLuarSearchBox = new System.Windows.Controls.TextBox
+            _luasTapakText = new TextBlock
             {
-                FontSize = 11, Padding = new Thickness(8, 6, 8, 6),
-                Margin = new Thickness(0, 0, 0, 2),
-                Background = new SolidColorBrush(PageBg),
-                BorderBrush = new SolidColorBrush(BorderColor),
-                BorderThickness = new Thickness(1)
+                Text = "Luas Tapak: \u2014 m\u00B2 (auto dari model)",
+                FontSize = 12, FontWeight = FontWeights.Medium,
+                Foreground = new SolidColorBrush(TextPrimary),
+                Margin = new Thickness(0, 2, 0, 8)
             };
-            _kerjaLuarSearchBox.GotFocus += (s, ev) => { if (_kerjaLuarSearchBox.Text == "") PerformKerjaLuarSearch(); };
-            _kerjaLuarSearchBox.TextChanged += KerjaLuarSearch_Changed;
-            m2Stack.Children.Add(_kerjaLuarSearchBox);
-            _kerjaLuarResultsList = new ListBox
-            {
-                FontSize = 10, MaxHeight = 120,
-                Margin = new Thickness(0, 0, 0, 8),
-                BorderBrush = new SolidColorBrush(BorderColor),
-                BorderThickness = new Thickness(1),
-                Visibility = Visibility.Collapsed
-            };
-            _kerjaLuarResultsList.SelectionChanged += KerjaLuarResult_Selected;
-            m2Stack.Children.Add(_kerjaLuarResultsList);
+            m2Stack.Children.Add(_luasTapakText);
+
+            // Hidden references for kerja luar (not used in UI, auto-resolved from building type)
+            _kerjaLuarSearchBox = new System.Windows.Controls.TextBox { Visibility = Visibility.Collapsed };
+            _kerjaLuarResultsList = new ListBox { Visibility = Visibility.Collapsed };
 
             // ─── Calculate Button ───
             m2Stack.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(BorderColor), Margin = new Thickness(0, 6, 0, 14) });
@@ -937,13 +918,6 @@ namespace RevitWebAppSync.UI
 
                 // Update kerja pakar checkboxes based on building type
                 UpdateKerjaPakarCheckboxes(bt.kategori_bangunan);
-
-                // Clear kerja luar search
-                if (_kerjaLuarSearchBox != null)
-                {
-                    _kerjaLuarSearchBox.Text = "";
-                    _selectedKerjaLuarSubJenis = null;
-                }
             }
         }
 
@@ -1017,8 +991,8 @@ namespace RevitWebAppSync.UI
         {
             double luas = GetLuasTapakFromModel();
             _luasTapakText.Text = luas > 0
-                ? $"Luas Tapak: {luas:N0} m\u00B2 (auto dari model)"
-                : "Luas Tapak: -- m\u00B2 (tiada data lantai dalam model)";
+                ? $"{luas:N0} m\u00B2 (auto dari model Revit)"
+                : "-- m\u00B2 (tiada data lantai dalam model)";
         }
 
         private void DisplayM2Result(M2CostBreakdown result)
@@ -1711,7 +1685,7 @@ namespace RevitWebAppSync.UI
                     kawasan = kawasan,
                     luas_tapak = luasTapak,
                     kerja_pakar_selected = GetSelectedKerjaPakar(),
-                    kerja_luar_sub_jenis = _selectedKerjaLuarSubJenis,
+                    kerja_luar_sub_jenis = null, // Auto-resolved from sub_jenis_bangunan
                     project_name = _subtitleText?.Text?.Split('|')?.FirstOrDefault()?.Trim() ?? "Untitled"
                 };
 
