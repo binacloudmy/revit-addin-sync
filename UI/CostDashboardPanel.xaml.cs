@@ -62,6 +62,7 @@ namespace RevitWebAppSync.UI
         private List<string> _allNamaBangunan = new List<string>();
         private string _selectedNamaBangunan;
         private TextBlock _namaBangunanLabel;
+        private ComboBox _namaEntryCombo;
         private ComboBox _negeriCombo;
         private TextBlock _luasTapakText;
         private TextBlock _m2ResultText;
@@ -138,9 +139,8 @@ namespace RevitWebAppSync.UI
             var root = new Grid { Background = new SolidColorBrush(PageBg) };
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 0: Header
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 1: Banner
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 2: M2 Estimate (main card)
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 3: Spacer
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 4: Actions
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 2: M2 Estimate (scrollable)
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 3: Actions
 
             // ── Row 0: Header ──
             var header = new Border
@@ -328,6 +328,16 @@ namespace RevitWebAppSync.UI
             _namaBangunanSuggestList.SelectionChanged += NamaBangunanSuggestion_Selected;
             m2Stack.Children.Add(_namaBangunanSuggestList);
 
+            // Nama Entry (specific building drawing — appears after nama_bangunan selected)
+            m2Stack.Children.Add(MakeFieldLabel("Jenis Bangunan Spesifik (pilihan)"));
+            _namaEntryCombo = new ComboBox
+            {
+                FontSize = 11, Padding = new Thickness(6, 4, 6, 4),
+                Margin = new Thickness(0, 0, 0, 8),
+                Visibility = Visibility.Collapsed
+            };
+            m2Stack.Children.Add(_namaEntryCombo);
+
             // ─── Section 2: Lokasi ───
             m2Stack.Children.Add(MakeSectionHeader("Lokasi"));
 
@@ -406,13 +416,21 @@ namespace RevitWebAppSync.UI
 
             m2Stack.Children.Add(_m2BreakdownPanel);
             _m2EstimateCard.Child = m2Stack;
-            Grid.SetRow(_m2EstimateCard, 2);
-            root.Children.Add(_m2EstimateCard);
+
+            // Wrap M2 card in ScrollViewer so breakdown doesn't overflow
+            var m2Scroll = new ScrollViewer
+            {
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                Content = _m2EstimateCard
+            };
+            Grid.SetRow(m2Scroll, 2);
+            root.Children.Add(m2Scroll);
 
             // Load dropdowns from API
             LoadM2DropdownsAsync();
 
-            // ── Row 4: Action bar (Refresh only) ──
+            // ── Row 3: Action bar (Refresh only) ──
             var actionBar = new Border
             {
                 Background = Brushes.White,
@@ -425,7 +443,7 @@ namespace RevitWebAppSync.UI
             primaryRow.Children.Add(MakeActionButton("Refresh Model", Refresh_Click, PrimaryBlue, true));
             actionStack.Children.Add(primaryRow);
             actionBar.Child = actionStack;
-            Grid.SetRow(actionBar, 4);
+            Grid.SetRow(actionBar, 3);
             root.Children.Add(actionBar);
 
             // Hidden references to avoid null exceptions in existing code
@@ -1093,8 +1111,60 @@ namespace RevitWebAppSync.UI
                 _selectedNamaBangunan = selected.Tag?.ToString();
                 _namaBangunanSearchBox.Text = _selectedNamaBangunan;
                 _namaBangunanSuggestList.Visibility = Visibility.Collapsed;
-                // Move caret to end
                 _namaBangunanSearchBox.CaretIndex = _namaBangunanSearchBox.Text.Length;
+
+                // Load individual entries for this nama_bangunan
+                LoadNamaEntriesAsync();
+            }
+        }
+
+        private async void LoadNamaEntriesAsync()
+        {
+            string kategori = (_jenisBangunanCombo?.SelectedItem as ComboBoxItem)?.Content?.ToString();
+            if (string.IsNullOrEmpty(kategori) || string.IsNullOrEmpty(_selectedNamaBangunan))
+            {
+                _namaEntryCombo.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            try
+            {
+                var aiEstimator = new AICostEstimator();
+                var entries = await aiEstimator.GetNamaEntriesAsync(kategori, _selectedNamaBangunan);
+
+                Dispatcher.Invoke(() =>
+                {
+                    _namaEntryCombo.Items.Clear();
+                    if (entries.Count > 0)
+                    {
+                        // Add "Gunakan purata kumpulan" option as first item
+                        _namaEntryCombo.Items.Add(new ComboBoxItem
+                        {
+                            Content = "(Gunakan purata kumpulan)",
+                            Tag = null,
+                            FontStyle = FontStyles.Italic
+                        });
+                        foreach (var entry in entries)
+                        {
+                            _namaEntryCombo.Items.Add(new ComboBoxItem
+                            {
+                                Content = entry.label,
+                                Tag = entry
+                            });
+                        }
+                        _namaEntryCombo.SelectedIndex = 0;
+                        _namaEntryCombo.Visibility = Visibility.Visible;
+                    }
+                    else
+                    {
+                        _namaEntryCombo.Visibility = Visibility.Collapsed;
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Failed to load nama entries: {ex.Message}");
+                _namaEntryCombo.Visibility = Visibility.Collapsed;
             }
         }
 
@@ -1958,18 +2028,28 @@ namespace RevitWebAppSync.UI
 
                 // Call m2 estimation API
                 var aiEstimator = new AICostEstimator();
-                // Get nama_bangunan from search box (if user selected a suggestion)
                 string namaBangunan = _selectedNamaBangunan;
+
+                // Get nama_entry if user selected a specific building entry
+                string namaEntry = null;
+                string noLukisan = null;
+                if (_namaEntryCombo?.SelectedItem is ComboBoxItem entryItem && entryItem.Tag is NamaEntryItem selectedEntry)
+                {
+                    namaEntry = selectedEntry.nama_entry;
+                    noLukisan = selectedEntry.no_lukisan;
+                }
 
                 var request = new M2EstimateRequest
                 {
                     kategori_bangunan = jenisBangunan,
                     sub_jenis_bangunan = subJenis,
                     nama_bangunan = namaBangunan,
+                    nama_entry = namaEntry,
+                    no_lukisan = noLukisan,
                     kawasan = kawasan,
                     luas_tapak = luasTapak,
                     kerja_pakar_selected = GetSelectedKerjaPakar(),
-                    kerja_luar_sub_jenis = null, // Auto-resolved from sub_jenis_bangunan
+                    kerja_luar_sub_jenis = null,
                     project_name = _subtitleText?.Text?.Split('|')?.FirstOrDefault()?.Trim() ?? "Untitled"
                 };
 

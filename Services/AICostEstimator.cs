@@ -546,6 +546,19 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Get individual building entries under a nama_bangunan group.
+        /// </summary>
+        public async Task<List<NamaEntryItem>> GetNamaEntriesAsync(string kategoriBangunan, string namaBangunan)
+        {
+            var url = $"{_baseUrl}/cost/m2-estimate/nama-entries?kategori_bangunan={Uri.EscapeDataString(kategoriBangunan)}&nama_bangunan={Uri.EscapeDataString(namaBangunan)}";
+            var response = await SharedClient.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
+            var result = JsonConvert.DeserializeObject<Dictionary<string, List<NamaEntryItem>>>(json);
+            return result.ContainsKey("entries") ? result["entries"] : new List<NamaEntryItem>();
+        }
+
+        /// <summary>
         /// Search kerja luar sub-types for predictive search.
         /// </summary>
         public async Task<List<M2KerjaLuarItem>> SearchKerjaLuarTypesAsync(string jenisBangunan, string query = "")

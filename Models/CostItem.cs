@@ -123,11 +123,23 @@ namespace RevitWebAppSync.Models
         public string kategori_bangunan { get; set; }
         public string sub_jenis_bangunan { get; set; }
         public string nama_bangunan { get; set; }
+        public string nama_entry { get; set; }
+        public string no_lukisan { get; set; }
         public string kawasan { get; set; }
         public double luas_tapak { get; set; }
         public List<string> kerja_pakar_selected { get; set; }
         public string kerja_luar_sub_jenis { get; set; }
         public string project_name { get; set; } = "Untitled";
+    }
+
+    /// <summary>
+    /// Individual building entry item
+    /// </summary>
+    public class NamaEntryItem
+    {
+        public string nama_entry { get; set; }
+        public string no_lukisan { get; set; }
+        public string label { get; set; }
     }
 
     /// <summary>
