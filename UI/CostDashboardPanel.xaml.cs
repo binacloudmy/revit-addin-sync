@@ -126,12 +126,9 @@ namespace RevitWebAppSync.UI
             var root = new Grid { Background = new SolidColorBrush(PageBg) };
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 0: Header
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 1: Banner
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 2: Total
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 3: Sqft Estimate
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 4: Component Cost
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 5: Filter
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 6: Content
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 7: Actions
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 2: M2 Estimate (main card)
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 3: Spacer
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });  // 4: Actions
 
             // ── Row 0: Header ──
             var header = new Border
@@ -234,156 +231,132 @@ namespace RevitWebAppSync.UI
             Grid.SetRow(_changeBanner, 1);
             root.Children.Add(_changeBanner);
 
-            // ── Row 2: Total card ──
-            _totalCard = new Border
-            {
-                Background = Brushes.White,
-                BorderBrush = new SolidColorBrush(BorderColor),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
-                Margin = new Thickness(12, 12, 12, 0),
-                Padding = new Thickness(18, 16, 18, 16)
-            };
-            var totalStack = new StackPanel();
-
-            var totalHeader = new Grid();
-            totalHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            totalHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            totalHeader.Children.Add(new TextBlock { Text = "Estimated Total Cost", FontSize = 11, Foreground = new SolidColorBrush(TextSecondary), FontWeight = FontWeights.Medium });
-            var rmLabel = new TextBlock { Text = "MYR (RM)", FontSize = 9, Foreground = new SolidColorBrush(TextMuted), VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(rmLabel, 1);
-            totalHeader.Children.Add(rmLabel);
-            totalStack.Children.Add(totalHeader);
-
-            _grandTotalText = new TextBlock { Text = "RM 0", FontSize = 32, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(TextPrimary), Margin = new Thickness(0, 6, 0, 12) };
-            totalStack.Children.Add(_grandTotalText);
-
-            // Stats row
-            var statsGrid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
-            statsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            statsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            statsGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            _itemCountText = MakeStatBlock("0", "Items");
-            Grid.SetColumn(_itemCountText, 0);
-            statsGrid.Children.Add(_itemCountText);
-
-            _levelCountText = MakeStatBlock("0", "Levels");
-            Grid.SetColumn(_levelCountText, 1);
-            statsGrid.Children.Add(_levelCountText);
-
-            _pricedPercentText = MakeStatBlock("0%", "Priced");
-            Grid.SetColumn(_pricedPercentText, 2);
-            statsGrid.Children.Add(_pricedPercentText);
-
-            totalStack.Children.Add(statsGrid);
-
-            // Coverage bar
-            var coverageLabel = new TextBlock
-            {
-                Text = "Pricing Coverage", FontSize = 9,
-                Foreground = new SolidColorBrush(TextMuted),
-                Margin = new Thickness(0, 0, 0, 3),
-                ToolTip = "Percentage of priceable items with prices.\nSub-elements (rebar, fittings, connections) are\nexcluded — their cost is included in parent items."
-            };
-            totalStack.Children.Add(coverageLabel);
-            var barBg = new Border { Height = 6, CornerRadius = new CornerRadius(3), Background = new SolidColorBrush(Color.FromRgb(226, 232, 240)), Margin = new Thickness(0, 2, 0, 0) };
-            _coverageBar = new ProgressBar { Height = 6, Minimum = 0, Maximum = 100, Value = 0, Foreground = new SolidColorBrush(SuccessGreen), Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
-            barBg.Child = _coverageBar;
-            totalStack.Children.Add(barBg);
-
-            _totalCard.Child = totalStack;
-            Grid.SetRow(_totalCard, 2);
-            root.Children.Add(_totalCard);
-
-            // ── Row 3: M2 Estimate card (JKR Kos Purata) ──
+            // ── Row 2: M2 Estimate card (main card — always visible) ──
             _m2EstimateCard = new Border
             {
                 Background = Brushes.White,
                 BorderBrush = new SolidColorBrush(BorderColor),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
-                Margin = new Thickness(12, 8, 12, 0),
-                Padding = new Thickness(14, 10, 14, 10)
+                Margin = new Thickness(12, 12, 12, 0),
+                Padding = new Thickness(16, 14, 16, 14)
             };
             var m2Stack = new StackPanel();
-            var m2Body = new StackPanel { Visibility = Visibility.Collapsed };
 
-            // Header (toggle)
-            var m2Header = new Grid { Cursor = System.Windows.Input.Cursors.Hand };
-            m2Header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            m2Header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var m2ToggleText = new TextBlock
+            // Card title
+            var m2TitleRow = new Grid();
+            m2TitleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            m2TitleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            m2TitleRow.Children.Add(new TextBlock
             {
-                Text = "\u25B6 Anggaran Kos Per Meter Persegi",
-                FontSize = 11, FontWeight = FontWeights.Medium,
-                Foreground = new SolidColorBrush(TextSecondary)
-            };
-            m2Header.Children.Add(m2ToggleText);
+                Text = "Anggaran Kos Per Meter Persegi",
+                FontSize = 13, FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(TextPrimary)
+            });
             var m2Source = new TextBlock
             {
-                Text = "JKR Jilid 87",
+                Text = "Sumber: JKR Jilid 87",
                 FontSize = 9, Foreground = new SolidColorBrush(TextMuted),
                 VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(m2Source, 1);
-            m2Header.Children.Add(m2Source);
-            m2Header.MouseLeftButtonDown += (s, ev) =>
+            m2TitleRow.Children.Add(m2Source);
+            m2Stack.Children.Add(m2TitleRow);
+
+            // Separator
+            m2Stack.Children.Add(new Border
             {
-                m2Body.Visibility = m2Body.Visibility == Visibility.Visible
-                    ? Visibility.Collapsed : Visibility.Visible;
-                m2ToggleText.Text = m2Body.Visibility == Visibility.Visible
-                    ? "\u25BC Anggaran Kos Per Meter Persegi" : "\u25B6 Anggaran Kos Per Meter Persegi";
-            };
-            m2Stack.Children.Add(m2Header);
+                Height = 1, Background = new SolidColorBrush(BorderColor),
+                Margin = new Thickness(0, 10, 0, 12)
+            });
 
             // Jenis Bangunan
-            m2Body.Children.Add(new TextBlock { Text = "Jenis Bangunan", FontSize = 10, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 8, 0, 3) });
-            _jenisBangunanCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 6) };
+            m2Stack.Children.Add(new TextBlock { Text = "Jenis Bangunan", FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 4) });
+            _jenisBangunanCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 10) };
             _jenisBangunanCombo.SelectionChanged += JenisBangunan_Changed;
-            m2Body.Children.Add(_jenisBangunanCombo);
+            m2Stack.Children.Add(_jenisBangunanCombo);
 
             // Sub Jenis Bangunan
-            m2Body.Children.Add(new TextBlock { Text = "Sub Jenis", FontSize = 10, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 3), Tag = "subJenisLabel" });
-            _subJenisCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 6) };
-            m2Body.Children.Add(_subJenisCombo);
+            m2Stack.Children.Add(new TextBlock { Text = "Sub Jenis", FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 4), Tag = "subJenisLabel" });
+            _subJenisCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 10) };
+            m2Stack.Children.Add(_subJenisCombo);
 
             // Negeri
-            m2Body.Children.Add(new TextBlock { Text = "Negeri", FontSize = 10, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 3) });
-            _negeriCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 6) };
-            m2Body.Children.Add(_negeriCombo);
+            m2Stack.Children.Add(new TextBlock { Text = "Negeri", FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 4) });
+            _negeriCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 10) };
+            m2Stack.Children.Add(_negeriCombo);
 
-            // Luas Tapak (auto)
+            // Luas Tapak (auto from model)
             _luasTapakText = new TextBlock
             {
-                Text = "Luas Tapak: — m\u00B2 (auto dari model)",
+                Text = "Luas Tapak: \u2014 m\u00B2 (auto dari model)",
                 FontSize = 10, Foreground = new SolidColorBrush(TextMuted),
-                Margin = new Thickness(0, 4, 0, 0)
+                Margin = new Thickness(0, 0, 0, 12)
             };
-            m2Body.Children.Add(_luasTapakText);
+            m2Stack.Children.Add(_luasTapakText);
 
-            m2Stack.Children.Add(m2Body);
+            // Kira Anggaran button (inside the card)
+            var kiraBtn = new Button
+            {
+                Content = "Kira Anggaran",
+                FontSize = 11, FontWeight = FontWeights.SemiBold,
+                Foreground = Brushes.White,
+                Background = new SolidColorBrush(PrimaryBlue),
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(0, 8, 0, 8),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+            kiraBtn.Click += AutoMatch_Click;
+            m2Stack.Children.Add(kiraBtn);
+
+            // Result section (hidden until calculation)
+            _m2BreakdownPanel = new StackPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 14, 0, 0) };
+
+            // Result separator
+            _m2BreakdownPanel.Children.Add(new Border
+            {
+                Height = 1, Background = new SolidColorBrush(BorderColor),
+                Margin = new Thickness(0, 0, 0, 12)
+            });
+
+            // Result title
+            _m2BreakdownPanel.Children.Add(new TextBlock
+            {
+                Text = "Keputusan Anggaran",
+                FontSize = 11, FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(TextPrimary),
+                Margin = new Thickness(0, 0, 0, 10)
+            });
+
+            // m2 result text (RM/m2)
+            _m2ResultText = new TextBlock
+            {
+                Text = "",
+                FontSize = 26, FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(PrimaryBlue),
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+            _m2BreakdownPanel.Children.Add(_m2ResultText);
+
+            // m2 total text (jumlah anggaran)
+            _m2TotalText = new TextBlock
+            {
+                Text = "",
+                FontSize = 12, Foreground = new SolidColorBrush(TextSecondary),
+                Margin = new Thickness(0, 0, 0, 0)
+            };
+            _m2BreakdownPanel.Children.Add(_m2TotalText);
+
+            m2Stack.Children.Add(_m2BreakdownPanel);
             _m2EstimateCard.Child = m2Stack;
-            Grid.SetRow(_m2EstimateCard, 3);
+            Grid.SetRow(_m2EstimateCard, 2);
             root.Children.Add(_m2EstimateCard);
 
-            // Load dropdowns from API (async, fire-and-forget on UI load)
+            // Load dropdowns from API
             LoadM2DropdownsAsync();
 
-            // ── Row 4-6: HIDDEN (Component Cost, Filter, Content — not used for m2 mode) ──
-            _componentCard = new Border { Visibility = Visibility.Collapsed };
-            _componentBody = new StackPanel();
-            _componentListPanel = new StackPanel();
-            Grid.SetRow(_componentCard, 4);
-            root.Children.Add(_componentCard);
-
-            _contentPanel = new StackPanel();
-            var scroll = new ScrollViewer { Visibility = Visibility.Collapsed };
-            scroll.Content = _contentPanel;
-            Grid.SetRow(scroll, 6);
-            root.Children.Add(scroll);
-
-            // ── Row 7: Action bar (simplified — only Match Prices + Refresh) ──
+            // ── Row 4: Action bar (Refresh only) ──
             var actionBar = new Border
             {
                 Background = Brushes.White,
@@ -392,17 +365,24 @@ namespace RevitWebAppSync.UI
                 Padding = new Thickness(12, 10, 12, 10)
             };
             var actionStack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
-
             var primaryRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            primaryRow.Children.Add(MakeActionButton("Match Prices", AutoMatch_Click, SuccessGreen, true));
-            primaryRow.Children.Add(MakeActionButton("Refresh", Refresh_Click, PrimaryBlue, true));
-
+            primaryRow.Children.Add(MakeActionButton("Refresh Model", Refresh_Click, PrimaryBlue, true));
             actionStack.Children.Add(primaryRow);
             actionBar.Child = actionStack;
-            Grid.SetRow(actionBar, 7);
+            Grid.SetRow(actionBar, 4);
             root.Children.Add(actionBar);
 
             // Hidden references to avoid null exceptions in existing code
+            _totalCard = new Border { Visibility = Visibility.Collapsed };
+            _grandTotalText = new TextBlock();
+            _itemCountText = new TextBlock();
+            _levelCountText = new TextBlock();
+            _pricedPercentText = new TextBlock();
+            _coverageBar = new ProgressBar();
+            _componentCard = new Border { Visibility = Visibility.Collapsed };
+            _componentBody = new StackPanel();
+            _componentListPanel = new StackPanel();
+            _contentPanel = new StackPanel();
             _reviewBadge = new Border { Visibility = Visibility.Collapsed };
             _reviewBadgeText = new TextBlock();
             _byLevelRadio = new RadioButton { IsChecked = true };
@@ -424,7 +404,7 @@ namespace RevitWebAppSync.UI
                 Visibility = Visibility.Collapsed
             };
             Grid.SetRow(_loadingOverlay, 0);
-            Grid.SetRowSpan(_loadingOverlay, 8);
+            Grid.SetRowSpan(_loadingOverlay, 5);
 
             var centerPanel = new StackPanel
             {
@@ -861,30 +841,17 @@ namespace RevitWebAppSync.UI
         {
             _lastM2Result = result;
 
-            // Update Total card (Row 2) with m2 result
-            _grandTotalText.Text = $"RM {result.jumlah_kos_per_m2:N2} /m\u00B2";
-            _grandTotalText.FontSize = 28;
+            // Show result section
+            _m2BreakdownPanel.Visibility = Visibility.Visible;
 
-            // Update stats
-            var totalBlock = ((StackPanel)_totalCard.Child);
+            // RM per m2
+            _m2ResultText.Text = $"RM {result.jumlah_kos_per_m2:N2} /m\u00B2";
 
-            // Update item count to show jumlah anggaran
-            _itemCountText.Tag = "total";
-            UpdateStatBlock(_itemCountText, $"RM {result.jumlah_anggaran_kos_projek:N0}", "Jumlah Anggaran");
-            UpdateStatBlock(_levelCountText, $"{result.luas_tapak:N0} m\u00B2", "Luas Tapak");
-            UpdateStatBlock(_pricedPercentText, $"Kws {result.kawasan}", result.kategori_bangunan);
-
-            // Hide coverage bar
-            _coverageBar.Visibility = Visibility.Collapsed;
-        }
-
-        private void UpdateStatBlock(TextBlock tb, string value, string label)
-        {
-            tb.Tag = label;
-            tb.Inlines.Clear();
-            tb.Inlines.Add(new System.Windows.Documents.Run(value) { FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(TextPrimary) });
-            tb.Inlines.Add(new System.Windows.Documents.LineBreak());
-            tb.Inlines.Add(new System.Windows.Documents.Run(label) { FontSize = 9, Foreground = new SolidColorBrush(TextMuted) });
+            // Jumlah anggaran + details
+            _m2TotalText.Inlines.Clear();
+            _m2TotalText.Inlines.Add(new System.Windows.Documents.Run($"Jumlah Anggaran: RM {result.jumlah_anggaran_kos_projek:N0}") { FontWeight = FontWeights.SemiBold });
+            _m2TotalText.Inlines.Add(new System.Windows.Documents.LineBreak());
+            _m2TotalText.Inlines.Add(new System.Windows.Documents.Run($"Luas: {result.luas_tapak:N0} m\u00B2  \u2022  Kawasan: {result.kawasan}  \u2022  {result.kategori_bangunan}") { FontSize = 10, Foreground = new SolidColorBrush(TextMuted) });
         }
 
         private void UpdateComponentCard()
@@ -1490,7 +1457,7 @@ namespace RevitWebAppSync.UI
             }
             finally
             {
-                if (btn != null) { btn.IsEnabled = true; btn.Content = "Match Prices"; }
+                if (btn != null) { btn.IsEnabled = true; btn.Content = "Kira Anggaran"; }
                 _suppressModelChanged = false;
             }
         }
@@ -1890,7 +1857,7 @@ namespace RevitWebAppSync.UI
             }
             finally
             {
-                if (btn != null) { btn.IsEnabled = true; btn.Content = "Match Prices"; }
+                if (btn != null) { btn.IsEnabled = true; btn.Content = "Kira Anggaran"; }
             }
         }
 
