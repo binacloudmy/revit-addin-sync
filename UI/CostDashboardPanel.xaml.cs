@@ -240,7 +240,7 @@ namespace RevitWebAppSync.UI
             Grid.SetRow(_changeBanner, 1);
             root.Children.Add(_changeBanner);
 
-            // ── Row 2: M2 Estimate card (main card — always visible) ──
+            // ── Row 2: M2 Estimate card ──
             _m2EstimateCard = new Border
             {
                 Background = Brushes.White,
@@ -252,141 +252,143 @@ namespace RevitWebAppSync.UI
             };
             var m2Stack = new StackPanel();
 
-            // Card title
-            var m2TitleRow = new Grid();
-            m2TitleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            m2TitleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            m2TitleRow.Children.Add(new TextBlock
+            // ─── Title ───
+            m2Stack.Children.Add(new TextBlock
             {
                 Text = "Anggaran Kos Per Meter Persegi",
-                FontSize = 13, FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(TextPrimary)
+                FontSize = 14, FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(TextPrimary),
+                Margin = new Thickness(0, 0, 0, 4)
             });
-            var m2Source = new TextBlock
+            m2Stack.Children.Add(new TextBlock
             {
-                Text = "Sumber: JKR Jilid 87",
+                Text = "Sumber: JKR Kos Purata Semeter Persegi, Jilid 87 (Jan-Jun 2025)",
                 FontSize = 9, Foreground = new SolidColorBrush(TextMuted),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            Grid.SetColumn(m2Source, 1);
-            m2TitleRow.Children.Add(m2Source);
-            m2Stack.Children.Add(m2TitleRow);
-
-            // Separator
-            m2Stack.Children.Add(new Border
-            {
-                Height = 1, Background = new SolidColorBrush(BorderColor),
-                Margin = new Thickness(0, 10, 0, 12)
+                Margin = new Thickness(0, 0, 0, 14)
             });
 
-            // Jenis Bangunan
-            m2Stack.Children.Add(new TextBlock { Text = "Jenis Bangunan", FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 4) });
-            _jenisBangunanCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 10) };
+            // ─── Section 1: Maklumat Bangunan ───
+            m2Stack.Children.Add(MakeSectionHeader("Maklumat Bangunan"));
+
+            m2Stack.Children.Add(MakeFieldLabel("Kategori Bangunan"));
+            _jenisBangunanCombo = new ComboBox
+            {
+                FontSize = 11, Padding = new Thickness(6, 4, 6, 4),
+                Margin = new Thickness(0, 0, 0, 8)
+            };
             _jenisBangunanCombo.SelectionChanged += JenisBangunan_Changed;
             m2Stack.Children.Add(_jenisBangunanCombo);
 
-            // Sub Jenis Bangunan
-            m2Stack.Children.Add(new TextBlock { Text = "Sub Jenis", FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 4), Tag = "subJenisLabel" });
-            _subJenisCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 10) };
+            // Sub Jenis (hidden, used internally for hierarchy)
+            _subJenisCombo = new ComboBox { Visibility = Visibility.Collapsed };
             _subJenisCombo.SelectionChanged += SubJenis_Changed;
             m2Stack.Children.Add(_subJenisCombo);
 
-            // Nama Bangunan (4th level - specific building design)
-            _namaBangunanLabel = new TextBlock { Text = "Nama Bangunan", FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 4), Visibility = Visibility.Collapsed };
+            m2Stack.Children.Add(MakeFieldLabel("Nama Bangunan"));
+            _namaBangunanLabel = new TextBlock { Visibility = Visibility.Collapsed };
             m2Stack.Children.Add(_namaBangunanLabel);
-            _namaBangunanCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 10), IsEditable = true, Visibility = Visibility.Collapsed };
+            _namaBangunanCombo = new ComboBox
+            {
+                FontSize = 11, IsEditable = true,
+                Padding = new Thickness(6, 4, 6, 4),
+                Margin = new Thickness(0, 0, 0, 8)
+            };
             m2Stack.Children.Add(_namaBangunanCombo);
 
-            // Negeri
-            m2Stack.Children.Add(new TextBlock { Text = "Negeri", FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 4) });
-            _negeriCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 10) };
+            // ─── Section 2: Lokasi ───
+            m2Stack.Children.Add(MakeSectionHeader("Lokasi"));
+
+            m2Stack.Children.Add(MakeFieldLabel("Negeri"));
+            _negeriCombo = new ComboBox
+            {
+                FontSize = 11, Padding = new Thickness(6, 4, 6, 4),
+                Margin = new Thickness(0, 0, 0, 8)
+            };
             m2Stack.Children.Add(_negeriCombo);
 
-            // Kerja Pakar checkboxes
-            m2Stack.Children.Add(new TextBlock { Text = "Kerja Pakar (Utilities)", FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 4) });
-            _kerjaPakarPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
-            // Checkboxes populated after API loads (LoadM2DropdownsAsync)
+            _luasTapakText = new TextBlock
+            {
+                Text = "Luas Tapak: \u2014 m\u00B2 (auto dari model)",
+                FontSize = 10, FontStyle = FontStyles.Italic,
+                Foreground = new SolidColorBrush(TextMuted),
+                Margin = new Thickness(0, 0, 0, 8)
+            };
+            m2Stack.Children.Add(_luasTapakText);
+
+            // ─── Section 3: Kerja Pakar ───
+            m2Stack.Children.Add(MakeSectionHeader("Kerja Pakar (Utilities)"));
+
+            _kerjaPakarPanel = new WrapPanel { Margin = new Thickness(0, 2, 0, 8) };
             m2Stack.Children.Add(_kerjaPakarPanel);
 
-            // Kerja Luar sub jenis (predictive search)
-            m2Stack.Children.Add(new TextBlock { Text = "Kerja Luar (Jenis Bangunan Luar)", FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 4) });
+            // ─── Section 4: Kerja Luar ───
+            m2Stack.Children.Add(MakeSectionHeader("Kerja Luar Bangunan"));
+
+            m2Stack.Children.Add(MakeFieldLabel("Cari jenis bangunan luar"));
             _kerjaLuarSearchBox = new System.Windows.Controls.TextBox
             {
-                FontSize = 10, Padding = new Thickness(6, 4, 6, 4),
-                Margin = new Thickness(0, 0, 0, 2)
+                FontSize = 11, Padding = new Thickness(8, 6, 8, 6),
+                Margin = new Thickness(0, 0, 0, 2),
+                Background = new SolidColorBrush(PageBg),
+                BorderBrush = new SolidColorBrush(BorderColor),
+                BorderThickness = new Thickness(1)
             };
+            _kerjaLuarSearchBox.GotFocus += (s, ev) => { if (_kerjaLuarSearchBox.Text == "") PerformKerjaLuarSearch(); };
             _kerjaLuarSearchBox.TextChanged += KerjaLuarSearch_Changed;
             m2Stack.Children.Add(_kerjaLuarSearchBox);
             _kerjaLuarResultsList = new ListBox
             {
-                FontSize = 10, MaxHeight = 100,
-                Margin = new Thickness(0, 0, 0, 10),
+                FontSize = 10, MaxHeight = 120,
+                Margin = new Thickness(0, 0, 0, 8),
+                BorderBrush = new SolidColorBrush(BorderColor),
+                BorderThickness = new Thickness(1),
                 Visibility = Visibility.Collapsed
             };
             _kerjaLuarResultsList.SelectionChanged += KerjaLuarResult_Selected;
             m2Stack.Children.Add(_kerjaLuarResultsList);
 
-            // Luas Tapak (auto from model)
-            _luasTapakText = new TextBlock
-            {
-                Text = "Luas Tapak: \u2014 m\u00B2 (auto dari model)",
-                FontSize = 10, Foreground = new SolidColorBrush(TextMuted),
-                Margin = new Thickness(0, 0, 0, 12)
-            };
-            m2Stack.Children.Add(_luasTapakText);
+            // ─── Calculate Button ───
+            m2Stack.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(BorderColor), Margin = new Thickness(0, 6, 0, 14) });
 
-            // Kira Anggaran button (inside the card)
             var kiraBtn = new Button
             {
                 Content = "Kira Anggaran",
-                FontSize = 11, FontWeight = FontWeights.SemiBold,
+                FontSize = 12, FontWeight = FontWeights.SemiBold,
                 Foreground = Brushes.White,
-                Background = new SolidColorBrush(PrimaryBlue),
+                Background = new SolidColorBrush(SuccessGreen),
                 BorderThickness = new Thickness(0),
-                Padding = new Thickness(0, 8, 0, 8),
+                Padding = new Thickness(0, 10, 0, 10),
                 Cursor = System.Windows.Input.Cursors.Hand,
                 HorizontalAlignment = HorizontalAlignment.Stretch
             };
             kiraBtn.Click += AutoMatch_Click;
             m2Stack.Children.Add(kiraBtn);
 
-            // Result section (hidden until calculation)
-            _m2BreakdownPanel = new StackPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 14, 0, 0) };
+            // ─── Result Section (hidden until calculated) ───
+            _m2BreakdownPanel = new StackPanel { Visibility = Visibility.Collapsed, Margin = new Thickness(0, 16, 0, 0) };
 
-            // Result separator
-            _m2BreakdownPanel.Children.Add(new Border
-            {
-                Height = 1, Background = new SolidColorBrush(BorderColor),
-                Margin = new Thickness(0, 0, 0, 12)
-            });
-
-            // Result title
-            _m2BreakdownPanel.Children.Add(new TextBlock
-            {
-                Text = "Keputusan Anggaran",
-                FontSize = 11, FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(TextPrimary),
-                Margin = new Thickness(0, 0, 0, 10)
-            });
-
-            // m2 result text (RM/m2)
             _m2ResultText = new TextBlock
             {
                 Text = "",
-                FontSize = 26, FontWeight = FontWeights.Bold,
+                FontSize = 24, FontWeight = FontWeights.Bold,
                 Foreground = new SolidColorBrush(PrimaryBlue),
                 Margin = new Thickness(0, 0, 0, 4)
             };
-            _m2BreakdownPanel.Children.Add(_m2ResultText);
-
-            // m2 total text (jumlah anggaran)
             _m2TotalText = new TextBlock
             {
                 Text = "",
-                FontSize = 12, Foreground = new SolidColorBrush(TextSecondary),
-                Margin = new Thickness(0, 0, 0, 0)
+                FontSize = 11, Foreground = new SolidColorBrush(TextSecondary)
             };
-            _m2BreakdownPanel.Children.Add(_m2TotalText);
+            var resultInner = new StackPanel();
+            resultInner.Children.Add(_m2ResultText);
+            resultInner.Children.Add(_m2TotalText);
+            _m2BreakdownPanel.Children.Add(new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(239, 246, 255)),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(14, 12, 14, 12),
+                Child = resultInner
+            });
 
             m2Stack.Children.Add(_m2BreakdownPanel);
             _m2EstimateCard.Child = m2Stack;
@@ -646,6 +648,34 @@ namespace RevitWebAppSync.UI
             };
         }
 
+        private Border MakeSectionHeader(string text)
+        {
+            return new Border
+            {
+                Margin = new Thickness(0, 4, 0, 6),
+                Padding = new Thickness(0, 4, 0, 4),
+                BorderBrush = new SolidColorBrush(BorderColor),
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Child = new TextBlock
+                {
+                    Text = text.ToUpper(),
+                    FontSize = 9, FontWeight = FontWeights.Bold,
+                    Foreground = new SolidColorBrush(TextMuted)
+                }
+            };
+        }
+
+        private TextBlock MakeFieldLabel(string text)
+        {
+            return new TextBlock
+            {
+                Text = text,
+                FontSize = 10, FontWeight = FontWeights.Medium,
+                Foreground = new SolidColorBrush(TextSecondary),
+                Margin = new Thickness(0, 0, 0, 3)
+            };
+        }
+
         private Button MakeActionButton(string text, RoutedEventHandler click, Color bg, bool primary)
         {
             var btn = new Button
@@ -887,21 +917,23 @@ namespace RevitWebAppSync.UI
         {
             if (_jenisBangunanCombo.SelectedItem is ComboBoxItem item && item.Tag is M2BuildingType bt)
             {
-                // Update sub jenis dropdown
+                // Populate sub_jenis internally (hidden combo)
                 _subJenisCombo.Items.Clear();
                 if (bt.sub_jenis.Count > 0)
                 {
-                    _subJenisCombo.Visibility = Visibility.Visible;
                     foreach (var sub in bt.sub_jenis)
                         _subJenisCombo.Items.Add(new ComboBoxItem { Content = sub.name, Tag = sub });
                     _subJenisCombo.SelectedIndex = 0;
                 }
-                else
-                {
-                    _subJenisCombo.Visibility = Visibility.Collapsed;
-                    // Check for direct nama_bangunan (building types without sub_jenis)
-                    UpdateNamaBangunanDropdown(bt.nama_bangunan);
-                }
+
+                // Flatten all nama_bangunan from all sub_jenis into one searchable list
+                var allNama = new List<string>();
+                foreach (var sub in bt.sub_jenis)
+                    allNama.AddRange(sub.nama_bangunan);
+                if (bt.nama_bangunan != null)
+                    allNama.AddRange(bt.nama_bangunan);
+                allNama = allNama.Distinct().OrderBy(n => n).ToList();
+                UpdateNamaBangunanDropdown(allNama);
 
                 // Update kerja pakar checkboxes based on building type
                 UpdateKerjaPakarCheckboxes(bt.kategori_bangunan);
