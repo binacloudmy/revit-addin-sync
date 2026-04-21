@@ -124,7 +124,19 @@ namespace RevitWebAppSync.Models
         public string sub_jenis_bangunan { get; set; }
         public string kawasan { get; set; }
         public double luas_tapak { get; set; }
+        public List<string> kerja_pakar_selected { get; set; }
+        public string kerja_luar_sub_jenis { get; set; }
         public string project_name { get; set; } = "Untitled";
+    }
+
+    /// <summary>
+    /// Item from GET /cost/m2-estimate/kerja-luar-types search
+    /// </summary>
+    public class M2KerjaLuarItem
+    {
+        public string sub_jenis { get; set; }
+        public int bilangan_contoh { get; set; }
+        public double peratusan { get; set; }
     }
 
     /// <summary>

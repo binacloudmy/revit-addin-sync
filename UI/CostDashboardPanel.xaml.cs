@@ -69,6 +69,13 @@ namespace RevitWebAppSync.UI
         private List<M2Region> _regions = new List<M2Region>();
         private M2CostBreakdown _lastM2Result;
 
+        // Kerja Pakar checkboxes + Kerja Luar search
+        private WrapPanel _kerjaPakarPanel;
+        private System.Windows.Controls.TextBox _kerjaLuarSearchBox;
+        private ListBox _kerjaLuarResultsList;
+        private string _selectedKerjaLuarSubJenis;
+        private DispatcherTimer _kerjaLuarSearchTimer;
+
         // Component cost UI
         private Border _componentCard;
         private StackPanel _componentBody;
@@ -285,6 +292,30 @@ namespace RevitWebAppSync.UI
             m2Stack.Children.Add(new TextBlock { Text = "Negeri", FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 4) });
             _negeriCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 10) };
             m2Stack.Children.Add(_negeriCombo);
+
+            // Kerja Pakar checkboxes
+            m2Stack.Children.Add(new TextBlock { Text = "Kerja Pakar (Utilities)", FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 4) });
+            _kerjaPakarPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+            // Checkboxes populated after API loads (LoadM2DropdownsAsync)
+            m2Stack.Children.Add(_kerjaPakarPanel);
+
+            // Kerja Luar sub jenis (predictive search)
+            m2Stack.Children.Add(new TextBlock { Text = "Kerja Luar (Jenis Bangunan Luar)", FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 4) });
+            _kerjaLuarSearchBox = new System.Windows.Controls.TextBox
+            {
+                FontSize = 10, Padding = new Thickness(6, 4, 6, 4),
+                Margin = new Thickness(0, 0, 0, 2)
+            };
+            _kerjaLuarSearchBox.TextChanged += KerjaLuarSearch_Changed;
+            m2Stack.Children.Add(_kerjaLuarSearchBox);
+            _kerjaLuarResultsList = new ListBox
+            {
+                FontSize = 10, MaxHeight = 100,
+                Margin = new Thickness(0, 0, 0, 10),
+                Visibility = Visibility.Collapsed
+            };
+            _kerjaLuarResultsList.SelectionChanged += KerjaLuarResult_Selected;
+            m2Stack.Children.Add(_kerjaLuarResultsList);
 
             // Luas Tapak (auto from model)
             _luasTapakText = new TextBlock
@@ -779,22 +810,62 @@ namespace RevitWebAppSync.UI
                 _buildingTypes = await aiEstimator.GetBuildingTypesAsync();
                 _regions = await aiEstimator.GetRegionsAsync();
 
+                // Try to extract from Revit Project Information
+                string revitAddress = "";
+                string revitBuildingType = "";
+                try
+                {
+                    if (_uiApp?.ActiveUIDocument?.Document != null)
+                    {
+                        var doc = _uiApp.ActiveUIDocument.Document;
+                        var projInfo = doc.ProjectInformation;
+                        revitAddress = projInfo?.Address ?? "";
+                        revitBuildingType = projInfo?.BuildingType ?? "";
+                    }
+                }
+                catch { }
+
                 Dispatcher.Invoke(() =>
                 {
                     // Populate Jenis Bangunan
                     _jenisBangunanCombo.Items.Clear();
                     foreach (var bt in _buildingTypes)
                         _jenisBangunanCombo.Items.Add(new ComboBoxItem { Content = bt.jenis_bangunan, Tag = bt });
+
+                    // Try to auto-select from Revit BuildingType
+                    int selectedJenis = 0;
+                    if (!string.IsNullOrEmpty(revitBuildingType))
+                    {
+                        for (int i = 0; i < _jenisBangunanCombo.Items.Count; i++)
+                        {
+                            var ci = _jenisBangunanCombo.Items[i] as ComboBoxItem;
+                            if (ci?.Content?.ToString()?.IndexOf(revitBuildingType, StringComparison.OrdinalIgnoreCase) >= 0)
+                            { selectedJenis = i; break; }
+                        }
+                    }
                     if (_jenisBangunanCombo.Items.Count > 0)
-                        _jenisBangunanCombo.SelectedIndex = 0;
+                        _jenisBangunanCombo.SelectedIndex = selectedJenis;
 
                     // Populate Negeri (flattened from regions)
                     _negeriCombo.Items.Clear();
                     foreach (var region in _regions)
                         foreach (var negeri in region.negeri)
                             _negeriCombo.Items.Add(new ComboBoxItem { Content = negeri, Tag = region.kawasan });
+
+                    // Try to auto-select from Revit Address (match state name)
+                    int selectedNegeri = 0;
+                    if (!string.IsNullOrEmpty(revitAddress))
+                    {
+                        for (int i = 0; i < _negeriCombo.Items.Count; i++)
+                        {
+                            var ci = _negeriCombo.Items[i] as ComboBoxItem;
+                            if (ci?.Content?.ToString() != null &&
+                                revitAddress.IndexOf(ci.Content.ToString(), StringComparison.OrdinalIgnoreCase) >= 0)
+                            { selectedNegeri = i; break; }
+                        }
+                    }
                     if (_negeriCombo.Items.Count > 0)
-                        _negeriCombo.SelectedIndex = 0;
+                        _negeriCombo.SelectedIndex = selectedNegeri;
                 });
             }
             catch (Exception ex)
@@ -807,6 +878,7 @@ namespace RevitWebAppSync.UI
         {
             if (_jenisBangunanCombo.SelectedItem is ComboBoxItem item && item.Tag is M2BuildingType bt)
             {
+                // Update sub jenis dropdown
                 _subJenisCombo.Items.Clear();
                 if (bt.sub_jenis.Count > 0)
                 {
@@ -819,6 +891,47 @@ namespace RevitWebAppSync.UI
                 {
                     _subJenisCombo.Visibility = Visibility.Collapsed;
                 }
+
+                // Update kerja pakar checkboxes based on building type
+                UpdateKerjaPakarCheckboxes(bt.jenis_bangunan);
+
+                // Clear kerja luar search
+                if (_kerjaLuarSearchBox != null)
+                {
+                    _kerjaLuarSearchBox.Text = "";
+                    _selectedKerjaLuarSubJenis = null;
+                }
+            }
+        }
+
+        private void UpdateKerjaPakarCheckboxes(string jenisBangunan)
+        {
+            if (_kerjaPakarPanel == null) return;
+            _kerjaPakarPanel.Children.Clear();
+
+            // Known specialist items with their percentages per building type
+            var items = new[]
+            {
+                "Pemasangan Elektrik",
+                "Pemasangan Alat Pencegah Kebakaran",
+                "Pemasangan Hawa Dingin",
+                "Pemasangan Lif",
+                "Pemasangan Gas",
+                "Pemasangan Pelbagai"
+            };
+
+            // Get percentages from last API response or use defaults
+            foreach (var itemName in items)
+            {
+                var cb = new System.Windows.Controls.CheckBox
+                {
+                    Content = itemName.Replace("Pemasangan ", ""),
+                    Tag = itemName,
+                    FontSize = 10,
+                    Margin = new Thickness(0, 0, 12, 4),
+                    IsChecked = true // auto-tick by default
+                };
+                _kerjaPakarPanel.Children.Add(cb);
             }
         }
 
@@ -852,6 +965,86 @@ namespace RevitWebAppSync.UI
             _m2TotalText.Inlines.Add(new System.Windows.Documents.Run($"Jumlah Anggaran: RM {result.jumlah_anggaran_kos_projek:N0}") { FontWeight = FontWeights.SemiBold });
             _m2TotalText.Inlines.Add(new System.Windows.Documents.LineBreak());
             _m2TotalText.Inlines.Add(new System.Windows.Documents.Run($"Luas: {result.luas_tapak:N0} m\u00B2  \u2022  Kawasan: {result.kawasan}  \u2022  {result.kategori_bangunan}") { FontSize = 10, Foreground = new SolidColorBrush(TextMuted) });
+        }
+
+        // --- Kerja Luar predictive search ---
+
+        private void KerjaLuarSearch_Changed(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            // Debounce: wait 300ms after user stops typing
+            if (_kerjaLuarSearchTimer == null)
+            {
+                _kerjaLuarSearchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+                _kerjaLuarSearchTimer.Tick += (s, ev) =>
+                {
+                    _kerjaLuarSearchTimer.Stop();
+                    PerformKerjaLuarSearch();
+                };
+            }
+            _kerjaLuarSearchTimer.Stop();
+            _kerjaLuarSearchTimer.Start();
+        }
+
+        private async void PerformKerjaLuarSearch()
+        {
+            string jenis = (_jenisBangunanCombo?.SelectedItem as ComboBoxItem)?.Content?.ToString();
+            string query = _kerjaLuarSearchBox?.Text?.Trim() ?? "";
+
+            if (string.IsNullOrEmpty(jenis)) return;
+
+            try
+            {
+                var aiEstimator = new AICostEstimator();
+                var results = await aiEstimator.SearchKerjaLuarTypesAsync(jenis, query);
+
+                Dispatcher.Invoke(() =>
+                {
+                    _kerjaLuarResultsList.Items.Clear();
+                    if (results.Count > 0)
+                    {
+                        _kerjaLuarResultsList.Visibility = Visibility.Visible;
+                        foreach (var item in results)
+                        {
+                            _kerjaLuarResultsList.Items.Add(new ListBoxItem
+                            {
+                                Content = $"{item.sub_jenis} ({item.peratusan}%, n={item.bilangan_contoh})",
+                                Tag = item.sub_jenis,
+                                FontSize = 10
+                            });
+                        }
+                    }
+                    else
+                    {
+                        _kerjaLuarResultsList.Visibility = Visibility.Collapsed;
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Kerja luar search failed: {ex.Message}");
+            }
+        }
+
+        private void KerjaLuarResult_Selected(object sender, SelectionChangedEventArgs e)
+        {
+            if (_kerjaLuarResultsList.SelectedItem is ListBoxItem selected)
+            {
+                _selectedKerjaLuarSubJenis = selected.Tag?.ToString();
+                _kerjaLuarSearchBox.Text = _selectedKerjaLuarSubJenis;
+                _kerjaLuarResultsList.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private List<string> GetSelectedKerjaPakar()
+        {
+            if (_kerjaPakarPanel == null) return null;
+            var selected = new List<string>();
+            foreach (var child in _kerjaPakarPanel.Children)
+            {
+                if (child is System.Windows.Controls.CheckBox cb && cb.IsChecked == true)
+                    selected.Add(cb.Tag?.ToString());
+            }
+            return selected.Count > 0 ? selected : null;
         }
 
         private void UpdateComponentCard()
@@ -1436,6 +1629,8 @@ namespace RevitWebAppSync.UI
                     sub_jenis_bangunan = subJenis,
                     kawasan = kawasan,
                     luas_tapak = luasTapak,
+                    kerja_pakar_selected = GetSelectedKerjaPakar(),
+                    kerja_luar_sub_jenis = _selectedKerjaLuarSubJenis,
                     project_name = _subtitleText?.Text?.Split('|')?.FirstOrDefault()?.Trim() ?? "Untitled"
                 };
 

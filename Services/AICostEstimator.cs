@@ -537,12 +537,27 @@ namespace RevitWebAppSync.Services
         /// </summary>
         public async Task<M2EstimateResponse> EstimateM2CostAsync(M2EstimateRequest request)
         {
-            var json = JsonConvert.SerializeObject(request);
+            var json = JsonConvert.SerializeObject(request, new JsonSerializerSettings { NullValueHandling = NullValueHandling.Ignore });
             var content = new StringContent(json, Encoding.UTF8, "application/json");
             var response = await SharedClient.PostAsync($"{_baseUrl}/cost/m2-estimate", content);
             response.EnsureSuccessStatusCode();
             var responseJson = await response.Content.ReadAsStringAsync();
             return JsonConvert.DeserializeObject<M2EstimateResponse>(responseJson);
+        }
+
+        /// <summary>
+        /// Search kerja luar sub-types for predictive search.
+        /// </summary>
+        public async Task<List<M2KerjaLuarItem>> SearchKerjaLuarTypesAsync(string jenisBangunan, string query = "")
+        {
+            var url = $"{_baseUrl}/cost/m2-estimate/kerja-luar-types?jenis_bangunan={Uri.EscapeDataString(jenisBangunan)}";
+            if (!string.IsNullOrEmpty(query))
+                url += $"&q={Uri.EscapeDataString(query)}";
+            var response = await SharedClient.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+            var json = await response.Content.ReadAsStringAsync();
+            var result = JsonConvert.DeserializeObject<Dictionary<string, List<M2KerjaLuarItem>>>(json);
+            return result.ContainsKey("items") ? result["items"] : new List<M2KerjaLuarItem>();
         }
 
     }
