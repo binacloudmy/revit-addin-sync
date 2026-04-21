@@ -57,6 +57,8 @@ namespace RevitWebAppSync.UI
         private Border _m2EstimateCard;
         private ComboBox _jenisBangunanCombo;
         private ComboBox _subJenisCombo;
+        private ComboBox _namaBangunanCombo;
+        private TextBlock _namaBangunanLabel;
         private ComboBox _negeriCombo;
         private TextBlock _luasTapakText;
         private TextBlock _m2ResultText;
@@ -286,7 +288,14 @@ namespace RevitWebAppSync.UI
             // Sub Jenis Bangunan
             m2Stack.Children.Add(new TextBlock { Text = "Sub Jenis", FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 4), Tag = "subJenisLabel" });
             _subJenisCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 10) };
+            _subJenisCombo.SelectionChanged += SubJenis_Changed;
             m2Stack.Children.Add(_subJenisCombo);
+
+            // Nama Bangunan (4th level - specific building design)
+            _namaBangunanLabel = new TextBlock { Text = "Nama Bangunan", FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 4), Visibility = Visibility.Collapsed };
+            m2Stack.Children.Add(_namaBangunanLabel);
+            _namaBangunanCombo = new ComboBox { FontSize = 10, Margin = new Thickness(0, 0, 0, 10), IsEditable = true, Visibility = Visibility.Collapsed };
+            m2Stack.Children.Add(_namaBangunanCombo);
 
             // Negeri
             m2Stack.Children.Add(new TextBlock { Text = "Negeri", FontSize = 10, FontWeight = FontWeights.Medium, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 0, 0, 4) });
@@ -884,12 +893,14 @@ namespace RevitWebAppSync.UI
                 {
                     _subJenisCombo.Visibility = Visibility.Visible;
                     foreach (var sub in bt.sub_jenis)
-                        _subJenisCombo.Items.Add(new ComboBoxItem { Content = sub });
+                        _subJenisCombo.Items.Add(new ComboBoxItem { Content = sub.name, Tag = sub });
                     _subJenisCombo.SelectedIndex = 0;
                 }
                 else
                 {
                     _subJenisCombo.Visibility = Visibility.Collapsed;
+                    // Check for direct nama_bangunan (building types without sub_jenis)
+                    UpdateNamaBangunanDropdown(bt.nama_bangunan);
                 }
 
                 // Update kerja pakar checkboxes based on building type
@@ -901,6 +912,34 @@ namespace RevitWebAppSync.UI
                     _kerjaLuarSearchBox.Text = "";
                     _selectedKerjaLuarSubJenis = null;
                 }
+            }
+        }
+
+        private void SubJenis_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_subJenisCombo.SelectedItem is ComboBoxItem item && item.Tag is M2SubJenis sub)
+            {
+                UpdateNamaBangunanDropdown(sub.nama_bangunan);
+            }
+        }
+
+        private void UpdateNamaBangunanDropdown(List<string> namaBangunanList)
+        {
+            _namaBangunanCombo.Items.Clear();
+            if (namaBangunanList != null && namaBangunanList.Count > 0)
+            {
+                _namaBangunanLabel.Visibility = Visibility.Visible;
+                _namaBangunanCombo.Visibility = Visibility.Visible;
+                // Add empty option for "use aggregate"
+                _namaBangunanCombo.Items.Add(new ComboBoxItem { Content = "(Purata Keseluruhan)", Tag = "" });
+                foreach (var nama in namaBangunanList)
+                    _namaBangunanCombo.Items.Add(new ComboBoxItem { Content = nama, Tag = nama });
+                _namaBangunanCombo.SelectedIndex = 0;
+            }
+            else
+            {
+                _namaBangunanLabel.Visibility = Visibility.Collapsed;
+                _namaBangunanCombo.Visibility = Visibility.Collapsed;
             }
         }
 
@@ -1623,10 +1662,20 @@ namespace RevitWebAppSync.UI
 
                 // Call m2 estimation API
                 var aiEstimator = new AICostEstimator();
+                // Get nama_bangunan if selected
+                string namaBangunan = null;
+                if (_namaBangunanCombo?.SelectedItem is ComboBoxItem namaItem)
+                {
+                    var tag = namaItem.Tag?.ToString();
+                    if (!string.IsNullOrEmpty(tag))
+                        namaBangunan = tag;
+                }
+
                 var request = new M2EstimateRequest
                 {
                     jenis_bangunan = jenisBangunan,
                     sub_jenis_bangunan = subJenis,
+                    nama_bangunan = namaBangunan,
                     kawasan = kawasan,
                     luas_tapak = luasTapak,
                     kerja_pakar_selected = GetSelectedKerjaPakar(),

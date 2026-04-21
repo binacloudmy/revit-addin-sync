@@ -122,6 +122,7 @@ namespace RevitWebAppSync.Models
     {
         public string jenis_bangunan { get; set; }
         public string sub_jenis_bangunan { get; set; }
+        public string nama_bangunan { get; set; }
         public string kawasan { get; set; }
         public double luas_tapak { get; set; }
         public List<string> kerja_pakar_selected { get; set; }
@@ -157,6 +158,7 @@ namespace RevitWebAppSync.Models
         // Inputs
         public string jenis_bangunan { get; set; }
         public string sub_jenis_bangunan { get; set; }
+        public string nama_bangunan { get; set; }
         public string kategori_bangunan { get; set; }
         public string kawasan { get; set; }
         public double faktor_lokaliti { get; set; }
@@ -208,7 +210,17 @@ namespace RevitWebAppSync.Models
     {
         public string jenis_bangunan { get; set; }
         public string kategori_bangunan { get; set; }
-        public List<string> sub_jenis { get; set; } = new List<string>();
+        public List<M2SubJenis> sub_jenis { get; set; } = new List<M2SubJenis>();
+        public List<string> nama_bangunan { get; set; } = new List<string>();
+    }
+
+    /// <summary>
+    /// Sub-jenis with its own list of nama_bangunan
+    /// </summary>
+    public class M2SubJenis
+    {
+        public string name { get; set; }
+        public List<string> nama_bangunan { get; set; } = new List<string>();
     }
 
     /// <summary>
