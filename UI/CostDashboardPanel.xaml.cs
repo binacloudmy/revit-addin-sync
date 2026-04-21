@@ -370,131 +370,20 @@ namespace RevitWebAppSync.UI
             // Load dropdowns from API (async, fire-and-forget on UI load)
             LoadM2DropdownsAsync();
 
-            // ── Row 4: Component Cost card (collapsible) ──
-            _componentCard = new Border
-            {
-                Background = Brushes.White,
-                BorderBrush = new SolidColorBrush(BorderColor),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
-                Margin = new Thickness(12, 8, 12, 0),
-                Padding = new Thickness(14, 8, 14, 8)
-            };
-            var compStack = new StackPanel();
-            _componentBody = new StackPanel { Visibility = Visibility.Collapsed };
-
-            // Header row (always visible, acts as toggle)
-            var compHeader = new Grid { Cursor = System.Windows.Input.Cursors.Hand };
-            compHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            compHeader.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            _componentToggleText = new TextBlock
-            {
-                Text = "\u25B6 Cost by Component",
-                FontSize = 11, FontWeight = FontWeights.Medium,
-                Foreground = new SolidColorBrush(TextSecondary)
-            };
-            compHeader.Children.Add(_componentToggleText);
-            var compInfoTip = new TextBlock
-            {
-                Text = "Per element type",
-                FontSize = 9, Foreground = new SolidColorBrush(TextMuted),
-                VerticalAlignment = VerticalAlignment.Center
-            };
-            Grid.SetColumn(compInfoTip, 1);
-            compHeader.Children.Add(compInfoTip);
-            compHeader.MouseLeftButtonDown += (s, ev) =>
-            {
-                _componentBody.Visibility = _componentBody.Visibility == Visibility.Visible
-                    ? Visibility.Collapsed : Visibility.Visible;
-                _componentToggleText.Text = _componentBody.Visibility == Visibility.Visible
-                    ? "\u25BC Cost by Component" : "\u25B6 Cost by Component";
-                if (_componentBody.Visibility == Visibility.Visible)
-                    UpdateComponentCard();
-            };
-            compStack.Children.Add(compHeader);
-
-            // Component list (inside collapsible body, scrollable)
-            _componentListPanel = new StackPanel { Margin = new Thickness(0, 6, 0, 0) };
-            var componentScroll = new ScrollViewer
-            {
-                MaxHeight = 300,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
-                Content = _componentListPanel
-            };
-            _componentBody.Children.Add(componentScroll);
-            compStack.Children.Add(_componentBody);
-
-            _componentCard.Child = compStack;
+            // ── Row 4-6: HIDDEN (Component Cost, Filter, Content — not used for m2 mode) ──
+            _componentCard = new Border { Visibility = Visibility.Collapsed };
+            _componentBody = new StackPanel();
+            _componentListPanel = new StackPanel();
             Grid.SetRow(_componentCard, 4);
             root.Children.Add(_componentCard);
 
-            // ── Row 5: Filter bar ──
-            var filterCard = new Border
-            {
-                Background = Brushes.White,
-                BorderBrush = new SolidColorBrush(BorderColor),
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(8),
-                Margin = new Thickness(12, 8, 12, 0),
-                Padding = new Thickness(12, 8, 12, 8)
-            };
-            var filterRow = new Grid();
-            filterRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            filterRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            filterRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            filterRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-            var viewLabel = new TextBlock { Text = "View:", FontSize = 10, Foreground = new SolidColorBrush(TextSecondary), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
-            Grid.SetColumn(viewLabel, 0);
-            filterRow.Children.Add(viewLabel);
-
-            var togglePanel = new StackPanel { Orientation = Orientation.Horizontal };
-            _byLevelRadio = MakeToggle("Level", true);
-            _byLevelRadio.Click += ViewMode_Click;
-            _byCategoryRadio = MakeToggle("Category", false);
-            _byCategoryRadio.Click += ViewMode_Click;
-            togglePanel.Children.Add(_byLevelRadio);
-            togglePanel.Children.Add(_byCategoryRadio);
-            Grid.SetColumn(togglePanel, 1);
-            filterRow.Children.Add(togglePanel);
-
-            _levelFilter = new ComboBox
-            {
-                MinWidth = 110, FontSize = 10, VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(8, 0, 0, 0)
-            };
-            _levelFilter.Items.Add(new ComboBoxItem { Content = "All Levels", IsSelected = true });
-            _levelFilter.SelectionChanged += LevelFilter_Changed;
-            Grid.SetColumn(_levelFilter, 3);
-            filterRow.Children.Add(_levelFilter);
-
-            filterCard.Child = filterRow;
-            Grid.SetRow(filterCard, 5);
-            root.Children.Add(filterCard);
-
-            // ── Row 6: Scrollable content ──
-            var scroll = new ScrollViewer { Margin = new Thickness(12, 8, 12, 4), VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
             _contentPanel = new StackPanel();
-            var emptyState = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 50, 0, 0) };
-            emptyState.Children.Add(new TextBlock
-            {
-                Text = "No cost data yet",
-                Foreground = new SolidColorBrush(TextSecondary), FontSize = 14,
-                FontWeight = FontWeights.Medium,
-                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 6)
-            });
-            emptyState.Children.Add(new TextBlock
-            {
-                Text = "Click Refresh to scan the model, then Match Prices",
-                Foreground = new SolidColorBrush(TextMuted), FontSize = 11,
-                HorizontalAlignment = HorizontalAlignment.Center
-            });
-            _contentPanel.Children.Add(emptyState);
+            var scroll = new ScrollViewer { Visibility = Visibility.Collapsed };
             scroll.Content = _contentPanel;
             Grid.SetRow(scroll, 6);
             root.Children.Add(scroll);
 
-            // ── Row 7: Action bar ──
+            // ── Row 7: Action bar (simplified — only Match Prices + Refresh) ──
             var actionBar = new Border
             {
                 Background = Brushes.White,
@@ -504,53 +393,22 @@ namespace RevitWebAppSync.UI
             };
             var actionStack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
 
-            var primaryRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 6) };
+            var primaryRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
             primaryRow.Children.Add(MakeActionButton("Match Prices", AutoMatch_Click, SuccessGreen, true));
-
-            // Review button with notification badge
-            var reviewBtnWrapper = new Grid { Margin = new Thickness(0, 0, 6, 0) };
-            var reviewBtn = MakeActionButton("Review", ReviewQueue_Click, Color.FromRgb(156, 39, 176), false);
-            reviewBtn.Margin = new Thickness(0); // wrapper handles margin
-            reviewBtnWrapper.Children.Add(reviewBtn);
-            _reviewBadgeText = new TextBlock
-            {
-                FontSize = 9, FontWeight = FontWeights.Bold,
-                Foreground = Brushes.White,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center,
-            };
-            _reviewBadge = new Border
-            {
-                Background = new SolidColorBrush(Color.FromRgb(220, 38, 38)),
-                CornerRadius = new CornerRadius(8),
-                MinWidth = 18, Height = 18,
-                Padding = new Thickness(4, 0, 4, 0),
-                HorizontalAlignment = HorizontalAlignment.Right,
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, -6, -6, 0),
-                Child = _reviewBadgeText,
-                Visibility = Visibility.Collapsed,
-            };
-            reviewBtnWrapper.Children.Add(_reviewBadge);
-            primaryRow.Children.Add(reviewBtnWrapper);
-
-            primaryRow.Children.Add(MakeActionButton("AI Insights", AIInsights_Click, Color.FromRgb(100, 100, 100), false));
             primaryRow.Children.Add(MakeActionButton("Refresh", Refresh_Click, PrimaryBlue, true));
 
-            var secondaryRow = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
-            secondaryRow.Children.Add(MakeLinkButton("Export", Export_Click));
-            secondaryRow.Children.Add(new TextBlock { Text = "|", Foreground = new SolidColorBrush(BorderColor), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 4, 0), FontSize = 10 });
-            secondaryRow.Children.Add(MakeLinkButton("Import Prices", Import_Click));
-            secondaryRow.Children.Add(new TextBlock { Text = "|", Foreground = new SolidColorBrush(BorderColor), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 4, 0), FontSize = 10 });
-            secondaryRow.Children.Add(MakeLinkButton("Import to Master DB", ImportMaster_Click));
-            secondaryRow.Children.Add(new TextBlock { Text = "|", Foreground = new SolidColorBrush(BorderColor), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 4, 0), FontSize = 10 });
-            secondaryRow.Children.Add(MakeLinkButton("Reset", Reset_Click));
-
             actionStack.Children.Add(primaryRow);
-            actionStack.Children.Add(secondaryRow);
             actionBar.Child = actionStack;
             Grid.SetRow(actionBar, 7);
             root.Children.Add(actionBar);
+
+            // Hidden references to avoid null exceptions in existing code
+            _reviewBadge = new Border { Visibility = Visibility.Collapsed };
+            _reviewBadgeText = new TextBlock();
+            _byLevelRadio = new RadioButton { IsChecked = true };
+            _byCategoryRadio = new RadioButton();
+            _levelFilter = new ComboBox();
+            _levelFilter.Items.Add(new ComboBoxItem { Content = "All Levels", IsSelected = true });
 
             // ── Loading overlay (spans all rows, on top) ──
             BuildLoadingOverlay(root);
