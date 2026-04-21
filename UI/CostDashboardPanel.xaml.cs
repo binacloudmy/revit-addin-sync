@@ -829,7 +829,7 @@ namespace RevitWebAppSync.UI
                         var doc = _uiApp.ActiveUIDocument.Document;
                         var projInfo = doc.ProjectInformation;
                         revitAddress = projInfo?.Address ?? "";
-                        revitBuildingType = projInfo?.BuildingType ?? "";
+                        revitBuildingType = projInfo?.LookupParameter("Building Type")?.AsString() ?? "";
                     }
                 }
                 catch { }
@@ -839,7 +839,7 @@ namespace RevitWebAppSync.UI
                     // Populate Jenis Bangunan
                     _jenisBangunanCombo.Items.Clear();
                     foreach (var bt in _buildingTypes)
-                        _jenisBangunanCombo.Items.Add(new ComboBoxItem { Content = bt.jenis_bangunan, Tag = bt });
+                        _jenisBangunanCombo.Items.Add(new ComboBoxItem { Content = bt.kategori_bangunan, Tag = bt });
 
                     // Try to auto-select from Revit BuildingType
                     int selectedJenis = 0;
@@ -904,7 +904,7 @@ namespace RevitWebAppSync.UI
                 }
 
                 // Update kerja pakar checkboxes based on building type
-                UpdateKerjaPakarCheckboxes(bt.jenis_bangunan);
+                UpdateKerjaPakarCheckboxes(bt.kategori_bangunan);
 
                 // Clear kerja luar search
                 if (_kerjaLuarSearchBox != null)
@@ -1673,7 +1673,7 @@ namespace RevitWebAppSync.UI
 
                 var request = new M2EstimateRequest
                 {
-                    jenis_bangunan = jenisBangunan,
+                    kategori_bangunan = jenisBangunan,
                     sub_jenis_bangunan = subJenis,
                     nama_bangunan = namaBangunan,
                     kawasan = kawasan,

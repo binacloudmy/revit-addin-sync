@@ -550,7 +550,7 @@ namespace RevitWebAppSync.Services
         /// </summary>
         public async Task<List<M2KerjaLuarItem>> SearchKerjaLuarTypesAsync(string jenisBangunan, string query = "")
         {
-            var url = $"{_baseUrl}/cost/m2-estimate/kerja-luar-types?jenis_bangunan={Uri.EscapeDataString(jenisBangunan)}";
+            var url = $"{_baseUrl}/cost/m2-estimate/kerja-luar-types?kategori_bangunan={Uri.EscapeDataString(jenisBangunan)}";
             if (!string.IsNullOrEmpty(query))
                 url += $"&q={Uri.EscapeDataString(query)}";
             var response = await SharedClient.GetAsync(url);
