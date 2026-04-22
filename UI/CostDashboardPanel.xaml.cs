@@ -1241,13 +1241,13 @@ namespace RevitWebAppSync.UI
             var heroStack = new StackPanel();
             heroStack.Children.Add(new TextBlock
             {
-                Text = $"RM {result.jumlah_anggaran_kos_projek:N0}",
+                Text = $"RM {result.jumlah_kos_per_m2:N2} /m\u00B2",
                 FontSize = 24, FontWeight = FontWeights.Bold,
                 Foreground = new SolidColorBrush(PrimaryBlue)
             });
             heroStack.Children.Add(new TextBlock
             {
-                Text = $"RM {result.jumlah_kos_per_m2:N2} /m\u00B2",
+                Text = $"Jumlah Anggaran: RM {result.jumlah_anggaran_kos_projek:N0}",
                 FontSize = 13, FontWeight = FontWeights.SemiBold,
                 Foreground = new SolidColorBrush(TextPrimary),
                 Margin = new Thickness(0, 4, 0, 2)
@@ -1289,23 +1289,19 @@ namespace RevitWebAppSync.UI
             AddBreakdownRow("3. Kerja Luar Bangunan", result.kos_kerja_luar,
                 $"{result.kerja_luar_peratusan}% x RM {result.kos_kerja_utama:N2} = RM {result.kos_kerja_luar:N2}  (n={result.kerja_luar_bilangan_contoh:N0} contoh)");
 
-            // Step 4: Kerja Awalan = nilai_projek x % (total RM)
+            // Step 4: Kerja Awalan — % x (kerja utama + pakar + luar) per m2
+            double subBeforePrelim = result.kos_kerja_utama + result.jumlah_kerja_pakar + result.kos_kerja_luar;
             string step4Detail = $"Nilai Projek: RM {result.kerja_awalan_nilai_projek:N0} \u2192 {result.kerja_awalan_peratusan}% ({result.kerja_awalan_kategori})\n";
-            step4Detail += $"RM {result.kerja_awalan_nilai_projek:N0} x {result.kerja_awalan_peratusan}% = RM {result.kos_kerja_awalan:N0}";
-            AddBreakdownRow("4. Kerja Awalan (Preliminaries)", result.kos_kerja_awalan, step4Detail, false, "");
+            step4Detail += $"{result.kerja_awalan_peratusan}% x (RM {result.kos_kerja_utama:N2} + RM {result.jumlah_kerja_pakar:N2} + RM {result.kos_kerja_luar:N2}) = RM {result.kos_kerja_awalan:N2}";
+            AddBreakdownRow("4. Kerja Awalan (Preliminaries)", result.kos_kerja_awalan, step4Detail);
 
-            // Steps 4-7 are total RM. Compute per-m2 totals for steps 1-3 display
-            double kosUtamaTotal = result.kos_kerja_utama * result.luas_tapak;
-            double kerjaPakarTotal = result.jumlah_kerja_pakar * result.luas_tapak;
-            double kerjaLuarTotal = result.kos_kerja_luar * result.luas_tapak;
+            // Step 5: Jumlah Kecil (all per m2)
+            AddBreakdownRow("5. Jumlah Kecil", result.jumlah_kecil,
+                $"= RM {result.kos_kerja_utama:N2} + RM {result.jumlah_kerja_pakar:N2} + RM {result.kos_kerja_luar:N2} + RM {result.kos_kerja_awalan:N2}", true);
 
-            // Step 5: Jumlah Kecil (all in total RM)
-            string step5Detail = $"= RM {kosUtamaTotal:N0} + RM {kerjaPakarTotal:N0} + RM {kerjaLuarTotal:N0} + RM {result.kos_kerja_awalan:N0}";
-            AddBreakdownRow("5. Jumlah Kecil", result.jumlah_kecil, step5Detail, true, "");
-
-            // Step 6: Pelbagai (total RM)
+            // Step 6: Pelbagai (per m2)
             AddBreakdownRow("6. Pelbagai / Miscellaneous", result.kos_pelbagai,
-                $"{result.pelbagai_peratusan}% x RM {result.jumlah_kecil:N0} = RM {result.kos_pelbagai:N0}", false, "");
+                $"{result.pelbagai_peratusan}% x RM {result.jumlah_kecil:N2} = RM {result.kos_pelbagai:N2}");
 
             // Divider
             _m2BreakdownPanel.Children.Add(new Border
@@ -1314,10 +1310,10 @@ namespace RevitWebAppSync.UI
                 Margin = new Thickness(0, 6, 0, 6)
             });
 
-            // Step 7: Jumlah Anggaran + per m2
-            string step7Detail = $"= RM {result.jumlah_kecil:N0} + RM {result.kos_pelbagai:N0}\n";
-            step7Detail += $"Per m\u00B2: RM {result.jumlah_anggaran_kos_projek:N0} / {result.luas_tapak:N0} m\u00B2 = RM {result.jumlah_kos_per_m2:N2}/m\u00B2";
-            AddBreakdownRow("7. JUMLAH ANGGARAN KOS PROJEK", result.jumlah_anggaran_kos_projek, step7Detail, true, "");
+            // Step 7: Jumlah Kos per M2 + Anggaran
+            string step7Detail = $"= RM {result.jumlah_kecil:N2} + RM {result.kos_pelbagai:N2}\n";
+            step7Detail += $"Anggaran: RM {result.jumlah_kos_per_m2:N2} x {result.luas_tapak:N0} m\u00B2 = RM {result.jumlah_anggaran_kos_projek:N0}";
+            AddBreakdownRow("7. JUMLAH KOS PER M\u00B2", result.jumlah_kos_per_m2, step7Detail, true);
 
             // ─── Exclusions ───
             if (result.pengecualian != null && result.pengecualian.Count > 0)
