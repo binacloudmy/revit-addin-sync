@@ -558,20 +558,6 @@ namespace RevitWebAppSync.Services
             return result.ContainsKey("entries") ? result["entries"] : new List<NamaEntryItem>();
         }
 
-        /// <summary>
-        /// Search kerja luar sub-types for predictive search.
-        /// </summary>
-        public async Task<List<M2KerjaLuarItem>> SearchKerjaLuarTypesAsync(string jenisBangunan, string query = "")
-        {
-            var url = $"{_baseUrl}/cost/m2-estimate/kerja-luar-types?kategori_bangunan={Uri.EscapeDataString(jenisBangunan)}";
-            if (!string.IsNullOrEmpty(query))
-                url += $"&q={Uri.EscapeDataString(query)}";
-            var response = await SharedClient.GetAsync(url);
-            response.EnsureSuccessStatusCode();
-            var json = await response.Content.ReadAsStringAsync();
-            var result = JsonConvert.DeserializeObject<Dictionary<string, List<M2KerjaLuarItem>>>(json);
-            return result.ContainsKey("items") ? result["items"] : new List<M2KerjaLuarItem>();
-        }
 
     }
 

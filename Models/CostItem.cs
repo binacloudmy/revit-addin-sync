@@ -129,7 +129,6 @@ namespace RevitWebAppSync.Models
         public string kawasan { get; set; }
         public double luas_tapak { get; set; }
         public List<string> kerja_pakar_selected { get; set; }
-        public string kerja_luar_sub_jenis { get; set; }
         public string project_name { get; set; } = "Untitled";
     }
 

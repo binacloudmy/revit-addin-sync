@@ -76,12 +76,8 @@ namespace RevitWebAppSync.UI
         private List<M2Region> _regions = new List<M2Region>();
         private M2CostBreakdown _lastM2Result;
 
-        // Kerja Pakar checkboxes + Kerja Luar search
+        // Kerja Pakar checkboxes
         private WrapPanel _kerjaPakarPanel;
-        private System.Windows.Controls.TextBox _kerjaLuarSearchBox;
-        private ListBox _kerjaLuarResultsList;
-        private string _selectedKerjaLuarSubJenis;
-        private DispatcherTimer _kerjaLuarSearchTimer;
 
         // Component cost UI
         private Border _componentCard;
@@ -382,30 +378,6 @@ namespace RevitWebAppSync.UI
             };
             m2Stack.Children.Add(_nilaiProjekBox);
 
-            // ─── Section: Kerja Luar Bangunan ───
-            m2Stack.Children.Add(MakeSectionHeader("Kerja Luar Bangunan"));
-            m2Stack.Children.Add(MakeFieldLabel("Jenis Bangunan untuk Kerja Luar (pilihan)"));
-            _kerjaLuarSearchBox = new System.Windows.Controls.TextBox
-            {
-                FontSize = 11, Padding = new Thickness(8, 6, 8, 6),
-                Margin = new Thickness(0, 0, 0, 2),
-                Background = new SolidColorBrush(PageBg),
-                BorderBrush = new SolidColorBrush(BorderColor),
-                BorderThickness = new Thickness(1)
-            };
-            _kerjaLuarSearchBox.TextChanged += KerjaLuarSearch_Changed;
-            m2Stack.Children.Add(_kerjaLuarSearchBox);
-
-            _kerjaLuarResultsList = new ListBox
-            {
-                FontSize = 10, MaxHeight = 120,
-                Margin = new Thickness(0, 0, 0, 8),
-                BorderBrush = new SolidColorBrush(BorderColor),
-                BorderThickness = new Thickness(1),
-                Visibility = Visibility.Collapsed
-            };
-            _kerjaLuarResultsList.SelectionChanged += KerjaLuarResult_Selected;
-            m2Stack.Children.Add(_kerjaLuarResultsList);
 
             // ─── Calculate Button ───
             m2Stack.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(BorderColor), Margin = new Thickness(0, 6, 0, 14) });
@@ -1425,73 +1397,6 @@ namespace RevitWebAppSync.UI
             }
         }
 
-        // --- Kerja Luar predictive search ---
-
-        private void KerjaLuarSearch_Changed(object sender, System.Windows.Controls.TextChangedEventArgs e)
-        {
-            // Debounce: wait 300ms after user stops typing
-            if (_kerjaLuarSearchTimer == null)
-            {
-                _kerjaLuarSearchTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
-                _kerjaLuarSearchTimer.Tick += (s, ev) =>
-                {
-                    _kerjaLuarSearchTimer.Stop();
-                    PerformKerjaLuarSearch();
-                };
-            }
-            _kerjaLuarSearchTimer.Stop();
-            _kerjaLuarSearchTimer.Start();
-        }
-
-        private async void PerformKerjaLuarSearch()
-        {
-            string jenis = (_jenisBangunanCombo?.SelectedItem as ComboBoxItem)?.Content?.ToString();
-            string query = _kerjaLuarSearchBox?.Text?.Trim() ?? "";
-
-            if (string.IsNullOrEmpty(jenis)) return;
-
-            try
-            {
-                var aiEstimator = new AICostEstimator();
-                var results = await aiEstimator.SearchKerjaLuarTypesAsync(jenis, query);
-
-                Dispatcher.Invoke(() =>
-                {
-                    _kerjaLuarResultsList.Items.Clear();
-                    if (results.Count > 0)
-                    {
-                        _kerjaLuarResultsList.Visibility = Visibility.Visible;
-                        foreach (var item in results)
-                        {
-                            _kerjaLuarResultsList.Items.Add(new ListBoxItem
-                            {
-                                Content = $"{item.sub_jenis} ({item.peratusan}%, n={item.bilangan_contoh})",
-                                Tag = item.sub_jenis,
-                                FontSize = 10
-                            });
-                        }
-                    }
-                    else
-                    {
-                        _kerjaLuarResultsList.Visibility = Visibility.Collapsed;
-                    }
-                });
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Kerja luar search failed: {ex.Message}");
-            }
-        }
-
-        private void KerjaLuarResult_Selected(object sender, SelectionChangedEventArgs e)
-        {
-            if (_kerjaLuarResultsList.SelectedItem is ListBoxItem selected)
-            {
-                _selectedKerjaLuarSubJenis = selected.Tag?.ToString();
-                _kerjaLuarSearchBox.Text = _selectedKerjaLuarSubJenis;
-                _kerjaLuarResultsList.Visibility = Visibility.Collapsed;
-            }
-        }
 
         private List<string> GetSelectedKerjaPakar()
         {
@@ -2109,7 +2014,6 @@ namespace RevitWebAppSync.UI
                     kawasan = kawasan,
                     luas_tapak = luasTapak,
                     kerja_pakar_selected = GetSelectedKerjaPakar(),
-                    kerja_luar_sub_jenis = _selectedKerjaLuarSubJenis,
                     project_name = _subtitleText?.Text?.Split('|')?.FirstOrDefault()?.Trim() ?? "Untitled"
                 };
 
