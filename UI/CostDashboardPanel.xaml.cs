@@ -65,6 +65,7 @@ namespace RevitWebAppSync.UI
         private ComboBox _namaEntryCombo;
         private ComboBox _negeriCombo;
         private TextBlock _luasTapakText;
+        private System.Windows.Controls.TextBox _nilaiProjekBox;
         private TextBlock _m2ResultText;
         private TextBlock _m2TotalText;
         private StackPanel _m2BreakdownPanel;
@@ -366,6 +367,20 @@ namespace RevitWebAppSync.UI
                 Margin = new Thickness(0, 2, 0, 8)
             };
             m2Stack.Children.Add(_luasTapakText);
+
+            // ─── Section 5: Nilai Projek ───
+            m2Stack.Children.Add(MakeSectionHeader("Nilai Projek"));
+            m2Stack.Children.Add(MakeFieldLabel("Anggaran Nilai Projek (RM) - untuk Kerja Awalan"));
+            _nilaiProjekBox = new System.Windows.Controls.TextBox
+            {
+                FontSize = 11, Padding = new Thickness(8, 6, 8, 6),
+                Margin = new Thickness(0, 0, 0, 8),
+                Background = new SolidColorBrush(PageBg),
+                BorderBrush = new SolidColorBrush(BorderColor),
+                BorderThickness = new Thickness(1),
+                Text = ""
+            };
+            m2Stack.Children.Add(_nilaiProjekBox);
 
             // Hidden references for kerja luar (not used in UI, auto-resolved from building type)
             _kerjaLuarSearchBox = new System.Windows.Controls.TextBox { Visibility = Visibility.Collapsed };
@@ -1266,28 +1281,34 @@ namespace RevitWebAppSync.UI
             });
 
             // Step 1: Kerja Utama
-            AddBreakdownRow("1. Kos Kerja Utama Bangunan", result.kos_kerja_utama,
-                $"Purata: RM {result.purata_sem_malaysia:N2}/m\u00B2 (Sem. M'sia)  |  Bil. Kajian: {result.bilangan_kajian}");
+            string step1Detail = $"Purata kawasan: RM {result.kos_kerja_utama:N2}/m\u00B2  |  Bil. Kajian: {result.bilangan_kajian} / {result.jumlah_bil_kajian}  (Sem: RM {result.purata_sem_malaysia:N2}/m\u00B2)";
+            if (result.fallback_kawasan != null)
+                step1Detail += $"\nFallback dari Kawasan {result.fallback_kawasan} x (FL {result.faktor_lokaliti:F4})";
+            AddBreakdownRow("1. Kos Kerja Utama Bangunan", result.kos_kerja_utama, step1Detail);
 
-            // Step 2: Kerja Pakar
-            string pakarDetail = string.Join(", ", result.kerja_pakar.Select(p =>
-                $"{p.jenis_pemasangan.Replace("Pemasangan ", "")} {p.peratusan}%"));
+            // Step 2: Kerja Pakar — each item on its own line with formula
+            var pakarLines = result.kerja_pakar.Select(p =>
+                $"  {p.jenis_pemasangan.Replace("Pemasangan ", "")}: {p.peratusan}% x RM {result.kos_kerja_utama:N2} = RM {p.jumlah:N2}");
+            string pakarDetail = string.Join("\n", pakarLines);
             AddBreakdownRow("2. Kerja Pakar Dalam Bangunan", result.jumlah_kerja_pakar, pakarDetail);
 
-            // Step 3: Kerja Luar
+            // Step 3: Kerja Luar — show formula
             AddBreakdownRow("3. Kerja Luar Bangunan", result.kos_kerja_luar,
-                $"{result.kerja_luar_peratusan}% daripada Kerja Utama (n={result.kerja_luar_bilangan_contoh})");
+                $"{result.kerja_luar_peratusan}% x RM {result.kos_kerja_utama:N2} = RM {result.kos_kerja_luar:N2}  (n={result.kerja_luar_bilangan_contoh:N0} contoh)");
 
-            // Step 4: Kerja Awalan
-            AddBreakdownRow("4. Kerja Awalan (Preliminaries)", result.kos_kerja_awalan,
-                $"{result.kerja_awalan_peratusan}% ({result.kerja_awalan_kategori})");
+            // Step 4: Kerja Awalan — show nilai projek + formula
+            double subBeforePrelim = result.kos_kerja_utama + result.jumlah_kerja_pakar + result.kos_kerja_luar;
+            string step4Detail = $"Nilai Projek: RM {result.kerja_awalan_nilai_projek:N0} \u2192 {result.kerja_awalan_peratusan}% ({result.kerja_awalan_kategori})\n";
+            step4Detail += $"(RM {result.kos_kerja_utama:N2} + RM {result.jumlah_kerja_pakar:N2} + RM {result.kos_kerja_luar:N2}) x {result.kerja_awalan_peratusan}% = RM {result.kos_kerja_awalan:N2}";
+            AddBreakdownRow("4. Kerja Awalan (Preliminaries)", result.kos_kerja_awalan, step4Detail);
 
-            // Subtotal
-            AddBreakdownRow("5. Jumlah Kecil", result.jumlah_kecil, null, true);
+            // Step 5: Jumlah Kecil — show addition
+            AddBreakdownRow("5. Jumlah Kecil", result.jumlah_kecil,
+                $"= RM {result.kos_kerja_utama:N2} + RM {result.jumlah_kerja_pakar:N2} + RM {result.kos_kerja_luar:N2} + RM {result.kos_kerja_awalan:N2}", true);
 
-            // Step 6: Miscellaneous
+            // Step 6: Pelbagai — show formula
             AddBreakdownRow("6. Pelbagai / Miscellaneous", result.kos_pelbagai,
-                $"{result.pelbagai_peratusan}% daripada Jumlah Kecil");
+                $"{result.pelbagai_peratusan}% x RM {result.jumlah_kecil:N2} = RM {result.kos_pelbagai:N2}");
 
             // Divider
             _m2BreakdownPanel.Children.Add(new Border
@@ -1296,8 +1317,10 @@ namespace RevitWebAppSync.UI
                 Margin = new Thickness(0, 6, 0, 6)
             });
 
-            // Step 7: Final total
-            AddBreakdownRow("7. JUMLAH KOS PER M\u00B2", result.jumlah_kos_per_m2, null, true);
+            // Step 7: Final total — show addition + anggaran formula
+            string step7Detail = $"= RM {result.jumlah_kecil:N2} + RM {result.kos_pelbagai:N2}\n";
+            step7Detail += $"Anggaran: RM {result.jumlah_kos_per_m2:N2} x {result.luas_tapak:N0} m\u00B2 = RM {result.jumlah_anggaran_kos_projek:N0}";
+            AddBreakdownRow("7. JUMLAH KOS PER M\u00B2", result.jumlah_kos_per_m2, step7Detail, true);
 
             // ─── Exclusions ───
             if (result.pengecualian != null && result.pengecualian.Count > 0)
@@ -2039,6 +2062,12 @@ namespace RevitWebAppSync.UI
                     noLukisan = selectedEntry.no_lukisan;
                 }
 
+                // Parse nilai projek if provided
+                double? nilaiProjek = null;
+                string npText = _nilaiProjekBox?.Text?.Trim().Replace(",", "") ?? "";
+                if (!string.IsNullOrEmpty(npText) && double.TryParse(npText, out double npVal) && npVal > 0)
+                    nilaiProjek = npVal;
+
                 var request = new M2EstimateRequest
                 {
                     kategori_bangunan = jenisBangunan,
@@ -2046,6 +2075,7 @@ namespace RevitWebAppSync.UI
                     nama_bangunan = namaBangunan,
                     nama_entry = namaEntry,
                     no_lukisan = noLukisan,
+                    nilai_projek = nilaiProjek,
                     kawasan = kawasan,
                     luas_tapak = luasTapak,
                     kerja_pakar_selected = GetSelectedKerjaPakar(),
