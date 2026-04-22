@@ -65,6 +65,7 @@ namespace RevitWebAppSync.UI
         private ComboBox _namaEntryCombo;
         private ComboBox _negeriCombo;
         private TextBlock _luasTapakText;
+        private System.Windows.Controls.TextBox _luasTapakOverrideBox;
         private System.Windows.Controls.TextBox _nilaiProjekBox;
         private TextBlock _m2ResultText;
         private TextBlock _m2TotalText;
@@ -357,12 +358,23 @@ namespace RevitWebAppSync.UI
 
             _luasTapakText = new TextBlock
             {
-                Text = "Luas Tapak: \u2014 m\u00B2 (auto dari model)",
-                FontSize = 12, FontWeight = FontWeights.Medium,
-                Foreground = new SolidColorBrush(TextPrimary),
-                Margin = new Thickness(0, 2, 0, 8)
+                Text = "Auto dari model: \u2014 m\u00B2",
+                FontSize = 10, Foreground = new SolidColorBrush(TextMuted),
+                Margin = new Thickness(0, 2, 0, 4)
             };
             m2Stack.Children.Add(_luasTapakText);
+
+            m2Stack.Children.Add(MakeFieldLabel("Luas Tapak (m\u00B2) - kosongkan untuk guna auto"));
+            _luasTapakOverrideBox = new System.Windows.Controls.TextBox
+            {
+                FontSize = 11, Padding = new Thickness(8, 6, 8, 6),
+                Margin = new Thickness(0, 0, 0, 8),
+                Background = new SolidColorBrush(PageBg),
+                BorderBrush = new SolidColorBrush(BorderColor),
+                BorderThickness = new Thickness(1),
+                Text = ""
+            };
+            m2Stack.Children.Add(_luasTapakOverrideBox);
 
             // ─── Section 5: Nilai Projek ───
             m2Stack.Children.Add(MakeSectionHeader("Nilai Projek"));
@@ -1218,8 +1230,12 @@ namespace RevitWebAppSync.UI
         {
             double luas = GetLuasTapakFromModel();
             _luasTapakText.Text = luas > 0
-                ? $"{luas:N0} m\u00B2 (auto dari model Revit)"
-                : "-- m\u00B2 (tiada data lantai dalam model)";
+                ? $"Auto dari model: {luas:N0} m\u00B2 (jumlah semua lantai)"
+                : "Auto dari model: tiada data lantai";
+
+            // Pre-fill override box with auto value if empty
+            if (string.IsNullOrEmpty(_luasTapakOverrideBox?.Text) && luas > 0)
+                _luasTapakOverrideBox.Text = luas.ToString("F0");
         }
 
         private void DisplayM2Result(M2CostBreakdown result)
@@ -1958,11 +1974,21 @@ namespace RevitWebAppSync.UI
                     if (_allItems.Count == 0) { MessageBox.Show("No elements found in the model.", "BINA Cost"); return; }
                 }
 
-                // Get luas tapak from model
-                double luasTapak = GetLuasTapakFromModel();
+                // Get luas tapak: use override if provided, else auto from model
+                double luasTapak = 0;
+                string luasText = _luasTapakOverrideBox?.Text?.Trim().Replace(",", "") ?? "";
+                if (!string.IsNullOrEmpty(luasText) && double.TryParse(luasText, out double luasOverride) && luasOverride > 0)
+                {
+                    luasTapak = luasOverride;
+                }
+                else
+                {
+                    luasTapak = GetLuasTapakFromModel();
+                }
+
                 if (luasTapak <= 0)
                 {
-                    MessageBox.Show("Tiada data lantai (Floor) dalam model.\nLuas tapak diperlukan untuk pengiraan.", "BINA Cost");
+                    MessageBox.Show("Sila masukkan Luas Tapak (m\u00B2).\nAtau pastikan model mempunyai elemen lantai (Floor).", "BINA Cost");
                     return;
                 }
 
