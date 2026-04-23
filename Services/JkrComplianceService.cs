@@ -18,7 +18,7 @@ namespace RevitWebAppSync.Services
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
 
-        private const string DEFAULT_BASE_URL = "https://20d4-2001-f40-935-7c0f-744a-9dd8-14d8-498a.ngrok-free.app";
+        private const string DEFAULT_BASE_URL = "https://gastrodermal-ace-overvaliantly.ngrok-free.dev";
 
         // Raw JSON of the last V2 request + response — used by the Export button for benchmark capture.
         public string LastRequestJson { get; private set; } = "";
