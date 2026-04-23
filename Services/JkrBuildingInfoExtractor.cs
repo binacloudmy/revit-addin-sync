@@ -2,6 +2,7 @@ using Autodesk.Revit.DB;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using RevitProjectInfo = Autodesk.Revit.DB.ProjectInfo;
 
 namespace RevitWebAppSync.Services
 {
@@ -270,7 +271,7 @@ namespace RevitWebAppSync.Services
         /// Lookup a built-in Project Information parameter by display name and stash
         /// its value into result.ProjectInfo so the backend validator can check it.
         /// </summary>
-        private static void ReadProjectInfoField(ProjectInfo projInfo, string displayName, JkrExtractionResult result)
+        private static void ReadProjectInfoField(RevitProjectInfo projInfo, string displayName, JkrExtractionResult result)
         {
             try
             {

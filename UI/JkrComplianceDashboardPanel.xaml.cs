@@ -107,13 +107,13 @@ namespace RevitWebAppSync.UI
             RescanLabel.Text = _vm.RescanLabel;
 
             // Search clear visibility
-            SearchClear.Visibility = string.IsNullOrEmpty(SearchInput.Text) ? Visibility.Collapsed : Visibility.Visible;
+            SearchClear.Visibility = string.IsNullOrEmpty(SearchInput.Text) ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
 
             // Empty state
             if (_vm.Filtered.Count == 0)
             {
-                EmptyState.Visibility = Visibility.Visible;
-                IssuesScroll.Visibility = Visibility.Collapsed;
+                EmptyState.Visibility = System.Windows.Visibility.Visible;
+                IssuesScroll.Visibility = System.Windows.Visibility.Collapsed;
                 EmptyIcon.Glyph = _vm.IsOpenTab ? "check" : "clipboard";
                 EmptyMessage.Text = _vm.IsOpenTab && _vm.ActiveCategory != null
                     ? $"No open {_vm.ActiveCategory.ToLower()} issues — nice!"
@@ -121,8 +121,8 @@ namespace RevitWebAppSync.UI
             }
             else
             {
-                EmptyState.Visibility = Visibility.Collapsed;
-                IssuesScroll.Visibility = Visibility.Visible;
+                EmptyState.Visibility = System.Windows.Visibility.Collapsed;
+                IssuesScroll.Visibility = System.Windows.Visibility.Visible;
             }
 
             // Row active highlight
@@ -139,7 +139,7 @@ namespace RevitWebAppSync.UI
             if (_vm.Toast != null)
             {
                 ToastMsg.Text = _vm.Toast.Message;
-                Toast.Visibility = Visibility.Visible;
+                Toast.Visibility = System.Windows.Visibility.Visible;
                 var fade = new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(250)) { EasingFunction = new CubicEase() };
                 Toast.BeginAnimation(OpacityProperty, fade);
                 var slide = new ThicknessAnimation(new Thickness(12, 0, 12, 4), new Thickness(12, 0, 12, 12),
@@ -148,7 +148,7 @@ namespace RevitWebAppSync.UI
             }
             else
             {
-                Toast.Visibility = Visibility.Collapsed;
+                Toast.Visibility = System.Windows.System.Windows.Visibility.Collapsed;
             }
 
             // Focus modal
@@ -253,7 +253,7 @@ namespace RevitWebAppSync.UI
             {
                 rt = new RotateTransform(0);
                 RescanIconRoot.RenderTransform = rt;
-                RescanIconRoot.RenderTransformOrigin = new Point(0.5, 0.5);
+                RescanIconRoot.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
             }
             var anim = new DoubleAnimation(0, 360, TimeSpan.FromMilliseconds(1000))
             {
