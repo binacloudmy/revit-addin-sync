@@ -202,6 +202,70 @@ namespace RevitWebAppSync.UI
 
         private void Rescan_Click(object sender, RoutedEventArgs e) => _ = RunScanAsync();
 
+        private void FixAll_Click(object sender, RoutedEventArgs e)
+        {
+            if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
+            {
+                TaskDialog.Show("BINA JKR Compliance", "Auto-fix unavailable — JkrRenameHandler not initialised.");
+                return;
+            }
+
+            var fixable = _vm.Issues
+                .Where(i => i.IsOpen && i.AutoFixable && i.RevitElementId > 0 && !string.IsNullOrEmpty(i.FixAction))
+                .OrderBy(i => i.FixPriority)
+                .ToList();
+
+            if (fixable.Count == 0)
+            {
+                _vm.ShowToast("No auto-fixable issues found.");
+                return;
+            }
+
+            var handler = App.JkrRenameHandler;
+            handler.RenameQueue.Clear();
+            handler.ParamFixQueue.Clear();
+
+            foreach (var issue in fixable)
+            {
+                if (issue.FixAction.Equals("rename_type", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!string.IsNullOrEmpty(issue.FixValue))
+                        handler.RenameQueue.Add((issue.RevitElementId, issue.FixValue));
+                }
+                else
+                {
+                    handler.ParamFixQueue.Add(new JkrFixAction
+                    {
+                        Action = issue.FixAction,
+                        ElementId = issue.RevitElementId,
+                        ParameterName = issue.FixParameterName,
+                        Value = issue.FixValue,
+                        OldValue = issue.FixOldValue,
+                        Priority = issue.FixPriority,
+                    });
+                }
+            }
+
+            handler.OnCompleted = (result) =>
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    if (!string.IsNullOrEmpty(result.Error))
+                    {
+                        TaskDialog.Show("BINA JKR Compliance", $"Fix All error:\n\n{result.Error}");
+                        return;
+                    }
+                    var total = result.Renamed + result.ParamFixed;
+                    foreach (var issue in fixable)
+                        _vm.ApplyAction(issue, IssueStatus.Fixed, advance: false);
+                    _vm.ShowToast($"Fixed {total} issues ({result.Renamed} renamed, {result.ParamFixed} params). Re-scanning...");
+                    _ = RunScanAsync();
+                });
+            };
+
+            App.JkrRenameEvent.Raise();
+        }
+
         private async Task RunScanAsync()
         {
             if (_vm.Scanning) return;

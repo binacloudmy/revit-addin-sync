@@ -63,6 +63,7 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                         <Border Width="26" Height="26" CornerRadius="6" Background="{StaticResource Jkr.LogoGradient}">
@@ -83,7 +84,15 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <Button Grid.Column="2" x:Name="RescanBtn" Style="{StaticResource Btn.Ghost}"
+                    <Button Grid.Column="2" x:Name="FixAllBtn" Style="{StaticResource Btn.Ghost}"
+                            Click="FixAll_Click" VerticalAlignment="Center" Margin="0,0,6,0" ToolTip="Fix all auto-fixable issues">
+                        <StackPanel Orientation="Horizontal">
+                            <jkr:IconGlyph Glyph="bolt" Size="12" Foreground="{StaticResource Peach}" Margin="0,0,5,0"/>
+                            <TextBlock Text="Fix All" FontSize="11" Foreground="{StaticResource Peach}"/>
+                        </StackPanel>
+                    </Button>
+
+                    <Button Grid.Column="3" x:Name="RescanBtn" Style="{StaticResource Btn.Ghost}"
                             Click="Rescan_Click" VerticalAlignment="Center" ToolTip="Re-scan (R)">
                         <StackPanel Orientation="Horizontal">
                             <Grid x:Name="RescanIconRoot" Margin="0,0,5,0">

@@ -245,7 +245,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             RaiseCounts();
         }
 
-        private void ShowToast(string msg)
+        internal void ShowToast(string msg)
         {
             Toast = new ToastVm { Message = msg };
             _toastTimer?.Stop();
