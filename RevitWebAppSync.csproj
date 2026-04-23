@@ -8,6 +8,7 @@
     <UseWPF>true</UseWPF>
     <!-- Ensure all NuGet dependencies are copied to output -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Tests\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <PropertyGroup>

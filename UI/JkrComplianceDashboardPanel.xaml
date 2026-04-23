@@ -244,7 +244,7 @@
             <!-- Empty state -->
             <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center"
                         Visibility="Collapsed">
-                <jkr:IconGlyph x:Name="EmptyIcon" Name="check" Size="36" Foreground="{StaticResource Ink4}"
+                <jkr:IconGlyph x:Name="EmptyIcon" Glyph="check" Size="36" Foreground="{StaticResource Ink4}"
                                Opacity="0.25" HorizontalAlignment="Center"/>
                 <TextBlock x:Name="EmptyMessage" Text="All clear — no open issues."
                            Foreground="{StaticResource Ink3}" FontSize="12" Margin="0,10,0,0"
@@ -289,7 +289,7 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <jkr:IconGlyph Grid.Column="0" Name="check" Size="13" StrokeThickness="2"
+                <jkr:IconGlyph Grid.Column="0" Glyph="check" Size="13" StrokeThickness="2"
                                Foreground="{StaticResource Ok}" VerticalAlignment="Center" Margin="0,0,10,0"/>
                 <TextBlock Grid.Column="1" x:Name="ToastMsg" Foreground="White" FontSize="11.5"
                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"

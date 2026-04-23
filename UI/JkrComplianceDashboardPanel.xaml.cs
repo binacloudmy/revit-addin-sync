@@ -50,7 +50,7 @@ namespace RevitWebAppSync.UI
 
             PreviewKeyDown += (_, e) =>
             {
-                if (e.OriginalSource is TextBox) return;
+                if (e.OriginalSource is System.Windows.Controls.TextBox) return;
                 OnKeyDown(this, e);
             };
         }
@@ -455,7 +455,7 @@ namespace RevitWebAppSync.UI
 
         private void OnKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.OriginalSource is TextBox)
+            if (e.OriginalSource is System.Windows.Controls.TextBox)
             {
                 if (e.Key == Key.Escape)
                 {
