@@ -80,27 +80,26 @@ namespace RevitWebAppSync.UI
             LoPill.Count = _vm.LowOpen;
 
             TabOpenCount.Text = _vm.OpenCount.ToString();
+            TabAcceptedCount.Text = _vm.AcceptedCount.ToString();
             TabResolvedCount.Text = _vm.ResolvedCount.ToString();
             FilteredCountText.Text = $"{_vm.FilteredCount} shown";
 
             TabOpen.IsChecked = _vm.IsOpenTab;
+            TabAccepted.IsChecked = _vm.IsAcceptedTab;
             TabResolved.IsChecked = _vm.IsResolvedTab;
 
-            // Highlight current tab count pill
-            if (_vm.IsOpenTab)
-            {
-                TabOpenPill.Background = JkrTheme.Brush("BrandTint");
-                TabOpenCount.Foreground = JkrTheme.Brush("BrandDark");
-                TabResolvedPill.Background = JkrTheme.Brush("Surface.Line2");
-                TabResolvedCount.Foreground = JkrTheme.Brush("Ink3");
-            }
-            else
-            {
-                TabResolvedPill.Background = JkrTheme.Brush("BrandTint");
-                TabResolvedCount.Foreground = JkrTheme.Brush("BrandDark");
-                TabOpenPill.Background = JkrTheme.Brush("Surface.Line2");
-                TabOpenCount.Foreground = JkrTheme.Brush("Ink3");
-            }
+            // Highlight active tab pill, dim others
+            var activeBg = JkrTheme.Brush("BrandTint");
+            var activeFg = JkrTheme.Brush("BrandDark");
+            var inactiveBg = JkrTheme.Brush("Surface.Line2");
+            var inactiveFg = JkrTheme.Brush("Ink3");
+
+            TabOpenPill.Background = _vm.IsOpenTab ? activeBg : inactiveBg;
+            TabOpenCount.Foreground = _vm.IsOpenTab ? activeFg : inactiveFg;
+            TabAcceptedPill.Background = _vm.IsAcceptedTab ? activeBg : inactiveBg;
+            TabAcceptedCount.Foreground = _vm.IsAcceptedTab ? activeFg : inactiveFg;
+            TabResolvedPill.Background = _vm.IsResolvedTab ? activeBg : inactiveBg;
+            TabResolvedCount.Foreground = _vm.IsResolvedTab ? activeFg : inactiveFg;
 
             // Scanning spinner
             if (_vm.Scanning) StartRescanSpin(); else StopRescanSpin();
@@ -266,6 +265,30 @@ namespace RevitWebAppSync.UI
             App.JkrRenameEvent.Raise();
         }
 
+        private void AcceptAll_Click(object sender, RoutedEventArgs e)
+        {
+            var acceptable = _vm.Issues
+                .Where(i => i.Status == IssueStatus.Open && i.CanAccept)
+                .ToList();
+
+            if (acceptable.Count == 0)
+            {
+                _vm.ShowToast("No Medium/Low issues to accept.");
+                return;
+            }
+
+            foreach (var issue in acceptable)
+                _vm.ApplyAction(issue, IssueStatus.Accepted, advance: false);
+
+            // Persist all accepted decisions to audit file
+            var doc = _uiApp?.ActiveUIDocument?.Document;
+            var docPath = doc?.PathName ?? "";
+            foreach (var issue in acceptable)
+                JkrAuditStore.Save(docPath, issue);
+
+            _vm.ShowToast($"Accepted {acceptable.Count} Medium/Low issues.");
+        }
+
         private async Task RunScanAsync()
         {
             if (_vm.Scanning) return;
@@ -353,8 +376,17 @@ namespace RevitWebAppSync.UI
                 _vm.ActiveCategory = c.IsAll ? null : c.Label;
         }
 
-        private void TabOpen_Click(object s, RoutedEventArgs e) { _vm.Tab = TabKind.Open; TabOpen.IsChecked = true; TabResolved.IsChecked = false; }
-        private void TabResolved_Click(object s, RoutedEventArgs e) { _vm.Tab = TabKind.Resolved; TabResolved.IsChecked = true; TabOpen.IsChecked = false; }
+        private void TabOpen_Click(object s, RoutedEventArgs e) => SetTab(TabKind.Open);
+        private void TabAccepted_Click(object s, RoutedEventArgs e) => SetTab(TabKind.Accepted);
+        private void TabResolved_Click(object s, RoutedEventArgs e) => SetTab(TabKind.Resolved);
+
+        private void SetTab(TabKind tab)
+        {
+            _vm.Tab = tab;
+            TabOpen.IsChecked = tab == TabKind.Open;
+            TabAccepted.IsChecked = tab == TabKind.Accepted;
+            TabResolved.IsChecked = tab == TabKind.Resolved;
+        }
 
         private void Row_Clicked(object sender, EventArgs e)
         {

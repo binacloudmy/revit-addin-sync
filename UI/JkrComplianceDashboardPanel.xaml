@@ -84,13 +84,22 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <Button Grid.Column="2" x:Name="FixAllBtn" Style="{StaticResource Btn.Ghost}"
-                            Click="FixAll_Click" VerticalAlignment="Center" Margin="0,0,6,0" ToolTip="Fix all auto-fixable issues">
-                        <StackPanel Orientation="Horizontal">
-                            <jkr:IconGlyph Glyph="bolt" Size="12" Foreground="{StaticResource Peach}" Margin="0,0,5,0"/>
-                            <TextBlock Text="Fix All" FontSize="11" Foreground="{StaticResource Peach}"/>
-                        </StackPanel>
-                    </Button>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button x:Name="AcceptAllBtn" Style="{StaticResource Btn.Ghost}"
+                                Click="AcceptAll_Click" Margin="0,0,4,0" ToolTip="Accept all Medium + Low issues">
+                            <StackPanel Orientation="Horizontal">
+                                <jkr:IconGlyph Glyph="check" Size="12" Foreground="{StaticResource NavySubtle}" Margin="0,0,5,0"/>
+                                <TextBlock Text="Accept All" FontSize="11"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="FixAllBtn" Style="{StaticResource Btn.Ghost}"
+                                Click="FixAll_Click" ToolTip="Fix all auto-fixable issues">
+                            <StackPanel Orientation="Horizontal">
+                                <jkr:IconGlyph Glyph="bolt" Size="12" Foreground="{StaticResource Peach}" Margin="0,0,5,0"/>
+                                <TextBlock Text="Fix All" FontSize="11" Foreground="{StaticResource Peach}"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
 
                     <Button Grid.Column="3" x:Name="RescanBtn" Style="{StaticResource Btn.Ghost}"
                             Click="Rescan_Click" VerticalAlignment="Center" ToolTip="Re-scan (R)">
@@ -207,6 +216,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
@@ -220,7 +230,17 @@
                         </Border>
                     </StackPanel>
                 </ToggleButton>
-                <ToggleButton x:Name="TabResolved" Grid.Column="1" Style="{StaticResource Btn.Tab}"
+                <ToggleButton x:Name="TabAccepted" Grid.Column="1" Style="{StaticResource Btn.Tab}"
+                              IsChecked="False" Click="TabAccepted_Click" Margin="2,0,0,0">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Accepted" Margin="0,0,5,0"/>
+                        <Border x:Name="TabAcceptedPill" Background="{StaticResource Surface.Line2}" CornerRadius="8" Padding="6,1,6,1">
+                            <TextBlock x:Name="TabAcceptedCount" Text="0" FontSize="10" FontWeight="Bold"
+                                       Foreground="{StaticResource Ink3}"/>
+                        </Border>
+                    </StackPanel>
+                </ToggleButton>
+                <ToggleButton x:Name="TabResolved" Grid.Column="2" Style="{StaticResource Btn.Tab}"
                               IsChecked="False" Click="TabResolved_Click" Margin="2,0,0,0">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="Resolved" Margin="0,0,5,0"/>
@@ -230,7 +250,7 @@
                         </Border>
                     </StackPanel>
                 </ToggleButton>
-                <TextBlock Grid.Column="3" x:Name="FilteredCountText" Text="0 shown"
+                <TextBlock Grid.Column="4" x:Name="FilteredCountText" Text="0 shown"
                            FontSize="10" Foreground="{StaticResource Ink4}"
                            VerticalAlignment="Bottom" Margin="0,0,4,6"
                            FontFamily="{StaticResource Font.Sans}"/>

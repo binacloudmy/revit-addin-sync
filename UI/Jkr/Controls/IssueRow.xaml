@@ -31,6 +31,28 @@
                                TextDecorations="{Binding TitleDecoration}"
                                Opacity="{Binding TitleOpacity}"
                                FontFamily="{DynamicResource Font.Sans}"/>
+                    <!-- Element name + required/actual preview -->
+                    <TextBlock FontSize="10.5" Foreground="{DynamicResource Ink3}" Margin="0,1,0,0"
+                               TextTrimming="CharacterEllipsis" FontFamily="{DynamicResource Font.Sans}"
+                               Visibility="{Binding HasElementName, Converter={StaticResource B2V}}">
+                        <TextBlock.Text>
+                            <MultiBinding StringFormat="{}{0}">
+                                <Binding Path="Element.Name"/>
+                            </MultiBinding>
+                        </TextBlock.Text>
+                    </TextBlock>
+                    <!-- Required → Actual summary -->
+                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0"
+                                Visibility="{Binding HasActualOrRequired, Converter={StaticResource B2V}}">
+                        <TextBlock Text="{Binding Actual}" FontSize="10" Foreground="{DynamicResource Hi}"
+                                   FontFamily="{DynamicResource Font.Mono}" TextTrimming="CharacterEllipsis"
+                                   MaxWidth="140" VerticalAlignment="Center"/>
+                        <TextBlock Text=" → " FontSize="10" Foreground="{DynamicResource Ink4}" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding RequiredOrExample}" FontSize="10" Foreground="{DynamicResource Ok}"
+                                   FontFamily="{DynamicResource Font.Mono}" TextTrimming="CharacterEllipsis"
+                                   MaxWidth="140" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <!-- Meta line: priority + spec ref -->
                     <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                         <TextBlock Text="{Binding PriorityLabel}" FontSize="9.5" FontWeight="SemiBold"
                                    Foreground="{Binding PriorityColor}" VerticalAlignment="Center"
@@ -46,9 +68,14 @@
                             </TextBlock.Style>
                         </TextBlock>
                         <TextBlock Text=" · " FontSize="10" Foreground="{DynamicResource Ink4}" VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding Id}" FontSize="10" Opacity="0.7"
+                        <TextBlock Text="{Binding SpecLabel}" FontSize="9.5" Foreground="{DynamicResource Info}"
+                                   VerticalAlignment="Center" FontFamily="{DynamicResource Font.Sans}"
+                                   Visibility="{Binding HasSpec, Converter={StaticResource B2V}}"/>
+                        <TextBlock Text=" · " FontSize="10" Foreground="{DynamicResource Ink4}" VerticalAlignment="Center"
+                                   Visibility="{Binding HasSpec, Converter={StaticResource B2V}}"/>
+                        <TextBlock Text="{Binding Id}" FontSize="9.5" Opacity="0.6"
                                    FontFamily="{DynamicResource Font.Mono}" VerticalAlignment="Center"
-                                   Foreground="{DynamicResource Ink3}"/>
+                                   Foreground="{DynamicResource Ink4}"/>
                         <TextBlock Text=" · " FontSize="10" Foreground="{DynamicResource Ink4}" VerticalAlignment="Center"
                                    Visibility="{Binding IsResolved, Converter={StaticResource B2V}}"/>
                         <ctl:StatusBadge Visibility="{Binding IsResolved, Converter={StaticResource B2V}}"/>

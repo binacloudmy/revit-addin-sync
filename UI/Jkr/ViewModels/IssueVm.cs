@@ -143,6 +143,23 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public Brush StatusBg
             => Status == IssueStatus.Approved ? JkrTheme.Brush("InfoBg") : JkrTheme.Brush("OkBg");
 
+        // ─── Row display helpers ───
+        public bool HasElementName => Element != null && !string.IsNullOrEmpty(Element.Name) && Element.Name != "—";
+        public bool HasActualOrRequired => !string.IsNullOrEmpty(Actual) && Actual != "(none)" && Actual != "(empty)"
+                                        && !string.IsNullOrEmpty(Required);
+        public string RequiredOrExample => string.IsNullOrEmpty(Example) ? Required : Example;
+        public bool HasSpec => Spec != null && !string.IsNullOrEmpty(Spec.Doc);
+        public string SpecLabel
+        {
+            get
+            {
+                if (Spec == null || string.IsNullOrEmpty(Spec.Doc)) return "";
+                var doc = SpecDoc.Get(Spec.Doc);
+                var page = Spec.Page > 0 ? $" p{Spec.Page}" : "";
+                return $"{doc.Short}{page}";
+            }
+        }
+
         // ─── INotifyPropertyChanged ───
         public event PropertyChangedEventHandler PropertyChanged;
         private void OnAll()
