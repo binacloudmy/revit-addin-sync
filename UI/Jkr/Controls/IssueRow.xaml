@@ -83,7 +83,7 @@
                 </StackPanel>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center"
-                            Visibility="{Binding IsOpen, Converter={StaticResource B2V}}">
+                            Visibility="{Binding IsActionable, Converter={StaticResource B2V}}">
                     <Button Style="{DynamicResource Btn.QuickFix}" Margin="0,0,4,0"
                             ToolTip="Auto-fix (F)"
                             Visibility="{Binding ShowAutoFixButton, Converter={StaticResource B2V}}"

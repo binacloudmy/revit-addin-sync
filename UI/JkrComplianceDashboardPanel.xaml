@@ -294,13 +294,23 @@
                     <ctl:KbdHint Key="A" Label="accept" Margin="0,0,10,0"/>
                     <ctl:KbdHint Key="X" Label="approve"/>
                 </StackPanel>
-                <Button x:Name="ExportBtn" HorizontalAlignment="Right" Style="{StaticResource Btn.Sec}" Click="Export_Click">
-                    <StackPanel Orientation="Horizontal">
-                        <jkr:IconGlyph Glyph="download" Size="12" Margin="0,0,5,0"
-                                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                        <TextBlock Text="Export" FontSize="11" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="ResetBtn" Style="{StaticResource Btn.Sec}" Click="Reset_Click" Margin="0,0,6,0"
+                            ToolTip="Reset all decisions back to Open">
+                        <StackPanel Orientation="Horizontal">
+                            <jkr:IconGlyph Glyph="undo" Size="12" Margin="0,0,5,0"
+                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            <TextBlock Text="Reset" FontSize="11" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="ExportBtn" Style="{StaticResource Btn.Sec}" Click="Export_Click">
+                        <StackPanel Orientation="Horizontal">
+                            <jkr:IconGlyph Glyph="download" Size="12" Margin="0,0,5,0"
+                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
+                            <TextBlock Text="Export" FontSize="11" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
             </Grid>
         </Border>
 

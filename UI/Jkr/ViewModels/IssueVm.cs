@@ -67,12 +67,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         //   Medium → auto-fix + accept.
         //   Low    → auto-fix + accept + approve.
         public bool IsOpen => Status == IssueStatus.Open;
-        public bool IsResolved => !IsOpen;
+        public bool IsAccepted => Status == IssueStatus.Accepted;
+        public bool IsActionable => Status == IssueStatus.Open || Status == IssueStatus.Accepted;
+        public bool IsResolved => Status == IssueStatus.Fixed || Status == IssueStatus.Approved;
         public bool CanAccept  => JkrTierMap.CanAccept(Priority);
         public bool CanApprove => JkrTierMap.CanApprove(Priority);
-        public bool ShowAutoFixButton => IsOpen && AutoFixable;
-        public bool ShowAcceptButton  => IsOpen && CanAccept;
-        public bool ShowApproveButton => IsOpen && CanApprove;
+        public bool ShowAutoFixButton => IsActionable && AutoFixable;
+        public bool ShowAcceptButton  => IsOpen && CanAccept;  // only from Open → Accepted
+        public bool ShowApproveButton => IsActionable && CanApprove;
         public string TierLabel    => JkrTierMap.Label(Priority);
         public string TierSubtitle => JkrTierMap.Subtitle(Priority);
         public System.Windows.TextDecorationCollection TitleDecoration

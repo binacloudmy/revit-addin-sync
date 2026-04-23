@@ -210,7 +210,7 @@ namespace RevitWebAppSync.UI
             }
 
             var fixable = _vm.Issues
-                .Where(i => i.IsOpen && i.AutoFixable && i.RevitElementId > 0 && !string.IsNullOrEmpty(i.FixAction))
+                .Where(i => i.IsOpen && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction))
                 .OrderBy(i => i.FixPriority)
                 .ToList();
 
@@ -467,7 +467,7 @@ namespace RevitWebAppSync.UI
                 TaskDialog.Show("BINA JKR Compliance", "Auto-fix unavailable — JkrRenameHandler not initialised.");
                 return;
             }
-            if (issue.RevitElementId <= 0 || string.IsNullOrEmpty(issue.FixAction))
+            if (string.IsNullOrEmpty(issue.FixAction))
             {
                 TaskDialog.Show("BINA JKR Compliance", "No machine-readable fix attached to this issue.");
                 return;
@@ -529,6 +529,31 @@ namespace RevitWebAppSync.UI
         }
 
         private void Export_Click(object s, RoutedEventArgs e) => _vm.ExportOpen = true;
+
+        private void Reset_Click(object s, RoutedEventArgs e)
+        {
+            var nonOpen = _vm.Issues.Where(i => i.Status != IssueStatus.Open).ToList();
+            if (nonOpen.Count == 0)
+            {
+                _vm.ShowToast("Nothing to reset.");
+                return;
+            }
+
+            foreach (var issue in nonOpen)
+                issue.Status = IssueStatus.Open;
+
+            // Wipe the audit file
+            var doc = _uiApp?.ActiveUIDocument?.Document;
+            var docPath = doc?.PathName ?? "";
+            if (!string.IsNullOrEmpty(docPath))
+            {
+                var auditPath = JkrAuditStore.AuditPath(docPath);
+                try { if (System.IO.File.Exists(auditPath)) System.IO.File.Delete(auditPath); } catch { }
+            }
+
+            _vm.Refresh();
+            _vm.ShowToast($"Reset {nonOpen.Count} issues back to Open.");
+        }
 
         private void Undo_Click(object s, RoutedEventArgs e) => _vm.Undo();
 

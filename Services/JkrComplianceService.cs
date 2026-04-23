@@ -152,7 +152,7 @@ namespace RevitWebAppSync.Services
                         var issue = new ComplianceIssueDto
                         {
                             IssueId = ComputeIssueId(category, rule, check.ElementId),
-                            ElementId = check.ElementId,
+                            ElementId = check.ElementId > 0 ? check.ElementId : (check.FixAction?.ElementId ?? 0),
                             Category = category,
                             TypeName = check.TypeName ?? "",
                             LevelName = check.LevelName ?? "",

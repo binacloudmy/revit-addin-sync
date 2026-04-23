@@ -102,12 +102,13 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             RequiredText.Text = i.Required;
             ActualText.Text = i.Actual;
 
-            bool open = i.IsOpen;
-            OpenActions.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-            ResolvedActions.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
+            bool actionable = i.IsActionable;
+            bool resolved = i.IsResolved;
+            OpenActions.Visibility = actionable ? Visibility.Visible : Visibility.Collapsed;
+            ResolvedActions.Visibility = resolved ? Visibility.Visible : Visibility.Collapsed;
 
             // Show before/after diff on resolved auto-fixes
-            if (!open && i.AutoFixable && !string.IsNullOrEmpty(i.Actual))
+            if (resolved && i.AutoFixable && !string.IsNullOrEmpty(i.Actual))
             {
                 ResolvedDiffCard.Visibility = Visibility.Visible;
                 ResolvedDiffMinus.Text = i.Actual;
@@ -118,7 +119,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 ResolvedDiffCard.Visibility = Visibility.Collapsed;
             }
 
-            if (open)
+            if (actionable)
             {
                 AutoFixCard.Visibility = i.AutoFixable ? Visibility.Visible : Visibility.Collapsed;
                 ManualCard.Visibility = i.AutoFixable ? Visibility.Collapsed : Visibility.Visible;
@@ -135,7 +136,8 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                     StepsBody.Visibility = _stepsOpen ? Visibility.Visible : Visibility.Collapsed;
                     StepsCaret.Glyph = _stepsOpen ? "caretDn" : "caretR";
                 }
-                ApproveBtn.Visibility = i.CanApprove ? Visibility.Visible : Visibility.Collapsed;
+                AcceptBtn.Visibility = i.ShowAcceptButton ? Visibility.Visible : Visibility.Collapsed;
+                ApproveBtn.Visibility = i.ShowApproveButton ? Visibility.Visible : Visibility.Collapsed;
             }
 
             var spec = SpecDoc.Get(i.Spec.Doc);
