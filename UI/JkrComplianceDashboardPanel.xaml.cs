@@ -148,7 +148,7 @@ namespace RevitWebAppSync.UI
             }
             else
             {
-                Toast.Visibility = System.Windows.System.Windows.Visibility.Collapsed;
+                Toast.Visibility = System.Windows.Visibility.Collapsed;
             }
 
             // Focus modal
