@@ -63,7 +63,6 @@
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                         <Border Width="26" Height="26" CornerRadius="6" Background="{StaticResource Jkr.LogoGradient}">
@@ -84,24 +83,7 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Button x:Name="AcceptAllBtn" Style="{StaticResource Btn.Ghost}"
-                                Click="AcceptAll_Click" Margin="0,0,4,0" ToolTip="Accept all Medium + Low issues">
-                            <StackPanel Orientation="Horizontal">
-                                <jkr:IconGlyph Glyph="check" Size="12" Foreground="{StaticResource NavySubtle}" Margin="0,0,5,0"/>
-                                <TextBlock Text="Accept All" FontSize="11"/>
-                            </StackPanel>
-                        </Button>
-                        <Button x:Name="FixAllBtn" Style="{StaticResource Btn.Ghost}"
-                                Click="FixAll_Click" ToolTip="Fix all auto-fixable issues">
-                            <StackPanel Orientation="Horizontal">
-                                <jkr:IconGlyph Glyph="bolt" Size="12" Foreground="{StaticResource Peach}" Margin="0,0,5,0"/>
-                                <TextBlock Text="Fix All" FontSize="11" Foreground="{StaticResource Peach}"/>
-                            </StackPanel>
-                        </Button>
-                    </StackPanel>
-
-                    <Button Grid.Column="3" x:Name="RescanBtn" Style="{StaticResource Btn.Ghost}"
+                    <Button Grid.Column="2" x:Name="RescanBtn" Style="{StaticResource Btn.Ghost}"
                             Click="Rescan_Click" VerticalAlignment="Center" ToolTip="Re-scan (R)">
                         <StackPanel Orientation="Horizontal">
                             <Grid x:Name="RescanIconRoot" Margin="0,0,5,0">
@@ -141,6 +123,24 @@
                         </StackPanel>
                     </StackPanel>
                 </Grid>
+
+                <!-- Row C: action buttons -->
+                <StackPanel Orientation="Horizontal" Margin="0,10,0,0" HorizontalAlignment="Right">
+                    <Button x:Name="AcceptAllBtn" Style="{StaticResource Btn.Ghost}"
+                            Click="AcceptAll_Click" Margin="0,0,6,0" ToolTip="Accept all Medium + Low issues">
+                        <StackPanel Orientation="Horizontal">
+                            <jkr:IconGlyph Glyph="check" Size="11" Foreground="{StaticResource NavySubtle}" Margin="0,0,5,0"/>
+                            <TextBlock Text="Accept All" FontSize="10.5"/>
+                        </StackPanel>
+                    </Button>
+                    <Button x:Name="FixAllBtn" Style="{StaticResource Btn.Ghost}"
+                            Click="FixAll_Click" ToolTip="Fix all auto-fixable issues">
+                        <StackPanel Orientation="Horizontal">
+                            <jkr:IconGlyph Glyph="bolt" Size="11" Foreground="{StaticResource Peach}" Margin="0,0,5,0"/>
+                            <TextBlock Text="Fix All" FontSize="10.5" Foreground="{StaticResource Peach}"/>
+                        </StackPanel>
+                    </Button>
+                </StackPanel>
             </StackPanel>
         </Border>
 
