@@ -52,6 +52,16 @@ namespace RevitWebAppSync.Handlers
                                 var elem = doc.GetElement(new ElementId(elemId));
                                 if (elem == null) { result.Skipped++; continue; }
 
+                                // Grids and Levels are Elements (not ElementTypes) — rename
+                                // via their own Name property. Family/loadable types keep
+                                // the elemType.Name path so shared instances all update.
+                                if (elem is Grid || elem is Level)
+                                {
+                                    elem.Name = newName;
+                                    result.Renamed++;
+                                    continue;
+                                }
+
                                 ElementId typeId = elem.GetTypeId();
                                 var elemType = typeId != ElementId.InvalidElementId ? doc.GetElement(typeId) as ElementType : null;
 
@@ -62,7 +72,9 @@ namespace RevitWebAppSync.Handlers
                                 }
                                 else
                                 {
-                                    result.Skipped++;
+                                    // Last-ditch: if the element itself has a settable Name, try it.
+                                    try { elem.Name = newName; result.Renamed++; }
+                                    catch { result.Skipped++; }
                                 }
                             }
                             catch (Autodesk.Revit.Exceptions.ArgumentException)

@@ -1,12 +1,17 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using RevitWebAppSync.Handlers;
+using RevitWebAppSync.Services;
 using RevitWebAppSync.UI.Jkr;
 using RevitWebAppSync.UI.Jkr.Controls;
 using RevitWebAppSync.UI.Jkr.ViewModels;
@@ -17,9 +22,14 @@ namespace RevitWebAppSync.UI
     {
         private UIApplication _uiApp;
         private readonly PanelVm _vm = new PanelVm();
+        private readonly JkrComplianceService _jkrService = new JkrComplianceService();
         private Storyboard _rescanSpin;
         private Jkr.Modals.IssueFocusWindow _focusWindow;
         private Jkr.Modals.ExportWindow _exportWindow;
+
+        // LoI level is fixed at 300 for now — old selector was removed from the UI.
+        // Revisit when the backend needs distinct loi_level per project phase.
+        private const int DEFAULT_LOI_LEVEL = 300;
 
         public JkrComplianceDashboardPanel()
         {
@@ -30,8 +40,9 @@ namespace RevitWebAppSync.UI
             CategoriesItems.ItemsSource = _vm.Categories;
             IssuesItems.ItemsSource = _vm.Filtered;
 
-            _vm.Filename = StubData.Filename;
-            _vm.ReplaceIssues(StubData.Build());
+            // Start empty — the panel is created at startup before a Revit doc is available.
+            // First Re-scan triggers the real pipeline once SetRevitApp() has wired _uiApp.
+            _vm.Filename = "(click Re-scan to analyse the active model)";
             _vm.PropertyChanged += Vm_PropertyChanged;
 
             Loaded += (_, __) => { Keyboard.Focus(this); RenderAll(); };
@@ -45,6 +56,8 @@ namespace RevitWebAppSync.UI
         }
 
         public void SetRevitApp(UIApplication uiApp) => _uiApp = uiApp;
+
+        private string ActiveDocPath => _uiApp?.ActiveUIDocument?.Document?.PathName ?? "";
 
         // ────────────────────────────────────────────────
         // Event plumbing
@@ -187,20 +200,49 @@ namespace RevitWebAppSync.UI
         // Actions
         // ────────────────────────────────────────────────
 
-        private void Rescan_Click(object sender, RoutedEventArgs e) => StartRescan();
+        private void Rescan_Click(object sender, RoutedEventArgs e) => _ = RunScanAsync();
 
-        private void StartRescan()
+        private async Task RunScanAsync()
         {
-            _vm.Scanning = true;
-            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1200) };
-            timer.Tick += (_, __) =>
+            if (_vm.Scanning) return;
+
+            var doc = _uiApp?.ActiveUIDocument?.Document;
+            if (doc == null)
             {
-                timer.Stop();
+                TaskDialog.Show("BINA JKR Compliance", "No active Revit document. Open a model first.");
+                return;
+            }
+
+            _vm.Scanning = true;
+            try
+            {
+                // Extractor walks the Revit doc — must run on the main UI thread since
+                // it touches the Revit API. Do it synchronously before the HTTP call.
+                var extraction = JkrBuildingInfoExtractor.Extract(doc);
+                _vm.Filename = string.IsNullOrEmpty(extraction.FileName) ? "(unsaved model)" : extraction.FileName;
+                var request = extraction.ToV2Request(loiLevel: DEFAULT_LOI_LEVEL);
+
+                // HttpClient is already async — no need for Task.Run. Awaiting yields the UI thread.
+                var response = await _jkrService.CheckJkrComplianceV2Async(request, skipAi: true);
+                if (!string.IsNullOrEmpty(response?.Error))
+                {
+                    TaskDialog.Show("BINA JKR Compliance", $"Scan failed:\n\n{response.Error}");
+                    return;
+                }
+
+                var issues = IssueMapper.MapAll(response);
+                var audit = JkrAuditStore.LoadFor(doc.PathName);
+                JkrAuditStore.MergeInto(issues, audit);
+                _vm.ReplaceIssues(issues);
+            }
+            catch (Exception ex)
+            {
+                TaskDialog.Show("BINA JKR Compliance", $"Scan error:\n\n{ex.GetType().Name}: {ex.Message}");
+            }
+            finally
+            {
                 _vm.Scanning = false;
-                // TODO: wire to real scanner — StubData reload for now.
-                _vm.ReplaceIssues(StubData.Build());
-            };
-            timer.Start();
+            }
         }
 
         private void StartRescanSpin()
@@ -261,7 +303,133 @@ namespace RevitWebAppSync.UI
         private void Row_Action(object sender, IssueRowActionArgs e)
         {
             _vm.ActiveIssue = e.Issue;
-            _vm.ApplyAction(e.Issue, e.NewStatus, advance: false);
+            DispatchAction(e.Issue, e.NewStatus, advance: false);
+        }
+
+        /// <summary>
+        /// Public entry point for the Focus modal (ApplyFix/Accept/Approve/Reopen/Locate).
+        /// Keeps all side-effect routing (backend fix, audit persistence) in one place.
+        /// </summary>
+        internal void InvokeAction(IssueVm issue, IssueStatus newStatus, bool advance)
+            => DispatchAction(issue, newStatus, advance);
+
+        /// <summary>Deep-link the current issue into the Revit 3D view.</summary>
+        internal void LocateInRevit(IssueVm issue)
+        {
+            if (issue == null || issue.RevitElementId <= 0) return;
+            var uiDoc = _uiApp?.ActiveUIDocument;
+            if (uiDoc == null) return;
+            try
+            {
+                var ids = new List<ElementId> { new ElementId(issue.RevitElementId) };
+                uiDoc.ShowElements(ids);
+                uiDoc.Selection.SetElementIds(ids);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] locate failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Route a status transition to the correct side-effect:
+        ///   Fixed        → queue into App.JkrRenameHandler + fire ExternalEvent; flip VM on success only.
+        ///   Accepted/Approved → in-memory flip + persist to .jkr_audit.json.
+        ///   Open (reopen)     → in-memory flip + remove from audit file.
+        /// </summary>
+        private void DispatchAction(IssueVm issue, IssueStatus newStatus, bool advance)
+        {
+            if (issue == null) return;
+
+            if (newStatus == IssueStatus.Fixed)
+            {
+                ApplyAutoFix(issue, advance);
+                return;
+            }
+
+            // Accept / Approve / Reopen are in-memory plus audit persistence.
+            _vm.ApplyAction(issue, newStatus, advance);
+            try
+            {
+                JkrAuditStore.Save(ActiveDocPath, issue);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Queue the backend-supplied fix into the JkrRenameHandler and fire the
+        /// ExternalEvent so Revit runs the edit on its main thread. Only flip the
+        /// VM status to Fixed if the transaction reports success.
+        /// </summary>
+        private void ApplyAutoFix(IssueVm issue, bool advance)
+        {
+            if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
+            {
+                TaskDialog.Show("BINA JKR Compliance", "Auto-fix unavailable — JkrRenameHandler not initialised.");
+                return;
+            }
+            if (issue.RevitElementId <= 0 || string.IsNullOrEmpty(issue.FixAction))
+            {
+                TaskDialog.Show("BINA JKR Compliance", "No machine-readable fix attached to this issue.");
+                return;
+            }
+
+            // Build the queue for the existing rename/param-fix pipeline.
+            var handler = App.JkrRenameHandler;
+            handler.RenameQueue.Clear();
+            handler.ParamFixQueue.Clear();
+
+            if (issue.FixAction.Equals("rename_type", StringComparison.OrdinalIgnoreCase))
+            {
+                if (string.IsNullOrEmpty(issue.FixValue))
+                {
+                    TaskDialog.Show("BINA JKR Compliance", "Rename target is empty.");
+                    return;
+                }
+                handler.RenameQueue.Add((issue.RevitElementId, issue.FixValue));
+            }
+            else
+            {
+                // set_parameter or set_jkr_code — use the generic ParamFix path.
+                handler.ParamFixQueue.Add(new JkrFixAction
+                {
+                    Action = issue.FixAction,
+                    ElementId = issue.RevitElementId,
+                    ParameterName = issue.FixParameterName,
+                    Value = issue.FixValue,
+                    OldValue = issue.FixOldValue,
+                    Priority = issue.FixPriority,
+                });
+            }
+
+            // Callback runs on the main Revit thread inside the ExternalEvent completion.
+            handler.OnCompleted = (result) =>
+            {
+                // Marshal back to the UI dispatcher — ExternalEvent callbacks return on Revit's thread.
+                Dispatcher.Invoke(() =>
+                {
+                    if (!string.IsNullOrEmpty(result.Error))
+                    {
+                        TaskDialog.Show("BINA JKR Compliance", $"Auto-fix error:\n\n{result.Error}");
+                        return;
+                    }
+                    if (result.Renamed == 0 && result.ParamFixed == 0)
+                    {
+                        var detail = result.Skipped + result.Failed > 0
+                            ? $"skipped={result.Skipped} failed={result.Failed}"
+                            : "no changes applied";
+                        TaskDialog.Show("BINA JKR Compliance", $"Auto-fix did not apply ({detail}).");
+                        return;
+                    }
+                    // Success — flip the VM (advances queue + shows toast).
+                    _vm.ApplyAction(issue, IssueStatus.Fixed, advance);
+                });
+            };
+
+            App.JkrRenameEvent.Raise();
         }
 
         private void Export_Click(object s, RoutedEventArgs e) => _vm.ExportOpen = true;
@@ -322,21 +490,21 @@ namespace RevitWebAppSync.UI
                 case Key.F:
                     if (active != null && active.IsOpen && active.AutoFixable)
                     {
-                        _vm.ApplyAction(active, IssueStatus.Fixed, _vm.FocusOpen);
+                        DispatchAction(active, IssueStatus.Fixed, _vm.FocusOpen);
                         e.Handled = true;
                     }
                     break;
                 case Key.A:
-                    if (active != null && active.IsOpen)
+                    if (active != null && active.IsOpen && active.CanAccept)
                     {
-                        _vm.ApplyAction(active, IssueStatus.Accepted, _vm.FocusOpen);
+                        DispatchAction(active, IssueStatus.Accepted, _vm.FocusOpen);
                         e.Handled = true;
                     }
                     break;
                 case Key.X:
                     if (active != null && active.IsOpen && active.CanApprove)
                     {
-                        _vm.ApplyAction(active, IssueStatus.Approved, _vm.FocusOpen);
+                        DispatchAction(active, IssueStatus.Approved, _vm.FocusOpen);
                         e.Handled = true;
                     }
                     break;
@@ -370,6 +538,7 @@ namespace RevitWebAppSync.UI
             try
             {
                 _focusWindow = new Jkr.Modals.IssueFocusWindow();
+                _focusWindow.HostPanel = this;
                 _focusWindow.SetContext(_vm);
                 _focusWindow.Closed += (_, __) => { _vm.FocusOpen = false; _focusWindow = null; };
                 try

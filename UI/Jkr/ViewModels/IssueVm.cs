@@ -39,6 +39,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string HowToFix { get; set; } = "";
         public SpecRef Spec { get; set; } = new SpecRef();
 
+        // Backend-supplied fix metadata — used by the Auto-fix handler to queue
+        // real Revit edits into App.JkrRenameHandler. Never shown in the UI.
+        public string FixAction { get; set; } = "";          // rename_type | set_parameter | set_jkr_code
+        public string FixParameterName { get; set; } = "";
+        public string FixValue { get; set; } = "";
+        public string FixOldValue { get; set; } = "";
+        public int FixPriority { get; set; } = 10;
+
         private IssuePriority _priority = IssuePriority.Medium;
         public IssuePriority Priority
         {
@@ -54,27 +62,24 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         }
 
         // ─── Derived (bindable) ───
+        // Action gating flows from the tier hierarchy in JkrTierMap:
+        //   High   → auto-fix only.
+        //   Medium → auto-fix + accept.
+        //   Low    → auto-fix + accept + approve.
         public bool IsOpen => Status == IssueStatus.Open;
         public bool IsResolved => !IsOpen;
-        public bool CanApprove => Priority != IssuePriority.High;
+        public bool CanAccept  => JkrTierMap.CanAccept(Priority);
+        public bool CanApprove => JkrTierMap.CanApprove(Priority);
         public bool ShowAutoFixButton => IsOpen && AutoFixable;
+        public bool ShowAcceptButton  => IsOpen && CanAccept;
         public bool ShowApproveButton => IsOpen && CanApprove;
+        public string TierLabel    => JkrTierMap.Label(Priority);
+        public string TierSubtitle => JkrTierMap.Subtitle(Priority);
         public System.Windows.TextDecorationCollection TitleDecoration
             => IsOpen ? null : System.Windows.TextDecorations.Strikethrough;
         public double TitleOpacity => IsOpen ? 1.0 : 0.55;
 
-        public string PriorityLabel
-        {
-            get
-            {
-                switch (Priority)
-                {
-                    case IssuePriority.High: return "High";
-                    case IssuePriority.Medium: return "Medium";
-                    default: return "Low";
-                }
-            }
-        }
+        public string PriorityLabel => JkrTierMap.Label(Priority);
 
         public Brush PriorityColor
         {

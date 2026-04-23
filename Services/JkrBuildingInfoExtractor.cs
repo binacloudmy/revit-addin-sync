@@ -194,6 +194,57 @@ namespace RevitWebAppSync.Services
                     result.SharedParamFiles.Add(defFile.Filename ?? "shared_params.txt");
                 }
 
+                // Project Information fields — feeds validate_project_information.
+                if (projInfo != null)
+                {
+                    ReadProjectInfoField(projInfo, "Client Name", result);
+                    ReadProjectInfoField(projInfo, "Project Name", result);
+                    ReadProjectInfoField(projInfo, "Project Number", result);
+                    ReadProjectInfoField(projInfo, "Project Address", result);
+                    ReadProjectInfoField(projInfo, "Building Name", result);
+                    ReadProjectInfoField(projInfo, "Organization Name", result);
+                }
+
+                // Project Base Point — feeds validate_project_base_point.
+                // BasePoint returns the Project Base Point when IsShared=false.
+                var bpCollector = new FilteredElementCollector(doc)
+                    .OfClass(typeof(BasePoint))
+                    .Cast<BasePoint>()
+                    .Where(bp => !bp.IsShared);
+                var projBp = bpCollector.FirstOrDefault();
+                if (projBp != null)
+                {
+                    // Revit stores base point coords in decimal feet. Convert to metres for spec parity.
+                    const double FEET_TO_M = 0.3048;
+                    result.BasePointE = projBp.Position.X * FEET_TO_M;
+                    result.BasePointN = projBp.Position.Y * FEET_TO_M;
+                    result.BasePointElev = projBp.Position.Z * FEET_TO_M;
+                }
+
+                // Grid names — feeds validate_grids.
+                var grids = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Grid))
+                    .Cast<Grid>();
+                foreach (var g in grids)
+                {
+                    var gn = g?.Name ?? "";
+                    if (!string.IsNullOrEmpty(gn)) result.GridNames.Add(gn);
+                }
+
+                // Level names + elevations — feeds validate_levels.
+                // ProjectElevation is in decimal feet; convert to metres.
+                var levels = new FilteredElementCollector(doc)
+                    .OfClass(typeof(Level))
+                    .Cast<Level>()
+                    .OrderBy(l => l.ProjectElevation);
+                foreach (var lvl in levels)
+                {
+                    var lname = lvl?.Name ?? "";
+                    if (string.IsNullOrEmpty(lname)) continue;
+                    result.LevelNames.Add(lname);
+                    result.LevelElevations.Add(lvl.ProjectElevation * 0.3048);
+                }
+
                 // Linked models
                 var linkCollector = new FilteredElementCollector(doc)
                     .OfClass(typeof(RevitLinkInstance));
@@ -212,6 +263,25 @@ namespace RevitWebAppSync.Services
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"ExtractProjectMetadata warning: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Lookup a built-in Project Information parameter by display name and stash
+        /// its value into result.ProjectInfo so the backend validator can check it.
+        /// </summary>
+        private static void ReadProjectInfoField(ProjectInfo projInfo, string displayName, JkrExtractionResult result)
+        {
+            try
+            {
+                var p = projInfo.LookupParameter(displayName);
+                var val = p?.AsString() ?? "";
+                // Always record the key — an empty value is itself evidence that the field is unset.
+                result.ProjectInfo[displayName] = val ?? "";
+            }
+            catch
+            {
+                // Some params throw on inaccessible projects — skip quietly.
             }
         }
 
@@ -266,6 +336,15 @@ namespace RevitWebAppSync.Services
         public bool HasLinkedModels { get; set; } = false;
         public List<string> LinkedModelNames { get; set; } = new List<string>();
 
+        // Inputs for the new project-scope validators (Project Information, Base Point, Grids, Levels).
+        public Dictionary<string, string> ProjectInfo { get; set; } = new Dictionary<string, string>();
+        public double? BasePointE { get; set; }
+        public double? BasePointN { get; set; }
+        public double? BasePointElev { get; set; }
+        public List<string> GridNames { get; set; } = new List<string>();
+        public List<string> LevelNames { get; set; } = new List<string>();
+        public List<double> LevelElevations { get; set; } = new List<double>();
+
         public int TotalElements => Elements.Count;
         public int ElementsWithJkrParams => Elements.Count(e => e.Parameters.Count > 0);
         public int ElementsWithJkrCode => Elements.Count(e => !string.IsNullOrEmpty(e.JkrCode));
@@ -288,11 +367,18 @@ namespace RevitWebAppSync.Services
                     HasBpep = hasBpep,
                     TemplateUsed = TemplateUsed,
                     SharedParamFiles = SharedParamFiles,
+                    ProjectInfo = ProjectInfo,
+                    BasePointE = BasePointE,
+                    BasePointN = BasePointN,
+                    BasePointElev = BasePointElev,
+                    GridNames = GridNames,
                 },
                 Model = new JkrModelMetadata
                 {
                     HasLinkedModels = HasLinkedModels,
                     LinkedModelNames = LinkedModelNames,
+                    Levels = LevelNames,
+                    LevelElevations = LevelElevations,
                 },
                 Elements = Elements,
             };

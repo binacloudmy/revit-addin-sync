@@ -41,6 +41,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- JKR BIM spec PDFs — deployed alongside the addin DLL rather than embedded
+         because ~170MB of PDF would bloat the DLL and slow every build. The bootstrap
+         locates them via the addin's runtime directory. -->
+    <Content Include="Resources\bim-reference\*.pdf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="Data\master_prices_seed.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>

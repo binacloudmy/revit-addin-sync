@@ -16,6 +16,11 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         private bool _stepsOpen = true;
         private bool _specOpen = false;
 
+        // Back-reference so action clicks route through the panel's DispatchAction
+        // (which handles backend auto-fix + audit persistence). Set by the panel
+        // after construction — nullable-safe on old callsites.
+        internal RevitWebAppSync.UI.JkrComplianceDashboardPanel HostPanel { get; set; }
+
         public IssueFocusWindow()
         {
             InitializeComponent();
@@ -122,10 +127,17 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             }
 
             var spec = SpecDoc.Get(i.Spec.Doc);
-            SpecShort.Text = $"{spec.Short} · Clause {i.Spec.Clause}";
+            // Clause is optional — the v2 pipeline surfaces page + doc_number but not section yet.
+            var clauseText = string.IsNullOrEmpty(i.Spec.Clause) ? "" : $" · Clause {i.Spec.Clause}";
+            SpecShort.Text = $"{spec.Short}{clauseText}";
             SpecFull.Text = $"{spec.Full} ({spec.Year})";
-            SpecQuote.Text = $"\"{i.Spec.Quote}\"";
-            SpecMeta.Text = $"Clause {i.Spec.Clause} · Page {i.Spec.Page}";
+            SpecQuote.Text = string.IsNullOrEmpty(i.Spec.Quote) ? "" : $"\"{i.Spec.Quote}\"";
+            var pageText = i.Spec.Page > 0 ? $"Page {i.Spec.Page}" : "";
+            SpecMeta.Text = string.IsNullOrEmpty(clauseText) ? pageText : $"Clause {i.Spec.Clause} · {pageText}";
+            // Only show the PDF link when we actually have a doc key to open.
+            OpenPdfLink.Visibility = string.IsNullOrEmpty(i.Spec.Doc)
+                ? Visibility.Collapsed
+                : Visibility.Visible;
             SpecBody.Visibility = _specOpen ? Visibility.Visible : Visibility.Collapsed;
             SpecCaret.Glyph = _specOpen ? "caretDn" : "caretR";
 
@@ -190,11 +202,38 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         private void Back_Click(object s, RoutedEventArgs e) => Close();
         private void Prev_Click(object s, RoutedEventArgs e) { if (_vm?.ActiveIndexDisplay > 1) _vm.ActiveIssue = _vm.Filtered[_vm.ActiveIndexDisplay - 2]; }
         private void Next_Click(object s, RoutedEventArgs e) { if (_vm?.ActiveIndexDisplay < _vm.Filtered.Count) _vm.ActiveIssue = _vm.Filtered[_vm.ActiveIndexDisplay]; }
-        private void ApplyFix_Click(object s, RoutedEventArgs e) { if (_vm?.ActiveIssue != null) _vm.ApplyAction(_vm.ActiveIssue, IssueStatus.Fixed, true); }
-        private void Accept_Click(object s, RoutedEventArgs e)   { if (_vm?.ActiveIssue != null) _vm.ApplyAction(_vm.ActiveIssue, IssueStatus.Accepted, true); }
-        private void Approve_Click(object s, RoutedEventArgs e)  { if (_vm?.ActiveIssue != null && _vm.ActiveIssue.CanApprove) _vm.ApplyAction(_vm.ActiveIssue, IssueStatus.Approved, true); }
-        private void Reopen_Click(object s, RoutedEventArgs e)   { if (_vm?.ActiveIssue != null) _vm.ApplyAction(_vm.ActiveIssue, IssueStatus.Open, false); }
-        private void Locate_Click(object s, RoutedEventArgs e)   { /* wire to Revit UIDocument.ShowElements later */ }
+        private void ApplyFix_Click(object s, RoutedEventArgs e) => _Act(IssueStatus.Fixed,    advance: true);
+        private void Accept_Click(object s, RoutedEventArgs e)   => _Act(IssueStatus.Accepted, advance: true);
+        private void Approve_Click(object s, RoutedEventArgs e)  => _Act(IssueStatus.Approved, advance: true);
+        private void Reopen_Click(object s, RoutedEventArgs e)   => _Act(IssueStatus.Open,     advance: false);
+        private void Locate_Click(object s, RoutedEventArgs e)
+        {
+            if (_vm?.ActiveIssue == null) return;
+            HostPanel?.LocateInRevit(_vm.ActiveIssue);
+        }
+
+        private void OpenPdf_Click(object s, MouseButtonEventArgs e)
+        {
+            var issue = _vm?.ActiveIssue;
+            var doc = issue?.Spec?.Doc;
+            if (string.IsNullOrEmpty(doc)) return;
+            RevitWebAppSync.Services.JkrSpecPdfBootstrap.Open(doc);
+            e.Handled = true;
+        }
+
+        private void _Act(IssueStatus newStatus, bool advance)
+        {
+            var issue = _vm?.ActiveIssue;
+            if (issue == null) return;
+            if (newStatus == IssueStatus.Approved && !issue.CanApprove) return;
+            if (newStatus == IssueStatus.Accepted && !issue.CanAccept) return;
+
+            // Route through the panel so backend auto-fix + audit persistence fire.
+            // Falls back to in-memory flip only if the modal was opened without a host
+            // (shouldn't happen in prod — guard keeps the window self-sufficient for tests).
+            if (HostPanel != null) HostPanel.InvokeAction(issue, newStatus, advance);
+            else _vm.ApplyAction(issue, newStatus, advance);
+        }
         private void SpecToggle_Click(object s, RoutedEventArgs e) { _specOpen = !_specOpen; Render(); }
         private void StepsToggle_Click(object s, RoutedEventArgs e) { _stepsOpen = !_stepsOpen; Render(); }
 
@@ -215,7 +254,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 case Key.F:
                     if (_vm.ActiveIssue?.AutoFixable == true && _vm.ActiveIssue.IsOpen) ApplyFix_Click(s, null); break;
                 case Key.A:
-                    if (_vm.ActiveIssue?.IsOpen == true) Accept_Click(s, null); break;
+                    if (_vm.ActiveIssue?.IsOpen == true && _vm.ActiveIssue.CanAccept) Accept_Click(s, null); break;
                 case Key.X:
                     if (_vm.ActiveIssue?.IsOpen == true && _vm.ActiveIssue.CanApprove) Approve_Click(s, null); break;
             }

@@ -311,7 +311,7 @@
                                         </Border>
                                         <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                                             <TextBlock x:Name="SpecMeta" FontSize="10" Foreground="{StaticResource Ink3}"/>
-                                            <TextBlock Text="  Open PDF ↗" FontSize="10" Foreground="{StaticResource Info}" TextDecorations="Underline" Margin="8,0,0,0" Cursor="Hand"/>
+                                            <TextBlock x:Name="OpenPdfLink" Text="  Open PDF ↗" FontSize="10" Foreground="{StaticResource Info}" TextDecorations="Underline" Margin="8,0,0,0" Cursor="Hand" MouseLeftButtonUp="OpenPdf_Click"/>
                                         </StackPanel>
                                     </StackPanel>
                                 </Border>

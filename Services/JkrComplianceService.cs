@@ -2,6 +2,7 @@ using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -108,6 +109,23 @@ namespace RevitWebAppSync.Services
             }
         }
 
+        /// <summary>
+        /// Stable per-check id used by audit persistence and UI undo keying.
+        /// Same (category, rule, elementId) tuple always produces the same 12-hex string,
+        /// so a re-scan re-uses persisted Accept/Approve decisions.
+        /// </summary>
+        private static string ComputeIssueId(string category, string rule, int elementId)
+        {
+            var key = $"{category ?? ""}|{rule ?? ""}|{elementId}";
+            using (var sha = SHA1.Create())
+            {
+                var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(key));
+                var sb = new StringBuilder(12);
+                for (int i = 0; i < 6; i++) sb.Append(hash[i].ToString("x2"));
+                return sb.ToString();
+            }
+        }
+
         private ModelCheckResponse ConvertV2ToModelCheckResponse(string v2Json)
         {
             // The V2 backend already provides a V1-compatible shape via v2_response_to_v1.
@@ -129,14 +147,17 @@ namespace RevitWebAppSync.Services
                     if (domain.Checks == null) continue;
                     foreach (var check in domain.Checks)
                     {
+                        var category = check.Category ?? "";
+                        var rule = check.Rule ?? "";
                         var issue = new ComplianceIssueDto
                         {
+                            IssueId = ComputeIssueId(category, rule, check.ElementId),
                             ElementId = check.ElementId,
-                            Category = check.Category ?? "",
+                            Category = category,
                             TypeName = check.TypeName ?? "",
                             LevelName = check.LevelName ?? "",
                             Status = check.Status == "cannot_verify" ? "warning" : (check.Status ?? "warning"),
-                            Rule = check.Rule ?? "",
+                            Rule = rule,
                             Actual = check.ActualValue ?? "",
                             Reason = check.Reason ?? "",
                             RequiredValue = check.ExpectedValue ?? "",
@@ -149,6 +170,11 @@ namespace RevitWebAppSync.Services
                             FixSuggestion = check.FixSuggestion ?? "",
                             FixPriority = check.FixAction?.Priority ?? 10,
                             Confidence = check.Confidence ?? "",
+                            // Spec evidence — each check cites the clause it was derived from.
+                            SpecQuote = check.Evidence?.SpecQuote ?? "",
+                            SpecDocNumber = check.Evidence?.DocNumber ?? "",
+                            SpecDocName = check.Evidence?.DocName ?? "",
+                            SpecPage = check.Evidence?.Page ?? 0,
                         };
 
                         if (check.ElementId == 0)
@@ -260,6 +286,23 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("shared_param_files")]
         public List<string> SharedParamFiles { get; set; } = new List<string>();
+
+        // Inputs for new project-scope validators — all optional so older backends
+        // (without these rules wired) simply ignore them.
+        [JsonProperty("project_info")]
+        public Dictionary<string, string> ProjectInfo { get; set; } = new Dictionary<string, string>();
+
+        [JsonProperty("base_point_e")]
+        public double? BasePointE { get; set; }
+
+        [JsonProperty("base_point_n")]
+        public double? BasePointN { get; set; }
+
+        [JsonProperty("base_point_elev")]
+        public double? BasePointElev { get; set; }
+
+        [JsonProperty("grid_names")]
+        public List<string> GridNames { get; set; } = new List<string>();
     }
 
     public class JkrModelMetadata
@@ -269,6 +312,12 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("linked_model_names")]
         public List<string> LinkedModelNames { get; set; } = new List<string>();
+
+        [JsonProperty("levels")]
+        public List<string> Levels { get; set; } = new List<string>();
+
+        [JsonProperty("level_elevations")]
+        public List<double> LevelElevations { get; set; } = new List<double>();
     }
 
     public class JkrComplianceRequestV2

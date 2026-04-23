@@ -256,6 +256,13 @@ namespace RevitWebAppSync.Services
 
     public class ComplianceIssueDto
     {
+        // Stable ID — sha1(category + "|" + rule + "|" + elementId)[0..12].
+        // Populated by JkrComplianceService when converting V2 → DTO. Used by
+        // the audit store to persist Accept/Approve across re-scans and by
+        // the UI to key Undo snapshots.
+        [JsonProperty("issue_id")]
+        public string IssueId { get; set; } = "";
+
         [JsonProperty("element_id")]
         public int ElementId { get; set; }
 
@@ -303,6 +310,13 @@ namespace RevitWebAppSync.Services
         public string FixSuggestion { get; set; }
         public int FixPriority { get; set; } = 10;
         public string Confidence { get; set; } = "";
+
+        // V2 spec evidence — populated from JkrSpecEvidenceV2 so the UI can render
+        // the cited passage verbatim and deep-link into the source PDF.
+        public string SpecQuote { get; set; } = "";
+        public string SpecDocNumber { get; set; } = "";   // e.g. "03", "09"
+        public string SpecDocName { get; set; } = "";
+        public int SpecPage { get; set; }
     }
 
     public class AIRecommendationDto

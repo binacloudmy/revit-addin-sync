@@ -2,7 +2,11 @@ using System.Collections.Generic;
 
 namespace RevitWebAppSync.UI.Jkr.ViewModels
 {
-    /// <summary>Stub issues mirroring design handoff data.jsx — used until backend wiring lands.</summary>
+    /// <summary>
+    /// Stub issues mirroring the data.jsx design handoff. No longer wired into the panel
+    /// (replaced by IssueMapper + JkrComplianceService). Kept as a fixture for design-only
+    /// iteration and manual UI smoke tests. Safe to delete once eval coverage is in place.
+    /// </summary>
     public static class StubData
     {
         public static string Filename => "jkrAR24_5a_(BEde1A_p14-001)…";
