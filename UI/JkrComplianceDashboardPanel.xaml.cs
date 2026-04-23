@@ -518,7 +518,7 @@ namespace RevitWebAppSync.UI
                 case Key.R:
                     if ((Keyboard.Modifiers & ModifierKeys.Control) == 0)
                     {
-                        StartRescan(); e.Handled = true;
+                        _ = RunScanAsync(); e.Handled = true;
                     }
                     break;
             }
@@ -570,7 +570,7 @@ namespace RevitWebAppSync.UI
         private void OpenExportWindow()
         {
             if (_exportWindow != null && _exportWindow.IsLoaded) { _exportWindow.Activate(); return; }
-            _exportWindow = new Jkr.Modals.ExportWindow(_vm);
+            _exportWindow = new Jkr.Modals.ExportWindow(_vm, _jkrService);
             _exportWindow.Closed += (_, __) => { _vm.ExportOpen = false; _exportWindow = null; };
             try { _exportWindow.Owner = Window.GetWindow(this); } catch { }
             _exportWindow.ShowDialog();

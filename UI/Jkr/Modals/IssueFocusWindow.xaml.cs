@@ -106,6 +106,18 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             OpenActions.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
             ResolvedActions.Visibility = open ? Visibility.Collapsed : Visibility.Visible;
 
+            // Show before/after diff on resolved auto-fixes
+            if (!open && i.AutoFixable && !string.IsNullOrEmpty(i.Actual))
+            {
+                ResolvedDiffCard.Visibility = Visibility.Visible;
+                ResolvedDiffMinus.Text = i.Actual;
+                ResolvedDiffPlus.Text = string.IsNullOrEmpty(i.Example) ? i.Required : i.Example;
+            }
+            else
+            {
+                ResolvedDiffCard.Visibility = Visibility.Collapsed;
+            }
+
             if (open)
             {
                 AutoFixCard.Visibility = i.AutoFixable ? Visibility.Visible : Visibility.Collapsed;

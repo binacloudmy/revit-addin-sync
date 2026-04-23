@@ -29,7 +29,8 @@
                                TextWrapping="Wrap"/>
                     <CheckBox x:Name="CbOpen" Style="{StaticResource Cb.Flat}" IsChecked="True" Margin="0,0,0,6"/>
                     <CheckBox x:Name="CbResolved" Style="{StaticResource Cb.Flat}" IsChecked="True" Margin="0,0,0,6"/>
-                    <CheckBox x:Name="CbSpec" Content="Include spec references" Style="{StaticResource Cb.Flat}" IsChecked="True"/>
+                    <CheckBox x:Name="CbSpec" Content="Include spec references" Style="{StaticResource Cb.Flat}" IsChecked="True" Margin="0,0,0,6"/>
+                    <CheckBox x:Name="CbJson" Content="Include request/response JSON" Style="{StaticResource Cb.Flat}" IsChecked="False"/>
                     <Grid Margin="0,16,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>

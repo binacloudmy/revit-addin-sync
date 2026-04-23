@@ -272,6 +272,40 @@
 
                         <!-- Resolved actions -->
                         <StackPanel x:Name="ResolvedActions" Margin="0,14,0,0" Visibility="Collapsed">
+                            <!-- Before/After diff for resolved auto-fixes -->
+                            <Border x:Name="ResolvedDiffCard" CornerRadius="8" BorderBrush="{StaticResource Surface.Line}" BorderThickness="1" ClipToBounds="True" Margin="0,0,0,10" Visibility="Collapsed">
+                                <StackPanel>
+                                    <Border Background="{StaticResource OkBg}" Padding="12,8,12,8">
+                                        <StackPanel Orientation="Horizontal">
+                                            <jkr:IconGlyph Glyph="check" Size="13" Foreground="{StaticResource Ok}" Margin="0,0,8,0"/>
+                                            <TextBlock Text="Auto-fix applied" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource Ok}"/>
+                                        </StackPanel>
+                                    </Border>
+                                    <Grid Margin="12,10,12,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="−" FontSize="12" FontWeight="Bold"
+                                                   Foreground="{StaticResource Hi}" VerticalAlignment="Top" Margin="0,2,8,0"/>
+                                        <Border Grid.Row="0" Grid.Column="1" Background="{StaticResource HiBg}" CornerRadius="3" Padding="6,3,6,3">
+                                            <TextBlock x:Name="ResolvedDiffMinus" FontSize="10.5" Foreground="{StaticResource Hi}"
+                                                       TextWrapping="Wrap" FontFamily="{StaticResource Font.Mono}" TextDecorations="Strikethrough"/>
+                                        </Border>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="+" FontSize="12" FontWeight="Bold"
+                                                   Foreground="{StaticResource Ok}" VerticalAlignment="Top" Margin="0,4,8,0"/>
+                                        <Border Grid.Row="1" Grid.Column="1" Background="{StaticResource OkBg}" CornerRadius="3" Padding="6,3,6,3" Margin="0,2,0,0">
+                                            <TextBlock x:Name="ResolvedDiffPlus" FontSize="10.5" Foreground="{StaticResource Ok}"
+                                                       TextWrapping="Wrap" FontFamily="{StaticResource Font.Mono}"/>
+                                        </Border>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
                             <WrapPanel>
                                 <Button Style="{StaticResource Btn.Sec}" Margin="0,0,6,6" Click="Reopen_Click">
                                     <StackPanel Orientation="Horizontal">
