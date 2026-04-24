@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net8.0-windows</TargetFramework>
     <PlatformTarget>x64</PlatformTarget>
+    <UseWPF>true</UseWPF>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
   </PropertyGroup>
@@ -20,6 +21,8 @@
     -->
     <Compile Include="..\UI\Jkr\ViewModels\JkrTierMap.cs" Link="JkrTierMap.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
+    <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />
+    <Compile Include="..\UI\Jkr\JkrTheme.cs" Link="JkrTheme.cs" />
     <Compile Include="..\Services\JkrCodeParser.cs" Link="JkrCodeParser.cs" />
   </ItemGroup>
 
