@@ -163,7 +163,6 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                     StepsCaret.Glyph = _stepsOpen ? "caretDn" : "caretR";
                 }
                 AcceptBtn.Visibility = i.ShowAcceptButton ? Visibility.Visible : Visibility.Collapsed;
-                ApproveBtn.Visibility = i.ShowApproveButton ? Visibility.Visible : Visibility.Collapsed;
             }
 
             var spec = SpecDoc.Get(i.Spec.Doc);
@@ -295,8 +294,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                     if (_vm.ActiveIssue?.AutoFixable == true && _vm.ActiveIssue.IsActionable) ApplyFix_Click(s, null); break;
                 case Key.A:
                     if (_vm.ActiveIssue?.IsOpen == true && _vm.ActiveIssue.CanAccept) Accept_Click(s, null); break;
-                case Key.X:
-                    if (_vm.ActiveIssue?.IsOpen == true && _vm.ActiveIssue.CanApprove) Approve_Click(s, null); break;
+                // Key.X (approve) removed — merged with Accept.
             }
         }
 

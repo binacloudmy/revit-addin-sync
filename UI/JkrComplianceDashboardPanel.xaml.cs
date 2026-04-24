@@ -632,13 +632,7 @@ namespace RevitWebAppSync.UI
                         e.Handled = true;
                     }
                     break;
-                case Key.X:
-                    if (active != null && active.IsOpen && active.CanApprove)
-                    {
-                        DispatchAction(active, IssueStatus.Approved, _vm.FocusOpen);
-                        e.Handled = true;
-                    }
-                    break;
+                // Key.X (approve) removed — Accept and Approve are merged per user feedback.
                 case Key.OemQuestion: // '/' key
                     if ((Keyboard.Modifiers & ModifierKeys.Shift) == 0)
                     {

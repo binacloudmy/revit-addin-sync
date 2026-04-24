@@ -266,12 +266,6 @@
                                         <TextBlock Text="Accept" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
-                                <Button x:Name="ApproveBtn" Style="{StaticResource Btn.Sec}" Margin="0,0,6,6" Click="Approve_Click" ToolTip="Approve — engineer's override (X)">
-                                    <StackPanel Orientation="Horizontal">
-                                        <jkr:IconGlyph Glyph="approve" Size="12" Foreground="{StaticResource Info}" Margin="0,0,5,0"/>
-                                        <TextBlock Text="Approve" VerticalAlignment="Center"/>
-                                    </StackPanel>
-                                </Button>
                             </WrapPanel>
                         </StackPanel>
 

@@ -291,8 +291,7 @@
                     <ctl:KbdHint Key="↵" Label="open" Margin="0,0,10,0"/>
                     <ctl:KbdHint Key="J/K" Label="nav" Margin="0,0,10,0"/>
                     <ctl:KbdHint Key="F" Label="fix" Margin="0,0,10,0"/>
-                    <ctl:KbdHint Key="A" Label="accept" Margin="0,0,10,0"/>
-                    <ctl:KbdHint Key="X" Label="approve"/>
+                    <ctl:KbdHint Key="A" Label="accept"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button x:Name="ResetBtn" Style="{StaticResource Btn.Sec}" Click="Reset_Click" Margin="0,0,6,0"
