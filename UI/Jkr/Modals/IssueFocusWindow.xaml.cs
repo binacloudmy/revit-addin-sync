@@ -50,7 +50,18 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             Render();
         }
 
-        private void Vm_Changed(object s, PropertyChangedEventArgs e) => Dispatcher.Invoke(Render);
+        private bool _renderQueued;
+
+        private void Vm_Changed(object s, PropertyChangedEventArgs e)
+        {
+            if (_renderQueued) return;
+            _renderQueued = true;
+            Dispatcher.InvokeAsync(() =>
+            {
+                _renderQueued = false;
+                Render();
+            }, System.Windows.Threading.DispatcherPriority.DataBind);
+        }
 
         private void Render()
         {

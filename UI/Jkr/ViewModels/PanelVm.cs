@@ -37,7 +37,13 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string ActiveCategory
         {
             get => _activeCategory;
-            set { _activeCategory = value; Raise(); Raise(nameof(ActiveCategoryLabel)); Refresh(); }
+            set
+            {
+                if (_activeCategory == value) return;
+                _activeCategory = value;
+                Refresh();
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
+            }
         }
         public string ActiveCategoryLabel => _activeCategory ?? "All";
 
@@ -45,7 +51,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string Search
         {
             get => _search;
-            set { _search = value ?? ""; Raise(); Raise(nameof(HasSearch)); Refresh(); }
+            set
+            {
+                var v = value ?? "";
+                if (_search == v) return;
+                _search = v;
+                Refresh();
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
+            }
         }
         public bool HasSearch => !string.IsNullOrEmpty(_search);
 
@@ -53,7 +66,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public TabKind Tab
         {
             get => _tab;
-            set { _tab = value; Raise(); Raise(nameof(IsOpenTab)); Raise(nameof(IsAcceptedTab)); Raise(nameof(IsResolvedTab)); Refresh(); }
+            set
+            {
+                if (_tab == value) return;
+                _tab = value;
+                Refresh();
+                // Single null-name notification covers Tab + IsOpenTab + IsAcceptedTab + IsResolvedTab.
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
+            }
         }
         public bool IsOpenTab => _tab == TabKind.Open;
         public bool IsAcceptedTab => _tab == TabKind.Accepted;
@@ -172,7 +192,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public void Refresh()
         {
             var q = (Search ?? "").ToLowerInvariant();
-            Filtered.Clear();
+
+            // Build the new filtered set first, then swap — avoids per-item
+            // CollectionChanged events from Clear() + Add() one-by-one.
+            var next = new List<IssueVm>();
             foreach (var i in Issues)
             {
                 if (ActiveCategory != null && i.Category != ActiveCategory) continue;
@@ -182,8 +205,24 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (!string.IsNullOrEmpty(q)
                     && i.Title.ToLowerInvariant().IndexOf(q, StringComparison.Ordinal) < 0
                     && i.Description.ToLowerInvariant().IndexOf(q, StringComparison.Ordinal) < 0) continue;
-                Filtered.Add(i);
+                next.Add(i);
             }
+
+            // Only touch the ObservableCollection if contents actually changed.
+            bool same = next.Count == Filtered.Count;
+            if (same)
+            {
+                for (int j = 0; j < next.Count; j++)
+                {
+                    if (!ReferenceEquals(next[j], Filtered[j])) { same = false; break; }
+                }
+            }
+            if (!same)
+            {
+                Filtered.Clear();
+                foreach (var i in next) Filtered.Add(i);
+            }
+
             Raise(nameof(FilteredCount));
             Raise(nameof(HasFiltered));
             if (_activeIssue == null || !Filtered.Contains(_activeIssue))

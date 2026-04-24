@@ -63,9 +63,19 @@ namespace RevitWebAppSync.UI
         // Event plumbing
         // ────────────────────────────────────────────────
 
+        private bool _renderQueued;
+
         private void Vm_PropertyChanged(object sender, PropertyChangedEventArgs e)
         {
-            Dispatcher.Invoke(RenderAll);
+            // Batch multiple rapid-fire PropertyChanged events into a single RenderAll().
+            // Without this, switching tabs fires 4x Raise() → 4x full visual tree walks.
+            if (_renderQueued) return;
+            _renderQueued = true;
+            Dispatcher.InvokeAsync(() =>
+            {
+                _renderQueued = false;
+                RenderAll();
+            }, System.Windows.Threading.DispatcherPriority.DataBind);
         }
 
         private void RenderAll()
