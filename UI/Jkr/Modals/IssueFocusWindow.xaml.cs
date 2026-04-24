@@ -119,6 +119,11 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 ResolvedDiffCard.Visibility = Visibility.Collapsed;
             }
 
+            // Hide "Locate in 3D" for project-level checks (element_id=0).
+            var locateVis = i.Locatable ? Visibility.Visible : Visibility.Collapsed;
+            LocateBtn.Visibility = locateVis;
+            LocateBtnResolved.Visibility = locateVis;
+
             if (actionable)
             {
                 AutoFixCard.Visibility = i.AutoFixable ? Visibility.Visible : Visibility.Collapsed;
@@ -127,6 +132,16 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 {
                     DiffMinus.Text = i.Actual;
                     DiffPlus.Text = string.IsNullOrEmpty(i.Example) ? i.Required : i.Example;
+                    // Show the JKR doc reference for this fix
+                    if (!string.IsNullOrEmpty(i.FixReference))
+                    {
+                        FixRefText.Text = i.FixReference;
+                        FixRefText.Visibility = Visibility.Visible;
+                    }
+                    else
+                    {
+                        FixRefText.Visibility = Visibility.Collapsed;
+                    }
                 }
                 else
                 {

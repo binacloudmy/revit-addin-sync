@@ -51,7 +51,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 {
                     // Backend doc_number is a 2-digit string ("03", "09"). UI uses "doc03".
                     Doc = string.IsNullOrEmpty(dto.SpecDocNumber) ? "" : $"doc{dto.SpecDocNumber}",
-                    Clause = "",                      // backend doesn't surface clause yet
+                    Clause = dto.SpecSection ?? "",
                     Page = dto.SpecPage,
                     Quote = dto.SpecQuote ?? "",
                 },
@@ -61,6 +61,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 FixValue = dto.FixValue ?? "",
                 FixOldValue = dto.FixOldValue ?? "",
                 FixPriority = dto.FixPriority,
+                // UX flags from backend — control button visibility.
+                Locatable = dto.Locatable,
+                FixReference = dto.FixReference ?? "",
             };
         }
 

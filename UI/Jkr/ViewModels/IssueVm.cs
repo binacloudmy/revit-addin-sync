@@ -47,6 +47,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string FixOldValue { get; set; } = "";
         public int FixPriority { get; set; } = 10;
 
+        /// <summary>True when this issue targets a real Revit element (element_id > 0).
+        /// Controls visibility of the "Locate in 3D" button.</summary>
+        public bool Locatable { get; set; }
+
+        /// <summary>JKR spec reference for the fix (e.g. "Doc 09 — BIM Spesifikasi Parameter JKR").
+        /// Shown in the fix tab so users know which spec mandates the change.</summary>
+        public string FixReference { get; set; } = "";
+
         private IssuePriority _priority = IssuePriority.Medium;
         public IssuePriority Priority
         {

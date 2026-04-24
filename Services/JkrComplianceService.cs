@@ -175,6 +175,10 @@ namespace RevitWebAppSync.Services
                             SpecDocNumber = check.Evidence?.DocNumber ?? "",
                             SpecDocName = check.Evidence?.DocName ?? "",
                             SpecPage = check.Evidence?.Page ?? 0,
+                            SpecSection = check.Evidence?.Section ?? "",
+                            // UX flags — control button visibility in the UI.
+                            Locatable = check.Locatable,
+                            FixReference = check.FixAction?.Reference ?? "",
                         };
 
                         if (check.ElementId == 0)
@@ -427,6 +431,14 @@ namespace RevitWebAppSync.Services
         [JsonProperty("fix_action")]
         public JkrFixActionV2 FixAction { get; set; }
 
+        /// <summary>Whether this check's element can be located in Revit 3D view (element_id > 0).</summary>
+        [JsonProperty("locatable")]
+        public bool Locatable { get; set; }
+
+        /// <summary>Whether this check has an auto-fix action the addin can apply.</summary>
+        [JsonProperty("fixable")]
+        public bool Fixable { get; set; }
+
         public bool IsFixable => FixAction != null && !string.IsNullOrEmpty(FixAction.Action);
     }
 
@@ -449,6 +461,9 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("priority")]
         public int Priority { get; set; } = 10;
+
+        [JsonProperty("reference")]
+        public string Reference { get; set; } = "";
     }
 
     public class JkrSpecEvidenceV2
@@ -464,4 +479,7 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("page")]
         public int? Page { get; set; }
+
+        [JsonProperty("section")]
+        public string Section { get; set; } = "";
     }

@@ -317,6 +317,11 @@ namespace RevitWebAppSync.Services
         public string SpecDocNumber { get; set; } = "";   // e.g. "03", "09"
         public string SpecDocName { get; set; } = "";
         public int SpecPage { get; set; }
+        public string SpecSection { get; set; } = "";
+
+        // V2 UX fields — backend-computed booleans for button visibility.
+        public bool Locatable { get; set; }           // true when element_id > 0
+        public string FixReference { get; set; } = "";  // JKR doc reference for the fix tab
     }
 
     public class AIRecommendationDto

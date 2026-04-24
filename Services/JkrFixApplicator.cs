@@ -240,6 +240,9 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("priority")]
         public int Priority { get; set; } = 10;
+
+        [JsonProperty("reference")]
+        public string Reference { get; set; } = "";
     }
 
     public class FixResult
