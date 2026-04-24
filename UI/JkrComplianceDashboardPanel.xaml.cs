@@ -210,7 +210,7 @@ namespace RevitWebAppSync.UI
             }
 
             var fixable = _vm.Issues
-                .Where(i => i.IsOpen && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction))
+                .Where(i => i.IsActionable && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction))
                 .OrderBy(i => i.FixPriority)
                 .ToList();
 
@@ -609,7 +609,7 @@ namespace RevitWebAppSync.UI
                     if (idx > 0) { _vm.ActiveIssue = _vm.Filtered[idx - 1]; e.Handled = true; }
                     break;
                 case Key.F:
-                    if (active != null && active.IsOpen && active.AutoFixable)
+                    if (active != null && active.IsActionable && active.AutoFixable)
                     {
                         DispatchAction(active, IssueStatus.Fixed, _vm.FocusOpen);
                         e.Handled = true;

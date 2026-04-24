@@ -281,7 +281,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 case Key.Up:
                     Prev_Click(s, null); e.Handled = true; break;
                 case Key.F:
-                    if (_vm.ActiveIssue?.AutoFixable == true && _vm.ActiveIssue.IsOpen) ApplyFix_Click(s, null); break;
+                    if (_vm.ActiveIssue?.AutoFixable == true && _vm.ActiveIssue.IsActionable) ApplyFix_Click(s, null); break;
                 case Key.A:
                     if (_vm.ActiveIssue?.IsOpen == true && _vm.ActiveIssue.CanAccept) Accept_Click(s, null); break;
                 case Key.X:
