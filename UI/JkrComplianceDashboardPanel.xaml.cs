@@ -27,9 +27,9 @@ namespace RevitWebAppSync.UI
         private Jkr.Modals.IssueFocusWindow _focusWindow;
         private Jkr.Modals.ExportWindow _exportWindow;
 
-        // LoI level is fixed at 300 for now — old selector was removed from the UI.
-        // Revisit when the backend needs distinct loi_level per project phase.
-        private const int DEFAULT_LOI_LEVEL = 300;
+        // LoI level is selectable via the LOi ComboBox in the hero header.
+        // Default is 300; user can change to 100/200/300/400/500 before scanning.
+        private int SelectedLoiLevel => _vm.SelectedLoiLevel;
 
         public JkrComplianceDashboardPanel()
         {
@@ -317,7 +317,7 @@ namespace RevitWebAppSync.UI
                 // it touches the Revit API. Do it synchronously before the HTTP call.
                 var extraction = JkrBuildingInfoExtractor.Extract(doc);
                 _vm.Filename = string.IsNullOrEmpty(extraction.FileName) ? "(unsaved model)" : extraction.FileName;
-                var request = extraction.ToV2Request(loiLevel: DEFAULT_LOI_LEVEL);
+                var request = extraction.ToV2Request(loiLevel: SelectedLoiLevel);
 
                 // HttpClient is already async — no need for Task.Run. Awaiting yields the UI thread.
                 var response = await _jkrService.CheckJkrComplianceV2Async(request, skipAi: true);

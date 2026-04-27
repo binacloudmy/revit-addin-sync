@@ -57,11 +57,12 @@
         <!-- ═══════════ 1. Hero header (navy) ═══════════ -->
         <Border Grid.Row="1" Background="{StaticResource Navy}" Padding="16,12,16,14">
             <StackPanel>
-                <!-- Row A: logo + title + rescan -->
+                <!-- Row A: logo + title + LOi + rescan -->
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
@@ -83,7 +84,22 @@
                         </StackPanel>
                     </StackPanel>
 
-                    <Button Grid.Column="2" x:Name="RescanBtn" Style="{StaticResource Btn.Ghost}"
+                    <!-- LoI level selector -->
+                    <Border Grid.Column="2" Background="#1AFFFFFF" CornerRadius="4" Padding="4,2,4,2"
+                            Margin="0,0,8,0" VerticalAlignment="Center" ToolTip="Level of Information target">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="LOi" Foreground="{StaticResource NavySubtle}" FontSize="10"
+                                       VerticalAlignment="Center" Margin="0,0,4,0"
+                                       FontFamily="{StaticResource Font.Sans}"/>
+                            <ComboBox x:Name="LoiCombo" Width="52" FontSize="10.5"
+                                      Foreground="White" Background="Transparent" BorderThickness="0"
+                                      ItemsSource="{Binding LoiLevels}"
+                                      SelectedItem="{Binding SelectedLoiLevel, Mode=TwoWay}"
+                                      FontFamily="{StaticResource Font.Mono}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <Button Grid.Column="3" x:Name="RescanBtn" Style="{StaticResource Btn.Ghost}"
                             Click="Rescan_Click" VerticalAlignment="Center" ToolTip="Re-scan (R)">
                         <StackPanel Orientation="Horizontal">
                             <Grid x:Name="RescanIconRoot" Margin="0,0,5,0">
