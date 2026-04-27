@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net48;net8.0-windows</TargetFrameworks>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <PlatformTarget>x64</PlatformTarget>
     <OutputType>Library</OutputType>
     <AssemblyName>BinaConnector</AssemblyName>
@@ -10,19 +10,14 @@
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
-    <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <Product>BINA Platform Connector</Product>
     <Company>BINA CLOUDTECH SDN BHD</Company>
     <Version>1.0.0</Version>
   </PropertyGroup>
 
-  <!-- Per-target Revit install path (overridable via env var or /p:RevitPathXXXX=...) -->
-  <PropertyGroup Condition="'$(TargetFramework)' == 'net48'">
-    <RevitPath Condition="'$(RevitPath2024)' != ''">$(RevitPath2024)</RevitPath>
-    <RevitPath Condition="'$(RevitPath)' == ''">C:\Program Files\Autodesk\Revit 2024</RevitPath>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
+  <!-- Revit install path (overridable via env var or /p:RevitPath=...) -->
+  <PropertyGroup>
     <RevitPath Condition="'$(RevitPath2026)' != ''">$(RevitPath2026)</RevitPath>
     <RevitPath Condition="'$(RevitPath)' == ''">C:\Program Files\Autodesk\Revit 2026</RevitPath>
   </PropertyGroup>
@@ -38,18 +33,11 @@
     </Reference>
   </ItemGroup>
 
-  <!-- DPAPI: in System.Security.dll on .NET Framework, in NuGet on .NET Core/8 -->
-  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
-    <Reference Include="System.Security" />
-    <Reference Include="System.Net.Http" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
-    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
-  </ItemGroup>
-
-  <!-- Newtonsoft.Json: referenced for compile, NOT copied to output (Revit ships its own copy) -->
   <ItemGroup>
+    <!-- Newtonsoft.Json: referenced for compile, NOT copied to output (Revit ships its own copy) -->
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" ExcludeAssets="runtime" />
+    <!-- DPAPI for refresh-token encryption -->
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
   </ItemGroup>
 
   <!-- Auto-discover any PNG in Resources/ as embedded -->
@@ -60,9 +48,8 @@
   <!-- Local-dev convenience: copy to %APPDATA%\Autodesk\Revit\Addins\<year> when /p:DeployToRevit=true -->
   <Target Name="DeployToLocalRevit" AfterTargets="Build" Condition="'$(DeployToRevit)' == 'true'">
     <PropertyGroup>
-      <RevitYear Condition="'$(TargetFramework)' == 'net48'">2024</RevitYear>
-      <RevitYear Condition="'$(TargetFramework)' == 'net8.0-windows' AND '$(DeployRevitYear)' == ''">2026</RevitYear>
       <RevitYear Condition="'$(DeployRevitYear)' != ''">$(DeployRevitYear)</RevitYear>
+      <RevitYear Condition="'$(DeployRevitYear)' == ''">2026</RevitYear>
       <DeployDir>$(APPDATA)\Autodesk\Revit\Addins\$(RevitYear)\</DeployDir>
     </PropertyGroup>
     <Message Text="DeployToLocalRevit: copying $(TargetFileName) to $(DeployDir)" Importance="high" />

@@ -13,13 +13,6 @@
                   Phone=""
                   Url="https://bina.cloud"
                   Email="info@bina.cloud" />
-  <Components Description="BINA Platform Connector — Revit 2024">
-    <RuntimeRequirements OS="Win64" Platform="Revit" SeriesMin="R2024" SeriesMax="R2024" />
-    <ComponentEntry AppName="BinaConnector2024"
-                    ModuleName="./Contents/2024/BinaConnector.addin"
-                    AppDescription="Upload Revit 2024 models to BINA Cloud"
-                    LoadOnRevitStartup="True" />
-  </Components>
   <Components Description="BINA Platform Connector — Revit 2025">
     <RuntimeRequirements OS="Win64" Platform="Revit" SeriesMin="R2025" SeriesMax="R2025" />
     <ComponentEntry AppName="BinaConnector2025"

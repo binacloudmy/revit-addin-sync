@@ -3,7 +3,8 @@
 Free connector that uploads Revit models to BINA Cloud (BIMCloudX), packaged
 for the Autodesk App Store under publisher **BINA CLOUDTECH SDN BHD**.
 
-Supported Revit versions: **2024, 2025, 2026** (Windows x64).
+Supported Revit versions: **2025, 2026** (Windows x64). Revit 2024 support is
+deferred to v1.1 — see `docs/pre-submission-checklist.md` Section K.
 
 ## Repository layout
 
@@ -27,18 +28,18 @@ at the repo root. Both are gitignored.
 
 Requirements:
 - Windows 10/11 x64
-- .NET SDK 8.x (which ships .NET Framework 4.8 reference assemblies)
-- Visual Studio 2022 17.8+ (optional; `dotnet build` works standalone)
-- Local installs of Revit 2024 and Revit 2026 (used only for their `RevitAPI.dll`
-  reference assemblies). Override paths via `RevitPath2024` / `RevitPath2026`
-  environment variables if installed in non-default locations.
+- .NET SDK 8.x
+- A local install of Revit 2026 (used only for its `RevitAPI.dll` reference
+  assemblies). Override the path via the `RevitPath2026` environment variable
+  if installed in a non-default location.
 
 ```powershell
 pwsh ./build-bundle.ps1
 ```
 
 The script:
-1. Builds `net48` (for Revit 2024) and `net8.0-windows` (for Revit 2025/2026).
+1. Builds `net8.0-windows` (used by both Revit 2025 and Revit 2026 — same
+   binary, different per-version `.addin` manifest).
 2. Assembles `BinaConnector.bundle/` from build outputs + `bundle-templates/`.
 3. Validates structure and warns on unfilled `[PLACEHOLDER]` strings.
 4. Zips to `BinaConnector.bundle.zip` ready for App Store submission.
@@ -90,10 +91,12 @@ API endpoint can be overridden at runtime via the `BINA_API_BASE_URL` and
 
 ## Known limitations
 
+- **Revit 2024 support is deferred.** Building net48 + WPF on a CLI-only
+  Windows box (no VS Build Tools) hits a known WPF MarkupCompilePass1 issue
+  against net48 Facade assemblies. Add it back in v1.1 with VS Build Tools
+  installed — see checklist Section K for the recipe and the reserved GUID.
 - **Token refresh is not yet wired up.** When the in-memory access token
   expires (or after a Revit restart), users are re-prompted for password.
   Implementing silent refresh requires a backend refresh endpoint.
 - **Icons are placeholders.** Replace `Resources/*.png` and
   `bundle-templates/icons/*.png` with branded artwork before submission.
-- **Support URL/email and production API URL are placeholders.** See the
-  pre-submission checklist for every location to update.

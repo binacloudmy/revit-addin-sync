@@ -27,17 +27,19 @@ These are intentionally left as visible strings so they cannot be missed.
 
 ## B. Confirm pinned addin GUIDs
 
-Three GUIDs are baked into the per-version `.addin` templates. Once the addin
+Two GUIDs are baked into the per-version `.addin` templates. Once the addin
 ships, **never regenerate these**, or every customer's install will look like a
 brand-new addin to Revit (causing duplicate ribbon entries).
 
-- [ ] `bundle-templates/2024.addin` AddInId = `d1145ebb-15ba-4bd2-ba44-661bfe42b779`
 - [ ] `bundle-templates/2025.addin` AddInId = `960afc57-a477-4c3b-86b4-2ee0f75277bf`
 - [ ] `bundle-templates/2026.addin` AddInId = `971f9c67-7aba-4682-b3f4-7bc56be35bd4`
 
+> **Reserved for future Revit 2024 support:** `d1145ebb-15ba-4bd2-ba44-661bfe42b779`.
+> Never shipped, so safe to reuse if/when 2024 is added back.
+
 If you need to change them for any reason (e.g. you forked from an internal
-build that already used these GUIDs in the wild), regenerate ALL THREE in one
-go and document the rotation in the App Store submission notes.
+build that already used these GUIDs in the wild), regenerate both in one go
+and document the rotation in the App Store submission notes.
 
 ## C. Replace placeholder artwork
 
@@ -73,7 +75,6 @@ pwsh ./build-bundle.ps1
 - [ ] Unzipping it produces:
       ```
       PackageContents.xml
-      Contents/2024/BinaConnector.{addin,dll}
       Contents/2025/BinaConnector.{addin,dll}
       Contents/2026/BinaConnector.{addin,dll}
       Contents/Resources/EULA.html
@@ -87,9 +88,11 @@ pwsh ./build-bundle.ps1
 
 ## F. Smoke tests in each Revit version
 
-Repeat for **2024**, **2025**, and **2026**. (You can install the bundle by
+Repeat for **2025** and **2026**. (You can install the bundle by
 unzipping it into `%PROGRAMDATA%\Autodesk\ApplicationPlugins\BinaConnector.bundle\`
 or by running the App Store-built installer when you have one.)
+
+> Revit 2024 support is deferred for v1 — see Section K below.
 
 For each Revit version:
 
@@ -152,6 +155,25 @@ For each Revit version:
       2. Implement silent re-auth using the stored refresh token before v1.0
          submission. This requires the BINA backend to expose a refresh
          endpoint.
+
+## K. Revit 2024 support — deferred to v1.1
+
+For v1.0 the connector targets Revit **2025 and 2026** only (single
+`net8.0-windows` build). Revit 2024 is on .NET Framework 4.8 + WPF, and on a
+CLI-only Windows box (no Visual Studio Build Tools) the .NET SDK's MSBuild
+fails the WPF MarkupCompilePass1 step against net48 Facade assemblies. To add
+2024 back:
+
+1. Install Visual Studio Build Tools 2022 with the ".NET desktop build tools"
+   workload on the Windows build machine.
+2. Restore the `net48;net8.0-windows` multi-target in `BinaConnector.csproj`.
+3. Restore the `Components` block + `2024.addin` template +
+   `Contents/2024/` assembly in the build script.
+4. Build with `msbuild.exe` (not `dotnet build`) for the net48 target. The
+   `msbuild` from VS Build Tools resolves `System.Security.SecurityRuleSet`
+   correctly because it loads `mscorlib` ahead of the Facade.
+5. Reuse the reserved GUID `d1145ebb-15ba-4bd2-ba44-661bfe42b779` for the
+   2024 manifest.
 
 ## J. Submit
 

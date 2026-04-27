@@ -4,10 +4,15 @@
     Builds the BINA Platform Connector and assembles the Autodesk App Store bundle.
 
 .DESCRIPTION
-    1. Builds BinaConnector.csproj for net48 (Revit 2024) and net8.0-windows (Revit 2025/2026).
+    1. Builds BinaConnector.csproj for net8.0-windows (Revit 2025/2026).
     2. Assembles BinaConnector.bundle/ from build outputs + bundle-templates/.
     3. Validates the bundle structure.
     4. Zips the result as BinaConnector.bundle.zip ready for submission.
+
+    Revit 2024 support is deferred (requires .NET Framework 4.8 + WPF, which only
+    builds reliably with Visual Studio Build Tools' MSBuild rather than the
+    .NET SDK's MSBuild). Re-introduce by adding a net48 target back to the csproj
+    and building with msbuild.exe instead of dotnet build.
 
 .PARAMETER SkipBuild
     Re-package using existing build outputs without re-running dotnet build.
@@ -24,7 +29,7 @@
 
 .EXAMPLE
     pwsh ./build-bundle.ps1 -SkipBuild
-    # Re-zip after editing templates without rebuilding the DLLs.
+    # Re-zip after editing templates without rebuilding the DLL.
 #>
 [CmdletBinding()]
 param(
@@ -41,7 +46,6 @@ $csproj      = Join-Path $repoRoot 'BinaConnector.csproj'
 $bundleRoot  = Join-Path $repoRoot 'BinaConnector.bundle'
 $bundleZip   = Join-Path $repoRoot 'BinaConnector.bundle.zip'
 $templates   = Join-Path $repoRoot 'bundle-templates'
-$net48Out    = Join-Path $repoRoot ('bin/' + $Configuration + '/net48')
 $net8Out     = Join-Path $repoRoot ('bin/' + $Configuration + '/net8.0-windows')
 
 function Step($message) { Write-Host "==> $message" -ForegroundColor Cyan }
@@ -52,45 +56,36 @@ if (-not $SkipBuild) {
     Step "Cleaning previous build outputs"
     & dotnet clean $csproj -c $Configuration | Out-Null
 
-    Step "Building net48 (Revit 2024)"
-    & dotnet build $csproj -c $Configuration -f net48
-    if ($LASTEXITCODE -ne 0) { Fail "net48 build failed" }
-
     Step "Building net8.0-windows (Revit 2025/2026)"
     & dotnet build $csproj -c $Configuration -f net8.0-windows
     if ($LASTEXITCODE -ne 0) { Fail "net8.0-windows build failed" }
 }
 
-# 2. Verify expected DLLs exist
-$dllNet48 = Join-Path $net48Out 'BinaConnector.dll'
-$dllNet8  = Join-Path $net8Out  'BinaConnector.dll'
-if (-not (Test-Path $dllNet48)) { Fail "Missing build output: $dllNet48" }
-if (-not (Test-Path $dllNet8))  { Fail "Missing build output: $dllNet8" }
+# 2. Verify expected DLL exists
+$dllNet8 = Join-Path $net8Out 'BinaConnector.dll'
+if (-not (Test-Path $dllNet8)) { Fail "Missing build output: $dllNet8" }
 
 # 3. Assemble bundle
 Step "Assembling BinaConnector.bundle/"
 if (Test-Path $bundleRoot) { Remove-Item $bundleRoot -Recurse -Force }
 $contents = Join-Path $bundleRoot 'Contents'
-New-Item -ItemType Directory -Path (Join-Path $contents '2024')         | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $contents '2025')         | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $contents '2026')         | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $contents 'Resources/icons') | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $contents 'Resources/help')  | Out-Null
 
-# DLLs (and optionally PDBs)
-Copy-Item $dllNet48 (Join-Path $contents '2024/BinaConnector.dll')
-Copy-Item $dllNet8  (Join-Path $contents '2025/BinaConnector.dll')
-Copy-Item $dllNet8  (Join-Path $contents '2026/BinaConnector.dll')
+# DLL (and optionally PDB) — same net8 binary into both 2025 and 2026 folders
+Copy-Item $dllNet8 (Join-Path $contents '2025/BinaConnector.dll')
+Copy-Item $dllNet8 (Join-Path $contents '2026/BinaConnector.dll')
 if ($IncludePdb) {
-    $pdbNet48 = Join-Path $net48Out 'BinaConnector.pdb'
-    $pdbNet8  = Join-Path $net8Out  'BinaConnector.pdb'
-    if (Test-Path $pdbNet48) { Copy-Item $pdbNet48 (Join-Path $contents '2024/BinaConnector.pdb') }
-    if (Test-Path $pdbNet8)  { Copy-Item $pdbNet8  (Join-Path $contents '2025/BinaConnector.pdb') }
-    if (Test-Path $pdbNet8)  { Copy-Item $pdbNet8  (Join-Path $contents '2026/BinaConnector.pdb') }
+    $pdbNet8 = Join-Path $net8Out 'BinaConnector.pdb'
+    if (Test-Path $pdbNet8) {
+        Copy-Item $pdbNet8 (Join-Path $contents '2025/BinaConnector.pdb')
+        Copy-Item $pdbNet8 (Join-Path $contents '2026/BinaConnector.pdb')
+    }
 }
 
 # Per-version .addin manifests (pinned GUIDs)
-Copy-Item (Join-Path $templates '2024.addin') (Join-Path $contents '2024/BinaConnector.addin')
 Copy-Item (Join-Path $templates '2025.addin') (Join-Path $contents '2025/BinaConnector.addin')
 Copy-Item (Join-Path $templates '2026.addin') (Join-Path $contents '2026/BinaConnector.addin')
 
@@ -108,7 +103,6 @@ Get-ChildItem (Join-Path $templates 'icons') -Filter *.png | ForEach-Object {
 Step "Validating bundle"
 $required = @(
     'PackageContents.xml',
-    'Contents/2024/BinaConnector.addin', 'Contents/2024/BinaConnector.dll',
     'Contents/2025/BinaConnector.addin', 'Contents/2025/BinaConnector.dll',
     'Contents/2026/BinaConnector.addin', 'Contents/2026/BinaConnector.dll',
     'Contents/Resources/EULA.html',
@@ -133,7 +127,6 @@ try {
 
 # Warn on unfilled placeholders
 $placeholders = Select-String -Path (Join-Path $bundleRoot 'PackageContents.xml'),
-                                    (Join-Path $bundleRoot 'Contents/2024/BinaConnector.addin'),
                                     (Join-Path $bundleRoot 'Contents/2025/BinaConnector.addin'),
                                     (Join-Path $bundleRoot 'Contents/2026/BinaConnector.addin'),
                                     (Join-Path $bundleRoot 'Contents/Resources/EULA.html'),
