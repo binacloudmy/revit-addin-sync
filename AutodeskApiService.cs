@@ -1,75 +1,55 @@
 using System;
 using System.IO;
+using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace RevitWebAppSync
+namespace BinaConnector
 {
-    public class AutodeskApiService
+    public class AutodeskApiService : IDisposable
     {
         private readonly HttpClient _httpClient;
-        private readonly string _backendUrl = "https://6d9e82978eba.ngrok-free.app";
+        private string _uploadKey;
 
         public AutodeskApiService()
         {
-            _httpClient = new HttpClient();
-            _httpClient.Timeout = TimeSpan.FromMinutes(10); // 10 minute timeout for large uploads
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "RevitAutodeskSync/1.0");
+            _httpClient = new HttpClient { Timeout = BinaApiConfig.UploadTimeout };
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", BinaApiConfig.UserAgent);
         }
 
-        private void LogToFile(string message)
+        private static void Log(string message)
         {
             try
             {
-                string logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "autodesk_upload_log.txt");
-                string timestampedMessage = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}";
-                File.AppendAllText(logPath, timestampedMessage + Environment.NewLine);
+                Paths.EnsureDirectories();
+                string logPath = Path.Combine(Paths.LogDirectory, "autodesk_api.log");
+                File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}");
             }
-            catch { /* Ignore logging errors */ }
+            catch { /* logging failures are non-fatal */ }
         }
 
         public async Task<string> GetAccessTokenAsync(string binaAccessToken)
         {
             try
             {
-                LogToFile("Requesting Autodesk access token from BINA backend...");
-                
-                _httpClient.DefaultRequestHeaders.Authorization = 
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", binaAccessToken);
-
-                string url = $"{_backendUrl}/api/integration/autodesk-auth";
-                LogToFile($"Requesting URL: {url}");
-
-                var response = await _httpClient.GetAsync(url);
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", binaAccessToken);
+                var response = await _httpClient.GetAsync($"{BinaApiConfig.BaseUrl}/api/integration/autodesk-auth");
                 string responseBody = await response.Content.ReadAsStringAsync();
-                
-                LogToFile($"Response status: {response.StatusCode}");
-                LogToFile($"Response body: {responseBody}");
-                
                 if (!response.IsSuccessStatusCode)
                 {
-                    LogToFile($"❌ Failed to obtain Autodesk access token. Status: {response.StatusCode}");
+                    Log($"GetAccessTokenAsync failed: {response.StatusCode}");
                     return null;
                 }
-
-                // The backend returns the access token directly as a string, not as JSON
-                string accessToken = responseBody.Trim().Trim('"'); // Remove any quotes if present
-                
-                if (string.IsNullOrEmpty(accessToken))
-                {
-                    LogToFile($"❌ No access token found in response: {responseBody}");
-                    return null;
-                }
-                
-                LogToFile($"✅ Autodesk access token received: {accessToken.Substring(0, 20)}...");
-                return accessToken;
+                string accessToken = responseBody.Trim().Trim('"');
+                return string.IsNullOrEmpty(accessToken) ? null : accessToken;
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ GetAccessTokenAsync failed with exception: {ex.Message}");
+                Log($"GetAccessTokenAsync exception: {ex.Message}");
                 return null;
             }
         }
@@ -78,162 +58,89 @@ namespace RevitWebAppSync
         {
             try
             {
-                LogToFile($"✨ Requesting signed S3 upload URL from Autodesk OSS...");
-                LogToFile($"Bucket: {bucketKey}, Object: {objectKey}");
-                
-                _httpClient.DefaultRequestHeaders.Authorization = 
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
                 string url = $"https://developer.api.autodesk.com/oss/v2/buckets/{bucketKey}/objects/{objectKey}/signeds3upload?minutesExpiration=10";
-                LogToFile($"Requesting URL: {url}");
-
                 var response = await _httpClient.GetAsync(url);
                 string responseBody = await response.Content.ReadAsStringAsync();
-                
-                LogToFile($"Response status: {response.StatusCode}");
-                LogToFile($"Response body: {responseBody}");
-                
                 if (!response.IsSuccessStatusCode)
                 {
-                    LogToFile($"❌ Failed to obtain signed S3 upload URL. Status: {response.StatusCode}");
+                    Log($"GetSignedS3UploadUrlAsync failed: {response.StatusCode} {responseBody}");
                     return null;
                 }
-
                 var jsonResponse = JObject.Parse(responseBody);
                 string signedUrl = jsonResponse["urls"]?[0]?.ToString();
                 string uploadKey = jsonResponse["uploadKey"]?.ToString();
-                
-                if (string.IsNullOrEmpty(signedUrl) || string.IsNullOrEmpty(uploadKey))
-                {
-                    LogToFile($"❌ Missing signed URL or upload key in response: {responseBody}");
-                    return null;
-                }
-                
-                // Store upload key for later use in completion
+                if (string.IsNullOrEmpty(signedUrl) || string.IsNullOrEmpty(uploadKey)) return null;
                 _uploadKey = uploadKey;
-                
-                LogToFile($"✅ Signed S3 upload URL received");
                 return signedUrl;
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ GetSignedS3UploadUrlAsync failed with exception: {ex.Message}");
+                Log($"GetSignedS3UploadUrlAsync exception: {ex.Message}");
                 return null;
             }
         }
-
-        private string _uploadKey;
 
         public async Task<bool> UploadToS3Async(string signedUrl, string filePath, Action<int> onProgress = null)
         {
             try
             {
-                LogToFile($"🚀 Starting S3 upload...");
-                LogToFile($"File path: {filePath}");
-                
-                byte[] fileBytes = await ReadFileWithRetryAsync(filePath);
-                if (fileBytes == null)
+                byte[] fileBytes = await ReadFileWithCopyAsync(filePath);
+                if (fileBytes == null) return false;
+
+                using var content = new ByteArrayContent(fileBytes);
+                using var progressContent = new ProgressableStreamContent(content, (sent, total) =>
                 {
-                    LogToFile($"❌ Failed to read file after retries: {filePath}");
-                    return false;
-                }
-                
-                LogToFile($"File loaded: {fileBytes.Length} bytes");
-                
-                var content = new ByteArrayContent(fileBytes);
-                
-                LogToFile("Sending PUT request to S3...");
-                
-                // Track upload progress
-                var progressContent = new ProgressableStreamContent(content, (sent, total) =>
-                {
-                    if (total > 0)
-                    {
-                        int progressPercent = (int)((sent * 100) / total);
-                        onProgress?.Invoke(progressPercent);
-                    }
+                    if (total > 0) onProgress?.Invoke((int)((sent * 100) / total));
                 });
 
-                // Remove Authorization header for S3 signed URL upload to avoid conflict
                 var originalAuth = _httpClient.DefaultRequestHeaders.Authorization;
                 _httpClient.DefaultRequestHeaders.Authorization = null;
-                
                 try
                 {
                     var response = await _httpClient.PutAsync(signedUrl, progressContent);
-                    
-                    LogToFile($"S3 upload response status: {response.StatusCode}");
-                    
-                    if (response.IsSuccessStatusCode)
+                    if (!response.IsSuccessStatusCode)
                     {
-                        LogToFile("✅ S3 upload successful!");
-                        return true;
+                        string body = await response.Content.ReadAsStringAsync();
+                        Log($"UploadToS3Async failed: {response.StatusCode} {body}");
                     }
-                    else
-                    {
-                        string responseBody = await response.Content.ReadAsStringAsync();
-                        LogToFile($"❌ S3 upload failed. Response: {responseBody}");
-                        return false;
-                    }
+                    return response.IsSuccessStatusCode;
                 }
                 finally
                 {
-                    // Restore Authorization header for other API calls
                     _httpClient.DefaultRequestHeaders.Authorization = originalAuth;
                 }
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ S3 upload failed with exception: {ex.Message}");
+                Log($"UploadToS3Async exception: {ex.Message}");
                 return false;
             }
         }
 
-        private async Task<byte[]> ReadFileWithRetryAsync(string filePath)
+        private static async Task<byte[]> ReadFileWithCopyAsync(string filePath)
         {
             string tempFilePath = null;
             try
             {
-                LogToFile($"📖 Creating temporary copy of file to avoid lock issues...");
-                
-                // Create a temporary copy of the file to avoid file lock issues (same approach as OBS upload)
                 tempFilePath = Path.Combine(Path.GetTempPath(), $"autodesk_upload_{Guid.NewGuid()}{Path.GetExtension(filePath)}");
-                LogToFile($"Creating temporary copy: {tempFilePath}");
-                
-                // Use FileStream with ReadWrite sharing to copy the file even if it's open in Revit
                 using (var sourceStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 using (var destStream = new FileStream(tempFilePath, FileMode.Create, FileAccess.Write))
                 {
                     await sourceStream.CopyToAsync(destStream);
                 }
-                
-                LogToFile("✅ Temporary file created successfully");
-                
-                // Read the temporary file
-                byte[] fileBytes = await File.ReadAllBytesAsync(tempFilePath);
-                LogToFile($"✅ File loaded from temp copy: {fileBytes.Length} bytes");
-                
-                return fileBytes;
+                return File.ReadAllBytes(tempFilePath);
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ Error creating temporary file copy: {ex.Message}");
+                Log($"ReadFileWithCopyAsync exception: {ex.Message}");
                 return null;
             }
             finally
             {
-                // Clean up temporary file
                 if (!string.IsNullOrEmpty(tempFilePath) && File.Exists(tempFilePath))
                 {
-                    try
-                    {
-                        File.Delete(tempFilePath);
-                        LogToFile($"🗑️ Temporary file cleaned up: {tempFilePath}");
-                    }
-                    catch (Exception ex)
-                    {
-                        LogToFile($"⚠️ Failed to delete temporary file: {ex.Message}");
-                    }
+                    try { File.Delete(tempFilePath); } catch { }
                 }
             }
         }
@@ -242,11 +149,7 @@ namespace RevitWebAppSync
         {
             try
             {
-                LogToFile($"✨ Completing multipart upload...");
-                LogToFile($"Bucket: {bucketKey}, Object: {objectKey}");
-                
-                _httpClient.DefaultRequestHeaders.Authorization = 
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
                 var requestData = new
                 {
@@ -257,52 +160,29 @@ namespace RevitWebAppSync
                 };
 
                 string jsonContent = JsonConvert.SerializeObject(requestData);
-                var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+                using var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
-                string url = $"https://developer.api.autodesk.com/oss/v2/buckets/{bucketKey}/objects/{objectKey}/signeds3upload";
-                LogToFile($"Requesting URL: {url}");
-                LogToFile($"Request body: {jsonContent}");
-
-                var response = await _httpClient.PostAsync(url, content);
+                var response = await _httpClient.PostAsync(
+                    $"https://developer.api.autodesk.com/oss/v2/buckets/{bucketKey}/objects/{objectKey}/signeds3upload",
+                    content);
                 string responseBody = await response.Content.ReadAsStringAsync();
-                
-                LogToFile($"Response status: {response.StatusCode}");
-                LogToFile($"Response body: {responseBody}");
-                
                 if (!response.IsSuccessStatusCode)
                 {
-                    LogToFile($"❌ Failed to complete multipart upload. Status: {response.StatusCode}");
+                    Log($"CompleteMultipartUploadAsync failed: {response.StatusCode} {responseBody}");
                     return null;
                 }
 
                 var jsonResponse = JObject.Parse(responseBody);
                 string urn = jsonResponse["objectId"]?.ToString();
                 long fileSize = jsonResponse["size"]?.ToObject<long>() ?? 0;
-                
-                if (string.IsNullOrEmpty(urn))
-                {
-                    LogToFile($"❌ No objectId (URN) found in response: {responseBody}");
-                    return null;
-                }
-                
-                // Convert URN to Base64 format (remove padding)
+                if (string.IsNullOrEmpty(urn)) return null;
+
                 string urnInBase64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(urn)).Replace("=", "");
-                
-                LogToFile($"✅ Upload completed successfully!");
-                LogToFile($"URN: {urn}");
-                LogToFile($"URN in Base64: {urnInBase64}");
-                LogToFile($"File size: {fileSize} bytes");
-                
-                return new AutodeskUploadResult
-                {
-                    Urn = urn,
-                    UrnInBase64 = urnInBase64,
-                    FileSize = fileSize
-                };
+                return new AutodeskUploadResult { Urn = urn, UrnInBase64 = urnInBase64, FileSize = fileSize };
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ CompleteMultipartUploadAsync failed with exception: {ex.Message}");
+                Log($"CompleteMultipartUploadAsync exception: {ex.Message}");
                 return null;
             }
         }
@@ -311,95 +191,58 @@ namespace RevitWebAppSync
         {
             try
             {
-                string bucketKey = Environment.GetEnvironmentVariable("NEXT_PUBLIC_AUTODESK_BUCKET") ?? "bina-dev-forge-testing";
-                
+                // Bucket name is overridable via env var; default is the BINA-managed Autodesk bucket.
+                // Verify the default value matches the production bucket before App Store submission.
+                string bucketKey = Environment.GetEnvironmentVariable("BINA_AUTODESK_BUCKET") ?? "bina-dev-forge-testing";
                 string fileName = Path.GetFileName(filePath);
                 string timestamp = DateTimeOffset.Now.ToUnixTimeMilliseconds().ToString();
-                
                 string prefix = string.IsNullOrEmpty(disciplineType) ? "general" : disciplineType;
                 string objectKey = $"{prefix}-{timestamp}-{fileName}";
-                
-                LogToFile($"Upload parameters: Bucket={bucketKey}, ObjectKey={objectKey}");
                 return (bucketKey, objectKey);
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ Error generating upload parameters: {ex.Message}");
+                Log($"GetUploadParameters exception: {ex.Message}");
                 return (null, null);
             }
         }
 
-        public async Task<AutodeskUploadResult> UploadFileAsync(string binaAccessToken, string filePath, string disciplineType = null, Action<int> onProgress = null)
+        public async Task<AutodeskUploadResult> UploadFileAsync(
+            string binaAccessToken, string filePath, string disciplineType = null, Action<int> onProgress = null)
         {
             try
             {
-                LogToFile($"🚀 Starting Autodesk OSS upload workflow...");
-                
-                // Step 1: Get Autodesk access token
                 onProgress?.Invoke(10);
                 string accessToken = await GetAccessTokenAsync(binaAccessToken);
-                if (string.IsNullOrEmpty(accessToken))
-                {
-                    LogToFile("❌ Failed to get Autodesk access token");
-                    return null;
-                }
+                if (string.IsNullOrEmpty(accessToken)) return null;
 
-                // Step 2: Generate upload parameters
                 onProgress?.Invoke(20);
                 var (bucketKey, objectKey) = GetUploadParameters(filePath, disciplineType);
-                if (string.IsNullOrEmpty(bucketKey) || string.IsNullOrEmpty(objectKey))
-                {
-                    LogToFile("❌ Failed to generate upload parameters");
-                    return null;
-                }
+                if (string.IsNullOrEmpty(bucketKey) || string.IsNullOrEmpty(objectKey)) return null;
 
-                // Step 3: Get signed S3 upload URL
                 onProgress?.Invoke(30);
                 string signedUrl = await GetSignedS3UploadUrlAsync(accessToken, bucketKey, objectKey);
-                if (string.IsNullOrEmpty(signedUrl))
-                {
-                    LogToFile("❌ Failed to get signed S3 upload URL");
-                    return null;
-                }
+                if (string.IsNullOrEmpty(signedUrl)) return null;
 
-                // Step 4: Upload to S3 (50-80% of progress)
-                bool uploadSuccess = await UploadToS3Async(signedUrl, filePath, (s3Progress) =>
-                {
-                    int totalProgress = 50 + (int)(s3Progress * 0.3); // 50-80%
-                    onProgress?.Invoke(totalProgress);
-                });
-                
-                if (!uploadSuccess)
-                {
-                    LogToFile("❌ Failed to upload to S3");
-                    return null;
-                }
+                bool uploadSuccess = await UploadToS3Async(signedUrl, filePath, s3 =>
+                    onProgress?.Invoke(50 + (int)(s3 * 0.3)));
+                if (!uploadSuccess) return null;
 
-                // Step 5: Complete multipart upload
                 onProgress?.Invoke(90);
                 var result = await CompleteMultipartUploadAsync(accessToken, bucketKey, objectKey);
-                if (result == null)
-                {
-                    LogToFile("❌ Failed to complete multipart upload");
-                    return null;
-                }
+                if (result == null) return null;
 
                 onProgress?.Invoke(100);
-                LogToFile("✅ Autodesk OSS upload workflow completed successfully!");
-                
                 return result;
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ UploadFileAsync failed with exception: {ex.Message}");
+                Log($"UploadFileAsync exception: {ex.Message}");
                 return null;
             }
         }
 
-        public void Dispose()
-        {
-            _httpClient?.Dispose();
-        }
+        public void Dispose() => _httpClient?.Dispose();
     }
 
     public class AutodeskUploadResult
@@ -409,7 +252,7 @@ namespace RevitWebAppSync
         public long FileSize { get; set; }
     }
 
-    // Helper class for tracking upload progress
+    /// <summary>HttpContent wrapper that emits progress callbacks during streaming.</summary>
     public class ProgressableStreamContent : HttpContent
     {
         private readonly HttpContent _content;
@@ -419,14 +262,13 @@ namespace RevitWebAppSync
         {
             _content = content;
             _onProgress = onProgress;
-            
             foreach (var header in content.Headers)
             {
                 Headers.TryAddWithoutValidation(header.Key, header.Value);
             }
         }
 
-        protected override Task SerializeToStreamAsync(Stream stream, System.Net.TransportContext context)
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext context)
         {
             return Task.Run(async () =>
             {
@@ -434,7 +276,6 @@ namespace RevitWebAppSync
                 var sourceStream = await _content.ReadAsStreamAsync();
                 var totalLength = sourceStream.Length;
                 var totalRead = 0L;
-
                 int read;
                 while ((read = await sourceStream.ReadAsync(buffer, 0, buffer.Length)) > 0)
                 {
@@ -453,10 +294,7 @@ namespace RevitWebAppSync
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing)
-            {
-                _content?.Dispose();
-            }
+            if (disposing) _content?.Dispose();
             base.Dispose(disposing);
         }
     }

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage SchemaVersion="1.0"
+                    AutodeskProduct="Revit"
+                    Name="BINA Platform Connector"
+                    AppVersion="1.0.0"
+                    ProductType="Application"
+                    Description="Free connector to upload Revit models to BINA Cloud (BIMCloudX)."
+                    Author="BINA CLOUDTECH SDN BHD"
+                    HelpFile="./Contents/Resources/help/index.html"
+                    OnlineDocumentation="https://bina.cloud"
+                    SupportedLocales="Enu">
+  <CompanyDetails Name="BINA CLOUDTECH SDN BHD"
+                  Phone=""
+                  Url="https://bina.cloud"
+                  Email="info@bina.cloud" />
+  <Components Description="BINA Platform Connector — Revit 2024">
+    <RuntimeRequirements OS="Win64" Platform="Revit" SeriesMin="R2024" SeriesMax="R2024" />
+    <ComponentEntry AppName="BinaConnector2024"
+                    ModuleName="./Contents/2024/BinaConnector.addin"
+                    AppDescription="Upload Revit 2024 models to BINA Cloud"
+                    LoadOnRevitStartup="True" />
+  </Components>
+  <Components Description="BINA Platform Connector — Revit 2025">
+    <RuntimeRequirements OS="Win64" Platform="Revit" SeriesMin="R2025" SeriesMax="R2025" />
+    <ComponentEntry AppName="BinaConnector2025"
+                    ModuleName="./Contents/2025/BinaConnector.addin"
+                    AppDescription="Upload Revit 2025 models to BINA Cloud"
+                    LoadOnRevitStartup="True" />
+  </Components>
+  <Components Description="BINA Platform Connector — Revit 2026">
+    <RuntimeRequirements OS="Win64" Platform="Revit" SeriesMin="R2026" SeriesMax="R2026" />
+    <ComponentEntry AppName="BinaConnector2026"
+                    ModuleName="./Contents/2026/BinaConnector.addin"
+                    AppDescription="Upload Revit 2026 models to BINA Cloud"
+                    LoadOnRevitStartup="True" />
+  </Components>
+</ApplicationPackage>

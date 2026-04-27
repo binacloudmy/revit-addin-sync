@@ -1,0 +1,19 @@
+# Build output
+bin/
+obj/
+
+# IDE
+.vs/
+*.user
+*.suo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Bundle output (assembled by build-bundle.ps1; templates live in bundle-templates/)
+BinaConnector.bundle/
+BinaConnector.bundle.zip
+
+# Local config
+config.local.json

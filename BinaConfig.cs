@@ -1,43 +1,43 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using Newtonsoft.Json;
 
-namespace RevitWebAppSync
+namespace BinaConnector
 {
+    /// <summary>
+    /// Persisted user session. Refresh token is stored DPAPI-encrypted (CurrentUser scope).
+    /// Access token and password are NEVER persisted; access tokens live in-memory only.
+    /// </summary>
     public class BinaConfig
     {
-        public string Email { get; set; }
-        public string Password { get; set; }
-        public int ProjectId { get; set; }
         public int UserId { get; set; }
-
-        // Session data
         public string UserName { get; set; }
+        public int ProjectId { get; set; }
         public string ProjectName { get; set; }
-        public string AccessToken { get; set; }
-        public string RefreshToken { get; set; }
-        public DateTime TokenExpiry { get; set; }
 
-        private static readonly string ConfigPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "RevitWebAppSync",
-            "config.json"
-        );
+        /// <summary>DPAPI-encrypted refresh token (base64). Null if user has not signed in.</summary>
+        public string EncryptedRefreshToken { get; set; }
+
+        // In-memory only — not serialized.
+        [JsonIgnore] public string AccessToken { get; set; }
+        [JsonIgnore] public DateTime TokenExpiry { get; set; }
 
         public static BinaConfig Load()
         {
             try
             {
-                if (File.Exists(ConfigPath))
+                if (File.Exists(Paths.ConfigFile))
                 {
-                    string json = File.ReadAllText(ConfigPath);
-                    return JsonConvert.DeserializeObject<BinaConfig>(json);
+                    string json = File.ReadAllText(Paths.ConfigFile);
+                    return JsonConvert.DeserializeObject<BinaConfig>(json) ?? new BinaConfig();
                 }
             }
-            catch (Exception ex)
+            catch
             {
+                // Corrupt or unreadable config — start fresh rather than crashing the addin.
             }
-
             return new BinaConfig();
         }
 
@@ -45,43 +45,63 @@ namespace RevitWebAppSync
         {
             try
             {
-                string directory = Path.GetDirectoryName(ConfigPath);
-                if (!Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
+                Paths.EnsureDirectories();
                 string json = JsonConvert.SerializeObject(this, Formatting.Indented);
-                File.WriteAllText(ConfigPath, json);
+                File.WriteAllText(Paths.ConfigFile, json);
             }
-            catch (Exception ex)
+            catch
             {
+                // Persistence failures are non-fatal (in-memory session continues to work).
             }
         }
 
-        public bool IsValid()
-        {
-            return !string.IsNullOrEmpty(Email) && !string.IsNullOrEmpty(Password) && ProjectId > 0 && UserId > 0;
-        }
+        public bool IsLoggedIn() =>
+            !string.IsNullOrEmpty(AccessToken)
+            && !string.IsNullOrEmpty(UserName)
+            && ProjectId > 0;
 
-        public bool IsLoggedIn()
-        {
-            return !string.IsNullOrEmpty(AccessToken)
-                && !string.IsNullOrEmpty(UserName)
-                && ProjectId > 0;
-        }
+        public bool HasRefreshableSession() => !string.IsNullOrEmpty(EncryptedRefreshToken);
 
         public void ClearSession()
         {
-            Email = null;
-            Password = null;
             UserName = null;
+            UserId = 0;
+            ProjectId = 0;
             ProjectName = null;
             AccessToken = null;
-            RefreshToken = null;
             TokenExpiry = DateTime.MinValue;
-            ProjectId = 0;
-            UserId = 0;
+            EncryptedRefreshToken = null;
+        }
+
+        /// <summary>Set the refresh token, encrypting it with DPAPI for at-rest storage.</summary>
+        public void SetRefreshToken(string plainRefreshToken)
+        {
+            EncryptedRefreshToken = string.IsNullOrEmpty(plainRefreshToken)
+                ? null
+                : ProtectString(plainRefreshToken);
+        }
+
+        /// <summary>Decrypt the stored refresh token. Returns null if absent or unreadable.</summary>
+        public string GetRefreshToken()
+        {
+            if (string.IsNullOrEmpty(EncryptedRefreshToken)) return null;
+            try { return UnprotectString(EncryptedRefreshToken); }
+            catch { return null; }
+        }
+
+        // DPAPI helpers. CurrentUser scope: only the same Windows user account can decrypt.
+        private static string ProtectString(string plain)
+        {
+            byte[] data = Encoding.UTF8.GetBytes(plain);
+            byte[] cipher = ProtectedData.Protect(data, optionalEntropy: null, scope: DataProtectionScope.CurrentUser);
+            return Convert.ToBase64String(cipher);
+        }
+
+        private static string UnprotectString(string base64Cipher)
+        {
+            byte[] cipher = Convert.FromBase64String(base64Cipher);
+            byte[] data = ProtectedData.Unprotect(cipher, optionalEntropy: null, scope: DataProtectionScope.CurrentUser);
+            return Encoding.UTF8.GetString(data);
         }
     }
 }

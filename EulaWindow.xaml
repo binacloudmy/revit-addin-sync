@@ -1,0 +1,44 @@
+<Window x:Class="BinaConnector.EulaWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="BINA Platform Connector — License Agreement"
+        Height="560" Width="640"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="Please review and accept the End User License Agreement to continue."
+                   FontSize="13" FontWeight="SemiBold" Margin="0,0,0,12"
+                   TextWrapping="Wrap"/>
+
+        <Border Grid.Row="1" BorderBrush="#CCCCCC" BorderThickness="1" Background="#FAFAFA">
+            <ScrollViewer x:Name="EulaScroll" VerticalScrollBarVisibility="Auto"
+                          ScrollChanged="EulaScroll_ScrollChanged" Padding="12">
+                <TextBlock x:Name="EulaText"
+                           FontFamily="Segoe UI" FontSize="12"
+                           TextWrapping="Wrap"/>
+            </ScrollViewer>
+        </Border>
+
+        <CheckBox Grid.Row="2" x:Name="AgreeCheckBox"
+                  Content="I have read and agree to the terms of this License Agreement"
+                  Margin="0,12,0,0"
+                  IsEnabled="False"
+                  Checked="AgreeCheckBox_Changed" Unchecked="AgreeCheckBox_Changed"/>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button x:Name="DeclineButton" Content="Decline" Width="100" Height="28"
+                    Margin="0,0,8,0" Click="DeclineButton_Click"/>
+            <Button x:Name="AcceptButton" Content="I Agree" Width="100" Height="28"
+                    IsEnabled="False" Click="AcceptButton_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

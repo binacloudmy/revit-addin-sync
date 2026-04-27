@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace RevitWebAppSync
+namespace BinaConnector
 {
     public class SaveFederatedFileDto
     {

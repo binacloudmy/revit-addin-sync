@@ -1,71 +1,99 @@
-# Revit Web App Sync Add-in
+# BINA Platform Connector for Autodesk Revit
 
-A Revit add-in that syncs Revit files to a web application through Autodesk APS integration.
+Free connector that uploads Revit models to BINA Cloud (BIMCloudX), packaged
+for the Autodesk App Store under publisher **BINA CLOUDTECH SDN BHD**.
 
-## Prerequisites
+Supported Revit versions: **2024, 2025, 2026** (Windows x64).
 
-- Visual Studio 2022
-- .NET 8 SDK
-- Revit (configurable via environment variables)
+## Repository layout
 
-## Setup
-
-### 1. Configure Environment Variables (Required for different PCs)
-
-**Method 1: System Environment Variables (Recommended)**
-1. Right-click "This PC" → Properties
-2. Advanced System Settings → Environment Variables
-3. Add new system variables:
-   - Name: `RevitPath`, Value: `C:\Program Files\Autodesk\Revit 2025`
-   - Name: `RevitVersion`, Value: `2025`
-
-**Method 2: Command Line (Temporary)**
-```cmd
-set RevitPath=C:\Program Files\Autodesk\Revit 2025
-set RevitVersion=2025
+```
+.
+├── App.cs, Commands/, *.xaml(.cs), *Service.cs, ...   # Source code
+├── Resources/                                          # Embedded ribbon icons (placeholder)
+├── BinaConnector.csproj                                # Multi-target net48 + net8.0-windows
+├── BinaConnector.sln
+├── bundle-templates/                                   # Static bundle assets (manifests, EULA, help, icons)
+├── build-bundle.ps1                                    # Builds + assembles BinaConnector.bundle.zip
+└── docs/
+    ├── app-store-audit.md                              # Pre-refactor audit report
+    └── pre-submission-checklist.md                     # Walk through this before every submission
 ```
 
-**Default Values:**
-- `RevitPath`: `D:\Autodesk\Revit2026\Revit 2026`
-- `RevitVersion`: `2026`
+The build script produces `BinaConnector.bundle/` and `BinaConnector.bundle.zip`
+at the repo root. Both are gitignored.
 
-### 2. Build and Deploy
+## Building (Windows)
 
-```bash
-git clone <your-repository-url>
-cd RevitWebAppSync
-dotnet build --configuration Release --platform x64
+Requirements:
+- Windows 10/11 x64
+- .NET SDK 8.x (which ships .NET Framework 4.8 reference assemblies)
+- Visual Studio 2022 17.8+ (optional; `dotnet build` works standalone)
+- Local installs of Revit 2024 and Revit 2026 (used only for their `RevitAPI.dll`
+  reference assemblies). Override paths via `RevitPath2024` / `RevitPath2026`
+  environment variables if installed in non-default locations.
+
+```powershell
+pwsh ./build-bundle.ps1
 ```
 
-Files are automatically copied to: `%APPDATA%\Autodesk\Revit\Addins\{RevitVersion}\`
+The script:
+1. Builds `net48` (for Revit 2024) and `net8.0-windows` (for Revit 2025/2026).
+2. Assembles `BinaConnector.bundle/` from build outputs + `bundle-templates/`.
+3. Validates structure and warns on unfilled `[PLACEHOLDER]` strings.
+4. Zips to `BinaConnector.bundle.zip` ready for App Store submission.
 
-### 3. Configuration
+For local dev (copy DLL to `%APPDATA%\Autodesk\Revit\Addins\<year>\` so Revit
+loads it on next launch):
 
-Configure your APS credentials and web app settings in `App.config` or environment variables:
-
-```xml
-<add key="APS_CLIENT_ID" value="your-client-id" />
-<add key="APS_CLIENT_SECRET" value="your-client-secret" />
-<add key="WebApp_BaseUrl" value="https://your-webapp.com/api" />
-<add key="WebApp_ApiKey" value="your-api-key" />
+```powershell
+dotnet build BinaConnector.csproj -c Debug -f net8.0-windows /p:DeployToRevit=true /p:DeployRevitYear=2026
 ```
 
-## Usage
+## Submitting to the App Store
 
-1. Open Revit and load a project file
-2. Click "Sync to Web" button in the ribbon
-3. Authenticate with Autodesk account (first time)
-4. Select target project and monitor progress
+1. Walk through every item in [`docs/pre-submission-checklist.md`](docs/pre-submission-checklist.md).
+2. Replace placeholders (production API URL, support contact, branded icons,
+   legal-reviewed EULA).
+3. Upload `BinaConnector.bundle.zip` at
+   <https://aps.autodesk.com/app-store/publisher-center/revit>.
+4. Autodesk's ADN team builds the final MSI from the bundle.
 
-## Development
+Do **not** build an MSI yourself. Do **not** modify Revit support paths.
 
-Set Visual Studio debugger to start Revit:
-- Path: `{RevitPath}\Revit.exe`
-- Example: `C:\Program Files\Autodesk\Revit 2025\Revit.exe`
+## Configuration
 
-## Troubleshooting
+User-facing config lives under `%APPDATA%\BINA\BinaConnector\`:
 
-- Check Revit Add-in Manager for errors
-- Verify environment variables are set correctly
-- Ensure all dependencies are available
-- Check logs in `%TEMP%\RevitWebAppSync\logs\`
+| File                  | Contents                                                      |
+|-----------------------|---------------------------------------------------------------|
+| `config.json`         | Persisted session (userId, projectId, DPAPI-encrypted refresh token). No password, no plaintext access token. |
+| `settings.json`       | User preferences (default discipline, confirm-before-upload). |
+| `eula-accepted.json`  | EULA acceptance record (version + timestamp).                 |
+| `logs/`               | API request logs (`bina_api.log`, `autodesk_api.log`, `startup.log`). |
+
+API endpoint can be overridden at runtime via the `BINA_API_BASE_URL` and
+`BINA_WEB_APP_URL` environment variables, useful for staging/dev backends.
+
+## Architecture
+
+- `App.cs` — `IExternalApplication`. Creates the **BINA** ribbon tab with three
+  buttons. Defensive try/catch — addin never returns `Result.Failed` to Revit.
+- `Commands/UploadCommand.cs` — Upload to BINA. Gates on EULA acceptance,
+  sign-in status, and (optional) per-upload confirmation.
+- `Commands/ProjectSettingsCommand.cs` — Active project + upload preferences.
+- `Commands/AccountCommand.cs` — Sign in / view account / sign out.
+- `BinaApiService.cs` / `AutodeskApiService.cs` — Backend HTTP clients.
+- `BinaConfig.cs` — Session persistence with DPAPI-encrypted refresh tokens.
+- `EulaService.cs`, `EulaWindow.xaml(.cs)` — First-run EULA gate.
+- `NetworkErrors.cs` — Network exceptions → user-friendly messages.
+
+## Known limitations
+
+- **Token refresh is not yet wired up.** When the in-memory access token
+  expires (or after a Revit restart), users are re-prompted for password.
+  Implementing silent refresh requires a backend refresh endpoint.
+- **Icons are placeholders.** Replace `Resources/*.png` and
+  `bundle-templates/icons/*.png` with branded artwork before submission.
+- **Support URL/email and production API URL are placeholders.** See the
+  pre-submission checklist for every location to update.

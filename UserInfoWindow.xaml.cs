@@ -1,7 +1,7 @@
 using System;
 using System.Windows;
 
-namespace RevitWebAppSync
+namespace BinaConnector
 {
     public partial class UserInfoWindow : Window
     {
@@ -16,7 +16,7 @@ namespace RevitWebAppSync
             _config = config;
 
             // Display user info
-            UserNameText.Text = config.UserName ?? config.Email ?? "Unknown";
+            UserNameText.Text = config.UserName ?? "Unknown";
             ProjectNameText.Text = config.ProjectName ?? $"Project ID: {config.ProjectId}";
         }
 

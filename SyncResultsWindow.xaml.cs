@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Input;
 
-namespace RevitWebAppSync
+namespace BinaConnector
 {
     public partial class SyncResultsWindow : Window
     {
@@ -138,7 +138,7 @@ namespace RevitWebAppSync
                 // Open BINA Cloud in default browser
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = "https://6d9e82978eba.ngrok-free.app",
+                    FileName = BinaApiConfig.WebAppUrl,
                     UseShellExecute = true
                 });
             }

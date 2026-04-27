@@ -1,4 +1,4 @@
-<Window x:Class="RevitWebAppSync.SyncResultsWindow"
+<Window x:Class="BinaConnector.SyncResultsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Sync to BINA - Upload Results"

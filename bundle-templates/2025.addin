@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>BINA Platform Connector</Name>
+    <Assembly>BinaConnector.dll</Assembly>
+    <FullClassName>BinaConnector.App</FullClassName>
+    <AddInId>960afc57-a477-4c3b-86b4-2ee0f75277bf</AddInId>
+    <VendorId>BINA</VendorId>
+    <VendorDescription>BINA CLOUDTECH SDN BHD, https://bina.cloud</VendorDescription>
+    <VisibilityMode>NotVisibleInFamily</VisibilityMode>
+  </AddIn>
+</RevitAddIns>

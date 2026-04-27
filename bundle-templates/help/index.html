@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>BINA Platform Connector — Help</title>
+  <style>
+    body { font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+           color: #222; background: #fff; max-width: 760px; margin: 32px auto; padding: 0 24px;
+           line-height: 1.55; font-size: 14px; }
+    h1 { font-size: 22px; border-bottom: 1px solid #e2e2e2; padding-bottom: 8px; }
+    h2 { font-size: 17px; margin-top: 28px; color: #0f3a64; }
+    h3 { font-size: 14px; margin-top: 18px; }
+    code, kbd { font-family: Menlo, Consolas, monospace; background: #f3f5f7;
+                padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+    .note { background: #f7faff; border-left: 3px solid #1d6db8;
+            padding: 10px 14px; margin: 14px 0; }
+    .warn { background: #fff8eb; border-left: 3px solid #d18c1f;
+            padding: 10px 14px; margin: 14px 0; }
+    ul, ol { padding-left: 22px; }
+    li { margin: 4px 0; }
+    a { color: #1d6db8; }
+    table { border-collapse: collapse; margin: 12px 0; }
+    th, td { border: 1px solid #e2e2e2; padding: 6px 10px; text-align: left; }
+    th { background: #f3f5f7; }
+    footer { margin-top: 40px; padding-top: 12px; border-top: 1px solid #e2e2e2;
+             font-size: 12px; color: #666; }
+  </style>
+</head>
+<body>
+
+<h1>BINA Platform Connector for Autodesk Revit</h1>
+
+<p>The BINA Platform Connector lets you upload Revit models from inside Revit
+directly to <strong>BINA Cloud (BIMCloudX)</strong>, with no manual export step.
+This help page covers installation, sign-in, uploading, and troubleshooting.</p>
+
+<h2>What it does</h2>
+<ul>
+  <li>Adds a <strong>BINA</strong> ribbon tab to Revit with three commands:
+    <strong>Upload to BINA</strong>, <strong>Project Settings</strong>, and
+    <strong>Sign In / Account</strong>.</li>
+  <li>Uploads the active Revit document to BINA Cloud, tagging it with a discipline
+    (Architecture, Structure, HVAC, Electrical, or general MainFile).</li>
+  <li>Optionally registers the model with Autodesk's viewer service so collaborators
+    can preview it in the browser.</li>
+</ul>
+
+<h2>Prerequisites</h2>
+<ul>
+  <li>Autodesk Revit 2024, 2025, or 2026 (64-bit Windows).</li>
+  <li>A BINA Cloud account. Don't have one? Visit
+    <a href="https://bina.cloud">https://bina.cloud</a> to sign up.</li>
+  <li>An internet connection to reach BINA Cloud during sign-in and upload.</li>
+</ul>
+
+<h2>Signing in</h2>
+<ol>
+  <li>Open Revit and go to the <strong>BINA</strong> ribbon tab.</li>
+  <li>Click <strong>Sign In / Account</strong>.</li>
+  <li>Enter your BINA Cloud email and password.</li>
+  <li>Choose the project you want to upload to. You can change this later from
+    <strong>Project Settings</strong>.</li>
+</ol>
+<div class="note">
+  Your password is never stored on disk. A short-lived access token lives only in
+  memory; a refresh token (if your account uses one) is encrypted with Windows
+  DPAPI before being saved.
+</div>
+
+<h2>Uploading a model</h2>
+<ol>
+  <li>Open the Revit project you want to upload and save it.</li>
+  <li>Click <strong>Upload to BINA</strong> on the BINA ribbon.</li>
+  <li>If you haven't set a default discipline, choose one when prompted
+    (Architecture, Structure, HVAC, Electrical, or MainFile).</li>
+  <li>Wait for the upload to complete. A results window shows the status of each
+    destination (BINA storage, Autodesk viewer, registration).</li>
+</ol>
+<div class="warn">
+  Save the Revit document before uploading. Uploading an unsaved file is not
+  supported, because BINA needs a real path on disk to read the model.
+</div>
+
+<h2>Project settings</h2>
+<p>From <strong>Project Settings</strong> you can:</p>
+<ul>
+  <li><strong>Switch the active project.</strong> Pick a different BINA Cloud project
+    to upload to. The connector uploads to one project at a time.</li>
+  <li><strong>Set a default discipline.</strong> If you usually upload the same
+    discipline (e.g. Architecture), set it here and the connector will skip the
+    discipline prompt every time.</li>
+  <li><strong>Confirm before uploading.</strong> When enabled, the connector asks
+    "Upload <em>file</em> to <em>project</em>?" before starting the upload.
+    Useful as a final safety check on large projects.</li>
+</ul>
+
+<h2>Troubleshooting</h2>
+
+<h3>"Could not reach BINA Cloud"</h3>
+<p>Check your internet connection. If you're on a corporate network, confirm that
+your firewall allows outbound HTTPS to BINA Cloud and to
+<code>developer.api.autodesk.com</code>. Then click Upload again.</p>
+
+<h3>"Please sign in"</h3>
+<p>Your session expired (sessions don't survive a Revit restart yet). Click
+<strong>Sign In / Account</strong> and re-enter your password.</p>
+
+<h3>"Please save your Revit file before uploading"</h3>
+<p>Use <kbd>Ctrl+S</kbd> in Revit to save the document, then click Upload again.</p>
+
+<h3>Upload partially succeeded</h3>
+<p>The results window shows three statuses: BINA storage, Autodesk viewer, and
+registration. If only the Autodesk viewer step failed, the file is still safely
+in BINA Cloud and your team can download it; only the in-browser preview will be
+unavailable until you re-upload.</p>
+
+<h3>Where are the logs?</h3>
+<p>Detailed logs are written to
+<code>%APPDATA%\BINA\BinaConnector\logs\</code>. Send these to support if you
+report a bug.</p>
+
+<h2>Support</h2>
+<table>
+  <tr><th>Web</th><td><a href="https://bina.cloud">https://bina.cloud</a></td></tr>
+  <tr><th>Email</th><td><a href="mailto:info@bina.cloud">info@bina.cloud</a></td></tr>
+  <tr><th>Publisher</th><td>BINA CLOUDTECH SDN BHD (Malaysia)</td></tr>
+</table>
+
+<footer>
+  &copy; BINA CLOUDTECH SDN BHD &mdash; BINA Platform Connector v1.0.0
+</footer>
+
+</body>
+</html>

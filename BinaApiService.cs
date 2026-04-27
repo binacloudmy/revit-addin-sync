@@ -1,176 +1,108 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace RevitWebAppSync
+namespace BinaConnector
 {
-    public class BinaApiService
+    public class BinaApiService : IDisposable
     {
         private readonly HttpClient _httpClient;
-        private readonly string _baseUrl = "https://6d9e82978eba.ngrok-free.app";
-        private readonly string _email;
-        private readonly string _password;
 
-        public BinaApiService(string email, string password)
+        public BinaApiService()
         {
-            _httpClient = new HttpClient();
-            _httpClient.Timeout = TimeSpan.FromMinutes(5); // 5 minute timeout for large uploads
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "RevitBinaSync/1.0");
-            _email = email;
-            _password = password;
+            _httpClient = new HttpClient { Timeout = BinaApiConfig.UploadTimeout };
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", BinaApiConfig.UserAgent);
         }
 
-        private void LogToFile(string message)
+        private static void Log(string message)
         {
             try
             {
-                string logPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "bina_upload_log.txt");
-                string timestampedMessage = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}";
-                File.AppendAllText(logPath, timestampedMessage + Environment.NewLine);
+                Paths.EnsureDirectories();
+                string logPath = Path.Combine(Paths.LogDirectory, "bina_api.log");
+                File.AppendAllText(logPath, $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {message}{Environment.NewLine}");
             }
-            catch { /* Ignore logging errors */ }
-        }
-
-
-        public async Task<string> LoginAsync()
-        {
-            try
-            {
-                LogToFile("Attempting login...");
-                string accessToken = await GetAccessTokenAsync();
-                if (string.IsNullOrEmpty(accessToken))
-                {
-                    LogToFile("Login failed - no access token received");
-                    return null;
-                }
-                LogToFile($"Login successful - access token received: {accessToken.Substring(0, 20)}...");
-                return accessToken;
-            }
-            catch (Exception ex)
-            {
-                LogToFile($"Login failed with exception: {ex.Message}");
-                return null;
-            }
-        }
-
-        private async Task<string> GetAccessTokenAsync()
-        {
-            try
-            {
-                System.Diagnostics.Debug.WriteLine($"[BINA] Attempting login to {_baseUrl}/api/auth/user/sign-in");
-                System.Diagnostics.Debug.WriteLine($"[BINA] Using email: {_email}");
-                LogToFile($"GetAccessTokenAsync: Attempting login to {_baseUrl}/api/auth/user/sign-in with email: {_email}");
-
-                var loginData = new
-                {
-                    email = _email,
-                    password = _password,
-                    rememberMe = true
-                };
-
-                string jsonContent = JsonConvert.SerializeObject(loginData);
-                var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-
-                System.Diagnostics.Debug.WriteLine("[BINA] Sending HTTP POST request...");
-                LogToFile("GetAccessTokenAsync: Sending HTTP POST request...");
-                var response = await _httpClient.PostAsync($"{_baseUrl}/api/auth/user/sign-in", content);
-                System.Diagnostics.Debug.WriteLine($"[BINA] Login response status: {response.StatusCode}");
-                LogToFile($"GetAccessTokenAsync: Login response status: {response.StatusCode}");
-
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    string errorBody = await response.Content.ReadAsStringAsync();
-                    return null;
-                }
-
-                string responseBody = await response.Content.ReadAsStringAsync();
-                System.Diagnostics.Debug.WriteLine($"[BINA] Login response body: {responseBody}");
-
-                var jsonResponse = JObject.Parse(responseBody);
-                string token = jsonResponse["accessToken"]?.ToString();
-                System.Diagnostics.Debug.WriteLine($"[BINA] Access token received: {!string.IsNullOrEmpty(token)}");
-
-                return token;
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[BINA] Login failed with exception: {ex.Message}");
-                LogToFile($"GetAccessTokenAsync: Login failed with exception: {ex.Message}");
-                return null;
-            }
+            catch { /* logging failures are non-fatal */ }
         }
 
         /// <summary>
-        /// Login with email and password, returns full login response including tokens
+        /// Login with email + password. Returns null on auth failure (bad credentials).
+        /// Throws HttpRequestException / TaskCanceledException on network failure so callers
+        /// can present a "no network" message instead of "wrong password".
         /// </summary>
         public static async Task<LoginResponse> LoginWithCredentialsAsync(string email, string password)
         {
+            using var httpClient = new HttpClient { Timeout = BinaApiConfig.ControlApiTimeout };
+            httpClient.DefaultRequestHeaders.Add("User-Agent", BinaApiConfig.UserAgent);
+
+            var loginData = new { email, password, rememberMe = true };
+            string jsonContent = JsonConvert.SerializeObject(loginData);
+            using var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+            HttpResponseMessage response;
             try
             {
-                using var httpClient = new HttpClient();
-                httpClient.Timeout = TimeSpan.FromSeconds(10);
-                httpClient.DefaultRequestHeaders.Add("User-Agent", "RevitBinaSync/1.0");
-
-                var loginData = new
-                {
-                    email = email,
-                    password = password,
-                    rememberMe = true
-                };
-
-                string jsonContent = JsonConvert.SerializeObject(loginData);
-                var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-
-                var response = await httpClient.PostAsync("https://6d9e82978eba.ngrok-free.app/api/auth/user/sign-in", content);
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    return null;
-                }
-
-                string responseBody = await response.Content.ReadAsStringAsync();
-                var loginResponse = JsonConvert.DeserializeObject<LoginResponse>(responseBody);
-
-                return loginResponse;
+                response = await httpClient.PostAsync($"{BinaApiConfig.BaseUrl}/api/auth/user/sign-in", content);
             }
-            catch (Exception)
+            catch (HttpRequestException) { throw; }
+            catch (TaskCanceledException) { throw; }
+
+            if (!response.IsSuccessStatusCode)
             {
+                Log($"LoginWithCredentialsAsync auth failed: HTTP {(int)response.StatusCode}");
+                return null;
+            }
+
+            try
+            {
+                string responseBody = await response.Content.ReadAsStringAsync();
+                return JsonConvert.DeserializeObject<LoginResponse>(responseBody);
+            }
+            catch (Exception ex)
+            {
+                Log($"LoginWithCredentialsAsync parse failed: {ex.Message}");
                 return null;
             }
         }
 
         /// <summary>
-        /// Get list of projects available to the user
+        /// List projects available to the signed-in user. Returns null on auth/empty failure.
+        /// Throws on network failure.
         /// </summary>
-        public static async Task<System.Collections.Generic.List<ProjectInfo>> GetUserProjectsAsync(string accessToken)
+        public static async Task<List<ProjectInfo>> GetUserProjectsAsync(string accessToken)
         {
+            using var httpClient = new HttpClient { Timeout = BinaApiConfig.ControlApiTimeout };
+            httpClient.DefaultRequestHeaders.Add("User-Agent", BinaApiConfig.UserAgent);
+            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            HttpResponseMessage response;
             try
             {
-                using var httpClient = new HttpClient();
-                httpClient.Timeout = TimeSpan.FromSeconds(10);
-                httpClient.DefaultRequestHeaders.Add("User-Agent", "RevitBinaSync/1.0");
-                httpClient.DefaultRequestHeaders.Authorization =
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-
-                var response = await httpClient.GetAsync("https://6d9e82978eba.ngrok-free.app/api/cloud-docs/bim-discipline/user/projects");
-
-                if (!response.IsSuccessStatusCode)
-                {
-                    return null;
-                }
-
-                string responseBody = await response.Content.ReadAsStringAsync();
-                var projects = JsonConvert.DeserializeObject<System.Collections.Generic.List<ProjectInfo>>(responseBody);
-
-                return projects;
+                response = await httpClient.GetAsync($"{BinaApiConfig.BaseUrl}/api/cloud-docs/bim-discipline/user/projects");
             }
-            catch (Exception)
+            catch (HttpRequestException) { throw; }
+            catch (TaskCanceledException) { throw; }
+
+            if (!response.IsSuccessStatusCode)
             {
+                Log($"GetUserProjectsAsync failed: HTTP {(int)response.StatusCode}");
+                return null;
+            }
+
+            try
+            {
+                string responseBody = await response.Content.ReadAsStringAsync();
+                return JsonConvert.DeserializeObject<List<ProjectInfo>>(responseBody);
+            }
+            catch (Exception ex)
+            {
+                Log($"GetUserProjectsAsync parse failed: {ex.Message}");
                 return null;
             }
         }
@@ -179,46 +111,29 @@ namespace RevitWebAppSync
         {
             try
             {
-                LogToFile($"✨ Requesting presigned URL for upload... ✨");
-                LogToFile($"Parameters: key={key}, size={size}, mimeType={mimeType}");
-                
-                _httpClient.DefaultRequestHeaders.Authorization = 
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
-                string url = $"{_baseUrl}/api/system/presigned-upload?" +
-                           $"key={Uri.EscapeDataString(key)}&" +
-                           $"size={size}&" +
-                           $"mimeType={Uri.EscapeDataString(mimeType)}";
-                
-                LogToFile($"Requesting URL: {url}");
+                string url = $"{BinaApiConfig.BaseUrl}/api/system/presigned-upload?" +
+                             $"key={Uri.EscapeDataString(key)}&" +
+                             $"size={size}&" +
+                             $"mimeType={Uri.EscapeDataString(mimeType)}";
 
                 var response = await _httpClient.GetAsync(url);
                 string responseBody = await response.Content.ReadAsStringAsync();
-                
-                LogToFile($"Response status: {response.StatusCode}");
-                LogToFile($"Response body: {responseBody}");
-                
                 if (!response.IsSuccessStatusCode)
                 {
-                    LogToFile($"❌ Failed to obtain presigned URL. Status: {response.StatusCode}");
+                    Log($"GetPresignedUrlAsync failed: {response.StatusCode} {responseBody}");
                     return null;
                 }
 
                 var jsonResponse = JObject.Parse(responseBody);
                 string uploadUrl = jsonResponse["uploadUrl"]?["SignedUrl"]?.ToString();
-                
-                if (string.IsNullOrEmpty(uploadUrl) || uploadUrl == "null")
-                {
-                    LogToFile($"❌ Failed to obtain presigned URL. Response: {responseBody}");
-                    return null;
-                }
-                
-                LogToFile($"Presigned URL received: {uploadUrl}");
+                if (string.IsNullOrEmpty(uploadUrl) || uploadUrl == "null") return null;
                 return uploadUrl;
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ GetPresignedUrlAsync failed with exception: {ex.Message}");
+                Log($"GetPresignedUrlAsync exception: {ex.Message}");
                 return null;
             }
         }
@@ -228,185 +143,69 @@ namespace RevitWebAppSync
             try
             {
                 FileInfo fileInfo = new FileInfo(filePath);
-                if (!fileInfo.Exists)
-                {
-                    LogToFile($"❌ File not found: {filePath}");
-                    return (null, 0, null);
-                }
+                if (!fileInfo.Exists) return (null, 0, null);
 
                 string fileName = fileInfo.Name;
                 long fileSize = fileInfo.Length;
-                
-                // Generate a key based on filename and timestamp to ensure uniqueness
                 string timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss");
                 string key = $"bim-disciplines/combined/{timestamp}_{fileName}";
-                
-                // Determine MIME type based on file extension
                 string mimeType = GetMimeTypeFromExtension(fileInfo.Extension.ToLower());
-                
-                LogToFile($"File parameters calculated: key={key}, size={fileSize}, mimeType={mimeType}");
                 return (key, fileSize, mimeType);
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ Error calculating file parameters: {ex.Message}");
+                Log($"GetFileParameters failed: {ex.Message}");
                 return (null, 0, null);
             }
         }
 
-        private string GetMimeTypeFromExtension(string extension)
+        private static string GetMimeTypeFromExtension(string extension) => extension switch
         {
-            return extension switch
-            {
-                ".rvt" => "application/octet-stream", // Revit file
-                ".rfa" => "application/octet-stream", // Revit family file
-                ".rte" => "application/octet-stream", // Revit template file
-                ".dwg" => "application/acad",
-                ".pdf" => "application/pdf",
-                ".zip" => "application/zip",
-                _ => "application/octet-stream"
-            };
-        }
+            ".rvt" => "application/octet-stream",
+            ".rfa" => "application/octet-stream",
+            ".rte" => "application/octet-stream",
+            ".dwg" => "application/acad",
+            ".pdf" => "application/pdf",
+            ".zip" => "application/zip",
+            _ => "application/octet-stream"
+        };
 
         public async Task<bool> UploadFileAsync(string presignedUrl, string filePath, string mimeType)
         {
             string tempFilePath = null;
             try
             {
-                LogToFile($"🚀 Starting file upload to presigned URL...");
-                LogToFile($"File path: {filePath}");
-                LogToFile($"MIME type: {mimeType}");
-                
-                // Create a temporary copy of the file to avoid file lock issues
+                // Copy to temp first so an open Revit file lock doesn't block us.
                 tempFilePath = Path.Combine(Path.GetTempPath(), $"bina_upload_{Guid.NewGuid()}{Path.GetExtension(filePath)}");
-                LogToFile($"Creating temporary copy: {tempFilePath}");
-                
-                // Use FileStream with ReadWrite sharing to copy the file even if it's open in Revit
                 using (var sourceStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
                 using (var destStream = new FileStream(tempFilePath, FileMode.Create, FileAccess.Write))
                 {
                     await sourceStream.CopyToAsync(destStream);
                 }
-                
-                LogToFile("Temporary file created successfully");
-                
-                byte[] fileBytes = File.ReadAllBytes(tempFilePath);
-                LogToFile($"File loaded: {fileBytes.Length} bytes");
-                
-                var content = new ByteArrayContent(fileBytes);
-                content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue(mimeType);
 
-                LogToFile("Sending PUT request to upload file...");
+                byte[] fileBytes = File.ReadAllBytes(tempFilePath);
+                using var content = new ByteArrayContent(fileBytes);
+                content.Headers.ContentType = new MediaTypeHeaderValue(mimeType);
+
                 var response = await _httpClient.PutAsync(presignedUrl, content);
-                
-                LogToFile($"Upload response status: {response.StatusCode}");
-                
-                if (response.IsSuccessStatusCode)
+                if (!response.IsSuccessStatusCode)
                 {
-                    LogToFile("✅ File upload successful!");
+                    string body = await response.Content.ReadAsStringAsync();
+                    Log($"UploadFileAsync failed: {response.StatusCode} {body}");
                 }
-                else
-                {
-                    string responseBody = await response.Content.ReadAsStringAsync();
-                    LogToFile($"❌ Upload failed. Response: {responseBody}");
-                }
-                
                 return response.IsSuccessStatusCode;
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ Upload failed with exception: {ex.Message}");
+                Log($"UploadFileAsync exception: {ex.Message}");
                 return false;
             }
             finally
             {
-                // Clean up temporary file
                 if (tempFilePath != null && File.Exists(tempFilePath))
                 {
-                    try
-                    {
-                        File.Delete(tempFilePath);
-                        LogToFile("Temporary file cleaned up");
-                    }
-                    catch (Exception ex)
-                    {
-                        LogToFile($"Warning: Could not delete temporary file: {ex.Message}");
-                    }
+                    try { File.Delete(tempFilePath); } catch { }
                 }
-            }
-        }
-
-        public async Task<BimDisciplineResponse> GetBimDisciplineFilesAsync(string accessToken, int projectId)
-        {
-            try
-            {
-                LogToFile($"✨ Requesting BIM discipline files for project {projectId}... ✨");
-                
-                _httpClient.DefaultRequestHeaders.Authorization = 
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-
-                string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}/latest-urls";
-                
-                LogToFile($"Requesting URL: {url}");
-
-                var response = await _httpClient.GetAsync(url);
-                string responseBody = await response.Content.ReadAsStringAsync();
-                
-                LogToFile($"Response status: {response.StatusCode}");
-                LogToFile($"Response body: {responseBody}");
-                
-                if (!response.IsSuccessStatusCode)
-                {
-                    LogToFile($"❌ Failed to get BIM discipline files. Status: {response.StatusCode}");
-                    return null;
-                }
-
-                var disciplineResponse = JsonConvert.DeserializeObject<BimDisciplineResponse>(responseBody);
-                LogToFile($"✅ Successfully retrieved BIM discipline files for project {projectId}");
-                
-                return disciplineResponse;
-            }
-            catch (Exception ex)
-            {
-                LogToFile($"❌ GetBimDisciplineFilesAsync failed with exception: {ex.Message}");
-                return null;
-            }
-        }
-
-        public async Task<string> DownloadFileAsync(string fileUrl, string downloadDirectory, string fileName = null)
-        {
-            try
-            {
-                LogToFile($"🔽 Starting file download from: {fileUrl}");
-                
-                if (string.IsNullOrEmpty(fileName))
-                {
-                    var uri = new Uri(fileUrl);
-                    fileName = Path.GetFileName(uri.LocalPath) ?? $"discipline_file_{DateTime.Now:yyyyMMdd_HHmmss}.rvt";
-                }
-                
-                if (!Directory.Exists(downloadDirectory))
-                {
-                    Directory.CreateDirectory(downloadDirectory);
-                    LogToFile($"Created download directory: {downloadDirectory}");
-                }
-
-                string filePath = Path.Combine(downloadDirectory, fileName);
-                LogToFile($"Download destination: {filePath}");
-
-                var response = await _httpClient.GetAsync(fileUrl);
-                response.EnsureSuccessStatusCode();
-                
-                byte[] fileBytes = await response.Content.ReadAsByteArrayAsync();
-                await File.WriteAllBytesAsync(filePath, fileBytes);
-                
-                LogToFile($"✅ File downloaded successfully: {filePath} ({fileBytes.Length} bytes)");
-                return filePath;
-            }
-            catch (Exception ex)
-            {
-                LogToFile($"❌ DownloadFileAsync failed with exception: {ex.Message}");
-                return null;
             }
         }
 
@@ -414,57 +213,31 @@ namespace RevitWebAppSync
         {
             try
             {
-                LogToFile($"✨ Saving federated file to backend... ✨");
-                LogToFile($"Project ID: {request.ProjectId}, File: {request.Name}");
-                
-                _httpClient.DefaultRequestHeaders.Authorization = 
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+                _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
                 var settings = new JsonSerializerSettings
                 {
                     ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
                 };
                 string jsonContent = JsonConvert.SerializeObject(request, settings);
-                var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
-                
-                string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/save-discipline";
-                LogToFile($"Requesting URL: {url}");
+                using var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
-                var response = await _httpClient.PostAsync(url, content);
+                var response = await _httpClient.PostAsync($"{BinaApiConfig.BaseUrl}/api/cloud-docs/bim-discipline/save-discipline", content);
                 string responseBody = await response.Content.ReadAsStringAsync();
-                
-                LogToFile($"Response status: {response.StatusCode}");
-                LogToFile($"Response body: {responseBody}");
-                
                 if (!response.IsSuccessStatusCode)
                 {
-                    LogToFile($"❌ Failed to save federated file. Status: {response.StatusCode}");
-                    return new SaveFederatedFileResponseDto 
-                    { 
-                        Success = false, 
-                        Message = $"HTTP {response.StatusCode}: {responseBody}" 
-                    };
+                    Log($"SaveFederatedFileAsync failed: {response.StatusCode} {responseBody}");
+                    return new SaveFederatedFileResponseDto { Success = false, Message = $"HTTP {response.StatusCode}: {responseBody}" };
                 }
-
-                var result = JsonConvert.DeserializeObject<SaveFederatedFileResponseDto>(responseBody);
-                LogToFile($"✅ Successfully saved federated file. Version: {result.Data?.Version}");
-                
-                return result;
+                return JsonConvert.DeserializeObject<SaveFederatedFileResponseDto>(responseBody);
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ SaveFederatedFileAsync failed with exception: {ex.Message}");
-                return new SaveFederatedFileResponseDto 
-                { 
-                    Success = false, 
-                    Message = ex.Message 
-                };
+                Log($"SaveFederatedFileAsync exception: {ex.Message}");
+                return new SaveFederatedFileResponseDto { Success = false, Message = ex.Message };
             }
         }
 
-        public void Dispose()
-        {
-            _httpClient?.Dispose();
-        }
+        public void Dispose() => _httpClient?.Dispose();
     }
 }

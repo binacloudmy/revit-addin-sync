@@ -5,7 +5,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 
-namespace RevitWebAppSync
+namespace BinaConnector
 {
     public partial class ProjectPickerWindow : Window
     {
@@ -39,7 +39,23 @@ namespace RevitWebAppSync
                 ProjectsListBox.Visibility = Visibility.Collapsed;
                 HideError();
 
-                var projects = await Task.Run(() => BinaApiService.GetUserProjectsAsync(_accessToken));
+                List<ProjectInfo> projects;
+                try
+                {
+                    projects = await Task.Run(() => BinaApiService.GetUserProjectsAsync(_accessToken));
+                }
+                catch (System.Net.Http.HttpRequestException ex)
+                {
+                    ShowError(NetworkErrors.Friendly(ex));
+                    LoadingPanel.Visibility = Visibility.Collapsed;
+                    return;
+                }
+                catch (TaskCanceledException ex)
+                {
+                    ShowError(NetworkErrors.Friendly(ex));
+                    LoadingPanel.Visibility = Visibility.Collapsed;
+                    return;
+                }
 
                 if (projects == null || projects.Count == 0)
                 {

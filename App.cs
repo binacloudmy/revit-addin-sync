@@ -1,141 +1,144 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Windows.Media.Imaging;
 using Autodesk.Revit.Attributes;
 using Autodesk.Revit.UI;
-using RevitWebAppSync.Handlers;
 
-namespace RevitWebAppSync
+namespace BinaConnector
 {
     [Transaction(TransactionMode.Manual)]
     [Regeneration(RegenerationOption.Manual)]
     public class App : IExternalApplication
     {
-        // Static properties for ExternalEvent access from commands
-        public static ExternalEvent AIExternalEvent { get; private set; }
-        public static CodeExecutionHandler AIHandler { get; private set; }
+        private const string TabName = "BINA";
+        private const string PanelName = "Cloud Sync";
 
         public Result OnStartup(UIControlledApplication application)
         {
+            // Ribbon initialization must never fail loudly. If something goes wrong, log it and
+            // return Succeeded so we don't surface a Revit dialog every launch.
             try
             {
-                // Create external event handler for AI code execution
-                AIHandler = new CodeExecutionHandler();
-                AIExternalEvent = ExternalEvent.Create(AIHandler);
-
-                CreateRibbonTab(application);
-                return Result.Succeeded;
+                CreateRibbon(application);
             }
             catch (Exception ex)
             {
-                TaskDialog.Show("Error", $"Failed to initialize add-in: {ex.Message}");
-                return Result.Failed;
+                TryWriteStartupLog(ex);
             }
-        }
-
-        public Result OnShutdown(UIControlledApplication application)
-        {
             return Result.Succeeded;
         }
 
-        private void CreateRibbonTab(UIControlledApplication application)
+        public Result OnShutdown(UIControlledApplication application) => Result.Succeeded;
+
+        private void CreateRibbon(UIControlledApplication application)
         {
-            string tabName = "Sync";
-            application.CreateRibbonTab(tabName);
+            try { application.CreateRibbonTab(TabName); }
+            catch (Autodesk.Revit.Exceptions.ArgumentException) { /* tab already exists */ }
 
-            RibbonPanel ribbonPanel = application.CreateRibbonPanel(tabName, "Sync Tools");
+            RibbonPanel panel = application.CreateRibbonPanel(TabName, PanelName);
+            string assemblyPath = Assembly.GetExecutingAssembly().Location;
 
-            PushButtonData buttonData = new PushButtonData(
-                "SyncToWebApp",
-                "Sync to BINA",
-                Assembly.GetExecutingAssembly().Location,
-                "RevitWebAppSync.SyncCommand")
+            var uploadData = new PushButtonData(
+                "BinaUpload", "Upload\nto BINA", assemblyPath,
+                "BinaConnector.Commands.UploadCommand")
             {
-                ToolTip = "Open BINA Cloud",
-                LongDescription = "Opens BINA Cloud in your default browser.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
+                ToolTip = "Upload the active Revit model to BINA Cloud",
+                LongDescription = "Sends the current Revit document to BINA Cloud (BIMCloudX). " +
+                                  "You will be asked to choose a discipline if no default is set in Project Settings.",
+                Image = LoadEmbedded("BinaConnector.Resources.upload_16.png", 16),
+                LargeImage = LoadEmbedded("BinaConnector.Resources.upload_32.png", 32)
             };
 
-            PushButtonData loginButtonData = new PushButtonData(
-                "Login",
-                "Login",
-                Assembly.GetExecutingAssembly().Location,
-                "RevitWebAppSync.LoginCommand")
+            var settingsData = new PushButtonData(
+                "BinaProjectSettings", "Project\nSettings", assemblyPath,
+                "BinaConnector.Commands.ProjectSettingsCommand")
             {
-                ToolTip = "Login to BINA Cloud",
-                LongDescription = "Opens BINA Cloud in your default browser to login.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+                ToolTip = "Choose the active BINA project and upload preferences",
+                LongDescription = "Switch which BINA Cloud project this connector uploads to, set a default " +
+                                  "discipline, and toggle the upload confirmation dialog.",
+                Image = LoadEmbedded("BinaConnector.Resources.settings_16.png", 16),
+                LargeImage = LoadEmbedded("BinaConnector.Resources.settings_32.png", 32)
             };
 
-            PushButtonData bimDisciplineButtonData = new PushButtonData(
-                "BimDiscipline",
-                "Download BIM Disciplines",
-                Assembly.GetExecutingAssembly().Location,
-                "RevitWebAppSync.BimDisciplineCommand")
+            var accountData = new PushButtonData(
+                "BinaAccount", "Sign In /\nAccount", assemblyPath,
+                "BinaConnector.Commands.AccountCommand")
             {
-                ToolTip = "Download BIM Discipline Files",
-                LongDescription = "Download the latest Architecture, Structure, HVAC, and Electrical discipline files from BINA cloud.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
+                ToolTip = "Sign in to BINA Cloud or manage your account",
+                LongDescription = "Sign in with your BINA Cloud credentials. If already signed in, view your " +
+                                  "account, switch project, or sign out.",
+                Image = LoadEmbedded("BinaConnector.Resources.account_16.png", 16),
+                LargeImage = LoadEmbedded("BinaConnector.Resources.account_32.png", 32)
             };
 
-            PushButtonData federateButtonData = new PushButtonData(
-                "FederateDisciplines",
-                "Federate Disciplines",
-                Assembly.GetExecutingAssembly().Location,
-                "RevitWebAppSync.FederateDisciplinesCommand")
-            {
-                ToolTip = "Link Downloaded Discipline Files",
-                LongDescription = "Link previously downloaded discipline files to the current Revit document for coordination and clash detection.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
-            };
+            // Layout: large Upload on the left; Settings + Account stacked on the right.
+            var uploadButton = panel.AddItem(uploadData) as PushButton;
+            IList<RibbonItem> stacked = panel.AddStackedItems(settingsData, accountData);
+            var settingsButton = stacked[0] as PushButton;
+            var accountButton = stacked[1] as PushButton;
 
-            PushButtonData askAiButtonData = new PushButtonData(
-                "AskAI",
-                "AI Assistant",
-                Assembly.GetExecutingAssembly().Location,
-                "RevitWebAppSync.Commands.OpenAssistantCommand")
+            ContextualHelp help = TryBuildContextualHelp(assemblyPath);
+            if (help != null)
             {
-                ToolTip = "Open AI Assistant",
-                LongDescription = "Open the AI Assistant to automate Revit tasks with natural language. Examples: Hide all furniture, Count doors on Level 1, Color walls by phase.",
-                Image = LoadImage("RevitWebAppSync.Resources.microchip.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.microchip.png", 32)
-            };
-
-            ribbonPanel.AddItem(buttonData);
-            ribbonPanel.AddItem(loginButtonData);
-            ribbonPanel.AddItem(bimDisciplineButtonData);
-            ribbonPanel.AddItem(askAiButtonData);
-            // ribbonPanel.AddItem(federateButtonData); // Hidden as requested
+                uploadButton?.SetContextualHelp(help);
+                settingsButton?.SetContextualHelp(help);
+                accountButton?.SetContextualHelp(help);
+            }
         }
 
-        private BitmapImage LoadImage(string resourceName, int size = 32)
+        private static ContextualHelp TryBuildContextualHelp(string assemblyPath)
         {
             try
             {
-                Assembly assembly = Assembly.GetExecutingAssembly();
-                Stream stream = assembly.GetManifestResourceStream(resourceName);
-
-                if (stream == null)
-                    return null;
-
-                BitmapImage bitmapImage = new BitmapImage();
-                bitmapImage.BeginInit();
-                bitmapImage.StreamSource = stream;
-                bitmapImage.DecodePixelWidth = size;
-                bitmapImage.DecodePixelHeight = size;
-                bitmapImage.EndInit();
-                bitmapImage.Freeze();
-
-                return bitmapImage;
+                // In the App Store bundle layout, help lives at ../Resources/help/index.html
+                // relative to the addin DLL. ContextualHelpType.ChmFile accepts HTML files.
+                string addinDir = Path.GetDirectoryName(assemblyPath);
+                if (string.IsNullOrEmpty(addinDir)) return null;
+                string helpPath = Path.GetFullPath(Path.Combine(addinDir, "..", "Resources", "help", "index.html"));
+                return new ContextualHelp(ContextualHelpType.ChmFile, helpPath);
             }
             catch
             {
                 return null;
+            }
+        }
+
+        private static BitmapImage LoadEmbedded(string resourceName, int size)
+        {
+            try
+            {
+                using Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
+                if (stream == null) return null;
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.StreamSource = stream;
+                bitmap.DecodePixelWidth = size;
+                bitmap.DecodePixelHeight = size;
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                return bitmap;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static void TryWriteStartupLog(Exception ex)
+        {
+            try
+            {
+                Paths.EnsureDirectories();
+                string logPath = Path.Combine(Paths.LogDirectory, "startup.log");
+                File.AppendAllText(logPath,
+                    $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] OnStartup failed: {ex}{Environment.NewLine}");
+            }
+            catch
+            {
+                // If even logging fails, swallow — we must not throw from OnStartup.
             }
         }
     }

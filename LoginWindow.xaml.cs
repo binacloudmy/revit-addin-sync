@@ -2,12 +2,11 @@ using System;
 using System.Threading.Tasks;
 using System.Windows;
 
-namespace RevitWebAppSync
+namespace BinaConnector
 {
     public partial class LoginWindow : Window
     {
         public string Email { get; private set; }
-        public string Password { get; private set; }
         public string AccessToken { get; private set; }
         public string RefreshToken { get; private set; }
         public DateTime TokenExpiry { get; private set; }
@@ -54,39 +53,47 @@ namespace RevitWebAppSync
 
             try
             {
-                // Call login API
-                var loginResponse = await Task.Run(() => BinaApiService.LoginWithCredentialsAsync(email, password));
-
-                if (loginResponse == null || string.IsNullOrEmpty(loginResponse.AccessToken))
+                LoginResponse loginResponse;
+                try
                 {
-                    ShowError("Login failed. Please check your email and password.");
+                    loginResponse = await Task.Run(() => BinaApiService.LoginWithCredentialsAsync(email, password));
+                }
+                catch (System.Net.Http.HttpRequestException ex)
+                {
+                    ShowError(NetworkErrors.Friendly(ex));
+                    SetLoading(false);
+                    return;
+                }
+                catch (TaskCanceledException ex)
+                {
+                    ShowError(NetworkErrors.Friendly(ex));
                     SetLoading(false);
                     return;
                 }
 
-                // Store results
+                if (loginResponse == null || string.IsNullOrEmpty(loginResponse.AccessToken))
+                {
+                    ShowError("Sign in failed. Please check your email and password.");
+                    SetLoading(false);
+                    return;
+                }
+
+                // Store results. Password is intentionally NOT retained.
                 Email = email;
-                Password = password;
                 AccessToken = loginResponse.AccessToken;
                 RefreshToken = loginResponse.RefreshToken;
                 UserId = loginResponse.UserId;
 
-                // Convert expiry timestamp to DateTime
-                if (loginResponse.AccessTokenExpiry > 0)
-                {
-                    TokenExpiry = DateTimeOffset.FromUnixTimeMilliseconds(loginResponse.AccessTokenExpiry).DateTime;
-                }
-                else
-                {
-                    TokenExpiry = DateTime.Now.AddHours(24); // Default to 24 hours if not provided
-                }
+                TokenExpiry = loginResponse.AccessTokenExpiry > 0
+                    ? DateTimeOffset.FromUnixTimeMilliseconds(loginResponse.AccessTokenExpiry).DateTime
+                    : DateTime.Now.AddHours(24);
 
                 DialogResult = true;
                 Close();
             }
             catch (Exception ex)
             {
-                ShowError($"Login error: {ex.Message}");
+                ShowError($"Sign in error: {ex.Message}");
                 SetLoading(false);
             }
         }
