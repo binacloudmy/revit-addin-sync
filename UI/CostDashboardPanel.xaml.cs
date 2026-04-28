@@ -66,7 +66,7 @@ namespace RevitWebAppSync.UI
         private ComboBox _negeriCombo;
         private TextBlock _luasTapakText;
         private System.Windows.Controls.TextBox _luasTapakOverrideBox;
-        private System.Windows.Controls.TextBox _nilaiProjekBox;
+        // (Removed: _nilaiProjekBox — kerja awalan now fixed at 6%)
         private TextBlock _m2ResultText;
         private TextBlock _m2TotalText;
         private StackPanel _m2BreakdownPanel;
@@ -376,32 +376,23 @@ namespace RevitWebAppSync.UI
             };
             m2Stack.Children.Add(_luasTapakOverrideBox);
 
-            // ─── Section 5: Nilai Projek ───
-            m2Stack.Children.Add(MakeSectionHeader("Nilai Projek"));
-            m2Stack.Children.Add(MakeFieldLabel("Anggaran Nilai Projek (RM) - untuk Kerja Awalan"));
-            _nilaiProjekBox = new System.Windows.Controls.TextBox
-            {
-                FontSize = 11, Padding = new Thickness(8, 6, 8, 6),
-                Margin = new Thickness(0, 0, 0, 8),
-                Background = new SolidColorBrush(PageBg),
-                BorderBrush = new SolidColorBrush(BorderColor),
-                BorderThickness = new Thickness(1),
-                Text = ""
-            };
-            m2Stack.Children.Add(_nilaiProjekBox);
-
-
             // ─── Calculate Button ───
-            m2Stack.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(BorderColor), Margin = new Thickness(0, 6, 0, 14) });
+            m2Stack.Children.Add(new Border { Height = 1, Background = new SolidColorBrush(BorderColor), Margin = new Thickness(0, 8, 0, 16) });
 
+            var kiraBtnBorder = new Border
+            {
+                Background = new SolidColorBrush(PrimaryBlue),
+                CornerRadius = new CornerRadius(8),
+                Cursor = System.Windows.Input.Cursors.Hand
+            };
             var kiraBtn = new Button
             {
                 Content = "Kira Anggaran",
-                FontSize = 12, FontWeight = FontWeights.SemiBold,
+                FontSize = 13, FontWeight = FontWeights.SemiBold,
                 Foreground = Brushes.White,
-                Background = new SolidColorBrush(SuccessGreen),
+                Background = new SolidColorBrush(PrimaryBlue),
                 BorderThickness = new Thickness(0),
-                Padding = new Thickness(0, 10, 0, 10),
+                Padding = new Thickness(0, 12, 0, 12),
                 Cursor = System.Windows.Input.Cursors.Hand,
                 HorizontalAlignment = HorizontalAlignment.Stretch
             };
@@ -1242,94 +1233,161 @@ namespace RevitWebAppSync.UI
         {
             _lastM2Result = result;
             _m2BreakdownPanel.Visibility = Visibility.Visible;
-
-            // Clear and rebuild the breakdown panel
             _m2BreakdownPanel.Children.Clear();
 
-            // ─── Hero: Total RM/m2 ───
+            // ─── Hero card: gradient-style with large total ───
             var heroBox = new Border
             {
-                Background = new SolidColorBrush(Color.FromRgb(239, 246, 255)),
-                CornerRadius = new CornerRadius(6),
-                Padding = new Thickness(14, 12, 14, 12),
-                Margin = new Thickness(0, 0, 0, 12)
+                Background = new SolidColorBrush(Color.FromRgb(15, 23, 42)), // Slate-900
+                CornerRadius = new CornerRadius(10),
+                Padding = new Thickness(18, 16, 18, 16),
+                Margin = new Thickness(0, 0, 0, 14)
             };
             var heroStack = new StackPanel();
-            heroStack.Children.Add(new TextBlock
-            {
-                Text = $"RM {result.jumlah_kos_per_m2:N2} /m\u00B2",
-                FontSize = 24, FontWeight = FontWeights.Bold,
-                Foreground = new SolidColorBrush(PrimaryBlue)
-            });
-            heroStack.Children.Add(new TextBlock
-            {
-                Text = $"Jumlah Anggaran: RM {result.jumlah_anggaran_kos_projek:N0}",
-                FontSize = 13, FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(TextPrimary),
-                Margin = new Thickness(0, 4, 0, 2)
-            });
-            string subLabel = result.sub_jenis_bangunan != null ? $" / {result.sub_jenis_bangunan}" : "";
-            string namaLabel = result.nama_bangunan != null ? $" / {result.nama_bangunan}" : "";
-            string fallbackNote = result.fallback_kawasan != null ? $"  (fallback dari Kawasan {result.fallback_kawasan})" : "";
-            heroStack.Children.Add(new TextBlock
-            {
-                Text = $"{result.kategori_bangunan}{subLabel}{namaLabel}\nKawasan {result.kawasan} (FL {result.faktor_lokaliti:F4})  \u2022  {result.luas_tapak:N0} m\u00B2{fallbackNote}",
-                FontSize = 10, Foreground = new SolidColorBrush(TextMuted),
-                TextWrapping = TextWrapping.Wrap
-            });
-            heroBox.Child = heroStack;
-            _m2BreakdownPanel.Children.Add(heroBox);
 
-            // ─── Step-by-step breakdown ───
-            _m2BreakdownPanel.Children.Add(new TextBlock
+            // Tag line
+            heroStack.Children.Add(new TextBlock
             {
-                Text = "Pecahan Kos",
-                FontSize = 11, FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(TextPrimary),
+                Text = "ANGGARAN KOS PER M\u00B2",
+                FontSize = 8, FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)), // Slate-400
                 Margin = new Thickness(0, 0, 0, 6)
             });
 
-            // Step 1: Kerja Utama
-            string step1Detail = $"Purata kawasan: RM {result.kos_kerja_utama:N2}/m\u00B2  |  Bil. Kajian: {result.bilangan_kajian} / {result.jumlah_bil_kajian}  (Sem: RM {result.purata_sem_malaysia:N2}/m\u00B2)";
-            if (result.fallback_kawasan != null)
-                step1Detail += $"\nFallback dari Kawasan {result.fallback_kawasan} x (FL {result.faktor_lokaliti:F4})";
-            AddBreakdownRow("1. Kos Kerja Utama Bangunan", result.kos_kerja_utama, step1Detail);
-
-            // Step 2: Kerja Pakar — each item on its own line with formula
-            var pakarLines = result.kerja_pakar.Select(p =>
-                $"  {p.jenis_pemasangan.Replace("Pemasangan ", "")}: {p.peratusan}% x RM {result.kos_kerja_utama:N2} = RM {p.jumlah:N2}");
-            string pakarDetail = string.Join("\n", pakarLines);
-            AddBreakdownRow("2. Kerja Pakar Dalam Bangunan", result.jumlah_kerja_pakar, pakarDetail);
-
-            // Step 3: Kerja Luar — show formula
-            AddBreakdownRow("3. Kerja Luar Bangunan", result.kos_kerja_luar,
-                $"{result.kerja_luar_peratusan}% x RM {result.kos_kerja_utama:N2} = RM {result.kos_kerja_luar:N2}  (n={result.kerja_luar_bilangan_contoh:N0} contoh)");
-
-            // Step 4: Kerja Awalan — % x (kerja utama + pakar + luar) per m2
-            double subBeforePrelim = result.kos_kerja_utama + result.jumlah_kerja_pakar + result.kos_kerja_luar;
-            string step4Detail = $"Nilai Projek: RM {result.kerja_awalan_nilai_projek:N0} \u2192 {result.kerja_awalan_peratusan}% ({result.kerja_awalan_kategori})\n";
-            step4Detail += $"{result.kerja_awalan_peratusan}% x (RM {result.kos_kerja_utama:N2} + RM {result.jumlah_kerja_pakar:N2} + RM {result.kos_kerja_luar:N2}) = RM {result.kos_kerja_awalan:N2}";
-            AddBreakdownRow("4. Kerja Awalan (Preliminaries)", result.kos_kerja_awalan, step4Detail);
-
-            // Step 5: Jumlah Kecil (all per m2)
-            AddBreakdownRow("5. Jumlah Kecil", result.jumlah_kecil,
-                $"= RM {result.kos_kerja_utama:N2} + RM {result.jumlah_kerja_pakar:N2} + RM {result.kos_kerja_luar:N2} + RM {result.kos_kerja_awalan:N2}", true);
-
-            // Step 6: Pelbagai (per m2)
-            AddBreakdownRow("6. Pelbagai / Miscellaneous", result.kos_pelbagai,
-                $"{result.pelbagai_peratusan}% x RM {result.jumlah_kecil:N2} = RM {result.kos_pelbagai:N2}");
-
-            // Divider
-            _m2BreakdownPanel.Children.Add(new Border
+            // Primary: RM per m2
+            heroStack.Children.Add(new TextBlock
             {
-                Height = 1, Background = new SolidColorBrush(BorderColor),
-                Margin = new Thickness(0, 6, 0, 6)
+                Text = $"RM {result.jumlah_kos_per_m2:N2}",
+                FontSize = 28, FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White
+            });
+            heroStack.Children.Add(new TextBlock
+            {
+                Text = "per meter persegi",
+                FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)),
+                Margin = new Thickness(0, 0, 0, 10)
             });
 
-            // Step 7: Jumlah Kos per M2 + Anggaran
-            string step7Detail = $"= RM {result.jumlah_kecil:N2} + RM {result.kos_pelbagai:N2}\n";
-            step7Detail += $"Anggaran: RM {result.jumlah_kos_per_m2:N2} x {result.luas_tapak:N0} m\u00B2 = RM {result.jumlah_anggaran_kos_projek:N0}";
-            AddBreakdownRow("7. JUMLAH KOS PER M\u00B2", result.jumlah_kos_per_m2, step7Detail, true);
+            // Divider line
+            heroStack.Children.Add(new Border
+            {
+                Height = 1, Background = new SolidColorBrush(Color.FromRgb(51, 65, 85)), // Slate-700
+                Margin = new Thickness(0, 0, 0, 10)
+            });
+
+            // Total project cost
+            var totalRow = new Grid();
+            totalRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            totalRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var totalLabel = new TextBlock
+            {
+                Text = "Jumlah Anggaran Projek",
+                FontSize = 10, Foreground = new SolidColorBrush(Color.FromRgb(148, 163, 184)),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(totalLabel, 0);
+            totalRow.Children.Add(totalLabel);
+
+            var totalValue = new TextBlock
+            {
+                Text = $"RM {result.jumlah_anggaran_kos_projek:N0}",
+                FontSize = 16, FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(Color.FromRgb(96, 165, 250)), // Blue-400
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+            Grid.SetColumn(totalValue, 1);
+            totalRow.Children.Add(totalValue);
+            heroStack.Children.Add(totalRow);
+
+            // Metadata chips
+            string subLabel = result.sub_jenis_bangunan != null ? $" / {result.sub_jenis_bangunan}" : "";
+            string namaLabel = result.nama_bangunan != null ? $" / {result.nama_bangunan}" : "";
+            string fallbackNote = result.fallback_kawasan != null ? $" (fallback: Kaw {result.fallback_kawasan})" : "";
+
+            var metaPanel = new WrapPanel { Margin = new Thickness(0, 8, 0, 0) };
+            AddChip(metaPanel, $"{result.kategori_bangunan}{subLabel}{namaLabel}");
+            AddChip(metaPanel, $"Kawasan {result.kawasan}{fallbackNote}");
+            AddChip(metaPanel, $"{result.luas_tapak:N0} m\u00B2");
+            AddChip(metaPanel, $"FL {result.faktor_lokaliti:F4}");
+            heroStack.Children.Add(metaPanel);
+
+            heroBox.Child = heroStack;
+            _m2BreakdownPanel.Children.Add(heroBox);
+
+            // ─── Cost breakdown header ───
+            _m2BreakdownPanel.Children.Add(new TextBlock
+            {
+                Text = "PECAHAN KOS",
+                FontSize = 9, FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(TextMuted),
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+
+            // Step 1: Kerja Utama — highlighted as primary cost driver
+            string step1Sub = $"Bil. Kajian: {result.bilangan_kajian} / {result.jumlah_bil_kajian}  |  Purata Sem: RM {result.purata_sem_malaysia:N2}/m\u00B2";
+            if (result.fallback_kawasan != null)
+                step1Sub += $"\nFallback dari Kawasan {result.fallback_kawasan} x FL {result.faktor_lokaliti:F4}";
+            AddBreakdownCard("Kos Kerja Utama Bangunan", result.kos_kerja_utama, step1Sub,
+                Color.FromRgb(239, 246, 255), Color.FromRgb(37, 99, 235)); // Blue tint
+
+            // Step 2: Kerja Pakar
+            var pakarLines = result.kerja_pakar.Select(p =>
+                $"{p.jenis_pemasangan.Replace("Pemasangan ", "")}: {p.peratusan}% = RM {p.jumlah:N2}");
+            string pakarSub = string.Join("  |  ", pakarLines);
+            AddBreakdownCard("Kerja Pakar Dalam Bangunan", result.jumlah_kerja_pakar, pakarSub,
+                Color.FromRgb(245, 243, 255), Color.FromRgb(124, 58, 237)); // Violet tint
+
+            // Step 3: Kerja Luar
+            AddBreakdownCard("Kerja Luar Bangunan", result.kos_kerja_luar,
+                $"{result.kerja_luar_peratusan}% x RM {result.kos_kerja_utama:N2}  (n={result.kerja_luar_bilangan_contoh:N0} contoh)",
+                Color.FromRgb(240, 253, 244), Color.FromRgb(22, 163, 74)); // Green tint
+
+            // Step 4: Kerja Awalan
+            AddBreakdownCard("Kerja Awalan (Preliminaries)", result.kos_kerja_awalan,
+                $"{result.kerja_awalan_peratusan}% x (Utama + Pakar + Luar)",
+                Color.FromRgb(255, 247, 237), Color.FromRgb(234, 88, 12)); // Orange tint
+
+            // Step 5: Jumlah Kecil — subtle divider
+            AddBreakdownSubtotal("Jumlah Kecil", result.jumlah_kecil);
+
+            // Step 6: Pelbagai
+            AddBreakdownCard("Pelbagai / Miscellaneous", result.kos_pelbagai,
+                $"{result.pelbagai_peratusan}% x RM {result.jumlah_kecil:N2}",
+                Color.FromRgb(248, 250, 252), Color.FromRgb(100, 116, 139)); // Slate tint
+
+            // ─── Final total bar ───
+            var finalBar = new Border
+            {
+                Background = new SolidColorBrush(PrimaryBlue),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(14, 10, 14, 10),
+                Margin = new Thickness(0, 8, 0, 0)
+            };
+            var finalGrid = new Grid();
+            finalGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            finalGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var finalLabel = new TextBlock
+            {
+                Text = "JUMLAH KOS PER M\u00B2",
+                FontSize = 10, FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(finalLabel, 0);
+            finalGrid.Children.Add(finalLabel);
+
+            var finalValue = new TextBlock
+            {
+                Text = $"RM {result.jumlah_kos_per_m2:N2}",
+                FontSize = 14, FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White, HorizontalAlignment = HorizontalAlignment.Right
+            };
+            Grid.SetColumn(finalValue, 1);
+            finalGrid.Children.Add(finalValue);
+
+            finalBar.Child = finalGrid;
+            _m2BreakdownPanel.Children.Add(finalBar);
 
             // ─── Exclusions ───
             if (result.pengecualian != null && result.pengecualian.Count > 0)
@@ -1339,7 +1397,7 @@ namespace RevitWebAppSync.UI
                     Text = "Pengecualian:",
                     FontSize = 9, FontWeight = FontWeights.SemiBold,
                     Foreground = new SolidColorBrush(TextMuted),
-                    Margin = new Thickness(0, 10, 0, 2)
+                    Margin = new Thickness(0, 12, 0, 2)
                 });
                 foreach (var exc in result.pengecualian)
                 {
@@ -1362,51 +1420,113 @@ namespace RevitWebAppSync.UI
             });
         }
 
-        private void AddBreakdownRow(string label, double value, string detail = null, bool bold = false, string unit = "/m\u00B2")
+        private void AddChip(WrapPanel panel, string text)
         {
-            var rowGrid = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+            panel.Children.Add(new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(30, 41, 59)), // Slate-800
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(6, 2, 6, 2),
+                Margin = new Thickness(0, 0, 4, 4),
+                Child = new TextBlock
+                {
+                    Text = text,
+                    FontSize = 8, Foreground = new SolidColorBrush(Color.FromRgb(203, 213, 225)), // Slate-300
+                    TextWrapping = TextWrapping.Wrap
+                }
+            });
+        }
+
+        private void AddBreakdownCard(string label, double value, string detail, Color bgColor, Color accentColor)
+        {
+            var card = new Border
+            {
+                Background = new SolidColorBrush(bgColor),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(10, 8, 10, 8),
+                Margin = new Thickness(0, 0, 0, 4),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(30, accentColor.R, accentColor.G, accentColor.B)),
+                BorderThickness = new Thickness(1)
+            };
+
+            var stack = new StackPanel();
+
+            var rowGrid = new Grid();
             rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
             var labelBlock = new TextBlock
             {
                 Text = label,
-                FontSize = 10,
-                FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
+                FontSize = 10, FontWeight = FontWeights.Medium,
                 Foreground = new SolidColorBrush(TextPrimary),
-                TextWrapping = TextWrapping.Wrap
+                VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(labelBlock, 0);
             rowGrid.Children.Add(labelBlock);
 
-            // Format: per-m2 uses N2 decimal, total RM uses N0
-            string formatted = unit == "/m\u00B2"
-                ? $"RM {value:N2} {unit}"
-                : $"RM {value:N0}";
-
             var valueBlock = new TextBlock
             {
-                Text = formatted,
-                FontSize = 10,
-                FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
-                Foreground = new SolidColorBrush(bold ? PrimaryBlue : TextPrimary),
+                Text = $"RM {value:N2}",
+                FontSize = 11, FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(accentColor),
                 HorizontalAlignment = HorizontalAlignment.Right
             };
             Grid.SetColumn(valueBlock, 1);
             rowGrid.Children.Add(valueBlock);
 
-            _m2BreakdownPanel.Children.Add(rowGrid);
+            stack.Children.Add(rowGrid);
 
             if (!string.IsNullOrEmpty(detail))
             {
-                _m2BreakdownPanel.Children.Add(new TextBlock
+                stack.Children.Add(new TextBlock
                 {
                     Text = detail,
                     FontSize = 8, Foreground = new SolidColorBrush(TextMuted),
-                    Margin = new Thickness(0, 0, 0, 2),
+                    Margin = new Thickness(0, 3, 0, 0),
                     TextWrapping = TextWrapping.Wrap
                 });
             }
+
+            card.Child = stack;
+            _m2BreakdownPanel.Children.Add(card);
+        }
+
+        private void AddBreakdownSubtotal(string label, double value)
+        {
+            var bar = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(241, 245, 249)), // Slate-100
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(10, 6, 10, 6),
+                Margin = new Thickness(0, 2, 0, 4)
+            };
+
+            var rowGrid = new Grid();
+            rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            rowGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+            var labelBlock = new TextBlock
+            {
+                Text = label,
+                FontSize = 10, FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(TextPrimary)
+            };
+            Grid.SetColumn(labelBlock, 0);
+            rowGrid.Children.Add(labelBlock);
+
+            var valueBlock = new TextBlock
+            {
+                Text = $"RM {value:N2} /m\u00B2",
+                FontSize = 10, FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(TextPrimary),
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+            Grid.SetColumn(valueBlock, 1);
+            rowGrid.Children.Add(valueBlock);
+
+            bar.Child = rowGrid;
+            _m2BreakdownPanel.Children.Add(bar);
         }
 
 
@@ -2019,12 +2139,6 @@ namespace RevitWebAppSync.UI
                     noLukisan = selectedEntry.no_lukisan;
                 }
 
-                // Parse nilai projek if provided
-                double? nilaiProjek = null;
-                string npText = _nilaiProjekBox?.Text?.Trim().Replace(",", "") ?? "";
-                if (!string.IsNullOrEmpty(npText) && double.TryParse(npText, out double npVal) && npVal > 0)
-                    nilaiProjek = npVal;
-
                 var request = new M2EstimateRequest
                 {
                     kategori_bangunan = jenisBangunan,
@@ -2032,7 +2146,6 @@ namespace RevitWebAppSync.UI
                     nama_bangunan = namaBangunan,
                     nama_entry = namaEntry,
                     no_lukisan = noLukisan,
-                    nilai_projek = nilaiProjek,
                     kawasan = kawasan,
                     luas_tapak = luasTapak,
                     kerja_pakar_selected = GetSelectedKerjaPakar(),

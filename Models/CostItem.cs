@@ -125,7 +125,6 @@ namespace RevitWebAppSync.Models
         public string nama_bangunan { get; set; }
         public string nama_entry { get; set; }
         public string no_lukisan { get; set; }
-        public double? nilai_projek { get; set; }
         public string kawasan { get; set; }
         public double luas_tapak { get; set; }
         public List<string> kerja_pakar_selected { get; set; }
@@ -189,8 +188,6 @@ namespace RevitWebAppSync.Models
         public double kos_kerja_luar { get; set; }
         // Step 4
         public double kerja_awalan_peratusan { get; set; }
-        public string kerja_awalan_kategori { get; set; }
-        public double kerja_awalan_nilai_projek { get; set; }
         public double kos_kerja_awalan { get; set; }
         // Step 5
         public double jumlah_kecil { get; set; }
