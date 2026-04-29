@@ -20,6 +20,33 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             "rename_type", "set_parameter", "set_jkr_code",
         };
 
+        /// <summary>
+        /// Blocklist of element+param combos that failed auto-fix (e.g. read-only params).
+        /// Survives re-scans within the same Revit session. Cleared on Revit restart.
+        /// Key format: "{elementId}:{parameterName}" or "{elementId}:rename_type"
+        /// </summary>
+        private static readonly HashSet<string> _FixBlocklist = new HashSet<string>();
+
+        /// <summary>Mark an element+fix combo as unfixable so future scans exclude it.</summary>
+        public static void BlockFix(int elementId, string fixAction, string parameterName)
+        {
+            var key = fixAction == "rename_type"
+                ? $"{elementId}:rename_type"
+                : $"{elementId}:{parameterName}";
+            _FixBlocklist.Add(key);
+        }
+
+        /// <summary>Clear the blocklist (e.g. on Reset).</summary>
+        public static void ClearBlocklist() => _FixBlocklist.Clear();
+
+        private static bool IsBlocked(int elementId, string fixAction, string parameterName)
+        {
+            var key = fixAction == "rename_type"
+                ? $"{elementId}:rename_type"
+                : $"{elementId}:{parameterName}";
+            return _FixBlocklist.Contains(key);
+        }
+
         public static IssueVm FromDto(ComplianceIssueDto dto)
         {
             if (dto == null) return null;
@@ -27,6 +54,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             var category = ResolveCategory(dto);
             var tier = JkrTierMap.Resolve(category);
             var autoFixable = !string.IsNullOrEmpty(dto.FixAction) && _FixableActions.Contains(dto.FixAction);
+
+            // Check blocklist — if this element+param failed before, don't mark as fixable
+            if (autoFixable && IsBlocked(dto.ElementId, dto.FixAction ?? "", dto.FixParameterName ?? ""))
+                autoFixable = false;
 
             return new IssueVm
             {

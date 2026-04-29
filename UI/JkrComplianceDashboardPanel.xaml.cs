@@ -317,14 +317,17 @@ namespace RevitWebAppSync.UI
                     if (result.Failed > 0)
                         summary += $" ({result.Failed} failed)";
 
-                    // Mark failed issues as not auto-fixable so they don't appear
-                    // in Fix All again. The parameter is read-only or missing — retrying won't help.
+                    // Mark failed issues as not auto-fixable and add to blocklist
+                    // so re-scans don't re-mark them as fixable.
                     if (result.FailedElementIds.Count > 0)
                     {
                         foreach (var issue in fixable)
                         {
                             if (result.FailedElementIds.Contains(issue.RevitElementId))
+                            {
                                 issue.AutoFixable = false;
+                                IssueMapper.BlockFix(issue.RevitElementId, issue.FixAction, issue.FixParameterName);
+                            }
                         }
                     }
 
@@ -639,8 +642,9 @@ namespace RevitWebAppSync.UI
                     }
                     if (result.Renamed == 0 && result.ParamFixed == 0)
                     {
-                        // Mark as not auto-fixable so the button disappears
+                        // Mark as not auto-fixable and blocklist so re-scan doesn't re-mark it
                         issue.AutoFixable = false;
+                        IssueMapper.BlockFix(issue.RevitElementId, issue.FixAction, issue.FixParameterName);
                         var detail = result.Skipped + result.Failed > 0
                             ? $"skipped={result.Skipped} failed={result.Failed}"
                             : "no changes applied";
@@ -662,7 +666,8 @@ namespace RevitWebAppSync.UI
 
         private void Reset_Click(object s, RoutedEventArgs e)
         {
-            // Clear all decisions and re-scan fresh
+            // Clear all decisions, blocklist, and re-scan fresh
+            IssueMapper.ClearBlocklist();
             _vm.ShowToast("Resetting all decisions and re-scanning...");
             _ = ResetAndRescan();
         }
