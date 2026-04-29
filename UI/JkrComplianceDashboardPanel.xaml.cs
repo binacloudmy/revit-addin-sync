@@ -317,9 +317,18 @@ namespace RevitWebAppSync.UI
                     if (result.Failed > 0)
                         summary += $" ({result.Failed} failed)";
 
+                    // Mark failed issues as not auto-fixable so they don't appear
+                    // in Fix All again. The parameter is read-only or missing — retrying won't help.
+                    if (result.FailedElementIds.Count > 0)
+                    {
+                        foreach (var issue in fixable)
+                        {
+                            if (result.FailedElementIds.Contains(issue.RevitElementId))
+                                issue.AutoFixable = false;
+                        }
+                    }
+
                     // Re-scan to verify — the re-scan will show fewer issues now.
-                    // Don't mark issues as Fixed in the VM — the re-scan will simply
-                    // not return the fixed issues anymore (model is the source of truth).
                     _ = RunScanAfterFix(summary, result.Failed, result.FailDetails);
                 });
             };
@@ -630,6 +639,8 @@ namespace RevitWebAppSync.UI
                     }
                     if (result.Renamed == 0 && result.ParamFixed == 0)
                     {
+                        // Mark as not auto-fixable so the button disappears
+                        issue.AutoFixable = false;
                         var detail = result.Skipped + result.Failed > 0
                             ? $"skipped={result.Skipped} failed={result.Failed}"
                             : "no changes applied";

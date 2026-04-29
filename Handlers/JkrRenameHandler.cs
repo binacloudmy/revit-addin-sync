@@ -50,7 +50,7 @@ namespace RevitWebAppSync.Handlers
                             try
                             {
                                 var elem = doc.GetElement(new ElementId(elemId));
-                                if (elem == null) { result.Skipped++; continue; }
+                                if (elem == null) { result.Skipped++; result.FailedElementIds.Add(elemId); continue; }
 
                                 // Grids and Levels are Elements (not ElementTypes) — rename
                                 // via their own Name property. Family/loadable types keep
@@ -80,10 +80,12 @@ namespace RevitWebAppSync.Handlers
                             catch (Autodesk.Revit.Exceptions.ArgumentException)
                             {
                                 result.Failed++;
+                                result.FailedElementIds.Add(elemId);
                             }
                             catch (Exception)
                             {
                                 result.Failed++;
+                                result.FailedElementIds.Add(elemId);
                             }
                         }
                         tx.Commit();
@@ -103,6 +105,7 @@ namespace RevitWebAppSync.Handlers
                         else
                         {
                             result.Failed++;
+                            result.FailedElementIds.Add(fix.ElementId);
                             failReasons.Add($"{fix.ParameterName} on {fix.ElementId}: {fixResult.Message}");
                         }
                     }
@@ -198,5 +201,7 @@ namespace RevitWebAppSync.Handlers
         public int Failed { get; set; }
         public string Error { get; set; }
         public string FailDetails { get; set; } = "";
+        /// <summary>Element IDs that failed/skipped — UI marks these as not auto-fixable.</summary>
+        public HashSet<int> FailedElementIds { get; set; } = new HashSet<int>();
     }
 }

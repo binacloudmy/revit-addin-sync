@@ -34,7 +34,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string Required { get; set; } = "";
         public string Actual { get; set; } = "";
         public string Example { get; set; } = "";
-        public bool AutoFixable { get; set; }
+        private bool _autoFixable;
+        public bool AutoFixable
+        {
+            get => _autoFixable;
+            set { if (_autoFixable != value) { _autoFixable = value; OnAll(); } }
+        }
         public List<string> Steps { get; set; } = new List<string>();
         public string HowToFix { get; set; } = "";
         public SpecRef Spec { get; set; } = new SpecRef();
