@@ -290,6 +290,20 @@ namespace RevitWebAppSync.UI
 
                     var total = result.Renamed + result.ParamFixed;
 
+                    // ALWAYS blocklist failed fixes — even when total==0.
+                    // This prevents re-scan from re-marking unfixable issues.
+                    if (result.FailedElementIds.Count > 0)
+                    {
+                        foreach (var issue in fixable)
+                        {
+                            if (result.FailedElementIds.Contains(issue.RevitElementId))
+                            {
+                                issue.AutoFixable = false;
+                                IssueMapper.BlockFix(issue.RevitElementId, issue.FixAction, issue.FixParameterName);
+                            }
+                        }
+                    }
+
                     if (total == 0)
                     {
                         FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
@@ -316,20 +330,6 @@ namespace RevitWebAppSync.UI
                     var summary = $"Fixed {total} of {totalToFix}";
                     if (result.Failed > 0)
                         summary += $" ({result.Failed} failed)";
-
-                    // Mark failed issues as not auto-fixable and add to blocklist
-                    // so re-scans don't re-mark them as fixable.
-                    if (result.FailedElementIds.Count > 0)
-                    {
-                        foreach (var issue in fixable)
-                        {
-                            if (result.FailedElementIds.Contains(issue.RevitElementId))
-                            {
-                                issue.AutoFixable = false;
-                                IssueMapper.BlockFix(issue.RevitElementId, issue.FixAction, issue.FixParameterName);
-                            }
-                        }
-                    }
 
                     // Re-scan to verify — the re-scan will show fewer issues now.
                     _ = RunScanAfterFix(summary, result.Failed, result.FailDetails);
