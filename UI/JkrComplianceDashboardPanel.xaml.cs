@@ -265,6 +265,12 @@ namespace RevitWebAppSync.UI
                         return;
                     }
                     var total = result.Renamed + result.ParamFixed;
+                    if (total == 0)
+                    {
+                        var detail = $"skipped={result.Skipped} failed={result.Failed}";
+                        _vm.ShowToast($"No fixes applied ({detail}). Shared parameters may need to be added to the project first.");
+                        return;
+                    }
                     foreach (var issue in fixable)
                         _vm.ApplyAction(issue, IssueStatus.Fixed, advance: false);
                     _vm.ShowToast($"Fixed {total} issues ({result.Renamed} renamed, {result.ParamFixed} params). Re-scanning...");
