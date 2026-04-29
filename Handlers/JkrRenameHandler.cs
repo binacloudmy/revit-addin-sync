@@ -94,14 +94,20 @@ namespace RevitWebAppSync.Handlers
                 if (ParamFixQueue.Any())
                 {
                     var applicator = new JkrFixApplicator(doc);
+                    var failReasons = new List<string>();
                     foreach (var fix in ParamFixQueue.OrderBy(f => f.Priority))
                     {
                         var fixResult = applicator.ApplyFix(fix);
                         if (fixResult.Success)
                             result.ParamFixed++;
                         else
+                        {
                             result.Failed++;
+                            failReasons.Add($"{fix.ParameterName} on {fix.ElementId}: {fixResult.Message}");
+                        }
                     }
+                    if (failReasons.Count > 0)
+                        result.FailDetails = string.Join("\n", failReasons.Take(5));
                 }
             }
             catch (Exception ex)
@@ -191,5 +197,6 @@ namespace RevitWebAppSync.Handlers
         public int Skipped { get; set; }
         public int Failed { get; set; }
         public string Error { get; set; }
+        public string FailDetails { get; set; } = "";
     }
 }

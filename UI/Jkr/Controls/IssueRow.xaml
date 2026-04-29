@@ -90,12 +90,6 @@
                             Click="AutoFix_Click">
                         <jkr:IconGlyph Glyph="bolt" Size="12" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
                     </Button>
-                    <Button Style="{DynamicResource Btn.QuickApprove}"
-                            ToolTip="Approve (X)"
-                            Visibility="{Binding ShowApproveButton, Converter={StaticResource B2V}}"
-                            Click="Approve_Click">
-                        <jkr:IconGlyph Glyph="approve" Size="12" Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                    </Button>
                 </StackPanel>
             </Grid>
         </Border>

@@ -273,7 +273,10 @@ namespace RevitWebAppSync.UI
                     if (total == 0)
                     {
                         var detail = $"skipped={result.Skipped} failed={result.Failed}";
-                        _vm.ShowToast($"No fixes applied ({detail}). Shared parameters may need to be added to the project first.");
+                        var msg = $"No fixes applied ({detail}).";
+                        if (!string.IsNullOrEmpty(result.FailDetails))
+                            msg += $"\n\n{result.FailDetails}";
+                        TaskDialog.Show("BINA JKR Compliance", msg);
                         return;
                     }
                     foreach (var issue in fixable)
@@ -538,7 +541,10 @@ namespace RevitWebAppSync.UI
                         var detail = result.Skipped + result.Failed > 0
                             ? $"skipped={result.Skipped} failed={result.Failed}"
                             : "no changes applied";
-                        TaskDialog.Show("BINA JKR Compliance", $"Auto-fix did not apply ({detail}).");
+                        var msg = $"Auto-fix did not apply ({detail}).";
+                        if (!string.IsNullOrEmpty(result.FailDetails))
+                            msg += $"\n\nDetails:\n{result.FailDetails}";
+                        TaskDialog.Show("BINA JKR Compliance", msg);
                         return;
                     }
                     // Success — flip the VM (advances queue + shows toast).
