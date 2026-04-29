@@ -62,7 +62,10 @@ namespace RevitWebAppSync.UI
         private List<string> _allNamaBangunan = new List<string>();
         private string _selectedNamaBangunan;
         private TextBlock _namaBangunanLabel;
-        private ComboBox _namaEntryCombo;
+        private System.Windows.Controls.TextBox _namaEntrySearchBox;
+        private ListBox _namaEntrySuggestList;
+        private List<NamaEntryItem> _allNamaEntries = new List<NamaEntryItem>();
+        private NamaEntryItem _selectedNamaEntry;
         private ComboBox _negeriCombo;
         private TextBlock _luasTapakText;
         private System.Windows.Controls.TextBox _luasTapakOverrideBox;
@@ -326,15 +329,39 @@ namespace RevitWebAppSync.UI
             _namaBangunanSuggestList.SelectionChanged += NamaBangunanSuggestion_Selected;
             m2Stack.Children.Add(_namaBangunanSuggestList);
 
-            // Nama Entry (specific building drawing — appears after nama_bangunan selected)
-            m2Stack.Children.Add(MakeFieldLabel("Jenis Bangunan Spesifik (pilihan)"));
-            _namaEntryCombo = new ComboBox
+            // Nama Entry (specific building drawing — searchable with suggestions)
+            m2Stack.Children.Add(MakeFieldLabel("No. Lukisan / Jenis Bangunan Spesifik (pilihan)"));
+            _namaEntrySearchBox = new System.Windows.Controls.TextBox
             {
-                FontSize = 11, Padding = new Thickness(6, 4, 6, 4),
-                Margin = new Thickness(0, 0, 0, 8),
+                FontSize = 11, Padding = new Thickness(8, 6, 8, 6),
+                Margin = new Thickness(0, 0, 0, 2),
+                Background = new SolidColorBrush(PageBg),
+                BorderBrush = new SolidColorBrush(BorderColor),
+                BorderThickness = new Thickness(1),
                 Visibility = Visibility.Collapsed
             };
-            m2Stack.Children.Add(_namaEntryCombo);
+            _namaEntrySearchBox.GotFocus += (s, ev) => FilterNamaEntrySuggestions();
+            _namaEntrySearchBox.LostFocus += (s, ev) =>
+            {
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (!_namaEntrySuggestList.IsMouseOver)
+                        _namaEntrySuggestList.Visibility = Visibility.Collapsed;
+                }), System.Windows.Threading.DispatcherPriority.Background);
+            };
+            _namaEntrySearchBox.TextChanged += NamaEntrySearch_Changed;
+            m2Stack.Children.Add(_namaEntrySearchBox);
+
+            _namaEntrySuggestList = new ListBox
+            {
+                FontSize = 10, MaxHeight = 180,
+                Margin = new Thickness(0, 0, 0, 8),
+                BorderBrush = new SolidColorBrush(BorderColor),
+                BorderThickness = new Thickness(1),
+                Visibility = Visibility.Collapsed
+            };
+            _namaEntrySuggestList.SelectionChanged += NamaEntrySuggestion_Selected;
+            m2Stack.Children.Add(_namaEntrySuggestList);
 
             // ─── Section 2: Lokasi ───
             m2Stack.Children.Add(MakeSectionHeader("Lokasi"));
@@ -1027,22 +1054,25 @@ namespace RevitWebAppSync.UI
         {
             if (_jenisBangunanCombo.SelectedItem is ComboBoxItem item && item.Tag is M2BuildingType bt)
             {
-                // Populate Jenis Bangunan (sub_jenis) dropdown
                 _subJenisCombo.Items.Clear();
                 if (bt.sub_jenis.Count > 0)
                 {
+                    // Has sub_jenis (e.g., Pendidikan → Sekolah 1 Tingkat, Sekolah 2 Tingkat)
                     foreach (var sub in bt.sub_jenis)
                         _subJenisCombo.Items.Add(new ComboBoxItem { Content = sub.name, Tag = sub });
                     _subJenisCombo.SelectedIndex = 0;
+                    _subJenisCombo.Visibility = Visibility.Visible;
+                    // Nama bangunan populated by SubJenis_Changed
                 }
                 else
                 {
-                    // No sub_jenis — populate nama_bangunan directly from kategori
+                    // No sub_jenis (e.g., Agama, Kesihatan) — show nama_bangunan
+                    // directly in the Jenis Bangunan dropdown
+                    _subJenisCombo.Visibility = Visibility.Collapsed;
                     var directNama = bt.nama_bangunan ?? new List<string>();
                     UpdateNamaBangunanList(directNama);
                 }
 
-                // Update kerja pakar checkboxes based on building type
                 UpdateKerjaPakarCheckboxes(bt.kategori_bangunan);
             }
         }
@@ -1063,6 +1093,13 @@ namespace RevitWebAppSync.UI
             _selectedNamaBangunan = null;
             _namaBangunanSearchBox.Text = "";
             _namaBangunanSuggestList.Visibility = Visibility.Collapsed;
+
+            // Clear nama entry search when nama_bangunan changes
+            _allNamaEntries.Clear();
+            _selectedNamaEntry = null;
+            _namaEntrySearchBox.Text = "";
+            _namaEntrySearchBox.Visibility = Visibility.Collapsed;
+            _namaEntrySuggestList.Visibility = Visibility.Collapsed;
 
             if (_allNamaBangunan.Count > 0)
             {
@@ -1134,7 +1171,8 @@ namespace RevitWebAppSync.UI
             string kategori = (_jenisBangunanCombo?.SelectedItem as ComboBoxItem)?.Content?.ToString();
             if (string.IsNullOrEmpty(kategori) || string.IsNullOrEmpty(_selectedNamaBangunan))
             {
-                _namaEntryCombo.Visibility = Visibility.Collapsed;
+                _namaEntrySearchBox.Visibility = Visibility.Collapsed;
+                _namaEntrySuggestList.Visibility = Visibility.Collapsed;
                 return;
             }
 
@@ -1145,37 +1183,92 @@ namespace RevitWebAppSync.UI
 
                 Dispatcher.Invoke(() =>
                 {
-                    _namaEntryCombo.Items.Clear();
-                    if (entries.Count > 0)
+                    _allNamaEntries = entries ?? new List<NamaEntryItem>();
+                    _selectedNamaEntry = null;
+                    _namaEntrySearchBox.Text = "";
+
+                    if (_allNamaEntries.Count > 0)
                     {
-                        // Add "Gunakan purata kumpulan" option as first item
-                        _namaEntryCombo.Items.Add(new ComboBoxItem
-                        {
-                            Content = "(Gunakan purata kumpulan)",
-                            Tag = null,
-                            FontStyle = FontStyles.Italic
-                        });
-                        foreach (var entry in entries)
-                        {
-                            _namaEntryCombo.Items.Add(new ComboBoxItem
-                            {
-                                Content = entry.label,
-                                Tag = entry
-                            });
-                        }
-                        _namaEntryCombo.SelectedIndex = 0;
-                        _namaEntryCombo.Visibility = Visibility.Visible;
+                        _namaEntrySearchBox.Visibility = Visibility.Visible;
                     }
                     else
                     {
-                        _namaEntryCombo.Visibility = Visibility.Collapsed;
+                        _namaEntrySearchBox.Visibility = Visibility.Collapsed;
+                        _namaEntrySuggestList.Visibility = Visibility.Collapsed;
                     }
                 });
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to load nama entries: {ex.Message}");
-                _namaEntryCombo.Visibility = Visibility.Collapsed;
+                _namaEntrySearchBox.Visibility = Visibility.Collapsed;
+                _namaEntrySuggestList.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void NamaEntrySearch_Changed(object sender, System.Windows.Controls.TextChangedEventArgs e)
+        {
+            if (_selectedNamaEntry != null && _namaEntrySearchBox.Text != _selectedNamaEntry.label)
+                _selectedNamaEntry = null;
+            FilterNamaEntrySuggestions();
+        }
+
+        private void FilterNamaEntrySuggestions()
+        {
+            string query = _namaEntrySearchBox.Text?.Trim() ?? "";
+            _namaEntrySuggestList.Items.Clear();
+
+            var filtered = string.IsNullOrEmpty(query)
+                ? _allNamaEntries
+                : _allNamaEntries
+                    .Where(n => n.label.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0)
+                    .ToList();
+
+            if (filtered.Count > 0)
+            {
+                _namaEntrySuggestList.Visibility = Visibility.Visible;
+                // Add "Gunakan purata kumpulan" as first option
+                _namaEntrySuggestList.Items.Add(new ListBoxItem
+                {
+                    Content = "(Gunakan purata kumpulan)",
+                    Tag = null,
+                    FontSize = 10, FontStyle = FontStyles.Italic,
+                    Padding = new Thickness(6, 3, 6, 3)
+                });
+                foreach (var entry in filtered)
+                {
+                    _namaEntrySuggestList.Items.Add(new ListBoxItem
+                    {
+                        Content = entry.label,
+                        Tag = entry,
+                        FontSize = 10,
+                        Padding = new Thickness(6, 3, 6, 3)
+                    });
+                }
+            }
+            else
+            {
+                _namaEntrySuggestList.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private void NamaEntrySuggestion_Selected(object sender, SelectionChangedEventArgs e)
+        {
+            if (_namaEntrySuggestList.SelectedItem is ListBoxItem selected)
+            {
+                if (selected.Tag is NamaEntryItem entry)
+                {
+                    _selectedNamaEntry = entry;
+                    _namaEntrySearchBox.Text = entry.label;
+                }
+                else
+                {
+                    // "Gunakan purata kumpulan" selected
+                    _selectedNamaEntry = null;
+                    _namaEntrySearchBox.Text = "";
+                }
+                _namaEntrySuggestList.Visibility = Visibility.Collapsed;
+                _namaEntrySearchBox.CaretIndex = _namaEntrySearchBox.Text.Length;
             }
         }
 
@@ -2133,10 +2226,10 @@ namespace RevitWebAppSync.UI
                 // Get nama_entry if user selected a specific building entry
                 string namaEntry = null;
                 string noLukisan = null;
-                if (_namaEntryCombo?.SelectedItem is ComboBoxItem entryItem && entryItem.Tag is NamaEntryItem selectedEntry)
+                if (_selectedNamaEntry != null)
                 {
-                    namaEntry = selectedEntry.nama_entry;
-                    noLukisan = selectedEntry.no_lukisan;
+                    namaEntry = _selectedNamaEntry.nama_entry;
+                    noLukisan = _selectedNamaEntry.no_lukisan;
                 }
 
                 var request = new M2EstimateRequest
