@@ -307,6 +307,7 @@ namespace RevitWebAppSync.UI
                     if (total == 0)
                     {
                         FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
+                        RenderAll(); // refresh badge after blocklist changes
                         var detail = $"skipped={result.Skipped} failed={result.Failed}";
                         var msg = $"No fixes applied ({detail}).";
                         if (!string.IsNullOrEmpty(result.FailDetails))
