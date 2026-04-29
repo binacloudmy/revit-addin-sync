@@ -163,6 +163,11 @@
                         <StackPanel Orientation="Horizontal">
                             <jkr:IconGlyph Glyph="bolt" Size="11" Foreground="{StaticResource Peach}" Margin="0,0,5,0"/>
                             <TextBlock Text="Fix All" FontSize="10.5" Foreground="{StaticResource Peach}"/>
+                            <Border x:Name="FixCountBadge" Background="{StaticResource Peach}" CornerRadius="8"
+                                    Padding="5,1,5,1" Margin="5,0,0,0" VerticalAlignment="Center">
+                                <TextBlock x:Name="FixCountText" Text="0" FontSize="9" FontWeight="Bold"
+                                           Foreground="{StaticResource Navy}"/>
+                            </Border>
                         </StackPanel>
                     </Button>
                 </StackPanel>

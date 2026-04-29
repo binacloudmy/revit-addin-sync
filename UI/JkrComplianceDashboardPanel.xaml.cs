@@ -89,6 +89,11 @@ namespace RevitWebAppSync.UI
             MdPill.Count = _vm.MedOpen;
             LoPill.Count = _vm.LowOpen;
 
+            // Fix All badge count
+            var fc = _vm.FixableCount;
+            FixCountText.Text = fc.ToString();
+            FixCountBadge.Visibility = fc > 0 ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+
             TabOpenCount.Text = _vm.OpenCount.ToString();
             TabAcceptedCount.Text = _vm.AcceptedCount.ToString();
             TabResolvedCount.Text = _vm.ResolvedCount.ToString();

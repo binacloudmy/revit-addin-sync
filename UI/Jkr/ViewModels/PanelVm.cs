@@ -127,6 +127,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public int MedOpen  => Issues.Count(i => i.IsOpen && i.Priority == IssuePriority.Medium);
         public int LowOpen  => Issues.Count(i => i.IsOpen && i.Priority == IssuePriority.Low);
 
+        /// <summary>Count of auto-fixable issues (Open + Accepted with a fix_action).</summary>
+        public int FixableCount => Issues.Count(i => i.IsActionable && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction));
+
         public string SessionLine
             => OpenCount > 0
                 ? $"{OpenCount} issue{(OpenCount == 1 ? "" : "s")} to go"
@@ -322,7 +325,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         {
             Raise(nameof(OpenCount)); Raise(nameof(AcceptedCount)); Raise(nameof(ResolvedCount)); Raise(nameof(NonOpenCount)); Raise(nameof(Total));
             Raise(nameof(Percent)); Raise(nameof(HighOpen)); Raise(nameof(MedOpen)); Raise(nameof(LowOpen));
-            Raise(nameof(SessionLine));
+            Raise(nameof(FixableCount)); Raise(nameof(SessionLine));
             foreach (var c in Categories)
             {
                 if (c.IsAll)
