@@ -235,6 +235,14 @@ namespace RevitWebAppSync.UI
                 return;
             }
 
+            // Show progress bar
+            var totalToFix = fixable.Count;
+            FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
+            FixProgressLabel.Text = "Preparing fixes...";
+            FixProgressCount.Text = $"0/{totalToFix}";
+            FixProgressBar.Width = 0;
+            FixAllBtn.IsEnabled = false;
+
             var handler = App.JkrRenameHandler;
             handler.RenameQueue.Clear();
             handler.ParamFixQueue.Clear();
@@ -260,18 +268,31 @@ namespace RevitWebAppSync.UI
                 }
             }
 
+            // Update progress to "applying"
+            Dispatcher.InvokeAsync(() =>
+            {
+                FixProgressLabel.Text = "Applying fixes in Revit...";
+                FixProgressCount.Text = $"0/{totalToFix}";
+            });
+
             handler.OnCompleted = (result) =>
             {
                 Dispatcher.Invoke(() =>
                 {
+                    FixAllBtn.IsEnabled = true;
+
                     if (!string.IsNullOrEmpty(result.Error))
                     {
+                        FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
                         TaskDialog.Show("BINA JKR Compliance", $"Fix All error:\n\n{result.Error}");
                         return;
                     }
+
                     var total = result.Renamed + result.ParamFixed;
+
                     if (total == 0)
                     {
+                        FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
                         var detail = $"skipped={result.Skipped} failed={result.Failed}";
                         var msg = $"No fixes applied ({detail}).";
                         if (!string.IsNullOrEmpty(result.FailDetails))
@@ -279,14 +300,65 @@ namespace RevitWebAppSync.UI
                         TaskDialog.Show("BINA JKR Compliance", msg);
                         return;
                     }
-                    foreach (var issue in fixable)
-                        _vm.ApplyAction(issue, IssueStatus.Fixed, advance: false);
-                    _vm.ShowToast($"Fixed {total} issues ({result.Renamed} renamed, {result.ParamFixed} params). Re-scanning...");
-                    _ = RunScanAsync();
+
+                    // Show completion in progress bar
+                    FixProgressLabel.Text = $"Applied {total} fixes. Re-scanning...";
+                    FixProgressCount.Text = $"{total}/{totalToFix}";
+                    try
+                    {
+                        var barParent = FixProgressBar.Parent as FrameworkElement;
+                        if (barParent != null && barParent.ActualWidth > 0)
+                            FixProgressBar.Width = barParent.ActualWidth * ((double)total / totalToFix);
+                    }
+                    catch { }
+
+                    // Show summary of what was fixed vs failed
+                    var summary = $"Fixed {total} of {totalToFix}";
+                    if (result.Failed > 0)
+                        summary += $" ({result.Failed} failed)";
+
+                    // Re-scan to verify — the re-scan will show fewer issues now.
+                    // Don't mark issues as Fixed in the VM — the re-scan will simply
+                    // not return the fixed issues anymore (model is the source of truth).
+                    _ = RunScanAfterFix(summary, result.Failed, result.FailDetails);
                 });
             };
 
             App.JkrRenameEvent.Raise();
+        }
+
+        /// <summary>
+        /// Re-scan after Fix All and show results with context about what was fixed.
+        /// </summary>
+        private async Task RunScanAfterFix(string fixSummary, int failCount, string failDetails)
+        {
+            try
+            {
+                FixProgressLabel.Text = "Re-scanning model...";
+                var beforeCount = _vm.Total;
+                await RunScanInner();
+                var afterCount = _vm.Total;
+                var resolved = beforeCount - afterCount;
+
+                FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
+
+                var msg = $"{fixSummary}. Issues: {beforeCount} → {afterCount}";
+                if (resolved > 0)
+                    msg += $" ({resolved} resolved)";
+                _vm.ShowToast(msg);
+
+                // Show fail details if any
+                if (failCount > 0 && !string.IsNullOrEmpty(failDetails))
+                {
+                    TaskDialog.Show("BINA JKR Compliance",
+                        $"{failCount} fix(es) failed:\n\n{failDetails}");
+                }
+            }
+            catch (Exception ex)
+            {
+                FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
+                TaskDialog.Show("BINA JKR Compliance", $"Re-scan after fix failed:\n\n{ex.Message}");
+            }
         }
 
         private void AcceptAll_Click(object sender, RoutedEventArgs e)
@@ -327,24 +399,7 @@ namespace RevitWebAppSync.UI
             _vm.Scanning = true;
             try
             {
-                // Extractor walks the Revit doc — must run on the main UI thread since
-                // it touches the Revit API. Do it synchronously before the HTTP call.
-                var extraction = JkrBuildingInfoExtractor.Extract(doc);
-                _vm.Filename = string.IsNullOrEmpty(extraction.FileName) ? "(unsaved model)" : extraction.FileName;
-                var request = extraction.ToV2Request(loiLevel: SelectedLoiLevel);
-
-                // HttpClient is already async — no need for Task.Run. Awaiting yields the UI thread.
-                var response = await _jkrService.CheckJkrComplianceV2Async(request, skipAi: true);
-                if (!string.IsNullOrEmpty(response?.Error))
-                {
-                    TaskDialog.Show("BINA JKR Compliance", $"Scan failed:\n\n{response.Error}");
-                    return;
-                }
-
-                var issues = IssueMapper.MapAll(response);
-                var audit = JkrAuditStore.LoadFor(doc.PathName);
-                JkrAuditStore.MergeInto(issues, audit);
-                _vm.ReplaceIssues(issues);
+                await RunScanInner();
             }
             catch (Exception ex)
             {
@@ -354,6 +409,43 @@ namespace RevitWebAppSync.UI
             {
                 _vm.Scanning = false;
             }
+        }
+
+        /// <summary>Core scan logic — shared by RunScanAsync and RunScanAfterFix.</summary>
+        /// <param name="clearAudit">If true, wipe persisted Accept/Approve decisions before loading results.</param>
+        private async Task RunScanInner(bool clearAudit = false)
+        {
+            var doc = _uiApp?.ActiveUIDocument?.Document;
+            if (doc == null) return;
+
+            // Optionally clear the audit file so everything starts fresh
+            if (clearAudit)
+            {
+                var auditPath = JkrAuditStore.AuditPath(doc.PathName ?? "");
+                try { if (System.IO.File.Exists(auditPath)) System.IO.File.Delete(auditPath); } catch { }
+            }
+
+            var extraction = JkrBuildingInfoExtractor.Extract(doc);
+            _vm.Filename = string.IsNullOrEmpty(extraction.FileName) ? "(unsaved model)" : extraction.FileName;
+            var request = extraction.ToV2Request(loiLevel: SelectedLoiLevel);
+
+            var response = await _jkrService.CheckJkrComplianceV2Async(request, skipAi: true);
+            if (!string.IsNullOrEmpty(response?.Error))
+            {
+                TaskDialog.Show("BINA JKR Compliance", $"Scan failed:\n\n{response.Error}");
+                return;
+            }
+
+            var issues = IssueMapper.MapAll(response);
+
+            // Only merge persisted decisions if we didn't just clear them
+            if (!clearAudit)
+            {
+                var audit = JkrAuditStore.LoadFor(doc.PathName);
+                JkrAuditStore.MergeInto(issues, audit);
+            }
+
+            _vm.ReplaceIssues(issues);
         }
 
         private void StartRescanSpin()
@@ -559,27 +651,28 @@ namespace RevitWebAppSync.UI
 
         private void Reset_Click(object s, RoutedEventArgs e)
         {
-            var nonOpen = _vm.Issues.Where(i => i.Status != IssueStatus.Open).ToList();
-            if (nonOpen.Count == 0)
+            // Clear all decisions and re-scan fresh
+            _vm.ShowToast("Resetting all decisions and re-scanning...");
+            _ = ResetAndRescan();
+        }
+
+        private async Task ResetAndRescan()
+        {
+            if (_vm.Scanning) return;
+            _vm.Scanning = true;
+            try
             {
-                _vm.ShowToast("Nothing to reset.");
-                return;
+                await RunScanInner(clearAudit: true);
+                _vm.ShowToast("Reset complete — all issues back to Open.");
             }
-
-            foreach (var issue in nonOpen)
-                issue.Status = IssueStatus.Open;
-
-            // Wipe the audit file
-            var doc = _uiApp?.ActiveUIDocument?.Document;
-            var docPath = doc?.PathName ?? "";
-            if (!string.IsNullOrEmpty(docPath))
+            catch (Exception ex)
             {
-                var auditPath = JkrAuditStore.AuditPath(docPath);
-                try { if (System.IO.File.Exists(auditPath)) System.IO.File.Delete(auditPath); } catch { }
+                TaskDialog.Show("BINA JKR Compliance", $"Reset error:\n\n{ex.Message}");
             }
-
-            _vm.Refresh();
-            _vm.ShowToast($"Reset {nonOpen.Count} issues back to Open.");
+            finally
+            {
+                _vm.Scanning = false;
+            }
         }
 
         private void Undo_Click(object s, RoutedEventArgs e) => _vm.Undo();
