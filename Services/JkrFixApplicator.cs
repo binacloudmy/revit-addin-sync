@@ -349,7 +349,7 @@ namespace RevitWebAppSync.Services
                     ? (Binding)app.Create.NewInstanceBinding(catSet)
                     : app.Create.NewTypeBinding(catSet);
 
-                if (!bindings.ReInsert(def, newBinding, BuiltInParameterGroup.PG_DATA))
+                if (!bindings.ReInsert(def, newBinding, GroupTypeId.Data))
                     return $"Failed to extend binding for '{paramName}' to this category.";
                 return null;
             }
@@ -359,7 +359,7 @@ namespace RevitWebAppSync.Services
             // every instance of that type and avoids the read-only-on-instance trap.
             catSet.Insert(category);
             var binding = app.Create.NewTypeBinding(catSet);
-            if (!bindings.Insert(def, binding, BuiltInParameterGroup.PG_DATA))
+            if (!bindings.Insert(def, binding, GroupTypeId.Data))
                 return $"Failed to bind '{paramName}' to category '{category.Name}'.";
             return null;
         }
