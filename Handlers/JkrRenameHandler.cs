@@ -29,6 +29,7 @@ namespace RevitWebAppSync.Handlers
         public void Execute(UIApplication app)
         {
             var result = new RenameResult();
+            var failReasons = new List<string>();
             try
             {
                 var doc = app.ActiveUIDocument?.Document;
@@ -39,79 +40,77 @@ namespace RevitWebAppSync.Handlers
                     return;
                 }
 
-                // Phase 1: Renames
-                if (RenameQueue.Any())
+                if (!RenameQueue.Any() && !ParamFixQueue.Any())
                 {
-                    using (var tx = new Transaction(doc, "JKR Auto-Rename Elements"))
+                    OnCompleted?.Invoke(result);
+                    return;
+                }
+
+                // Wrap renames + param fixes in a single TransactionGroup so the user
+                // gets ONE undo step for the whole "Quick Fix All" batch instead of
+                // 100+ entries. Assimilate() collapses the inner transactions on
+                // success; RollBack() unwinds everything if we hit a fatal error.
+                using (var tg = new TransactionGroup(doc, "JKR Quick Fix All"))
+                {
+                    tg.Start();
+                    try
                     {
-                        tx.Start();
-                        foreach (var (elemId, newName) in RenameQueue)
+                        // Phase 1: Renames — batched into one inner Transaction.
+                        if (RenameQueue.Any())
                         {
-                            try
+                            using (var tx = new Transaction(doc, "JKR Renames"))
                             {
-                                var elem = doc.GetElement(new ElementId(elemId));
-                                if (elem == null) { result.Skipped++; result.FailedElementIds.Add(elemId); continue; }
-
-                                // Grids and Levels are Elements (not ElementTypes) — rename
-                                // via their own Name property. Family/loadable types keep
-                                // the elemType.Name path so shared instances all update.
-                                if (elem is Grid || elem is Level)
+                                tx.Start();
+                                foreach (var (elemId, newName) in RenameQueue)
                                 {
-                                    elem.Name = newName;
-                                    result.Renamed++;
-                                    continue;
+                                    ApplyRename(doc, elemId, newName, result, failReasons);
                                 }
-
-                                ElementId typeId = elem.GetTypeId();
-                                var elemType = typeId != ElementId.InvalidElementId ? doc.GetElement(typeId) as ElementType : null;
-
-                                if (elemType != null)
-                                {
-                                    elemType.Name = newName;
-                                    result.Renamed++;
-                                }
-                                else
-                                {
-                                    // Last-ditch: if the element itself has a settable Name, try it.
-                                    try { elem.Name = newName; result.Renamed++; }
-                                    catch { result.Skipped++; }
-                                }
-                            }
-                            catch (Autodesk.Revit.Exceptions.ArgumentException)
-                            {
-                                result.Failed++;
-                                result.FailedElementIds.Add(elemId);
-                            }
-                            catch (Exception)
-                            {
-                                result.Failed++;
-                                result.FailedElementIds.Add(elemId);
+                                tx.Commit();
                             }
                         }
-                        tx.Commit();
+
+                        // Phase 2: Parameter fixes — batched into one inner Transaction,
+                        // sorted by priority so classification params land before
+                        // material params and rename-derived fixes.
+                        if (ParamFixQueue.Any())
+                        {
+                            var applicator = new JkrFixApplicator(doc);
+                            using (var tx = new Transaction(doc, "JKR Parameter Fixes"))
+                            {
+                                tx.Start();
+                                foreach (var fix in ParamFixQueue.OrderBy(f => f.Priority))
+                                {
+                                    var fixResult = applicator.ApplyFixInExistingTx(fix);
+                                    if (fixResult.Success)
+                                    {
+                                        result.ParamFixed++;
+                                    }
+                                    else
+                                    {
+                                        result.Failed++;
+                                        result.FailedElementIds.Add(fix.ElementId);
+                                        failReasons.Add($"{fix.ParameterName} on {fix.ElementId}: {fixResult.Message}");
+                                    }
+                                }
+                                tx.Commit();
+                            }
+                        }
+
+                        // Collapse all inner transactions into a single undo step.
+                        tg.Assimilate();
+                    }
+                    catch
+                    {
+                        // Unwind the whole batch on a fatal error so the model isn't
+                        // left semi-fixed (the previous two-Transaction layout could
+                        // commit renames then fail params, leaving partial state).
+                        if (tg.HasStarted() && !tg.HasEnded()) tg.RollBack();
+                        throw;
                     }
                 }
 
-                // Phase 2: Parameter fixes (sorted by priority — classification before material before renames)
-                if (ParamFixQueue.Any())
-                {
-                    var applicator = new JkrFixApplicator(doc);
-                    var failReasons = new List<string>();
-                    foreach (var fix in ParamFixQueue.OrderBy(f => f.Priority))
-                    {
-                        var fixResult = applicator.ApplyFix(fix);
-                        if (fixResult.Success)
-                            result.ParamFixed++;
-                        else
-                        {
-                            result.Failed++;
-                            result.FailedElementIds.Add(fix.ElementId);
-                            failReasons.Add($"{fix.ParameterName} on {fix.ElementId}: {fixResult.Message}");
-                        }
-                    }
-                    if (failReasons.Count > 0)
-                        result.FailDetails = string.Join("\n", failReasons.Take(5));
-                }
+                if (failReasons.Count > 0)
+                    result.FailDetails = string.Join("\n", failReasons.Take(5));
             }
             catch (Exception ex)
             {
@@ -122,6 +121,53 @@ namespace RevitWebAppSync.Handlers
                 OnCompleted?.Invoke(result);
                 RenameQueue.Clear();
                 ParamFixQueue.Clear();
+            }
+        }
+
+        private static void ApplyRename(Document doc, int elemId, string newName,
+                                        RenameResult result, List<string> failReasons)
+        {
+            try
+            {
+                var elem = doc.GetElement(new ElementId(elemId));
+                if (elem == null) { result.Skipped++; result.FailedElementIds.Add(elemId); return; }
+
+                // Grids and Levels are Elements (not ElementTypes) — rename via their
+                // own Name property. Family/loadable types keep the elemType.Name path
+                // so shared instances all update.
+                if (elem is Grid || elem is Level)
+                {
+                    elem.Name = newName;
+                    result.Renamed++;
+                    return;
+                }
+
+                ElementId typeId = elem.GetTypeId();
+                var elemType = typeId != ElementId.InvalidElementId ? doc.GetElement(typeId) as ElementType : null;
+
+                if (elemType != null)
+                {
+                    elemType.Name = newName;
+                    result.Renamed++;
+                }
+                else
+                {
+                    // Last-ditch: if the element itself has a settable Name, try it.
+                    try { elem.Name = newName; result.Renamed++; }
+                    catch { result.Skipped++; result.FailedElementIds.Add(elemId); }
+                }
+            }
+            catch (Autodesk.Revit.Exceptions.ArgumentException ex)
+            {
+                result.Failed++;
+                result.FailedElementIds.Add(elemId);
+                failReasons.Add($"rename {elemId} → '{newName}': {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                result.Failed++;
+                result.FailedElementIds.Add(elemId);
+                failReasons.Add($"rename {elemId} → '{newName}': {ex.Message}");
             }
         }
 

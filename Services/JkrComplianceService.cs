@@ -65,6 +65,39 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// V2 fast recheck — hits /v1/compliance/jkr-recheck (deterministic only).
+        /// Use after Quick Fix All to verify fixes took effect. Cleaner intent
+        /// than CheckJkrComplianceV2Async(skipAi:true) and a separate audit trail
+        /// in backend logs/telemetry.
+        /// </summary>
+        public async Task<ModelCheckResponse> RecheckJkrComplianceAsync(JkrComplianceRequestV2 request)
+        {
+            try
+            {
+                var json = JsonConvert.SerializeObject(request);
+                LastRequestJson = JsonConvert.SerializeObject(request, Formatting.Indented);
+                LastResponseJson = "";
+                LastCallUtc = DateTime.UtcNow;
+
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var resp = await _httpClient.PostAsync($"{_baseUrl}/v1/compliance/jkr-recheck", content);
+                var body = await resp.Content.ReadAsStringAsync();
+                LastResponseJson = body;
+
+                if (resp.IsSuccessStatusCode)
+                    return ConvertV2ToModelCheckResponse(body);
+
+                // Older backend without /jkr-recheck — fall back to the v2 endpoint
+                // with skip_ai forced on. Same runtime behaviour, different URL.
+                return await CheckJkrComplianceV2Async(request, skipAi: true);
+            }
+            catch (Exception ex)
+            {
+                return new ModelCheckResponse { Error = ex.Message };
+            }
+        }
+
+        /// <summary>
         /// V2: Full JKR BIM compliance check with domain grouping, value validation, AI agents.
         /// Falls back to V1 response shape for UI compatibility.
         /// </summary>

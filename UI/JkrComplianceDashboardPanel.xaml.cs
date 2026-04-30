@@ -342,6 +342,7 @@ namespace RevitWebAppSync.UI
 
         /// <summary>
         /// Re-scan after Fix All and show results with context about what was fixed.
+        /// Uses the dedicated /jkr-recheck endpoint for clearer telemetry.
         /// </summary>
         private async Task RunScanAfterFix(string fixSummary, int failCount, string failDetails)
         {
@@ -349,7 +350,7 @@ namespace RevitWebAppSync.UI
             {
                 FixProgressLabel.Text = "Re-scanning model...";
                 var beforeCount = _vm.Total;
-                await RunScanInner();
+                await RunScanInner(isRecheck: true);
                 var afterCount = _vm.Total;
                 var resolved = beforeCount - afterCount;
 
@@ -426,7 +427,8 @@ namespace RevitWebAppSync.UI
 
         /// <summary>Core scan logic — shared by RunScanAsync and RunScanAfterFix.</summary>
         /// <param name="clearAudit">If true, wipe persisted Accept/Approve decisions before loading results.</param>
-        private async Task RunScanInner(bool clearAudit = false)
+        /// <param name="isRecheck">If true, hit /jkr-recheck (post-fix verification) instead of /jkr-check-v2.</param>
+        private async Task RunScanInner(bool clearAudit = false, bool isRecheck = false)
         {
             var doc = _uiApp?.ActiveUIDocument?.Document;
             if (doc == null) return;
@@ -442,7 +444,9 @@ namespace RevitWebAppSync.UI
             _vm.Filename = string.IsNullOrEmpty(extraction.FileName) ? "(unsaved model)" : extraction.FileName;
             var request = extraction.ToV2Request(loiLevel: SelectedLoiLevel);
 
-            var response = await _jkrService.CheckJkrComplianceV2Async(request, skipAi: true);
+            var response = isRecheck
+                ? await _jkrService.RecheckJkrComplianceAsync(request)
+                : await _jkrService.CheckJkrComplianceV2Async(request, skipAi: true);
             if (!string.IsNullOrEmpty(response?.Error))
             {
                 TaskDialog.Show("BINA JKR Compliance", $"Scan failed:\n\n{response.Error}");
