@@ -236,26 +236,131 @@ namespace RevitWebAppSync.Services
             if (elem == null)
                 return new FixResult { Success = false, Message = $"Element {fix.ElementId} not found" };
 
-            // Try instance parameter first, then type parameter
-            param = elem.LookupParameter(fix.ParameterName);
+            param = ResolveParameter(elem, fix.ParameterName);
+
+            // If the param isn't on the element at all, try to bind it from the
+            // currently-loaded shared parameter file. Turns "manual: add the param
+            // first" into a one-click auto-fix when the JKR shared params file is
+            // loaded in the project.
             if (param == null)
             {
-                var typeElem = _doc.GetElement(elem.GetTypeId());
-                if (typeElem != null)
-                    param = typeElem.LookupParameter(fix.ParameterName);
-            }
+                var bindMsg = TryBindSharedParameter(elem, fix.ParameterName);
+                if (bindMsg != null)
+                    return new FixResult
+                    {
+                        Success = false,
+                        Message = $"Parameter '{fix.ParameterName}' not found on element {fix.ElementId}. {bindMsg}",
+                    };
 
-            if (param == null)
-                return new FixResult
-                {
-                    Success = false,
-                    Message = $"Parameter '{fix.ParameterName}' not found on element {fix.ElementId}. " +
-                              "The shared parameter may need to be added to the project first.",
-                };
+                // Re-resolve after binding.
+                param = ResolveParameter(elem, fix.ParameterName);
+                if (param == null)
+                    return new FixResult
+                    {
+                        Success = false,
+                        Message = $"Parameter '{fix.ParameterName}' was bound but still not visible on element {fix.ElementId}.",
+                    };
+            }
 
             if (param.IsReadOnly)
                 return new FixResult { Success = false, Message = $"Parameter '{fix.ParameterName}' is read-only" };
 
+            return null;
+        }
+
+        /// <summary>
+        /// Look up a parameter on an element, preferring the writable handle.
+        /// Tries instance-side first; if missing or read-only, falls back to type-side.
+        /// </summary>
+        private Parameter ResolveParameter(Element elem, string name)
+        {
+            var p = elem.LookupParameter(name);
+            if (p != null && !p.IsReadOnly) return p;
+
+            var typeElem = _doc.GetElement(elem.GetTypeId());
+            var tp = typeElem?.LookupParameter(name);
+            if (tp != null && !tp.IsReadOnly) return tp;
+
+            // Neither writable — return whatever we found so caller surfaces a clean
+            // "read-only" error instead of "not found".
+            return p ?? tp;
+        }
+
+        /// <summary>
+        /// Bind a JKR shared parameter to the element's category if it's defined in
+        /// the currently-loaded shared parameter file but not yet bound to the project.
+        /// Returns null on success; otherwise an error message explaining why the bind
+        /// couldn't happen (so the caller can include it in the user-facing failure).
+        /// Must be called inside an open Transaction.
+        /// </summary>
+        private string TryBindSharedParameter(Element elem, string paramName)
+        {
+            var app = _doc.Application;
+            DefinitionFile sharedFile;
+            try
+            {
+                sharedFile = app?.OpenSharedParameterFile();
+            }
+            catch (Exception ex)
+            {
+                return $"Could not open shared parameter file: {ex.Message}.";
+            }
+
+            if (sharedFile == null)
+                return "No shared parameter file is loaded — set Manage > Shared Parameters first.";
+
+            ExternalDefinition def = null;
+            foreach (var group in sharedFile.Groups)
+            {
+                foreach (var d in group.Definitions)
+                {
+                    if (d is ExternalDefinition ed && string.Equals(ed.Name, paramName, StringComparison.Ordinal))
+                    {
+                        def = ed;
+                        break;
+                    }
+                }
+                if (def != null) break;
+            }
+
+            if (def == null)
+                return $"'{paramName}' is not defined in the loaded shared parameter file.";
+
+            var category = elem.Category;
+            if (category == null || !category.AllowsBoundParameters)
+                return $"Element category does not accept bound parameters.";
+
+            var bindings = _doc.ParameterBindings;
+            var existing = bindings.get_Item(def);
+            var catSet = app.Create.NewCategorySet();
+
+            if (existing is ElementBinding eb)
+            {
+                // Already bound somewhere — expand the CategorySet to include our category.
+                foreach (Category c in eb.Categories)
+                    catSet.Insert(c);
+                if (catSet.Contains(category))
+                    return $"'{paramName}' is bound but not visible on element — check binding scope.";
+                catSet.Insert(category);
+
+                // Preserve the existing binding kind (instance vs type) so we don't
+                // accidentally flip how every other category sees this param.
+                Binding newBinding = eb is InstanceBinding
+                    ? (Binding)app.Create.NewInstanceBinding(catSet)
+                    : app.Create.NewTypeBinding(catSet);
+
+                if (!bindings.ReInsert(def, newBinding, BuiltInParameterGroup.PG_DATA))
+                    return $"Failed to extend binding for '{paramName}' to this category.";
+                return null;
+            }
+
+            // Fresh binding. JKR classification params (Kod_Jenis, Sistem, etc.) are
+            // type-level by spec — bind to the element's type so the value applies to
+            // every instance of that type and avoids the read-only-on-instance trap.
+            catSet.Insert(category);
+            var binding = app.Create.NewTypeBinding(catSet);
+            if (!bindings.Insert(def, binding, BuiltInParameterGroup.PG_DATA))
+                return $"Failed to bind '{paramName}' to category '{category.Name}'.";
             return null;
         }
 
