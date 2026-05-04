@@ -15,6 +15,13 @@ namespace RevitWebAppSync.Services
     {
         private readonly Document _doc;
 
+        // Cache for "no shared parameter file is loaded" — once detected, every
+        // subsequent param fix that would need to bind a shared param can fail
+        // fast with the same message instead of repeating the OpenSharedParameterFile()
+        // call and producing N copies of the same error in a Quick-Fix-All run.
+        private bool _sharedParamFileMissing;
+        private string _sharedParamFileMissingMessage;
+
         public JkrFixApplicator(Document doc)
         {
             _doc = doc;
@@ -295,6 +302,12 @@ namespace RevitWebAppSync.Services
         /// </summary>
         private string TryBindSharedParameter(Element elem, string paramName)
         {
+            // Short-circuit: if we already established the shared param file is
+            // missing for this applicator's lifetime, return the cached message
+            // instead of probing the API again on every queued fix.
+            if (_sharedParamFileMissing)
+                return _sharedParamFileMissingMessage;
+
             var app = _doc.Application;
             DefinitionFile sharedFile;
             try
@@ -303,11 +316,17 @@ namespace RevitWebAppSync.Services
             }
             catch (Exception ex)
             {
-                return $"Could not open shared parameter file: {ex.Message}.";
+                _sharedParamFileMissing = true;
+                _sharedParamFileMissingMessage = $"Could not open shared parameter file: {ex.Message}.";
+                return _sharedParamFileMissingMessage;
             }
 
             if (sharedFile == null)
-                return "No shared parameter file is loaded — set Manage > Shared Parameters first.";
+            {
+                _sharedParamFileMissing = true;
+                _sharedParamFileMissingMessage = "No shared parameter file is loaded — set Manage > Shared Parameters first.";
+                return _sharedParamFileMissingMessage;
+            }
 
             ExternalDefinition def = null;
             foreach (var group in sharedFile.Groups)

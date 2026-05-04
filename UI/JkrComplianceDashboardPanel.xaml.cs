@@ -27,6 +27,12 @@ namespace RevitWebAppSync.UI
         private Jkr.Modals.IssueFocusWindow _focusWindow;
         private Jkr.Modals.ExportWindow _exportWindow;
 
+        // Guards against rapid double-click between Fix All and per-issue Apply Fix.
+        // Both paths reassign JkrRenameHandler.OnCompleted; if the second click lands
+        // before the first ExternalEvent fires, the first batch's completion callback
+        // is silently overwritten and the progress bar / button-disabled state desyncs.
+        private bool _fixInFlight;
+
         // LoI level is selectable via the LOi ComboBox in the hero header.
         // Default is 300; user can change to 100/200/300/400/500 before scanning.
         private int SelectedLoiLevel => _vm.SelectedLoiLevel;
@@ -223,6 +229,11 @@ namespace RevitWebAppSync.UI
                 TaskDialog.Show("BINA JKR Compliance", "Auto-fix unavailable — JkrRenameHandler not initialised.");
                 return;
             }
+            if (_fixInFlight)
+            {
+                _vm.ShowToast("A fix is already running — please wait.");
+                return;
+            }
 
             var fixable = _vm.Issues
                 .Where(i => i.IsActionable && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction))
@@ -242,6 +253,7 @@ namespace RevitWebAppSync.UI
             FixProgressCount.Text = $"0/{totalToFix}";
             FixProgressBar.Width = 0;
             FixAllBtn.IsEnabled = false;
+            _fixInFlight = true;
 
             var handler = App.JkrRenameHandler;
             handler.RenameQueue.Clear();
@@ -280,6 +292,7 @@ namespace RevitWebAppSync.UI
                 Dispatcher.Invoke(() =>
                 {
                     FixAllBtn.IsEnabled = true;
+                    _fixInFlight = false;
 
                     if (!string.IsNullOrEmpty(result.Error))
                     {
@@ -605,11 +618,17 @@ namespace RevitWebAppSync.UI
                 TaskDialog.Show("BINA JKR Compliance", "No machine-readable fix attached to this issue.");
                 return;
             }
+            if (_fixInFlight)
+            {
+                _vm.ShowToast("A fix is already running — please wait.");
+                return;
+            }
 
             // Build the queue for the existing rename/param-fix pipeline.
             var handler = App.JkrRenameHandler;
             handler.RenameQueue.Clear();
             handler.ParamFixQueue.Clear();
+            _fixInFlight = true;
 
             if (issue.FixAction.Equals("rename_type", StringComparison.OrdinalIgnoreCase))
             {
@@ -640,6 +659,8 @@ namespace RevitWebAppSync.UI
                 // Marshal back to the UI dispatcher — ExternalEvent callbacks return on Revit's thread.
                 Dispatcher.Invoke(() =>
                 {
+                    _fixInFlight = false;
+
                     if (!string.IsNullOrEmpty(result.Error))
                     {
                         TaskDialog.Show("BINA JKR Compliance", $"Auto-fix error:\n\n{result.Error}");

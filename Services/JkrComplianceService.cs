@@ -87,9 +87,13 @@ namespace RevitWebAppSync.Services
                 if (resp.IsSuccessStatusCode)
                     return ConvertV2ToModelCheckResponse(body);
 
-                // Older backend without /jkr-recheck — fall back to the v2 endpoint
-                // with skip_ai forced on. Same runtime behaviour, different URL.
-                return await CheckJkrComplianceV2Async(request, skipAi: true);
+                // Only fall back if the endpoint genuinely doesn't exist on this backend.
+                // For 5xx / timeout / auth errors, hitting v2 (and from there v1) just
+                // burns the user's clock with two more 180s timeouts — surface the error.
+                if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    return await CheckJkrComplianceV2Async(request, skipAi: true);
+
+                return new ModelCheckResponse { Error = $"Recheck error: {(int)resp.StatusCode} {resp.StatusCode} — {body}" };
             }
             catch (Exception ex)
             {
@@ -125,16 +129,23 @@ namespace RevitWebAppSync.Services
                     return ConvertV2ToModelCheckResponse(body);
                 }
 
-                // Fallback: try V1 endpoint with converted request
-                var v1Request = new JkrComplianceRequest
+                // Fall back to V1 ONLY when the v2 endpoint isn't deployed (404).
+                // For 5xx / timeout / auth errors, hitting v1 won't help and just
+                // doubles the user's wait time on the same broken backend.
+                if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
-                    ProjectName = request.Project.ProjectName,
-                    FileName = request.Project.FileName,
-                    Discipline = request.Project.Discipline,
-                    LoiLevel = request.Project.LoiLevel,
-                    Elements = request.Elements,
-                };
-                return await CheckJkrComplianceAsync(v1Request);
+                    var v1Request = new JkrComplianceRequest
+                    {
+                        ProjectName = request.Project.ProjectName,
+                        FileName = request.Project.FileName,
+                        Discipline = request.Project.Discipline,
+                        LoiLevel = request.Project.LoiLevel,
+                        Elements = request.Elements,
+                    };
+                    return await CheckJkrComplianceAsync(v1Request);
+                }
+
+                return new ModelCheckResponse { Error = $"Server error: {(int)resp.StatusCode} {resp.StatusCode} — {body}" };
             }
             catch (Exception ex)
             {
@@ -189,7 +200,10 @@ namespace RevitWebAppSync.Services
                             Category = category,
                             TypeName = check.TypeName ?? "",
                             LevelName = check.LevelName ?? "",
-                            Status = check.Status == "cannot_verify" ? "warning" : (check.Status ?? "warning"),
+                            // Preserve cannot_verify so the dashboard can render
+                            // "spec is silent / RAG miss" differently from a normal warning.
+                            // Anything unrecognised falls through to "warning" for safety.
+                            Status = check.Status ?? "warning",
                             Rule = rule,
                             Actual = check.ActualValue ?? "",
                             Reason = check.Reason ?? "",

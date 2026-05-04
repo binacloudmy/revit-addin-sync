@@ -153,22 +153,24 @@ namespace RevitWebAppSync.Services
 
         /// <summary>
         /// Extract project-level metadata: template, shared params, linked models.
+        /// Each section is wrapped in its own try/catch so one failure (e.g. one
+        /// corrupt grid) doesn't wipe ALL metadata and force the backend to
+        /// cannot_verify every project-scope check.
         /// </summary>
         private static void ExtractProjectMetadata(Document doc, JkrExtractionResult result)
         {
+            var projInfo = doc.ProjectInformation;
+
+            // --- Template detection ---
             try
             {
-                // Template used — check ProjectInfo or doc properties
-                var projInfo = doc.ProjectInformation;
                 if (projInfo != null)
                 {
-                    // Check for template parameter
                     var templateParam = projInfo.LookupParameter("Project Template")
                         ?? projInfo.LookupParameter("Template");
                     if (templateParam != null && templateParam.HasValue)
                         result.TemplateUsed = templateParam.AsString() ?? "";
 
-                    // Fallback: use document's creation path hint
                     if (string.IsNullOrEmpty(result.TemplateUsed))
                     {
                         try
@@ -176,26 +178,34 @@ namespace RevitWebAppSync.Services
                             var basicFileInfo = BasicFileInfo.Extract(doc.PathName);
                             if (basicFileInfo != null && !string.IsNullOrEmpty(basicFileInfo.AllLocalChangesSavedToCentral.ToString()))
                             {
-                                // Can't directly get template name from BasicFileInfo easily,
-                                // but we check if filename contains "jkr" as a proxy
                                 if (doc.PathName != null && doc.PathName.ToLower().Contains("jkr"))
                                     result.TemplateUsed = "JKR Template (inferred from filename)";
                             }
                         }
-                        catch { /* ignore */ }
+                        catch { /* BasicFileInfo throws on unsaved/corrupt files — non-fatal */ }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ExtractProjectMetadata[template] warning: {ex.Message}");
+            }
 
-                // Shared parameter files — check if jkr shared params are loaded
-                // We can detect this by checking if any _jkr_ parameters exist in the model
-                // (actual shared param file paths aren't directly accessible via API)
+            // --- Shared parameter file presence ---
+            try
+            {
                 var defFile = doc.Application?.OpenSharedParameterFile();
                 if (defFile != null)
-                {
                     result.SharedParamFiles.Add(defFile.Filename ?? "shared_params.txt");
-                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ExtractProjectMetadata[shared_params] warning: {ex.Message}");
+            }
 
-                // Project Information fields — feeds validate_project_information.
+            // --- Project Information fields ---
+            try
+            {
                 if (projInfo != null)
                 {
                     ReadProjectInfoField(projInfo, "Client Name", result);
@@ -205,8 +215,15 @@ namespace RevitWebAppSync.Services
                     ReadProjectInfoField(projInfo, "Building Name", result);
                     ReadProjectInfoField(projInfo, "Organization Name", result);
                 }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ExtractProjectMetadata[project_info] warning: {ex.Message}");
+            }
 
-                // Project Base Point — feeds validate_project_base_point.
+            // --- Project Base Point ---
+            try
+            {
                 // BasePoint returns the Project Base Point when IsShared=false.
                 var bpCollector = new FilteredElementCollector(doc)
                     .OfClass(typeof(BasePoint))
@@ -221,18 +238,36 @@ namespace RevitWebAppSync.Services
                     result.BasePointN = projBp.Position.Y * FEET_TO_M;
                     result.BasePointElev = projBp.Position.Z * FEET_TO_M;
                 }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ExtractProjectMetadata[base_point] warning: {ex.Message}");
+            }
 
-                // Grid names — feeds validate_grids.
+            // --- Grid names ---
+            try
+            {
                 var grids = new FilteredElementCollector(doc)
                     .OfClass(typeof(Grid))
                     .Cast<Grid>();
                 foreach (var g in grids)
                 {
-                    var gn = g?.Name ?? "";
-                    if (!string.IsNullOrEmpty(gn)) result.GridNames.Add(gn);
+                    try
+                    {
+                        var gn = g?.Name ?? "";
+                        if (!string.IsNullOrEmpty(gn)) result.GridNames.Add(gn);
+                    }
+                    catch { /* one bad grid shouldn't drop the rest */ }
                 }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ExtractProjectMetadata[grids] warning: {ex.Message}");
+            }
 
-                // Level names + elevations — feeds validate_levels.
+            // --- Level names + elevations ---
+            try
+            {
                 // ProjectElevation is in decimal feet; convert to metres.
                 var levels = new FilteredElementCollector(doc)
                     .OfClass(typeof(Level))
@@ -240,13 +275,24 @@ namespace RevitWebAppSync.Services
                     .OrderBy(l => l.ProjectElevation);
                 foreach (var lvl in levels)
                 {
-                    var lname = lvl?.Name ?? "";
-                    if (string.IsNullOrEmpty(lname)) continue;
-                    result.LevelNames.Add(lname);
-                    result.LevelElevations.Add(lvl.ProjectElevation * 0.3048);
+                    try
+                    {
+                        var lname = lvl?.Name ?? "";
+                        if (string.IsNullOrEmpty(lname)) continue;
+                        result.LevelNames.Add(lname);
+                        result.LevelElevations.Add(lvl.ProjectElevation * 0.3048);
+                    }
+                    catch { /* one bad level shouldn't drop the rest */ }
                 }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"ExtractProjectMetadata[levels] warning: {ex.Message}");
+            }
 
-                // Linked models
+            // --- Linked models ---
+            try
+            {
                 var linkCollector = new FilteredElementCollector(doc)
                     .OfClass(typeof(RevitLinkInstance));
                 var links = linkCollector.ToElements();
@@ -255,15 +301,19 @@ namespace RevitWebAppSync.Services
                     result.HasLinkedModels = true;
                     foreach (var link in links)
                     {
-                        var linkName = link.Name;
-                        if (!string.IsNullOrEmpty(linkName) && !result.LinkedModelNames.Contains(linkName))
-                            result.LinkedModelNames.Add(linkName);
+                        try
+                        {
+                            var linkName = link.Name;
+                            if (!string.IsNullOrEmpty(linkName) && !result.LinkedModelNames.Contains(linkName))
+                                result.LinkedModelNames.Add(linkName);
+                        }
+                        catch { /* one bad link shouldn't drop the rest */ }
                     }
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"ExtractProjectMetadata warning: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"ExtractProjectMetadata[links] warning: {ex.Message}");
             }
         }
 
