@@ -94,7 +94,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         }
 
         /// <summary>Available LOD levels for the dropdown.</summary>
-        public static int[] LodLevels { get; } = { 100, 200, 300, 400, 500 };
+        public int[] LodLevels { get; } = { 100, 200, 300, 400, 500 };
 
         private bool _scanning;
         public bool Scanning
