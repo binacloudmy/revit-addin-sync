@@ -86,15 +86,15 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             set { _activeIssue = value; Raise(); Raise(nameof(ActiveIndexDisplay)); Raise(nameof(QueueProgress)); }
         }
 
-        private int _selectedLoiLevel = 300;
-        public int SelectedLoiLevel
+        private int _selectedLodLevel = 300;
+        public int SelectedLodLevel
         {
-            get => _selectedLoiLevel;
-            set { if (_selectedLoiLevel != value) { _selectedLoiLevel = value; Raise(); } }
+            get => _selectedLodLevel;
+            set { if (_selectedLodLevel != value) { _selectedLodLevel = value; Raise(); } }
         }
 
-        /// <summary>Available LoI levels for the dropdown.</summary>
-        public static int[] LoiLevels { get; } = { 100, 200, 300, 400, 500 };
+        /// <summary>Available LOD levels for the dropdown.</summary>
+        public static int[] LodLevels { get; } = { 100, 200, 300, 400, 500 };
 
         private bool _scanning;
         public bool Scanning

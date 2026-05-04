@@ -239,7 +239,7 @@ namespace RevitWebAppSync
                 "RevitWebAppSync.Commands.JkrComplianceDashboardCommand")
             {
                 ToolTip = "Check JKR BIM Compliance (Document 09)",
-                LongDescription = "Check model elements against JKR BIM Spesifikasi Parameter — naming, required parameters per LOi level, JKR codes. 53 categories, 5,478 parameter rules.",
+                LongDescription = "Check model elements against JKR BIM Spesifikasi Parameter — naming, required parameters per LOD level, JKR codes. 53 categories, 5,478 parameter rules.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };

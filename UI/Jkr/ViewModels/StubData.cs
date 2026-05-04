@@ -28,11 +28,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             new IssueVm {
                 Id = "I-002", Title = "Missing type parameter: Bidang_Kejuruteraan_jkr_stt",
                 Category = "Component Parameter", Priority = IssuePriority.High, Status = IssueStatus.Open,
-                Description = "Type parameter 'Bidang_Kejuruteraan_jkr_stt' required at LOI 300 for Wall.",
+                Description = "Type parameter 'Bidang_Kejuruteraan_jkr_stt' required at LOD 300 for Wall.",
                 Required = "Bidang_Kejuruteraan_jkr_stt", Actual = "(not found)",
                 AutoFixable = true,
                 HowToFix = "Add shared parameter 'Bidang_Kejuruteraan_jkr_stt' to Wall category.",
-                Spec = new SpecRef { Doc = "doc09", Clause = "LOI-300 §2.4.1", Page = 14, Quote = "At LOI 300 (Detail Design), all Wall elements shall include type parameter \"Bidang_Kejuruteraan_jkr_stt\" populated with the responsible engineering discipline." },
+                Spec = new SpecRef { Doc = "doc09", Clause = "LOD-300 §2.4.1", Page = 14, Quote = "At LOD 300 (Detail Design), all Wall elements shall include type parameter \"Bidang_Kejuruteraan_jkr_stt\" populated with the responsible engineering discipline." },
                 Element = new ElementRef { Id = "498231", Name = "Wall : Basic Wall : Generic - 200mm" },
             },
             new IssueVm {
@@ -114,7 +114,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "Repeat for all equipment of the same type."
                 },
                 HowToFix = "Populate 'Manufacturer' parameter per supplier data.",
-                Spec = new SpecRef { Doc = "doc06", Clause = "LOI-400 §4.2", Page = 22, Quote = "At LOI 400 (Construction), mechanical equipment shall include manufacturer, model number, and serial reference." },
+                Spec = new SpecRef { Doc = "doc06", Clause = "LOD-400 §4.2", Page = 22, Quote = "At LOD 400 (Construction), mechanical equipment shall include manufacturer, model number, and serial reference." },
                 Element = new ElementRef { Id = "512339", Name = "Mechanical Equipment : AHU-01" },
             },
             new IssueVm {
@@ -130,7 +130,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     "Verify each fixture has a unique, non-empty AssetTag."
                 },
                 HowToFix = "Populate AssetTag per CAFM asset register.",
-                Spec = new SpecRef { Doc = "doc06", Clause = "LOI-500 §5.1", Page = 28, Quote = "At LOI 500 (As-Built), every maintainable asset shall carry a unique AssetTag matching the facility management CAFM register." },
+                Spec = new SpecRef { Doc = "doc06", Clause = "LOD-500 §5.1", Page = 28, Quote = "At LOD 500 (As-Built), every maintainable asset shall carry a unique AssetTag matching the facility management CAFM register." },
                 Element = new ElementRef { Id = "512401", Name = "Plumbing Fixture : WC-01" },
             },
             new IssueVm {

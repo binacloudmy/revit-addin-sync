@@ -139,7 +139,7 @@ namespace RevitWebAppSync.Services
                         ProjectName = request.Project.ProjectName,
                         FileName = request.Project.FileName,
                         Discipline = request.Project.Discipline,
-                        LoiLevel = request.Project.LoiLevel,
+                        LodLevel = request.Project.LodLevel,
                         Elements = request.Elements,
                     };
                     return await CheckJkrComplianceAsync(v1Request);
@@ -303,8 +303,8 @@ namespace RevitWebAppSync.Services
         [JsonProperty("discipline")]
         public string Discipline { get; set; } = "AR";
 
-        [JsonProperty("loi_level")]
-        public int LoiLevel { get; set; } = 300;
+        [JsonProperty("lod_level")]
+        public int LodLevel { get; set; } = 300;
 
         [JsonProperty("elements")]
         public List<JkrElementData> Elements { get; set; } = new List<JkrElementData>();
@@ -323,8 +323,8 @@ namespace RevitWebAppSync.Services
         [JsonProperty("discipline")]
         public string Discipline { get; set; } = "AR";
 
-        [JsonProperty("loi_level")]
-        public int LoiLevel { get; set; } = 300;
+        [JsonProperty("lod_level")]
+        public int LodLevel { get; set; } = 300;
 
         [JsonProperty("project_phase")]
         public string ProjectPhase { get; set; } = "";

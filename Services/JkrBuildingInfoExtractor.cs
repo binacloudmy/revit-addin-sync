@@ -404,7 +404,7 @@ namespace RevitWebAppSync.Services
         /// <summary>
         /// Build a V2 request from extracted data.
         /// </summary>
-        public JkrComplianceRequestV2 ToV2Request(int loiLevel = 300, string projectPhase = "", bool hasBpep = false)
+        public JkrComplianceRequestV2 ToV2Request(int lodLevel = 300, string projectPhase = "", bool hasBpep = false)
         {
             return new JkrComplianceRequestV2
             {
@@ -413,7 +413,7 @@ namespace RevitWebAppSync.Services
                     ProjectName = ProjectName,
                     FileName = FileName,
                     Discipline = Discipline,
-                    LoiLevel = loiLevel,
+                    LodLevel = lodLevel,
                     ProjectPhase = projectPhase,
                     HasBpep = hasBpep,
                     TemplateUsed = TemplateUsed,

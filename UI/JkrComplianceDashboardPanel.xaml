@@ -83,7 +83,7 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- Row A2: LOi + Re-scan on their own line -->
+                <!-- Row A2: LOD + Re-scan on their own line -->
                 <Grid Margin="0,8,0,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
@@ -91,18 +91,18 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- LoI level selector -->
+                    <!-- LOD level selector -->
                     <Border Grid.Column="0" Background="#26FFFFFF" CornerRadius="5" Padding="6,3,2,3"
-                            VerticalAlignment="Center" ToolTip="Level of Information target">
+                            VerticalAlignment="Center" ToolTip="Level of Development target">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="LOi" Foreground="White" FontSize="10.5" FontWeight="SemiBold"
+                            <TextBlock Text="LOD" Foreground="White" FontSize="10.5" FontWeight="SemiBold"
                                        VerticalAlignment="Center" Margin="0,0,5,0"
                                        FontFamily="{StaticResource Font.Sans}"/>
-                            <ComboBox x:Name="LoiCombo" Width="54" FontSize="10.5"
+                            <ComboBox x:Name="LodCombo" Width="54" FontSize="10.5"
                                       Foreground="#1B2A4A" Background="White" BorderThickness="0"
                                       FontWeight="Bold"
-                                      ItemsSource="{Binding LoiLevels}"
-                                      SelectedItem="{Binding SelectedLoiLevel, Mode=TwoWay}"
+                                      ItemsSource="{Binding LodLevels}"
+                                      SelectedItem="{Binding SelectedLodLevel, Mode=TwoWay}"
                                       FontFamily="{StaticResource Font.Mono}"/>
                         </StackPanel>
                     </Border>

@@ -33,9 +33,9 @@ namespace RevitWebAppSync.UI
         // is silently overwritten and the progress bar / button-disabled state desyncs.
         private bool _fixInFlight;
 
-        // LoI level is selectable via the LOi ComboBox in the hero header.
+        // LOD level is selectable via the LOD ComboBox in the hero header.
         // Default is 300; user can change to 100/200/300/400/500 before scanning.
-        private int SelectedLoiLevel => _vm.SelectedLoiLevel;
+        private int SelectedLodLevel => _vm.SelectedLodLevel;
 
         public JkrComplianceDashboardPanel()
         {
@@ -455,7 +455,7 @@ namespace RevitWebAppSync.UI
 
             var extraction = JkrBuildingInfoExtractor.Extract(doc);
             _vm.Filename = string.IsNullOrEmpty(extraction.FileName) ? "(unsaved model)" : extraction.FileName;
-            var request = extraction.ToV2Request(loiLevel: SelectedLoiLevel);
+            var request = extraction.ToV2Request(lodLevel: SelectedLodLevel);
 
             var response = isRecheck
                 ? await _jkrService.RecheckJkrComplianceAsync(request)

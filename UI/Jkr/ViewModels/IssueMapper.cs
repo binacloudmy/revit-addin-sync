@@ -135,9 +135,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
             var rule = (dto?.Rule ?? "").ToLowerInvariant();
 
-            // LOi 400/500 checks — FM-grade parameter requirements.
-            if (rule.Contains("loi 400") || rule.Contains("loi 500")
-                || rule.Contains("lod 400") || rule.Contains("lod 500")
+            // LOD 400/500 checks — FM-grade parameter requirements.
+            // Match legacy "loi" rule strings for backward compatibility with
+            // older backends still emitting LOi terminology.
+            if (rule.Contains("lod 400") || rule.Contains("lod 500")
+                || rule.Contains("loi 400") || rule.Contains("loi 500")
                 || rule.Contains("asset") || rule.Contains("cobie") || rule.Contains("dak"))
                 return "LOD 400/500 parameter";
 
