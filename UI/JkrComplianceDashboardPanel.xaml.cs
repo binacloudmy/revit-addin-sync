@@ -46,6 +46,16 @@ namespace RevitWebAppSync.UI
             CategoriesItems.ItemsSource = _vm.Categories;
             IssuesItems.ItemsSource = _vm.Filtered;
 
+            // Wire LodCombo in code, not XAML — matches the pattern used by Categories/Issues
+            // above and avoids the binding-order race that blanked the dropdown when bindings
+            // evaluated before DataContext propagated.
+            LodCombo.ItemsSource = _vm.LodLevels;
+            LodCombo.SelectedItem = _vm.SelectedLodLevel;
+            LodCombo.SelectionChanged += (_, __) =>
+            {
+                if (LodCombo.SelectedItem is int v) _vm.SelectedLodLevel = v;
+            };
+
             // Start empty — the panel is created at startup before a Revit doc is available.
             // First Re-scan triggers the real pipeline once SetRevitApp() has wired _uiApp.
             _vm.Filename = "(click Re-scan to analyse the active model)";
