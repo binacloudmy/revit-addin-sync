@@ -330,14 +330,19 @@ namespace RevitWebAppSync.UI
                         }
                     }
 
-                    // Mark successes as Fixed before the rescan replaces the list.
-                    // The recheck won't return passing checks, so RunScanInner re-injects
-                    // these via the preservedFixed param to keep the Resolved tab honest.
-                    var fixedNow = fixable
-                        .Where(i => !result.FailedElementIds.Contains(i.RevitElementId))
-                        .ToList();
-                    foreach (var i in fixedNow)
-                        i.Status = IssueStatus.Fixed;
+                    // Mark successes as Fixed; failures keep Status=Open (AutoFixable
+                    // already cleared above). Both groups get preserved across the rescan:
+                    //   - Successes → land in Resolved (recheck omits passing checks).
+                    //   - Failures → stay visible in Open even when the recheck no longer
+                    //     re-flags them. Read-only writes can trigger a binding side-effect
+                    //     in the applicator that masks the rule on the next pass; without
+                    //     preservation these would silently vanish from the dashboard.
+                    foreach (var i in fixable)
+                    {
+                        if (!result.FailedElementIds.Contains(i.RevitElementId))
+                            i.Status = IssueStatus.Fixed;
+                    }
+                    var preservedAfterFix = fixable.ToList();
 
                     if (total == 0)
                     {
@@ -368,7 +373,7 @@ namespace RevitWebAppSync.UI
                         summary += $" ({result.Failed} failed)";
 
                     // Re-scan to verify — the re-scan will show fewer issues now.
-                    _ = RunScanAfterFix(summary, result.Failed, result.FailDetails, fixedNow, openBeforeFix);
+                    _ = RunScanAfterFix(summary, result.Failed, result.FailDetails, preservedAfterFix, openBeforeFix);
                 });
             };
 
@@ -380,12 +385,12 @@ namespace RevitWebAppSync.UI
         /// Uses the dedicated /jkr-recheck endpoint for clearer telemetry.
         /// </summary>
         private async Task RunScanAfterFix(string fixSummary, int failCount, string failDetails,
-                                            List<IssueVm> preservedFixed = null, int openBeforeFix = 0)
+                                            List<IssueVm> preservedAfterFix = null, int openBeforeFix = 0)
         {
             try
             {
                 FixProgressLabel.Text = "Re-scanning model...";
-                await RunScanInner(isRecheck: true, preservedFixed: preservedFixed);
+                await RunScanInner(isRecheck: true, preservedAfterFix: preservedAfterFix);
                 var afterOpen = _vm.OpenCount;
                 var resolved = openBeforeFix - afterOpen;
 
@@ -463,9 +468,10 @@ namespace RevitWebAppSync.UI
         /// <summary>Core scan logic — shared by RunScanAsync and RunScanAfterFix.</summary>
         /// <param name="clearAudit">If true, wipe persisted Accept/Approve decisions before loading results.</param>
         /// <param name="isRecheck">If true, hit /jkr-recheck (post-fix verification) instead of /jkr-check-v2.</param>
-        /// <param name="preservedFixed">Issues just auto-fixed in this session. Re-injected after the
-        /// rescan so they land in the Resolved tab — the recheck won't return them (they pass now).</param>
-        private async Task RunScanInner(bool clearAudit = false, bool isRecheck = false, List<IssueVm> preservedFixed = null)
+        /// <param name="preservedAfterFix">Issues just attempted in an auto-fix batch — both successes
+        /// (Status=Fixed, land in Resolved) and failures (Status=Open, stay visible). Re-injected after
+        /// the rescan so neither group silently vanishes when the recheck omits them.</param>
+        private async Task RunScanInner(bool clearAudit = false, bool isRecheck = false, List<IssueVm> preservedAfterFix = null)
         {
             var doc = _uiApp?.ActiveUIDocument?.Document;
             if (doc == null) return;
@@ -499,14 +505,14 @@ namespace RevitWebAppSync.UI
                 JkrAuditStore.MergeInto(issues, audit);
             }
 
-            // Carry just-fixed issues through the rescan boundary. Dedup by Id in case Revit
-            // applied the change but the rule still flags it (recheck returns it as failing) —
-            // the new "still failing" entry wins; we don't double-list.
-            if (preservedFixed != null && preservedFixed.Count > 0)
+            // Carry attempted-fix issues through the rescan boundary. Dedup by Id so when
+            // the recheck still returns one (rule didn't actually pass, or fix failed and
+            // the rule still flags it), the recheck version wins — no double-listing.
+            if (preservedAfterFix != null && preservedAfterFix.Count > 0)
             {
                 var existingIds = new HashSet<string>(
                     issues.Where(i => !string.IsNullOrEmpty(i.Id)).Select(i => i.Id));
-                foreach (var pf in preservedFixed)
+                foreach (var pf in preservedAfterFix)
                 {
                     if (string.IsNullOrEmpty(pf.Id) || !existingIds.Contains(pf.Id))
                         issues.Add(pf);
