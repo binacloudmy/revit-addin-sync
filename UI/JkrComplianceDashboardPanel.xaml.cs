@@ -344,6 +344,20 @@ namespace RevitWebAppSync.UI
                     }
                     var preservedAfterFix = fixable.ToList();
 
+                    // Persist the Fixed entries so the Resolved tab survives a cold
+                    // Re-scan — JkrAuditStore.Save snapshots each row and RunScanInner
+                    // re-injects them (or drops the entry on regression).
+                    var docPath = _uiApp?.ActiveUIDocument?.Document?.PathName ?? "";
+                    foreach (var i in preservedAfterFix)
+                    {
+                        if (i.Status != IssueStatus.Fixed) continue;
+                        try { JkrAuditStore.Save(docPath, i); }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}");
+                        }
+                    }
+
                     if (total == 0)
                     {
                         FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
@@ -503,6 +517,22 @@ namespace RevitWebAppSync.UI
             {
                 var audit = JkrAuditStore.LoadFor(doc.PathName);
                 JkrAuditStore.MergeInto(issues, audit);
+
+                // Re-inject previously-Fixed entries from the audit. The fresh check
+                // won't return them (they pass), so without this the Resolved tab
+                // empties on every cold rescan. If a Fixed Id IS in the fresh check,
+                // the fix didn't hold (regression) — drop the audit entry and let
+                // the Open row stand instead.
+                var freshIds = new HashSet<string>(
+                    issues.Where(i => !string.IsNullOrEmpty(i.Id)).Select(i => i.Id));
+                foreach (var fixedVm in JkrAuditStore.LoadFixedFor(doc.PathName))
+                {
+                    if (string.IsNullOrEmpty(fixedVm.Id)) continue;
+                    if (freshIds.Contains(fixedVm.Id))
+                        JkrAuditStore.Remove(doc.PathName, fixedVm.Id);
+                    else
+                        issues.Add(fixedVm);
+                }
             }
 
             // Carry attempted-fix issues through the rescan boundary. Dedup by Id so when
@@ -726,6 +756,14 @@ namespace RevitWebAppSync.UI
                     }
                     // Success — flip the VM (advances queue + shows toast).
                     _vm.ApplyAction(issue, IssueStatus.Fixed, advance);
+                    try
+                    {
+                        JkrAuditStore.Save(ActiveDocPath, issue);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}");
+                    }
                 });
             };
 

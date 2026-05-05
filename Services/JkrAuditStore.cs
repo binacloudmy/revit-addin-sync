@@ -7,11 +7,19 @@ using System.IO;
 namespace RevitWebAppSync.Services
 {
     /// <summary>
-    /// Per-project audit trail for Accept/Approve decisions.
+    /// Per-project audit trail for Accept/Approve/Fix decisions.
     /// Persists to "&lt;rvt-dir&gt;/.jkr_audit.json" next to the Revit file so the
     /// record travels with the project and survives re-scans.
-    /// Fix status is NOT persisted — it's Revit-transactional (the model itself
-    /// is the source of truth after auto-fix runs).
+    ///
+    /// Accepted/Approved persist as a status only; the next scan's fresh issue is
+    /// matched by Id and its Status is rewritten via MergeInto.
+    ///
+    /// Fix is different — once applied, the rule no longer flags the issue, so the
+    /// fresh check doesn't return it at all and there's nothing to MergeInto. To keep
+    /// the Resolved tab populated across cold rescans we snapshot the IssueVm at save
+    /// time and reconstruct it on load via LoadFixedFor. If a Fixed Id reappears in
+    /// the fresh check, the fix didn't hold (regression) — caller should drop the
+    /// entry via Remove and let the Open version stand.
     /// </summary>
     public static class JkrAuditStore
     {
@@ -21,6 +29,11 @@ namespace RevitWebAppSync.Services
             [JsonProperty("status")] public string Status { get; set; }
             [JsonProperty("at")] public string At { get; set; }
             [JsonProperty("user")] public string User { get; set; }
+
+            // Only populated for Fixed entries — we need the row's display data
+            // back even when the fresh check no longer returns this issue.
+            [JsonProperty("snapshot", NullValueHandling = NullValueHandling.Ignore)]
+            public IssueSnapshot Snapshot { get; set; }
         }
 
         private const string FILENAME = ".jkr_audit.json";
@@ -42,7 +55,9 @@ namespace RevitWebAppSync.Services
             return Path.Combine(fallback, FILENAME);
         }
 
-        /// <summary>Read the full audit. Returns an empty dict if the file is missing or corrupt.</summary>
+        /// <summary>Read the Accept/Approve decisions. Fixed entries are returned
+        /// separately via LoadFixedFor since they need full reconstruction, not a
+        /// simple status overlay on an existing fresh-check item.</summary>
         public static Dictionary<string, IssueStatus> LoadFor(string rvtPath)
         {
             var path = AuditPath(rvtPath);
@@ -57,7 +72,6 @@ namespace RevitWebAppSync.Services
                 {
                     if (Enum.TryParse<IssueStatus>(kv.Value?.Status ?? "", ignoreCase: true, out var s))
                     {
-                        // Only Accepted/Approved persist; Fixed and Open are ephemeral.
                         if (s == IssueStatus.Accepted || s == IssueStatus.Approved)
                             result[kv.Key] = s;
                     }
@@ -68,6 +82,52 @@ namespace RevitWebAppSync.Services
                 // Silently ignore corrupt audit — starting fresh is safer than dying.
             }
             return result;
+        }
+
+        /// <summary>Reconstruct previously-Fixed IssueVms from their persisted snapshots.
+        /// Caller is expected to dedup against the fresh check: Ids that reappear there
+        /// indicate the fix didn't hold and the audit entry should be Removed.</summary>
+        public static List<IssueVm> LoadFixedFor(string rvtPath)
+        {
+            var path = AuditPath(rvtPath);
+            var result = new List<IssueVm>();
+            if (!File.Exists(path)) return result;
+            try
+            {
+                var raw = File.ReadAllText(path);
+                var map = JsonConvert.DeserializeObject<Dictionary<string, AuditRecord>>(raw)
+                          ?? new Dictionary<string, AuditRecord>();
+                foreach (var kv in map)
+                {
+                    if (!Enum.TryParse<IssueStatus>(kv.Value?.Status ?? "", ignoreCase: true, out var s)) continue;
+                    if (s != IssueStatus.Fixed) continue;
+                    if (kv.Value?.Snapshot == null) continue; // legacy entry — nothing to reconstruct
+                    result.Add(kv.Value.Snapshot.ToIssueVm(kv.Key));
+                }
+            }
+            catch
+            {
+                // Silently ignore corrupt audit.
+            }
+            return result;
+        }
+
+        /// <summary>Drop a single audit entry by Id. Used when a Fixed entry reappears
+        /// in the fresh check (regression) so the user sees the live Open state.</summary>
+        public static void Remove(string rvtPath, string id)
+        {
+            if (string.IsNullOrEmpty(id)) return;
+            var path = AuditPath(rvtPath);
+            var map = _ReadRaw(path);
+            if (!map.Remove(id)) return;
+            try
+            {
+                File.WriteAllText(path, JsonConvert.SerializeObject(map, Formatting.Indented));
+            }
+            catch
+            {
+                // Audit write is best-effort — don't crash the panel.
+            }
         }
 
         /// <summary>
@@ -85,8 +145,8 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
-        /// Persist a single decision. If the status is Open/Fixed, remove any existing
-        /// entry (keeps the file tight — no tombstones).
+        /// Persist a single decision. Reopen (Status=Open) drops the entry so the file
+        /// stays tight — no tombstones.
         /// </summary>
         public static void Save(string rvtPath, IssueVm issue)
         {
@@ -101,6 +161,19 @@ namespace RevitWebAppSync.Services
                     Status = issue.Status.ToString(),
                     At = DateTime.UtcNow.ToString("o"),
                     User = Environment.UserName ?? "",
+                };
+            }
+            else if (issue.Status == IssueStatus.Fixed)
+            {
+                // Snapshot the row's display data — the next scan won't return this
+                // issue (the rule passes now), so reconstruction needs everything the
+                // UI/focus modal reads off the IssueVm.
+                map[issue.Id] = new AuditRecord
+                {
+                    Status = issue.Status.ToString(),
+                    At = DateTime.UtcNow.ToString("o"),
+                    User = Environment.UserName ?? "",
+                    Snapshot = IssueSnapshot.From(issue),
                 };
             }
             else
@@ -131,6 +204,105 @@ namespace RevitWebAppSync.Services
             {
                 return new Dictionary<string, AuditRecord>();
             }
+        }
+    }
+
+    /// <summary>
+    /// Persisted projection of an IssueVm — enough to reconstruct the row + focus modal
+    /// when the underlying check no longer fires (post-Fix). Computed/Brush properties
+    /// are deliberately omitted; they're derived from the fields below at re-hydration.
+    /// </summary>
+    public class IssueSnapshot
+    {
+        [JsonProperty("category")] public string Category { get; set; } = "";
+        [JsonProperty("title")] public string Title { get; set; } = "";
+        [JsonProperty("description")] public string Description { get; set; } = "";
+        [JsonProperty("element_name")] public string ElementName { get; set; } = "";
+        [JsonProperty("element_id_label")] public string ElementIdLabel { get; set; } = "—";
+        [JsonProperty("revit_element_id")] public int RevitElementId { get; set; }
+        [JsonProperty("required")] public string Required { get; set; } = "";
+        [JsonProperty("actual")] public string Actual { get; set; } = "";
+        [JsonProperty("example")] public string Example { get; set; } = "";
+        [JsonProperty("steps")] public List<string> Steps { get; set; } = new List<string>();
+        [JsonProperty("how_to_fix")] public string HowToFix { get; set; } = "";
+        [JsonProperty("spec_doc")] public string SpecDoc { get; set; } = "";
+        [JsonProperty("spec_clause")] public string SpecClause { get; set; } = "";
+        [JsonProperty("spec_page")] public int SpecPage { get; set; }
+        [JsonProperty("spec_quote")] public string SpecQuote { get; set; } = "";
+        [JsonProperty("fix_action")] public string FixAction { get; set; } = "";
+        [JsonProperty("fix_parameter_name")] public string FixParameterName { get; set; } = "";
+        [JsonProperty("fix_value")] public string FixValue { get; set; } = "";
+        [JsonProperty("fix_old_value")] public string FixOldValue { get; set; } = "";
+        [JsonProperty("fix_priority")] public int FixPriority { get; set; } = 10;
+        [JsonProperty("locatable")] public bool Locatable { get; set; }
+        [JsonProperty("fix_reference")] public string FixReference { get; set; } = "";
+        [JsonProperty("priority")] public string Priority { get; set; } = "Medium";
+
+        public static IssueSnapshot From(IssueVm vm)
+        {
+            return new IssueSnapshot
+            {
+                Category = vm.Category ?? "",
+                Title = vm.Title ?? "",
+                Description = vm.Description ?? "",
+                ElementName = vm.Element?.Name ?? "",
+                ElementIdLabel = vm.Element?.Id ?? "—",
+                RevitElementId = vm.RevitElementId,
+                Required = vm.Required ?? "",
+                Actual = vm.Actual ?? "",
+                Example = vm.Example ?? "",
+                Steps = vm.Steps != null ? new List<string>(vm.Steps) : new List<string>(),
+                HowToFix = vm.HowToFix ?? "",
+                SpecDoc = vm.Spec?.Doc ?? "",
+                SpecClause = vm.Spec?.Clause ?? "",
+                SpecPage = vm.Spec?.Page ?? 0,
+                SpecQuote = vm.Spec?.Quote ?? "",
+                FixAction = vm.FixAction ?? "",
+                FixParameterName = vm.FixParameterName ?? "",
+                FixValue = vm.FixValue ?? "",
+                FixOldValue = vm.FixOldValue ?? "",
+                FixPriority = vm.FixPriority,
+                Locatable = vm.Locatable,
+                FixReference = vm.FixReference ?? "",
+                Priority = vm.Priority.ToString(),
+            };
+        }
+
+        public IssueVm ToIssueVm(string id)
+        {
+            var vm = new IssueVm
+            {
+                Id = id,
+                Category = Category ?? "",
+                Title = Title ?? "",
+                Description = Description ?? "",
+                Element = new ElementRef { Name = ElementName ?? "", Id = ElementIdLabel ?? "—" },
+                RevitElementId = RevitElementId,
+                Required = Required ?? "",
+                Actual = Actual ?? "",
+                Example = Example ?? "",
+                Steps = Steps ?? new List<string>(),
+                HowToFix = HowToFix ?? "",
+                Spec = new SpecRef
+                {
+                    Doc = string.IsNullOrEmpty(SpecDoc) ? "doc09" : SpecDoc,
+                    Clause = SpecClause ?? "",
+                    Page = SpecPage,
+                    Quote = SpecQuote ?? "",
+                },
+                FixAction = FixAction ?? "",
+                FixParameterName = FixParameterName ?? "",
+                FixValue = FixValue ?? "",
+                FixOldValue = FixOldValue ?? "",
+                FixPriority = FixPriority,
+                Locatable = Locatable,
+                FixReference = FixReference ?? "",
+                AutoFixable = false, // already fixed — don't re-offer the button
+            };
+            if (Enum.TryParse<IssuePriority>(Priority ?? "Medium", ignoreCase: true, out var p))
+                vm.Priority = p;
+            vm.Status = IssueStatus.Fixed;
+            return vm;
         }
     }
 }
