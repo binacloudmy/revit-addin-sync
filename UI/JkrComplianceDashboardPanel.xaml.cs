@@ -39,6 +39,10 @@ namespace RevitWebAppSync.UI
         // PostCommand's this many ID_REVIT_UNDOs after confirmation so the model goes
         // back along with the addin's audit/blocklist state.
         private int _undoableFixCount;
+        // Tracks the *individual* fixes folded into those transactions, so the Reset
+        // confirmation dialog can show "85 fixes (1 batch)" instead of just "1 action"
+        // — the latter wording made users think only 1 of their fixes would revert.
+        private int _undoableFixDetail;
 
         // LOD level is selectable via the LOD ComboBox in the hero header.
         // Default is 300; user can change to 100/200/300/400/500 before scanning.
@@ -375,16 +379,20 @@ namespace RevitWebAppSync.UI
                     {
                         FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
                         RenderAll(); // refresh badge after blocklist changes
-                        var detail = $"skipped={result.Skipped} failed={result.Failed}";
-                        var msg = $"No fixes applied ({detail}).";
-                        if (!string.IsNullOrEmpty(result.FailDetails))
-                            msg += $"\n\n{result.FailDetails}";
-                        TaskDialog.Show("BINA JKR Compliance", msg);
+                        // No undo counter increment — TransactionGroup wasn't committed.
+                        // Failures already routed to Manual via preservedAfterFix above;
+                        // single non-blocking toast is enough — no need for a modal dialog
+                        // (the leftover detail lives on each Manual-tab row's focus modal).
+                        var msg = result.Failed > 0
+                            ? $"No fixes applied — {result.Failed} → Manual tab"
+                            : $"No fixes applied (skipped={result.Skipped} failed={result.Failed})";
+                        _vm.ShowToast(msg);
                         return;
                     }
 
                     // One TransactionGroup committed in JkrRenameHandler = one Revit undo step.
                     _undoableFixCount++;
+                    _undoableFixDetail += total;
 
                     // Show completion in progress bar
                     FixProgressLabel.Text = $"Applied {total} fixes. Re-scanning...";
@@ -804,6 +812,7 @@ namespace RevitWebAppSync.UI
                     }
                     // One TransactionGroup committed in JkrRenameHandler = one Revit undo step.
                     _undoableFixCount++;
+                    _undoableFixDetail++;
                 });
             };
 
@@ -815,15 +824,25 @@ namespace RevitWebAppSync.UI
         private void Reset_Click(object s, RoutedEventArgs e)
         {
             int undoCount = _undoableFixCount;
+            int fixDetail = _undoableFixDetail;
 
             // Warn before rolling back Revit edits — the undo stack is global, so any
             // unrelated work the user did since the last fix gets popped first.
             if (undoCount > 0)
             {
+                // When all transactions are per-issue (1 fix each) the two numbers
+                // match — show the simple form. When at least one is a Fix All batch,
+                // show the breakdown so users understand "1 undo step" reverts the
+                // whole batch.
+                string instruction = (fixDetail == undoCount)
+                    ? $"Reset will also undo {fixDetail} auto-fix" +
+                      $"{(fixDetail == 1 ? "" : "es")} via Revit's Undo."
+                    : $"Reset will also undo {fixDetail} individual fix" +
+                      $"{(fixDetail == 1 ? "" : "es")} ({undoCount} batch{(undoCount == 1 ? "" : "es")}) via Revit's Undo.";
+
                 var td = new TaskDialog("BINA JKR Compliance — Reset")
                 {
-                    MainInstruction = $"Reset will also undo {undoCount} auto-fix " +
-                                      $"action{(undoCount == 1 ? "" : "s")} via Revit's Undo.",
+                    MainInstruction = instruction,
                     MainContent = "Revit's undo stack is global. If you've edited the model " +
                                   "manually since the last fix (moved an element, changed a " +
                                   "parameter, etc.), those edits will be undone first — there " +
@@ -837,7 +856,7 @@ namespace RevitWebAppSync.UI
 
             IssueMapper.ClearBlocklist();
             _vm.ShowToast(undoCount > 0
-                ? $"Resetting and undoing {undoCount} fix{(undoCount == 1 ? "" : "es")}..."
+                ? $"Resetting and undoing {fixDetail} fix{(fixDetail == 1 ? "" : "es")}..."
                 : "Resetting all decisions and re-scanning...");
             _ = ResetAndRescan(undoCount);
         }
@@ -858,12 +877,17 @@ namespace RevitWebAppSync.UI
 
                         // PostCommand is async — Revit drains it on the next idle tick. Yield
                         // so the queued undos process before we extract model state for the
-                        // rescan. 100ms per undo is conservative for typical fix batches;
-                        // clamp so a stale/giant counter doesn't stall the UI for minutes.
-                        var delayMs = Math.Min(2000, Math.Max(200, undoCount * 100));
+                        // rescan. A Fix All TransactionGroup containing N inner ops can take
+                        // a real fraction of a second to fully revert (rename + param sets +
+                        // dependent view/annotation updates), so we budget per individual fix
+                        // rather than per transaction. 500ms floor keeps single per-issue
+                        // resets snappy; 8s ceiling stops a stale counter from hanging the UI.
+                        // P10 will replace this with an Idling-event-driven wait.
+                        var delayMs = Math.Min(8000, Math.Max(500, _undoableFixDetail * 100));
                         await System.Threading.Tasks.Task.Delay(delayMs);
                     }
                     _undoableFixCount = 0;
+                    _undoableFixDetail = 0;
                 }
 
                 await RunScanInner(clearAudit: true);
