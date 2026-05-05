@@ -403,7 +403,7 @@ namespace RevitWebAppSync.UI
                         summary += $" ({result.Failed} failed)";
 
                     // Re-scan to verify — the re-scan will show fewer issues now.
-                    _ = RunScanAfterFix(summary, result.Failed, result.FailDetails, preservedAfterFix, openBeforeFix);
+                    _ = RunScanAfterFix(summary, result.Failed, preservedAfterFix, openBeforeFix);
                 });
             };
 
@@ -414,7 +414,7 @@ namespace RevitWebAppSync.UI
         /// Re-scan after Fix All and show results with context about what was fixed.
         /// Uses the dedicated /jkr-recheck endpoint for clearer telemetry.
         /// </summary>
-        private async Task RunScanAfterFix(string fixSummary, int failCount, string failDetails,
+        private async Task RunScanAfterFix(string fixSummary, int failCount,
                                             List<IssueVm> preservedAfterFix = null, int openBeforeFix = 0)
         {
             try
@@ -426,17 +426,15 @@ namespace RevitWebAppSync.UI
 
                 FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
 
+                // Single non-blocking toast covers the whole batch outcome. Failures
+                // are already routed to the Manual tab with persisted state, so the
+                // user can browse them at their own pace instead of dismissing a modal.
                 var msg = $"{fixSummary}. Open: {openBeforeFix} → {afterOpen}";
                 if (resolved > 0)
-                    msg += $" ({resolved} resolved)";
+                    msg += $" · {resolved} resolved";
+                if (failCount > 0)
+                    msg += $" · {failCount} → Manual tab";
                 _vm.ShowToast(msg);
-
-                // Show fail details if any
-                if (failCount > 0 && !string.IsNullOrEmpty(failDetails))
-                {
-                    TaskDialog.Show("BINA JKR Compliance",
-                        $"{failCount} fix(es) failed:\n\n{failDetails}");
-                }
             }
             catch (Exception ex)
             {
