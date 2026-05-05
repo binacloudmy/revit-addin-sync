@@ -269,6 +269,7 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
@@ -302,7 +303,18 @@
                         </Border>
                     </StackPanel>
                 </ToggleButton>
-                <TextBlock Grid.Column="4" x:Name="FilteredCountText" Text="0 shown"
+                <ToggleButton x:Name="TabManual" Grid.Column="3" Style="{StaticResource Btn.Tab}"
+                              IsChecked="False" Click="TabManual_Click" Margin="2,0,0,0"
+                              ToolTip="Issues the addin couldn't auto-fix — review and edit in Revit manually.">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Manual" Margin="0,0,5,0"/>
+                        <Border x:Name="TabManualPill" Background="{StaticResource Surface.Line2}" CornerRadius="8" Padding="6,1,6,1">
+                            <TextBlock x:Name="TabManualCount" Text="0" FontSize="10" FontWeight="Bold"
+                                       Foreground="{StaticResource Ink3}"/>
+                        </Border>
+                    </StackPanel>
+                </ToggleButton>
+                <TextBlock Grid.Column="5" x:Name="FilteredCountText" Text="0 shown"
                            FontSize="10" Foreground="{StaticResource Ink4}"
                            VerticalAlignment="Bottom" Margin="0,0,4,6"
                            FontFamily="{StaticResource Font.Sans}"/>

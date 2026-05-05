@@ -120,11 +120,13 @@ namespace RevitWebAppSync.UI
             TabOpenCount.Text = _vm.OpenCount.ToString();
             TabAcceptedCount.Text = _vm.AcceptedCount.ToString();
             TabResolvedCount.Text = _vm.ResolvedCount.ToString();
+            TabManualCount.Text = _vm.ManualFixCount.ToString();
             FilteredCountText.Text = $"{_vm.FilteredCount} shown";
 
             TabOpen.IsChecked = _vm.IsOpenTab;
             TabAccepted.IsChecked = _vm.IsAcceptedTab;
             TabResolved.IsChecked = _vm.IsResolvedTab;
+            TabManual.IsChecked = _vm.IsManualTab;
 
             // Highlight active tab pill, dim others
             var activeBg = JkrTheme.Brush("BrandTint");
@@ -138,6 +140,8 @@ namespace RevitWebAppSync.UI
             TabAcceptedCount.Foreground = _vm.IsAcceptedTab ? activeFg : inactiveFg;
             TabResolvedPill.Background = _vm.IsResolvedTab ? activeBg : inactiveBg;
             TabResolvedCount.Foreground = _vm.IsResolvedTab ? activeFg : inactiveFg;
+            TabManualPill.Background = _vm.IsManualTab ? activeBg : inactiveBg;
+            TabManualCount.Foreground = _vm.IsManualTab ? activeFg : inactiveFg;
 
             // Scanning spinner
             if (_vm.Scanning) StartRescanSpin(); else StopRescanSpin();
@@ -338,27 +342,28 @@ namespace RevitWebAppSync.UI
                         }
                     }
 
-                    // Mark successes as Fixed; failures keep Status=Open (AutoFixable
-                    // already cleared above). Both groups get preserved across the rescan:
+                    // Mark successes as Fixed; failures move to ManualFixNeeded (own tab,
+                    // hidden Fix button, persisted so they don't relapse to Open on rescan).
+                    // Both groups get preserved across the rescan:
                     //   - Successes → land in Resolved (recheck omits passing checks).
-                    //   - Failures → stay visible in Open even when the recheck no longer
-                    //     re-flags them. Read-only writes can trigger a binding side-effect
-                    //     in the applicator that masks the rule on the next pass; without
-                    //     preservation these would silently vanish from the dashboard.
+                    //   - Failures   → land in Manual; if the rule still fires, audit-merge
+                    //                  overlays ManualFixNeeded onto the fresh Open row.
                     foreach (var i in fixable)
                     {
-                        if (!result.FailedElementIds.Contains(i.RevitElementId))
+                        if (result.FailedElementIds.Contains(i.RevitElementId))
+                            i.Status = IssueStatus.ManualFixNeeded;
+                        else
                             i.Status = IssueStatus.Fixed;
                     }
                     var preservedAfterFix = fixable.ToList();
 
-                    // Persist the Fixed entries so the Resolved tab survives a cold
-                    // Re-scan — JkrAuditStore.Save snapshots each row and RunScanInner
-                    // re-injects them (or drops the entry on regression).
+                    // Persist Fixed (with snapshot) and ManualFixNeeded (status only) so
+                    // both survive a cold Re-scan — JkrAuditStore.Save handles the routing.
                     var docPath = _uiApp?.ActiveUIDocument?.Document?.PathName ?? "";
                     foreach (var i in preservedAfterFix)
                     {
-                        if (i.Status != IssueStatus.Fixed) continue;
+                        if (i.Status != IssueStatus.Fixed && i.Status != IssueStatus.ManualFixNeeded)
+                            continue;
                         try { JkrAuditStore.Save(docPath, i); }
                         catch (Exception ex)
                         {
@@ -610,6 +615,7 @@ namespace RevitWebAppSync.UI
         private void TabOpen_Click(object s, RoutedEventArgs e) => SetTab(TabKind.Open);
         private void TabAccepted_Click(object s, RoutedEventArgs e) => SetTab(TabKind.Accepted);
         private void TabResolved_Click(object s, RoutedEventArgs e) => SetTab(TabKind.Resolved);
+        private void TabManual_Click(object s, RoutedEventArgs e) => SetTab(TabKind.Manual);
 
         private void SetTab(TabKind tab)
         {
@@ -617,6 +623,7 @@ namespace RevitWebAppSync.UI
             TabOpen.IsChecked = tab == TabKind.Open;
             TabAccepted.IsChecked = tab == TabKind.Accepted;
             TabResolved.IsChecked = tab == TabKind.Resolved;
+            TabManual.IsChecked = tab == TabKind.Manual;
         }
 
         private void Row_Clicked(object sender, EventArgs e)
@@ -754,13 +761,23 @@ namespace RevitWebAppSync.UI
                     }
                     if (result.Renamed == 0 && result.ParamFixed == 0)
                     {
-                        // Mark as not auto-fixable and blocklist so re-scan doesn't re-mark it
-                        issue.AutoFixable = false;
+                        // Auto-fix couldn't apply — most often a read-only Revit param.
+                        // Move the issue to ManualFixNeeded (Manual tab) and persist so
+                        // the next rescan doesn't relapse it to Open. Show the dialog
+                        // once with the underlying failure so the user knows what to
+                        // fix manually; subsequent rescans won't re-prompt because the
+                        // Fix button is hidden on ManualFixNeeded.
                         IssueMapper.BlockFix(issue.RevitElementId, issue.FixAction, issue.FixParameterName);
+                        _vm.ApplyAction(issue, IssueStatus.ManualFixNeeded, advance);
+                        try { JkrAuditStore.Save(ActiveDocPath, issue); }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}");
+                        }
                         var detail = result.Skipped + result.Failed > 0
                             ? $"skipped={result.Skipped} failed={result.Failed}"
                             : "no changes applied";
-                        var msg = $"Auto-fix did not apply ({detail}).";
+                        var msg = $"Auto-fix did not apply ({detail}). Moved to Manual tab.";
                         if (!string.IsNullOrEmpty(result.FailDetails))
                             msg += $"\n\nDetails:\n{result.FailDetails}";
                         TaskDialog.Show("BINA JKR Compliance", msg);

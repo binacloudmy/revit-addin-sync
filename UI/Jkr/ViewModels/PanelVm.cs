@@ -21,7 +21,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public IssueStatus PreviousStatus;
     }
 
-    public enum TabKind { Open, Accepted, Resolved }
+    public enum TabKind { Open, Accepted, Resolved, Manual }
 
     public class PanelVm : INotifyPropertyChanged
     {
@@ -78,6 +78,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public bool IsOpenTab => _tab == TabKind.Open;
         public bool IsAcceptedTab => _tab == TabKind.Accepted;
         public bool IsResolvedTab => _tab == TabKind.Resolved;
+        public bool IsManualTab => _tab == TabKind.Manual;
 
         private IssueVm _activeIssue;
         public IssueVm ActiveIssue
@@ -120,7 +121,8 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public int OpenCount => Issues.Count(i => i.Status == IssueStatus.Open);
         public int AcceptedCount => Issues.Count(i => i.Status == IssueStatus.Accepted);
         public int ResolvedCount => Issues.Count(i => i.Status == IssueStatus.Fixed || i.Status == IssueStatus.Approved);
-        public int NonOpenCount => AcceptedCount + ResolvedCount;
+        public int ManualFixCount => Issues.Count(i => i.Status == IssueStatus.ManualFixNeeded);
+        public int NonOpenCount => AcceptedCount + ResolvedCount + ManualFixCount;
         public int Percent => Total == 0 ? 0 : (int)Math.Round(NonOpenCount * 100.0 / Total);
 
         public int HighOpen => Issues.Count(i => i.IsOpen && i.Priority == IssuePriority.High);
@@ -215,6 +217,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (Tab == TabKind.Open && i.Status != IssueStatus.Open) continue;
                 if (Tab == TabKind.Accepted && i.Status != IssueStatus.Accepted) continue;
                 if (Tab == TabKind.Resolved && i.Status != IssueStatus.Fixed && i.Status != IssueStatus.Approved) continue;
+                if (Tab == TabKind.Manual && i.Status != IssueStatus.ManualFixNeeded) continue;
                 if (!string.IsNullOrEmpty(q)
                     && i.Title.ToLowerInvariant().IndexOf(q, StringComparison.Ordinal) < 0
                     && i.Description.ToLowerInvariant().IndexOf(q, StringComparison.Ordinal) < 0) continue;
@@ -317,13 +320,14 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 case IssueStatus.Fixed: return "Fixed";
                 case IssueStatus.Accepted: return "Accepted";
                 case IssueStatus.Approved: return "Approved";
+                case IssueStatus.ManualFixNeeded: return "Manual fix needed";
                 default: return s.ToString();
             }
         }
 
         private void RaiseCounts()
         {
-            Raise(nameof(OpenCount)); Raise(nameof(AcceptedCount)); Raise(nameof(ResolvedCount)); Raise(nameof(NonOpenCount)); Raise(nameof(Total));
+            Raise(nameof(OpenCount)); Raise(nameof(AcceptedCount)); Raise(nameof(ResolvedCount)); Raise(nameof(ManualFixCount)); Raise(nameof(NonOpenCount)); Raise(nameof(Total));
             Raise(nameof(Percent)); Raise(nameof(HighOpen)); Raise(nameof(MedOpen)); Raise(nameof(LowOpen));
             Raise(nameof(FixableCount)); Raise(nameof(SessionLine));
             foreach (var c in Categories)

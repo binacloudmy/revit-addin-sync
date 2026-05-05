@@ -6,7 +6,14 @@ using System.Windows.Media;
 namespace RevitWebAppSync.UI.Jkr.ViewModels
 {
     public enum IssuePriority { High, Medium, Low }
-    public enum IssueStatus { Open, Fixed, Accepted, Approved }
+    /// <summary>
+    /// ManualFixNeeded: an auto-fix attempt failed (typically read-only param,
+    /// not-found element, or category mismatch). Behaves like Accepted/Approved
+    /// for filtering — out of Open, hidden Fix button — but lives in its own tab
+    /// so users can review what the addin couldn't apply for them and resolve
+    /// manually. Persisted via audit so it doesn't relapse to Open on rescan.
+    /// </summary>
+    public enum IssueStatus { Open, Fixed, Accepted, Approved, ManualFixNeeded }
 
     public class ElementRef
     {
@@ -139,6 +146,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     case IssueStatus.Fixed: return "Fixed";
                     case IssueStatus.Accepted: return "Accepted";
                     case IssueStatus.Approved: return "Approved";
+                    case IssueStatus.ManualFixNeeded: return "Manual fix";
                     default: return "Open";
                 }
             }
@@ -153,6 +161,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     case IssueStatus.Approved: return "approve";
                     case IssueStatus.Fixed:
                     case IssueStatus.Accepted: return "check";
+                    case IssueStatus.ManualFixNeeded: return "warning";
                     default: return "dot";
                 }
             }

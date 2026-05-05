@@ -72,7 +72,10 @@ namespace RevitWebAppSync.Services
                 {
                     if (Enum.TryParse<IssueStatus>(kv.Value?.Status ?? "", ignoreCase: true, out var s))
                     {
-                        if (s == IssueStatus.Accepted || s == IssueStatus.Approved)
+                        // Accepted/Approved/ManualFixNeeded all overlay onto a fresh check
+                        // (the rule still fires, we just remember the user-facing state).
+                        // Fixed is handled separately by LoadFixedFor.
+                        if (s == IssueStatus.Accepted || s == IssueStatus.Approved || s == IssueStatus.ManualFixNeeded)
                             result[kv.Key] = s;
                     }
                 }
@@ -154,7 +157,8 @@ namespace RevitWebAppSync.Services
             var path = AuditPath(rvtPath);
             var map = _ReadRaw(path);
 
-            if (issue.Status == IssueStatus.Accepted || issue.Status == IssueStatus.Approved)
+            if (issue.Status == IssueStatus.Accepted || issue.Status == IssueStatus.Approved
+                || issue.Status == IssueStatus.ManualFixNeeded)
             {
                 map[issue.Id] = new AuditRecord
                 {
