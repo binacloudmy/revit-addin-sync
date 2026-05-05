@@ -92,6 +92,20 @@ namespace RevitWebAppSync.Services
         /// indicate the fix didn't hold and the audit entry should be Removed.</summary>
         public static List<IssueVm> LoadFixedFor(string rvtPath)
         {
+            return _LoadSnapshottedAs(rvtPath, IssueStatus.Fixed);
+        }
+
+        /// <summary>Reconstruct previously-Manual IssueVms from their persisted snapshots.
+        /// Used as a fallback when the fresh check no longer returns the issue under the
+        /// same Id (e.g. after an LOD change shifts the rule string and breaks the
+        /// status-overlay path through LoadFor).</summary>
+        public static List<IssueVm> LoadManualFor(string rvtPath)
+        {
+            return _LoadSnapshottedAs(rvtPath, IssueStatus.ManualFixNeeded);
+        }
+
+        private static List<IssueVm> _LoadSnapshottedAs(string rvtPath, IssueStatus wanted)
+        {
             var path = AuditPath(rvtPath);
             var result = new List<IssueVm>();
             if (!File.Exists(path)) return result;
@@ -103,9 +117,11 @@ namespace RevitWebAppSync.Services
                 foreach (var kv in map)
                 {
                     if (!Enum.TryParse<IssueStatus>(kv.Value?.Status ?? "", ignoreCase: true, out var s)) continue;
-                    if (s != IssueStatus.Fixed) continue;
+                    if (s != wanted) continue;
                     if (kv.Value?.Snapshot == null) continue; // legacy entry — nothing to reconstruct
-                    result.Add(kv.Value.Snapshot.ToIssueVm(kv.Key));
+                    var vm = kv.Value.Snapshot.ToIssueVm(kv.Key);
+                    vm.Status = wanted; // ToIssueVm hardcodes Fixed; override for Manual.
+                    result.Add(vm);
                 }
             }
             catch
@@ -157,9 +173,10 @@ namespace RevitWebAppSync.Services
             var path = AuditPath(rvtPath);
             var map = _ReadRaw(path);
 
-            if (issue.Status == IssueStatus.Accepted || issue.Status == IssueStatus.Approved
-                || issue.Status == IssueStatus.ManualFixNeeded)
+            if (issue.Status == IssueStatus.Accepted || issue.Status == IssueStatus.Approved)
             {
+                // Status-only — these statuses always overlay onto a fresh-check row
+                // since the rule keeps firing. No reconstruction ever needed.
                 map[issue.Id] = new AuditRecord
                 {
                     Status = issue.Status.ToString(),
@@ -167,11 +184,12 @@ namespace RevitWebAppSync.Services
                     User = Environment.UserName ?? "",
                 };
             }
-            else if (issue.Status == IssueStatus.Fixed)
+            else if (issue.Status == IssueStatus.Fixed || issue.Status == IssueStatus.ManualFixNeeded)
             {
-                // Snapshot the row's display data — the next scan won't return this
-                // issue (the rule passes now), so reconstruction needs everything the
-                // UI/focus modal reads off the IssueVm.
+                // Snapshot the row's display data — the next scan may not return this
+                // issue under the same Id. Fixed: rule passes now. Manual: rule string
+                // can shift between LOD levels, breaking Id-based overlay. Both need
+                // reconstruction so the user's prior decision survives the rescan.
                 map[issue.Id] = new AuditRecord
                 {
                     Status = issue.Status.ToString(),

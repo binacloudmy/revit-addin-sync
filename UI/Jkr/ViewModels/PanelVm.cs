@@ -122,7 +122,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public int AcceptedCount => Issues.Count(i => i.Status == IssueStatus.Accepted);
         public int ResolvedCount => Issues.Count(i => i.Status == IssueStatus.Fixed || i.Status == IssueStatus.Approved);
         public int ManualFixCount => Issues.Count(i => i.Status == IssueStatus.ManualFixNeeded);
-        public int NonOpenCount => AcceptedCount + ResolvedCount + ManualFixCount;
+        // Compliance progress — Manual is deliberately excluded. The user has
+        // triaged it but the model is still non-compliant, so it shouldn't
+        // inflate the "% resolved" indicator.
+        public int NonOpenCount => AcceptedCount + ResolvedCount;
         public int Percent => Total == 0 ? 0 : (int)Math.Round(NonOpenCount * 100.0 / Total);
 
         public int HighOpen => Issues.Count(i => i.IsOpen && i.Priority == IssuePriority.High);
@@ -133,9 +136,18 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public int FixableCount => Issues.Count(i => i.IsActionable && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction));
 
         public string SessionLine
-            => OpenCount > 0
-                ? $"{OpenCount} issue{(OpenCount == 1 ? "" : "s")} to go"
-                : "All clear — nice work.";
+        {
+            get
+            {
+                if (OpenCount > 0 && ManualFixCount > 0)
+                    return $"{OpenCount} open · {ManualFixCount} manual";
+                if (OpenCount > 0)
+                    return $"{OpenCount} issue{(OpenCount == 1 ? "" : "s")} to go";
+                if (ManualFixCount > 0)
+                    return $"{ManualFixCount} manual fix{(ManualFixCount == 1 ? "" : "es")} pending";
+                return "All clear — nice work.";
+            }
+        }
 
         public int ActiveIndexDisplay
         {

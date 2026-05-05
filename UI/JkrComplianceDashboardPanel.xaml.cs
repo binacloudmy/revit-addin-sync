@@ -532,11 +532,16 @@ namespace RevitWebAppSync.UI
                 var audit = JkrAuditStore.LoadFor(doc.PathName);
                 JkrAuditStore.MergeInto(issues, audit);
 
-                // Re-inject previously-Fixed entries from the audit. The fresh check
-                // won't return them (they pass), so without this the Resolved tab
-                // empties on every cold rescan. If a Fixed Id IS in the fresh check,
-                // the fix didn't hold (regression) — drop the audit entry and let
-                // the Open row stand instead.
+                // Re-inject snapshot-backed entries from the audit. The fresh check
+                // can fail to return them under their original Id for two reasons:
+                //   - Fixed: the rule passes now (success — keep in Resolved tab).
+                //   - Manual: the rule string shifted (e.g. LOD-level rewording) so
+                //     the audit Id no longer matches the fresh row, even though the
+                //     underlying problem still exists in the model.
+                // If a Fixed Id IS in the fresh check it's a regression — drop the
+                // audit entry and let the fresh Open row stand. Manual entries that
+                // reappear under the same Id are already overlaid by LoadFor above,
+                // so we just skip the Id-in-fresh case here.
                 var freshIds = new HashSet<string>(
                     issues.Where(i => !string.IsNullOrEmpty(i.Id)).Select(i => i.Id));
                 foreach (var fixedVm in JkrAuditStore.LoadFixedFor(doc.PathName))
@@ -546,6 +551,12 @@ namespace RevitWebAppSync.UI
                         JkrAuditStore.Remove(doc.PathName, fixedVm.Id);
                     else
                         issues.Add(fixedVm);
+                }
+                foreach (var manualVm in JkrAuditStore.LoadManualFor(doc.PathName))
+                {
+                    if (string.IsNullOrEmpty(manualVm.Id)) continue;
+                    if (!freshIds.Contains(manualVm.Id))
+                        issues.Add(manualVm);
                 }
             }
 
