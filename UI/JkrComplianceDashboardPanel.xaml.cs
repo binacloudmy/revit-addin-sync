@@ -33,16 +33,14 @@ namespace RevitWebAppSync.UI
         // is silently overwritten and the progress bar / button-disabled state desyncs.
         private bool _fixInFlight;
 
-        // Counts auto-fix Revit transactions (one per Fix All batch + one per per-issue
-        // Apply Fix) since the last Reset. Each maps to a single Revit undo step
-        // (JkrRenameHandler wraps the work in a TransactionGroup + Assimilate). Reset
-        // PostCommand's this many ID_REVIT_UNDOs after confirmation so the model goes
-        // back along with the addin's audit/blocklist state.
-        private int _undoableFixCount;
-        // Tracks the *individual* fixes folded into those transactions, so the Reset
-        // confirmation dialog can show "85 fixes (1 batch)" instead of just "1 action"
-        // — the latter wording made users think only 1 of their fixes would revert.
-        private int _undoableFixDetail;
+        // Each successful auto-fix is tracked here with its old value so Reset can
+        // explicitly reverse it. We don't rely on Revit's PostCommand(ID_REVIT_UNDO)
+        // anymore — testing showed it doesn't reliably revert TransactionGroup-
+        // assimilated batches in this context (only 1 of N fixes would undo, even
+        // with Idling/DocumentChanged-driven waits). Reverse-fix runs through the
+        // same JkrRenameHandler path with values swapped, so it's symmetric and
+        // appears in Revit's undo history as a single "JKR Reset" step.
+        private readonly List<JkrFixAction> _appliedFixes = new List<JkrFixAction>();
 
         // LOD level is selectable via the LOD ComboBox in the hero header.
         // Default is 300; user can change to 100/200/300/400/500 before scanning.
@@ -390,9 +388,21 @@ namespace RevitWebAppSync.UI
                         return;
                     }
 
-                    // One TransactionGroup committed in JkrRenameHandler = one Revit undo step.
-                    _undoableFixCount++;
-                    _undoableFixDetail += total;
+                    // Track each successful fix so Reset can explicitly reverse it later.
+                    foreach (var i in fixable)
+                    {
+                        if (result.FailedElementIds.Contains(i.RevitElementId)) continue;
+                        _appliedFixes.Add(new JkrFixAction
+                        {
+                            Action = i.FixAction,
+                            ElementId = i.RevitElementId,
+                            ParameterName = i.FixParameterName,
+                            Value = i.FixValue,
+                            OldValue = i.FixOldValue,
+                            Priority = i.FixPriority,
+                            Target = string.IsNullOrEmpty(i.FixTarget) ? "instance" : i.FixTarget,
+                        });
+                    }
 
                     // Show completion in progress bar
                     FixProgressLabel.Text = $"Applied {total} fixes. Re-scanning...";
@@ -810,9 +820,17 @@ namespace RevitWebAppSync.UI
                     {
                         System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}");
                     }
-                    // One TransactionGroup committed in JkrRenameHandler = one Revit undo step.
-                    _undoableFixCount++;
-                    _undoableFixDetail++;
+                    // Track for Reset reversal — same shape as the Fix All loop above.
+                    _appliedFixes.Add(new JkrFixAction
+                    {
+                        Action = issue.FixAction,
+                        ElementId = issue.RevitElementId,
+                        ParameterName = issue.FixParameterName,
+                        Value = issue.FixValue,
+                        OldValue = issue.FixOldValue,
+                        Priority = issue.FixPriority,
+                        Target = string.IsNullOrEmpty(issue.FixTarget) ? "instance" : issue.FixTarget,
+                    });
                 });
             };
 
@@ -823,30 +841,20 @@ namespace RevitWebAppSync.UI
 
         private void Reset_Click(object s, RoutedEventArgs e)
         {
-            int undoCount = _undoableFixCount;
-            int fixDetail = _undoableFixDetail;
+            int fixCount = _appliedFixes.Count;
 
-            // Warn before rolling back Revit edits — the undo stack is global, so any
-            // unrelated work the user did since the last fix gets popped first.
-            if (undoCount > 0)
+            if (fixCount > 0)
             {
-                // When all transactions are per-issue (1 fix each) the two numbers
-                // match — show the simple form. When at least one is a Fix All batch,
-                // show the breakdown so users understand "1 undo step" reverts the
-                // whole batch.
-                string instruction = (fixDetail == undoCount)
-                    ? $"Reset will also undo {fixDetail} auto-fix" +
-                      $"{(fixDetail == 1 ? "" : "es")} via Revit's Undo."
-                    : $"Reset will also undo {fixDetail} individual fix" +
-                      $"{(fixDetail == 1 ? "" : "es")} ({undoCount} batch{(undoCount == 1 ? "" : "es")}) via Revit's Undo.";
-
                 var td = new TaskDialog("BINA JKR Compliance — Reset")
                 {
-                    MainInstruction = instruction,
-                    MainContent = "Revit's undo stack is global. If you've edited the model " +
-                                  "manually since the last fix (moved an element, changed a " +
-                                  "parameter, etc.), those edits will be undone first — there " +
-                                  "is no way to selectively undo only the auto-fixes.\n\n" +
+                    MainInstruction = $"Reset will revert {fixCount} auto-fix" +
+                                      $"{(fixCount == 1 ? "" : "es")} in the Revit model.",
+                    MainContent = "The addin will run a reverse transaction that restores each " +
+                                  "fixed element's original name or parameter value. This appears " +
+                                  "in Revit's undo history as a single 'JKR Reset' step you can " +
+                                  "undo manually if needed.\n\n" +
+                                  "Any model edits you've made manually since the last fix are " +
+                                  "left untouched — only the addin's auto-fixes are reversed.\n\n" +
                                   "Continue?",
                     CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
                     DefaultButton = TaskDialogResult.No,
@@ -855,41 +863,27 @@ namespace RevitWebAppSync.UI
             }
 
             IssueMapper.ClearBlocklist();
-            _vm.ShowToast(undoCount > 0
-                ? $"Resetting and undoing {fixDetail} fix{(fixDetail == 1 ? "" : "es")}..."
+            _vm.ShowToast(fixCount > 0
+                ? $"Resetting and reverting {fixCount} fix{(fixCount == 1 ? "" : "es")}..."
                 : "Resetting all decisions and re-scanning...");
-            _ = ResetAndRescan(undoCount);
+            _ = ResetAndRescan(fixCount);
         }
 
-        private async Task ResetAndRescan(int undoCount = 0)
+        private async Task ResetAndRescan(int fixCount = 0)
         {
             if (_vm.Scanning) return;
             _vm.Scanning = true;
             try
             {
-                if (undoCount > 0 && _uiApp != null)
+                if (fixCount > 0 && App.JkrRenameHandler != null && App.JkrRenameEvent != null)
                 {
-                    var undoId = RevitCommandId.LookupCommandId("ID_REVIT_UNDO");
-                    if (undoId != null)
-                    {
-                        for (int i = 0; i < undoCount; i++)
-                            _uiApp.PostCommand(undoId);
-
-                        // Wait until Revit reports the document was modified (DocumentChanged
-                        // fires on every transaction including undo) AND a few idle ticks pass
-                        // with no further changes — that's the signal that the queued undo
-                        // commands have actually run, not just been queued. Replaces the old
-                        // fixed-delay heuristic that left the rescan racing the undo.
-                        var doc = _uiApp.ActiveUIDocument?.Document;
-                        await WaitForUndosToDrainAsync(doc, expectedUndos: undoCount);
-                    }
-                    _undoableFixCount = 0;
-                    _undoableFixDetail = 0;
+                    await ReverseAppliedFixesAsync();
                 }
+                _appliedFixes.Clear();
 
                 await RunScanInner(clearAudit: true);
-                _vm.ShowToast(undoCount > 0
-                    ? $"Reset complete — undid {undoCount} fix{(undoCount == 1 ? "" : "es")} and cleared all decisions."
+                _vm.ShowToast(fixCount > 0
+                    ? $"Reset complete — reverted {fixCount} fix{(fixCount == 1 ? "" : "es")} and cleared all decisions."
                     : "Reset complete — all decisions cleared.");
             }
             catch (Exception ex)
@@ -903,79 +897,74 @@ namespace RevitWebAppSync.UI
         }
 
         /// <summary>
-        /// Block until queued ID_REVIT_UNDO commands have actually run.
-        ///
-        /// PostCommand is asynchronous — Revit drains its command queue on idle ticks.
-        /// The previous fixed-time delay raced the queue: an 8s budget could still
-        /// extract model state mid-undo on a slow machine, leaving most fixes intact
-        /// in the rescan. This waits on real Revit signals instead:
-        ///   - DocumentChanged fires on every transaction (incl. undo). We count
-        ///     transactions to know each posted undo has actually been processed.
-        ///   - After the expected count is hit, we wait two consecutive Idling
-        ///     ticks with no further DocumentChanged → Revit has stopped working.
-        ///
-        /// Falls back to a 15s watchdog so a missed event can't hang the UI.
+        /// Run a reverse transaction through JkrRenameHandler that undoes each tracked
+        /// auto-fix by setting names/parameters back to their original values. Pumps
+        /// through the same ExternalEvent path as Fix All so all the existing safety
+        /// (TransactionGroup, read-only handling, type-vs-instance routing) applies.
+        /// Iterates in reverse insertion order so renames-after-param-set unwind in
+        /// the correct dependency order.
         /// </summary>
-        private async Task WaitForUndosToDrainAsync(Document doc, int expectedUndos)
+        private Task ReverseAppliedFixesAsync()
         {
-            if (_uiApp == null) return;
-
-            int undosObserved = 0;
-            int idleTicksAfterLastChange = 0;
-            const int kRequiredIdleTicks = 2;
             var tcs = new TaskCompletionSource<bool>();
 
-            EventHandler<Autodesk.Revit.DB.Events.DocumentChangedEventArgs> onChanged = null;
-            EventHandler<Autodesk.Revit.UI.Events.IdlingEventArgs> onIdling = null;
-
-            onChanged = (sender, args) =>
+            if (_fixInFlight)
             {
-                undosObserved++;
-                idleTicksAfterLastChange = 0; // reset — Revit just did work
-            };
+                _vm.ShowToast("A fix is still running — please wait and try Reset again.");
+                tcs.TrySetResult(false);
+                return tcs.Task;
+            }
 
-            onIdling = (sender, args) =>
+            var handler = App.JkrRenameHandler;
+            handler.RenameQueue.Clear();
+            handler.ParamFixQueue.Clear();
+            _fixInFlight = true;
+
+            foreach (var af in _appliedFixes.AsEnumerable().Reverse())
             {
-                if (undosObserved >= expectedUndos)
+                if (string.Equals(af.Action, "rename_type", StringComparison.OrdinalIgnoreCase))
                 {
-                    idleTicksAfterLastChange++;
-                    if (idleTicksAfterLastChange >= kRequiredIdleTicks)
-                        tcs.TrySetResult(true);
-                }
-                // Ask Revit to fire Idling again promptly so we don't have to wait
-                // for a long quiet period to count up to kRequiredIdleTicks.
-                args.SetRaiseWithoutDelay();
-            };
-
-            try
-            {
-                if (doc != null)
-                    doc.Application.DocumentChanged += onChanged;
-                _uiApp.Idling += onIdling;
-
-                var watchdog = Task.Delay(15000);
-                var winner = await Task.WhenAny(tcs.Task, watchdog);
-
-                if (winner != tcs.Task)
-                {
-                    // Watchdog hit. If observed < expected, the undo didn't actually fire —
-                    // probably PostCommand isn't reaching ID_REVIT_UNDO in this context.
-                    // Log so we can diagnose without instrumenting Revit.
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[BINA Reset] Undo watchdog timeout: expected {expectedUndos} undo " +
-                        $"transactions, observed {undosObserved}");
+                    if (!string.IsNullOrEmpty(af.OldValue))
+                        handler.RenameQueue.Add((af.ElementId, af.OldValue));
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine(
-                        $"[BINA Reset] Undos drained: {undosObserved}/{expectedUndos} observed");
+                    // Swap Value and OldValue so the applicator sets the param back to
+                    // its pre-fix state. Preserve Target so type-bound params still
+                    // route to ElementType.
+                    handler.ParamFixQueue.Add(new JkrFixAction
+                    {
+                        Action = af.Action,
+                        ElementId = af.ElementId,
+                        ParameterName = af.ParameterName,
+                        Value = af.OldValue,
+                        OldValue = af.Value,
+                        Priority = af.Priority,
+                        Target = af.Target,
+                    });
                 }
             }
-            finally
+
+            handler.OnCompleted = (result) =>
             {
-                try { _uiApp.Idling -= onIdling; } catch { }
-                try { if (doc != null) doc.Application.DocumentChanged -= onChanged; } catch { }
-            }
+                Dispatcher.Invoke(() =>
+                {
+                    _fixInFlight = false;
+                    if (!string.IsNullOrEmpty(result.Error))
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[BINA Reset] reverse-fix error: {result.Error}");
+                    }
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA Reset] reverse-fix completed: " +
+                        $"reverted {result.Renamed + result.ParamFixed} of {_appliedFixes.Count}, " +
+                        $"failed={result.Failed}, skipped={result.Skipped}");
+                    tcs.TrySetResult(true);
+                });
+            };
+
+            App.JkrRenameEvent.Raise();
+            return tcs.Task;
         }
 
         private void Undo_Click(object s, RoutedEventArgs e) => _vm.Undo();
