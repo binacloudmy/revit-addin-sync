@@ -33,6 +33,13 @@ namespace RevitWebAppSync.UI
         // is silently overwritten and the progress bar / button-disabled state desyncs.
         private bool _fixInFlight;
 
+        // Counts auto-fix Revit transactions (one per Fix All batch + one per per-issue
+        // Apply Fix) since the last Reset. Each maps to a single Revit undo step
+        // (JkrRenameHandler wraps the work in a TransactionGroup + Assimilate). Reset
+        // PostCommand's this many ID_REVIT_UNDOs after confirmation so the model goes
+        // back along with the addin's audit/blocklist state.
+        private int _undoableFixCount;
+
         // LOD level is selectable via the LOD ComboBox in the hero header.
         // Default is 300; user can change to 100/200/300/400/500 before scanning.
         private int SelectedLodLevel => _vm.SelectedLodLevel;
@@ -369,6 +376,9 @@ namespace RevitWebAppSync.UI
                         TaskDialog.Show("BINA JKR Compliance", msg);
                         return;
                     }
+
+                    // One TransactionGroup committed in JkrRenameHandler = one Revit undo step.
+                    _undoableFixCount++;
 
                     // Show completion in progress bar
                     FixProgressLabel.Text = $"Applied {total} fixes. Re-scanning...";
@@ -764,6 +774,8 @@ namespace RevitWebAppSync.UI
                     {
                         System.Diagnostics.Debug.WriteLine($"[BINA] audit save failed: {ex.Message}");
                     }
+                    // One TransactionGroup committed in JkrRenameHandler = one Revit undo step.
+                    _undoableFixCount++;
                 });
             };
 
@@ -774,20 +786,62 @@ namespace RevitWebAppSync.UI
 
         private void Reset_Click(object s, RoutedEventArgs e)
         {
-            // Clear all decisions, blocklist, and re-scan fresh
+            int undoCount = _undoableFixCount;
+
+            // Warn before rolling back Revit edits — the undo stack is global, so any
+            // unrelated work the user did since the last fix gets popped first.
+            if (undoCount > 0)
+            {
+                var td = new TaskDialog("BINA JKR Compliance — Reset")
+                {
+                    MainInstruction = $"Reset will also undo {undoCount} auto-fix " +
+                                      $"action{(undoCount == 1 ? "" : "s")} via Revit's Undo.",
+                    MainContent = "Revit's undo stack is global. If you've edited the model " +
+                                  "manually since the last fix (moved an element, changed a " +
+                                  "parameter, etc.), those edits will be undone first — there " +
+                                  "is no way to selectively undo only the auto-fixes.\n\n" +
+                                  "Continue?",
+                    CommonButtons = TaskDialogCommonButtons.Yes | TaskDialogCommonButtons.No,
+                    DefaultButton = TaskDialogResult.No,
+                };
+                if (td.Show() != TaskDialogResult.Yes) return;
+            }
+
             IssueMapper.ClearBlocklist();
-            _vm.ShowToast("Resetting all decisions and re-scanning...");
-            _ = ResetAndRescan();
+            _vm.ShowToast(undoCount > 0
+                ? $"Resetting and undoing {undoCount} fix{(undoCount == 1 ? "" : "es")}..."
+                : "Resetting all decisions and re-scanning...");
+            _ = ResetAndRescan(undoCount);
         }
 
-        private async Task ResetAndRescan()
+        private async Task ResetAndRescan(int undoCount = 0)
         {
             if (_vm.Scanning) return;
             _vm.Scanning = true;
             try
             {
+                if (undoCount > 0 && _uiApp != null)
+                {
+                    var undoId = RevitCommandId.LookupCommandId("ID_REVIT_UNDO");
+                    if (undoId != null)
+                    {
+                        for (int i = 0; i < undoCount; i++)
+                            _uiApp.PostCommand(undoId);
+
+                        // PostCommand is async — Revit drains it on the next idle tick. Yield
+                        // so the queued undos process before we extract model state for the
+                        // rescan. 100ms per undo is conservative for typical fix batches;
+                        // clamp so a stale/giant counter doesn't stall the UI for minutes.
+                        var delayMs = Math.Min(2000, Math.Max(200, undoCount * 100));
+                        await System.Threading.Tasks.Task.Delay(delayMs);
+                    }
+                    _undoableFixCount = 0;
+                }
+
                 await RunScanInner(clearAudit: true);
-                _vm.ShowToast("Reset complete — all issues back to Open.");
+                _vm.ShowToast(undoCount > 0
+                    ? $"Reset complete — undid {undoCount} fix{(undoCount == 1 ? "" : "es")} and cleared all decisions."
+                    : "Reset complete — all decisions cleared.");
             }
             catch (Exception ex)
             {
