@@ -322,6 +322,11 @@ namespace RevitWebAppSync.Services
         // V2 UX fields — backend-computed booleans for button visibility.
         public bool Locatable { get; set; }           // true when element_id > 0
         public string FixReference { get; set; } = "";  // JKR doc reference for the fix tab
+
+        // "instance" (default) or "type" — tells the applicator whether to write
+        // the parameter on the placed element or its ElementType. JKR classification
+        // params (Kod_Jenis, Sistem, etc.) are type-bound by spec.
+        public string FixTarget { get; set; } = "instance";
     }
 
     public class AIRecommendationDto

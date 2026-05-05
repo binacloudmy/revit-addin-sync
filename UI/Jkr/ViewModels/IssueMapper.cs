@@ -92,6 +92,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 FixValue = dto.FixValue ?? "",
                 FixOldValue = dto.FixOldValue ?? "",
                 FixPriority = dto.FixPriority,
+                FixTarget = string.IsNullOrEmpty(dto.FixTarget) ? "instance" : dto.FixTarget,
                 // UX flags from backend — control button visibility.
                 Locatable = dto.Locatable,
                 FixReference = dto.FixReference ?? "",

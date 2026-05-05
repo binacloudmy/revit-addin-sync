@@ -296,6 +296,7 @@ namespace RevitWebAppSync.UI
                         Value = issue.FixValue,
                         OldValue = issue.FixOldValue,
                         Priority = issue.FixPriority,
+                        Target = string.IsNullOrEmpty(issue.FixTarget) ? "instance" : issue.FixTarget,
                     });
                 }
             }
@@ -734,6 +735,7 @@ namespace RevitWebAppSync.UI
                     Value = issue.FixValue,
                     OldValue = issue.FixOldValue,
                     Priority = issue.FixPriority,
+                    Target = string.IsNullOrEmpty(issue.FixTarget) ? "instance" : issue.FixTarget,
                 });
             }
 

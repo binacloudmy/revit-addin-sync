@@ -52,6 +52,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string FixOldValue { get; set; } = "";
         public int FixPriority { get; set; } = 10;
 
+        /// <summary>"instance" or "type" — passed through to JkrFixApplicator.
+        /// "type" routes the write to ElementType for type-bound JKR classification
+        /// params (Kod_Jenis, Sistem, etc.) so the instance-side read-only handle
+        /// doesn't trip the fix.</summary>
+        public string FixTarget { get; set; } = "instance";
+
         /// <summary>True when this issue targets a real Revit element (element_id > 0).
         /// Controls visibility of the "Locate in 3D" button.</summary>
         public bool Locatable { get; set; }

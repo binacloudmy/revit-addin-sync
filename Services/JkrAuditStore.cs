@@ -234,6 +234,7 @@ namespace RevitWebAppSync.Services
         [JsonProperty("fix_value")] public string FixValue { get; set; } = "";
         [JsonProperty("fix_old_value")] public string FixOldValue { get; set; } = "";
         [JsonProperty("fix_priority")] public int FixPriority { get; set; } = 10;
+        [JsonProperty("fix_target")] public string FixTarget { get; set; } = "instance";
         [JsonProperty("locatable")] public bool Locatable { get; set; }
         [JsonProperty("fix_reference")] public string FixReference { get; set; } = "";
         [JsonProperty("priority")] public string Priority { get; set; } = "Medium";
@@ -262,6 +263,7 @@ namespace RevitWebAppSync.Services
                 FixValue = vm.FixValue ?? "",
                 FixOldValue = vm.FixOldValue ?? "",
                 FixPriority = vm.FixPriority,
+                FixTarget = string.IsNullOrEmpty(vm.FixTarget) ? "instance" : vm.FixTarget,
                 Locatable = vm.Locatable,
                 FixReference = vm.FixReference ?? "",
                 Priority = vm.Priority.ToString(),
@@ -295,6 +297,7 @@ namespace RevitWebAppSync.Services
                 FixValue = FixValue ?? "",
                 FixOldValue = FixOldValue ?? "",
                 FixPriority = FixPriority,
+                FixTarget = string.IsNullOrEmpty(FixTarget) ? "instance" : FixTarget,
                 Locatable = Locatable,
                 FixReference = FixReference ?? "",
                 AutoFixable = false, // already fixed — don't re-offer the button

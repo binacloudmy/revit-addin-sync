@@ -243,7 +243,7 @@ namespace RevitWebAppSync.Services
             if (elem == null)
                 return new FixResult { Success = false, Message = $"Element {fix.ElementId} not found" };
 
-            param = ResolveParameter(elem, fix.ParameterName);
+            param = ResolveParameter(elem, fix.ParameterName, fix.Target);
 
             // If the param isn't on the element at all, try to bind it from the
             // currently-loaded shared parameter file. Turns "manual: add the param
@@ -260,7 +260,7 @@ namespace RevitWebAppSync.Services
                     };
 
                 // Re-resolve after binding.
-                param = ResolveParameter(elem, fix.ParameterName);
+                param = ResolveParameter(elem, fix.ParameterName, fix.Target);
                 if (param == null)
                     return new FixResult
                     {
@@ -277,20 +277,38 @@ namespace RevitWebAppSync.Services
 
         /// <summary>
         /// Look up a parameter on an element, preferring the writable handle.
-        /// Tries instance-side first; if missing or read-only, falls back to type-side.
+        ///
+        /// `target` controls which side is tried first:
+        ///   "type"     — prefer ElementType.LookupParameter (JKR classification
+        ///                params are type-bound by spec, instance copies are
+        ///                read-only on most categories).
+        ///   "instance" — prefer the placed element's LookupParameter (default).
+        ///
+        /// In both modes we still fall back to the other side so that projects
+        /// with non-spec bindings keep working. As a last resort we return a
+        /// read-only handle so the caller can surface a clean "read-only" error
+        /// instead of "not found".
         /// </summary>
-        private Parameter ResolveParameter(Element elem, string name)
+        private Parameter ResolveParameter(Element elem, string name, string target = "instance")
         {
-            var p = elem.LookupParameter(name);
-            if (p != null && !p.IsReadOnly) return p;
-
+            var instParam = elem.LookupParameter(name);
             var typeElem = _doc.GetElement(elem.GetTypeId());
-            var tp = typeElem?.LookupParameter(name);
-            if (tp != null && !tp.IsReadOnly) return tp;
+            var typeParam = typeElem?.LookupParameter(name);
 
-            // Neither writable — return whatever we found so caller surfaces a clean
-            // "read-only" error instead of "not found".
-            return p ?? tp;
+            bool preferType = string.Equals(target, "type", StringComparison.OrdinalIgnoreCase);
+
+            if (preferType)
+            {
+                if (typeParam != null && !typeParam.IsReadOnly) return typeParam;
+                if (instParam != null && !instParam.IsReadOnly) return instParam;
+            }
+            else
+            {
+                if (instParam != null && !instParam.IsReadOnly) return instParam;
+                if (typeParam != null && !typeParam.IsReadOnly) return typeParam;
+            }
+
+            return preferType ? (typeParam ?? instParam) : (instParam ?? typeParam);
         }
 
         /// <summary>
@@ -443,6 +461,13 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("reference")]
         public string Reference { get; set; } = "";
+
+        // "instance" or "type". Tells PreflightSetParameter which side of the
+        // element to write to. JKR classification params (Kod_Jenis, Sistem,
+        // Bahan, etc.) are type-bound by spec; the backend marks them "type"
+        // so the applicator skips the read-only instance handle.
+        [JsonProperty("target")]
+        public string Target { get; set; } = "instance";
     }
 
     public class FixResult

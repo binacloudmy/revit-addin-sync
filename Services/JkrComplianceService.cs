@@ -226,6 +226,9 @@ namespace RevitWebAppSync.Services
                             // UX flags — control button visibility in the UI.
                             Locatable = check.Locatable,
                             FixReference = check.FixAction?.Reference ?? "",
+                            FixTarget = string.IsNullOrEmpty(check.FixAction?.Target)
+                                ? "instance"
+                                : check.FixAction.Target,
                         };
 
                         if (check.ElementId == 0)
@@ -511,6 +514,12 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("reference")]
         public string Reference { get; set; } = "";
+
+        // "instance" or "type". Defaults to "instance" for back-compat with backends
+        // that don't yet emit this field. JKR classification/material params are
+        // type-bound by spec; the applicator routes those to ElementType.
+        [JsonProperty("target")]
+        public string Target { get; set; } = "instance";
     }
 
     public class JkrSpecEvidenceV2
