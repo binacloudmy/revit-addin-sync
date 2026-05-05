@@ -271,6 +271,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             if (issue == null) return;
             if (newStatus == IssueStatus.Approved && !issue.CanApprove) return;
             if (newStatus == IssueStatus.Accepted && !issue.CanAccept) return;
+            if (newStatus == IssueStatus.ManualFixNeeded && !issue.CanMarkManual) return;
 
             // Route through the panel so backend auto-fix + audit persistence fire.
             // Falls back to in-memory flip only if the modal was opened without a host

@@ -74,5 +74,13 @@ namespace RevitWebAppSync.Tests
             Assert.False(JkrTierMap.CanApprove(IssuePriority.Medium));
             Assert.True(JkrTierMap.CanApprove(IssuePriority.Low));
         }
+
+        [Fact]
+        public void CanMarkManual_HighDenied_OthersAllowed()
+        {
+            Assert.False(JkrTierMap.CanMarkManual(IssuePriority.High));
+            Assert.True(JkrTierMap.CanMarkManual(IssuePriority.Medium));
+            Assert.True(JkrTierMap.CanMarkManual(IssuePriority.Low));
+        }
     }
 }

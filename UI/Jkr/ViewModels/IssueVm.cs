@@ -98,14 +98,16 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public bool IsResolved => Status == IssueStatus.Fixed || Status == IssueStatus.Approved;
         public bool CanAccept  => JkrTierMap.CanAccept(Priority);
         public bool CanApprove => JkrTierMap.CanApprove(Priority);
+        public bool CanMarkManual => JkrTierMap.CanMarkManual(Priority);
         public bool ShowAutoFixButton => IsActionable && AutoFixable;
         public bool ShowAcceptButton  => IsOpen && CanAccept;  // only from Open → Accepted
         public bool ShowApproveButton => IsActionable && CanApprove;
         /// <summary>"Mark as Manual" — user signals they'll handle this in Revit by hand,
-        /// stop the addin from re-prompting. Available on any actionable issue regardless
-        /// of tier or AutoFixable, since design-judgement issues (Type B — backend never
-        /// emits a fix_action) need this path even though no Fix button is shown.</summary>
-        public bool ShowMarkManualButton => IsActionable;
+        /// stop the addin from re-prompting. Hidden on High-tier ("Must Fix") issues:
+        /// those have to be resolved, not deferred. Auto-fix-failure routing still moves
+        /// any failed fix (incl. High) to Manual unconditionally, so the user isn't
+        /// stranded — the gate here is only for *voluntary* deferral.</summary>
+        public bool ShowMarkManualButton => IsActionable && CanMarkManual;
         public string TierLabel    => JkrTierMap.Label(Priority);
         public string TierSubtitle => JkrTierMap.Subtitle(Priority);
         public System.Windows.TextDecorationCollection TitleDecoration
