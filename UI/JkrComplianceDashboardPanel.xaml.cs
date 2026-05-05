@@ -875,16 +875,13 @@ namespace RevitWebAppSync.UI
                         for (int i = 0; i < undoCount; i++)
                             _uiApp.PostCommand(undoId);
 
-                        // PostCommand is async — Revit drains it on the next idle tick. Yield
-                        // so the queued undos process before we extract model state for the
-                        // rescan. A Fix All TransactionGroup containing N inner ops can take
-                        // a real fraction of a second to fully revert (rename + param sets +
-                        // dependent view/annotation updates), so we budget per individual fix
-                        // rather than per transaction. 500ms floor keeps single per-issue
-                        // resets snappy; 8s ceiling stops a stale counter from hanging the UI.
-                        // P10 will replace this with an Idling-event-driven wait.
-                        var delayMs = Math.Min(8000, Math.Max(500, _undoableFixDetail * 100));
-                        await System.Threading.Tasks.Task.Delay(delayMs);
+                        // Wait until Revit reports the document was modified (DocumentChanged
+                        // fires on every transaction including undo) AND a few idle ticks pass
+                        // with no further changes — that's the signal that the queued undo
+                        // commands have actually run, not just been queued. Replaces the old
+                        // fixed-delay heuristic that left the rescan racing the undo.
+                        var doc = _uiApp.ActiveUIDocument?.Document;
+                        await WaitForUndosToDrainAsync(doc, expectedUndos: undoCount);
                     }
                     _undoableFixCount = 0;
                     _undoableFixDetail = 0;
@@ -902,6 +899,82 @@ namespace RevitWebAppSync.UI
             finally
             {
                 _vm.Scanning = false;
+            }
+        }
+
+        /// <summary>
+        /// Block until queued ID_REVIT_UNDO commands have actually run.
+        ///
+        /// PostCommand is asynchronous — Revit drains its command queue on idle ticks.
+        /// The previous fixed-time delay raced the queue: an 8s budget could still
+        /// extract model state mid-undo on a slow machine, leaving most fixes intact
+        /// in the rescan. This waits on real Revit signals instead:
+        ///   - DocumentChanged fires on every transaction (incl. undo). We count
+        ///     transactions to know each posted undo has actually been processed.
+        ///   - After the expected count is hit, we wait two consecutive Idling
+        ///     ticks with no further DocumentChanged → Revit has stopped working.
+        ///
+        /// Falls back to a 15s watchdog so a missed event can't hang the UI.
+        /// </summary>
+        private async Task WaitForUndosToDrainAsync(Document doc, int expectedUndos)
+        {
+            if (_uiApp == null) return;
+
+            int undosObserved = 0;
+            int idleTicksAfterLastChange = 0;
+            const int kRequiredIdleTicks = 2;
+            var tcs = new TaskCompletionSource<bool>();
+
+            EventHandler<Autodesk.Revit.DB.Events.DocumentChangedEventArgs> onChanged = null;
+            EventHandler<Autodesk.Revit.UI.Events.IdlingEventArgs> onIdling = null;
+
+            onChanged = (sender, args) =>
+            {
+                undosObserved++;
+                idleTicksAfterLastChange = 0; // reset — Revit just did work
+            };
+
+            onIdling = (sender, args) =>
+            {
+                if (undosObserved >= expectedUndos)
+                {
+                    idleTicksAfterLastChange++;
+                    if (idleTicksAfterLastChange >= kRequiredIdleTicks)
+                        tcs.TrySetResult(true);
+                }
+                // Ask Revit to fire Idling again promptly so we don't have to wait
+                // for a long quiet period to count up to kRequiredIdleTicks.
+                args.SetRaiseWithoutDelay();
+            };
+
+            try
+            {
+                if (doc != null)
+                    doc.Application.DocumentChanged += onChanged;
+                _uiApp.Idling += onIdling;
+
+                var watchdog = Task.Delay(15000);
+                var winner = await Task.WhenAny(tcs.Task, watchdog);
+
+                if (winner != tcs.Task)
+                {
+                    // Watchdog hit. If observed < expected, the undo didn't actually fire —
+                    // probably PostCommand isn't reaching ID_REVIT_UNDO in this context.
+                    // Log so we can diagnose without instrumenting Revit.
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA Reset] Undo watchdog timeout: expected {expectedUndos} undo " +
+                        $"transactions, observed {undosObserved}");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA Reset] Undos drained: {undosObserved}/{expectedUndos} observed");
+                }
+            }
+            finally
+            {
+                try { _uiApp.Idling -= onIdling; } catch { }
+                try { if (doc != null) doc.Application.DocumentChanged -= onChanged; } catch { }
             }
         }
 
