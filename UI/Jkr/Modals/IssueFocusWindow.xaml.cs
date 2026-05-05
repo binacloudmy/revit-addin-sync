@@ -115,8 +115,11 @@ namespace RevitWebAppSync.UI.Jkr.Modals
 
             bool actionable = i.IsActionable;
             bool resolved = i.IsResolved;
+            // ResolvedActions hosts the Reopen button — also surface it for ManualFixNeeded
+            // so the user can send a quarantined issue back to Open if they change their mind.
+            bool showInactivePanel = resolved || i.Status == IssueStatus.ManualFixNeeded;
             OpenActions.Visibility = actionable ? Visibility.Visible : Visibility.Collapsed;
-            ResolvedActions.Visibility = resolved ? Visibility.Visible : Visibility.Collapsed;
+            ResolvedActions.Visibility = showInactivePanel ? Visibility.Visible : Visibility.Collapsed;
 
             // Show before/after diff on resolved auto-fixes
             if (resolved && i.AutoFixable && !string.IsNullOrEmpty(i.Actual))
@@ -163,6 +166,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                     StepsCaret.Glyph = _stepsOpen ? "caretDn" : "caretR";
                 }
                 AcceptBtn.Visibility = i.ShowAcceptButton ? Visibility.Visible : Visibility.Collapsed;
+                ManualBtn.Visibility = i.ShowMarkManualButton ? Visibility.Visible : Visibility.Collapsed;
             }
 
             var spec = SpecDoc.Get(i.Spec.Doc);
@@ -244,6 +248,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         private void ApplyFix_Click(object s, RoutedEventArgs e) => _Act(IssueStatus.Fixed,    advance: true);
         private void Accept_Click(object s, RoutedEventArgs e)   => _Act(IssueStatus.Accepted, advance: true);
         private void Approve_Click(object s, RoutedEventArgs e)  => _Act(IssueStatus.Approved, advance: true);
+        private void MarkManual_Click(object s, RoutedEventArgs e) => _Act(IssueStatus.ManualFixNeeded, advance: true);
         private void Reopen_Click(object s, RoutedEventArgs e)   => _Act(IssueStatus.Open,     advance: false);
         private void Locate_Click(object s, RoutedEventArgs e)
         {

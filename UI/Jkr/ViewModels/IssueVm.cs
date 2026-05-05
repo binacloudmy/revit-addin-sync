@@ -101,6 +101,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public bool ShowAutoFixButton => IsActionable && AutoFixable;
         public bool ShowAcceptButton  => IsOpen && CanAccept;  // only from Open → Accepted
         public bool ShowApproveButton => IsActionable && CanApprove;
+        /// <summary>"Mark as Manual" — user signals they'll handle this in Revit by hand,
+        /// stop the addin from re-prompting. Available on any actionable issue regardless
+        /// of tier or AutoFixable, since design-judgement issues (Type B — backend never
+        /// emits a fix_action) need this path even though no Fix button is shown.</summary>
+        public bool ShowMarkManualButton => IsActionable;
         public string TierLabel    => JkrTierMap.Label(Priority);
         public string TierSubtitle => JkrTierMap.Subtitle(Priority);
         public System.Windows.TextDecorationCollection TitleDecoration

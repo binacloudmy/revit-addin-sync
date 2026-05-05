@@ -266,6 +266,13 @@
                                         <TextBlock Text="Accept" VerticalAlignment="Center"/>
                                     </StackPanel>
                                 </Button>
+                                <Button x:Name="ManualBtn" Style="{StaticResource Btn.Sec}" Margin="0,0,6,6" Click="MarkManual_Click"
+                                        ToolTip="Mark as Manual — I'll handle this in Revit myself. Stops the addin from re-prompting on rescans.">
+                                    <StackPanel Orientation="Horizontal">
+                                        <jkr:IconGlyph Glyph="warning" Size="12" Foreground="{StaticResource Md}" Margin="0,0,5,0"/>
+                                        <TextBlock Text="Mark as Manual" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
                             </WrapPanel>
                         </StackPanel>
 

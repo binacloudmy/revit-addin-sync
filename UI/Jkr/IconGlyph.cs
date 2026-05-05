@@ -237,6 +237,14 @@ namespace RevitWebAppSync.UI.Jkr
             },
             ["diamond"] = new[] { Stroke("M8 2 L14 8 L8 14 L2 8 Z", join: PenLineJoin.Round) },
             ["sparkle"] = new[] { Stroke("M8 2 L9 7 L14 8 L9 9 L8 14 L7 9 L2 8 L7 7 Z", join: PenLineJoin.Round) },
+            // Warning triangle + exclamation — used for ManualFixNeeded rows and the
+            // "Mark as Manual" button so the user can spot the manual-attention items.
+            ["warning"] = new[]
+            {
+                Stroke("M8 2 L14 13 L2 13 Z", PenLineCap.Round, PenLineJoin.Round),
+                Stroke("M8 6 L8 10"),
+                Fill("M8 11.5 A0.6 0.6 0 1 1 7.99 11.5 Z"),
+            },
         };
     }
 }
