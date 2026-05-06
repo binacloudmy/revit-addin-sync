@@ -236,6 +236,8 @@ namespace RevitWebAppSync.Services
         private FixResult PreflightSetParameter(JkrFixAction fix, out Parameter param)
         {
             param = null;
+            BindingMutation bindingMutation = null;
+
             if (string.IsNullOrEmpty(fix.ParameterName))
                 return new FixResult { Success = false, Message = "No parameter name provided" };
 
@@ -251,7 +253,7 @@ namespace RevitWebAppSync.Services
             // loaded in the project.
             if (param == null)
             {
-                var bindMsg = TryBindSharedParameter(elem, fix.ParameterName);
+                var bindMsg = TryBindSharedParameter(elem, fix.ParameterName, out bindingMutation);
                 if (bindMsg != null)
                     return new FixResult
                     {
@@ -262,15 +264,26 @@ namespace RevitWebAppSync.Services
                 // Re-resolve after binding.
                 param = ResolveParameter(elem, fix.ParameterName, fix.Target);
                 if (param == null)
+                {
+                    UndoBindingIfWePlacedIt(bindingMutation);
                     return new FixResult
                     {
                         Success = false,
                         Message = $"Parameter '{fix.ParameterName}' was bound but still not visible on element {fix.ElementId}.",
                     };
+                }
             }
 
             if (param.IsReadOnly)
+            {
+                // Critical: undo the binding we just placed. ParameterBindings.Insert
+                // is NOT rolled back by Revit's SubTransaction (document-level op that
+                // commits immediately), so without explicit cleanup the binding leaks
+                // and changes which rule fires on the next scan, dropping affected
+                // elements out of FixableCount post-Reset.
+                UndoBindingIfWePlacedIt(bindingMutation);
                 return new FixResult { Success = false, Message = $"Parameter '{fix.ParameterName}' is read-only" };
+            }
 
             return null;
         }
@@ -311,15 +324,30 @@ namespace RevitWebAppSync.Services
             return preferType ? (typeParam ?? instParam) : (instParam ?? typeParam);
         }
 
+        /// <summary>Snapshot of a binding mutation we made, used to roll it back if
+        /// the subsequent value-set fails. Revit's SubTransaction can't undo
+        /// ParameterBindings changes (they're treated as document-level operations
+        /// that commit immediately), so we have to track and reverse them ourselves.</summary>
+        private class BindingMutation
+        {
+            public Definition Definition;
+            public Category Category;
+            public bool WasFreshBind;        // true: we Inserted; false: we ReInserted with extended set
+            public bool WasInstanceBinding;  // for the ReInsert case, preserves original binding kind
+        }
+
         /// <summary>
         /// Bind a JKR shared parameter to the element's category if it's defined in
         /// the currently-loaded shared parameter file but not yet bound to the project.
         /// Returns null on success; otherwise an error message explaining why the bind
-        /// couldn't happen (so the caller can include it in the user-facing failure).
+        /// couldn't happen. On success, `mutation` describes what we changed so the
+        /// caller can roll it back via UndoBindingIfWePlacedIt() if the fix attempt
+        /// then fails (e.g. the parameter turned out read-only on this element type).
         /// Must be called inside an open Transaction.
         /// </summary>
-        private string TryBindSharedParameter(Element elem, string paramName)
+        private string TryBindSharedParameter(Element elem, string paramName, out BindingMutation mutation)
         {
+            mutation = null;
             // Short-circuit: if we already established the shared param file is
             // missing for this applicator's lifetime, return the cached message
             // instead of probing the API again on every queued fix.
@@ -382,12 +410,20 @@ namespace RevitWebAppSync.Services
 
                 // Preserve the existing binding kind (instance vs type) so we don't
                 // accidentally flip how every other category sees this param.
-                Binding newBinding = eb is InstanceBinding
+                bool wasInstance = eb is InstanceBinding;
+                Binding newBinding = wasInstance
                     ? (Binding)app.Create.NewInstanceBinding(catSet)
                     : app.Create.NewTypeBinding(catSet);
 
                 if (!bindings.ReInsert(def, newBinding, GroupTypeId.Data))
                     return $"Failed to extend binding for '{paramName}' to this category.";
+                mutation = new BindingMutation
+                {
+                    Definition = def,
+                    Category = category,
+                    WasFreshBind = false,
+                    WasInstanceBinding = wasInstance,
+                };
                 return null;
             }
 
@@ -398,7 +434,58 @@ namespace RevitWebAppSync.Services
             var binding = app.Create.NewTypeBinding(catSet);
             if (!bindings.Insert(def, binding, GroupTypeId.Data))
                 return $"Failed to bind '{paramName}' to category '{category.Name}'.";
+            mutation = new BindingMutation
+            {
+                Definition = def,
+                Category = category,
+                WasFreshBind = true,
+                WasInstanceBinding = false,
+            };
             return null;
+        }
+
+        /// <summary>Roll back a binding mutation we previously made via TryBindSharedParameter.
+        /// Called when the subsequent value-set fails (e.g. param turned out read-only),
+        /// so a failed fix attempt leaves zero footprint on the model and the next scan
+        /// sees the original rule fire instead of a derivative one.</summary>
+        private void UndoBindingIfWePlacedIt(BindingMutation mutation)
+        {
+            if (mutation == null) return;
+
+            try
+            {
+                var bindings = _doc.ParameterBindings;
+                if (mutation.WasFreshBind)
+                {
+                    // We added the binding from scratch — remove it entirely.
+                    bindings.Remove(mutation.Definition);
+                    return;
+                }
+
+                // We extended an existing binding — rebuild it without our category.
+                if (!(bindings.get_Item(mutation.Definition) is ElementBinding eb))
+                    return;
+
+                var newSet = _doc.Application.Create.NewCategorySet();
+                foreach (Category c in eb.Categories)
+                {
+                    if (c.Id != mutation.Category.Id)
+                        newSet.Insert(c);
+                }
+
+                Binding newBinding = mutation.WasInstanceBinding
+                    ? (Binding)_doc.Application.Create.NewInstanceBinding(newSet)
+                    : _doc.Application.Create.NewTypeBinding(newSet);
+
+                bindings.ReInsert(mutation.Definition, newBinding, GroupTypeId.Data);
+            }
+            catch (Exception ex)
+            {
+                // Best-effort cleanup. If undo fails, the model carries the residual
+                // binding; the user will see the same "82 → 83 fixable" drift on
+                // affected categories, but no other harm done.
+                System.Diagnostics.Debug.WriteLine($"[BINA] UndoBinding failed: {ex.Message}");
+            }
         }
 
         private FixResult WriteParameterValue(Parameter param, JkrFixAction fix)
