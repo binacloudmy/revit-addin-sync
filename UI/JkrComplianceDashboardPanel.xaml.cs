@@ -263,6 +263,14 @@ namespace RevitWebAppSync.UI
                 .OrderBy(i => i.FixPriority)
                 .ToList();
 
+            // Diagnostic: confirm what the badge said vs. what got queued. If these
+            // don't match the user's expectation, we know the drop is upstream.
+            System.Diagnostics.Debug.WriteLine(
+                $"[BINA FixAll] queueing — total Issues={_vm.Issues.Count} " +
+                $"actionable={_vm.Issues.Count(i => i.IsActionable)} " +
+                $"autoFixable={_vm.Issues.Count(i => i.IsActionable && i.AutoFixable)} " +
+                $"withFixAction={fixable.Count}");
+
             if (fixable.Count == 0)
             {
                 _vm.ShowToast("No auto-fixable issues found.");

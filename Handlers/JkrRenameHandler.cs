@@ -51,6 +51,10 @@ namespace RevitWebAppSync.Handlers
                     return;
                 }
 
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BINA Handler] '{TransactionGroupName}' starting: " +
+                    $"renames={RenameQueue.Count} paramFixes={ParamFixQueue.Count}");
+
                 // Wrap renames + param fixes in a single TransactionGroup so the user
                 // gets ONE undo step for the whole "Quick Fix All" batch instead of
                 // 100+ entries. Assimilate() collapses the inner transactions on
@@ -66,11 +70,23 @@ namespace RevitWebAppSync.Handlers
                             using (var tx = new Transaction(doc, "JKR Renames"))
                             {
                                 tx.Start();
+                                int renamesBefore = result.Renamed;
+                                int failsBefore = result.Failed + result.Skipped;
                                 foreach (var (elemId, newName) in RenameQueue)
                                 {
+                                    int rB = result.Renamed, fB = result.Failed + result.Skipped;
                                     ApplyRename(doc, elemId, newName, result, failReasons);
+                                    if (result.Renamed > rB)
+                                        System.Diagnostics.Debug.WriteLine(
+                                            $"[BINA Rename] OK elem={elemId} → '{newName}'");
+                                    else if (result.Failed + result.Skipped > fB)
+                                        System.Diagnostics.Debug.WriteLine(
+                                            $"[BINA Rename] FAIL elem={elemId} → '{newName}'");
                                 }
                                 tx.Commit();
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"[BINA Handler] Phase 1 done: renamed={result.Renamed - renamesBefore} " +
+                                    $"failed={(result.Failed + result.Skipped) - failsBefore}");
                             }
                         }
 
@@ -111,6 +127,9 @@ namespace RevitWebAppSync.Handlers
                                         {
                                             subTx.Commit();
                                             result.ParamFixed++;
+                                            System.Diagnostics.Debug.WriteLine(
+                                                $"[BINA ParamFix] OK elem={fix.ElementId} param='{fix.ParameterName}' " +
+                                                $"value='{fix.Value}' (was '{fix.OldValue}') target={fix.Target}");
                                         }
                                         else
                                         {
@@ -118,6 +137,9 @@ namespace RevitWebAppSync.Handlers
                                             result.Failed++;
                                             result.FailedElementIds.Add(fix.ElementId);
                                             failReasons.Add($"{fix.ParameterName} on {fix.ElementId}: {fixResult.Message}");
+                                            System.Diagnostics.Debug.WriteLine(
+                                                $"[BINA ParamFix] FAIL elem={fix.ElementId} param='{fix.ParameterName}' " +
+                                                $"reason='{fixResult.Message}'");
                                         }
                                     }
                                 }
@@ -140,6 +162,18 @@ namespace RevitWebAppSync.Handlers
 
                 if (failReasons.Count > 0)
                     result.FailDetails = string.Join("\n", failReasons.Take(5));
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BINA Handler] '{TransactionGroupName}' completed: " +
+                    $"renamed={result.Renamed} paramFixed={result.ParamFixed} " +
+                    $"failed={result.Failed} skipped={result.Skipped}");
+                if (failReasons.Count > 0)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA Handler] failure reasons ({failReasons.Count}):");
+                    foreach (var r in failReasons)
+                        System.Diagnostics.Debug.WriteLine($"  • {r}");
+                }
             }
             catch (Exception ex)
             {

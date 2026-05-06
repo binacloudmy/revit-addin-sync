@@ -515,18 +515,26 @@ namespace RevitWebAppSync.Services
         private FixResult WriteParameterValue(Parameter param, JkrFixAction fix)
         {
             bool set = false;
+            string before = "";
+            string after = "";
             switch (param.StorageType)
             {
                 case StorageType.String:
+                    before = param.AsString() ?? "";
                     set = param.Set(fix.Value);
+                    after = param.AsString() ?? "";
                     break;
                 case StorageType.Integer:
+                    before = param.AsInteger().ToString();
                     if (int.TryParse(fix.Value, out int intVal))
                         set = param.Set(intVal);
+                    after = param.AsInteger().ToString();
                     break;
                 case StorageType.Double:
+                    before = param.AsDouble().ToString();
                     if (double.TryParse(fix.Value, out double dblVal))
                         set = param.Set(dblVal);
+                    after = param.AsDouble().ToString();
                     break;
                 default:
                     return new FixResult { Success = false, Message = $"Unsupported storage type for '{fix.ParameterName}'" };
@@ -534,6 +542,17 @@ namespace RevitWebAppSync.Services
 
             if (!set)
                 return new FixResult { Success = false, Message = $"Failed to set '{fix.ParameterName}'" };
+
+            // Detect silent no-ops: Set returned true but the underlying value didn't
+            // actually change. This is exactly the kind of drift that leaves a
+            // reverse-fix unable to restore state — the value Revit reports as "current"
+            // doesn't match what we asked for.
+            if (before == after && fix.Value != before)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BINA Set] NO-OP detected: param='{fix.ParameterName}' elem={fix.ElementId} " +
+                    $"asked='{fix.Value}' before='{before}' after='{after}' (Set returned true but value didn't change)");
+            }
 
             return new FixResult
             {
