@@ -26,6 +26,11 @@ namespace RevitWebAppSync.Handlers
 
         public Action<RenameResult> OnCompleted { get; set; }
 
+        /// <summary>Label used for the outer TransactionGroup — surfaces in Revit's
+        /// undo history. Defaults to "JKR Quick Fix All"; the Reset path overrides
+        /// it to "JKR Reset" so the user can tell the two apart in Edit > Undo.</summary>
+        public string TransactionGroupName { get; set; } = "JKR Quick Fix All";
+
         public void Execute(UIApplication app)
         {
             var result = new RenameResult();
@@ -50,7 +55,7 @@ namespace RevitWebAppSync.Handlers
                 // gets ONE undo step for the whole "Quick Fix All" batch instead of
                 // 100+ entries. Assimilate() collapses the inner transactions on
                 // success; RollBack() unwinds everything if we hit a fatal error.
-                using (var tg = new TransactionGroup(doc, "JKR Quick Fix All"))
+                using (var tg = new TransactionGroup(doc, TransactionGroupName))
                 {
                     tg.Start();
                     try
@@ -145,6 +150,9 @@ namespace RevitWebAppSync.Handlers
                 OnCompleted?.Invoke(result);
                 RenameQueue.Clear();
                 ParamFixQueue.Clear();
+                // Reset to default so a stale Reset-label doesn't leak into the
+                // next Fix All if the caller forgets to set it.
+                TransactionGroupName = "JKR Quick Fix All";
             }
         }
 

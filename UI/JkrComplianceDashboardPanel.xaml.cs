@@ -918,6 +918,10 @@ namespace RevitWebAppSync.UI
             var handler = App.JkrRenameHandler;
             handler.RenameQueue.Clear();
             handler.ParamFixQueue.Clear();
+            // Override the label so this batch shows up in Revit's undo history as
+            // "JKR Reset" rather than "JKR Quick Fix All" — matches the dialog text
+            // and lets the user tell Reset apart from Fix All in Edit > Undo.
+            handler.TransactionGroupName = "JKR Reset";
             _fixInFlight = true;
 
             foreach (var af in _appliedFixes.AsEnumerable().Reverse())
