@@ -80,16 +80,40 @@ namespace RevitWebAppSync.Handlers
                                 tx.Start();
                                 foreach (var fix in ParamFixQueue.OrderBy(f => f.Priority))
                                 {
-                                    var fixResult = applicator.ApplyFixInExistingTx(fix);
-                                    if (fixResult.Success)
+                                    // Each fix runs inside its own SubTransaction so a failure
+                                    // (e.g. the param turned out read-only after JkrFixApplicator
+                                    // bound a fresh shared-parameter to the element's category)
+                                    // can be cleanly rolled back. Without this, the binding
+                                    // side-effect persisted, the next scan saw a now-empty
+                                    // parameter instead of a missing one, which downgraded the
+                                    // rule from "value invalid" (fixable) to "empty parameter"
+                                    // (often unfixable on Grids/Levels) — silently dropping
+                                    // affected elements out of FixableCount post-Reset.
+                                    using (var subTx = new SubTransaction(doc))
                                     {
-                                        result.ParamFixed++;
-                                    }
-                                    else
-                                    {
-                                        result.Failed++;
-                                        result.FailedElementIds.Add(fix.ElementId);
-                                        failReasons.Add($"{fix.ParameterName} on {fix.ElementId}: {fixResult.Message}");
+                                        subTx.Start();
+                                        FixResult fixResult;
+                                        try
+                                        {
+                                            fixResult = applicator.ApplyFixInExistingTx(fix);
+                                        }
+                                        catch
+                                        {
+                                            subTx.RollBack();
+                                            throw;
+                                        }
+                                        if (fixResult.Success)
+                                        {
+                                            subTx.Commit();
+                                            result.ParamFixed++;
+                                        }
+                                        else
+                                        {
+                                            subTx.RollBack();
+                                            result.Failed++;
+                                            result.FailedElementIds.Add(fix.ElementId);
+                                            failReasons.Add($"{fix.ParameterName} on {fix.ElementId}: {fixResult.Message}");
+                                        }
                                     }
                                 }
                                 tx.Commit();
