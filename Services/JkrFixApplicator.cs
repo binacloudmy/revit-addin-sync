@@ -276,6 +276,9 @@ namespace RevitWebAppSync.Services
 
             if (param.IsReadOnly)
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BINA Fix] read-only failure: param='{fix.ParameterName}' elem={fix.ElementId} target={fix.Target} " +
+                    $"placedBinding={(bindingMutation == null ? "no" : "yes")}");
                 // Critical: undo the binding we just placed. ParameterBindings.Insert
                 // is NOT rolled back by Revit's SubTransaction (document-level op that
                 // commits immediately), so without explicit cleanup the binding leaks
@@ -424,6 +427,8 @@ namespace RevitWebAppSync.Services
                     WasFreshBind = false,
                     WasInstanceBinding = wasInstance,
                 };
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BINA Bind] extended '{paramName}' to '{category.Name}' (was-instance={wasInstance})");
                 return null;
             }
 
@@ -441,6 +446,8 @@ namespace RevitWebAppSync.Services
                 WasFreshBind = true,
                 WasInstanceBinding = false,
             };
+            System.Diagnostics.Debug.WriteLine(
+                $"[BINA Bind] fresh-bound '{paramName}' to '{category.Name}'");
             return null;
         }
 
@@ -450,7 +457,15 @@ namespace RevitWebAppSync.Services
         /// sees the original rule fire instead of a derivative one.</summary>
         private void UndoBindingIfWePlacedIt(BindingMutation mutation)
         {
-            if (mutation == null) return;
+            if (mutation == null)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    "[BINA Unbind] called with null mutation — no bind side-effect to undo");
+                return;
+            }
+
+            var paramLabel = mutation.Definition?.Name ?? "<unknown>";
+            var catLabel = mutation.Category?.Name ?? "<unknown>";
 
             try
             {
@@ -458,13 +473,19 @@ namespace RevitWebAppSync.Services
                 if (mutation.WasFreshBind)
                 {
                     // We added the binding from scratch — remove it entirely.
-                    bindings.Remove(mutation.Definition);
+                    var removed = bindings.Remove(mutation.Definition);
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA Unbind] fresh — Remove('{paramLabel}') returned {removed}");
                     return;
                 }
 
                 // We extended an existing binding — rebuild it without our category.
                 if (!(bindings.get_Item(mutation.Definition) is ElementBinding eb))
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA Unbind] extended — binding for '{paramLabel}' no longer exists; nothing to undo");
                     return;
+                }
 
                 var newSet = _doc.Application.Create.NewCategorySet();
                 foreach (Category c in eb.Categories)
@@ -477,14 +498,17 @@ namespace RevitWebAppSync.Services
                     ? (Binding)_doc.Application.Create.NewInstanceBinding(newSet)
                     : _doc.Application.Create.NewTypeBinding(newSet);
 
-                bindings.ReInsert(mutation.Definition, newBinding, GroupTypeId.Data);
+                var reinserted = bindings.ReInsert(mutation.Definition, newBinding, GroupTypeId.Data);
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BINA Unbind] extended — stripped '{catLabel}' from '{paramLabel}' (ReInsert returned {reinserted})");
             }
             catch (Exception ex)
             {
                 // Best-effort cleanup. If undo fails, the model carries the residual
                 // binding; the user will see the same "82 → 83 fixable" drift on
                 // affected categories, but no other harm done.
-                System.Diagnostics.Debug.WriteLine($"[BINA] UndoBinding failed: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BINA Unbind] FAILED for '{paramLabel}'/'{catLabel}': {ex.Message}");
             }
         }
 
