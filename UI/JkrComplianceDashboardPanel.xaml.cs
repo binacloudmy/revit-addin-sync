@@ -338,13 +338,26 @@ namespace RevitWebAppSync.UI
 
                     var total = result.Renamed + result.ParamFixed;
 
+                    // Use FailedFixKeys (per-fix), not FailedElementIds (per-element).
+                    // When element X has 3 fixes (rename + 2 paramfixes) and only the
+                    // Kod_Jenis paramfix fails, only that one fix is in FailedFixKeys.
+                    // The element-id-based check would over-flag the rename and other
+                    // paramfix as failed, taint Resolved/Manual classification, and
+                    // exclude truly-successful fixes from _appliedFixes — which then
+                    // can't reverse them on Reset, leaving them stuck in the model.
+                    bool IsFixedFailed(IssueVm iv)
+                    {
+                        return result.FailedFixKeys.Contains(
+                            RenameResult.MakeFixKey(iv.FixAction, iv.RevitElementId, iv.FixParameterName));
+                    }
+
                     // ALWAYS blocklist failed fixes — even when total==0.
                     // This prevents re-scan from re-marking unfixable issues.
-                    if (result.FailedElementIds.Count > 0)
+                    if (result.FailedFixKeys.Count > 0)
                     {
                         foreach (var issue in fixable)
                         {
-                            if (result.FailedElementIds.Contains(issue.RevitElementId))
+                            if (IsFixedFailed(issue))
                             {
                                 issue.AutoFixable = false;
                                 IssueMapper.BlockFix(issue.RevitElementId, issue.FixAction, issue.FixParameterName);
@@ -360,7 +373,7 @@ namespace RevitWebAppSync.UI
                     //                  overlays ManualFixNeeded onto the fresh Open row.
                     foreach (var i in fixable)
                     {
-                        if (result.FailedElementIds.Contains(i.RevitElementId))
+                        if (IsFixedFailed(i))
                             i.Status = IssueStatus.ManualFixNeeded;
                         else
                             i.Status = IssueStatus.Fixed;
@@ -397,9 +410,11 @@ namespace RevitWebAppSync.UI
                     }
 
                     // Track each successful fix so Reset can explicitly reverse it later.
+                    // Skip per fix-key (not element-id) so that successful fixes on an
+                    // element which had ONE failed fix elsewhere still get tracked.
                     foreach (var i in fixable)
                     {
-                        if (result.FailedElementIds.Contains(i.RevitElementId)) continue;
+                        if (IsFixedFailed(i)) continue;
                         _appliedFixes.Add(new JkrFixAction
                         {
                             Action = i.FixAction,

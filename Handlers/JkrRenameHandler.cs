@@ -136,6 +136,7 @@ namespace RevitWebAppSync.Handlers
                                             subTx.RollBack();
                                             result.Failed++;
                                             result.FailedElementIds.Add(fix.ElementId);
+                                            result.FailedFixKeys.Add(RenameResult.MakeFixKey("set_parameter", fix.ElementId, fix.ParameterName));
                                             failReasons.Add($"{fix.ParameterName} on {fix.ElementId}: {fixResult.Message}");
                                             System.Diagnostics.Debug.WriteLine(
                                                 $"[BINA ParamFix] FAIL elem={fix.ElementId} param='{fix.ParameterName}' " +
@@ -196,7 +197,13 @@ namespace RevitWebAppSync.Handlers
             try
             {
                 var elem = doc.GetElement(new ElementId(elemId));
-                if (elem == null) { result.Skipped++; result.FailedElementIds.Add(elemId); return; }
+                if (elem == null)
+                {
+                    result.Skipped++;
+                    result.FailedElementIds.Add(elemId);
+                    result.FailedFixKeys.Add(RenameResult.MakeFixKey("rename_type", elemId, null));
+                    return;
+                }
 
                 // Grids and Levels are Elements (not ElementTypes) — rename via their
                 // own Name property. Family/loadable types keep the elemType.Name path
@@ -220,19 +227,26 @@ namespace RevitWebAppSync.Handlers
                 {
                     // Last-ditch: if the element itself has a settable Name, try it.
                     try { elem.Name = newName; result.Renamed++; }
-                    catch { result.Skipped++; result.FailedElementIds.Add(elemId); }
+                    catch
+                    {
+                        result.Skipped++;
+                        result.FailedElementIds.Add(elemId);
+                        result.FailedFixKeys.Add(RenameResult.MakeFixKey("rename_type", elemId, null));
+                    }
                 }
             }
             catch (Autodesk.Revit.Exceptions.ArgumentException ex)
             {
                 result.Failed++;
                 result.FailedElementIds.Add(elemId);
+                result.FailedFixKeys.Add(RenameResult.MakeFixKey("rename_type", elemId, null));
                 failReasons.Add($"rename {elemId} → '{newName}': {ex.Message}");
             }
             catch (Exception ex)
             {
                 result.Failed++;
                 result.FailedElementIds.Add(elemId);
+                result.FailedFixKeys.Add(RenameResult.MakeFixKey("rename_type", elemId, null));
                 failReasons.Add($"rename {elemId} → '{newName}': {ex.Message}");
             }
         }
@@ -313,7 +327,28 @@ namespace RevitWebAppSync.Handlers
         public int Failed { get; set; }
         public string Error { get; set; }
         public string FailDetails { get; set; } = "";
-        /// <summary>Element IDs that failed/skipped — UI marks these as not auto-fixable.</summary>
+        /// <summary>Element IDs that failed/skipped — kept for callers that only need
+        /// element-level granularity. Don't use this when an element can have multiple
+        /// fixes (rename + several param fixes) and you need to distinguish which
+        /// specific fix failed; use FailedFixKeys instead.</summary>
         public HashSet<int> FailedElementIds { get; set; } = new HashSet<int>();
+
+        /// <summary>Per-fix failure keys — distinguishes "this rename failed" from
+        /// "this Sistem param fix failed" on the same element. Format:
+        ///   "r:{elementId}"           for rename_type
+        ///   "p:{elementId}:{paramName}" for set_parameter
+        /// Critical for FixAll bookkeeping: when one of three fixes on element X
+        /// fails, the other two should still count as successes (and reverse on
+        /// Reset). Element-level FailedElementIds.Contains(X) returns true for all
+        /// three and over-flags the survivors.</summary>
+        public HashSet<string> FailedFixKeys { get; set; } = new HashSet<string>();
+
+        /// <summary>Compute a fix key matching the format used by FailedFixKeys.</summary>
+        public static string MakeFixKey(string action, int elementId, string parameterName)
+        {
+            if (string.Equals(action, "rename_type", System.StringComparison.OrdinalIgnoreCase))
+                return $"r:{elementId}";
+            return $"p:{elementId}:{parameterName ?? ""}";
+        }
     }
 }
