@@ -9,12 +9,11 @@ namespace BinaConnector
     {
         public const string CurrentVersion = "1.0";
 
-        // PLACEHOLDER EULA — must be reviewed by legal counsel before App Store submission.
-        // Source of truth: kept here in code; the bundle's Resources/EULA.html is generated
-        // from the same content during the build (see build-bundle.ps1).
+        // Source of truth: kept here in code; bundle-templates/EULA.html must be kept in
+        // sync (the build copies it into the bundle as Resources/EULA.html).
         public const string EulaText =
 @"BINA Platform Connector — End User License Agreement
-Version 1.0
+Version 1.0 — Last updated 2026-05-07
 
 Publisher: BINA CLOUDTECH SDN BHD (Malaysia)
 
@@ -31,10 +30,16 @@ IF YOU DO NOT AGREE, DO NOT INSTALL OR USE THIS SOFTWARE.
    maintaining the confidentiality of your credentials and for all activity under
    your account.
 
-3. Data Transmission
+3. Data Transmission and Privacy
    The Software transmits Revit model files and associated metadata that you choose
    to upload to BINA Cloud. You retain all ownership of your content. BINA processes
    uploaded content only as required to provide the BINA Cloud service.
+
+   Personal data processing is governed by the BINA CLOUDTECH SDN BHD Privacy Policy,
+   available at https://bina.cloud/privacy_policy.html, which is incorporated into
+   this Agreement by reference. Your use of the BINA Cloud service is also subject
+   to the BINA Cloud Terms & Conditions, available at
+   https://bina.cloud/terms-and-conditions.html.
 
 4. No Warranty
    THE SOFTWARE IS PROVIDED ""AS IS"" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
@@ -55,7 +60,25 @@ IF YOU DO NOT AGREE, DO NOT INSTALL OR USE THIS SOFTWARE.
    This Agreement is governed by the laws of Malaysia. Any dispute shall be submitted
    to the exclusive jurisdiction of the Malaysian courts.
 
-8. Contact
+8. Autodesk App Store Acknowledgments
+   Where you obtained the Software through the Autodesk App Store, you acknowledge
+   and agree that:
+   (a) This Agreement is concluded between you and BINA CLOUDTECH SDN BHD only, and
+       not with Autodesk, Inc. or any of its affiliates.
+   (b) BINA CLOUDTECH SDN BHD, and not Autodesk, is solely responsible for the
+       Software and for any warranties (whether express or implied by law),
+       maintenance, or support related to the Software, to the extent not
+       effectively disclaimed in Section 4.
+   (c) Autodesk, Inc., its affiliates, and their respective officers, directors,
+       employees, agents, contractors, partners, licensors, and licensees
+       (collectively, the ""Autodesk Parties"") have no warranty obligation
+       whatsoever with respect to the Software, and to the maximum extent
+       permitted by applicable law, will not be liable for any claim, loss, or
+       expense arising out of or relating to your use of the Software.
+   (d) The Autodesk Parties are intended third-party beneficiaries of this
+       Agreement and are entitled to enforce its terms against you.
+
+9. Contact
    Questions about this agreement: info@bina.cloud
    Web: https://bina.cloud
 

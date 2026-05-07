@@ -4,7 +4,14 @@
       "mcp__filesystem__create_directory",
       "mcp__filesystem__write_file",
       "Bash(dotnet build:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "WebSearch",
+      "WebFetch(domain:apps.autodesk.com)",
+      "WebFetch(domain:damassets.autodesk.net)",
+      "Bash(pdftotext -layout webfetch-1778119998897-fq9tpw.pdf publisher.txt)",
+      "Bash(pdftotext -layout webfetch-1778119999138-e0plk7.pdf faq.txt)",
+      "WebFetch(domain:appstore.autodesk.com)",
+      "WebFetch(domain:bina.cloud)"
     ],
     "deny": []
   }

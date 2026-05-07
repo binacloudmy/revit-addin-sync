@@ -54,12 +54,20 @@ and document the rotation in the App Store submission notes.
 
 ## D. Legal review of EULA
 
-- [ ] Have legal counsel review `bundle-templates/EULA.html` (and the
-      identical text in `EulaService.cs:EulaText`). The current text is a
-      generic free-software EULA template under Malaysian jurisdiction —
-      placeholder language, not legal advice.
-- [ ] If the EULA changes, bump `EulaService.CurrentVersion` so existing users
-      are re-prompted to accept.
+- [x] EULA reviewed against Autodesk's published publisher requirements
+      (Publisher Agreement Exhibit A / Publisher FAQ). Added: privacy-policy
+      and Cloud T&C incorporation by reference (Section 3); Autodesk App Store
+      Acknowledgments — no Autodesk warranty obligation, Autodesk Parties as
+      third-party beneficiaries (Section 8). Reviewed 2026-05-07 by
+      AI-assisted pass; **not** a substitute for counsel.
+- [ ] Optional: have legal counsel confirm (a) the existing privacy policy at
+      `bina.cloud/privacy_policy.html` (dated Oct 2022) covers Revit model
+      uploads + Autodesk APS sub-processing, (b) Malaysia exclusive-jurisdiction
+      clause is acceptable for EU/US users, (c) the BINA Cloud T&C at
+      `bina.cloud/terms-and-conditions.html` does not contradict this EULA's
+      liability cap. Not blocking for App Store submission.
+- [ ] If the EULA changes after launch, bump `EulaService.CurrentVersion` so
+      existing users are re-prompted to accept. (Pre-launch: leave at 1.0.)
 
 ## E. Build verification (no Revit required)
 
@@ -189,5 +197,5 @@ fails the WPF MarkupCompilePass1 step against net48 Facade assemblies. To add
 
 ---
 
-**Last updated:** 2026-04-27. Bump this date whenever the checklist changes
+**Last updated:** 2026-05-07. Bump this date whenever the checklist changes
 materially.
