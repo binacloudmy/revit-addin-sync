@@ -1,4 +1,5 @@
 using Newtonsoft.Json;
+using RevitWebAppSync;
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
@@ -29,6 +30,20 @@ namespace RevitWebAppSync.Services
         {
             _baseUrl = baseUrl ?? DEFAULT_BASE_URL;
             _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(180) };
+
+            // Tag every JKR call with the logged-in user so the backend can
+            // attribute Langfuse traces / cost dashboards per user.
+            // Falls back to "anonymous" when no session — keeps prod metrics clean.
+            try
+            {
+                var cfg = BinaConfig.Load();
+                var userId = !string.IsNullOrWhiteSpace(cfg?.Email) ? cfg.Email : "anonymous";
+                _httpClient.DefaultRequestHeaders.Add("X-User-Id", userId);
+            }
+            catch
+            {
+                _httpClient.DefaultRequestHeaders.Add("X-User-Id", "anonymous");
+            }
         }
 
         public async Task<bool> IsAvailableAsync()
