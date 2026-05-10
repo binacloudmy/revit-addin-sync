@@ -19,7 +19,7 @@ namespace RevitWebAppSync.Services
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
 
-        private const string DEFAULT_BASE_URL = "https://gastrodermal-ace-overvaliantly.ngrok-free.dev";
+        private const string DEFAULT_BASE_URL = "https://51e2-2001-f40-935-7c0f-54ed-26a4-b547-448b.ngrok-free.app";
 
         // Raw JSON of the last V2 request + response — used by the Export button for benchmark capture.
         public string LastRequestJson { get; private set; } = "";
@@ -44,6 +44,10 @@ namespace RevitWebAppSync.Services
             {
                 _httpClient.DefaultRequestHeaders.Add("X-User-Id", "anonymous");
             }
+
+            // Skip ngrok-free's browser interstitial when the backend is
+            // tunnelled for dev testing. Harmless on real prod URLs.
+            _httpClient.DefaultRequestHeaders.Add("ngrok-skip-browser-warning", "true");
         }
 
         public async Task<bool> IsAvailableAsync()
