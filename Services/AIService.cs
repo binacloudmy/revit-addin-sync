@@ -173,5 +173,76 @@ namespace RevitWebAppSync.Services
                 return new List<CommandTemplate>();
             }
         }
+
+        /// <summary>Create a saved command. Returns the created template, or null on failure.</summary>
+        public async Task<CommandTemplate> SaveCommandAsync(
+            CommandSaveRequest request, string accessToken, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var json = JsonConvert.SerializeObject(request);
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/revit-ai/commands")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+                if (!string.IsNullOrEmpty(accessToken))
+                    httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                if (!response.IsSuccessStatusCode) return null;
+                var body = await response.Content.ReadAsStringAsync();
+                return JsonConvert.DeserializeObject<CommandTemplate>(body);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>Update a saved command (caller must be the owner). Returns the updated template, or null.</summary>
+        public async Task<CommandTemplate> UpdateCommandAsync(
+            string templateId, CommandSaveRequest request, string accessToken, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var json = JsonConvert.SerializeObject(request);
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Put, $"{_baseUrl}/api/revit-ai/commands/{templateId}")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+                if (!string.IsNullOrEmpty(accessToken))
+                    httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                if (!response.IsSuccessStatusCode) return null;
+                var body = await response.Content.ReadAsStringAsync();
+                return JsonConvert.DeserializeObject<CommandTemplate>(body);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>Delete a saved command the caller owns. Returns true if it was removed.</summary>
+        public async Task<bool> DeleteCommandAsync(
+            string templateId, int? userId, string accessToken, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var url = $"{_baseUrl}/api/revit-ai/commands/{templateId}"
+                          + (userId.HasValue ? $"?userId={userId.Value}" : "");
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Delete, url);
+                if (!string.IsNullOrEmpty(accessToken))
+                    httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                return response.IsSuccessStatusCode;
+            }
+            catch
+            {
+                return false;
+            }
+        }
     }
 }

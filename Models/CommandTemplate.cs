@@ -65,5 +65,39 @@ namespace RevitWebAppSync.Models
 
         [JsonProperty("options")]
         public List<string> Options { get; set; } = new List<string>();
+
+        [JsonIgnore]
+        public string DisplayLabel => string.IsNullOrWhiteSpace(Label) ? Name : Label;
+    }
+
+    /// <summary>
+    /// Body for POST/PUT /api/revit-ai/commands. Field names mirror the backend's
+    /// CommandTemplateCreate/Update (note: prompt_template is snake_case, ids are camelCase).
+    /// </summary>
+    public class CommandSaveRequest
+    {
+        [JsonProperty("name")]
+        public string Name { get; set; }
+
+        [JsonProperty("description")]
+        public string Description { get; set; }
+
+        [JsonProperty("category")]
+        public string Category { get; set; }
+
+        [JsonProperty("prompt_template")]
+        public string PromptTemplate { get; set; }
+
+        [JsonProperty("variables")]
+        public List<CommandVariable> Variables { get; set; } = new List<CommandVariable>();
+
+        [JsonProperty("scope")]
+        public string Scope { get; set; } = "user";   // "user" | "org"
+
+        [JsonProperty("userId")]
+        public int? UserId { get; set; }
+
+        [JsonProperty("orgId")]
+        public int? OrgId { get; set; }
     }
 }

@@ -3,9 +3,11 @@ using Autodesk.Revit.UI;
 using RevitWebAppSync.Handlers;
 using RevitWebAppSync.Models;
 using RevitWebAppSync.Services;
+using RevitWebAppSync.UI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -33,6 +35,9 @@ namespace RevitWebAppSync
 
         private List<CommandTemplate> _allCommands;
         private bool _commandsLoaded;
+        private string _lastUserPrompt;
+
+        private static readonly Regex _placeholderRe = new Regex(@"\{(\w+)\}", RegexOptions.Compiled);
 
         // Track which tab is active
         private bool IsJkrMode => ModeTabs.SelectedIndex == 1;
@@ -136,6 +141,8 @@ namespace RevitWebAppSync
 
             AddMessage(prompt, isUser: true);
             PromptInput.Text = "";
+            _lastUserPrompt = prompt;
+            UpdateSaveCommandButton();
 
             var requestInFlight = true;
             try
@@ -207,7 +214,7 @@ namespace RevitWebAppSync
                 : System.Windows.Visibility.Collapsed;
         }
 
-        // --- Saved Commands (browse + run) ---
+        // --- Saved Commands (browse, run, save, edit, delete) ---
 
         private async void CommandsExpander_Expanded(object sender, RoutedEventArgs e)
         {
@@ -219,8 +226,7 @@ namespace RevitWebAppSync
         private async Task LoadCommandsAsync()
         {
             CommandsHint.Text = "Loading commands...";
-            int? userId = _config?.UserId > 0 ? _config.UserId : (int?)null;
-            var commands = await _aiService.GetCommandsAsync(userId, null, _config?.AccessToken);
+            var commands = await _aiService.GetCommandsAsync(UserIdOrNull, _config?.OrgId, _config?.AccessToken);
 
             _allCommands = commands ?? new List<CommandTemplate>();
             ApplyCommandFilter(CommandSearchBox.Text);
@@ -229,6 +235,8 @@ namespace RevitWebAppSync
                 ? "No commands available. (Is the backend reachable?)"
                 : $"{_allCommands.Count} command(s). Double-click to run.";
         }
+
+        private int? UserIdOrNull => _config?.UserId > 0 ? _config.UserId : (int?)null;
 
         private void CommandSearchBox_TextChanged(object sender, TextChangedEventArgs e)
         {
@@ -253,21 +261,83 @@ namespace RevitWebAppSync
         private async void CommandsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
             if (!(CommandsList.SelectedItem is CommandTemplate cmd)) return;
+            await RunCommand(cmd);
+        }
+
+        private async Task RunCommand(CommandTemplate cmd)
+        {
+            string prompt = cmd.PromptTemplate;
 
             if (cmd.HasVariables)
             {
-                // Phase 2 fallback: drop the raw template into the input so the user
-                // can fill the {placeholders} by hand. The variable form arrives in phase 3.
-                PromptInput.Text = cmd.PromptTemplate;
-                PromptInput.Focus();
-                PromptInput.CaretIndex = PromptInput.Text.Length;
-                CommandsHint.Text = $"\"{cmd.Name}\" has variables — fill the {{...}} placeholders, then Send.";
-                CommandsExpander.IsExpanded = false;
-                return;
+                var dialog = new CommandRunWindow(cmd) { Owner = this };
+                if (dialog.ShowDialog() != true) return;
+                prompt = RenderTemplate(cmd.PromptTemplate, dialog.Values);
             }
 
             CommandsExpander.IsExpanded = false;
-            await SendCodeGenQuery(cmd.PromptTemplate, cmd.Id);
+            await SendCodeGenQuery(prompt, cmd.Id);
+        }
+
+        private static string RenderTemplate(string template, IDictionary<string, string> values)
+        {
+            if (string.IsNullOrEmpty(template) || values == null) return template;
+            return _placeholderRe.Replace(template, m =>
+                values.TryGetValue(m.Groups[1].Value, out var v) ? v ?? "" : m.Value);
+        }
+
+        private async void SaveAsCommandButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(_lastUserPrompt))
+            {
+                CommandsHint.Text = "Send a prompt first, then you can save it as a command.";
+                return;
+            }
+            var dialog = new CommandSaveWindow(_lastUserPrompt, UserIdOrNull, _config?.OrgId) { Owner = this };
+            if (dialog.ShowDialog() != true) return;
+
+            var created = await _aiService.SaveCommandAsync(dialog.Result, _config?.AccessToken);
+            CommandsHint.Text = created != null ? $"Saved \"{created.Name}\"." : "Could not save the command.";
+            if (created != null) { _commandsLoaded = false; CommandsExpander.IsExpanded = true; await LoadCommandsAsync(); }
+        }
+
+        private async void EditCommandMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (!(CommandsList.SelectedItem is CommandTemplate cmd)) return;
+            if (cmd.OwnerUserId != UserIdOrNull) { CommandsHint.Text = "You can only edit your own commands."; return; }
+
+            var dialog = new CommandSaveWindow(cmd.PromptTemplate, UserIdOrNull, _config?.OrgId, editing: cmd) { Owner = this };
+            if (dialog.ShowDialog() != true) return;
+
+            var updated = await _aiService.UpdateCommandAsync(dialog.EditingTemplateId, dialog.Result, _config?.AccessToken);
+            CommandsHint.Text = updated != null ? $"Updated \"{updated.Name}\"." : "Could not update the command.";
+            if (updated != null) { _commandsLoaded = false; await LoadCommandsAsync(); }
+        }
+
+        private async void DeleteCommandMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (!(CommandsList.SelectedItem is CommandTemplate cmd)) return;
+            if (cmd.OwnerUserId != UserIdOrNull) { CommandsHint.Text = "You can only delete your own commands."; return; }
+
+            var confirm = MessageBox.Show($"Delete the command \"{cmd.Name}\"?", "Delete command",
+                MessageBoxButton.YesNo, MessageBoxImage.Warning);
+            if (confirm != MessageBoxResult.Yes) return;
+
+            var ok = await _aiService.DeleteCommandAsync(cmd.Id, UserIdOrNull, _config?.AccessToken);
+            CommandsHint.Text = ok ? $"Deleted \"{cmd.Name}\"." : "Could not delete the command.";
+            if (ok) { _commandsLoaded = false; await LoadCommandsAsync(); }
+        }
+
+        private void RunCommandMenuItem_Click(object sender, RoutedEventArgs e)
+        {
+            if (CommandsList.SelectedItem is CommandTemplate cmd)
+                _ = RunCommand(cmd);
+        }
+
+        private void UpdateSaveCommandButton()
+        {
+            if (SaveAsCommandButton != null)
+                SaveAsCommandButton.IsEnabled = !string.IsNullOrWhiteSpace(_lastUserPrompt);
         }
 
         private void ExecuteCode(string code)

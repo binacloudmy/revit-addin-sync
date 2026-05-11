@@ -1,0 +1,90 @@
+<Window x:Class="RevitWebAppSync.UI.CommandSaveWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Save as Command"
+        Width="480" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        Background="#1E1E1E">
+
+    <Window.Resources>
+        <Style TargetType="TextBox">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
+            <Setter Property="CaretBrush" Value="#FFFFFF"/>
+            <Setter Property="Padding" Value="6,4"/>
+            <Setter Property="Margin" Value="0,2,0,12"/>
+        </Style>
+        <Style TargetType="TextBlock" x:Key="FieldLabel">
+            <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Margin" Value="0,0,0,0"/>
+        </Style>
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#0078D4"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="18,7"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#1084D9"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#3F3F46"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="GhostButton" TargetType="Button">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="18,7"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#3F3F46"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="18">
+        <StackPanel>
+            <TextBlock Text="Name" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="NameBox" TextChanged="AnyField_Changed"/>
+
+            <TextBlock Text="Description (optional)" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="DescriptionBox"/>
+
+            <TextBlock Text="Category (optional)" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="CategoryBox"/>
+
+            <TextBlock Text="Prompt template — use {name} for variables" Style="{StaticResource FieldLabel}"/>
+            <TextBox x:Name="PromptBox" AcceptsReturn="True" TextWrapping="Wrap"
+                     MinHeight="70" MaxHeight="160" VerticalScrollBarVisibility="Auto"
+                     TextChanged="AnyField_Changed"/>
+
+            <TextBlock x:Name="VariablesPreview" Foreground="#888888" FontSize="11"
+                       TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+            <TextBlock Text="Visible to" Style="{StaticResource FieldLabel}"/>
+            <StackPanel Orientation="Horizontal" Margin="0,4,0,14">
+                <RadioButton x:Name="ScopeUser" Content="Just me" Foreground="#DDDDDD"
+                             IsChecked="True" Margin="0,0,18,0"/>
+                <RadioButton x:Name="ScopeOrg" Content="My team" Foreground="#DDDDDD"/>
+            </StackPanel>
+
+            <TextBlock x:Name="ErrorText" Foreground="#FF5252" FontSize="11"
+                       TextWrapping="Wrap" Margin="0,0,0,8" Visibility="Collapsed"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="CancelButton" Content="Cancel" Style="{StaticResource GhostButton}"
+                        Margin="0,0,8,0" Click="CancelButton_Click"/>
+                <Button x:Name="SaveButton" Content="Save" Style="{StaticResource PrimaryButton}"
+                        Click="SaveButton_Click" IsDefault="True"/>
+            </StackPanel>
+        </StackPanel>
+    </Grid>
+</Window>

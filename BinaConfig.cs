@@ -10,6 +10,7 @@ namespace RevitWebAppSync
         public string Password { get; set; }
         public int ProjectId { get; set; }
         public int UserId { get; set; }
+        public int? OrgId { get; set; }   // organisation/team id, when the user belongs to one
 
         // Session data
         public string UserName { get; set; }
