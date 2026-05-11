@@ -198,7 +198,9 @@ namespace RevitWebAppSync
 
         private void SetCancelVisible(bool visible)
         {
-            CancelButton.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
+            CancelButton.Visibility = visible
+                ? System.Windows.Visibility.Visible
+                : System.Windows.Visibility.Collapsed;
         }
 
         private void ExecuteCode(string code)
