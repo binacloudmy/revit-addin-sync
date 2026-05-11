@@ -30,13 +30,14 @@ namespace RevitWebAppSync.Services
         /// </summary>
         public ExecutionResult Execute(string code)
         {
+            AssemblyLoadContext loadContext = null;
             try
             {
                 // Wrap code in executable class
                 string fullCode = WrapCode(code);
 
                 // Compile
-                var assembly = CompileCode(fullCode);
+                var assembly = CompileCode(fullCode, out loadContext);
 
                 // Execute
                 var type = assembly.GetType("RevitWebAppSync.Dynamic.AIGeneratedCode");
@@ -44,11 +45,12 @@ namespace RevitWebAppSync.Services
                 var instance = Activator.CreateInstance(type);
 
                 var result = method.Invoke(instance, new object[] { _doc, _uidoc, _activeView });
+                string message = result?.ToString() ?? "Executed successfully";
 
                 return new ExecutionResult
                 {
                     Success = true,
-                    Message = result?.ToString() ?? "Executed successfully"
+                    Message = message
                 };
             }
             catch (TargetInvocationException ex)
@@ -75,6 +77,12 @@ namespace RevitWebAppSync.Services
                     Success = false,
                     Error = $"Error: {ex.Message}"
                 };
+            }
+            finally
+            {
+                // Release the per-execution assembly so the Revit session doesn't
+                // accumulate one dynamic assembly per generated snippet.
+                loadContext?.Unload();
             }
         }
 
@@ -125,7 +133,7 @@ namespace RevitWebAppSync.Services
         /// <summary>
         /// Compile code using Roslyn
         /// </summary>
-        private Assembly CompileCode(string code)
+        private Assembly CompileCode(string code, out AssemblyLoadContext loadContext)
         {
             var syntaxTree = CSharpSyntaxTree.ParseText(code);
 
@@ -191,9 +199,9 @@ namespace RevitWebAppSync.Services
 
             ms.Seek(0, SeekOrigin.Begin);
 
-            // Load into collectible context to allow unloading
-            var context = new AssemblyLoadContext(null, isCollectible: true);
-            return context.LoadFromStream(ms);
+            // Load into collectible context so the caller can Unload() after use.
+            loadContext = new AssemblyLoadContext(null, isCollectible: true);
+            return loadContext.LoadFromStream(ms);
         }
     }
 

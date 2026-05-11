@@ -1,15 +1,25 @@
 using Newtonsoft.Json;
 using RevitWebAppSync.Models;
 using System;
+using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace RevitWebAppSync.Services
 {
     public class AIService
     {
-        private readonly HttpClient _httpClient;
+        // Shared across all instances — see HttpClient guidelines.
+        // Per-request Authorization is set via HttpRequestMessage so the
+        // shared client stays thread-safe.
+        private static readonly HttpClient _httpClient = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(60)
+        };
+
         private readonly string _baseUrl;
 
         // AI Agent backend (ngrok tunnel to Mac running bina-ai-agent-agno)
@@ -18,51 +28,66 @@ namespace RevitWebAppSync.Services
         public AIService(string baseUrl = null)
         {
             _baseUrl = baseUrl ?? DEFAULT_BASE_URL;
-            _httpClient = new HttpClient
-            {
-                Timeout = TimeSpan.FromSeconds(60)
-            };
         }
 
         /// <summary>
-        /// Send prompt to NestJS backend and get generated code
+        /// Send prompt to NestJS backend and get generated code.
         /// </summary>
-        public async Task<AIResponse> GenerateCodeAsync(string prompt, ModelContext context)
+        public async Task<AIResponse> GenerateCodeAsync(
+            AIRequest request,
+            string accessToken,
+            CancellationToken cancellationToken = default)
         {
-            var request = new AIRequest
-            {
-                Prompt = prompt,
-                Context = context
-            };
-
             try
             {
                 var json = JsonConvert.SerializeObject(request);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/revit-ai/generate")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
 
-                var response = await _httpClient.PostAsync($"{_baseUrl}/api/revit-ai/generate", content);
+                if (!string.IsNullOrEmpty(accessToken))
+                {
+                    httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                }
+
+                var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
                 var responseBody = await response.Content.ReadAsStringAsync();
 
                 if (response.IsSuccessStatusCode)
                 {
                     return JsonConvert.DeserializeObject<AIResponse>(responseBody);
                 }
-                else
+
+                if (response.StatusCode == HttpStatusCode.Unauthorized)
                 {
-                    // Try to parse error response
-                    try
+                    return new AIResponse
                     {
-                        return JsonConvert.DeserializeObject<AIResponse>(responseBody);
-                    }
-                    catch
-                    {
-                        return new AIResponse
-                        {
-                            Success = false,
-                            Error = $"HTTP {(int)response.StatusCode}: {responseBody}"
-                        };
-                    }
+                        Success = false,
+                        Error = "Session expired. Please log in again."
+                    };
                 }
+
+                try
+                {
+                    return JsonConvert.DeserializeObject<AIResponse>(responseBody);
+                }
+                catch
+                {
+                    return new AIResponse
+                    {
+                        Success = false,
+                        Error = $"HTTP {(int)response.StatusCode}: {responseBody}"
+                    };
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return new AIResponse
+                {
+                    Success = false,
+                    Error = "Cancelled."
+                };
             }
             catch (TaskCanceledException)
             {
@@ -91,24 +116,19 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
-        /// Check if backend is available
+        /// Check if backend is available.
         /// </summary>
-        public async Task<bool> HealthCheckAsync()
+        public async Task<bool> HealthCheckAsync(CancellationToken cancellationToken = default)
         {
             try
             {
-                var response = await _httpClient.GetAsync($"{_baseUrl}/api/revit-ai/health");
+                var response = await _httpClient.GetAsync($"{_baseUrl}/api/revit-ai/health", cancellationToken);
                 return response.IsSuccessStatusCode;
             }
             catch
             {
                 return false;
             }
-        }
-
-        public void Dispose()
-        {
-            _httpClient?.Dispose();
         }
     }
 }

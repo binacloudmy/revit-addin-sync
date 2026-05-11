@@ -6,6 +6,7 @@ using RevitWebAppSync.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -24,7 +25,10 @@ namespace RevitWebAppSync
         private readonly JkrSpecService _jkrService;
         private readonly ExternalEvent _externalEvent;
         private readonly CodeExecutionHandler _handler;
+        private readonly BinaConfig _config;
+        private readonly string _sessionId = Guid.NewGuid().ToString();
 
+        private CancellationTokenSource _cts;
         private int _totalTokens = 0;
 
         // Track which tab is active
@@ -45,8 +49,19 @@ namespace RevitWebAppSync
 
             _aiService = new AIService();
             _jkrService = new JkrSpecService(AIService.DEFAULT_BASE_URL);
+            _config = BinaConfig.Load();
 
             CheckBackendConnection();
+            EnforceLoginGate();
+        }
+
+        private void EnforceLoginGate()
+        {
+            if (string.IsNullOrEmpty(_config?.AccessToken))
+            {
+                SetInputEnabled(false);
+                AddError("Please log in first to use the AI Assistant.");
+            }
         }
 
         private async void CheckBackendConnection()
@@ -104,17 +119,35 @@ namespace RevitWebAppSync
 
         private async Task SendCodeGenQuery(string prompt)
         {
+            if (string.IsNullOrEmpty(_config?.AccessToken))
+            {
+                AddError("Please log in first to use the AI Assistant.");
+                return;
+            }
+
+            _cts = new CancellationTokenSource();
             SetInputEnabled(false);
+            SetCancelVisible(true);
             StatusText.Text = "Generating code...";
             StatusText.Foreground = new SolidColorBrush(Color.FromRgb(136, 136, 136));
 
             AddMessage(prompt, isUser: true);
             PromptInput.Text = "";
 
+            var requestInFlight = true;
             try
             {
-                var context = GetModelContext();
-                var response = await _aiService.GenerateCodeAsync(prompt, context);
+                var request = new Models.AIRequest
+                {
+                    Prompt = prompt,
+                    Context = GetModelContext(),
+                    UserId = _config.UserId > 0 ? _config.UserId : (int?)null,
+                    SessionId = _sessionId
+                };
+
+                var response = await _aiService.GenerateCodeAsync(request, _config.AccessToken, _cts.Token);
+                requestInFlight = false;
+                SetCancelVisible(false);
 
                 if (response.Success && !string.IsNullOrEmpty(response.Code))
                 {
@@ -150,6 +183,22 @@ namespace RevitWebAppSync
                 StatusText.Text = "Error";
                 StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 82, 82));
             }
+            finally
+            {
+                if (requestInFlight) SetCancelVisible(false);
+                _cts?.Dispose();
+                _cts = null;
+            }
+        }
+
+        private void CancelButton_Click(object sender, RoutedEventArgs e)
+        {
+            _cts?.Cancel();
+        }
+
+        private void SetCancelVisible(bool visible)
+        {
+            CancelButton.Visibility = visible ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void ExecuteCode(string code)
