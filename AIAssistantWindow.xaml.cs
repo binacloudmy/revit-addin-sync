@@ -31,6 +31,9 @@ namespace RevitWebAppSync
         private CancellationTokenSource _cts;
         private int _totalTokens = 0;
 
+        private List<CommandTemplate> _allCommands;
+        private bool _commandsLoaded;
+
         // Track which tab is active
         private bool IsJkrMode => ModeTabs.SelectedIndex == 1;
 
@@ -117,7 +120,7 @@ namespace RevitWebAppSync
 
         #region Revit Copilot (Code Gen)
 
-        private async Task SendCodeGenQuery(string prompt)
+        private async Task SendCodeGenQuery(string prompt, string templateId = null)
         {
             if (string.IsNullOrEmpty(_config?.AccessToken))
             {
@@ -142,7 +145,8 @@ namespace RevitWebAppSync
                     Prompt = prompt,
                     Context = GetModelContext(),
                     UserId = _config.UserId > 0 ? _config.UserId : (int?)null,
-                    SessionId = _sessionId
+                    SessionId = _sessionId,
+                    TemplateId = templateId
                 };
 
                 var response = await _aiService.GenerateCodeAsync(request, _config.AccessToken, _cts.Token);
@@ -201,6 +205,69 @@ namespace RevitWebAppSync
             CancelButton.Visibility = visible
                 ? System.Windows.Visibility.Visible
                 : System.Windows.Visibility.Collapsed;
+        }
+
+        // --- Saved Commands (browse + run) ---
+
+        private async void CommandsExpander_Expanded(object sender, RoutedEventArgs e)
+        {
+            if (_commandsLoaded) return;
+            _commandsLoaded = true;
+            await LoadCommandsAsync();
+        }
+
+        private async Task LoadCommandsAsync()
+        {
+            CommandsHint.Text = "Loading commands...";
+            int? userId = _config?.UserId > 0 ? _config.UserId : (int?)null;
+            var commands = await _aiService.GetCommandsAsync(userId, null, _config?.AccessToken);
+
+            _allCommands = commands ?? new List<CommandTemplate>();
+            ApplyCommandFilter(CommandSearchBox.Text);
+
+            CommandsHint.Text = _allCommands.Count == 0
+                ? "No commands available. (Is the backend reachable?)"
+                : $"{_allCommands.Count} command(s). Double-click to run.";
+        }
+
+        private void CommandSearchBox_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_allCommands == null) return;
+            ApplyCommandFilter(CommandSearchBox.Text);
+        }
+
+        private void ApplyCommandFilter(string filter)
+        {
+            IEnumerable<CommandTemplate> view = _allCommands ?? new List<CommandTemplate>();
+            if (!string.IsNullOrWhiteSpace(filter))
+            {
+                var f = filter.Trim();
+                view = view.Where(c =>
+                    (c.Name?.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                    (c.Category?.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0) ||
+                    (c.Description?.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0));
+            }
+            CommandsList.ItemsSource = view.ToList();
+        }
+
+        private async void CommandsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            if (!(CommandsList.SelectedItem is CommandTemplate cmd)) return;
+
+            if (cmd.HasVariables)
+            {
+                // Phase 2 fallback: drop the raw template into the input so the user
+                // can fill the {placeholders} by hand. The variable form arrives in phase 3.
+                PromptInput.Text = cmd.PromptTemplate;
+                PromptInput.Focus();
+                PromptInput.CaretIndex = PromptInput.Text.Length;
+                CommandsHint.Text = $"\"{cmd.Name}\" has variables — fill the {{...}} placeholders, then Send.";
+                CommandsExpander.IsExpanded = false;
+                return;
+            }
+
+            CommandsExpander.IsExpanded = false;
+            await SendCodeGenQuery(cmd.PromptTemplate, cmd.Id);
         }
 
         private void ExecuteCode(string code)

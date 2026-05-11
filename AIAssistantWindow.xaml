@@ -103,11 +103,74 @@
             <TabItem Header="🤖 Revit Copilot"
                      Style="{StaticResource DarkTabItem}">
                 <Border Background="#252526" CornerRadius="0,8,8,8">
-                    <ScrollViewer x:Name="CopilotScrollViewer"
-                                  VerticalScrollBarVisibility="Auto"
-                                  Padding="12">
-                        <StackPanel x:Name="CopilotChatHistory"/>
-                    </ScrollViewer>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+
+                        <!-- Saved Commands -->
+                        <Expander x:Name="CommandsExpander"
+                                  Grid.Row="0"
+                                  Header="📚 Saved Commands"
+                                  Foreground="#CCCCCC"
+                                  Margin="8,8,8,0"
+                                  IsExpanded="False"
+                                  Expanded="CommandsExpander_Expanded">
+                            <Grid Margin="0,6,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <TextBox x:Name="CommandSearchBox"
+                                         Grid.Row="0"
+                                         Style="{StaticResource DarkTextBox}"
+                                         ToolTip="Filter commands by name or category"
+                                         TextChanged="CommandSearchBox_TextChanged"/>
+
+                                <ListBox x:Name="CommandsList"
+                                         Grid.Row="1"
+                                         Background="#1E1E1E"
+                                         Foreground="#DDDDDD"
+                                         BorderBrush="#3F3F46"
+                                         MaxHeight="170"
+                                         Margin="0,6,0,0"
+                                         ToolTip="Double-click a command to run it"
+                                         MouseDoubleClick="CommandsList_MouseDoubleClick">
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel Margin="2,3,2,3">
+                                                <TextBlock TextWrapping="Wrap">
+                                                    <Run Text="{Binding Name}" FontWeight="SemiBold" Foreground="#FFFFFF"/><Run Text="{Binding CategoryTag}" Foreground="#888888" FontSize="10"/>
+                                                </TextBlock>
+                                                <TextBlock Text="{Binding Description}"
+                                                           Foreground="#999999"
+                                                           FontSize="10"
+                                                           TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+
+                                <TextBlock x:Name="CommandsHint"
+                                           Grid.Row="2"
+                                           Text=""
+                                           Foreground="#888888"
+                                           FontSize="10"
+                                           Margin="0,4,0,0"
+                                           TextWrapping="Wrap"/>
+                            </Grid>
+                        </Expander>
+
+                        <ScrollViewer x:Name="CopilotScrollViewer"
+                                      Grid.Row="1"
+                                      VerticalScrollBarVisibility="Auto"
+                                      Padding="12">
+                            <StackPanel x:Name="CopilotChatHistory"/>
+                        </ScrollViewer>
+                    </Grid>
                 </Border>
             </TabItem>
 

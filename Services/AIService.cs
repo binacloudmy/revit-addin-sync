@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 using RevitWebAppSync.Models;
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -130,6 +131,46 @@ namespace RevitWebAppSync.Services
             catch
             {
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// List saved Copilot commands visible to this user (public + own + org's).
+        /// Returns an empty list on any failure.
+        /// </summary>
+        public async Task<List<CommandTemplate>> GetCommandsAsync(
+            int? userId,
+            int? orgId,
+            string accessToken,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var query = new List<string>();
+                if (userId.HasValue) query.Add($"userId={userId.Value}");
+                if (orgId.HasValue) query.Add($"orgId={orgId.Value}");
+                var url = $"{_baseUrl}/api/revit-ai/commands"
+                          + (query.Count > 0 ? "?" + string.Join("&", query) : "");
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                if (!string.IsNullOrEmpty(accessToken))
+                {
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                }
+
+                var response = await _httpClient.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode)
+                {
+                    return new List<CommandTemplate>();
+                }
+
+                var body = await response.Content.ReadAsStringAsync();
+                return JsonConvert.DeserializeObject<List<CommandTemplate>>(body)
+                       ?? new List<CommandTemplate>();
+            }
+            catch
+            {
+                return new List<CommandTemplate>();
             }
         }
     }

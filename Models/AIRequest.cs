@@ -16,6 +16,9 @@ namespace RevitWebAppSync.Models
 
         [JsonProperty("sessionId")]
         public string SessionId { get; set; }
+
+        [JsonProperty("templateId")]
+        public string TemplateId { get; set; }
     }
 
     public class ModelContext
