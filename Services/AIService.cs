@@ -22,12 +22,14 @@ namespace RevitWebAppSync.Services
 
         private readonly string _baseUrl;
 
-        // AI Agent backend (ngrok tunnel to Mac running bina-ai FastAPI)
-        public const string DEFAULT_BASE_URL = "https://gastrodermal-ace-overvaliantly.ngrok-free.dev";
+        // AI Agent backend (ngrok tunnel to Mac running bina-ai FastAPI).
+        // Override via BinaConfig.AIBaseUrl so the addin doesn't need a rebuild
+        // when ngrok tunnels rotate.
+        public const string DEFAULT_BASE_URL = BinaConfig.DEFAULT_AI_BASE_URL;
 
         public AIService(string baseUrl = null)
         {
-            _baseUrl = baseUrl ?? DEFAULT_BASE_URL;
+            _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedAIBaseUrl;
         }
 
         /// <summary>

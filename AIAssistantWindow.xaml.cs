@@ -47,9 +47,9 @@ namespace RevitWebAppSync
             _externalEvent = externalEvent;
             _handler = handler;
 
-            _aiService = new AIService();
-            _jkrService = new JkrSpecService(AIService.DEFAULT_BASE_URL);
             _config = BinaConfig.Load();
+            _aiService = new AIService(_config.ResolvedAIBaseUrl);
+            _jkrService = new JkrSpecService(_config.ResolvedAIBaseUrl);
 
             CheckBackendConnection();
             EnforceLoginGate();

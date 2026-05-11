@@ -18,8 +18,6 @@ namespace RevitWebAppSync.Services
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
 
-        private const string DEFAULT_BASE_URL = "https://gastrodermal-ace-overvaliantly.ngrok-free.dev";
-
         // Raw JSON of the last V2 request + response — used by the Export button for benchmark capture.
         public string LastRequestJson { get; private set; } = "";
         public string LastResponseJson { get; private set; } = "";
@@ -27,7 +25,7 @@ namespace RevitWebAppSync.Services
 
         public JkrComplianceService(string baseUrl = null)
         {
-            _baseUrl = baseUrl ?? DEFAULT_BASE_URL;
+            _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedAIBaseUrl;
             _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(180) };
         }
 
