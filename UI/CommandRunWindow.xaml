@@ -35,7 +35,8 @@
         <Style x:Key="GhostButton" TargetType="Button">
             <Setter Property="Background" Value="#2D2D30"/>
             <Setter Property="Foreground" Value="#CCCCCC"/>
-            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
             <Setter Property="Padding" Value="18,7"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Style.Triggers>

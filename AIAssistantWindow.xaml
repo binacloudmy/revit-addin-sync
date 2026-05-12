@@ -5,133 +5,87 @@
         Width="540" Height="700"
         MinWidth="440" MinHeight="500"
         WindowStartupLocation="CenterScreen"
-        Background="#1B1B1C">
+        Background="#1E1E1E">
 
     <Window.Resources>
-        <!-- ============ Brushes ============ -->
-        <SolidColorBrush x:Key="Bg"          Color="#1B1B1C"/>
-        <SolidColorBrush x:Key="Surface"     Color="#252526"/>
-        <SolidColorBrush x:Key="Surface2"    Color="#2D2D30"/>
-        <SolidColorBrush x:Key="Stroke"      Color="#3A3A3D"/>
-        <SolidColorBrush x:Key="Accent"      Color="#0E7AD1"/>
-        <SolidColorBrush x:Key="AccentHover" Color="#1A8AE0"/>
-        <SolidColorBrush x:Key="Danger"      Color="#C0433A"/>
-        <SolidColorBrush x:Key="DangerHover" Color="#D65045"/>
-        <SolidColorBrush x:Key="TextHi"      Color="#F2F2F2"/>
-        <SolidColorBrush x:Key="TextMid"     Color="#C8C8C8"/>
-        <SolidColorBrush x:Key="TextDim"     Color="#8A8A8A"/>
-        <SolidColorBrush x:Key="Ok"          Color="#2FB36B"/>
-
-        <!-- ============ TextBox ============ -->
+        <!-- Plain setter-based styles only — no custom ControlTemplates beyond
+             DarkTabItem (which has shipped before). -->
         <Style x:Key="DarkTextBox" TargetType="TextBox">
-            <Setter Property="Foreground" Value="{StaticResource TextHi}"/>
-            <Setter Property="CaretBrush" Value="{StaticResource TextHi}"/>
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
             <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CaretBrush" Value="#FFFFFF"/>
             <Setter Property="Padding" Value="8,6"/>
             <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="TextBox">
-                        <Border x:Name="Bd" Background="{StaticResource Surface2}"
-                                BorderBrush="{StaticResource Stroke}"
-                                BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="6">
-                            <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsKeyboardFocused" Value="True">
-                                <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource Accent}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
         </Style>
 
-        <!-- ============ Buttons ============ -->
-        <Style x:Key="PrimaryButton" TargetType="Button">
-            <Setter Property="Foreground" Value="{StaticResource TextHi}"/>
+        <Style x:Key="DarkButton" TargetType="Button">
+            <Setter Property="Background" Value="#0E7AD1"/>
+            <Setter Property="Foreground" Value="#FFFFFF"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16,8"/>
             <Setter Property="FontSize" Value="12"/>
             <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Padding" Value="16,8"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{StaticResource Accent}" CornerRadius="6"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentHover}"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Surface2}"/>
-                                <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#3F3F46"/>
+                    <Setter Property="Foreground" Value="#8A8A8A"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#1A8AE0"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
 
-        <Style x:Key="GhostButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
-            <Setter Property="Foreground" Value="{StaticResource TextMid}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{StaticResource Surface2}" CornerRadius="6"
-                                BorderBrush="{StaticResource Stroke}" BorderThickness="1"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource Stroke}"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
-                                <Setter TargetName="Bd" Property="Opacity" Value="0.5"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource PrimaryButton}">
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Bd" Background="{StaticResource Danger}" CornerRadius="6"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource DangerHover}"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- ============ Tab headers ============ -->
-        <Style x:Key="DarkTabItem" TargetType="TabItem">
-            <Setter Property="Foreground" Value="{StaticResource TextDim}"/>
+        <Style x:Key="GhostButton" TargetType="Button">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="#CCCCCC"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="#3F3F46"/>
+            <Setter Property="Padding" Value="12,6"/>
             <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="#777777"/>
+                </Trigger>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#3F3F46"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="DangerButton" TargetType="Button" BasedOn="{StaticResource DarkButton}">
+            <Setter Property="Background" Value="#C0433A"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#D65045"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Tab header style (shipped previously) -->
+        <Style x:Key="DarkTabItem" TargetType="TabItem">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="#888888"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="16,8"/>
+            <Setter Property="FontSize" Value="13"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="TabItem">
-                        <Border x:Name="TabBorder" Background="{StaticResource Surface2}"
-                                CornerRadius="6,6,0,0" Padding="18,8" Margin="0,0,3,0" Cursor="Hand">
-                            <ContentPresenter ContentSource="Header" HorizontalAlignment="Center"/>
+                        <Border x:Name="TabBorder"
+                                Background="{TemplateBinding Background}"
+                                Padding="{TemplateBinding Padding}"
+                                Cursor="Hand">
+                            <ContentPresenter ContentSource="Header"
+                                              HorizontalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="TabBorder" Property="Background" Value="{StaticResource Surface}"/>
-                                <Setter Property="Foreground" Value="{StaticResource TextHi}"/>
+                                <Setter TargetName="TabBorder" Property="Background" Value="#0078D4"/>
+                                <Setter Property="Foreground" Value="#FFFFFF"/>
                                 <Setter Property="FontWeight" Value="SemiBold"/>
                             </Trigger>
                             <MultiTrigger>
@@ -139,86 +93,9 @@
                                     <Condition Property="IsSelected" Value="False"/>
                                     <Condition Property="IsMouseOver" Value="True"/>
                                 </MultiTrigger.Conditions>
-                                <Setter TargetName="TabBorder" Property="Background" Value="{StaticResource Stroke}"/>
-                                <Setter Property="Foreground" Value="{StaticResource TextMid}"/>
+                                <Setter TargetName="TabBorder" Property="Background" Value="#3F3F46"/>
+                                <Setter Property="Foreground" Value="#CCCCCC"/>
                             </MultiTrigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- ============ Expander (dark) ============ -->
-        <Style x:Key="DarkExpander" TargetType="Expander">
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Expander">
-                        <Border Background="{StaticResource Surface2}" CornerRadius="6" BorderBrush="{StaticResource Stroke}" BorderThickness="1">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                </Grid.RowDefinitions>
-                                <ToggleButton Grid.Row="0" Cursor="Hand"
-                                              IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}, Mode=TwoWay}">
-                                    <ToggleButton.Template>
-                                        <ControlTemplate TargetType="ToggleButton">
-                                            <Border Background="Transparent" Padding="10,7">
-                                                <DockPanel>
-                                                    <TextBlock x:Name="Chev" DockPanel.Dock="Left" Text="▸"
-                                                               Foreground="{StaticResource TextDim}" FontSize="11"
-                                                               Margin="0,0,8,0" VerticalAlignment="Center"/>
-                                                    <ContentPresenter Content="{TemplateBinding Content}" VerticalAlignment="Center"/>
-                                                </DockPanel>
-                                            </Border>
-                                            <ControlTemplate.Triggers>
-                                                <Trigger Property="IsChecked" Value="True">
-                                                    <Setter TargetName="Chev" Property="Text" Value="▾"/>
-                                                </Trigger>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="Chev" Property="Foreground" Value="{StaticResource TextHi}"/>
-                                                </Trigger>
-                                            </ControlTemplate.Triggers>
-                                        </ControlTemplate>
-                                    </ToggleButton.Template>
-                                    <ContentPresenter ContentSource="Header"
-                                                      TextElement.Foreground="{StaticResource TextMid}"
-                                                      TextElement.FontWeight="SemiBold"
-                                                      TextElement.FontSize="12"/>
-                                </ToggleButton>
-                                <Border x:Name="Content" Grid.Row="1" Visibility="Collapsed" Padding="10,0,10,10">
-                                    <ContentPresenter/>
-                                </Border>
-                            </Grid>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsExpanded" Value="True">
-                                <Setter TargetName="Content" Property="Visibility" Value="Visible"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- ============ ListBox item ============ -->
-        <Style x:Key="CommandItem" TargetType="ListBoxItem">
-            <Setter Property="Padding" Value="8,5"/>
-            <Setter Property="Margin" Value="0,1"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ListBoxItem">
-                        <Border x:Name="Bd" Background="Transparent" CornerRadius="5"
-                                Padding="{TemplateBinding Padding}">
-                            <ContentPresenter/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#33FFFFFF"/>
-                            </Trigger>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="#3D0E7AD1"/>
-                            </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -235,39 +112,30 @@
         </Grid.RowDefinitions>
 
         <!-- Header -->
-        <Grid Grid.Row="0" Margin="0,0,0,14">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0">
-                <TextBlock Text="Revit AI Assistant" FontSize="19" FontWeight="Bold"
-                           Foreground="{StaticResource TextHi}"/>
-                <TextBlock x:Name="StatusText" Text="Ready" FontSize="11"
-                           Foreground="{StaticResource TextDim}" Margin="0,3,0,0"/>
-            </StackPanel>
-        </Grid>
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="Revit AI Assistant" FontSize="20" FontWeight="Bold" Foreground="#FFFFFF"/>
+            <TextBlock x:Name="StatusText" Text="Ready" FontSize="12" Foreground="#888888" Margin="0,4,0,0"/>
+        </StackPanel>
 
         <!-- Tabbed Chat Areas -->
         <TabControl x:Name="ModeTabs" Grid.Row="1" Background="Transparent" BorderThickness="0"
                     Margin="0,0,0,12" SelectionChanged="ModeTabs_SelectionChanged">
 
             <!-- Revit Copilot Tab -->
-            <TabItem Header="🤖  Revit Copilot" Style="{StaticResource DarkTabItem}">
-                <Border Background="{StaticResource Surface}" CornerRadius="0,6,6,6">
+            <TabItem Header="🤖 Revit Copilot" Style="{StaticResource DarkTabItem}">
+                <Border Background="#252526" CornerRadius="0,8,8,8">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
-                        <!-- Saved Commands -->
+                        <!-- Saved Commands (default Expander styling) -->
                         <Expander x:Name="CommandsExpander" Grid.Row="0"
-                                  Header="📚  Saved Commands"
-                                  Style="{StaticResource DarkExpander}"
-                                  Margin="10,10,10,0" IsExpanded="False"
+                                  Header="📚 Saved Commands" Foreground="#CCCCCC"
+                                  Margin="8,8,8,0" IsExpanded="False"
                                   Expanded="CommandsExpander_Expanded">
-                            <Grid Margin="0,8,0,0">
+                            <Grid Margin="0,6,0,0">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
@@ -284,41 +152,38 @@
                                              ToolTip="Filter by name, category or description"
                                              TextChanged="CommandSearchBox_TextChanged"/>
                                     <Button x:Name="SaveAsCommandButton" Grid.Column="1"
-                                            Content="💾 Save prompt" Style="{StaticResource GhostButton}"
-                                            Margin="8,0,0,0" Padding="12,6" IsEnabled="False"
+                                            Content="Save prompt" Style="{StaticResource GhostButton}"
+                                            Margin="8,0,0,0" IsEnabled="False"
                                             ToolTip="Save your last prompt as a reusable command"
                                             Click="SaveAsCommandButton_Click"/>
                                 </Grid>
 
                                 <ListBox x:Name="CommandsList" Grid.Row="1"
-                                         Background="{StaticResource Bg}" Foreground="{StaticResource TextMid}"
-                                         BorderBrush="{StaticResource Stroke}" BorderThickness="1"
-                                         MaxHeight="190" Margin="0,8,0,0" Padding="3"
-                                         ItemContainerStyle="{StaticResource CommandItem}"
+                                         Background="#1E1E1E" Foreground="#DDDDDD"
+                                         BorderBrush="#3F3F46" BorderThickness="1"
+                                         MaxHeight="190" Margin="0,6,0,0"
                                          ToolTip="Double-click to run · right-click for more"
                                          MouseDoubleClick="CommandsList_MouseDoubleClick">
                                     <ListBox.ContextMenu>
                                         <ContextMenu>
                                             <MenuItem Header="Run" Click="RunCommandMenuItem_Click"/>
                                             <Separator/>
-                                            <MenuItem Header="Edit…" Click="EditCommandMenuItem_Click"/>
+                                            <MenuItem Header="Edit..." Click="EditCommandMenuItem_Click"/>
                                             <MenuItem Header="Delete" Click="DeleteCommandMenuItem_Click"/>
                                         </ContextMenu>
                                     </ListBox.ContextMenu>
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
-                                            <StackPanel>
-                                                <TextBlock TextWrapping="Wrap"><Run Text="{Binding Name}" FontWeight="SemiBold" Foreground="#F2F2F2"/><Run Text="{Binding CategoryTag}" Foreground="#8A8A8A" FontSize="10"/></TextBlock>
-                                                <TextBlock Text="{Binding Description}" Foreground="#8A8A8A"
-                                                           FontSize="10" TextWrapping="Wrap"/>
+                                            <StackPanel Margin="2,3,2,3">
+                                                <TextBlock TextWrapping="Wrap"><Run Text="{Binding Name}" FontWeight="SemiBold" Foreground="#FFFFFF"/><Run Text="{Binding CategoryTag}" Foreground="#888888" FontSize="10"/></TextBlock>
+                                                <TextBlock Text="{Binding Description}" Foreground="#999999" FontSize="10" TextWrapping="Wrap"/>
                                             </StackPanel>
                                         </DataTemplate>
                                     </ListBox.ItemTemplate>
                                 </ListBox>
 
                                 <TextBlock x:Name="CommandsHint" Grid.Row="2" Text=""
-                                           Foreground="{StaticResource TextDim}" FontSize="10"
-                                           Margin="0,6,0,0" TextWrapping="Wrap"/>
+                                           Foreground="#888888" FontSize="10" Margin="0,4,0,0" TextWrapping="Wrap"/>
                             </Grid>
                         </Expander>
 
@@ -331,8 +196,8 @@
             </TabItem>
 
             <!-- JKR Guide Tab -->
-            <TabItem Header="📖  JKR Guide" Style="{StaticResource DarkTabItem}">
-                <Border Background="{StaticResource Surface}" CornerRadius="0,6,6,6">
+            <TabItem Header="📖 JKR Guide" Style="{StaticResource DarkTabItem}">
+                <Border Background="#252526" CornerRadius="0,8,8,8">
                     <ScrollViewer x:Name="JkrScrollViewer" VerticalScrollBarVisibility="Auto" Padding="12">
                         <StackPanel x:Name="JkrChatHistory"/>
                     </ScrollViewer>
@@ -353,12 +218,11 @@
                      AcceptsReturn="True" TextWrapping="Wrap"
                      MaxHeight="110" MinHeight="36"
                      VerticalScrollBarVisibility="Auto"
-                     VerticalContentAlignment="Center"
                      KeyDown="PromptInput_KeyDown" Text=""
                      ToolTip="Enter your prompt (Ctrl+Enter to send)"/>
 
             <Button x:Name="SendButton" Grid.Column="1" Content="Send"
-                    Style="{StaticResource PrimaryButton}" Margin="8,0,0,0"
+                    Style="{StaticResource DarkButton}" Margin="8,0,0,0"
                     Click="SendButton_Click"/>
 
             <Button x:Name="CancelButton" Grid.Column="2" Content="Cancel"
@@ -368,8 +232,8 @@
 
         <!-- Footer -->
         <StackPanel Grid.Row="3" Orientation="Horizontal">
-            <TextBlock Text="Powered by BINA AI" FontSize="10" Foreground="#5C5C5C"/>
-            <TextBlock x:Name="TokensText" Text="" FontSize="10" Foreground="#5C5C5C" Margin="16,0,0,0"/>
+            <TextBlock Text="Powered by BINA AI" FontSize="10" Foreground="#666666"/>
+            <TextBlock x:Name="TokensText" Text="" FontSize="10" Foreground="#666666" Margin="16,0,0,0"/>
         </StackPanel>
     </Grid>
 </Window>
