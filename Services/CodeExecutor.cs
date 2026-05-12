@@ -104,6 +104,11 @@ namespace RevitWebAppSync.Services
             bool needsExcel = code.Contains("ReadExcel") || code.Contains("WriteExcel")
                               || code.Contains("FindExcelFile") || code.Contains("XLWorkbook");
 
+            // If the generated code already mentions "Transaction" we assume it
+            // manages its own (and don't auto-wrap — nested Transactions are an
+            // API error, and we don't inject the silent failure handler either).
+            bool selfManagesTransaction = code.Contains("Transaction");
+
             sb.AppendLine("using System;");
             sb.AppendLine("using System.Collections.Generic;");
             sb.AppendLine("using System.Linq;");
@@ -149,19 +154,33 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("            if (view != null && this.uidoc != null) this.uidoc.RequestViewChange(view);");
             sb.AppendLine("        }");
             sb.AppendLine();
+            if (!selfManagesTransaction)
+            {
+                // Silent failure handler for the auto-wrap transaction: clear warnings,
+                // and on any error roll the transaction back WITHOUT a modal dialog —
+                // the host then auto-retries with the error fed back to the agent.
+                sb.AppendLine("        private class __FailHandler : IFailuresPreprocessor");
+                sb.AppendLine("        {");
+                sb.AppendLine("            public FailureProcessingResult PreprocessFailures(FailuresAccessor a)");
+                sb.AppendLine("            {");
+                sb.AppendLine("                bool hasError = false;");
+                sb.AppendLine("                foreach (var f in a.GetFailureMessages())");
+                sb.AppendLine("                {");
+                sb.AppendLine("                    if (f.GetSeverity() == FailureSeverity.Warning) a.DeleteWarning(f);");
+                sb.AppendLine("                    else hasError = true;");
+                sb.AppendLine("                }");
+                sb.AppendLine("                return hasError ? FailureProcessingResult.ProceedWithRollBack : FailureProcessingResult.Continue;");
+                sb.AppendLine("            }");
+                sb.AppendLine("        }");
+                sb.AppendLine();
+            }
             if (needsExcel) AppendExcelHelpers(sb);
             sb.AppendLine("        public object Execute(Document doc, UIDocument uidoc, View activeView)");
             sb.AppendLine("        {");
             sb.AppendLine("            this.doc = doc; this.uidoc = uidoc; this.activeView = activeView;");
 
-            // If the generated code doesn't manage its own transaction, wrap the
-            // whole body in one so model edits actually commit (and get a named
-            // undo entry) on the first attempt — instead of failing with
-            // "there is no open transaction" and only succeeding on the retry.
-            // Heuristic: if the code mentions "Transaction" at all, assume it
-            // handles its own and don't double-wrap (nested Transactions are an
-            // error in the Revit API).
-            bool selfManagesTransaction = code.Contains("Transaction");
+            // Auto-wrap the body in a Transaction (with the silent failure handler)
+            // so model edits commit + get a named undo entry on the first attempt.
             string bodyIndent = selfManagesTransaction ? "            " : "                ";
 
             if (!selfManagesTransaction)
@@ -169,6 +188,9 @@ namespace RevitWebAppSync.Services
                 sb.AppendLine("            using (var __tx = new Transaction(doc, \"AI Assistant\"))");
                 sb.AppendLine("            {");
                 sb.AppendLine("                __tx.Start();");
+                sb.AppendLine("                var __fho = __tx.GetFailureHandlingOptions();");
+                sb.AppendLine("                __fho = __fho.SetFailuresPreprocessor(new __FailHandler());");
+                sb.AppendLine("                __tx.SetFailureHandlingOptions(__fho);");
             }
 
             // Count preamble lines so CompileCode can map errors to user lines.
