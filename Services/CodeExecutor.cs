@@ -96,6 +96,13 @@ namespace RevitWebAppSync.Services
         private string WrapCode(string userCode)
         {
             var sb = new StringBuilder();
+            var code = userCode ?? string.Empty;
+
+            // Only pull ClosedXML into the wrapper when the snippet actually needs
+            // it — keeps non-Excel snippets free of that dependency (and its
+            // compile-time failure surface).
+            bool needsExcel = code.Contains("ReadExcel") || code.Contains("WriteExcel")
+                              || code.Contains("FindExcelFile") || code.Contains("XLWorkbook");
 
             sb.AppendLine("using System;");
             sb.AppendLine("using System.Collections.Generic;");
@@ -108,6 +115,7 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("using Autodesk.Revit.DB.Structure;");
             sb.AppendLine("using Autodesk.Revit.UI;");
             sb.AppendLine("using Autodesk.Revit.UI.Selection;");
+            if (needsExcel) sb.AppendLine("using ClosedXML.Excel;");
             sb.AppendLine();
             sb.AppendLine("namespace RevitWebAppSync.Dynamic");
             sb.AppendLine("{");
@@ -141,6 +149,7 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("            if (view != null && this.uidoc != null) this.uidoc.RequestViewChange(view);");
             sb.AppendLine("        }");
             sb.AppendLine();
+            if (needsExcel) AppendExcelHelpers(sb);
             sb.AppendLine("        public object Execute(Document doc, UIDocument uidoc, View activeView)");
             sb.AppendLine("        {");
             sb.AppendLine("            this.doc = doc; this.uidoc = uidoc; this.activeView = activeView;");
@@ -152,7 +161,7 @@ namespace RevitWebAppSync.Services
             // Heuristic: if the code mentions "Transaction" at all, assume it
             // handles its own and don't double-wrap (nested Transactions are an
             // error in the Revit API).
-            bool selfManagesTransaction = (userCode ?? string.Empty).Contains("Transaction");
+            bool selfManagesTransaction = code.Contains("Transaction");
             string bodyIndent = selfManagesTransaction ? "            " : "                ";
 
             if (!selfManagesTransaction)
@@ -165,7 +174,7 @@ namespace RevitWebAppSync.Services
             // Count preamble lines so CompileCode can map errors to user lines.
             _userCodeLineOffset = sb.ToString().Split('\n').Length - 1;
 
-            var lines = (userCode ?? string.Empty).Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+            var lines = code.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
             foreach (var line in lines)
             {
                 sb.AppendLine(bodyIndent + line);
@@ -186,11 +195,89 @@ namespace RevitWebAppSync.Services
             return sb.ToString();
         }
 
+        // ClosedXML-backed Excel helpers the revit_ai agent is prompted to use.
+        // Only emitted into the wrapper when the snippet references one of them
+        // (so non-Excel snippets don't carry the ClosedXML dependency).
+        private static void AppendExcelHelpers(StringBuilder sb)
+        {
+            sb.AppendLine("        private string FindExcelFile(string folderPath, string fileName)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            if (string.IsNullOrWhiteSpace(folderPath) || !Directory.Exists(folderPath)) return null;");
+            sb.AppendLine("            var nameNoExt = Path.GetFileNameWithoutExtension(fileName ?? string.Empty);");
+            sb.AppendLine("            foreach (var f in Directory.GetFiles(folderPath, \"*.xls*\"))");
+            sb.AppendLine("            {");
+            sb.AppendLine("                if (string.Equals(Path.GetFileNameWithoutExtension(f), nameNoExt, StringComparison.OrdinalIgnoreCase)) return f;");
+            sb.AppendLine("            }");
+            sb.AppendLine("            return null;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        private Dictionary<string, string> ReadExcelAsDictionary(string filePath, int keyColumn, int valueColumn, int startRow)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            var dict = new Dictionary<string, string>();");
+            sb.AppendLine("            using (var wb = new XLWorkbook(filePath))");
+            sb.AppendLine("            {");
+            sb.AppendLine("                var ws = wb.Worksheet(1);");
+            sb.AppendLine("                var lastRow = ws.LastRowUsed() != null ? ws.LastRowUsed().RowNumber() : 0;");
+            sb.AppendLine("                for (int r = startRow; r <= lastRow; r++)");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    var k = ws.Cell(r, keyColumn).GetString();");
+            sb.AppendLine("                    if (!string.IsNullOrWhiteSpace(k)) dict[k] = ws.Cell(r, valueColumn).GetString();");
+            sb.AppendLine("                }");
+            sb.AppendLine("            }");
+            sb.AppendLine("            return dict;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        private List<Dictionary<string, string>> ReadExcelAsRows(string filePath, int headerRow)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            var rows = new List<Dictionary<string, string>>();");
+            sb.AppendLine("            using (var wb = new XLWorkbook(filePath))");
+            sb.AppendLine("            {");
+            sb.AppendLine("                var ws = wb.Worksheet(1);");
+            sb.AppendLine("                var lastRow = ws.LastRowUsed() != null ? ws.LastRowUsed().RowNumber() : 0;");
+            sb.AppendLine("                var lastCol = ws.LastColumnUsed() != null ? ws.LastColumnUsed().ColumnNumber() : 0;");
+            sb.AppendLine("                var headers = new List<string>();");
+            sb.AppendLine("                for (int c = 1; c <= lastCol; c++) headers.Add(ws.Cell(headerRow, c).GetString());");
+            sb.AppendLine("                for (int r = headerRow + 1; r <= lastRow; r++)");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    var row = new Dictionary<string, string>();");
+            sb.AppendLine("                    for (int c = 1; c <= lastCol; c++)");
+            sb.AppendLine("                    {");
+            sb.AppendLine("                        var key = (c - 1 < headers.Count && !string.IsNullOrEmpty(headers[c - 1])) ? headers[c - 1] : (\"Column\" + c);");
+            sb.AppendLine("                        row[key] = ws.Cell(r, c).GetString();");
+            sb.AppendLine("                    }");
+            sb.AppendLine("                    rows.Add(row);");
+            sb.AppendLine("                }");
+            sb.AppendLine("            }");
+            sb.AppendLine("            return rows;");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        private void WriteExcel(string filePath, List<string> headers, List<List<string>> rows)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            using (var wb = new XLWorkbook())");
+            sb.AppendLine("            {");
+            sb.AppendLine("                var ws = wb.Worksheets.Add(\"Sheet1\");");
+            sb.AppendLine("                if (headers != null) for (int c = 0; c < headers.Count; c++) ws.Cell(1, c + 1).Value = headers[c] ?? string.Empty;");
+            sb.AppendLine("                if (rows != null) for (int r = 0; r < rows.Count; r++)");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    var row = rows[r] ?? new List<string>();");
+            sb.AppendLine("                    for (int c = 0; c < row.Count; c++) ws.Cell(r + 2, c + 1).Value = row[c] ?? string.Empty;");
+            sb.AppendLine("                }");
+            sb.AppendLine("                wb.SaveAs(filePath);");
+            sb.AppendLine("            }");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+        }
+
         /// <summary>
         /// Compile code using Roslyn
         /// </summary>
         private Assembly CompileCode(string code, out AssemblyLoadContext loadContext)
         {
+            // Force ClosedXML to load so it appears in GetAssemblies() below — the
+            // generated wrapper has `using ClosedXML.Excel;` and the Excel helpers,
+            // so its assembly must be referenced even if nothing else touched it yet.
+            _ = typeof(ClosedXML.Excel.XLWorkbook);
+
             var syntaxTree = CSharpSyntaxTree.ParseText(code);
 
             // Collect all necessary references
