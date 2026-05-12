@@ -36,8 +36,15 @@ namespace RevitWebAppSync
         private List<CommandTemplate> _allCommands;
         private bool _commandsLoaded;
         private string _lastUserPrompt;
+        private string _lastExecutedCode;
+        private int _retryCount;
+        private const int MaxRetries = 2;
 
         private static readonly Regex _placeholderRe = new Regex(@"\{(\w+)\}", RegexOptions.Compiled);
+
+        private static readonly SolidColorBrush BrushOk = new SolidColorBrush(Color.FromRgb(0, 200, 83));
+        private static readonly SolidColorBrush BrushErr = new SolidColorBrush(Color.FromRgb(255, 82, 82));
+        private static readonly SolidColorBrush BrushDim = new SolidColorBrush(Color.FromRgb(136, 136, 136));
 
         // Track which tab is active
         private bool IsJkrMode => ModeTabs.SelectedIndex == 1;
@@ -160,6 +167,7 @@ namespace RevitWebAppSync
             AddMessage(prompt, isUser: true);
             PromptInput.Text = "";
             _lastUserPrompt = prompt;
+            _retryCount = 0;
             UpdateSaveCommandButton();
 
             var requestInFlight = true;
@@ -194,6 +202,7 @@ namespace RevitWebAppSync
                         AddWarning(string.Join("\n", response.Warnings));
                     }
 
+                    _lastExecutedCode = response.Code;
                     StatusText.Text = "Executing in Revit...";
                     ExecuteCode(response.Code);
                 }
@@ -415,6 +424,7 @@ namespace RevitWebAppSync
 
         private void ExecuteCode(string code)
         {
+            _lastExecutedCode = code;
             _handler.CodeToExecute = code;
             _handler.OnCompleted = (result) =>
             {
@@ -424,20 +434,74 @@ namespace RevitWebAppSync
                     {
                         AddSuccess(result.Message ?? "Executed successfully");
                         StatusText.Text = "Ready";
-                        StatusText.Foreground = new SolidColorBrush(Color.FromRgb(0, 200, 83));
+                        StatusText.Foreground = BrushOk;
+                        _retryCount = 0;
+                        SetInputEnabled(true);
                     }
                     else
                     {
-                        AddError(result.Error ?? "Execution failed");
-                        StatusText.Text = "Execution failed";
-                        StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 82, 82));
+                        _ = HandleExecutionFailureAsync(result.Error ?? "Execution failed");
                     }
-
-                    SetInputEnabled(true);
                 });
             };
 
             _externalEvent.Raise();
+        }
+
+        // On compile/exec failure, feed the error back to the AI and re-run the
+        // fixed code, up to MaxRetries times.
+        private async Task HandleExecutionFailureAsync(string error)
+        {
+            try
+            {
+                if (_retryCount >= MaxRetries || string.IsNullOrEmpty(_config?.AccessToken))
+                {
+                    AddError(error);
+                    StatusText.Text = "Execution failed";
+                    StatusText.Foreground = BrushErr;
+                    _retryCount = 0;
+                    SetInputEnabled(true);
+                    return;
+                }
+
+                _retryCount++;
+                AddWarning($"That didn't work. Auto-fixing (attempt {_retryCount}/{MaxRetries})...");
+                StatusText.Text = "Auto-fixing the code...";
+                StatusText.Foreground = BrushDim;
+
+                var resp = await _aiService.RetryCodeAsync(
+                    _lastUserPrompt, _lastExecutedCode, error, _retryCount,
+                    UserIdOrNull, _sessionId, _config?.AccessToken);
+
+                if (resp != null && resp.Success && !string.IsNullOrEmpty(resp.Code))
+                {
+                    AddMessage(resp.Explanation ?? "Trying a corrected version...", isUser: false);
+                    AddCodeBlock(resp.Code);
+                    StatusText.Text = "Executing in Revit...";
+                    StatusText.Foreground = BrushDim;
+                    ExecuteCode(resp.Code);   // recurses; _retryCount caps it
+                }
+                else
+                {
+                    AddError(resp?.Error ?? error);
+                    StatusText.Text = "Execution failed";
+                    StatusText.Foreground = BrushErr;
+                    _retryCount = 0;
+                    SetInputEnabled(true);
+                }
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    AddError("Auto-fix failed: " + ex.Message);
+                    StatusText.Text = "Error";
+                    StatusText.Foreground = BrushErr;
+                    _retryCount = 0;
+                    SetInputEnabled(true);
+                }
+                catch { }
+            }
         }
 
         private ModelContext GetModelContext()

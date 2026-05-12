@@ -119,6 +119,46 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Ask the backend to fix code that failed to compile or execute. Returns
+        /// the corrected code in the same shape as <see cref="GenerateCodeAsync"/>.
+        /// </summary>
+        public async Task<AIResponse> RetryCodeAsync(
+            string originalPrompt, string failedCode, string errorMessage, int attempt,
+            int? userId, string sessionId, string accessToken,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var body = new
+                {
+                    original_prompt = originalPrompt,
+                    original_code = failedCode ?? string.Empty,
+                    error_message = errorMessage ?? string.Empty,
+                    attempt = attempt,
+                    userId = userId,
+                    sessionId = sessionId
+                };
+                var json = JsonConvert.SerializeObject(body);
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/revit-ai/retry")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+                if (!string.IsNullOrEmpty(accessToken))
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await _httpClient.SendAsync(request, cancellationToken);
+                var responseBody = await response.Content.ReadAsStringAsync();
+                if (response.IsSuccessStatusCode)
+                    return JsonConvert.DeserializeObject<AIResponse>(responseBody);
+                return new AIResponse { Success = false, Error = $"Retry failed: HTTP {(int)response.StatusCode}" };
+            }
+            catch (Exception ex)
+            {
+                return new AIResponse { Success = false, Error = $"Retry failed: {ex.Message}" };
+            }
+        }
+
+        /// <summary>
         /// Check if backend is available.
         /// </summary>
         public async Task<bool> HealthCheckAsync(CancellationToken cancellationToken = default)

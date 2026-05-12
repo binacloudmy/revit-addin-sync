@@ -97,9 +97,13 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("using System.Collections.Generic;");
             sb.AppendLine("using System.Linq;");
             sb.AppendLine("using System.Text;");
+            sb.AppendLine("using System.IO;");
+            sb.AppendLine("using System.Text.RegularExpressions;");
             sb.AppendLine("using Autodesk.Revit.DB;");
             sb.AppendLine("using Autodesk.Revit.DB.Architecture;");
+            sb.AppendLine("using Autodesk.Revit.DB.Structure;");
             sb.AppendLine("using Autodesk.Revit.UI;");
+            sb.AppendLine("using Autodesk.Revit.UI.Selection;");
             sb.AppendLine();
             sb.AppendLine("namespace RevitWebAppSync.Dynamic");
             sb.AppendLine("{");
@@ -212,8 +216,8 @@ namespace RevitWebAppSync.Services
                     .Select(d =>
                     {
                         var lineSpan = d.Location.GetLineSpan();
-                        // 37 wrapper lines precede the first line of user code (see WrapCode).
-                        var adjustedLine = Math.Max(1, lineSpan.StartLinePosition.Line - 36);
+                        // 41 wrapper lines precede the first line of user code (see WrapCode).
+                        var adjustedLine = Math.Max(1, lineSpan.StartLinePosition.Line - 40);
                         return $"Line {adjustedLine}: {d.GetMessage()}";
                     });
 
