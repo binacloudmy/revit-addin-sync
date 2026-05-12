@@ -40,6 +40,13 @@ namespace RevitWebAppSync
         private int _retryCount;
         private const int MaxRetries = 2;
 
+        // Structured conversation memory (per-session) — sent with each request so
+        // the agent can resolve pronouns ("those", "it", "the first one"). Holds
+        // the PREVIOUS turn until SendCodeGenQuery updates them.
+        private string _ctxPreviousPrompt;
+        private string _ctxLastOperation;
+        private string _ctxLastResult;
+
         private static readonly Regex _placeholderRe = new Regex(@"\{(\w+)\}", RegexOptions.Compiled);
 
         private static readonly SolidColorBrush BrushOk = new SolidColorBrush(Color.FromRgb(0, 200, 83));
@@ -324,6 +331,10 @@ namespace RevitWebAppSync
             StatusText.Text = "Thinking...";
             StatusText.Foreground = BrushDim;
 
+            // Build the request context BEFORE updating the "previous turn" fields,
+            // so it carries the prior turn for pronoun resolution.
+            var requestContext = BuildRequestContext();
+
             AddMessage(prompt, isUser: true);
             PromptInput.Text = "";
             _lastUserPrompt = prompt;
@@ -335,9 +346,13 @@ namespace RevitWebAppSync
             {
                 int? userId = _config.UserId > 0 ? _config.UserId : (int?)null;
                 var routedPrompt = AugmentWithReferences(prompt);
-                var route = await _aiService.RouteAsync(routedPrompt, GetModelContext(), userId, _sessionId, templateId, _config.AccessToken, _cts.Token);
+                var route = await _aiService.RouteAsync(routedPrompt, requestContext, userId, _sessionId, templateId, _config.AccessToken, _cts.Token);
                 requestInFlight = false;
                 SetCancelVisible(false);
+
+                if (route != null && !string.IsNullOrEmpty(route.Intent))
+                    _ctxLastOperation = route.Intent;
+                _ctxPreviousPrompt = prompt;
 
                 if (route == null)
                 {
@@ -668,6 +683,7 @@ namespace RevitWebAppSync
                         StatusText.Text = "Ready";
                         StatusText.Foreground = BrushOk;
                         _retryCount = 0;
+                        _ctxLastResult = result.Message ?? "Done";
                         SetInputEnabled(true);
                     }
                     else
@@ -734,6 +750,38 @@ namespace RevitWebAppSync
                 }
                 catch { }
             }
+        }
+
+        // Model context + conversation memory, sent with each /route request.
+        private object BuildRequestContext()
+        {
+            var mc = GetModelContext();
+            int selCount = 0;
+            string activeView = null;
+            try { selCount = _uidoc.Selection.GetElementIds().Count; } catch { }
+            try { activeView = _doc.ActiveView?.Name; } catch { }
+            return new
+            {
+                projectName = mc.ProjectName,
+                levels = mc.Levels,
+                categories = mc.Categories,
+                activeViewName = mc.ActiveViewName ?? activeView,
+                activeViewType = mc.ActiveViewType,
+                selectedElementIds = mc.SelectedElementIds,
+                selectedCount = selCount,
+                phases = mc.Phases,
+                revitVersion = mc.RevitVersion,
+                // conversation memory (previous turn)
+                last_prompt = _ctxPreviousPrompt,
+                last_operation = _ctxLastOperation,
+                last_result = TruncateForContext(_ctxLastResult, 2000)
+            };
+        }
+
+        private static string TruncateForContext(string s, int max)
+        {
+            if (string.IsNullOrEmpty(s) || s.Length <= max) return s;
+            return s.Substring(0, max) + "…";
         }
 
         private ModelContext GetModelContext()
