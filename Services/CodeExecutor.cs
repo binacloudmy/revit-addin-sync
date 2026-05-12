@@ -105,6 +105,12 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("{");
             sb.AppendLine("    public class AIGeneratedCode");
             sb.AppendLine("    {");
+            // Stored so the helper methods below can reach the model/UI without
+            // every helper taking them as parameters.
+            sb.AppendLine("        private Document doc;");
+            sb.AppendLine("        private UIDocument uidoc;");
+            sb.AppendLine("        private View activeView;");
+            sb.AppendLine();
             sb.AppendLine("        private string GetParameterValue(Element elem, BuiltInParameter param)");
             sb.AppendLine("        {");
             sb.AppendLine("            var p = elem.get_Parameter(param);");
@@ -112,8 +118,20 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("            return p.AsString() ?? p.AsValueString() ?? \"N/A\";");
             sb.AppendLine("        }");
             sb.AppendLine();
+            // Helpers the revit_ai agent is prompted to use.
+            sb.AppendLine("        private void ShowMessage(string title, string message)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            Autodesk.Revit.UI.TaskDialog.Show(string.IsNullOrEmpty(title) ? \"AI Assistant\" : title, message ?? string.Empty);");
+            sb.AppendLine("        }");
+            sb.AppendLine();
+            sb.AppendLine("        private void OpenView(View view)");
+            sb.AppendLine("        {");
+            sb.AppendLine("            if (view != null && this.uidoc != null) this.uidoc.RequestViewChange(view);");
+            sb.AppendLine("        }");
+            sb.AppendLine();
             sb.AppendLine("        public object Execute(Document doc, UIDocument uidoc, View activeView)");
             sb.AppendLine("        {");
+            sb.AppendLine("            this.doc = doc; this.uidoc = uidoc; this.activeView = activeView;");
 
             var lines = userCode.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
             foreach (var line in lines)
@@ -190,7 +208,8 @@ namespace RevitWebAppSync.Services
                     .Select(d =>
                     {
                         var lineSpan = d.Location.GetLineSpan();
-                        var adjustedLine = Math.Max(1, lineSpan.StartLinePosition.Line - 16);
+                        // 36 wrapper lines precede the first line of user code (see WrapCode).
+                        var adjustedLine = Math.Max(1, lineSpan.StartLinePosition.Line - 35);
                         return $"Line {adjustedLine}: {d.GetMessage()}";
                     });
 
