@@ -188,7 +188,7 @@ namespace RevitWebAppSync
 
                 if (response.Success && !string.IsNullOrEmpty(response.Code))
                 {
-                    AddMessage(response.Explanation ?? "Executing code...", isUser: false);
+                    AddMessage(response.Explanation ?? "Here's the code.", isUser: false);
                     AddCodeBlock(response.Code);
 
                     if (response.TokensUsed.HasValue)
@@ -202,9 +202,12 @@ namespace RevitWebAppSync
                         AddWarning(string.Join("\n", response.Warnings));
                     }
 
-                    _lastExecutedCode = response.Code;
-                    StatusText.Text = "Executing in Revit...";
-                    ExecuteCode(response.Code);
+                    // Review before execute (PRD FR-025): show the code with a
+                    // Run / Discard choice instead of running it immediately.
+                    AddRunDiscardRow(response.Code);
+                    SetInputEnabled(true);
+                    StatusText.Text = "Review the code above, then click Run.";
+                    StatusText.Foreground = BrushDim;
                 }
                 else
                 {
@@ -662,6 +665,65 @@ namespace RevitWebAppSync
 
             border.Child = textBox;
             ActiveChatHistory.Children.Add(border);
+            ScrollToBottom();
+        }
+
+        // Shows a Run / Discard choice under a code block — nothing executes until
+        // the user clicks Run (PRD FR-025).
+        private void AddRunDiscardRow(string code)
+        {
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 2, 0, 8)
+            };
+
+            var runBtn = new Button
+            {
+                Content = "▶  Run",
+                Padding = new Thickness(16, 6, 16, 6),
+                Margin = new Thickness(0, 0, 8, 0),
+                Cursor = Cursors.Hand,
+                Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
+                Background = new SolidColorBrush(Color.FromRgb(0, 120, 212))
+            };
+
+            var discardBtn = new Button
+            {
+                Content = "Discard",
+                Padding = new Thickness(14, 6, 14, 6),
+                Cursor = Cursors.Hand,
+                Foreground = new SolidColorBrush(Color.FromRgb(204, 204, 204)),
+                BorderThickness = new Thickness(1),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(63, 63, 70)),
+                Background = new SolidColorBrush(Color.FromRgb(45, 45, 48))
+            };
+
+            runBtn.Click += (s, e) =>
+            {
+                runBtn.IsEnabled = false;
+                discardBtn.IsEnabled = false;
+                _retryCount = 0;
+                _lastExecutedCode = code;
+                SetInputEnabled(false);
+                StatusText.Text = "Executing in Revit...";
+                StatusText.Foreground = BrushDim;
+                ExecuteCode(code);
+            };
+            discardBtn.Click += (s, e) =>
+            {
+                runBtn.IsEnabled = false;
+                discardBtn.IsEnabled = false;
+                AddSuccess("Discarded — nothing was run.");
+                SetInputEnabled(true);
+                StatusText.Text = "Ready";
+                StatusText.Foreground = BrushOk;
+            };
+
+            panel.Children.Add(runBtn);
+            panel.Children.Add(discardBtn);
+            ActiveChatHistory.Children.Add(panel);
             ScrollToBottom();
         }
 

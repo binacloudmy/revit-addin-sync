@@ -18,6 +18,10 @@ namespace RevitWebAppSync.Services
         private readonly UIDocument _uidoc;
         private readonly View _activeView;
 
+        // Number of generated wrapper lines that precede the first line of user
+        // code — set by WrapCode, used to map compile errors back to user lines.
+        private int _userCodeLineOffset;
+
         public CodeExecutor(UIDocument uidoc)
         {
             _uidoc = uidoc;
@@ -141,10 +145,36 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("        {");
             sb.AppendLine("            this.doc = doc; this.uidoc = uidoc; this.activeView = activeView;");
 
-            var lines = userCode.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+            // If the generated code doesn't manage its own transaction, wrap the
+            // whole body in one so model edits actually commit (and get a named
+            // undo entry) on the first attempt — instead of failing with
+            // "there is no open transaction" and only succeeding on the retry.
+            // Heuristic: if the code mentions "Transaction" at all, assume it
+            // handles its own and don't double-wrap (nested Transactions are an
+            // error in the Revit API).
+            bool selfManagesTransaction = (userCode ?? string.Empty).Contains("Transaction");
+            string bodyIndent = selfManagesTransaction ? "            " : "                ";
+
+            if (!selfManagesTransaction)
+            {
+                sb.AppendLine("            using (var __tx = new Transaction(doc, \"AI Assistant\"))");
+                sb.AppendLine("            {");
+                sb.AppendLine("                __tx.Start();");
+            }
+
+            // Count preamble lines so CompileCode can map errors to user lines.
+            _userCodeLineOffset = sb.ToString().Split('\n').Length - 1;
+
+            var lines = (userCode ?? string.Empty).Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
             foreach (var line in lines)
             {
-                sb.AppendLine("            " + line);
+                sb.AppendLine(bodyIndent + line);
+            }
+
+            if (!selfManagesTransaction)
+            {
+                sb.AppendLine("                __tx.Commit();");
+                sb.AppendLine("            }");
             }
 
             sb.AppendLine();
@@ -216,8 +246,8 @@ namespace RevitWebAppSync.Services
                     .Select(d =>
                     {
                         var lineSpan = d.Location.GetLineSpan();
-                        // 41 wrapper lines precede the first line of user code (see WrapCode).
-                        var adjustedLine = Math.Max(1, lineSpan.StartLinePosition.Line - 40);
+                        // Map back to the user's line numbering (WrapCode counted the preamble).
+                        var adjustedLine = Math.Max(1, lineSpan.StartLinePosition.Line - _userCodeLineOffset + 1);
                         return $"Line {adjustedLine}: {d.GetMessage()}";
                     });
 
