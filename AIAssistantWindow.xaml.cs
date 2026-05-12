@@ -163,7 +163,15 @@ namespace RevitWebAppSync
 
         private void PromptInput_TextChanged(object sender, TextChangedEventArgs e)
         {
-            try { UpdateMentionPopup(); } catch { try { MentionPopup.IsOpen = false; } catch { } }
+            try
+            {
+                UpdateMentionPopup();
+            }
+            catch (Exception ex)
+            {
+                try { MentionPopup.IsOpen = false; } catch { }
+                try { StatusText.Text = "@mention: " + ex.Message; StatusText.Foreground = BrushErr; } catch { }
+            }
         }
 
         private void UpdateMentionPopup()
