@@ -110,6 +110,7 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("        private Document doc;");
             sb.AppendLine("        private UIDocument uidoc;");
             sb.AppendLine("        private View activeView;");
+            sb.AppendLine("        private System.Text.StringBuilder __aiOutput = new System.Text.StringBuilder();");
             sb.AppendLine();
             sb.AppendLine("        private string GetParameterValue(Element elem, BuiltInParameter param)");
             sb.AppendLine("        {");
@@ -118,10 +119,13 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("            return p.AsString() ?? p.AsValueString() ?? \"N/A\";");
             sb.AppendLine("        }");
             sb.AppendLine();
-            // Helpers the revit_ai agent is prompted to use.
+            // Helpers the revit_ai agent is prompted to use. ShowMessage accumulates
+            // into __aiOutput, which Execute returns — the addin shows it in the chat
+            // (no modal popup).
             sb.AppendLine("        private void ShowMessage(string title, string message)");
             sb.AppendLine("        {");
-            sb.AppendLine("            Autodesk.Revit.UI.TaskDialog.Show(string.IsNullOrEmpty(title) ? \"AI Assistant\" : title, message ?? string.Empty);");
+            sb.AppendLine("            var t = string.IsNullOrEmpty(title) ? string.Empty : title + \": \";");
+            sb.AppendLine("            __aiOutput.AppendLine(t + (message ?? string.Empty));");
             sb.AppendLine("        }");
             sb.AppendLine();
             sb.AppendLine("        private void OpenView(View view)");
@@ -140,7 +144,7 @@ namespace RevitWebAppSync.Services
             }
 
             sb.AppendLine();
-            sb.AppendLine("            return \"Success\";");
+            sb.AppendLine("            return __aiOutput.Length > 0 ? __aiOutput.ToString().TrimEnd() : \"Done\";");
             sb.AppendLine("        }");
             sb.AppendLine("    }");
             sb.AppendLine("}");
@@ -208,8 +212,8 @@ namespace RevitWebAppSync.Services
                     .Select(d =>
                     {
                         var lineSpan = d.Location.GetLineSpan();
-                        // 36 wrapper lines precede the first line of user code (see WrapCode).
-                        var adjustedLine = Math.Max(1, lineSpan.StartLinePosition.Line - 35);
+                        // 37 wrapper lines precede the first line of user code (see WrapCode).
+                        var adjustedLine = Math.Max(1, lineSpan.StartLinePosition.Line - 36);
                         return $"Line {adjustedLine}: {d.GetMessage()}";
                     });
 

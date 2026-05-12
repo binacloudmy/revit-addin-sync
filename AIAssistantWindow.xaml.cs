@@ -218,18 +218,38 @@ namespace RevitWebAppSync
 
         private async void CommandsExpander_Expanded(object sender, RoutedEventArgs e)
         {
-            if (_commandsLoaded) return;
-            _commandsLoaded = true;
-            await LoadCommandsAsync();
+            // Defensive: an unhandled exception in an async void handler bubbles
+            // to the Revit UI thread and can take the whole app down.
+            try
+            {
+                if (_commandsLoaded) return;
+                _commandsLoaded = true;
+                await LoadCommandsAsync();
+            }
+            catch (Exception ex)
+            {
+                _commandsLoaded = false;
+                try { CommandsHint.Text = "Couldn't load commands: " + ex.Message; } catch { }
+            }
         }
 
         private async Task LoadCommandsAsync()
         {
-            CommandsHint.Text = "Loading commands...";
-            var commands = await _aiService.GetCommandsAsync(UserIdOrNull, _config?.OrgId, _config?.AccessToken);
+            try { CommandsHint.Text = "Loading commands..."; } catch { }
+            List<CommandTemplate> commands;
+            try
+            {
+                commands = await _aiService.GetCommandsAsync(UserIdOrNull, _config?.OrgId, _config?.AccessToken);
+            }
+            catch (Exception ex)
+            {
+                _allCommands = new List<CommandTemplate>();
+                try { CommandsHint.Text = "Couldn't reach the backend: " + ex.Message; } catch { }
+                return;
+            }
 
             _allCommands = commands ?? new List<CommandTemplate>();
-            ApplyCommandFilter(CommandSearchBox.Text);
+            ApplyCommandFilter(CommandSearchBox?.Text);
 
             CommandsHint.Text = _allCommands.Count == 0
                 ? "No commands available. (Is the backend reachable?)"
@@ -260,8 +280,15 @@ namespace RevitWebAppSync
 
         private async void CommandsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
         {
-            if (!(CommandsList.SelectedItem is CommandTemplate cmd)) return;
-            await RunCommand(cmd);
+            try
+            {
+                if (!(CommandsList.SelectedItem is CommandTemplate cmd)) return;
+                await RunCommand(cmd);
+            }
+            catch (Exception ex)
+            {
+                try { CommandsHint.Text = "Couldn't run that command: " + ex.Message; } catch { }
+            }
         }
 
         private async Task RunCommand(CommandTemplate cmd)
@@ -288,50 +315,78 @@ namespace RevitWebAppSync
 
         private async void SaveAsCommandButton_Click(object sender, RoutedEventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(_lastUserPrompt))
+            try
             {
-                CommandsHint.Text = "Send a prompt first, then you can save it as a command.";
-                return;
-            }
-            var dialog = new CommandSaveWindow(_lastUserPrompt, UserIdOrNull, _config?.OrgId) { Owner = this };
-            if (dialog.ShowDialog() != true) return;
+                if (string.IsNullOrWhiteSpace(_lastUserPrompt))
+                {
+                    CommandsHint.Text = "Send a prompt first, then you can save it as a command.";
+                    return;
+                }
+                var dialog = new CommandSaveWindow(_lastUserPrompt, UserIdOrNull, _config?.OrgId) { Owner = this };
+                if (dialog.ShowDialog() != true) return;
 
-            var created = await _aiService.SaveCommandAsync(dialog.Result, _config?.AccessToken);
-            CommandsHint.Text = created != null ? $"Saved \"{created.Name}\"." : "Could not save the command.";
-            if (created != null) { _commandsLoaded = false; CommandsExpander.IsExpanded = true; await LoadCommandsAsync(); }
+                var created = await _aiService.SaveCommandAsync(dialog.Result, _config?.AccessToken);
+                CommandsHint.Text = created != null ? $"Saved \"{created.Name}\"." : "Could not save the command.";
+                if (created != null) { _commandsLoaded = false; CommandsExpander.IsExpanded = true; await LoadCommandsAsync(); }
+            }
+            catch (Exception ex)
+            {
+                try { CommandsHint.Text = "Couldn't save: " + ex.Message; } catch { }
+            }
         }
 
         private async void EditCommandMenuItem_Click(object sender, RoutedEventArgs e)
         {
-            if (!(CommandsList.SelectedItem is CommandTemplate cmd)) return;
-            if (cmd.OwnerUserId != UserIdOrNull) { CommandsHint.Text = "You can only edit your own commands."; return; }
+            try
+            {
+                if (!(CommandsList.SelectedItem is CommandTemplate cmd)) return;
+                if (cmd.OwnerUserId != UserIdOrNull) { CommandsHint.Text = "You can only edit your own commands."; return; }
 
-            var dialog = new CommandSaveWindow(cmd.PromptTemplate, UserIdOrNull, _config?.OrgId, editing: cmd) { Owner = this };
-            if (dialog.ShowDialog() != true) return;
+                var dialog = new CommandSaveWindow(cmd.PromptTemplate, UserIdOrNull, _config?.OrgId, editing: cmd) { Owner = this };
+                if (dialog.ShowDialog() != true) return;
 
-            var updated = await _aiService.UpdateCommandAsync(dialog.EditingTemplateId, dialog.Result, _config?.AccessToken);
-            CommandsHint.Text = updated != null ? $"Updated \"{updated.Name}\"." : "Could not update the command.";
-            if (updated != null) { _commandsLoaded = false; await LoadCommandsAsync(); }
+                var updated = await _aiService.UpdateCommandAsync(dialog.EditingTemplateId, dialog.Result, _config?.AccessToken);
+                CommandsHint.Text = updated != null ? $"Updated \"{updated.Name}\"." : "Could not update the command.";
+                if (updated != null) { _commandsLoaded = false; await LoadCommandsAsync(); }
+            }
+            catch (Exception ex)
+            {
+                try { CommandsHint.Text = "Couldn't edit: " + ex.Message; } catch { }
+            }
         }
 
         private async void DeleteCommandMenuItem_Click(object sender, RoutedEventArgs e)
         {
-            if (!(CommandsList.SelectedItem is CommandTemplate cmd)) return;
-            if (cmd.OwnerUserId != UserIdOrNull) { CommandsHint.Text = "You can only delete your own commands."; return; }
+            try
+            {
+                if (!(CommandsList.SelectedItem is CommandTemplate cmd)) return;
+                if (cmd.OwnerUserId != UserIdOrNull) { CommandsHint.Text = "You can only delete your own commands."; return; }
 
-            var confirm = MessageBox.Show($"Delete the command \"{cmd.Name}\"?", "Delete command",
-                MessageBoxButton.YesNo, MessageBoxImage.Warning);
-            if (confirm != MessageBoxResult.Yes) return;
+                var confirm = MessageBox.Show($"Delete the command \"{cmd.Name}\"?", "Delete command",
+                    MessageBoxButton.YesNo, MessageBoxImage.Warning);
+                if (confirm != MessageBoxResult.Yes) return;
 
-            var ok = await _aiService.DeleteCommandAsync(cmd.Id, UserIdOrNull, _config?.AccessToken);
-            CommandsHint.Text = ok ? $"Deleted \"{cmd.Name}\"." : "Could not delete the command.";
-            if (ok) { _commandsLoaded = false; await LoadCommandsAsync(); }
+                var ok = await _aiService.DeleteCommandAsync(cmd.Id, UserIdOrNull, _config?.AccessToken);
+                CommandsHint.Text = ok ? $"Deleted \"{cmd.Name}\"." : "Could not delete the command.";
+                if (ok) { _commandsLoaded = false; await LoadCommandsAsync(); }
+            }
+            catch (Exception ex)
+            {
+                try { CommandsHint.Text = "Couldn't delete: " + ex.Message; } catch { }
+            }
         }
 
-        private void RunCommandMenuItem_Click(object sender, RoutedEventArgs e)
+        private async void RunCommandMenuItem_Click(object sender, RoutedEventArgs e)
         {
-            if (CommandsList.SelectedItem is CommandTemplate cmd)
-                _ = RunCommand(cmd);
+            try
+            {
+                if (CommandsList.SelectedItem is CommandTemplate cmd)
+                    await RunCommand(cmd);
+            }
+            catch (Exception ex)
+            {
+                try { CommandsHint.Text = "Couldn't run that command: " + ex.Message; } catch { }
+            }
         }
 
         private void UpdateSaveCommandButton()
