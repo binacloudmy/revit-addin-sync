@@ -114,6 +114,158 @@ namespace RevitWebAppSync
             }
         }
 
+        // ===================== @mention autocomplete =====================
+
+        private List<MentionItem> _mentionCatalog;
+        private int _mentionTokenStart = -1;
+
+        private void BuildMentionCatalogIfNeeded()
+        {
+            if (_mentionCatalog != null) return;
+            var list = new List<MentionItem>();
+
+            // Special / bulk mentions (no API needed).
+            list.Add(new MentionItem("selected", "@selected", "current selection", "@selected -> the elements currently selected in Revit"));
+            list.Add(new MentionItem("here", "@here", "elements in active view", "@here -> the elements visible in the active view"));
+            foreach (var cat in new[] { "walls", "doors", "windows", "floors", "roofs", "ceilings", "rooms", "columns", "grids" })
+                list.Add(new MentionItem("all_" + cat, "@all_" + cat, "all " + cat, $"@all_{cat} -> every {cat} element in the model"));
+
+            try
+            {
+                foreach (var lvl in new FilteredElementCollector(_doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation))
+                    list.Add(new MentionItem(lvl.Name, "@" + lvl.Name, "Level", $"@{lvl.Name} -> Level (id {lvl.Id.Value})"));
+
+                foreach (var g in new FilteredElementCollector(_doc).OfCategory(BuiltInCategory.OST_Grids).WhereElementIsNotElementType())
+                    list.Add(new MentionItem(g.Name, "@" + g.Name, "Grid", $"@{g.Name} -> Grid (id {g.Id.Value})"));
+
+                foreach (var v in new FilteredElementCollector(_doc).OfClass(typeof(View)).Cast<View>().Where(v => !v.IsTemplate).OrderBy(v => v.Name).Take(200))
+                    list.Add(new MentionItem(v.Name, "@" + v.Name, $"View · {v.ViewType}", $"@{v.Name} -> View, type {v.ViewType} (id {v.Id.Value})"));
+
+                foreach (var r in new FilteredElementCollector(_doc).OfCategory(BuiltInCategory.OST_Rooms).WhereElementIsNotElementType()
+                            .Cast<Autodesk.Revit.DB.Architecture.Room>().Where(r => r.Area > 0).Take(300))
+                {
+                    var disp = (string.IsNullOrEmpty(r.Number) ? "" : r.Number + " ") + r.Name;
+                    list.Add(new MentionItem(disp, "@" + disp, "Room", $"@{disp} -> Room (id {r.Id.Value})"));
+                }
+
+                foreach (var s in new FilteredElementCollector(_doc).OfClass(typeof(Autodesk.Revit.DB.MEPSystem)).Cast<Autodesk.Revit.DB.MEPSystem>().Take(100))
+                    list.Add(new MentionItem(s.Name, "@" + s.Name, "System", $"@{s.Name} -> MEP system (id {s.Id.Value})"));
+            }
+            catch { /* keep whatever we collected */ }
+
+            foreach (var c in new[] { "Walls", "Doors", "Windows", "Floors", "Roofs", "Ceilings", "Rooms", "Furniture", "Columns",
+                                       "Structural Columns", "Structural Framing", "Pipes", "Ducts", "Plumbing Fixtures",
+                                       "Mechanical Equipment", "Electrical Fixtures", "Lighting Fixtures" })
+                list.Add(new MentionItem(c, "@" + c, "Category", $"@{c} -> Category"));
+
+            _mentionCatalog = list;   // always assigned — never rebuilt
+        }
+
+        private void PromptInput_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            try { UpdateMentionPopup(); } catch { try { MentionPopup.IsOpen = false; } catch { } }
+        }
+
+        private void UpdateMentionPopup()
+        {
+            var text = PromptInput.Text ?? string.Empty;
+            var caret = PromptInput.CaretIndex;
+            if (caret <= 0 || caret > text.Length) { MentionPopup.IsOpen = false; return; }
+
+            var at = text.LastIndexOf('@', caret - 1);
+            if (at < 0) { MentionPopup.IsOpen = false; return; }
+
+            var token = text.Substring(at + 1, caret - at - 1);
+            if (token.IndexOf('\n') >= 0 || token.IndexOf('\r') >= 0) { MentionPopup.IsOpen = false; return; }
+
+            BuildMentionCatalogIfNeeded();
+            List<MentionItem> matches;
+            if (token.Length == 0)
+            {
+                matches = _mentionCatalog.Take(30).ToList();
+            }
+            else
+            {
+                matches = _mentionCatalog
+                    .Where(m => m.Display.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0)
+                    .OrderBy(m => m.Display.StartsWith(token, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                    .ThenBy(m => m.Display.Length)
+                    .Take(30).ToList();
+            }
+
+            if (matches.Count == 0) { MentionPopup.IsOpen = false; return; }
+
+            _mentionTokenStart = at;
+            MentionList.ItemsSource = matches;
+            MentionList.SelectedIndex = 0;
+            MentionPopup.IsOpen = true;
+        }
+
+        private void PromptInput_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            if (!MentionPopup.IsOpen) return;
+            if (e.Key == Key.Down)
+            {
+                MentionList.SelectedIndex = Math.Min(MentionList.SelectedIndex + 1, MentionList.Items.Count - 1);
+                MentionList.ScrollIntoView(MentionList.SelectedItem); e.Handled = true;
+            }
+            else if (e.Key == Key.Up)
+            {
+                MentionList.SelectedIndex = Math.Max(MentionList.SelectedIndex - 1, 0);
+                MentionList.ScrollIntoView(MentionList.SelectedItem); e.Handled = true;
+            }
+            else if ((e.Key == Key.Enter || e.Key == Key.Tab) && Keyboard.Modifiers != ModifierKeys.Control)
+            {
+                InsertSelectedMention(); e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                MentionPopup.IsOpen = false; e.Handled = true;
+            }
+        }
+
+        private void MentionList_MouseUp(object sender, MouseButtonEventArgs e)
+        {
+            if (MentionList.SelectedItem is MentionItem) InsertSelectedMention();
+        }
+
+        private void InsertSelectedMention()
+        {
+            try
+            {
+                if (!(MentionList.SelectedItem is MentionItem m) || _mentionTokenStart < 0) { MentionPopup.IsOpen = false; return; }
+                var text = PromptInput.Text ?? string.Empty;
+                var caret = PromptInput.CaretIndex;
+                if (_mentionTokenStart > caret || caret > text.Length) { MentionPopup.IsOpen = false; return; }
+
+                var before = text.Substring(0, _mentionTokenStart);
+                var after = text.Substring(caret);
+                var inserted = m.InsertText + " ";
+                MentionPopup.IsOpen = false;
+                PromptInput.Text = before + inserted + after;
+                PromptInput.CaretIndex = before.Length + inserted.Length;
+                PromptInput.Focus();
+            }
+            catch { try { MentionPopup.IsOpen = false; } catch { } }
+        }
+
+        // Append a "## Referenced elements" block so the agent gets precise data
+        // for any @mentions in the prompt. The chat shows the original prompt.
+        private string AugmentWithReferences(string prompt)
+        {
+            if (string.IsNullOrEmpty(prompt) || prompt.IndexOf('@') < 0) return prompt;
+            BuildMentionCatalogIfNeeded();
+            var refs = new List<string>();
+            foreach (var m in _mentionCatalog)
+            {
+                if (refs.Count >= 15) break;
+                if (prompt.IndexOf(m.InsertText, StringComparison.OrdinalIgnoreCase) >= 0 && !refs.Contains(m.Resolved))
+                    refs.Add(m.Resolved);
+            }
+            if (refs.Count == 0) return prompt;
+            return prompt + "\n\n## Referenced elements\n" + string.Join("\n", refs.Select(r => "- " + r));
+        }
+
         private void ModeTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             // Update placeholder hint when switching tabs
@@ -174,7 +326,8 @@ namespace RevitWebAppSync
             try
             {
                 int? userId = _config.UserId > 0 ? _config.UserId : (int?)null;
-                var route = await _aiService.RouteAsync(prompt, GetModelContext(), userId, _sessionId, templateId, _config.AccessToken, _cts.Token);
+                var routedPrompt = AugmentWithReferences(prompt);
+                var route = await _aiService.RouteAsync(routedPrompt, GetModelContext(), userId, _sessionId, templateId, _config.AccessToken, _cts.Token);
                 requestInFlight = false;
                 SetCancelVisible(false);
 
@@ -849,5 +1002,22 @@ namespace RevitWebAppSync
         }
 
         #endregion
+    }
+
+    /// <summary>One entry in the @mention autocomplete catalog.</summary>
+    public class MentionItem
+    {
+        public string Display { get; }       // "Level 2"
+        public string InsertText { get; }    // "@Level 2"
+        public string TypeLabel { get; }     // "Level", "View · FloorPlan", "Category", ...
+        public string Resolved { get; }      // "@Level 2 -> Level (id 12345)"  — sent to the agent
+
+        public MentionItem(string display, string insertText, string typeLabel, string resolved)
+        {
+            Display = display ?? string.Empty;
+            InsertText = insertText ?? string.Empty;
+            TypeLabel = typeLabel ?? string.Empty;
+            Resolved = resolved ?? string.Empty;
+        }
     }
 }

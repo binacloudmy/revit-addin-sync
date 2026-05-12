@@ -220,8 +220,33 @@
                      AcceptsReturn="True" TextWrapping="Wrap"
                      MaxHeight="110" MinHeight="36"
                      VerticalScrollBarVisibility="Auto"
-                     KeyDown="PromptInput_KeyDown" Text=""
-                     ToolTip="Enter your prompt (Ctrl+Enter to send)"/>
+                     KeyDown="PromptInput_KeyDown"
+                     PreviewKeyDown="PromptInput_PreviewKeyDown"
+                     TextChanged="PromptInput_TextChanged"
+                     Text=""
+                     ToolTip="Type @ to reference a level / view / grid / room / category (Ctrl+Enter to send)"/>
+
+            <!-- @mention autocomplete -->
+            <Popup x:Name="MentionPopup" PlacementTarget="{Binding ElementName=PromptInput}"
+                   Placement="Top" StaysOpen="False" AllowsTransparency="True"
+                   Width="320" MaxHeight="200" IsOpen="False">
+                <Border Background="#252526" BorderBrush="#3F3F46" BorderThickness="1" CornerRadius="6" Padding="2">
+                    <ListBox x:Name="MentionList" Background="Transparent" Foreground="#DDDDDD"
+                             BorderThickness="0" MaxHeight="190"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                             VirtualizingPanel.IsVirtualizing="False"
+                             MouseUp="MentionList_MouseUp">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" Margin="4,2">
+                                    <TextBlock Text="{Binding Display}" Foreground="#F2F2F2"/>
+                                    <TextBlock Text="{Binding TypeLabel}" Foreground="#888888" FontSize="10" Margin="8,1,0,0"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+            </Popup>
 
             <Button x:Name="SendButton" Grid.Column="1" Content="Send"
                     Style="{StaticResource DarkButton}" Margin="8,0,0,0"
