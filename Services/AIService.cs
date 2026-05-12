@@ -119,6 +119,54 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Unified Copilot entry point — classifies intent and returns an ordered
+        /// list of actions for the addin to dispatch. POST /api/revit-ai/route.
+        /// </summary>
+        public async Task<RouteResponse> RouteAsync(
+            string message, object context, int? userId, string sessionId, string templateId,
+            string accessToken, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var body = new { message = message, context = context, userId = userId, sessionId = sessionId, templateId = templateId };
+                var json = JsonConvert.SerializeObject(body);
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/revit-ai/route")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+                if (!string.IsNullOrEmpty(accessToken))
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await _httpClient.SendAsync(request, cancellationToken);
+                var responseBody = await response.Content.ReadAsStringAsync();
+                if (response.IsSuccessStatusCode)
+                    return JsonConvert.DeserializeObject<RouteResponse>(responseBody);
+                return new RouteResponse
+                {
+                    Intent = "UNKNOWN", NeedsClarification = true,
+                    ClarifyingQuestion = $"Backend error (HTTP {(int)response.StatusCode}). Try again?",
+                    Reply = $"HTTP {(int)response.StatusCode}: {responseBody}"
+                };
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return new RouteResponse { Intent = "UNKNOWN", NeedsClarification = true, ClarifyingQuestion = "Cancelled.", Reply = "Cancelled." };
+            }
+            catch (TaskCanceledException)
+            {
+                return new RouteResponse { Intent = "UNKNOWN", NeedsClarification = true, ClarifyingQuestion = "Request timed out. Try again?", Reply = "Timed out." };
+            }
+            catch (HttpRequestException ex)
+            {
+                return new RouteResponse { Intent = "UNKNOWN", NeedsClarification = true, ClarifyingQuestion = $"Connection error: {ex.Message}. Is the backend running?", Reply = ex.Message };
+            }
+            catch (Exception ex)
+            {
+                return new RouteResponse { Intent = "UNKNOWN", NeedsClarification = true, ClarifyingQuestion = $"Error: {ex.Message}", Reply = ex.Message };
+            }
+        }
+
+        /// <summary>
         /// Ask the backend to fix code that failed to compile or execute. Returns
         /// the corrected code in the same shape as <see cref="GenerateCodeAsync"/>.
         /// </summary>

@@ -161,8 +161,8 @@ namespace RevitWebAppSync
             _cts = new CancellationTokenSource();
             SetInputEnabled(false);
             SetCancelVisible(true);
-            StatusText.Text = "Generating code...";
-            StatusText.Foreground = new SolidColorBrush(Color.FromRgb(136, 136, 136));
+            StatusText.Text = "Thinking...";
+            StatusText.Foreground = BrushDim;
 
             AddMessage(prompt, isUser: true);
             PromptInput.Text = "";
@@ -173,56 +173,68 @@ namespace RevitWebAppSync
             var requestInFlight = true;
             try
             {
-                var request = new Models.AIRequest
-                {
-                    Prompt = prompt,
-                    Context = GetModelContext(),
-                    UserId = _config.UserId > 0 ? _config.UserId : (int?)null,
-                    SessionId = _sessionId,
-                    TemplateId = templateId
-                };
-
-                var response = await _aiService.GenerateCodeAsync(request, _config.AccessToken, _cts.Token);
+                int? userId = _config.UserId > 0 ? _config.UserId : (int?)null;
+                var route = await _aiService.RouteAsync(prompt, GetModelContext(), userId, _sessionId, templateId, _config.AccessToken, _cts.Token);
                 requestInFlight = false;
                 SetCancelVisible(false);
 
-                if (response.Success && !string.IsNullOrEmpty(response.Code))
+                if (route == null)
                 {
-                    AddMessage(response.Explanation ?? "Here's the code.", isUser: false);
-                    AddCodeBlock(response.Code);
-
-                    if (response.TokensUsed.HasValue)
-                    {
-                        _totalTokens += response.TokensUsed.Value;
-                        TokensText.Text = $"Tokens: {_totalTokens}";
-                    }
-
-                    if (response.Warnings?.Count > 0)
-                    {
-                        AddWarning(string.Join("\n", response.Warnings));
-                    }
-
-                    // Review before execute (PRD FR-025): show the code with a
-                    // Run / Discard choice instead of running it immediately.
-                    AddRunDiscardRow(response.Code);
+                    AddError("No response from the backend.");
                     SetInputEnabled(true);
+                    StatusText.Text = "Error"; StatusText.Foreground = BrushErr;
+                    return;
+                }
+
+                if (route.TokensUsed.HasValue)
+                {
+                    _totalTokens += route.TokensUsed.Value;
+                    TokensText.Text = $"Tokens: {_totalTokens}";
+                }
+
+                if (route.NeedsClarification || string.Equals(route.Intent, "UNKNOWN", StringComparison.OrdinalIgnoreCase))
+                {
+                    AddMessage(route.ClarifyingQuestion ?? route.Reply ?? "Could you give me a bit more detail?", isUser: false);
+                    SetInputEnabled(true);
+                    StatusText.Text = "Ready"; StatusText.Foreground = BrushOk;
+                    return;
+                }
+
+                if (!string.IsNullOrWhiteSpace(route.Reply))
+                    AddMessage(route.Reply, isUser: false);
+
+                int executable = 0;
+                foreach (var action in route.Actions ?? new List<RouteAction>())
+                {
+                    string code = await ResolveActionCode(action, prompt);
+                    if (!string.IsNullOrWhiteSpace(code))
+                    {
+                        AddCodeBlock(code);
+                        AddRunDiscardRow(code);
+                        executable++;
+                    }
+                    else if (!string.IsNullOrWhiteSpace(action?.Description))
+                    {
+                        AddMessage(action.Description, isUser: false);
+                    }
+                }
+
+                SetInputEnabled(true);
+                if (executable > 0)
+                {
                     StatusText.Text = "Review the code above, then click Run.";
                     StatusText.Foreground = BrushDim;
                 }
                 else
                 {
-                    AddError(response.Error ?? "Unknown error occurred");
-                    SetInputEnabled(true);
-                    StatusText.Text = "Error";
-                    StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 82, 82));
+                    StatusText.Text = "Ready"; StatusText.Foreground = BrushOk;
                 }
             }
             catch (Exception ex)
             {
                 AddError($"Error: {ex.Message}");
                 SetInputEnabled(true);
-                StatusText.Text = "Error";
-                StatusText.Foreground = new SolidColorBrush(Color.FromRgb(255, 82, 82));
+                StatusText.Text = "Error"; StatusText.Foreground = BrushErr;
             }
             finally
             {
@@ -230,6 +242,62 @@ namespace RevitWebAppSync
                 _cts?.Dispose();
                 _cts = null;
             }
+        }
+
+        // Turn a routed action into C# the executor can run, or null if it's
+        // purely informational. open_view is synthesised locally; action types
+        // the addin can't dispatch natively fall back to code generation.
+        private async Task<string> ResolveActionCode(RouteAction action, string originalPrompt)
+        {
+            if (action == null) return null;
+            switch (action.Type)
+            {
+                case "execute_code":
+                    return action.Code;
+
+                case "open_view":
+                {
+                    var name = GetParamString(action.Params, "view") ?? GetParamString(action.Params, "level")
+                               ?? GetParamString(action.Params, "name") ?? GetParamString(action.Params, "target")
+                               ?? GetParamString(action.Params, "view_name");
+                    if (string.IsNullOrWhiteSpace(name)) goto default;
+                    var n = name.Replace("\\", "").Replace("\"", "").Trim();
+                    return
+                        $"var __v = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()\n" +
+                        $"    .FirstOrDefault(v => !v.IsTemplate && string.Equals(v.Name, \"{n}\", StringComparison.OrdinalIgnoreCase));\n" +
+                        $"if (__v == null) __v = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()\n" +
+                        $"    .FirstOrDefault(v => !v.IsTemplate && v.Name != null && v.Name.IndexOf(\"{n}\", StringComparison.OrdinalIgnoreCase) >= 0);\n" +
+                        $"if (__v != null) {{ OpenView(__v); ShowMessage(\"View opened\", __v.Name); }}\n" +
+                        $"else ShowMessage(\"Not found\", \"No view matching '{n}'.\");";
+                }
+
+                case "none":
+                    return null;
+
+                default:
+                    // select_elements / run_analysis / export / query / Unknown — code-gen fallback.
+                    var gen = await _aiService.GenerateCodeAsync(
+                        new Models.AIRequest
+                        {
+                            Prompt = originalPrompt,
+                            Context = GetModelContext(),
+                            UserId = _config.UserId > 0 ? _config.UserId : (int?)null,
+                            SessionId = _sessionId
+                        },
+                        _config.AccessToken,
+                        _cts?.Token ?? System.Threading.CancellationToken.None);
+                    return (gen != null && gen.Success && !string.IsNullOrEmpty(gen.Code)) ? gen.Code : null;
+            }
+        }
+
+        private static string GetParamString(Dictionary<string, object> p, string key)
+        {
+            if (p != null && p.TryGetValue(key, out var v) && v != null)
+            {
+                var s = v.ToString();
+                return string.IsNullOrWhiteSpace(s) ? null : s;
+            }
+            return null;
         }
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)
