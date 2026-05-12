@@ -61,6 +61,24 @@ namespace RevitWebAppSync
 
             CheckBackendConnection();
             EnforceLoginGate();
+
+            // Load saved commands eagerly (decoupled from the Expander) — fire and forget.
+            _ = SafeLoadCommandsAsync();
+        }
+
+        private async Task SafeLoadCommandsAsync()
+        {
+            try
+            {
+                if (_commandsLoaded) return;
+                _commandsLoaded = true;
+                await LoadCommandsAsync();
+            }
+            catch (Exception ex)
+            {
+                _commandsLoaded = false;
+                try { if (CommandsHint != null) CommandsHint.Text = "Couldn't load commands: " + ex.Message; } catch { }
+            }
         }
 
         private void EnforceLoginGate()

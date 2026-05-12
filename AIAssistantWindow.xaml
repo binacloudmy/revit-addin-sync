@@ -133,8 +133,7 @@
                         <!-- Saved Commands (default Expander styling) -->
                         <Expander x:Name="CommandsExpander" Grid.Row="0"
                                   Header="📚 Saved Commands" Foreground="#CCCCCC"
-                                  Margin="8,8,8,0" IsExpanded="False"
-                                  Expanded="CommandsExpander_Expanded">
+                                  Margin="8,8,8,0" IsExpanded="False">
                             <Grid Margin="0,6,0,0">
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
@@ -162,6 +161,8 @@
                                          Background="#1E1E1E" Foreground="#DDDDDD"
                                          BorderBrush="#3F3F46" BorderThickness="1"
                                          MaxHeight="190" Margin="0,6,0,0"
+                                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                         VirtualizingPanel.IsVirtualizing="False"
                                          ToolTip="Double-click to run · right-click for more"
                                          MouseDoubleClick="CommandsList_MouseDoubleClick">
                                     <ListBox.ContextMenu>
@@ -175,7 +176,8 @@
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
                                             <StackPanel Margin="2,3,2,3">
-                                                <TextBlock TextWrapping="Wrap"><Run Text="{Binding Name}" FontWeight="SemiBold" Foreground="#FFFFFF"/><Run Text="{Binding CategoryTag}" Foreground="#888888" FontSize="10"/></TextBlock>
+                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="#FFFFFF" TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding Category}" Foreground="#888888" FontSize="10"/>
                                                 <TextBlock Text="{Binding Description}" Foreground="#999999" FontSize="10" TextWrapping="Wrap"/>
                                             </StackPanel>
                                         </DataTemplate>
