@@ -182,7 +182,8 @@ namespace RevitWebAppSync.Services
 
             if (!selfManagesTransaction)
             {
-                sb.AppendLine("                __tx.Commit();");
+                sb.AppendLine("                if (__tx.Commit() != TransactionStatus.Committed)");
+                sb.AppendLine("                    throw new InvalidOperationException(\"Changes were not applied — the transaction was rolled back (you may have cancelled, or Revit blocked the edit, e.g. elements inside a group).\");");
                 sb.AppendLine("            }");
             }
 
