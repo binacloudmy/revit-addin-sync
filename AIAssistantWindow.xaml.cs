@@ -1105,14 +1105,41 @@ namespace RevitWebAppSync
 
         private void CopyTranscriptButton_Click(object sender, RoutedEventArgs e)
         {
+            var t = _transcript.ToString();
+            if (string.IsNullOrWhiteSpace(t)) { AddSuccess("Nothing to copy yet."); return; }
+
+            // Clipboard.SetText is fragile in Revit's host process — Win32 clipboard
+            // contention (clipboard history, screen readers, AV) intermittently throws
+            // CLIPBRD_E_CANT_OPEN even when the copy actually succeeds. Retry a few
+            // times with SetDataObject(copy: true), which is more robust.
+            Exception lastEx = null;
+            for (int attempt = 0; attempt < 5; attempt++)
+            {
+                try
+                {
+                    Clipboard.SetDataObject(t, copy: true);
+                    AddSuccess("Transcript copied to the clipboard.");
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    lastEx = ex;
+                    System.Threading.Thread.Sleep(50);
+                }
+            }
+            // Last-ditch verification: many of these failures still get the text onto
+            // the clipboard. If the current clipboard text matches what we tried to
+            // copy, treat it as a success rather than alarming the user.
             try
             {
-                var t = _transcript.ToString();
-                if (string.IsNullOrWhiteSpace(t)) { AddSuccess("Nothing to copy yet."); return; }
-                Clipboard.SetText(t);
-                AddSuccess("Transcript copied to the clipboard.");
+                if (Clipboard.ContainsText() && Clipboard.GetText() == t)
+                {
+                    AddSuccess("Transcript copied to the clipboard.");
+                    return;
+                }
             }
-            catch (Exception ex) { AddError("Couldn't copy: " + ex.Message); }
+            catch { /* fall through */ }
+            AddError("Couldn't copy: " + (lastEx?.Message ?? "unknown error"));
         }
 
         private void AddMessage(string text, bool isUser)
