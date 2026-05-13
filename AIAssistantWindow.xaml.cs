@@ -396,6 +396,7 @@ namespace RevitWebAppSync
                     {
                         AddCodeBlock(code);
                         AddRunDiscardRow(code);
+                        _lastExecutedCode = code;   // so "Run again" knows what to re-run
                         executable++;
                     }
                 }
@@ -1042,7 +1043,20 @@ namespace RevitWebAppSync
                     AddSuccess("Press Ctrl+Z in Revit to undo the last change.");
                     return;
                 case "rerun":
-                    if (!string.IsNullOrWhiteSpace(_lastUserPrompt)) { _ = SendCodeGenQuery(_lastUserPrompt); }
+                    // Re-run the last code directly — no re-review, no re-asking the AI.
+                    if (!string.IsNullOrWhiteSpace(_lastExecutedCode))
+                    {
+                        if (_cts != null) return;          // busy with another request
+                        SetInputEnabled(false);
+                        _retryCount = 0;
+                        StatusText.Text = "Re-running...";
+                        StatusText.Foreground = BrushDim;
+                        ExecuteCode(_lastExecutedCode);
+                    }
+                    else if (!string.IsNullOrWhiteSpace(_lastUserPrompt))
+                    {
+                        _ = SendCodeGenQuery(_lastUserPrompt);
+                    }
                     return;
                 case "edit_params":
                     PromptInput.Text = "change the parameter of the selected elements: ";
