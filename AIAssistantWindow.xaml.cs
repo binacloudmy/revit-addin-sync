@@ -455,11 +455,32 @@ namespace RevitWebAppSync
                         $"else ShowMessage(\"Not found\", \"No view matching '{n}'.\");";
                 }
 
+                case "run_analysis":
+                {
+                    var op = (GetParamString(action.Params, "operation") ?? "").ToLowerInvariant();
+                    if (op.Contains("cost"))
+                    {
+                        AddDashboardCard(
+                            "💰 Cost estimate",
+                            "Open the Cost dashboard to run the estimate against the model elements.",
+                            "Open Cost dashboard", "cost");
+                        return null;
+                    }
+                    if (op.Contains("clash") || op.Contains("quantit") || op.Contains("qto") || op.Contains("takeoff"))
+                        goto default;   // no in-app entry point yet — let code-gen try
+                    // jkr_compliance / fire_compliance / anything else compliance-ish
+                    AddDashboardCard(
+                        "✓ Compliance check",
+                        "Open the JKR / UBBL Compliance dashboard to run the check on this model.",
+                        "Open Compliance dashboard", "jkr");
+                    return null;
+                }
+
                 case "none":
                     return null;
 
                 default:
-                    // select_elements / run_analysis / export / query / Unknown — code-gen fallback.
+                    // select_elements / export / query / Unknown — code-gen fallback.
                     var gen = await _aiService.GenerateCodeAsync(
                         new Models.AIRequest
                         {
@@ -1191,6 +1212,90 @@ namespace RevitWebAppSync
 
             ActiveChatHistory.Children.Add(textBlock);
             ScrollToBottom();
+        }
+
+        // A chat card that links to one of the existing dockable dashboards
+        // (JKR/UBBL compliance or cost). The Copilot recognises the intent;
+        // the analysis itself still runs in the dedicated panel.
+        private void AddDashboardCard(string title, string body, string buttonLabel, string paneKind)
+        {
+            var border = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(37, 37, 38)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(63, 63, 70)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12, 10, 12, 10),
+                Margin = new Thickness(0, 2, 0, 8)
+            };
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = title,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brushes.White,
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = body,
+                Foreground = new SolidColorBrush(Color.FromRgb(170, 170, 170)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+            var btn = new Button
+            {
+                Content = buttonLabel,
+                Padding = new Thickness(14, 6, 14, 6),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Cursor = Cursors.Hand,
+                Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
+                Background = new SolidColorBrush(Color.FromRgb(0, 120, 212))
+            };
+            btn.Click += (s, e) => OpenDashboardPane(paneKind);
+            stack.Children.Add(btn);
+            border.Child = stack;
+            ActiveChatHistory.Children.Add(border);
+            Log("Bina", $"{title} — {body}");
+            ScrollToBottom();
+        }
+
+        private void OpenDashboardPane(string kind)
+        {
+            try
+            {
+                var uiApp = _uidoc?.Application;
+                if (uiApp == null) { AddError("No active Revit session — open a project first."); return; }
+
+                DockablePaneId paneId;
+                string label;
+                if (kind == "cost") { paneId = CostDashboardHost.PaneId; label = "Cost"; }
+                else { paneId = JkrComplianceDashboardHost.PaneId; label = "JKR / UBBL Compliance"; }
+
+                var pane = uiApp.GetDockablePane(paneId);
+                if (pane == null) { AddError($"The {label} panel isn't registered — restart Revit and try again."); return; }
+                if (!pane.IsShown()) pane.Show();
+
+                if (kind == "cost")
+                {
+                    try
+                    {
+                        App.CostDashboardHost?.DashboardPanel?.SetRevitApp(uiApp);
+                        App.CostDashboardHost?.DashboardPanel?.RefreshData();
+                    }
+                    catch { /* panel may still be initialising */ }
+                }
+                else
+                {
+                    try { App.JkrComplianceDashboardHost?.DashboardPanel?.SetRevitApp(uiApp); } catch { }
+                }
+                AddSuccess($"Opened the {label} dashboard — run the check from there.");
+            }
+            catch (Exception ex)
+            {
+                AddError($"Couldn't open the dashboard: {ex.Message}");
+            }
         }
 
         private void ScrollToBottom()
