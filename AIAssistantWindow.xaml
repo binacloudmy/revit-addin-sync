@@ -117,14 +117,9 @@
             <TextBlock x:Name="StatusText" Text="Ready" FontSize="12" Foreground="#888888" Margin="0,4,0,0"/>
         </StackPanel>
 
-        <!-- Tabbed Chat Areas -->
-        <TabControl x:Name="ModeTabs" Grid.Row="1" Background="Transparent" BorderThickness="0"
-                    Margin="0,0,0,12" SelectionChanged="ModeTabs_SelectionChanged">
-
-            <!-- Revit Copilot Tab -->
-            <TabItem Header="🤖 Revit Copilot" Style="{StaticResource DarkTabItem}">
-                <Border Background="#252526" CornerRadius="0,8,8,8">
-                    <Grid>
+        <!-- Copilot chat area -->
+        <Border Grid.Row="1" Background="#252526" CornerRadius="8" Margin="0,0,0,12">
+            <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="*"/>
@@ -261,20 +256,9 @@
                                     Cursor="Hand" Visibility="Collapsed"
                                     ToolTip="Show the preview panel"
                                     Click="ShowPreviewButton_Click"/>
-                        </Grid>
-                    </Grid>
-                </Border>
-            </TabItem>
-
-            <!-- JKR Guide Tab -->
-            <TabItem Header="📖 JKR Guide" Style="{StaticResource DarkTabItem}">
-                <Border Background="#252526" CornerRadius="0,8,8,8">
-                    <ScrollViewer x:Name="JkrScrollViewer" VerticalScrollBarVisibility="Auto" Padding="12">
-                        <StackPanel x:Name="JkrChatHistory"/>
-                    </ScrollViewer>
-                </Border>
-            </TabItem>
-        </TabControl>
+                </Grid>
+            </Grid>
+        </Border>
 
         <!-- Input Area -->
         <Grid Grid.Row="2" Margin="0,0,0,8">
