@@ -9,6 +9,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace RevitWebAppSync.Services
 {
@@ -93,6 +94,50 @@ namespace RevitWebAppSync.Services
         /// <summary>
         /// Wrap user code in a class structure
         /// </summary>
+        // For each `var x = new Transaction(...)` (or `Transaction x = new ...`)
+        // in the agent's own code, inject our silent fail-handler right after
+        // `x.Start();` and replace `x.Commit();` with a checked Commit that
+        // throws on RolledBack — so a Revit warning modal becomes a silent
+        // rollback that the host can auto-retry, and a rollback can't be
+        // mis-reported as success by the agent's "Done" line.
+        private static string InjectFailureHandlingIntoUserTransactions(string code)
+        {
+            if (string.IsNullOrEmpty(code)) return code;
+
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (Match m in Regex.Matches(
+                code,
+                @"\b(?:var|Transaction)\s+(\w+)\s*=\s*new\s+Transaction\s*\("))
+            {
+                names.Add(m.Groups[1].Value);
+            }
+            if (names.Count == 0) return code;
+
+            foreach (var n in names)
+            {
+                var en = Regex.Escape(n);
+
+                // After `<n>.Start();`, attach the failure preprocessor.
+                code = Regex.Replace(
+                    code,
+                    $@"\b{en}\s*\.\s*Start\s*\(\s*\)\s*;",
+                    m => m.Value
+                         + " { var __fho_" + n + " = " + n + ".GetFailureHandlingOptions();"
+                         + " __fho_" + n + " = __fho_" + n + ".SetFailuresPreprocessor(new __FailHandler());"
+                         + " " + n + ".SetFailureHandlingOptions(__fho_" + n + "); }");
+
+                // `<n>.Commit();` (as a bare statement) → checked Commit that
+                // throws on rollback. Only matches when Commit() is a statement;
+                // doesn't touch `if (<n>.Commit() == ...)` etc.
+                code = Regex.Replace(
+                    code,
+                    $@"\b{en}\s*\.\s*Commit\s*\(\s*\)\s*;",
+                    "if (" + n + ".Commit() != TransactionStatus.Committed)"
+                    + " throw new InvalidOperationException(\"Changes were not applied — the transaction was rolled back (Revit blocked the edit, e.g. shared/locked elements, join conflicts, or warnings escalated to errors).\");");
+            }
+            return code;
+        }
+
         private string WrapCode(string userCode)
         {
             var sb = new StringBuilder();
@@ -160,26 +205,25 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("            if (view != null && this.uidoc != null) this.uidoc.RequestViewChange(view);");
             sb.AppendLine("        }");
             sb.AppendLine();
-            if (!selfManagesTransaction)
-            {
-                // Silent failure handler for the auto-wrap transaction: clear warnings,
-                // and on any error roll the transaction back WITHOUT a modal dialog —
-                // the host then auto-retries with the error fed back to the agent.
-                sb.AppendLine("        private class __FailHandler : IFailuresPreprocessor");
-                sb.AppendLine("        {");
-                sb.AppendLine("            public FailureProcessingResult PreprocessFailures(FailuresAccessor a)");
-                sb.AppendLine("            {");
-                sb.AppendLine("                bool hasError = false;");
-                sb.AppendLine("                foreach (var f in a.GetFailureMessages())");
-                sb.AppendLine("                {");
-                sb.AppendLine("                    if (f.GetSeverity() == FailureSeverity.Warning) a.DeleteWarning(f);");
-                sb.AppendLine("                    else hasError = true;");
-                sb.AppendLine("                }");
-                sb.AppendLine("                return hasError ? FailureProcessingResult.ProceedWithRollBack : FailureProcessingResult.Continue;");
-                sb.AppendLine("            }");
-                sb.AppendLine("        }");
-                sb.AppendLine();
-            }
+            // Silent failure handler — used both for the auto-wrap path AND injected
+            // into any Transaction the agent's code starts on its own (see below).
+            // Clears warnings, rolls back the transaction on any real error WITHOUT
+            // popping a modal — the host then auto-retries with the error fed back
+            // to the agent.
+            sb.AppendLine("        private class __FailHandler : IFailuresPreprocessor");
+            sb.AppendLine("        {");
+            sb.AppendLine("            public FailureProcessingResult PreprocessFailures(FailuresAccessor a)");
+            sb.AppendLine("            {");
+            sb.AppendLine("                bool hasError = false;");
+            sb.AppendLine("                foreach (var f in a.GetFailureMessages())");
+            sb.AppendLine("                {");
+            sb.AppendLine("                    if (f.GetSeverity() == FailureSeverity.Warning) a.DeleteWarning(f);");
+            sb.AppendLine("                    else hasError = true;");
+            sb.AppendLine("                }");
+            sb.AppendLine("                return hasError ? FailureProcessingResult.ProceedWithRollBack : FailureProcessingResult.Continue;");
+            sb.AppendLine("            }");
+            sb.AppendLine("        }");
+            sb.AppendLine();
             if (needsExcel) AppendExcelHelpers(sb);
             sb.AppendLine("        public object Execute(Document doc, UIDocument uidoc, View activeView)");
             sb.AppendLine("        {");
@@ -202,7 +246,16 @@ namespace RevitWebAppSync.Services
             // Count preamble lines so CompileCode can map errors to user lines.
             _userCodeLineOffset = sb.ToString().Split('\n').Length - 1;
 
-            var lines = code.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
+            // When the agent self-manages a Transaction, inject the silent
+            // fail-handler into it and turn its Commit() statement into a
+            // checked one — otherwise Revit pops the warnings modal (e.g.
+            // walls with join conflicts) and a rolled-back transaction
+            // silently looks like success.
+            string processedCode = code;
+            if (selfManagesTransaction)
+                processedCode = InjectFailureHandlingIntoUserTransactions(processedCode);
+
+            var lines = processedCode.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
             foreach (var line in lines)
             {
                 sb.AppendLine(bodyIndent + line);
