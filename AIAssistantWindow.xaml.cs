@@ -944,6 +944,7 @@ namespace RevitWebAppSync
         private void ExecuteCode(string code)
         {
             _lastExecutedCode = code;
+            _handler.Action = "execute";
             _handler.CodeToExecute = code;
             _handler.OnCompleted = (result) =>
             {
@@ -956,6 +957,8 @@ namespace RevitWebAppSync
                         StatusText.Foreground = BrushOk;
                         _retryCount = 0;
                         _ctxLastResult = result.Message ?? "Done";
+                        if (LooksLikeModelChange(code))
+                            AddRevertRow();
                         SetInputEnabled(true);
                     }
                     else
@@ -965,6 +968,91 @@ namespace RevitWebAppSync
                 });
             };
 
+            _externalEvent.Raise();
+        }
+
+        // Heuristic: did this code likely write to the model? Used to decide
+        // whether to surface the "Revert last change" button. Read-only
+        // queries (counts, lists) don't show the button — pressing it would
+        // either no-op (empty transaction) or undo whatever the user did
+        // manually before, which is confusing.
+        private static readonly string[] _writeCallSignatures = new[]
+        {
+            "Transaction(",
+            ".Set(", ".SetParameter",
+            ".ChangeTypeId(",
+            "doc.Delete(", "doc.Create.", "Document.Create.",
+            ".NewRoom", ".NewSection",
+            ".Pin(", ".UnPin(",
+            "ElementTransformUtils.",
+            "JoinGeometryUtils.",
+            "Level.Create", "ViewPlan.Create", "ViewSection.Create", "View3D.Create",
+            "SketchPlane.Create",
+            ".SetGraphicsOverrides(",
+            ".SetElementOverrides(",
+            ".HideElements(", ".UnhideElements(", ".IsolateElement",
+            ".SetCategoryHidden", "SetTemporary",
+        };
+
+        private static bool LooksLikeModelChange(string code)
+        {
+            if (string.IsNullOrEmpty(code)) return false;
+            foreach (var s in _writeCallSignatures)
+                if (code.IndexOf(s, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            return false;
+        }
+
+        // After a successful model-changing run, offer a one-click "↶ Revert"
+        // that posts a Revit Undo (FR-023). Pairs with the error-card's
+        // code-fix flow — if the auto-fix took, the user can still bail out.
+        private void AddRevertRow()
+        {
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 2, 0, 8)
+            };
+            var btn = new Button
+            {
+                Content = "↶  Revert last change",
+                Padding = new Thickness(12, 5, 12, 5),
+                Cursor = Cursors.Hand,
+                Foreground = new SolidColorBrush(Color.FromRgb(204, 204, 204)),
+                BorderThickness = new Thickness(1),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(63, 63, 70)),
+                Background = new SolidColorBrush(Color.FromRgb(45, 45, 48)),
+                FontSize = 11,
+                ToolTip = "Tells Revit to undo the most recent change (equivalent to pressing Ctrl+Z)."
+            };
+            btn.Click += (s, e) =>
+            {
+                btn.IsEnabled = false;
+                DispatchRevert();
+            };
+            panel.Children.Add(btn);
+            CopilotChatHistory.Children.Add(panel);
+            ScrollToBottom();
+        }
+
+        private void DispatchRevert()
+        {
+            StatusText.Text = "Reverting…";
+            StatusText.Foreground = BrushDim;
+            SetInputEnabled(false);
+            _handler.Action = "undo";
+            _handler.CodeToExecute = null;
+            _handler.OnCompleted = (result) =>
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    if (result.Success) AddSuccess(result.Message ?? "Reverted.");
+                    else AddError(result.Error ?? "Couldn't revert.");
+                    StatusText.Text = result.Success ? "Ready" : "Error";
+                    StatusText.Foreground = result.Success ? BrushOk : BrushErr;
+                    SetInputEnabled(true);
+                });
+            };
             _externalEvent.Raise();
         }
 
@@ -1477,7 +1565,7 @@ namespace RevitWebAppSync
             switch ((action ?? "").ToLowerInvariant())
             {
                 case "undo":
-                    AddSuccess("Press Ctrl+Z in Revit to undo the last change.");
+                    DispatchRevert();
                     return;
                 case "rerun":
                     // Re-run the last code directly — no re-review, no re-asking the AI.
