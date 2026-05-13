@@ -918,6 +918,7 @@ namespace RevitWebAppSync
             border.Child = stack;
             ActiveChatHistory.Children.Add(border);
             ScrollToBottom();
+            SetPreview_Error(expl);
         }
 
         private async Task OnErrorFixClickedAsync(Models.ErrorFix fix, string rawError)
@@ -1234,6 +1235,7 @@ namespace RevitWebAppSync
             border.Child = stack;
             ActiveChatHistory.Children.Add(border);
             ScrollToBottom();
+            SetPreview_Code(code);
         }
 
         // Renders the orchestrator's quick-action suggestions as a row of buttons.
@@ -1396,6 +1398,7 @@ namespace RevitWebAppSync
 
             ActiveChatHistory.Children.Add(textBlock);
             ScrollToBottom();
+            SetPreview_Result(message, isError: false);
         }
 
         private void AddError(string message)
@@ -1411,6 +1414,7 @@ namespace RevitWebAppSync
 
             ActiveChatHistory.Children.Add(textBlock);
             ScrollToBottom();
+            SetPreview_Result(message, isError: true);
         }
 
         private void AddWarning(string message)
@@ -1473,6 +1477,7 @@ namespace RevitWebAppSync
             ActiveChatHistory.Children.Add(border);
             Log("Bina", $"{title} — {body}");
             ScrollToBottom();
+            SetPreview_Dashboard(title, body, buttonLabel, paneKind);
         }
 
         private void OpenDashboardPane(string kind)
@@ -1515,6 +1520,227 @@ namespace RevitWebAppSync
         private void ScrollToBottom()
         {
             ActiveScrollViewer.ScrollToEnd();
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Split-view preview panel (FR-031). The chat keeps the full
+        // running history; the preview mirrors the LATEST artefact in
+        // expanded form so the user can read code, results or compliance
+        // outcomes without scrolling. Read-only — interactions still
+        // happen in the chat.
+        // ─────────────────────────────────────────────────────────────
+
+        private void TogglePreviewButton_Click(object sender, RoutedEventArgs e) => HidePreviewPanel();
+        private void ShowPreviewButton_Click(object sender, RoutedEventArgs e) => ShowPreviewPanel();
+
+        private GridLength _savedPreviewWidth = new GridLength(300, GridUnitType.Pixel);
+
+        private void HidePreviewPanel()
+        {
+            try
+            {
+                _savedPreviewWidth = PreviewColumn.Width;
+                PreviewColumn.Width = new GridLength(0);
+                PreviewPanel.Visibility = System.Windows.Visibility.Collapsed;
+                PreviewSplitter.Visibility = System.Windows.Visibility.Collapsed;
+                ShowPreviewButton.Visibility = System.Windows.Visibility.Visible;
+            }
+            catch { /* layout may not be ready */ }
+        }
+
+        private void ShowPreviewPanel()
+        {
+            try
+            {
+                if (_savedPreviewWidth.Value <= 0)
+                    _savedPreviewWidth = new GridLength(300, GridUnitType.Pixel);
+                PreviewColumn.Width = _savedPreviewWidth;
+                PreviewPanel.Visibility = System.Windows.Visibility.Visible;
+                PreviewSplitter.Visibility = System.Windows.Visibility.Visible;
+                ShowPreviewButton.Visibility = System.Windows.Visibility.Collapsed;
+            }
+            catch { /* layout may not be ready */ }
+        }
+
+        private void ResetPreview(string header)
+        {
+            try
+            {
+                PreviewContent.Children.Clear();
+                PreviewHeader.Text = header ?? "Preview";
+            }
+            catch { }
+        }
+
+        private static SolidColorBrush PrevBgBrush() => new SolidColorBrush(Color.FromRgb(45, 45, 48));
+        private static SolidColorBrush PrevBorderBrush() => new SolidColorBrush(Color.FromRgb(63, 63, 70));
+        private static SolidColorBrush PrevFgBrush() => new SolidColorBrush(Color.FromRgb(220, 220, 220));
+        private static SolidColorBrush PrevDimBrush() => new SolidColorBrush(Color.FromRgb(170, 170, 170));
+
+        private void SetPreview_Code(string code)
+        {
+            if (string.IsNullOrWhiteSpace(code)) return;
+            ResetPreview("Latest code");
+            var box = new TextBox
+            {
+                Text = code,
+                IsReadOnly = true,
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.NoWrap,
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 11,
+                Foreground = new SolidColorBrush(Color.FromRgb(200, 220, 255)),
+                Background = new SolidColorBrush(Color.FromRgb(30, 30, 30)),
+                BorderThickness = new Thickness(1),
+                BorderBrush = PrevBorderBrush(),
+                Padding = new Thickness(8),
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+            };
+            PreviewContent.Children.Add(box);
+        }
+
+        private void SetPreview_Result(string message, bool isError)
+        {
+            if (string.IsNullOrWhiteSpace(message)) return;
+            ResetPreview(isError ? "Last error" : "Last result");
+            var border = new Border
+            {
+                Background = isError
+                    ? new SolidColorBrush(Color.FromRgb(43, 30, 30))
+                    : new SolidColorBrush(Color.FromRgb(28, 40, 32)),
+                BorderBrush = isError
+                    ? new SolidColorBrush(Color.FromRgb(120, 50, 50))
+                    : new SolidColorBrush(Color.FromRgb(40, 100, 60)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(10, 8, 10, 8)
+            };
+            // Use a TextBox in NoWrap mode so tabular results stay aligned (the
+            // monospace render is what makes the door-count tables readable).
+            var box = new TextBox
+            {
+                Text = message,
+                IsReadOnly = true,
+                AcceptsReturn = true,
+                TextWrapping = TextWrapping.NoWrap,
+                BorderThickness = new Thickness(0),
+                Background = Brushes.Transparent,
+                Foreground = isError
+                    ? new SolidColorBrush(Color.FromRgb(255, 130, 130))
+                    : new SolidColorBrush(Color.FromRgb(120, 220, 150)),
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 11,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto
+            };
+            border.Child = box;
+            PreviewContent.Children.Add(border);
+        }
+
+        private void SetPreview_Dashboard(string title, string body, string buttonLabel, string paneKind)
+        {
+            ResetPreview("Action card");
+            var border = new Border
+            {
+                Background = PrevBgBrush(),
+                BorderBrush = PrevBorderBrush(),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12, 10, 12, 10)
+            };
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = title,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brushes.White,
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = body,
+                Foreground = PrevDimBrush(),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 8)
+            });
+            var btn = new Button
+            {
+                Content = buttonLabel,
+                Padding = new Thickness(12, 5, 12, 5),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Cursor = Cursors.Hand,
+                Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
+                Background = new SolidColorBrush(Color.FromRgb(0, 120, 212))
+            };
+            btn.Click += (s, e) => OpenDashboardPane(paneKind);
+            stack.Children.Add(btn);
+            border.Child = stack;
+            PreviewContent.Children.Add(border);
+        }
+
+        private void SetPreview_Error(Models.ErrorExplanation expl)
+        {
+            if (expl == null) return;
+            ResetPreview("Last error");
+            var border = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(43, 30, 30)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(120, 50, 50)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12, 10, 12, 10)
+            };
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = "⚠  That didn't work",
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(255, 130, 130)),
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = expl.Explanation ?? "",
+                Foreground = PrevFgBrush(),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+            if (!string.IsNullOrWhiteSpace(expl.RootCause)
+                && !string.Equals(expl.RootCause.Trim(), (expl.Explanation ?? "").Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = "Why: " + expl.RootCause,
+                    Foreground = PrevDimBrush(),
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = 11,
+                    Margin = new Thickness(0, 0, 0, 6)
+                });
+            }
+            if (expl.Fixes != null && expl.Fixes.Count > 0)
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = "Suggested next steps:",
+                    Foreground = PrevDimBrush(),
+                    FontSize = 11,
+                    Margin = new Thickness(0, 4, 0, 2)
+                });
+                foreach (var fx in expl.Fixes)
+                {
+                    if (fx == null || string.IsNullOrWhiteSpace(fx.Label)) continue;
+                    stack.Children.Add(new TextBlock
+                    {
+                        Text = (fx.Recommended ? "★ " : "•  ") + fx.Label,
+                        Foreground = PrevFgBrush(),
+                        TextWrapping = TextWrapping.Wrap,
+                        Margin = new Thickness(8, 1, 0, 1)
+                    });
+                }
+            }
+            border.Child = stack;
+            PreviewContent.Children.Add(border);
         }
 
         private void SetInputEnabled(bool enabled)
