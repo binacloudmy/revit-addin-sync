@@ -445,7 +445,12 @@ namespace RevitWebAppSync
                                ?? GetParamString(action.Params, "name") ?? GetParamString(action.Params, "target")
                                ?? GetParamString(action.Params, "view_name");
                     if (string.IsNullOrWhiteSpace(name)) goto default;
-                    var n = name.Replace("\\", "").Replace("\"", "").Trim();
+                    // The intent router sometimes leaves the raw "@mention" token in the
+                    // param (e.g. "@Aras 02" or "@View_Level 2"). Revit view names don't
+                    // include the "@" or the type prefix, so strip them before searching.
+                    var n = name.Trim().TrimStart('@').Trim();
+                    n = Regex.Replace(n, @"^(Level|View|Grid|Room|Type|Category|System)_", "", RegexOptions.IgnoreCase);
+                    n = n.Replace("\\", "").Replace("\"", "").Trim();
                     return
                         $"var __v = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()\n" +
                         $"    .FirstOrDefault(v => !v.IsTemplate && string.Equals(v.Name, \"{n}\", StringComparison.OrdinalIgnoreCase));\n" +
