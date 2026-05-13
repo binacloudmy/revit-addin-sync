@@ -979,14 +979,14 @@ namespace RevitWebAppSync
             };
             toggle.MouseLeftButtonUp += (s, e) =>
             {
-                if (textBox.Visibility == Visibility.Visible)
+                if (textBox.Visibility == System.Windows.Visibility.Visible)
                 {
-                    textBox.Visibility = Visibility.Collapsed;
+                    textBox.Visibility = System.Windows.Visibility.Collapsed;
                     toggle.Text = "▸ code (hidden)";
                 }
                 else
                 {
-                    textBox.Visibility = Visibility.Visible;
+                    textBox.Visibility = System.Windows.Visibility.Visible;
                     toggle.Text = "▾ code";
                 }
             };
