@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using Color = System.Windows.Media.Color;
@@ -120,6 +121,33 @@ namespace RevitWebAppSync
         private List<MentionItem> _mentionCatalog;
         private int _mentionTokenStart = -1;
 
+        // Common category names → BuiltInCategory enum names. Used both for the
+        // @all_X catalog entries and for chip-click selection codegen.
+        private static readonly Dictionary<string, string> _categoryNameToBic = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "walls", "OST_Walls" },
+            { "doors", "OST_Doors" },
+            { "windows", "OST_Windows" },
+            { "floors", "OST_Floors" },
+            { "roofs", "OST_Roofs" },
+            { "ceilings", "OST_Ceilings" },
+            { "rooms", "OST_Rooms" },
+            { "columns", "OST_Columns" },
+            { "grids", "OST_Grids" },
+            { "furniture", "OST_Furniture" },
+            { "structural columns", "OST_StructuralColumns" },
+            { "structural framing", "OST_StructuralFraming" },
+            { "pipes", "OST_PipeCurves" },
+            { "ducts", "OST_DuctCurves" },
+            { "plumbing fixtures", "OST_PlumbingFixtures" },
+            { "mechanical equipment", "OST_MechanicalEquipment" },
+            { "electrical fixtures", "OST_ElectricalFixtures" },
+            { "lighting fixtures", "OST_LightingFixtures" },
+        };
+
+        private static string BicNameFor(string categoryName)
+            => categoryName != null && _categoryNameToBic.TryGetValue(categoryName, out var bic) ? bic : null;
+
         private void BuildMentionCatalogIfNeeded()
         {
             if (_mentionCatalog != null) return;
@@ -129,37 +157,273 @@ namespace RevitWebAppSync
             list.Add(new MentionItem("selected", "@selected", "current selection", "@selected -> the elements currently selected in Revit"));
             list.Add(new MentionItem("here", "@here", "elements in active view", "@here -> the elements visible in the active view"));
             foreach (var cat in new[] { "walls", "doors", "windows", "floors", "roofs", "ceilings", "rooms", "columns", "grids" })
-                list.Add(new MentionItem("all_" + cat, "@all_" + cat, "all " + cat, $"@all_{cat} -> every {cat} element in the model"));
+                list.Add(new MentionItem("all_" + cat, "@all_" + cat, "all " + cat,
+                    $"@all_{cat} -> every {cat} element in the model",
+                    bicName: BicNameFor(cat)));
 
             try
             {
                 foreach (var lvl in new FilteredElementCollector(_doc).OfClass(typeof(Level)).Cast<Level>().OrderBy(l => l.Elevation))
-                    list.Add(new MentionItem(lvl.Name, "@" + lvl.Name, "Level", $"@{lvl.Name} -> Level (id {lvl.Id.Value})"));
+                    list.Add(new MentionItem(lvl.Name, "@" + lvl.Name, "Level",
+                        $"@{lvl.Name} -> Level (id {lvl.Id.Value})",
+                        elementId: lvl.Id.Value));
 
                 foreach (var g in new FilteredElementCollector(_doc).OfCategory(BuiltInCategory.OST_Grids).WhereElementIsNotElementType())
-                    list.Add(new MentionItem(g.Name, "@" + g.Name, "Grid", $"@{g.Name} -> Grid (id {g.Id.Value})"));
+                    list.Add(new MentionItem(g.Name, "@" + g.Name, "Grid",
+                        $"@{g.Name} -> Grid (id {g.Id.Value})",
+                        elementId: g.Id.Value));
 
                 foreach (var v in new FilteredElementCollector(_doc).OfClass(typeof(View)).Cast<View>().Where(v => !v.IsTemplate).OrderBy(v => v.Name).Take(200))
-                    list.Add(new MentionItem(v.Name, "@" + v.Name, $"View · {v.ViewType}", $"@{v.Name} -> View, type {v.ViewType} (id {v.Id.Value})"));
+                    list.Add(new MentionItem(v.Name, "@" + v.Name, $"View · {v.ViewType}",
+                        $"@{v.Name} -> View, type {v.ViewType} (id {v.Id.Value})",
+                        elementId: v.Id.Value));
 
                 foreach (var r in new FilteredElementCollector(_doc).OfCategory(BuiltInCategory.OST_Rooms).WhereElementIsNotElementType()
                             .Cast<Autodesk.Revit.DB.Architecture.Room>().Where(r => r.Area > 0).Take(300))
                 {
                     var disp = (string.IsNullOrEmpty(r.Number) ? "" : r.Number + " ") + r.Name;
-                    list.Add(new MentionItem(disp, "@" + disp, "Room", $"@{disp} -> Room (id {r.Id.Value})"));
+                    list.Add(new MentionItem(disp, "@" + disp, "Room",
+                        $"@{disp} -> Room (id {r.Id.Value})",
+                        elementId: r.Id.Value));
                 }
 
                 foreach (var s in new FilteredElementCollector(_doc).OfClass(typeof(Autodesk.Revit.DB.MEPSystem)).Cast<Autodesk.Revit.DB.MEPSystem>().Take(100))
-                    list.Add(new MentionItem(s.Name, "@" + s.Name, "System", $"@{s.Name} -> MEP system (id {s.Id.Value})"));
+                    list.Add(new MentionItem(s.Name, "@" + s.Name, "System",
+                        $"@{s.Name} -> MEP system (id {s.Id.Value})",
+                        elementId: s.Id.Value));
             }
             catch { /* keep whatever we collected */ }
 
             foreach (var c in new[] { "Walls", "Doors", "Windows", "Floors", "Roofs", "Ceilings", "Rooms", "Furniture", "Columns",
                                        "Structural Columns", "Structural Framing", "Pipes", "Ducts", "Plumbing Fixtures",
                                        "Mechanical Equipment", "Electrical Fixtures", "Lighting Fixtures" })
-                list.Add(new MentionItem(c, "@" + c, "Category", $"@{c} -> Category"));
+                list.Add(new MentionItem(c, "@" + c, "Category", $"@{c} -> Category",
+                    bicName: BicNameFor(c)));
 
             _mentionCatalog = list;   // always assigned — never rebuilt
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Clickable @mention badges (FR-008 / FR-032). Parse a chat
+        // message for catalog @mentions and render each one as a coloured,
+        // clickable Border inline. Click → select the referenced element(s)
+        // in Revit via the same external-event channel as code execution.
+        // ─────────────────────────────────────────────────────────────
+
+        // Greedy: replace every catalog @mention in `text` with a chip and the
+        // rest with plain Runs, populating `target.Inlines`. Falls back to a
+        // single plain Run if the catalog isn't built yet.
+        private void RenderTextWithMentions(TextBlock target, string text, Brush plainFg)
+        {
+            if (target == null) return;
+            target.Inlines.Clear();
+            if (string.IsNullOrEmpty(text))
+                return;
+
+            BuildMentionCatalogIfNeeded();
+            // Sort by InsertText length DESC so longer matches win (e.g. "@Aras 02"
+            // beats "@Aras").
+            var sorted = _mentionCatalog?
+                .Where(m => !string.IsNullOrEmpty(m.InsertText))
+                .OrderByDescending(m => m.InsertText.Length)
+                .ToList() ?? new List<MentionItem>();
+
+            var buf = new System.Text.StringBuilder();
+            void FlushBuf()
+            {
+                if (buf.Length == 0) return;
+                target.Inlines.Add(new Run(buf.ToString()) { Foreground = plainFg });
+                buf.Clear();
+            }
+
+            int i = 0;
+            while (i < text.Length)
+            {
+                if (text[i] == '@')
+                {
+                    MentionItem hit = null;
+                    foreach (var m in sorted)
+                    {
+                        var it = m.InsertText;
+                        if (i + it.Length > text.Length) continue;
+                        if (string.Compare(text, i, it, 0, it.Length, StringComparison.OrdinalIgnoreCase) != 0) continue;
+                        int after = i + it.Length;
+                        if (after == text.Length || IsMentionBoundaryChar(text[after]))
+                        {
+                            hit = m;
+                            break;
+                        }
+                    }
+                    if (hit != null)
+                    {
+                        FlushBuf();
+                        target.Inlines.Add(new InlineUIContainer(CreateMentionChip(hit))
+                        {
+                            BaselineAlignment = BaselineAlignment.Center
+                        });
+                        i += hit.InsertText.Length;
+                        continue;
+                    }
+                }
+                buf.Append(text[i]);
+                i++;
+            }
+            FlushBuf();
+        }
+
+        private static bool IsMentionBoundaryChar(char c)
+            => !char.IsLetterOrDigit(c) && c != '_';
+
+        // Visual chip for one resolved @mention. Tooltip shows the type +
+        // element id (if any); click dispatches a selection in Revit.
+        private Border CreateMentionChip(MentionItem m)
+        {
+            var (bg, fg) = ChipColorsFor(m.TypeLabel);
+            var label = new TextBlock
+            {
+                Text = m.InsertText,
+                Foreground = fg,
+                FontSize = 11,
+                FontWeight = FontWeights.SemiBold,
+                Padding = new Thickness(0)
+            };
+            var border = new Border
+            {
+                Background = bg,
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(6, 1, 6, 2),
+                Margin = new Thickness(1, 0, 1, 0),
+                Cursor = Cursors.Hand,
+                BorderThickness = new Thickness(0),
+                ToolTip = m.TypeLabel + (m.ElementId.HasValue ? "  ·  id " + m.ElementId.Value : "")
+                                       + "\nClick to select in Revit"
+            };
+            border.Child = label;
+            // Hover effect — slightly brighter background.
+            var baseBg = bg;
+            border.MouseEnter += (s, e) => border.Background = BrightenBrush(baseBg, 0.15);
+            border.MouseLeave += (s, e) => border.Background = baseBg;
+            border.MouseLeftButtonUp += (s, e) => OnMentionChipClicked(m);
+            return border;
+        }
+
+        private static (SolidColorBrush bg, SolidColorBrush fg) ChipColorsFor(string typeLabel)
+        {
+            var t = (typeLabel ?? "").ToLowerInvariant();
+            if (t == "level")                  return (Rgb(30, 92, 138), Rgb(168, 216, 255));
+            if (t.StartsWith("view"))          return (Rgb(94, 61, 142),  Rgb(217, 188, 255));
+            if (t == "grid")                   return (Rgb(122, 70, 18),  Rgb(255, 207, 161));
+            if (t == "room")                   return (Rgb(31, 106, 60),  Rgb(168, 255, 200));
+            if (t == "system")                 return (Rgb(122, 30, 92),  Rgb(255, 168, 216));
+            if (t == "category")               return (Rgb(122, 108, 18), Rgb(255, 232, 161));
+            if (t.StartsWith("all "))          return (Rgb(31, 90, 106),  Rgb(168, 224, 255));
+            if (t == "current selection")      return (Rgb(63, 63, 70),   Rgb(204, 204, 204));
+            if (t == "elements in active view")return (Rgb(63, 63, 70),   Rgb(204, 204, 204));
+            return (Rgb(63, 63, 70), Rgb(204, 204, 204));
+        }
+
+        private static SolidColorBrush Rgb(byte r, byte g, byte b) => new SolidColorBrush(Color.FromRgb(r, g, b));
+
+        private static SolidColorBrush BrightenBrush(SolidColorBrush src, double amount)
+        {
+            if (src == null) return null;
+            var c = src.Color;
+            byte Up(byte v) => (byte)Math.Min(255, v + (int)((255 - v) * amount));
+            return new SolidColorBrush(Color.FromRgb(Up(c.R), Up(c.G), Up(c.B)));
+        }
+
+        private void OnMentionChipClicked(MentionItem m)
+        {
+            if (m == null) return;
+            var code = BuildChipClickCode(m);
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                AddSuccess("Tip: type '" + m.InsertText + "' in a request — this kind of mention isn't directly selectable from a click.");
+                return;
+            }
+            StatusText.Text = "Selecting in Revit…";
+            StatusText.Foreground = BrushDim;
+            SetInputEnabled(false);
+            _handler.CodeToExecute = code;
+            _handler.OnCompleted = (result) =>
+            {
+                Dispatcher.Invoke(() =>
+                {
+                    if (result.Success) AddSuccess(result.Message ?? "Done.");
+                    else AddError(result.Error ?? "Selection failed.");
+                    SetInputEnabled(true);
+                    StatusText.Text = result.Success ? "Ready" : "Error";
+                    StatusText.Foreground = result.Success ? BrushOk : BrushErr;
+                });
+            };
+            _externalEvent.Raise();
+        }
+
+        // Synthesise C# that picks the referenced element(s) in Revit based
+        // on the mention's TypeLabel + (ElementId or BicName).
+        private static string BuildChipClickCode(MentionItem m)
+        {
+            var t = (m.TypeLabel ?? "").ToLowerInvariant();
+            string name = (m.Display ?? "").Replace("\"", "");
+
+            // No-op for current selection.
+            if (t == "current selection") return null;
+
+            // @here → everything in the active view.
+            if (t == "elements in active view")
+                return
+                    "var __ids = new FilteredElementCollector(doc, doc.ActiveView.Id)" +
+                    ".WhereElementIsNotElementType().ToElementIds().ToList(); " +
+                    "uidoc.Selection.SetElementIds(__ids); " +
+                    "ShowMessage(\"Selected\", __ids.Count + \" element(s) in the active view\");";
+
+            // @all_X → all elements of category X across the model.
+            if (t.StartsWith("all ") && !string.IsNullOrEmpty(m.BicName))
+            {
+                string catWord = t.Substring(4);
+                return
+                    $"var __ids = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.{m.BicName})" +
+                    ".WhereElementIsNotElementType().ToElementIds().ToList(); " +
+                    "uidoc.Selection.SetElementIds(__ids); " +
+                    $"ShowMessage(\"Selected\", __ids.Count + \" {catWord}\");";
+            }
+
+            // @Level X → open that level's default floor plan.
+            if (t == "level" && m.ElementId.HasValue)
+                return
+                    $"var __levelId = new ElementId({m.ElementId.Value}L); " +
+                    "var __plan = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan)).Cast<ViewPlan>()" +
+                    ".FirstOrDefault(v => v.GenLevel != null && v.GenLevel.Id == __levelId && !v.IsTemplate); " +
+                    $"if (__plan != null) {{ OpenView(__plan); ShowMessage(\"Opened\", __plan.Name); }} " +
+                    $"else ShowMessage(\"Not found\", \"No floor plan for {name}\");";
+
+            // @View X → open that view.
+            if (t.StartsWith("view") && m.ElementId.HasValue)
+                return
+                    $"var __v = doc.GetElement(new ElementId({m.ElementId.Value}L)) as View; " +
+                    "if (__v != null) { OpenView(__v); ShowMessage(\"Opened\", __v.Name); } " +
+                    "else ShowMessage(\"Not found\", \"View no longer in the document\");";
+
+            // @Grid / @Room / @System X → select that single element.
+            if ((t == "grid" || t == "room" || t == "system") && m.ElementId.HasValue)
+                return
+                    $"var __el = doc.GetElement(new ElementId({m.ElementId.Value}L)); " +
+                    "if (__el != null) { " +
+                        "uidoc.Selection.SetElementIds(new List<ElementId>{ __el.Id }); " +
+                        $"ShowMessage(\"Selected\", __el.Name ?? \"{name}\"); " +
+                    "} else { " +
+                        "ShowMessage(\"Not found\", \"Element no longer in the document\"); " +
+                    "}";
+
+            // @Walls / @Doors / @Rooms (Category) → select all in the active view.
+            if (t == "category" && !string.IsNullOrEmpty(m.BicName))
+                return
+                    $"var __ids = new FilteredElementCollector(doc, doc.ActiveView.Id).OfCategory(BuiltInCategory.{m.BicName})" +
+                    ".WhereElementIsNotElementType().ToElementIds().ToList(); " +
+                    "uidoc.Selection.SetElementIds(__ids); " +
+                    $"ShowMessage(\"Selected\", __ids.Count + \" {name.ToLowerInvariant()} in the active view\");";
+
+            return null;
         }
 
         private void PromptInput_TextChanged(object sender, TextChangedEventArgs e)
@@ -1093,13 +1357,15 @@ namespace RevitWebAppSync
 
             if (isUser)
             {
+                // User messages get inline @mention chips — each catalog mention
+                // becomes a coloured, clickable badge.
                 var textBlock = new TextBlock
                 {
-                    Text = text,
                     Foreground = Brushes.White,
                     TextWrapping = TextWrapping.Wrap,
                     MaxWidth = 350
                 };
+                RenderTextWithMentions(textBlock, text, Brushes.White);
                 border.Child = textBlock;
             }
             else
@@ -1693,13 +1959,18 @@ namespace RevitWebAppSync
         public string InsertText { get; }    // "@Level 2"
         public string TypeLabel { get; }     // "Level", "View · FloorPlan", "Category", ...
         public string Resolved { get; }      // "@Level 2 -> Level (id 12345)"  — sent to the agent
+        public long? ElementId { get; }      // single-element mentions only (Level / View / Grid / Room / System)
+        public string BicName { get; }       // BuiltInCategory enum name for Category / all_X mentions
 
-        public MentionItem(string display, string insertText, string typeLabel, string resolved)
+        public MentionItem(string display, string insertText, string typeLabel, string resolved,
+                           long? elementId = null, string bicName = null)
         {
             Display = display ?? string.Empty;
             InsertText = insertText ?? string.Empty;
             TypeLabel = typeLabel ?? string.Empty;
             Resolved = resolved ?? string.Empty;
+            ElementId = elementId;
+            BicName = bicName;
         }
     }
 }
