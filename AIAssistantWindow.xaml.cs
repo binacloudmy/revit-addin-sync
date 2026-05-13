@@ -733,11 +733,7 @@ namespace RevitWebAppSync
             {
                 if (_retryCount >= MaxRetries || string.IsNullOrEmpty(_config?.AccessToken))
                 {
-                    AddError(error);
-                    StatusText.Text = "Execution failed";
-                    StatusText.Foreground = BrushErr;
-                    _retryCount = 0;
-                    SetInputEnabled(true);
+                    await ShowErrorExplainerAsync(error);
                     return;
                 }
 
@@ -760,11 +756,7 @@ namespace RevitWebAppSync
                 }
                 else
                 {
-                    AddError(resp?.Error ?? error);
-                    StatusText.Text = "Execution failed";
-                    StatusText.Foreground = BrushErr;
-                    _retryCount = 0;
-                    SetInputEnabled(true);
+                    await ShowErrorExplainerAsync(resp?.Error ?? error);
                 }
             }
             catch (Exception ex)
@@ -778,6 +770,196 @@ namespace RevitWebAppSync
                     SetInputEnabled(true);
                 }
                 catch { }
+            }
+        }
+
+        // After auto-fix is exhausted (or unavailable), ask the backend to
+        // explain the failure in plain English and offer a few next steps,
+        // rendered as a card. Falls back to the raw error if the call fails.
+        private async Task ShowErrorExplainerAsync(string error)
+        {
+            _retryCount = 0;
+            SetInputEnabled(true);
+            StatusText.Text = "Execution failed";
+            StatusText.Foreground = BrushErr;
+
+            Models.ErrorExplanation expl = null;
+            try
+            {
+                expl = await _aiService.ExplainErrorAsync(
+                    error, _lastExecutedCode, _lastUserPrompt, GetModelContext(),
+                    UserIdOrNull, _sessionId, _config?.AccessToken);
+            }
+            catch { /* fall through to raw error */ }
+
+            if (expl == null || string.IsNullOrWhiteSpace(expl.Explanation))
+            {
+                AddError(error);
+                return;
+            }
+            AddErrorExplainerCard(expl, error);
+        }
+
+        private void AddErrorExplainerCard(Models.ErrorExplanation expl, string rawError)
+        {
+            Log("Error", $"{expl.Explanation}" + (string.IsNullOrWhiteSpace(expl.RootCause) ? "" : $" (root cause: {expl.RootCause})"));
+
+            var border = new Border
+            {
+                Background = new SolidColorBrush(Color.FromRgb(43, 30, 30)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(120, 50, 50)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12, 10, 12, 10),
+                Margin = new Thickness(0, 4, 0, 8)
+            };
+            var stack = new StackPanel();
+            stack.Children.Add(new TextBlock
+            {
+                Text = "⚠  That didn't work",
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(255, 130, 130)),
+                Margin = new Thickness(0, 0, 0, 4)
+            });
+            stack.Children.Add(new TextBlock
+            {
+                Text = expl.Explanation,
+                Foreground = new SolidColorBrush(Color.FromRgb(220, 220, 220)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 0, 0, 6)
+            });
+            if (!string.IsNullOrWhiteSpace(expl.RootCause) &&
+                !string.Equals(expl.RootCause.Trim(), expl.Explanation.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = "Why: " + expl.RootCause,
+                    Foreground = new SolidColorBrush(Color.FromRgb(170, 170, 170)),
+                    TextWrapping = TextWrapping.Wrap,
+                    FontSize = 11,
+                    Margin = new Thickness(0, 0, 0, 8)
+                });
+            }
+
+            if (expl.Fixes != null && expl.Fixes.Count > 0)
+            {
+                var fixPanel = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
+                foreach (var fx in expl.Fixes)
+                {
+                    if (fx == null || string.IsNullOrWhiteSpace(fx.Label)) continue;
+                    var btn = new Button
+                    {
+                        Content = fx.Recommended ? "★ " + fx.Label : fx.Label,
+                        ToolTip = fx.Description,
+                        Padding = new Thickness(12, 5, 12, 5),
+                        Margin = new Thickness(0, 0, 6, 6),
+                        Cursor = Cursors.Hand,
+                        FontSize = 11,
+                        Foreground = fx.Recommended ? Brushes.White : new SolidColorBrush(Color.FromRgb(204, 204, 204)),
+                        BorderThickness = new Thickness(fx.Recommended ? 0 : 1),
+                        BorderBrush = new SolidColorBrush(Color.FromRgb(63, 63, 70)),
+                        Background = fx.Recommended
+                            ? new SolidColorBrush(Color.FromRgb(0, 120, 212))
+                            : new SolidColorBrush(Color.FromRgb(45, 45, 48))
+                    };
+                    var capturedFix = fx;
+                    btn.Click += async (s, e) =>
+                    {
+                        foreach (var child in fixPanel.Children)
+                            if (child is Button b) b.IsEnabled = false;
+                        await OnErrorFixClickedAsync(capturedFix, rawError);
+                    };
+                    fixPanel.Children.Add(btn);
+                }
+                if (fixPanel.Children.Count > 0) stack.Children.Add(fixPanel);
+            }
+
+            // Collapsible raw error.
+            var rawToggle = new Button
+            {
+                Content = "▸ raw error",
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Foreground = new SolidColorBrush(Color.FromRgb(140, 140, 140)),
+                Cursor = Cursors.Hand,
+                FontSize = 10,
+                Padding = new Thickness(0)
+            };
+            var rawBox = new TextBox
+            {
+                Text = rawError ?? "",
+                IsReadOnly = true,
+                TextWrapping = TextWrapping.Wrap,
+                MaxHeight = 120,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Background = new SolidColorBrush(Color.FromRgb(30, 30, 30)),
+                Foreground = new SolidColorBrush(Color.FromRgb(200, 120, 120)),
+                BorderThickness = new Thickness(0),
+                FontFamily = new FontFamily("Consolas"),
+                FontSize = 11,
+                Margin = new Thickness(0, 4, 0, 0),
+                Visibility = System.Windows.Visibility.Collapsed
+            };
+            rawToggle.Click += (s, e) =>
+            {
+                bool show = rawBox.Visibility != System.Windows.Visibility.Visible;
+                rawBox.Visibility = show ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+                rawToggle.Content = (show ? "▾ raw error" : "▸ raw error");
+            };
+            stack.Children.Add(rawToggle);
+            stack.Children.Add(rawBox);
+
+            border.Child = stack;
+            ActiveChatHistory.Children.Add(border);
+            ScrollToBottom();
+        }
+
+        private async Task OnErrorFixClickedAsync(Models.ErrorFix fix, string rawError)
+        {
+            if (fix == null) return;
+            if (!fix.CodeFix)
+            {
+                // Manual step — just surface the instruction.
+                AddMessage(string.IsNullOrWhiteSpace(fix.Description) ? fix.Label : fix.Description, isUser: false);
+                return;
+            }
+
+            // Code fix — ask the backend to regenerate, then let the user review & Run.
+            AddWarning("Regenerating the code…");
+            StatusText.Text = "Regenerating…";
+            StatusText.Foreground = BrushDim;
+            SetInputEnabled(false);
+            try
+            {
+                var resp = await _aiService.RetryCodeAsync(
+                    _lastUserPrompt, _lastExecutedCode, rawError ?? "", 1,
+                    UserIdOrNull, _sessionId, _config?.AccessToken);
+                if (resp != null && resp.Success && !string.IsNullOrEmpty(resp.Code))
+                {
+                    AddMessage(resp.Explanation ?? "Here's a corrected version — review it and click Run.", isUser: false);
+                    AddCodeBlock(resp.Code);
+                    AddRunDiscardRow(resp.Code);
+                    _lastExecutedCode = resp.Code;
+                    StatusText.Text = "Review the code above, then click Run.";
+                    StatusText.Foreground = BrushDim;
+                }
+                else
+                {
+                    AddError(resp?.Error ?? "Couldn't regenerate the code.");
+                    StatusText.Text = "Error";
+                    StatusText.Foreground = BrushErr;
+                }
+            }
+            catch (Exception ex)
+            {
+                AddError("Regeneration failed: " + ex.Message);
+                StatusText.Text = "Error";
+                StatusText.Foreground = BrushErr;
+            }
+            finally
+            {
+                SetInputEnabled(true);
             }
         }
 

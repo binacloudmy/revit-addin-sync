@@ -207,6 +207,47 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Ask the backend for a plain-English explanation of a failed execution
+        /// plus a short list of fix options. Returns null on any failure (caller
+        /// falls back to showing the raw error).
+        /// </summary>
+        public async Task<Models.ErrorExplanation> ExplainErrorAsync(
+            string error, string failedCode, string originalPrompt, object context,
+            int? userId, string sessionId, string accessToken,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var body = new
+                {
+                    error = error ?? string.Empty,
+                    code = failedCode,
+                    original_prompt = originalPrompt,
+                    context = context,
+                    userId = userId,
+                    sessionId = sessionId
+                };
+                var json = JsonConvert.SerializeObject(body);
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/revit-ai/explain-error")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+                if (!string.IsNullOrEmpty(accessToken))
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await _httpClient.SendAsync(request, cancellationToken);
+                var responseBody = await response.Content.ReadAsStringAsync();
+                if (response.IsSuccessStatusCode)
+                    return JsonConvert.DeserializeObject<Models.ErrorExplanation>(responseBody);
+                return null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Check if backend is available.
         /// </summary>
         public async Task<bool> HealthCheckAsync(CancellationToken cancellationToken = default)
