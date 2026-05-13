@@ -296,11 +296,6 @@ namespace RevitWebAppSync.Services
         /// </summary>
         private Assembly CompileCode(string code, out AssemblyLoadContext loadContext)
         {
-            // Force ClosedXML to load so it appears in GetAssemblies() below — the
-            // generated wrapper has `using ClosedXML.Excel;` and the Excel helpers,
-            // so its assembly must be referenced even if nothing else touched it yet.
-            _ = typeof(ClosedXML.Excel.XLWorkbook);
-
             var syntaxTree = CSharpSyntaxTree.ParseText(code);
 
             // Collect all necessary references
@@ -322,18 +317,25 @@ namespace RevitWebAppSync.Services
                 }
             }
 
-            // Ensure Revit API is included
-            var revitApiAssembly = typeof(Document).Assembly;
-            var revitApiUiAssembly = typeof(UIDocument).Assembly;
+            // Helper: make sure a specific assembly is in the reference set.
+            void EnsureRef(Assembly asm, string nameHint)
+            {
+                try
+                {
+                    if (asm == null || string.IsNullOrEmpty(asm.Location)) return;
+                    if (references.Any(r => r.Display != null && r.Display.IndexOf(nameHint, StringComparison.OrdinalIgnoreCase) >= 0)) return;
+                    references.Add(MetadataReference.CreateFromFile(asm.Location));
+                }
+                catch { }
+            }
 
-            if (!references.Any(r => r.Display?.Contains("RevitAPI") == true))
-            {
-                references.Add(MetadataReference.CreateFromFile(revitApiAssembly.Location));
-            }
-            if (!references.Any(r => r.Display?.Contains("RevitAPIUI") == true))
-            {
-                references.Add(MetadataReference.CreateFromFile(revitApiUiAssembly.Location));
-            }
+            // Ensure Revit API is included
+            EnsureRef(typeof(Document).Assembly, "RevitAPI");
+            EnsureRef(typeof(UIDocument).Assembly, "RevitAPIUI");
+
+            // Ensure ClosedXML is included — the wrapper may `using ClosedXML.Excel;`
+            // and use the WriteExcel/ReadExcel* helpers. typeof(...) also forces a load.
+            try { EnsureRef(typeof(ClosedXML.Excel.XLWorkbook).Assembly, "ClosedXML"); } catch { }
 
             var compilationOptions = new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,

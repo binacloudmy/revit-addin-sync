@@ -389,16 +389,14 @@ namespace RevitWebAppSync
                 int executable = 0;
                 foreach (var action in route.Actions ?? new List<RouteAction>())
                 {
+                    // route.Reply already concatenates the action descriptions, so we
+                    // don't re-print them — just show the code for executable actions.
                     string code = await ResolveActionCode(action, prompt);
                     if (!string.IsNullOrWhiteSpace(code))
                     {
                         AddCodeBlock(code);
                         AddRunDiscardRow(code);
                         executable++;
-                    }
-                    else if (!string.IsNullOrWhiteSpace(action?.Description))
-                    {
-                        AddMessage(action.Description, isUser: false);
                     }
                 }
 
