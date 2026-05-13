@@ -322,6 +322,10 @@ namespace RevitWebAppSync
 
         private async Task SendCodeGenQuery(string prompt, string templateId = null)
         {
+            // Already handling a request — ignore re-entry (e.g. clicking a
+            // quick-action / saved command while one is in flight).
+            if (_cts != null) return;
+
             if (string.IsNullOrEmpty(_config?.AccessToken))
             {
                 AddError("Please log in first to use the AI Assistant.");
@@ -1021,12 +1025,7 @@ namespace RevitWebAppSync
                 };
                 var action = s.Action;
                 var text = s.Text;
-                btn.Click += (sender, e) =>
-                {
-                    // disable all suggestion buttons in this row once one is used
-                    foreach (var child in panel.Children) if (child is Button b) b.IsEnabled = false;
-                    OnSuggestionClicked(action, text);
-                };
+                btn.Click += (sender, e) => OnSuggestionClicked(action, text);
                 panel.Children.Add(btn);
             }
             if (panel.Children.Count > 0)
