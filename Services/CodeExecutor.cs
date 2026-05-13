@@ -285,6 +285,8 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("                    var row = rows[r] ?? new List<string>();");
             sb.AppendLine("                    for (int c = 0; c < row.Count; c++) ws.Cell(r + 2, c + 1).Value = row[c] ?? string.Empty;");
             sb.AppendLine("                }");
+            sb.AppendLine("                var __dir = Path.GetDirectoryName(filePath);");
+            sb.AppendLine("                if (!string.IsNullOrEmpty(__dir) && !Directory.Exists(__dir)) Directory.CreateDirectory(__dir);");
             sb.AppendLine("                wb.SaveAs(filePath);");
             sb.AppendLine("            }");
             sb.AppendLine("        }");
