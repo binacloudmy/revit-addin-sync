@@ -258,9 +258,15 @@
         </Grid>
 
         <!-- Footer -->
-        <StackPanel Grid.Row="3" Orientation="Horizontal">
-            <TextBlock Text="Powered by BINA AI" FontSize="10" Foreground="#666666"/>
-            <TextBlock x:Name="TokensText" Text="" FontSize="10" Foreground="#666666" Margin="16,0,0,0"/>
-        </StackPanel>
+        <Grid Grid.Row="3">
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Left">
+                <TextBlock Text="Powered by BINA AI" FontSize="10" Foreground="#666666" VerticalAlignment="Center"/>
+                <TextBlock x:Name="TokensText" Text="" FontSize="10" Foreground="#666666" Margin="16,0,0,0" VerticalAlignment="Center"/>
+            </StackPanel>
+            <Button x:Name="CopyTranscriptButton" Content="Copy transcript" HorizontalAlignment="Right"
+                    Style="{StaticResource GhostButton}" Padding="10,3" FontSize="10"
+                    ToolTip="Copy the whole conversation to the clipboard"
+                    Click="CopyTranscriptButton_Click"/>
+        </Grid>
     </Grid>
 </Window>

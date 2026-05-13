@@ -47,6 +47,9 @@ namespace RevitWebAppSync
         private string _ctxLastOperation;
         private string _ctxLastResult;
 
+        // Plain-text running log of the conversation, for "Copy transcript".
+        private readonly System.Text.StringBuilder _transcript = new System.Text.StringBuilder();
+
         private static readonly Regex _placeholderRe = new Regex(@"\{(\w+)\}", RegexOptions.Compiled);
 
         private static readonly SolidColorBrush BrushOk = new SolidColorBrush(Color.FromRgb(0, 200, 83));
@@ -394,6 +397,8 @@ namespace RevitWebAppSync
                         AddMessage(action.Description, isUser: false);
                     }
                 }
+
+                AddSuggestionRow(route.Suggestions);
 
                 SetInputEnabled(true);
                 if (executable > 0)
@@ -882,8 +887,26 @@ namespace RevitWebAppSync
 
         #region Chat UI Helpers
 
+        private void Log(string who, string text)
+        {
+            try { _transcript.AppendLine($"{who}: {text}").AppendLine(); } catch { }
+        }
+
+        private void CopyTranscriptButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var t = _transcript.ToString();
+                if (string.IsNullOrWhiteSpace(t)) { AddSuccess("Nothing to copy yet."); return; }
+                Clipboard.SetText(t);
+                AddSuccess("Transcript copied to the clipboard.");
+            }
+            catch (Exception ex) { AddError("Couldn't copy: " + ex.Message); }
+        }
+
         private void AddMessage(string text, bool isUser)
         {
+            Log(isUser ? "You" : "Assistant", text);
             var border = new Border
             {
                 Background = new SolidColorBrush(isUser
@@ -918,6 +941,7 @@ namespace RevitWebAppSync
 
         private void AddCodeBlock(string code)
         {
+            Log("Generated code", code);
             var border = new Border
             {
                 Background = new SolidColorBrush(Color.FromRgb(30, 30, 30)),
@@ -928,6 +952,8 @@ namespace RevitWebAppSync
                 Margin = new Thickness(0, 4, 0, 4)
             };
 
+            var stack = new StackPanel();
+
             var textBox = new TextBox
             {
                 Text = code,
@@ -937,12 +963,119 @@ namespace RevitWebAppSync
                 IsReadOnly = true,
                 TextWrapping = TextWrapping.Wrap,
                 FontFamily = new FontFamily("Consolas"),
-                FontSize = 11
+                FontSize = 11,
+                MaxHeight = 220,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
             };
 
-            border.Child = textBox;
+            // Collapsible: a tiny header that toggles the code's visibility.
+            var toggle = new TextBlock
+            {
+                Text = "▾ code",
+                Foreground = new SolidColorBrush(Color.FromRgb(136, 136, 136)),
+                FontSize = 10,
+                Cursor = Cursors.Hand,
+                Margin = new Thickness(0, 0, 0, 4)
+            };
+            toggle.MouseLeftButtonUp += (s, e) =>
+            {
+                if (textBox.Visibility == Visibility.Visible)
+                {
+                    textBox.Visibility = Visibility.Collapsed;
+                    toggle.Text = "▸ code (hidden)";
+                }
+                else
+                {
+                    textBox.Visibility = Visibility.Visible;
+                    toggle.Text = "▾ code";
+                }
+            };
+
+            stack.Children.Add(toggle);
+            stack.Children.Add(textBox);
+            border.Child = stack;
             ActiveChatHistory.Children.Add(border);
             ScrollToBottom();
+        }
+
+        // Renders the orchestrator's quick-action suggestions as a row of buttons.
+        // Clicking one sends a mapped follow-up prompt (or shows a hint).
+        private void AddSuggestionRow(List<RouteSuggestion> suggestions)
+        {
+            if (suggestions == null || suggestions.Count == 0) return;
+            var panel = new WrapPanel { Margin = new Thickness(0, 2, 0, 8) };
+            foreach (var s in suggestions)
+            {
+                if (s == null || string.IsNullOrWhiteSpace(s.Text)) continue;
+                var btn = new Button
+                {
+                    Content = s.Text,
+                    Padding = new Thickness(10, 4, 10, 4),
+                    Margin = new Thickness(0, 0, 6, 6),
+                    Cursor = Cursors.Hand,
+                    FontSize = 11,
+                    Foreground = new SolidColorBrush(Color.FromRgb(204, 204, 204)),
+                    BorderThickness = new Thickness(1),
+                    BorderBrush = new SolidColorBrush(Color.FromRgb(63, 63, 70)),
+                    Background = new SolidColorBrush(Color.FromRgb(45, 45, 48))
+                };
+                var action = s.Action;
+                var text = s.Text;
+                btn.Click += (sender, e) =>
+                {
+                    // disable all suggestion buttons in this row once one is used
+                    foreach (var child in panel.Children) if (child is Button b) b.IsEnabled = false;
+                    OnSuggestionClicked(action, text);
+                };
+                panel.Children.Add(btn);
+            }
+            if (panel.Children.Count > 0)
+            {
+                ActiveChatHistory.Children.Add(panel);
+                ScrollToBottom();
+            }
+        }
+
+        private void OnSuggestionClicked(string action, string text)
+        {
+            // A few actions get special handling; the rest map to a follow-up prompt.
+            switch ((action ?? "").ToLowerInvariant())
+            {
+                case "undo":
+                    AddSuccess("Press Ctrl+Z in Revit to undo the last change.");
+                    return;
+                case "rerun":
+                    if (!string.IsNullOrWhiteSpace(_lastUserPrompt)) { _ = SendCodeGenQuery(_lastUserPrompt); }
+                    return;
+                case "edit_params":
+                    PromptInput.Text = "change the parameter of the selected elements: ";
+                    PromptInput.CaretIndex = PromptInput.Text.Length;
+                    PromptInput.Focus();
+                    return;
+            }
+
+            string followUp;
+            switch ((action ?? "").ToLowerInvariant())
+            {
+                case "view_3d":        followUp = "show me the default 3D view"; break;
+                case "select_here":    followUp = "select all elements visible in the active view"; break;
+                case "isolate":        followUp = "isolate the current selection in the active view"; break;
+                case "analyze_view":   followUp = "check the active view for compliance issues"; break;
+                case "open_created":   followUp = "open the view I just created"; break;
+                case "export_report":  followUp = "export the results to Excel"; break;
+                case "export_results": followUp = "export the results to Excel"; break;
+                case "export_bcf":     followUp = "export the clashes to BCF"; break;
+                case "open_export":    followUp = "open the exported file"; break;
+                case "autofix":        followUp = "auto-fix the issues you just found"; break;
+                case "refine":
+                case "apply_a":
+                    PromptInput.Text = text + ": ";
+                    PromptInput.CaretIndex = PromptInput.Text.Length;
+                    PromptInput.Focus();
+                    return;
+                default:               followUp = text; break;   // fall back to the button label
+            }
+            _ = SendCodeGenQuery(followUp);
         }
 
         // Shows a Run / Discard choice under a code block — nothing executes until
@@ -1006,6 +1139,7 @@ namespace RevitWebAppSync
 
         private void AddSuccess(string message)
         {
+            Log("Result", message);
             var textBlock = new TextBlock
             {
                 Text = $"[OK] {message}",
@@ -1020,6 +1154,7 @@ namespace RevitWebAppSync
 
         private void AddError(string message)
         {
+            Log("Error", message);
             var textBlock = new TextBlock
             {
                 Text = $"[Error] {message}",
@@ -1034,6 +1169,7 @@ namespace RevitWebAppSync
 
         private void AddWarning(string message)
         {
+            Log("Note", message);
             var textBlock = new TextBlock
             {
                 Text = $"[Warning] {message}",
