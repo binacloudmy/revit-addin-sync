@@ -12,6 +12,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -1673,18 +1675,167 @@ namespace RevitWebAppSync
             ScrollToBottom();
         }
 
+        // ─────────────────────────────────────────────────────────────
+        // Rich tabular result rendering (FR-034). When a successful
+        // result looks like a multi-row, multi-column table, render it
+        // as a sortable DataGrid instead of monospace text — same logic
+        // is reused in the preview panel.
+        // ─────────────────────────────────────────────────────────────
+
+        // Regex column separator: 2+ whitespace OR tab OR optional-space-pipe-optional-space.
+        private static readonly Regex _columnSplitter = new Regex(@"\s{2,}|\t|\s*\|\s*", RegexOptions.Compiled);
+
+        private struct TabularResult
+        {
+            public string Title;
+            public List<string> Headers;
+            public List<List<string>> Rows;
+        }
+
+        private static TabularResult? TryParseTabularResult(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message)) return null;
+
+            var lines = message.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None)
+                .Select(l => (l ?? "").TrimEnd())
+                .Where(l => !string.IsNullOrWhiteSpace(l))
+                .ToList();
+            if (lines.Count < 2) return null;
+
+            // Allow a "Label: col1   col2   col3" first line.
+            string title = null;
+            var first = lines[0];
+            int colon = first.IndexOf(':');
+            if (colon > 0 && colon < first.Length - 1)
+            {
+                var afterColon = first.Substring(colon + 1).Trim();
+                if (_columnSplitter.IsMatch(afterColon))
+                {
+                    title = first.Substring(0, colon).Trim();
+                    lines[0] = afterColon;
+                }
+            }
+
+            var split = lines
+                .Select(l => _columnSplitter.Split(l).Where(s => !string.IsNullOrEmpty(s)).ToList())
+                .ToList();
+
+            // Pick the modal column count; need at least 2 columns and the modal
+            // count must dominate (>= half the rows) so we don't misread a
+            // free-text reply as a table.
+            var modal = split.GroupBy(r => r.Count).OrderByDescending(g => g.Count()).First();
+            if (modal.Key < 2) return null;
+            if (modal.Count() < (split.Count + 1) / 2) return null;
+            if (split[0].Count != modal.Key) return null;
+
+            var headers = split[0];
+            var rows = split.Skip(1).Where(r => r.Count == modal.Key).ToList();
+            if (rows.Count < 1) return null;
+
+            return new TabularResult { Title = title, Headers = headers, Rows = rows };
+        }
+
+        // Builds a small dark-themed DataGrid from the parsed table. maxHeight
+        // is enforced so the grid doesn't take over the chat scrollviewer.
+        private static FrameworkElement BuildTableElement(TabularResult t, double maxHeight, bool monospaceCells = false)
+        {
+            var stack = new StackPanel { Margin = new Thickness(0, 4, 0, 4) };
+
+            if (!string.IsNullOrWhiteSpace(t.Title))
+            {
+                stack.Children.Add(new TextBlock
+                {
+                    Text = "[OK] " + t.Title,
+                    Foreground = new SolidColorBrush(Color.FromRgb(0, 200, 83)),
+                    FontWeight = FontWeights.SemiBold,
+                    Margin = new Thickness(0, 0, 0, 4)
+                });
+            }
+
+            var headerStyle = new Style(typeof(DataGridColumnHeader));
+            headerStyle.Setters.Add(new Setter(Control.BackgroundProperty, new SolidColorBrush(Color.FromRgb(37, 37, 38))));
+            headerStyle.Setters.Add(new Setter(Control.ForegroundProperty, new SolidColorBrush(Color.FromRgb(220, 220, 220))));
+            headerStyle.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(8, 4, 8, 4)));
+            headerStyle.Setters.Add(new Setter(Control.FontWeightProperty, FontWeights.SemiBold));
+            headerStyle.Setters.Add(new Setter(Control.BorderBrushProperty, new SolidColorBrush(Color.FromRgb(63, 63, 70))));
+            headerStyle.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0, 0, 1, 1)));
+
+            var grid = new DataGrid
+            {
+                AutoGenerateColumns = false,
+                CanUserAddRows = false,
+                CanUserDeleteRows = false,
+                IsReadOnly = true,
+                HeadersVisibility = DataGridHeadersVisibility.Column,
+                Background = new SolidColorBrush(Color.FromRgb(30, 30, 30)),
+                Foreground = new SolidColorBrush(Color.FromRgb(220, 220, 220)),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(63, 63, 70)),
+                BorderThickness = new Thickness(1),
+                GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
+                HorizontalGridLinesBrush = new SolidColorBrush(Color.FromRgb(55, 55, 60)),
+                RowBackground = new SolidColorBrush(Color.FromRgb(45, 45, 48)),
+                AlternatingRowBackground = new SolidColorBrush(Color.FromRgb(37, 37, 38)),
+                FontSize = 11,
+                ColumnHeaderHeight = 26,
+                RowHeight = 22,
+                MaxHeight = maxHeight,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                ColumnHeaderStyle = headerStyle
+            };
+            if (monospaceCells)
+                grid.FontFamily = new FontFamily("Consolas");
+
+            for (int i = 0; i < t.Headers.Count; i++)
+            {
+                var col = new DataGridTextColumn
+                {
+                    Header = t.Headers[i],
+                    Binding = new Binding("[" + i + "]"),
+                    MinWidth = 60,
+                    Width = DataGridLength.Auto
+                };
+                grid.Columns.Add(col);
+            }
+            grid.ItemsSource = t.Rows;
+
+            // A small footer hint with the row count.
+            stack.Children.Add(grid);
+            stack.Children.Add(new TextBlock
+            {
+                Text = $"{t.Rows.Count} row(s)",
+                Foreground = new SolidColorBrush(Color.FromRgb(140, 140, 140)),
+                FontSize = 10,
+                Margin = new Thickness(2, 2, 0, 0)
+            });
+            return stack;
+        }
+
         private void AddSuccess(string message)
         {
             Log("Result", message);
-            var textBlock = new TextBlock
-            {
-                Text = $"[OK] {message}",
-                Foreground = new SolidColorBrush(Color.FromRgb(0, 200, 83)),
-                Margin = new Thickness(0, 4, 0, 4),
-                TextWrapping = TextWrapping.Wrap
-            };
 
-            CopilotChatHistory.Children.Add(textBlock);
+            FrameworkElement content = null;
+            try
+            {
+                var parsed = TryParseTabularResult(message);
+                if (parsed.HasValue)
+                    content = BuildTableElement(parsed.Value, maxHeight: 260);
+            }
+            catch { content = null; }
+
+            if (content == null)
+            {
+                content = new TextBlock
+                {
+                    Text = $"[OK] {message}",
+                    Foreground = new SolidColorBrush(Color.FromRgb(0, 200, 83)),
+                    Margin = new Thickness(0, 4, 0, 4),
+                    TextWrapping = TextWrapping.Wrap
+                };
+            }
+
+            CopilotChatHistory.Children.Add(content);
             ScrollToBottom();
             SetPreview_Result(message, isError: false);
         }
@@ -1892,6 +2043,27 @@ namespace RevitWebAppSync
         {
             if (string.IsNullOrWhiteSpace(message)) return;
             ResetPreview(isError ? "Last error" : "Last result");
+
+            // Tabular result → render as DataGrid in the preview too, with a
+            // taller MaxHeight since the preview pane is dedicated to it.
+            if (!isError)
+            {
+                FrameworkElement table = null;
+                try
+                {
+                    var parsed = TryParseTabularResult(message);
+                    if (parsed.HasValue)
+                        table = BuildTableElement(parsed.Value, maxHeight: 480);
+                }
+                catch { table = null; }
+
+                if (table != null)
+                {
+                    PreviewContent.Children.Add(table);
+                    return;
+                }
+            }
+
             var border = new Border
             {
                 Background = isError
@@ -1905,7 +2077,7 @@ namespace RevitWebAppSync
                 Padding = new Thickness(10, 8, 10, 8)
             };
             // Use a TextBox in NoWrap mode so tabular results stay aligned (the
-            // monospace render is what makes the door-count tables readable).
+            // monospace render is what makes non-grid results readable).
             var box = new TextBox
             {
                 Text = message,
