@@ -7,6 +7,7 @@ using RevitWebAppSync.UI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -725,11 +726,25 @@ namespace RevitWebAppSync
                     return null;
                 }
 
+                case "select_elements":
+                {
+                    var code = BuildNativeSelectionCode(action);
+                    if (!string.IsNullOrEmpty(code)) return code;
+                    goto default;   // complex predicates fall through to the LLM
+                }
+
+                case "export":
+                {
+                    var code = BuildNativeExportCode(action);
+                    if (!string.IsNullOrEmpty(code)) return code;
+                    goto default;   // PDF / IFC / other formats fall through
+                }
+
                 case "none":
                     return null;
 
                 default:
-                    // select_elements / export / query / Unknown — code-gen fallback.
+                    // query / Unknown / fallback — let the LLM generate code.
                     var gen = await _aiService.GenerateCodeAsync(
                         new Models.AIRequest
                         {
@@ -742,6 +757,138 @@ namespace RevitWebAppSync
                         _cts?.Token ?? System.Threading.CancellationToken.None);
                     return (gen != null && gen.Success && !string.IsNullOrEmpty(gen.Code)) ? gen.Code : null;
             }
+        }
+
+        // ─────────────────────────────────────────────────────────────
+        // Native dispatchers (#27). The intent router already extracts
+        // the actionable bits — for simple SELECT / EXPORT cases we can
+        // synthesise the C# locally and skip the LLM round-trip.
+        // Complex queries (predicates, custom filters) still go to the
+        // agent via the default fallback.
+        // ─────────────────────────────────────────────────────────────
+
+        private static string BicNameForFuzzy(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return null;
+            var n = name.Trim().Replace("@", "").ToLowerInvariant();
+            if (_categoryNameToBic.TryGetValue(n, out var direct)) return direct;
+            if (n.EndsWith("s") && _categoryNameToBic.TryGetValue(n.Substring(0, n.Length - 1), out var sing)) return sing;
+            if (!n.EndsWith("s") && _categoryNameToBic.TryGetValue(n + "s", out var plur)) return plur;
+            return null;
+        }
+
+        // Mine the action's params + mentions for a category name and an
+        // optional level name. Returns (categoryWord, bicEnumName, levelName).
+        private static (string cat, string bic, string level) ExtractTargetFromAction(RouteAction action)
+        {
+            string cat = GetParamString(action.Params, "category");
+            string level = GetParamString(action.Params, "level");
+
+            if (action.Mentions != null)
+            {
+                foreach (var m in action.Mentions)
+                {
+                    var mt = (m?.Type ?? "").ToLowerInvariant();
+                    if (string.IsNullOrEmpty(cat) && (mt == "category" || mt == "all"))
+                        cat = m.Name;
+                    if (string.IsNullOrEmpty(level) && mt == "level")
+                        level = m.Name;
+                }
+            }
+
+            string bic = cat != null ? BicNameForFuzzy(cat) : null;
+            return (cat, bic, level);
+        }
+
+        private string BuildNativeSelectionCode(RouteAction action)
+        {
+            if (action == null) return null;
+            var (cat, bic, level) = ExtractTargetFromAction(action);
+            if (string.IsNullOrEmpty(bic)) return null;   // can't map a category → fall back
+
+            // Bail out if there's a predicate in params we don't natively handle
+            // (thickness, area, etc.) — the LLM is better at those.
+            if (action.Params != null)
+            {
+                foreach (var k in action.Params.Keys)
+                {
+                    if (string.Equals(k, "category", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(k, "level", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(k, "scope", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(k, "format", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(k, "name", StringComparison.OrdinalIgnoreCase)) continue;
+                    // Anything else (value/threshold/param/etc.) → bail to LLM.
+                    return null;
+                }
+            }
+
+            string safeCat = (cat ?? "elements").Replace("\"", "");
+            string safeLevel = (level ?? "").Replace("\"", "");
+
+            var sb = new StringBuilder();
+            sb.AppendLine("var __items = new FilteredElementCollector(doc)");
+            sb.AppendLine($"    .OfCategory(BuiltInCategory.{bic}).WhereElementIsNotElementType()");
+            sb.AppendLine("    .Cast<Element>().ToList();");
+            if (!string.IsNullOrEmpty(safeLevel))
+            {
+                sb.AppendLine($"var __lvl = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()");
+                sb.AppendLine($"    .FirstOrDefault(l => string.Equals(l.Name, \"{safeLevel}\", StringComparison.OrdinalIgnoreCase));");
+                sb.AppendLine("if (__lvl != null) __items = __items.Where(e => e.LevelId == __lvl.Id).ToList();");
+            }
+            sb.AppendLine("var __ids = __items.Select(e => e.Id).ToList();");
+            sb.AppendLine("uidoc.Selection.SetElementIds(__ids);");
+            string suffix = string.IsNullOrEmpty(safeLevel) ? "" : (" on " + safeLevel);
+            sb.AppendLine($"ShowMessage(\"Selected\", __ids.Count + \" {safeCat}{suffix}\");");
+            return sb.ToString();
+        }
+
+        private string BuildNativeExportCode(RouteAction action)
+        {
+            if (action == null) return null;
+
+            string fmt = (GetParamString(action.Params, "format") ?? "").ToLowerInvariant();
+            // Only Excel is fully native today. PDF / IFC / DWG / BCF → fall back to LLM.
+            if (fmt.Length == 0 || fmt.IndexOf("excel", StringComparison.OrdinalIgnoreCase) < 0
+                                  && fmt.IndexOf("xlsx", StringComparison.OrdinalIgnoreCase) < 0
+                                  && fmt.IndexOf("xls", StringComparison.OrdinalIgnoreCase) < 0
+                                  && fmt.IndexOf("csv", StringComparison.OrdinalIgnoreCase) < 0)
+                return null;
+
+            var (cat, bic, level) = ExtractTargetFromAction(action);
+            if (string.IsNullOrEmpty(bic)) return null;
+
+            string filename = GetParamString(action.Params, "filename") ?? GetParamString(action.Params, "name");
+            if (string.IsNullOrEmpty(filename))
+                filename = (cat ?? "export").Replace(" ", "_").ToLowerInvariant() + "_schedule";
+            filename = filename.Replace("\"", "").Replace("\\", "").Replace("/", "");
+
+            string safeCat = (cat ?? "elements").Replace("\"", "");
+            string safeLevel = (level ?? "").Replace("\"", "");
+
+            var sb = new StringBuilder();
+            sb.AppendLine("var __items = new FilteredElementCollector(doc)");
+            sb.AppendLine($"    .OfCategory(BuiltInCategory.{bic}).WhereElementIsNotElementType()");
+            sb.AppendLine("    .Cast<Element>().ToList();");
+            if (!string.IsNullOrEmpty(safeLevel))
+            {
+                sb.AppendLine($"var __lvl = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()");
+                sb.AppendLine($"    .FirstOrDefault(l => string.Equals(l.Name, \"{safeLevel}\", StringComparison.OrdinalIgnoreCase));");
+                sb.AppendLine("if (__lvl != null) __items = __items.Where(e => e.LevelId == __lvl.Id).ToList();");
+            }
+            sb.AppendLine("var __headers = new List<string> { \"Id\", \"Name\", \"Family\", \"Type\", \"Level\" };");
+            sb.AppendLine("var __rows = new List<List<string>>();");
+            sb.AppendLine("foreach (var __el in __items)");
+            sb.AppendLine("{");
+            sb.AppendLine("    string __family = __el is FamilyInstance __fi && __fi.Symbol != null ? __fi.Symbol.Family.Name : \"\";");
+            sb.AppendLine("    string __type = __el.GetTypeId() != ElementId.InvalidElementId ? (doc.GetElement(__el.GetTypeId())?.Name ?? \"\") : \"\";");
+            sb.AppendLine("    string __levelName = __el.LevelId != ElementId.InvalidElementId ? (doc.GetElement(__el.LevelId)?.Name ?? \"\") : \"\";");
+            sb.AppendLine("    __rows.Add(new List<string> { __el.Id.Value.ToString(), __el.Name ?? \"\", __family, __type, __levelName });");
+            sb.AppendLine("}");
+            sb.AppendLine($"var __desktop = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);");
+            sb.AppendLine($"var __path = Path.Combine(__desktop, \"{filename}.xlsx\");");
+            sb.AppendLine("WriteExcel(__path, __headers, __rows);");
+            sb.AppendLine($"ShowMessage(\"Exported\", __rows.Count + \" {safeCat} written to \" + __path);");
+            return sb.ToString();
         }
 
         private static string GetParamString(Dictionary<string, object> p, string key)
