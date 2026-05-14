@@ -2,13 +2,14 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="BINA Cloud Account"
-        Height="280" Width="400"
+        Height="360" Width="400"
         WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize"
         Background="#F5F5F5">
 
     <Grid Margin="20">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -42,8 +43,27 @@
                        Margin="0,5,0,0"/>
         </StackPanel>
 
+        <!-- Team / Org id (manual override for "My team" command sharing) -->
+        <StackPanel Grid.Row="3" Margin="0,0,0,15">
+            <TextBlock Text="Team ID (optional)"
+                       FontWeight="SemiBold" Foreground="#666666" FontSize="12"/>
+            <TextBlock Text="Enter your team's numeric id to share Copilot commands at team scope."
+                       Foreground="#888888" FontSize="10" TextWrapping="Wrap" Margin="0,2,0,4"/>
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="OrgIdTextBox" Grid.Column="0"
+                         FontSize="14" Padding="6,4" VerticalAlignment="Center"/>
+                <Button x:Name="SaveOrgIdButton" Grid.Column="1"
+                        Content="Save" Width="60" Height="28"
+                        Margin="6,0,0,0" Click="SaveOrgIdButton_Click"/>
+            </Grid>
+        </StackPanel>
+
         <!-- Buttons -->
-        <StackPanel Grid.Row="4"
+        <StackPanel Grid.Row="5"
                     Orientation="Horizontal"
                     HorizontalAlignment="Right">
             <Button x:Name="LogoutButton"
