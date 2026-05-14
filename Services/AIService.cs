@@ -248,6 +248,39 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Fire-and-forget: tell the backend that this (error, working_code)
+        /// pair just succeeded so future explain-error calls for the same
+        /// signature can surface the prior fix (FR-022).
+        /// </summary>
+        public async Task RecordFixAsync(
+            string error, string workingCode, int? userId, string sessionId,
+            string accessToken, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var body = new
+                {
+                    error = error ?? string.Empty,
+                    working_code = workingCode ?? string.Empty,
+                    userId = userId,
+                    sessionId = sessionId
+                };
+                var json = JsonConvert.SerializeObject(body);
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/revit-ai/record-fix")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+                if (!string.IsNullOrEmpty(accessToken))
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                _ = await _httpClient.SendAsync(request, cancellationToken);
+            }
+            catch
+            {
+                /* swallowed — pattern recording is best-effort */
+            }
+        }
+
+        /// <summary>
         /// Check if backend is available.
         /// </summary>
         public async Task<bool> HealthCheckAsync(CancellationToken cancellationToken = default)

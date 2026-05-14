@@ -50,6 +50,10 @@ namespace RevitWebAppSync
         private string _lastExecutedCode;
         private int _retryCount;
         private const int MaxRetries = 2;
+        // Remembers the error that started the retry / error-card chain so we
+        // can record (error, working_code) on the eventual success — fuels the
+        // backend's error-pattern learning (FR-022).
+        private string _errorBeingFixed;
 
         // Structured conversation memory (per-session) — sent with each request so
         // the agent can resolve pronouns ("those", "it", "the first one"). Holds
@@ -1257,6 +1261,7 @@ namespace RevitWebAppSync
                             AddRevertRow();
                         AddSaveAsCommandRow(_lastUserPrompt, code);
                         _ = TryBackfillCommandCodeAsync(code);
+                        _ = TryRecordFixAsync(code);
                         SetInputEnabled(true);
                     }
                     else
@@ -1308,6 +1313,26 @@ namespace RevitWebAppSync
             {
                 // Backfill failures shouldn't bother the user. Worst case: the
                 // command stays prompt-only, next run still works via the LLM.
+            }
+        }
+
+        // When a run succeeded AFTER an error (auto-retry chain or error-card
+        // fix click), tell the backend so the (error, working_code) pair gets
+        // recorded for future explain-error lookups (FR-022). One-shot —
+        // clears the remembered error regardless of outcome.
+        private async Task TryRecordFixAsync(string workingCode)
+        {
+            try
+            {
+                var err = _errorBeingFixed;
+                _errorBeingFixed = null;
+                if (string.IsNullOrWhiteSpace(err) || string.IsNullOrWhiteSpace(workingCode)) return;
+                if (string.IsNullOrEmpty(_config?.AccessToken)) return;
+                await _aiService.RecordFixAsync(err, workingCode, UserIdOrNull, _sessionId, _config.AccessToken);
+            }
+            catch
+            {
+                // Best-effort — never bother the user.
             }
         }
 
@@ -1468,6 +1493,8 @@ namespace RevitWebAppSync
                 }
 
                 _retryCount++;
+                if (string.IsNullOrEmpty(_errorBeingFixed))
+                    _errorBeingFixed = error;
                 AddWarning($"That didn't work. Auto-fixing (attempt {_retryCount}/{MaxRetries})...");
                 StatusText.Text = "Auto-fixing the code...";
                 StatusText.Foreground = BrushDim;
@@ -1661,6 +1688,9 @@ namespace RevitWebAppSync
             StatusText.Text = "Regenerating…";
             StatusText.Foreground = BrushDim;
             SetInputEnabled(false);
+            // Remember the error so a subsequent successful run can record the
+            // fix pattern (FR-022).
+            _errorBeingFixed = rawError;
             try
             {
                 var resp = await _aiService.RetryCodeAsync(
