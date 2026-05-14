@@ -131,6 +131,10 @@ namespace RevitWebAppSync
 
         private List<MentionItem> _mentionCatalog;
         private int _mentionTokenStart = -1;
+        // Recently-used mention InsertText values, MRU-ordered (most recent first).
+        // Capped at 10 entries (FR-006).
+        private readonly List<string> _recentMentionTexts = new List<string>();
+        private const int MaxRecentMentions = 10;
 
         // Common category names → BuiltInCategory enum names. Used both for the
         // @all_X catalog entries and for chip-click selection codegen.
@@ -463,16 +467,48 @@ namespace RevitWebAppSync
             if (token.IndexOf('\n') >= 0 || token.IndexOf('\r') >= 0) { MentionPopup.IsOpen = false; return; }
 
             BuildMentionCatalogIfNeeded();
+
+            // Tiered ranking for popup matches:
+            //   tier 0 — recently-used (FR-006, only when token is empty)
+            //   tier 1 — items related to the current Revit context (FR-005:
+            //            the active view name and the active level take priority)
+            //   tier 2 — exact-prefix matches of the typed token
+            //   tier 3 — substring matches
+            //   tier 4 — everything else
+            //
+            // Within a tier, shorter Display string wins so common names rise.
+            var activeViewName = SafeGet(() => _uidoc?.ActiveView?.Name);
+            var activeLevelName = SafeGet(() =>
+            {
+                var v = _uidoc?.ActiveView;
+                if (v is ViewPlan plan && plan.GenLevel != null) return plan.GenLevel.Name;
+                return null;
+            });
+
+            int Tier(MentionItem m)
+            {
+                if (token.Length == 0 && _recentMentionTexts.Contains(m.InsertText)) return 0;
+                if (!string.IsNullOrEmpty(activeViewName) && string.Equals(m.Display, activeViewName, StringComparison.OrdinalIgnoreCase)) return 1;
+                if (!string.IsNullOrEmpty(activeLevelName) && string.Equals(m.Display, activeLevelName, StringComparison.OrdinalIgnoreCase)) return 1;
+                if (token.Length > 0 && m.Display.StartsWith(token, StringComparison.OrdinalIgnoreCase)) return 2;
+                if (token.Length > 0 && m.Display.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0) return 3;
+                return 4;
+            }
+
             List<MentionItem> matches;
             if (token.Length == 0)
             {
-                matches = _mentionCatalog.Take(30).ToList();
+                matches = _mentionCatalog
+                    .OrderBy(Tier)
+                    .ThenBy(m => _recentMentionTexts.IndexOf(m.InsertText) is int i && i >= 0 ? i : int.MaxValue)
+                    .ThenBy(m => m.Display.Length)
+                    .Take(30).ToList();
             }
             else
             {
                 matches = _mentionCatalog
                     .Where(m => m.Display.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0)
-                    .OrderBy(m => m.Display.StartsWith(token, StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                    .OrderBy(Tier)
                     .ThenBy(m => m.Display.Length)
                     .Take(30).ToList();
             }
@@ -529,8 +565,27 @@ namespace RevitWebAppSync
                 PromptInput.Text = before + inserted + after;
                 PromptInput.CaretIndex = before.Length + inserted.Length;
                 PromptInput.Focus();
+                MarkMentionUsed(m.InsertText);
             }
             catch { try { MentionPopup.IsOpen = false; } catch { } }
+        }
+
+        // Recently-used tracking (FR-006). Moves the just-used InsertText to
+        // the front of the MRU list, trims to MaxRecentMentions.
+        private void MarkMentionUsed(string insertText)
+        {
+            if (string.IsNullOrEmpty(insertText)) return;
+            _recentMentionTexts.Remove(insertText);
+            _recentMentionTexts.Insert(0, insertText);
+            if (_recentMentionTexts.Count > MaxRecentMentions)
+                _recentMentionTexts.RemoveRange(MaxRecentMentions, _recentMentionTexts.Count - MaxRecentMentions);
+        }
+
+        // Wrap a getter in try/catch — handy for Revit API reads that throw
+        // when no document / no active view.
+        private static T SafeGet<T>(Func<T> f) where T : class
+        {
+            try { return f(); } catch { return null; }
         }
 
         // Append a "## Referenced elements" block so the agent gets precise data
