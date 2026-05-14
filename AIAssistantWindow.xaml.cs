@@ -42,6 +42,10 @@ namespace RevitWebAppSync
 
         private List<CommandTemplate> _allCommands;
         private bool _commandsLoaded;
+        // The saved command (if any) that triggered the current turn — used to
+        // backfill its generated_code after a first successful run so future
+        // re-runs skip the LLM.
+        private CommandTemplate _lastRunCommand;
         private string _lastUserPrompt;
         private string _lastExecutedCode;
         private int _retryCount;
@@ -591,6 +595,11 @@ namespace RevitWebAppSync
             PromptInput.Text = "";
             _lastUserPrompt = prompt;
             _retryCount = 0;
+            // Remember which saved command (if any) drove this turn, so we can
+            // backfill its generated_code on a successful run.
+            _lastRunCommand = !string.IsNullOrEmpty(templateId) && _allCommands != null
+                ? _allCommands.FirstOrDefault(c => c.Id == templateId)
+                : null;
             UpdateSaveCommandButton();
 
             var requestInFlight = true;
@@ -1192,6 +1201,7 @@ namespace RevitWebAppSync
                         if (LooksLikeModelChange(code))
                             AddRevertRow();
                         AddSaveAsCommandRow(_lastUserPrompt, code);
+                        _ = TryBackfillCommandCodeAsync(code);
                         SetInputEnabled(true);
                     }
                     else
@@ -1202,6 +1212,48 @@ namespace RevitWebAppSync
             };
 
             _externalEvent.Raise();
+        }
+
+        // After a successful run, if the run was driven by one of MY saved
+        // commands AND that command doesn't have a code snapshot yet, push the
+        // code back onto the command so subsequent runs skip the LLM.
+        //
+        // Scoping rules:
+        // - Only commands owned by THIS user (scope='user', owner=me).
+        // - Public seed commands stay null on purpose — they're shared, and
+        //   the first user's generated code shouldn't pin everyone else.
+        // - Team commands also skipped — modifying them affects others.
+        // - Doesn't overwrite an existing snapshot (deliberate manual saves win).
+        private async Task TryBackfillCommandCodeAsync(string executedCode)
+        {
+            try
+            {
+                var cmd = _lastRunCommand;
+                _lastRunCommand = null;  // one-shot — clear regardless of outcome
+                if (cmd == null) return;
+                if (string.IsNullOrWhiteSpace(executedCode)) return;
+                if (!string.Equals(cmd.Scope, "user", StringComparison.OrdinalIgnoreCase)) return;
+                if (!cmd.OwnerUserId.HasValue || cmd.OwnerUserId.Value != UserIdOrNull) return;
+                if (cmd.HasSavedCode) return;            // don't overwrite a manual snapshot
+                if (string.IsNullOrEmpty(_config?.AccessToken)) return;
+
+                var updated = await _aiService.UpdateCommandCodeAsync(
+                    cmd.Id, executedCode, UserIdOrNull, _config.AccessToken);
+                if (updated != null)
+                {
+                    // Quietly update local cache so the next list refresh and
+                    // future re-runs see the snapshot. No chat noise — backfill
+                    // is supposed to be invisible.
+                    cmd.GeneratedCode = updated.GeneratedCode;
+                    var idx = _allCommands?.FindIndex(c => c.Id == cmd.Id) ?? -1;
+                    if (idx >= 0) _allCommands[idx] = updated;
+                }
+            }
+            catch
+            {
+                // Backfill failures shouldn't bother the user. Worst case: the
+                // command stays prompt-only, next run still works via the LLM.
+            }
         }
 
         // Heuristic: did this code likely write to the model? Used to decide

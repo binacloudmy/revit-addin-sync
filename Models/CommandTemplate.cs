@@ -57,6 +57,40 @@ namespace RevitWebAppSync.Models
         /// <summary>"  ·  Category" suffix for list display, empty if no category.</summary>
         [JsonIgnore]
         public string CategoryTag => string.IsNullOrWhiteSpace(Category) ? "" : "  ·  " + Category;
+
+        /// <summary>"Public" / "Team" / "Mine" — shown as a small badge in the list.</summary>
+        [JsonIgnore]
+        public string ScopeBadge
+        {
+            get
+            {
+                var s = (Scope ?? "").ToLowerInvariant();
+                if (s == "public") return "Public";
+                if (s == "org") return "Team";
+                return "Mine";
+            }
+        }
+
+        /// <summary>"Annotation · Public" — single line for the secondary list row.</summary>
+        [JsonIgnore]
+        public string ScopeAndCategory
+        {
+            get
+            {
+                var parts = new System.Collections.Generic.List<string>();
+                if (!string.IsNullOrWhiteSpace(Category)) parts.Add(Category);
+                parts.Add(ScopeBadge);
+                return string.Join("  ·  ", parts);
+            }
+        }
+
+        /// <summary>"⚡" if a deterministic code snapshot is stored, otherwise empty.</summary>
+        [JsonIgnore]
+        public string SavedCodeMarker => HasSavedCode ? "⚡" : "";
+
+        /// <summary>"Name ⚡" or "Name" — single string for the list's primary line.</summary>
+        [JsonIgnore]
+        public string NameWithMarker => HasSavedCode ? ((Name ?? "") + "  ⚡") : (Name ?? "");
     }
 
     public class CommandVariable

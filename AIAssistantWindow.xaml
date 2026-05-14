@@ -183,8 +183,8 @@
                                     <ListBox.ItemTemplate>
                                         <DataTemplate>
                                             <StackPanel Margin="2,3,2,3">
-                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" Foreground="#FFFFFF" TextWrapping="Wrap"/>
-                                                <TextBlock Text="{Binding Category}" Foreground="#888888" FontSize="10"/>
+                                                <TextBlock Text="{Binding NameWithMarker}" FontWeight="SemiBold" Foreground="#FFFFFF" TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding ScopeAndCategory}" Foreground="#7AB8FF" FontSize="10"/>
                                                 <TextBlock Text="{Binding Description}" Foreground="#999999" FontSize="10" TextWrapping="Wrap"/>
                                             </StackPanel>
                                         </DataTemplate>

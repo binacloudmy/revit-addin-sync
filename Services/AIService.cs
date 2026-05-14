@@ -329,6 +329,43 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>Update a saved command (caller must be the owner). Returns the updated template, or null.</summary>
+        /// <summary>
+        /// PATCH just the generated_code on a saved command — used for the
+        /// auto-backfill after a successful first run. Sends only userId +
+        /// generated_code so the request never clobbers other fields (the
+        /// CommandSaveRequest path defaults Scope='user' and Variables=[],
+        /// which would overwrite real values).
+        /// </summary>
+        public async Task<CommandTemplate> UpdateCommandCodeAsync(
+            string templateId, string generatedCode, int? userId, string accessToken,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var body = new
+                {
+                    userId = userId,
+                    generated_code = generatedCode
+                };
+                var json = JsonConvert.SerializeObject(body);
+                using var request = new HttpRequestMessage(HttpMethod.Put, $"{_baseUrl}/api/revit-ai/commands/{templateId}")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+                if (!string.IsNullOrEmpty(accessToken))
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await _httpClient.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode) return null;
+                var responseBody = await response.Content.ReadAsStringAsync();
+                return JsonConvert.DeserializeObject<CommandTemplate>(responseBody);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         public async Task<CommandTemplate> UpdateCommandAsync(
             string templateId, CommandSaveRequest request, string accessToken, CancellationToken cancellationToken = default)
         {
