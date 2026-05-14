@@ -19,6 +19,10 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Color = System.Windows.Media.Color;
 using TextBox = System.Windows.Controls.TextBox;
+// Autodesk.Revit.DB exports `Control` and `Binding` too — disambiguate to the
+// WPF ones since this is a WPF view file.
+using Control = System.Windows.Controls.Control;
+using Binding = System.Windows.Data.Binding;
 
 namespace RevitWebAppSync
 {
