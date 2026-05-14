@@ -1002,6 +1002,23 @@ namespace RevitWebAppSync
             }
 
             CommandsExpander.IsExpanded = false;
+
+            // If the command has a saved C# snapshot, execute it directly and
+            // skip the /route + /generate round-trip. The prompt still appears
+            // in the chat so the user knows what just ran.
+            if (cmd.HasSavedCode)
+            {
+                _lastUserPrompt = prompt;
+                AddMessage(prompt, isUser: true);
+                AddMessage($"Running saved snapshot of **{cmd.Name}** (skipping AI).", isUser: false);
+                AddCodeBlock(cmd.GeneratedCode);
+                AddRunDiscardRow(cmd.GeneratedCode);
+                StatusText.Text = "Review the code above, then click Run.";
+                StatusText.Foreground = BrushDim;
+                UpdateSaveCommandButton();
+                return;
+            }
+
             await SendCodeGenQuery(prompt, cmd.Id);
         }
 
@@ -1010,6 +1027,68 @@ namespace RevitWebAppSync
             if (string.IsNullOrEmpty(template) || values == null) return template;
             return _placeholderRe.Replace(template, m =>
                 values.TryGetValue(m.Groups[1].Value, out var v) ? v ?? "" : m.Value);
+        }
+
+        private async void ExportCommandsButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var bundle = await _aiService.ExportCommandsAsync(UserIdOrNull, _config?.OrgId, _config?.AccessToken);
+                if (bundle == null || bundle.Commands == null || bundle.Commands.Count == 0)
+                {
+                    CommandsHint.Text = "No commands to export.";
+                    return;
+                }
+                var dlg = new Microsoft.Win32.SaveFileDialog
+                {
+                    FileName = $"bina-commands-{DateTime.Now:yyyyMMdd-HHmm}.json",
+                    Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+                    Title = "Export Copilot commands"
+                };
+                if (dlg.ShowDialog(this) != true) return;
+                System.IO.File.WriteAllText(dlg.FileName,
+                    Newtonsoft.Json.JsonConvert.SerializeObject(bundle, Newtonsoft.Json.Formatting.Indented));
+                CommandsHint.Text = $"Exported {bundle.Commands.Count} commands to {System.IO.Path.GetFileName(dlg.FileName)}.";
+            }
+            catch (Exception ex)
+            {
+                CommandsHint.Text = "Export failed: " + ex.Message;
+            }
+        }
+
+        private async void ImportCommandsButton_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                var dlg = new Microsoft.Win32.OpenFileDialog
+                {
+                    Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+                    Title = "Import Copilot commands",
+                    Multiselect = false
+                };
+                if (dlg.ShowDialog(this) != true) return;
+                var json = System.IO.File.ReadAllText(dlg.FileName);
+                var bundle = Newtonsoft.Json.JsonConvert.DeserializeObject<CommandBundle>(json);
+                if (bundle == null || bundle.Commands == null || bundle.Commands.Count == 0)
+                {
+                    CommandsHint.Text = "That file doesn't contain any commands.";
+                    return;
+                }
+                var result = await _aiService.ImportCommandsAsync(
+                    bundle, UserIdOrNull, _config?.OrgId, skipDuplicates: true, _config?.AccessToken);
+                if (!result.HasValue)
+                {
+                    CommandsHint.Text = "Import failed — see backend logs.";
+                    return;
+                }
+                CommandsHint.Text = $"Imported {result.Value.imported}, skipped {result.Value.skipped} (already exist), out of {result.Value.total}.";
+                _commandsLoaded = false;
+                await LoadCommandsAsync();
+            }
+            catch (Exception ex)
+            {
+                CommandsHint.Text = "Import failed: " + ex.Message;
+            }
         }
 
         private async void SaveAsCommandButton_Click(object sender, RoutedEventArgs e)
@@ -1112,6 +1191,7 @@ namespace RevitWebAppSync
                         _ctxLastResult = result.Message ?? "Done";
                         if (LooksLikeModelChange(code))
                             AddRevertRow();
+                        AddSaveAsCommandRow(_lastUserPrompt, code);
                         SetInputEnabled(true);
                     }
                     else
@@ -1182,6 +1262,65 @@ namespace RevitWebAppSync
             {
                 btn.IsEnabled = false;
                 DispatchRevert();
+            };
+            panel.Children.Add(btn);
+            CopilotChatHistory.Children.Add(panel);
+            ScrollToBottom();
+        }
+
+        // Offer to snapshot the just-run code as a reusable Saved Command
+        // (#21). Stores both the prompt template AND the generated C# — next
+        // time the command runs, it executes the snapshot directly and skips
+        // /generate.
+        private void AddSaveAsCommandRow(string prompt, string code)
+        {
+            if (string.IsNullOrWhiteSpace(prompt) || string.IsNullOrWhiteSpace(code)) return;
+            if (string.IsNullOrEmpty(_config?.AccessToken)) return;   // requires login
+
+            var panel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 2, 0, 8)
+            };
+            var btn = new Button
+            {
+                Content = "💾  Save this run as a command",
+                Padding = new Thickness(12, 5, 12, 5),
+                Cursor = Cursors.Hand,
+                Foreground = new SolidColorBrush(Color.FromRgb(204, 204, 204)),
+                BorderThickness = new Thickness(1),
+                BorderBrush = new SolidColorBrush(Color.FromRgb(63, 63, 70)),
+                Background = new SolidColorBrush(Color.FromRgb(45, 45, 48)),
+                FontSize = 11,
+                ToolTip = "Saves the prompt + the generated C# so you can re-run this exact operation without going through the AI."
+            };
+            string promptCopy = prompt;
+            string codeCopy = code;
+            btn.Click += async (s, e) =>
+            {
+                btn.IsEnabled = false;
+                try
+                {
+                    var dialog = new CommandSaveWindow(
+                        promptCopy, UserIdOrNull, _config?.OrgId,
+                        editing: null, savedCode: codeCopy) { Owner = this };
+                    if (dialog.ShowDialog() != true) return;
+                    var created = await _aiService.SaveCommandAsync(dialog.Result, _config?.AccessToken);
+                    if (created != null)
+                    {
+                        AddSuccess($"Saved as command: {created.Name}.");
+                        _commandsLoaded = false;
+                        await LoadCommandsAsync();
+                    }
+                    else
+                    {
+                        AddError("Couldn't save the command.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    AddError("Save failed: " + ex.Message);
+                }
             };
             panel.Children.Add(btn);
             CopilotChatHistory.Children.Add(panel);

@@ -39,10 +39,20 @@ namespace RevitWebAppSync.Models
         [JsonProperty("usage_count")]
         public int UsageCount { get; set; }
 
+        /// <summary>
+        /// Snapshot of generated C# from a previous successful run. When set, the
+        /// addin can execute this directly and skip the /generate round-trip.
+        /// </summary>
+        [JsonProperty("generated_code")]
+        public string GeneratedCode { get; set; }
+
         // --- View helpers (not serialized) ---
 
         [JsonIgnore]
         public bool HasVariables => Variables != null && Variables.Count > 0;
+
+        [JsonIgnore]
+        public bool HasSavedCode => !string.IsNullOrWhiteSpace(GeneratedCode);
 
         /// <summary>"  ·  Category" suffix for list display, empty if no category.</summary>
         [JsonIgnore]
@@ -99,5 +109,37 @@ namespace RevitWebAppSync.Models
 
         [JsonProperty("orgId")]
         public int? OrgId { get; set; }
+
+        /// <summary>Optional pre-recorded C# to skip /generate when re-running.</summary>
+        [JsonProperty("generated_code")]
+        public string GeneratedCode { get; set; }
+
+        /// <summary>On PUT only — when true, removes any saved generated_code.</summary>
+        [JsonProperty("clear_code")]
+        public bool ClearCode { get; set; }
+    }
+
+    /// <summary>Portable JSON bundle returned by GET /api/revit-ai/commands/export.</summary>
+    public class CommandBundle
+    {
+        [JsonProperty("version")]
+        public int Version { get; set; }
+
+        [JsonProperty("exported_at")]
+        public string ExportedAt { get; set; }
+
+        [JsonProperty("commands")]
+        public List<CommandBundleEntry> Commands { get; set; } = new List<CommandBundleEntry>();
+    }
+
+    public class CommandBundleEntry
+    {
+        [JsonProperty("name")] public string Name { get; set; }
+        [JsonProperty("description")] public string Description { get; set; }
+        [JsonProperty("category")] public string Category { get; set; }
+        [JsonProperty("prompt_template")] public string PromptTemplate { get; set; }
+        [JsonProperty("variables")] public List<CommandVariable> Variables { get; set; } = new List<CommandVariable>();
+        [JsonProperty("scope")] public string Scope { get; set; } = "user";
+        [JsonProperty("generated_code")] public string GeneratedCode { get; set; }
     }
 }

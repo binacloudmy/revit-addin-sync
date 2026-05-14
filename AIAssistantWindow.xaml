@@ -140,6 +140,8 @@
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <TextBox x:Name="CommandSearchBox" Grid.Column="0"
                                              Style="{StaticResource DarkTextBox}"
@@ -150,6 +152,16 @@
                                             Margin="8,0,0,0" IsEnabled="False"
                                             ToolTip="Save your last prompt as a reusable command"
                                             Click="SaveAsCommandButton_Click"/>
+                                    <Button x:Name="ExportCommandsButton" Grid.Column="2"
+                                            Content="Export" Style="{StaticResource GhostButton}"
+                                            Margin="6,0,0,0"
+                                            ToolTip="Export every command you can see as a JSON file"
+                                            Click="ExportCommandsButton_Click"/>
+                                    <Button x:Name="ImportCommandsButton" Grid.Column="3"
+                                            Content="Import" Style="{StaticResource GhostButton}"
+                                            Margin="6,0,0,0"
+                                            ToolTip="Import commands from a JSON file"
+                                            Click="ImportCommandsButton_Click"/>
                                 </Grid>
 
                                 <ListBox x:Name="CommandsList" Grid.Row="1"

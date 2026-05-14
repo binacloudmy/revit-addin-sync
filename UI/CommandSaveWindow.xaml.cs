@@ -20,6 +20,9 @@ namespace RevitWebAppSync.UI
         private readonly int? _orgId;
         private readonly CommandTemplate _editing;          // null when creating new
         private readonly List<CommandVariable> _existingVars;
+        // When set, the saved command will execute this code directly instead
+        // of re-running the prompt through the AI on every invocation.
+        private readonly string _savedCode;
 
         public CommandSaveRequest Result { get; private set; }
         public string EditingTemplateId => _editing?.Id;
@@ -28,13 +31,16 @@ namespace RevitWebAppSync.UI
         /// <param name="userId">Owner user id.</param>
         /// <param name="orgId">Org id, or null if the user isn't on a team.</param>
         /// <param name="editing">If set, the dialog edits this command instead of creating a new one.</param>
-        public CommandSaveWindow(string initialPrompt, int? userId, int? orgId, CommandTemplate editing = null)
+        /// <param name="savedCode">Optional generated C# from the most recent run. When non-empty, the saved command stores this snapshot and re-runs it directly (skips /generate).</param>
+        public CommandSaveWindow(string initialPrompt, int? userId, int? orgId,
+                                 CommandTemplate editing = null, string savedCode = null)
         {
             InitializeComponent();
             _userId = userId;
             _orgId = orgId;
             _editing = editing;
             _existingVars = editing?.Variables ?? new List<CommandVariable>();
+            _savedCode = string.IsNullOrWhiteSpace(savedCode) ? (editing?.GeneratedCode) : savedCode;
 
             if (!_orgId.HasValue)
             {
@@ -110,7 +116,8 @@ namespace RevitWebAppSync.UI
                 Variables = vars,
                 Scope = scope,
                 UserId = _userId,
-                OrgId = scope == "org" ? _orgId : null
+                OrgId = scope == "org" ? _orgId : null,
+                GeneratedCode = _savedCode
             };
             DialogResult = true;
         }

@@ -373,5 +373,76 @@ namespace RevitWebAppSync.Services
                 return false;
             }
         }
+
+        /// <summary>
+        /// Export every command visible to this user as a portable JSON bundle.
+        /// Returns null on any failure (caller shows an error toast).
+        /// </summary>
+        public async Task<CommandBundle> ExportCommandsAsync(
+            int? userId, int? orgId, string accessToken, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var query = new List<string>();
+                if (userId.HasValue) query.Add($"userId={userId.Value}");
+                if (orgId.HasValue) query.Add($"orgId={orgId.Value}");
+                var url = $"{_baseUrl}/api/revit-ai/commands/export"
+                          + (query.Count > 0 ? "?" + string.Join("&", query) : "");
+                using var request = new HttpRequestMessage(HttpMethod.Get, url);
+                if (!string.IsNullOrEmpty(accessToken))
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await _httpClient.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode) return null;
+                var body = await response.Content.ReadAsStringAsync();
+                return JsonConvert.DeserializeObject<CommandBundle>(body);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Import a command bundle. Returns a (imported, skipped, total) tuple or
+        /// null on failure.
+        /// </summary>
+        public async Task<(int imported, int skipped, int total)?> ImportCommandsAsync(
+            CommandBundle bundle, int? userId, int? orgId, bool skipDuplicates,
+            string accessToken, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var payload = new
+                {
+                    userId = userId,
+                    orgId = orgId,
+                    skip_duplicates = skipDuplicates,
+                    bundle = bundle
+                };
+                var json = JsonConvert.SerializeObject(payload);
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/revit-ai/commands/import")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json")
+                };
+                if (!string.IsNullOrEmpty(accessToken))
+                    request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await _httpClient.SendAsync(request, cancellationToken);
+                if (!response.IsSuccessStatusCode) return null;
+                var body = await response.Content.ReadAsStringAsync();
+                var dict = JsonConvert.DeserializeObject<Dictionary<string, int>>(body);
+                if (dict == null) return null;
+                return (
+                    dict.TryGetValue("imported", out var i) ? i : 0,
+                    dict.TryGetValue("skipped", out var s) ? s : 0,
+                    dict.TryGetValue("total", out var t) ? t : 0
+                );
+            }
+            catch
+            {
+                return null;
+            }
+        }
     }
 }
