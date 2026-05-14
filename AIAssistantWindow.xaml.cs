@@ -1706,7 +1706,10 @@ namespace RevitWebAppSync
                 .ToList();
             if (lines.Count < 2) return null;
 
-            // Allow a "Label: col1   col2   col3" first line.
+            // ── Title peeling ──
+            // Two shapes the agent uses:
+            //   "Label: col1   col2   col3"   → label becomes title, rest becomes header row
+            //   "Label:" (or "Label: description:") with no embedded columns → whole first line is the title
             string title = null;
             var first = lines[0];
             int colon = first.IndexOf(':');
@@ -1718,26 +1721,75 @@ namespace RevitWebAppSync
                     title = first.Substring(0, colon).Trim();
                     lines[0] = afterColon;
                 }
+                else if (first.TrimEnd().EndsWith(":"))
+                {
+                    title = first.TrimEnd().TrimEnd(':').Trim();
+                    lines.RemoveAt(0);
+                }
             }
+            else if (first.TrimEnd().EndsWith(":"))
+            {
+                title = first.TrimEnd().TrimEnd(':').Trim();
+                lines.RemoveAt(0);
+            }
+            if (lines.Count < 1) return null;
 
+            // ── Path A: multi-space / tab / pipe column separator ──
             var split = lines
                 .Select(l => _columnSplitter.Split(l).Where(s => !string.IsNullOrEmpty(s)).ToList())
                 .ToList();
-
-            // Pick the modal column count; need at least 2 columns and the modal
-            // count must dominate (>= half the rows) so we don't misread a
-            // free-text reply as a table.
             var modal = split.GroupBy(r => r.Count).OrderByDescending(g => g.Count()).First();
-            if (modal.Key < 2) return null;
-            if (modal.Count() < (split.Count + 1) / 2) return null;
-            if (split[0].Count != modal.Key) return null;
+            if (modal.Key >= 2
+                && modal.Count() >= (split.Count + 1) / 2
+                && split[0].Count == modal.Key)
+            {
+                var rows = split.Skip(1).Where(r => r.Count == modal.Key).ToList();
+                if (rows.Count >= 1)
+                    return new TabularResult { Title = title, Headers = split[0], Rows = rows };
+            }
 
-            var headers = split[0];
-            var rows = split.Skip(1).Where(r => r.Count == modal.Key).ToList();
-            if (rows.Count < 1) return null;
+            // ── Path B: "key: value" pairs (2-column key/value table) ──
+            // Only accept when EVERY remaining line splits cleanly into exactly
+            // two parts AND the key side is short enough to look like a label.
+            var kv = lines
+                .Select(l => l.Split(new[] { ": " }, 2, StringSplitOptions.None).ToList())
+                .ToList();
+            if (lines.Count >= 2
+                && kv.All(r => r.Count == 2 && r[0].Length > 0 && r[0].Length <= 40 && !string.IsNullOrWhiteSpace(r[1])))
+            {
+                var (keyHeader, valueHeader) = SniffKvHeaders(title);
+                return new TabularResult
+                {
+                    Title = title,
+                    Headers = new List<string> { keyHeader, valueHeader },
+                    Rows = kv
+                };
+            }
 
-            return new TabularResult { Title = title, Headers = headers, Rows = rows };
+            return null;
         }
+
+        // Try to derive useful column headers for a 2-column key/value table
+        // from the title's natural language. E.g. "Door counts per level"
+        // becomes ("Level", "Door counts"). Falls back to ("Item", "Value").
+        private static (string keyHeader, string valueHeader) SniffKvHeaders(string title)
+        {
+            if (string.IsNullOrWhiteSpace(title)) return ("Item", "Value");
+            // Strip everything before the last ":" so titles like
+            // "Door Counts: Door counts per level" reduce to "Door counts per level".
+            var t = title.Contains(":") ? title.Substring(title.LastIndexOf(':') + 1).Trim() : title.Trim();
+            var m = Regex.Match(t, @"^(.+?)\s+(?:per|by)\s+(.+?)\s*$", RegexOptions.IgnoreCase);
+            if (m.Success)
+            {
+                var x = m.Groups[1].Value.Trim();
+                var y = m.Groups[2].Value.Trim();
+                return (CapitalizeFirst(y), CapitalizeFirst(x));
+            }
+            return ("Item", "Value");
+        }
+
+        private static string CapitalizeFirst(string s)
+            => string.IsNullOrEmpty(s) ? s : char.ToUpper(s[0]) + s.Substring(1);
 
         // Builds a small dark-themed DataGrid from the parsed table. maxHeight
         // is enforced so the grid doesn't take over the chat scrollviewer.
