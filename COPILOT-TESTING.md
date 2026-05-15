@@ -281,8 +281,14 @@ and `Element.LevelId` filter.)
 ### T-070 · ViewTool — open existing view
 
 1. Send `show me Aras 01`.
-2. **Expected:** code synthesised locally (no LLM wait), Run → Revit opens
-   the Aras 01 plan.
+2. **Expected:** code synthesised locally (no LLM wait) **and auto-runs**
+   immediately — Revit opens the Aras 01 plan, chat shows
+   `[OK] View opened: Aras 01 (01w_WIP)`. No Run click needed.
+
+> Opening a view is read-only navigation (no model edit), so the addin
+> auto-executes the synthesised code — matches the behaviour of clicking
+> an `@<view>` chip directly. Every other intent (CREATE / EDIT / EXPORT /
+> SELECT via code-gen, etc.) still gates behind Run/Discard per FR-025.
 
 ### T-071 · SelectTool — native dispatch (no LLM round-trip)
 

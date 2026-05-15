@@ -718,24 +718,42 @@ namespace RevitWebAppSync
                     AddMessage(route.Reply, isUser: false);
 
                 int executable = 0;
+                int autoRunFired = 0;
                 foreach (var action in route.Actions ?? new List<RouteAction>())
                 {
                     // route.Reply already concatenates the action descriptions, so we
                     // don't re-print them — just show the code for executable actions.
                     string code = await ResolveActionCode(action, prompt);
-                    if (!string.IsNullOrWhiteSpace(code))
+                    if (string.IsNullOrWhiteSpace(code)) continue;
+
+                    // open_view is addin-synthesised, non-destructive (no model
+                    // edit, just navigation) — auto-run for the same UX as a
+                    // chip click. Everything else still gates behind Run/Discard.
+                    bool autoRunSafe = string.Equals(action.Type, "open_view", StringComparison.OrdinalIgnoreCase);
+
+                    AddCodeBlock(code);
+                    _lastExecutedCode = code;   // so "Run again" knows what to re-run
+
+                    if (autoRunSafe)
                     {
-                        AddCodeBlock(code);
-                        AddRunDiscardRow(code);
-                        _lastExecutedCode = code;   // so "Run again" knows what to re-run
-                        executable++;
+                        ExecuteCode(code);
+                        autoRunFired++;
                     }
+                    else
+                    {
+                        AddRunDiscardRow(code);
+                    }
+                    executable++;
                 }
 
                 AddSuggestionRow(route.Suggestions);
 
                 SetInputEnabled(true);
-                if (executable > 0)
+                if (autoRunFired > 0 && executable == autoRunFired)
+                {
+                    StatusText.Text = "Done."; StatusText.Foreground = BrushOk;
+                }
+                else if (executable > 0)
                 {
                     StatusText.Text = "Review the code above, then click Run.";
                     StatusText.Foreground = BrushDim;
