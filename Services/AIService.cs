@@ -16,9 +16,14 @@ namespace RevitWebAppSync.Services
         // Shared across all instances — see HttpClient guidelines.
         // Per-request Authorization is set via HttpRequestMessage so the
         // shared client stays thread-safe.
+        // Timeout bumped to 180s — retry / explain-error round-trips send a
+        // lot of context (failed code + error + model context) and the Azure
+        // structured-output path can take 60-90s on a slow tick. 60s used to
+        // surface as 'Retry failed: request was canceled due to the configured
+        // HttpClient.Timeout' before the LLM even returned.
         private static readonly HttpClient _httpClient = new HttpClient
         {
-            Timeout = TimeSpan.FromSeconds(60)
+            Timeout = TimeSpan.FromSeconds(180)
         };
 
         private readonly string _baseUrl;
@@ -199,6 +204,14 @@ namespace RevitWebAppSync.Services
                 if (response.IsSuccessStatusCode)
                     return JsonConvert.DeserializeObject<AIResponse>(responseBody);
                 return new AIResponse { Success = false, Error = $"Retry failed: HTTP {(int)response.StatusCode}" };
+            }
+            catch (TaskCanceledException)
+            {
+                return new AIResponse
+                {
+                    Success = false,
+                    Error = "Retry timed out — the model is taking longer than usual. Try clicking the fix again, or rephrase your prompt."
+                };
             }
             catch (Exception ex)
             {
