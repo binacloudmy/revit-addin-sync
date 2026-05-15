@@ -1862,37 +1862,44 @@ namespace RevitWebAppSync
 
             // Clipboard.SetText is fragile in Revit's host process — Win32 clipboard
             // contention (clipboard history, screen readers, AV) intermittently throws
-            // CLIPBRD_E_CANT_OPEN even when the copy actually succeeds. Retry a few
-            // times with SetDataObject(copy: true), which is more robust.
+            // CLIPBRD_E_CANT_OPEN even when SetClipboardData succeeded underneath.
+            // After every attempt (succeed or throw), VERIFY against the clipboard:
+            // if it now has our text (with line-ending normalisation, since Windows
+            // converts \n to \r\n), declare success regardless of what SetDataObject
+            // reported.
             Exception lastEx = null;
             for (int attempt = 0; attempt < 5; attempt++)
             {
-                try
+                try { Clipboard.SetDataObject(t, copy: true); }
+                catch (Exception ex) { lastEx = ex; }
+
+                if (ClipboardHasOurText(t))
                 {
-                    Clipboard.SetDataObject(t, copy: true);
                     AddSuccess("Transcript copied to the clipboard.");
                     return;
                 }
-                catch (Exception ex)
-                {
-                    lastEx = ex;
-                    System.Threading.Thread.Sleep(50);
-                }
+                System.Threading.Thread.Sleep(50);
             }
-            // Last-ditch verification: many of these failures still get the text onto
-            // the clipboard. If the current clipboard text matches what we tried to
-            // copy, treat it as a success rather than alarming the user.
+            AddError("Couldn't copy: " + (lastEx?.Message ?? "clipboard not accessible"));
+        }
+
+        // Returns true when the clipboard currently holds (a close match to) the
+        // text we just tried to copy. Tolerates Windows line-ending normalisation
+        // — \n becomes \r\n on round-trip through the clipboard.
+        private static bool ClipboardHasOurText(string expected)
+        {
             try
             {
-                if (Clipboard.ContainsText() && Clipboard.GetText() == t)
-                {
-                    AddSuccess("Transcript copied to the clipboard.");
-                    return;
-                }
+                if (!Clipboard.ContainsText()) return false;
+                var actual = Clipboard.GetText();
+                if (string.IsNullOrEmpty(actual)) return false;
+                return NormalizeLineEndings(actual) == NormalizeLineEndings(expected);
             }
-            catch { /* fall through */ }
-            AddError("Couldn't copy: " + (lastEx?.Message ?? "unknown error"));
+            catch { return false; }
         }
+
+        private static string NormalizeLineEndings(string s)
+            => s == null ? null : s.Replace("\r\n", "\n").Replace("\r", "\n");
 
         private void AddMessage(string text, bool isUser)
         {
