@@ -119,9 +119,14 @@ the rest of the tests.
 ### T-045 · Transaction-based undo (FR-030)
 
 1. Run a write — e.g. **`set comments on all walls to "QA pass"`** → Run.
-2. After `[OK]`, press **Ctrl+Z** in Revit.
+2. After `[OK]`, press **Ctrl+Z**.
 3. **Expected:** the comments revert. A single Undo step suffices because the
    addin wraps every Run in one named Transaction.
+
+> Works whether the Copilot window or Revit has keyboard focus. The Copilot
+> intercepts `Ctrl+Z` while its input is empty and routes it to Revit's Undo
+> via the same channel the **↶ Revert last change** button uses. If the
+> input has text in it, `Ctrl+Z` follows WPF default behaviour (undoes typing).
 
 ### T-046 · Compile-error self-heal
 

@@ -86,8 +86,26 @@ namespace RevitWebAppSync
             CheckBackendConnection();
             EnforceLoginGate();
 
+            // Forward Ctrl+Z and Ctrl+Y to Revit even when the Copilot window
+            // has focus — WPF would otherwise swallow them since the chat is a
+            // separate window. Uses the same channel as the Revert button.
+            this.PreviewKeyDown += AIAssistantWindow_PreviewKeyDown;
+
             // Load saved commands eagerly (decoupled from the Expander) — fire and forget.
             _ = SafeLoadCommandsAsync();
+        }
+
+        private void AIAssistantWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            // Only act on Ctrl+Z and Ctrl+Y when the prompt input is empty —
+            // typing into the input shouldn't trigger Revit-level undo/redo.
+            if (Keyboard.Modifiers != ModifierKeys.Control) return;
+            if (!string.IsNullOrEmpty(PromptInput?.Text)) return;
+            if (e.Key == Key.Z)
+            {
+                DispatchRevert();
+                e.Handled = true;
+            }
         }
 
         private async Task SafeLoadCommandsAsync()
