@@ -1517,9 +1517,44 @@ namespace RevitWebAppSync
                     StatusText.Text = result.Success ? "Ready" : "Error";
                     StatusText.Foreground = result.Success ? BrushOk : BrushErr;
                     SetInputEnabled(true);
+                    // PostCommand(Undo) activates Revit's main window to run the
+                    // command, which sends this modeless window behind it. Bring
+                    // the Copilot back once Revit has processed the posted undo.
+                    BringToFrontAfterDelay(500);
                 });
             };
             _externalEvent.Raise();
+        }
+
+        // Re-activates the Copilot window after `ms` — used after PostCommand-
+        // style actions (Undo) where Revit grabs focus to run a posted command
+        // and the modeless add-in window drops behind it. The brief Topmost
+        // toggle is the reliable way to force foreground from a background app
+        // (Activate() alone often just flashes the taskbar).
+        private void BringToFrontAfterDelay(int ms)
+        {
+            try
+            {
+                var timer = new System.Windows.Threading.DispatcherTimer
+                {
+                    Interval = TimeSpan.FromMilliseconds(ms)
+                };
+                timer.Tick += (s, e) =>
+                {
+                    timer.Stop();
+                    try
+                    {
+                        if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+                        Activate();
+                        Topmost = true;
+                        Topmost = false;
+                        Focus();
+                    }
+                    catch { /* window may have been closed */ }
+                };
+                timer.Start();
+            }
+            catch { /* non-fatal — worst case the user clicks the window */ }
         }
 
         // On compile/exec failure, feed the error back to the AI and re-run the
