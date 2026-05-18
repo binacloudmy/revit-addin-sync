@@ -38,6 +38,9 @@ namespace RevitWebAppSync
         private readonly string _sessionId = Guid.NewGuid().ToString();
 
         private CancellationTokenSource _cts;
+        // Separate CTS for the auto-fix / retry round-trip — the send-flow's
+        // _cts is disposed by the time HandleExecutionFailureAsync runs.
+        private CancellationTokenSource _retryCts;
         private int _totalTokens = 0;
 
         private List<CommandTemplate> _allCommands;
@@ -1007,7 +1010,10 @@ namespace RevitWebAppSync
 
         private void CancelButton_Click(object sender, RoutedEventArgs e)
         {
-            _cts?.Cancel();
+            // Cancels whichever round-trip is in flight — the initial send
+            // (_cts) or an auto-fix / regenerate retry (_retryCts).
+            try { _cts?.Cancel(); } catch { }
+            try { _retryCts?.Cancel(); } catch { }
         }
 
         private void SetCancelVisible(bool visible)
@@ -1531,13 +1537,38 @@ namespace RevitWebAppSync
                 _retryCount++;
                 if (string.IsNullOrEmpty(_errorBeingFixed))
                     _errorBeingFixed = error;
-                AddWarning($"That didn't work. Auto-fixing (attempt {_retryCount}/{MaxRetries})...");
+                AddWarning($"That didn't work. Auto-fixing (attempt {_retryCount}/{MaxRetries})... (you can Cancel)");
                 StatusText.Text = "Auto-fixing the code...";
                 StatusText.Foreground = BrushDim;
 
-                var resp = await _aiService.RetryCodeAsync(
-                    _lastUserPrompt, _lastExecutedCode, error, _retryCount,
-                    UserIdOrNull, _sessionId, _config?.AccessToken);
+                // Keep a live Cancel affordance during the retry round-trip so a
+                // slow LLM tick never leaves the user trapped staring at a dimmed
+                // window. Fresh CTS — the send-flow's _cts is already disposed.
+                _retryCts?.Dispose();
+                _retryCts = new CancellationTokenSource();
+                SetCancelVisible(true);
+
+                AIResponse resp;
+                try
+                {
+                    resp = await _aiService.RetryCodeAsync(
+                        _lastUserPrompt, _lastExecutedCode, error, _retryCount,
+                        UserIdOrNull, _sessionId, _config?.AccessToken, _retryCts.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    SetCancelVisible(false);
+                    AddWarning("Auto-fix cancelled.");
+                    StatusText.Text = "Ready"; StatusText.Foreground = BrushOk;
+                    _retryCount = 0;
+                    _errorBeingFixed = null;
+                    SetInputEnabled(true);
+                    return;
+                }
+                finally
+                {
+                    SetCancelVisible(false);
+                }
 
                 if (resp != null && resp.Success && !string.IsNullOrEmpty(resp.Code))
                 {

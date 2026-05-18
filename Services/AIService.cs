@@ -16,14 +16,15 @@ namespace RevitWebAppSync.Services
         // Shared across all instances — see HttpClient guidelines.
         // Per-request Authorization is set via HttpRequestMessage so the
         // shared client stays thread-safe.
-        // Timeout bumped to 180s — retry / explain-error round-trips send a
-        // lot of context (failed code + error + model context) and the Azure
-        // structured-output path can take 60-90s on a slow tick. 60s used to
-        // surface as 'Retry failed: request was canceled due to the configured
-        // HttpClient.Timeout' before the LLM even returned.
+        // 90s is the sweet spot: long enough that a slow Azure structured-
+        // output tick (typically 30-60s for the retry/explain path) still
+        // completes, short enough that a genuinely stuck request fails with a
+        // clear message instead of leaving the window dimmed for 3 minutes
+        // (which reads as a freeze). The Cancel button is also kept live
+        // during retries so the user is never trapped waiting.
         private static readonly HttpClient _httpClient = new HttpClient
         {
-            Timeout = TimeSpan.FromSeconds(180)
+            Timeout = TimeSpan.FromSeconds(90)
         };
 
         private readonly string _baseUrl;
@@ -205,8 +206,15 @@ namespace RevitWebAppSync.Services
                     return JsonConvert.DeserializeObject<AIResponse>(responseBody);
                 return new AIResponse { Success = false, Error = $"Retry failed: HTTP {(int)response.StatusCode}" };
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                // User clicked Cancel — propagate so the caller can show a clean
+                // "cancelled" state instead of the timeout message.
+                throw;
+            }
             catch (TaskCanceledException)
             {
+                // HttpClient.Timeout elapsed (no user cancel) — soft failure.
                 return new AIResponse
                 {
                     Success = false,
