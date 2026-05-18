@@ -1545,10 +1545,11 @@ namespace RevitWebAppSync
                     try
                     {
                         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
-                        Activate();
-                        Topmost = true;
-                        Topmost = false;
-                        Focus();
+                        // Gentle raise — no Topmost toggle (that flickers). If
+                        // Windows' foreground lock blocks the raise, the worst
+                        // case is the user clicks the window once; that's
+                        // better than a visible flash on every revert.
+                        if (!IsActive) Activate();
                     }
                     catch { /* window may have been closed */ }
                 };
