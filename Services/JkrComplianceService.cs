@@ -19,7 +19,7 @@ namespace RevitWebAppSync.Services
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
 
-        private const string DEFAULT_BASE_URL = "https://51e2-2001-f40-935-7c0f-54ed-26a4-b547-448b.ngrok-free.app";
+        private const string DEFAULT_BASE_URL = "https://bina-ai-staging.azurewebsites.net";
 
         // Raw JSON of the last V2 request + response — used by the Export button for benchmark capture.
         public string LastRequestJson { get; private set; } = "";
