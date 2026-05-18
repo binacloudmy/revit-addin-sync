@@ -2364,9 +2364,37 @@ namespace RevitWebAppSync
             return stack;
         }
 
+        // True when the code ran fine but the *message* says the operation
+        // couldn't complete for a model-state reason (no family loaded, nothing
+        // matched, etc.). We render those as a yellow warning instead of a
+        // green [OK] — '[OK] Error: No door family loaded' reads wrong.
+        private static bool LooksLikeSoftFailureMessage(string m)
+        {
+            if (string.IsNullOrWhiteSpace(m)) return false;
+            var s = m.TrimStart().ToLowerInvariant();
+            return s.StartsWith("error")
+                || s.StartsWith("can't") || s.StartsWith("cannot")
+                || s.StartsWith("couldn't") || s.StartsWith("could not")
+                || s.StartsWith("no ")        // "No single-flush door family loaded."
+                || s.StartsWith("not found")
+                || s.StartsWith("nothing ")   // "Nothing to update."
+                || s.Contains("not loaded")
+                || s.Contains("no view matching")
+                || s.Contains("not found in the");
+        }
+
         private void AddSuccess(string message)
         {
             Log("Result", message);
+
+            // Graceful "couldn't do it because the model lacks X" messages get
+            // warning styling, not a misleading green [OK].
+            if (LooksLikeSoftFailureMessage(message))
+            {
+                AddWarning(message);
+                SetPreview_Result(message, isError: false);
+                return;
+            }
 
             FrameworkElement content = null;
             try
