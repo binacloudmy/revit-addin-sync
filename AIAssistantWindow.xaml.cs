@@ -812,7 +812,7 @@ namespace RevitWebAppSync
                 if (!string.IsNullOrEmpty(__sel)) return __sel;
                 // complex predicate (e.g. filter) → fall through to LLM
             }
-            else if (__tool == "code"
+            else if (__tool == "code" || __tool == "unvetted_code"
                      || string.Equals(action.Type, "unvetted_code", StringComparison.OrdinalIgnoreCase))
             {
                 return action.Code;

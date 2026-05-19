@@ -135,7 +135,7 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("    __data.Add(__row);");
             sb.AppendLine("  }");
             if (!string.IsNullOrEmpty(outPath))
-                sb.AppendLine($"  var __path = @\"{Lit(outPath)}\";");
+                sb.AppendLine($"  var __path = @\"{outPath.Replace("\"", "\"\"")}\";");
             else
                 sb.AppendLine($"  var __path = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), \"{file}\");");
             if (xlsx)
