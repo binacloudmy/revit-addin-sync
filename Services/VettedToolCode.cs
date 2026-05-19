@@ -82,7 +82,34 @@ namespace RevitWebAppSync.Services
             sb.AppendLine($"ShowMessage(\"Renamed\", __n + \" {c} element(s)\");");
             return sb.ToString();
         }
-        internal static string BuildSetParameter(IDictionary<string, object> p) => null;
+        internal static string BuildSetParameter(IDictionary<string, object> p)
+        {
+            var cat = Get(p, "target_category", "category");
+            var name = Get(p, "parameter_name", "parameter", "param");
+            var val = Get(p, "value");
+            if (cat == null || name == null || val == null) return null;
+            string c = Lit(cat), pn = Lit(name), v = Lit(val);
+            var sb = new StringBuilder();
+            sb.AppendLine($"var __cat = doc.Settings.Categories.Cast<Category>()");
+            sb.AppendLine($"    .FirstOrDefault(x => x != null && string.Equals(x.Name, \"{c}\", StringComparison.OrdinalIgnoreCase));");
+            sb.AppendLine("var __els = __cat == null ? new List<Element>() : new FilteredElementCollector(doc)");
+            sb.AppendLine("    .OfCategoryId(__cat.Id).WhereElementIsNotElementType().Cast<Element>().ToList();");
+            sb.AppendLine("int __n = 0;");
+            sb.AppendLine("foreach (var __e in __els) {");
+            sb.AppendLine($"  var __p = __e.LookupParameter(\"{pn}\");");
+            sb.AppendLine("  if (__p == null || __p.IsReadOnly) continue;");
+            sb.AppendLine("  try {");
+            sb.AppendLine("    switch (__p.StorageType) {");
+            sb.AppendLine($"      case StorageType.String: __p.Set(\"{v}\"); __n++; break;");
+            sb.AppendLine($"      case StorageType.Integer: {{ if (int.TryParse(\"{v}\", out var __i)) {{ __p.Set(__i); __n++; }} else if (bool.TryParse(\"{v}\", out var __b)) {{ __p.Set(__b ? 1 : 0); __n++; }} break; }}");
+            sb.AppendLine($"      case StorageType.Double: {{ if (double.TryParse(\"{v}\", out var __d)) {{ __p.Set(__d); __n++; }} break; }}");
+            sb.AppendLine("      default: break;");
+            sb.AppendLine("    }");
+            sb.AppendLine("  } catch { }");
+            sb.AppendLine("}");
+            sb.AppendLine($"ShowMessage(\"Updated\", __n + \" {c} element(s)\");");
+            return sb.ToString();
+        }
         internal static string BuildExportSchedule(IDictionary<string, object> p) => null;
     }
 }

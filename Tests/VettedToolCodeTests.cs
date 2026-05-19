@@ -63,5 +63,26 @@ namespace Tests
             Assert.Contains("Level 1", c);
             Assert.Contains(".Name", c);
         }
+
+        [Fact]
+        public void BuildSetParameter_requires_params()
+        {
+            Assert.Null(VettedToolCode.BuildSetParameter(P(("target_category", "Doors"))));
+            Assert.Null(VettedToolCode.BuildSetParameter(P(("parameter_name", "X"), ("value", "1"))));
+        }
+
+        [Fact]
+        public void BuildSetParameter_emits_storage_type_branches()
+        {
+            var c = VettedToolCode.BuildSetParameter(
+                P(("target_category", "Doors"), ("parameter_name", "Fire Rating"), ("value", "2 HR")));
+            Assert.NotNull(c);
+            Assert.Contains("Doors", c);
+            Assert.Contains("Fire Rating", c);
+            Assert.Contains("LookupParameter", c);
+            Assert.Contains("StorageType.String", c);
+            Assert.Contains("StorageType.Integer", c);
+            Assert.Contains("StorageType.Double", c);
+        }
     }
 }
