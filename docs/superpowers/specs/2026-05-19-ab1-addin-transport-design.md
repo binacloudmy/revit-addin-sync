@@ -63,7 +63,7 @@ pass, and a guard test proves no `/api/revit-ai` literal remains in
 
 `generate` (POST), `route` (POST), `retry` (POST), `explain-error` (POST),
 `record-fix` (POST), `health` (GET), `commands` (GET), `commands` (POST),
-`commands/{templateId}` (PUT ×2), `commands/{templateId}` (GET),
+`commands/{templateId}` (PUT ×2), `commands/{templateId}` (DELETE),
 `commands/export` (GET), `commands/import` (POST). Plus a doc-comment
 (`POST /api/revit-ai/route`) updated to `/agents/...` for accuracy.
 
