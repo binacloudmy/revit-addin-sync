@@ -732,7 +732,7 @@ namespace RevitWebAppSync
                     // open_view is addin-synthesised, non-destructive (no model
                     // edit, just navigation) — auto-run for the same UX as a
                     // chip click. Everything else still gates behind Run/Discard.
-                    bool autoRunSafe = string.Equals(action.Type, "open_view", StringComparison.OrdinalIgnoreCase);
+                    bool autoRunSafe = VettedToolCode.IsAutoRunSafe(action.Tool, action.Type);
 
                     AddCodeBlock(code);
                     _lastExecutedCode = code;   // so "Run again" knows what to re-run
@@ -786,6 +786,38 @@ namespace RevitWebAppSync
         private async Task<string> ResolveActionCode(RouteAction action, string originalPrompt)
         {
             if (action == null) return null;
+
+            // SP3a emits action.Tool (Type left ""). Dispatch vetted tools
+            // natively first; empty/unknown Tool falls through to the
+            // existing Type switch (byte-unchanged). open_view is normalised
+            // onto the existing Type-switch case (no goto); select_elements
+            // reuses BuildNativeSelectionCode; code/unvetted → action.Code.
+            var __tool = (action.Tool ?? "").ToLowerInvariant();
+            if (__tool == "rename_elements" || __tool == "set_parameter" || __tool == "export_schedule")
+            {
+                var __c = VettedToolCode.TryBuild(__tool, action.Params);
+                if (!string.IsNullOrEmpty(__c)) return __c;
+                // required params missing → fall through to LLM/clarification
+            }
+            else if (__tool == "open_view")
+            {
+                // synthesised by the existing Type-switch "open_view" case;
+                // normalise so that case handles it. Safe: `action` is not
+                // reused after ResolveActionCode.
+                action.Type = "open_view";
+            }
+            else if (__tool == "select_elements")
+            {
+                var __sel = BuildNativeSelectionCode(action);
+                if (!string.IsNullOrEmpty(__sel)) return __sel;
+                // complex predicate (e.g. filter) → fall through to LLM
+            }
+            else if (__tool == "code"
+                     || string.Equals(action.Type, "unvetted_code", StringComparison.OrdinalIgnoreCase))
+            {
+                return action.Code;
+            }
+
             switch (action.Type)
             {
                 case "execute_code":
@@ -888,7 +920,8 @@ namespace RevitWebAppSync
         // optional level name. Returns (categoryWord, bicEnumName, levelName).
         private static (string cat, string bic, string level) ExtractTargetFromAction(RouteAction action)
         {
-            string cat = GetParamString(action.Params, "category");
+            string cat = GetParamString(action.Params, "category")
+                         ?? GetParamString(action.Params, "target_category");
             string level = GetParamString(action.Params, "level");
 
             if (action.Mentions != null)
@@ -920,6 +953,7 @@ namespace RevitWebAppSync
                 foreach (var k in action.Params.Keys)
                 {
                     if (string.Equals(k, "category", StringComparison.OrdinalIgnoreCase)) continue;
+                    if (string.Equals(k, "target_category", StringComparison.OrdinalIgnoreCase)) continue;
                     if (string.Equals(k, "level", StringComparison.OrdinalIgnoreCase)) continue;
                     if (string.Equals(k, "scope", StringComparison.OrdinalIgnoreCase)) continue;
                     if (string.Equals(k, "format", StringComparison.OrdinalIgnoreCase)) continue;
