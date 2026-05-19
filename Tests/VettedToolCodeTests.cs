@@ -43,5 +43,25 @@ namespace Tests
             Assert.Null(VettedToolCode.TryBuild("", null));
             Assert.Null(VettedToolCode.TryBuild("bogus", null));
         }
+
+        [Fact]
+        public void BuildRenameElements_requires_params()
+        {
+            Assert.Null(VettedToolCode.BuildRenameElements(P(("target_category", "Walls"))));
+            Assert.Null(VettedToolCode.BuildRenameElements(P(("find", "A"), ("replace", "B"))));
+        }
+
+        [Fact]
+        public void BuildRenameElements_emits_expected()
+        {
+            var c = VettedToolCode.BuildRenameElements(
+                P(("target_category", "Walls"), ("find", "EXT_"), ("replace", "E_"), ("scope", "Level 1")));
+            Assert.NotNull(c);
+            Assert.Contains("Walls", c);
+            Assert.Contains("EXT_", c);
+            Assert.Contains("E_", c);
+            Assert.Contains("Level 1", c);
+            Assert.Contains(".Name", c);
+        }
     }
 }

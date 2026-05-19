@@ -51,7 +51,37 @@ namespace RevitWebAppSync.Services
         private static string Lit(string s) =>
             (s ?? "").Replace("\\", "").Replace("\"", "");
 
-        internal static string BuildRenameElements(IDictionary<string, object> p) => null;
+        internal static string BuildRenameElements(IDictionary<string, object> p)
+        {
+            var cat = Get(p, "target_category", "category");
+            var find = Get(p, "find");
+            var repl = Get(p, "replace");
+            var scope = Get(p, "scope");
+            if (cat == null || find == null || repl == null) return null;
+            string c = Lit(cat), f = Lit(find), r = Lit(repl), sc = Lit(scope);
+            var sb = new StringBuilder();
+            sb.AppendLine($"var __cat = doc.Settings.Categories.Cast<Category>()");
+            sb.AppendLine($"    .FirstOrDefault(x => x != null && string.Equals(x.Name, \"{c}\", StringComparison.OrdinalIgnoreCase));");
+            sb.AppendLine("var __els = __cat == null ? new List<Element>() : new FilteredElementCollector(doc)");
+            sb.AppendLine("    .OfCategoryId(__cat.Id).WhereElementIsNotElementType().Cast<Element>().ToList();");
+            if (!string.IsNullOrEmpty(sc))
+            {
+                sb.AppendLine($"var __lvl = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()");
+                sb.AppendLine($"    .FirstOrDefault(l => string.Equals(l.Name, \"{sc}\", StringComparison.OrdinalIgnoreCase));");
+                sb.AppendLine("if (__lvl != null) __els = __els.Where(e => e.LevelId == __lvl.Id).ToList();");
+            }
+            sb.AppendLine("int __n = 0;");
+            sb.AppendLine("foreach (var __e in __els) {");
+            sb.AppendLine("  try {");
+            sb.AppendLine("    var __o = __e.Name;");
+            sb.AppendLine($"    if (!string.IsNullOrEmpty(__o) && __o.IndexOf(\"{f}\", StringComparison.Ordinal) >= 0) {{");
+            sb.AppendLine($"      __e.Name = __o.Replace(\"{f}\", \"{r}\"); __n++;");
+            sb.AppendLine("    }");
+            sb.AppendLine("  } catch { }");
+            sb.AppendLine("}");
+            sb.AppendLine($"ShowMessage(\"Renamed\", __n + \" {c} element(s)\");");
+            return sb.ToString();
+        }
         internal static string BuildSetParameter(IDictionary<string, object> p) => null;
         internal static string BuildExportSchedule(IDictionary<string, object> p) => null;
     }
