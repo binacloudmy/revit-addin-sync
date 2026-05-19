@@ -223,7 +223,7 @@ only when **every** checkbox under it meets its "Done when" criterion.
 
 | Gate | Status | Verified by | Date |
 |---|---|---|---|
-| 1 Deploy parity | NO-GO | | |
+| 1 Deploy parity | PASS | backend: verified 90b5f79 clean; addin: rebuilt + 3-command smoke OK | 2026-05-19 |
 | 2 Stable hosting | NO-GO | | |
 | 3 In-Revit execution | NO-GO | | |
 | H hardening (unattended only) | N/A for supervised demo | | |
