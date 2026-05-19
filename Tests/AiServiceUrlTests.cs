@@ -7,19 +7,19 @@ namespace Tests
     public class AiServiceUrlTests
     {
         [Fact]
-        public void BuildAiUrl_uses_agents_prefix()
+        public void Build_uses_agents_prefix()
         {
             Assert.Equal(
                 "http://x/agents/revit-ai/route",
-                AIService.BuildAiUrl("http://x", "route"));
+                AiUrl.Build("http://x", "route"));
         }
 
         [Fact]
-        public void BuildAiUrl_keeps_subpath()
+        public void Build_keeps_subpath()
         {
             Assert.Equal(
                 "https://h/agents/revit-ai/commands/abc",
-                AIService.BuildAiUrl("https://h", "commands/abc"));
+                AiUrl.Build("https://h", "commands/abc"));
         }
 
         [Fact]

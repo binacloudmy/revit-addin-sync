@@ -24,6 +24,7 @@
     <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />
     <Compile Include="..\UI\Jkr\JkrTheme.cs" Link="JkrTheme.cs" />
     <Compile Include="..\Services\JkrCodeParser.cs" Link="JkrCodeParser.cs" />
+    <Compile Include="..\Services\AiUrl.cs" Link="AiUrl.cs" />
   </ItemGroup>
 
 </Project>
