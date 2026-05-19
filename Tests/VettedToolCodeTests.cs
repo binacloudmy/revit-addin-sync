@@ -84,5 +84,26 @@ namespace Tests
             Assert.Contains("StorageType.Integer", c);
             Assert.Contains("StorageType.Double", c);
         }
+
+        [Fact]
+        public void BuildExportSchedule_requires_name()
+        {
+            Assert.Null(VettedToolCode.BuildExportSchedule(P(("format", "csv"))));
+        }
+
+        [Fact]
+        public void BuildExportSchedule_csv_and_xlsx()
+        {
+            var csv = VettedToolCode.BuildExportSchedule(P(("schedule_name", "Door Schedule")));
+            Assert.NotNull(csv);
+            Assert.Contains("ViewSchedule", csv);
+            Assert.Contains("Door Schedule", csv);
+            Assert.Contains("WriteAllLines", csv);
+
+            var xl = VettedToolCode.BuildExportSchedule(
+                P(("schedule_name", "Door Schedule"), ("format", "xlsx")));
+            Assert.NotNull(xl);
+            Assert.Contains("WriteExcel", xl);
+        }
     }
 }

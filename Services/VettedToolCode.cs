@@ -110,6 +110,48 @@ namespace RevitWebAppSync.Services
             sb.AppendLine($"ShowMessage(\"Updated\", __n + \" {c} element(s)\");");
             return sb.ToString();
         }
-        internal static string BuildExportSchedule(IDictionary<string, object> p) => null;
+        internal static string BuildExportSchedule(IDictionary<string, object> p)
+        {
+            var name = Get(p, "schedule_name", "name");
+            if (name == null) return null;
+            var fmt = (Get(p, "format") ?? "csv").ToLowerInvariant();
+            bool xlsx = fmt.Contains("xls");
+            var outPath = Get(p, "output_path");
+            string n = Lit(name);
+            string file = (n.Replace(" ", "_")) + (xlsx ? ".xlsx" : ".csv");
+            var sb = new StringBuilder();
+            sb.AppendLine($"var __s = new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()");
+            sb.AppendLine($"    .FirstOrDefault(v => !v.IsTemplate && string.Equals(v.Name, \"{n}\", StringComparison.OrdinalIgnoreCase));");
+            sb.AppendLine($"if (__s == null) __s = new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()");
+            sb.AppendLine($"    .FirstOrDefault(v => !v.IsTemplate && v.Name != null && v.Name.IndexOf(\"{n}\", StringComparison.OrdinalIgnoreCase) >= 0);");
+            sb.AppendLine($"if (__s == null) {{ ShowMessage(\"Not found\", \"No schedule matching '{n}'.\"); }}");
+            sb.AppendLine("else {");
+            sb.AppendLine("  var __b = __s.GetTableData().GetSectionData(SectionType.Body);");
+            sb.AppendLine("  var __data = new List<List<string>>();");
+            sb.AppendLine("  for (int __r = 0; __r < __b.NumberOfRows; __r++) {");
+            sb.AppendLine("    var __row = new List<string>();");
+            sb.AppendLine("    for (int __col = 0; __col < __b.NumberOfColumns; __col++)");
+            sb.AppendLine("      __row.Add(__s.GetCellText(SectionType.Body, __r, __col) ?? \"\");");
+            sb.AppendLine("    __data.Add(__row);");
+            sb.AppendLine("  }");
+            if (!string.IsNullOrEmpty(outPath))
+                sb.AppendLine($"  var __path = @\"{Lit(outPath)}\";");
+            else
+                sb.AppendLine($"  var __path = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), \"{file}\");");
+            if (xlsx)
+            {
+                sb.AppendLine("  var __hdr = __data.Count > 0 ? __data[0] : new List<string>();");
+                sb.AppendLine("  var __rows = __data.Count > 1 ? __data.Skip(1).ToList() : new List<List<string>>();");
+                sb.AppendLine("  WriteExcel(__path, __hdr, __rows);");
+            }
+            else
+            {
+                sb.AppendLine("  System.IO.File.WriteAllLines(__path, __data.Select(rw =>");
+                sb.AppendLine("    string.Join(\",\", rw.Select(cell => \"\\\"\" + (cell ?? \"\").Replace(\"\\\"\", \"\\\"\\\"\") + \"\\\"\"))));");
+            }
+            sb.AppendLine("  ShowMessage(\"Exported\", __s.Name + \" -> \" + __path);");
+            sb.AppendLine("}");
+            return sb.ToString();
+        }
     }
 }
