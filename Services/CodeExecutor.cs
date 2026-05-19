@@ -150,11 +150,20 @@ namespace RevitWebAppSync.Services
                               || code.Contains("FindExcelFile") || code.Contains("XLWorkbook");
 
             // Don't auto-wrap in a Transaction when:
-            //  - the code already manages its own ("Transaction" mentioned), or
+            //  - the code constructs its OWN transaction object (auto-wrapping
+            //    would nest a transaction, which Revit forbids), or
             //  - the code changes the active view — RequestViewChange / ActiveView
             //    setter throw "Cannot change the active view ... with a transaction
             //    currently open", and opening a view isn't a model edit anyway.
-            bool selfManagesTransaction = code.Contains("Transaction")
+            //
+            // Match a real `new Transaction(` / TransactionGroup / SubTransaction,
+            // NOT the bare word "Transaction": a generated comment, a string, or a
+            // `TransactionStatus` reference must NOT suppress the auto-wrap (that
+            // would let a model edit run with no open transaction and fail). This
+            // mirrors what InjectFailureHandlingIntoUserTransactions can recognise.
+            bool opensOwnTransaction = Regex.IsMatch(
+                code, @"\bnew\s+(?:Transaction|TransactionGroup|SubTransaction)\s*\(");
+            bool selfManagesTransaction = opensOwnTransaction
                                           || code.Contains("OpenView")
                                           || code.Contains("RequestViewChange")
                                           || code.Contains(".ActiveView =")
