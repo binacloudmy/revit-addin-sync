@@ -803,11 +803,33 @@ namespace RevitWebAppSync
                     var n = name.Trim().TrimStart('@').Trim();
                     n = Regex.Replace(n, @"^(Level|View|Grid|Room|Type|Category|System)_", "", RegexOptions.IgnoreCase);
                     n = n.Replace("\\", "").Replace("\"", "").Trim();
+                    // Name match first; then a view-TYPE fallback. "switch to the
+                    // 3D view" passes name="3D view", but Revit's 3D views are
+                    // named "{3D}" / arbitrary — a pure name match never finds
+                    // them. So if the request reads as a view *kind*, resolve by
+                    // ViewType / View3D instead of failing.
+                    var nl = n.ToLowerInvariant();
                     return
                         $"var __v = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()\n" +
                         $"    .FirstOrDefault(v => !v.IsTemplate && string.Equals(v.Name, \"{n}\", StringComparison.OrdinalIgnoreCase));\n" +
                         $"if (__v == null) __v = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()\n" +
                         $"    .FirstOrDefault(v => !v.IsTemplate && v.Name != null && v.Name.IndexOf(\"{n}\", StringComparison.OrdinalIgnoreCase) >= 0);\n" +
+                        $"if (__v == null) {{\n" +
+                        $"    var __q = \"{nl}\";\n" +
+                        $"    if (__q.Contains(\"3d\")) __v = new FilteredElementCollector(doc).OfClass(typeof(View3D)).Cast<View3D>()\n" +
+                        $"        .Where(v => !v.IsTemplate).OrderByDescending(v => v.Name == \"{{3D}}\").FirstOrDefault();\n" +
+                        $"    else {{\n" +
+                        $"        ViewType __t = ViewType.Undefined;\n" +
+                        $"        if (__q.Contains(\"eleva\")) __t = ViewType.Elevation;\n" +
+                        $"        else if (__q.Contains(\"section\")) __t = ViewType.Section;\n" +
+                        $"        else if (__q.Contains(\"ceiling\")) __t = ViewType.CeilingPlan;\n" +
+                        $"        else if (__q.Contains(\"legend\")) __t = ViewType.Legend;\n" +
+                        $"        else if (__q.Contains(\"draft\")) __t = ViewType.DraftingView;\n" +
+                        $"        else if (__q.Contains(\"plan\")) __t = ViewType.FloorPlan;\n" +
+                        $"        if (__t != ViewType.Undefined) __v = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()\n" +
+                        $"            .FirstOrDefault(v => !v.IsTemplate && v.ViewType == __t);\n" +
+                        $"    }}\n" +
+                        $"}}\n" +
                         $"if (__v != null) {{ OpenView(__v); ShowMessage(\"View opened\", __v.Name); }}\n" +
                         $"else ShowMessage(\"Not found\", \"No view matching '{n}'.\");";
                 }
@@ -954,12 +976,18 @@ namespace RevitWebAppSync
             if (action == null) return null;
 
             string fmt = (GetParamString(action.Params, "format") ?? "").ToLowerInvariant();
-            // Only Excel is fully native today. PDF / IFC / DWG / BCF → fall back to LLM.
-            if (fmt.Length == 0 || fmt.IndexOf("excel", StringComparison.OrdinalIgnoreCase) < 0
-                                  && fmt.IndexOf("xlsx", StringComparison.OrdinalIgnoreCase) < 0
-                                  && fmt.IndexOf("xls", StringComparison.OrdinalIgnoreCase) < 0
-                                  && fmt.IndexOf("csv", StringComparison.OrdinalIgnoreCase) < 0)
-                return null;
+            // Only true binary/CAD exports go to the LLM. Excel/CSV, a
+            // "schedule"/"table"/"list", or an UNSPECIFIED format ("export a
+            // wall schedule") are all a deterministic Excel data-dump here —
+            // letting those fall to code-gen is what produced the hallucinated
+            // `ExportOptionsExcel` / `CURVE_LENGTH` failures.
+            bool binaryExport = fmt.Contains("pdf") || fmt.Contains("ifc")
+                                || fmt.Contains("dwg") || fmt.Contains("dwf")
+                                || fmt.Contains("bcf") || fmt.Contains("nwc")
+                                || fmt.Contains("fbx") || fmt.Contains("image")
+                                || fmt.Contains("jpg") || fmt.Contains("jpeg")
+                                || fmt.Contains("png") || fmt.Contains("gbxml");
+            if (binaryExport) return null;
 
             var (cat, bic, level) = ExtractTargetFromAction(action);
             if (string.IsNullOrEmpty(bic)) return null;
