@@ -8,6 +8,9 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Runtime.CompilerServices;
+
+[assembly: InternalsVisibleTo("Tests")]
 
 namespace RevitWebAppSync.Services
 {
@@ -28,6 +31,11 @@ namespace RevitWebAppSync.Services
         };
 
         private readonly string _baseUrl;
+
+        internal const string RevitAiPath = "/agents/revit-ai";
+
+        internal static string BuildAiUrl(string baseUrl, string endpoint) =>
+            $"{baseUrl}{RevitAiPath}/{endpoint}";
 
         // AI Agent backend (ngrok tunnel to Mac running bina-ai FastAPI).
         // Override via BinaConfig.AIBaseUrl so the addin doesn't need a rebuild
