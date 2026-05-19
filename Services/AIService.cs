@@ -58,7 +58,7 @@ namespace RevitWebAppSync.Services
             try
             {
                 var json = JsonConvert.SerializeObject(request);
-                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/revit-ai/generate")
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, BuildAiUrl(_baseUrl, "generate"))
                 {
                     Content = new StringContent(json, Encoding.UTF8, "application/json")
                 };
@@ -134,7 +134,7 @@ namespace RevitWebAppSync.Services
 
         /// <summary>
         /// Unified Copilot entry point — classifies intent and returns an ordered
-        /// list of actions for the addin to dispatch. POST /api/revit-ai/route.
+        /// list of actions for the addin to dispatch. POST /agents/revit-ai/route.
         /// </summary>
         public async Task<RouteResponse> RouteAsync(
             string message, object context, int? userId, string sessionId, string templateId,
@@ -144,7 +144,7 @@ namespace RevitWebAppSync.Services
             {
                 var body = new { message = message, context = context, userId = userId, sessionId = sessionId, templateId = templateId };
                 var json = JsonConvert.SerializeObject(body);
-                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/revit-ai/route")
+                using var request = new HttpRequestMessage(HttpMethod.Post, BuildAiUrl(_baseUrl, "route"))
                 {
                     Content = new StringContent(json, Encoding.UTF8, "application/json")
                 };
@@ -201,7 +201,7 @@ namespace RevitWebAppSync.Services
                     sessionId = sessionId
                 };
                 var json = JsonConvert.SerializeObject(body);
-                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/revit-ai/retry")
+                using var request = new HttpRequestMessage(HttpMethod.Post, BuildAiUrl(_baseUrl, "retry"))
                 {
                     Content = new StringContent(json, Encoding.UTF8, "application/json")
                 };
@@ -257,7 +257,7 @@ namespace RevitWebAppSync.Services
                     sessionId = sessionId
                 };
                 var json = JsonConvert.SerializeObject(body);
-                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/revit-ai/explain-error")
+                using var request = new HttpRequestMessage(HttpMethod.Post, BuildAiUrl(_baseUrl, "explain-error"))
                 {
                     Content = new StringContent(json, Encoding.UTF8, "application/json")
                 };
@@ -295,7 +295,7 @@ namespace RevitWebAppSync.Services
                     sessionId = sessionId
                 };
                 var json = JsonConvert.SerializeObject(body);
-                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/revit-ai/record-fix")
+                using var request = new HttpRequestMessage(HttpMethod.Post, BuildAiUrl(_baseUrl, "record-fix"))
                 {
                     Content = new StringContent(json, Encoding.UTF8, "application/json")
                 };
@@ -316,7 +316,7 @@ namespace RevitWebAppSync.Services
         {
             try
             {
-                var response = await _httpClient.GetAsync($"{_baseUrl}/api/revit-ai/health", cancellationToken);
+                var response = await _httpClient.GetAsync(BuildAiUrl(_baseUrl, "health"), cancellationToken);
                 return response.IsSuccessStatusCode;
             }
             catch
@@ -340,7 +340,7 @@ namespace RevitWebAppSync.Services
                 var query = new List<string>();
                 if (userId.HasValue) query.Add($"userId={userId.Value}");
                 if (orgId.HasValue) query.Add($"orgId={orgId.Value}");
-                var url = $"{_baseUrl}/api/revit-ai/commands"
+                var url = BuildAiUrl(_baseUrl, "commands")
                           + (query.Count > 0 ? "?" + string.Join("&", query) : "");
 
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
@@ -372,7 +372,7 @@ namespace RevitWebAppSync.Services
             try
             {
                 var json = JsonConvert.SerializeObject(request);
-                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/revit-ai/commands")
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, BuildAiUrl(_baseUrl, "commands"))
                 {
                     Content = new StringContent(json, Encoding.UTF8, "application/json")
                 };
@@ -410,7 +410,7 @@ namespace RevitWebAppSync.Services
                     generated_code = generatedCode
                 };
                 var json = JsonConvert.SerializeObject(body);
-                using var request = new HttpRequestMessage(HttpMethod.Put, $"{_baseUrl}/api/revit-ai/commands/{templateId}")
+                using var request = new HttpRequestMessage(HttpMethod.Put, BuildAiUrl(_baseUrl, $"commands/{templateId}"))
                 {
                     Content = new StringContent(json, Encoding.UTF8, "application/json")
                 };
@@ -434,7 +434,7 @@ namespace RevitWebAppSync.Services
             try
             {
                 var json = JsonConvert.SerializeObject(request);
-                using var httpRequest = new HttpRequestMessage(HttpMethod.Put, $"{_baseUrl}/api/revit-ai/commands/{templateId}")
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Put, BuildAiUrl(_baseUrl, $"commands/{templateId}"))
                 {
                     Content = new StringContent(json, Encoding.UTF8, "application/json")
                 };
@@ -458,7 +458,7 @@ namespace RevitWebAppSync.Services
         {
             try
             {
-                var url = $"{_baseUrl}/api/revit-ai/commands/{templateId}"
+                var url = BuildAiUrl(_baseUrl, $"commands/{templateId}")
                           + (userId.HasValue ? $"?userId={userId.Value}" : "");
                 using var httpRequest = new HttpRequestMessage(HttpMethod.Delete, url);
                 if (!string.IsNullOrEmpty(accessToken))
@@ -485,7 +485,7 @@ namespace RevitWebAppSync.Services
                 var query = new List<string>();
                 if (userId.HasValue) query.Add($"userId={userId.Value}");
                 if (orgId.HasValue) query.Add($"orgId={orgId.Value}");
-                var url = $"{_baseUrl}/api/revit-ai/commands/export"
+                var url = BuildAiUrl(_baseUrl, "commands/export")
                           + (query.Count > 0 ? "?" + string.Join("&", query) : "");
                 using var request = new HttpRequestMessage(HttpMethod.Get, url);
                 if (!string.IsNullOrEmpty(accessToken))
@@ -520,7 +520,7 @@ namespace RevitWebAppSync.Services
                     bundle = bundle
                 };
                 var json = JsonConvert.SerializeObject(payload);
-                using var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/api/revit-ai/commands/import")
+                using var request = new HttpRequestMessage(HttpMethod.Post, BuildAiUrl(_baseUrl, "commands/import"))
                 {
                     Content = new StringContent(json, Encoding.UTF8, "application/json")
                 };
