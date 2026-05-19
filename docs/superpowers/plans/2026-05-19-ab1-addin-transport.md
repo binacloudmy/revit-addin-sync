@@ -4,7 +4,7 @@
 
 **Goal:** Route every `AIService` HTTP call through a single `/agents/revit-ai` prefix (instead of the wrong `/api/revit-ai`) via one constant + helper, so the addin can reach the bina-ai backend.
 
-**Architecture:** Add `RevitAiPath` const + `internal static BuildAiUrl(baseUrl, endpoint)` to `Services/AIService.cs`; convert all 12 call sites + the doc-comment; expose internals to the `Tests` assembly; cover with xUnit + a cross-platform source guard. Base-URL resolution unchanged.
+**Architecture:** Add `RevitAiPath` const + `internal static BuildAiUrl(baseUrl, endpoint)` to `Services/AIService.cs`; convert all 13 call sites + the doc-comment; expose internals to the `Tests` assembly; cover with xUnit + a cross-platform source guard. Base-URL resolution unchanged.
 
 **Tech Stack:** C# / .NET (`net10.0-windows`, Revit addin), xUnit 2.9.2. **Build/test target is Windows-only and `dotnet` is not available in this controller environment** — `dotnet build`/`dotnet test` are operator (Windows) steps; the in-session gate is a `grep`-based source guard (cross-platform).
 
@@ -128,7 +128,7 @@ git commit -m "feat(ab1): add RevitAiPath + BuildAiUrl helper + url tests"
 
 ---
 
-### Task 2: Convert all 12 call sites + the doc-comment
+### Task 2: Convert all 13 call sites + the doc-comment
 
 **Files:**
 - Modify: `Services/AIService.cs`
@@ -226,7 +226,7 @@ Run:
 ```bash
 grep -c 'BuildAiUrl(_baseUrl' Services/AIService.cs
 ```
-Expected: `12` (the 12 converted call sites). If fewer, a site was missed in Task 2.
+Expected: `13` (the 13 converted call sites). If fewer, a site was missed in Task 2.
 
 - [ ] **Step 3: Commit any guard-driven fix (only if Task 2 was revisited)**
 
@@ -257,7 +257,7 @@ constant to the actual `Tests` output layout.
 
 **1. Spec coverage:**
 - Single `RevitAiPath` const + `BuildAiUrl` helper → Task 1 Steps 3. ✓
-- All 12 call sites + doc-comment converted → Task 2 Steps 1–14. ✓
+- All 13 call sites + doc-comment converted → Task 2 Steps 1–14. ✓
 - `InternalsVisibleTo("Tests")` so builder is unit-testable → Task 1 Step 2. ✓
 - Base-URL resolution unchanged (no `DEFAULT_AI_BASE_URL` edit) → no task touches it; only the prefix literal changes. ✓
 - Unit tests (prefix + subpath) + source guard → Task 1 Step 1 + Task 3 Steps 1–2. ✓
@@ -266,6 +266,6 @@ constant to the actual `Tests` output layout.
 
 **2. Placeholder scan:** No TBD/TODO. Every code step shows exact old→new text; every command shows expected output. Task 3 Step 4 is an explicit operator runbook (Windows-only build is a real constraint, not a placeholder), with the cross-platform `grep` guard as the authoritative in-session gate.
 
-**3. Type consistency:** `internal const string RevitAiPath`, `internal static string BuildAiUrl(string baseUrl, string endpoint)` defined in Task 1, used identically in every Task 2 replacement (`BuildAiUrl(_baseUrl, "<endpoint>")` / `BuildAiUrl(_baseUrl, $"commands/{templateId}")`) and asserted in Task 1's tests + Task 3's grep (`BuildAiUrl(_baseUrl`, count 12). `InternalsVisibleTo("Tests")` matches the test assembly name (`Tests.csproj` → assembly `Tests`). Consistent.
+**3. Type consistency:** `internal const string RevitAiPath`, `internal static string BuildAiUrl(string baseUrl, string endpoint)` defined in Task 1, used identically in every Task 2 replacement (`BuildAiUrl(_baseUrl, "<endpoint>")` / `BuildAiUrl(_baseUrl, $"commands/{templateId}")`) and asserted in Task 1's tests + Task 3's grep (`BuildAiUrl(_baseUrl`, count 13). `InternalsVisibleTo("Tests")` matches the test assembly name (`Tests.csproj` → assembly `Tests`). Consistent.
 
 No gaps found.

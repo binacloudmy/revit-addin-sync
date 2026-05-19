@@ -13,7 +13,7 @@ their own spec → plan → build cycles.
 ## Problem
 
 `Services/AIService.cs` posts every Copilot/AI request to
-`{_baseUrl}/api/revit-ai/*` (12 call sites). The bina-ai backend serves these
+`{_baseUrl}/api/revit-ai/*` (13 call sites). The bina-ai backend serves these
 under `/agents/revit-ai/*` (SP1 `generate`, SP3a `route`, plus `retry`). The
 deployment has **no proxy** rewriting `/api/*` → `/agents/*` (confirmed: the
 addin calls bina-ai directly). So today the addin cannot reach any of the new
@@ -40,7 +40,7 @@ pass, and a guard test proves no `/api/revit-ai` literal remains in
   URL.
 - **Single prefix constant + builder (approach A):** one
   `const RevitAiPath = "/agents/revit-ai"` and an
-  `internal static BuildAiUrl(baseUrl, endpoint)`; all 12 call sites route
+  `internal static BuildAiUrl(baseUrl, endpoint)`; all 13 call sites route
   through it. Rejected: in-place literal replace (perpetuates the scattered-
   literal smell), and a configurable prefix knob (YAGNI — topology is settled).
 - **Uniform application:** the builder is used for *all* `/api/revit-ai/*`
@@ -59,7 +59,7 @@ pass, and a guard test proves no `/api/revit-ai` literal remains in
   assembly `InternalsVisibleTo` attribute.
 - No other repo (`bina-ai` untouched).
 
-## The 12 Call Sites (in `Services/AIService.cs`)
+## The 13 Call Sites (in `Services/AIService.cs`)
 
 `generate` (POST), `route` (POST), `retry` (POST), `explain-error` (POST),
 `record-fix` (POST), `health` (GET), `commands` (GET), `commands` (POST),
