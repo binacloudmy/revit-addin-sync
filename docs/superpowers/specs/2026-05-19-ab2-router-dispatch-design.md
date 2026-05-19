@@ -39,9 +39,17 @@ test` operator-verified on Windows.
 ## Decisions (locked during brainstorming)
 
 - **Native synthesizers for all 5 vetted tools** (realizes the SP3 keystone:
-  vetted, no-LLM, cheap, safe). `rename_elements` + `set_parameter` are new;
-  `open_view`/`select_elements`/`export_schedule` **reuse** the existing
-  synthesizers (no rewrite; additive param-key acceptance only).
+  vetted, no-LLM, cheap, safe). **Three are new** in `VettedToolCode.cs`:
+  `rename_elements`, `set_parameter`, `export_schedule`. **Two reuse** existing
+  synthesizers (no rewrite; additive param-key acceptance only): `open_view`
+  (inline synth already aliases `view_name`) and `select_elements`
+  (`BuildNativeSelectionCode`).
+- **Reality-check (found at plan grounding):** `export_schedule` was originally
+  slated to reuse `BuildNativeExportCode`, but that builder is a *category
+  element dump* keyed on `BuiltInCategory` via `ExtractTargetFromAction`. SP3a's
+  `export_schedule` has no category — it names a Revit `ViewSchedule`
+  (`schedule_name`) to export. Semantic mismatch ⇒ it is a **new** synthesizer,
+  not a reuse.
 - **Tool-first, Type fallback:** branch on `action.Tool` first; if `Tool` is
   empty or unrecognized, fall through to the existing `switch (action.Type)`
   **unchanged**. Additive, zero regression.
@@ -85,10 +93,12 @@ test` operator-verified on Windows.
 loop over route.Actions
   └── ResolveActionCode(action, prompt)
         ├── action.Tool switch (NEW, first):
-        │     rename_elements / set_parameter → VettedToolCode.TryBuild(action)
-        │     open_view        → existing open_view synthesizer (reuse)
-        │     select_elements  → existing BuildNativeSelectionCode(action)
-        │     export_schedule  → existing BuildNativeExportCode(action)
+        │     rename_elements / set_parameter / export_schedule
+        │                       → VettedToolCode.TryBuild(action)
+        │     open_view         → existing open_view synthesizer (reuse)
+        │     select_elements   → existing BuildNativeSelectionCode(action)
+        │                          (ExtractTargetFromAction extended to read
+        │                          target_category; allow-list adds it too)
         │     code (or Type=="unvetted_code") → action.Code
         │     null/empty/unknown Tool ↓
         └── existing switch (action.Type)  [UNCHANGED fallback]
@@ -116,9 +126,16 @@ lean (only the Tool-first front + the one auto-run line change).
   `parameter_name`, `value`. Emits C# that sets the parameter on each element,
   type-aware (string/double/bool), guarding missing/read-only params. `null`
   if a required param is missing.
+- `BuildExportSchedule(RouteAction a)` → `string?`. Requires `schedule_name`;
+  optional `format` (`csv` default, or `xlsx`) and `output_path` (Desktop
+  default). Emits C# that finds the `ViewSchedule` whose name matches
+  `schedule_name` (case-insensitive, exact then contains), reads its
+  `TableData`/visible cells, and writes csv (built-in) or xlsx (`WriteExcel`,
+  same helper the legacy export uses). `null` if `schedule_name` missing or no
+  matching schedule logic can be emitted.
 - `TryBuild(RouteAction a)` → `string?`. Returns the synthesized C# for
-  `rename_elements`/`set_parameter`; `null` for any other tool (caller then
-  reuses existing synthesizers / falls through).
+  `rename_elements`/`set_parameter`/`export_schedule`; `null` for any other
+  tool (caller then reuses existing synthesizers / falls through).
 - `IsAutoRunSafe(RouteAction a)` → `bool`. True iff the action is `open_view`
   by `Tool` (case-insensitive), or `Tool` empty and legacy
   `Type == "open_view"`. False for everything else (esp. the mutating tools).
@@ -138,11 +155,15 @@ so no new executor capability is required.
   byte-unchanged** (not moved, not reindented). Minimal diff, zero regression.
 - The loop line `bool autoRunSafe = string.Equals(action.Type, "open_view",
   …)` becomes `bool autoRunSafe = VettedToolCode.IsAutoRunSafe(action);`.
-- If `BuildNativeSelectionCode`/`BuildNativeExportCode`/the inline `open_view`
-  param reads do not already accept SP3a keys (`target_category`, `filter`,
-  `schedule_name`, `format`, `output_path`; `open_view` already aliases
-  `view_name`), add those keys to their existing alias lists **additively**
-  (old aliases retained — no behavior change for legacy inputs).
+- `select_elements` reuse: `ExtractTargetFromAction` currently reads only the
+  `category` param. Extend it **additively** to also read `target_category`
+  (`GetParamString(p,"category") ?? GetParamString(p,"target_category")`), and
+  add `target_category` to `BuildNativeSelectionCode`'s param allow-list. Do
+  **not** add `filter`: its presence should keep bailing to the LLM (the native
+  selector can't honor arbitrary predicates) — a bare "select all walls" sends
+  only `target_category` and now dispatches natively. `open_view` already
+  aliases `view_name` — no change needed. `BuildNativeExportCode` is **not**
+  touched (export_schedule is the new synthesizer, not this builder).
 
 ### `Tests/Tests.csproj` + `Tests/VettedToolCodeTests.cs`
 
@@ -192,11 +213,15 @@ AB2 only guarantees no mutation auto-executes.
 - `BuildSetParameter`: valid params → C# setting `parameter_name`; string vs
   numeric vs bool `value` handled distinctly; `null` when a required param
   missing.
+- `BuildExportSchedule`: valid `schedule_name` → C# referencing `ViewSchedule`
+  + the resolved name; `format=xlsx` emits `WriteExcel`, default/`csv` emits
+  csv writing; `null` when `schedule_name` missing.
 - `IsAutoRunSafe`: true for `Tool=="open_view"` and for `Tool==""` &
   `Type=="open_view"`; false for `rename_elements`/`set_parameter`/
   `export_schedule`/`select_elements`/`code`.
-- `TryBuild`: non-null only for `rename_elements`/`set_parameter`; `null` for
-  `open_view`/`select_elements`/`export_schedule`/`code`/unknown.
+- `TryBuild`: non-null only for
+  `rename_elements`/`set_parameter`/`export_schedule`; `null` for
+  `open_view`/`select_elements`/`code`/unknown.
 
 Source guard (in-session, cross-platform — `dotnet` unavailable here): `grep`
 confirms `ResolveActionCode` has a `action.Tool` branch, the auto-run line
@@ -215,6 +240,7 @@ and "set Fire Rating to 2 HR on doors" prompt now dispatch natively (no
 |---|---|
 | Aux endpoints (explain-error/record-fix/health/commands) graceful degrade | AB3 |
 | Dry-run / blast-radius gate | SP4 |
-| Rewriting existing open_view/select/export synthesizers | Excluded (reuse only) |
+| Rewriting the existing open_view / select_elements synthesizers | Excluded (reuse + additive `target_category` only) |
+| Reusing `BuildNativeExportCode` for export_schedule | Excluded (semantic mismatch — new synthesizer instead) |
 | Backend / bina-ai change | Out of repo |
 | Pre-existing CS1587 `<summary>` nit on `UpdateCommandCodeAsync` | Optional tidy if AB2 touches that region; not required |
