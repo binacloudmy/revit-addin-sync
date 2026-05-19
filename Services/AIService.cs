@@ -302,14 +302,21 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
-        /// Check if backend is available.
+        /// Reports backend *reachability*, not endpoint success. Any HTTP
+        /// response (including a 404 for a route the backend doesn't serve,
+        /// e.g. /health) proves the host is reachable, so /route and
+        /// /generate will work. Only a transport failure (host down, DNS,
+        /// connection refused, timeout) returns false.
         /// </summary>
         public async Task<bool> HealthCheckAsync(CancellationToken cancellationToken = default)
         {
             try
             {
-                var response = await _httpClient.GetAsync(AiUrl.Build(_baseUrl, "health"), cancellationToken);
-                return response.IsSuccessStatusCode;
+                // We only care that the host answered at all — the status
+                // code is irrelevant (the addin doesn't require /health to
+                // exist). A thrown exception (no response) = unreachable.
+                await _httpClient.GetAsync(AiUrl.Build(_baseUrl, "health"), cancellationToken);
+                return true;
             }
             catch
             {
