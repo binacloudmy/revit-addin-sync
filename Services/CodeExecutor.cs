@@ -261,6 +261,14 @@ namespace RevitWebAppSync.Services
             // walls with join conflicts) and a rolled-back transaction
             // silently looks like success.
             string processedCode = code;
+            // The user code body sits inside `public object Execute(...)`, so a
+            // bare `return;` is a compile error ("object of a type convertible
+            // to object is required"). Agent patterns use `return;` for early
+            // exits (`if (vft == null) { ShowMessage(...); return; }`); rewrite
+            // them to `return null;` defensively so any current or future
+            // pattern compiles regardless of the prompt phrasing. Word boundary
+            // ensures we don't touch `return null;` / `return foo;` etc.
+            processedCode = Regex.Replace(processedCode, @"\breturn\s*;", "return null;");
             if (selfManagesTransaction)
                 processedCode = InjectFailureHandlingIntoUserTransactions(processedCode);
 
