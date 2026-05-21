@@ -144,7 +144,7 @@ tx.Commit();",
                     } },
             },
             new ToolDef {
-                Id = "count-doors", BackendName = "code", Tier = 2, Saved = true,
+                Id = "count-doors", BackendName = "code", Tier = 2,
                 Title = "Count doors by level",
                 Desc = "Group doors by level and return totals",
                 Icon = "door", TileBg = "#fef3c7", TileFg = "#a16207", Category = "query",
@@ -356,16 +356,6 @@ return rooms.Where(r => {
             new CategoryDef("excel", "Excel I/O", 1),
             new CategoryDef("clean", "Cleanup", 3),
             new CategoryDef("compliance", "Compliance", 2),
-        };
-
-        public static readonly List<HistoryEntry> SeedHistory = new List<HistoryEntry>
-        {
-            new HistoryEntry("2 min ago", "count-doors", "ok", "47 doors found"),
-            new HistoryEntry("12 min ago", "tag-walls", "ok", "24 walls tagged"),
-            new HistoryEntry("38 min ago", "set-param", "undone", "Set Comments on 12 walls · undone"),
-            new HistoryEntry("1 h ago", "open-view", "ok", "Opened Level 1"),
-            new HistoryEntry("2 h ago", "walls-missing-frr", "warn", "7 walls flagged"),
-            new HistoryEntry("Yesterday", "export-sched", "ok", "Exported Door Schedule.xlsx"),
         };
 
         public static IEnumerable<ToolDef> All => Vetted.Concat(Ai);

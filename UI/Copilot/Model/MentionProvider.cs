@@ -18,15 +18,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
         List<MentionGroup> GetGroups();
     }
 
-    /// <summary>Static fallback groups (README "Mention Picker Data").</summary>
+    /// <summary>
+    /// Fallback when no live document is available. Only "Categories" is a fixed enum (real,
+    /// not mock); levels/views/selection come from the model, so they're omitted here rather
+    /// than faked. RevitMentionProvider supplies the real data when a document is open.
+    /// </summary>
     public class StaticMentionProvider : IMentionProvider
     {
         public List<MentionGroup> GetGroups() => new List<MentionGroup>
         {
-            new MentionGroup("level", "Levels", new[] { "Level 1", "Level 2", "Roof", "Site" }),
             new MentionGroup("category", "Categories", new[] { "Walls", "Doors", "Windows", "Floors", "Rooms", "Furniture", "Casework" }),
-            new MentionGroup("view", "Views", new[] { "Active view", "Floor Plan: Level 1", "3D - Default", "Section A-A" }),
-            new MentionGroup("selection", "Current selection", new[] { "Current selection · 3 walls" }),
         };
     }
 

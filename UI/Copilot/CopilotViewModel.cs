@@ -81,6 +81,10 @@ namespace RevitWebAppSync.UI.Copilot
         private ResultModel _runResult;
         public ResultModel RunResult { get => _runResult; set { _runResult = value; Raise(); } }
 
+        private System.Diagnostics.Stopwatch _runClock;
+        private string _lastRunElapsed = "";
+        public string LastRunElapsed { get => _lastRunElapsed; private set { _lastRunElapsed = value; Raise(); } }
+
         public ObservableCollection<ChatMessage> Thread { get; } = new ObservableCollection<ChatMessage>();
         public ObservableCollection<HistoryEntry> History { get; }
         public ObservableCollection<HighlightMarker> Highlights { get; } = new ObservableCollection<HighlightMarker>();
@@ -227,6 +231,7 @@ namespace RevitWebAppSync.UI.Copilot
             if (tool == null) return;
             Prev = Screen;
             Screen = CpScreen.Running;
+            _runClock = System.Diagnostics.Stopwatch.StartNew();
 
             string code = tool.Tier == 2 ? tool.Code : null; // vetted code synthesized in the executor
 
@@ -271,6 +276,13 @@ namespace RevitWebAppSync.UI.Copilot
         /// </summary>
         private ResultModel BuildResult(ToolDef tool, ExecOutcome outcome)
         {
+            if (_runClock != null)
+            {
+                _runClock.Stop();
+                LastRunElapsed = _runClock.Elapsed.TotalSeconds.ToString("0.0") + "s";
+                _runClock = null;
+            }
+
             if (outcome != null && !outcome.Success)
                 return new ResultModel { Kind = CpResultKind.Plain, Headline = "Run failed", Sub = outcome.Error ?? "The operation did not complete." };
 
@@ -369,6 +381,7 @@ namespace RevitWebAppSync.UI.Copilot
             if (tool == null) return;
 
             ToolId = tool.Id; // so highlights/history resolve against this tool
+            _runClock = System.Diagnostics.Stopwatch.StartNew();
             Thread[idx] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Running, ToolId = tool.Id, Code = msg.Code };
 
             void Done(ExecOutcome outcome)

@@ -49,11 +49,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 System.Diagnostics.Debug.WriteLine($"[BINA] Copilot state load failed: {ex.Message}");
             }
 
-            // First run — seed defaults.
+            // First run — start empty. No seeded/mock history or pins; both fill from real runs.
             return new CopilotState
             {
-                Pinned = new List<string> { "count-doors" },
-                History = CopilotCatalog.SeedHistory.ToList(),
+                Pinned = new List<string>(),
+                History = new List<HistoryEntry>(),
             };
         }
 

@@ -77,7 +77,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
                 var av = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = CopilotColors.From("#e5e7eb"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 0, 10, 0) };
-                av.Child = new TextBlock { Text = "M", FontSize = 9, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#374151"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                string initial = !string.IsNullOrEmpty(Vm?.UserFirstName) ? Vm.UserFirstName.Substring(0, 1).ToUpperInvariant() : "?";
+                av.Child = new TextBlock { Text = initial, FontSize = 9, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#374151"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
                 var bubble = new Border { Background = CopilotColors.From("#f1f3f5"), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 8, 12, 8) };
                 bubble.Child = new TextBlock { Text = m.Text, FontSize = 13, Foreground = CopilotColors.From("#0b0d12"), TextWrapping = TextWrapping.Wrap, LineHeight = 19 };
                 row.Children.Add(av); row.Children.Add(bubble);

@@ -26,7 +26,9 @@
                 <Border Grid.Column="2" CornerRadius="999" Background="#dcfce7" Padding="8,3">
                     <StackPanel Orientation="Horizontal">
                         <Ellipse Width="5" Height="5" Fill="#16a34a" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                        <TextBlock Text="Done · 0.8s" FontSize="11" Foreground="#16a34a" FontWeight="Medium"/>
+                        <TextBlock FontSize="11" Foreground="#16a34a" FontWeight="Medium">
+                            <Run Text="Done · "/><Run Text="{Binding LastRunElapsed, Mode=OneWay}"/>
+                        </TextBlock>
                     </StackPanel>
                 </Border>
             </Grid>
