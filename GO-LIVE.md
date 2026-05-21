@@ -225,7 +225,7 @@ only when **every** checkbox under it meets its "Done when" criterion.
 |---|---|---|---|
 | 1 Deploy parity | PASS | backend: verified 90b5f79 clean; addin: rebuilt + 3-command smoke OK | 2026-05-19 |
 | 2 Stable hosting | NO-GO | | |
-| 3 In-Revit execution | NO-GO | | |
+| 3 In-Revit execution | PASS | user-confirmed 3.1–3.6 (EDIT, CREATE × 4, QUERY/SELECT, force-fail convergence, snapshot, revert) on the dewan model | 2026-05-20 |
 | H hardening (unattended only) | N/A for supervised demo | | |
 
 Rule of thumb:
