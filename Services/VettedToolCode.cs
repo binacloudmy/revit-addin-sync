@@ -71,15 +71,17 @@ namespace RevitWebAppSync.Services
                 sb.AppendLine("if (__lvl != null) __els = __els.Where(e => e.LevelId == __lvl.Id).ToList();");
             }
             sb.AppendLine("int __n = 0;");
+            sb.AppendLine("var __diffs = new List<object>();");
             sb.AppendLine("foreach (var __e in __els) {");
             sb.AppendLine("  try {");
             sb.AppendLine("    var __o = __e.Name;");
             sb.AppendLine($"    if (!string.IsNullOrEmpty(__o) && __o.IndexOf(\"{f}\", StringComparison.Ordinal) >= 0) {{");
             sb.AppendLine($"      __e.Name = __o.Replace(\"{f}\", \"{r}\"); __n++;");
+            sb.AppendLine("      __diffs.Add(new { from = __o, to = __e.Name });");
             sb.AppendLine("    }");
             sb.AppendLine("  } catch { }");
             sb.AppendLine("}");
-            sb.AppendLine($"ShowMessage(\"Renamed\", __n + \" {c} element(s)\");");
+            sb.AppendLine($"SetResult(new {{ kind = \"list\", headline = __n + \" {c} element(s) renamed\", diffs = __diffs }});");
             return sb.ToString();
         }
         internal static string BuildSetParameter(IDictionary<string, object> p)
@@ -107,7 +109,7 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("    }");
             sb.AppendLine("  } catch { }");
             sb.AppendLine("}");
-            sb.AppendLine($"ShowMessage(\"Updated\", __n + \" {c} element(s)\");");
+            sb.AppendLine($"SetResult(new {{ kind = \"plain\", headline = __n + \" {c} element(s) updated\", sub = \"Set {pn} to {v}\" }});");
             return sb.ToString();
         }
         internal static string BuildExportSchedule(IDictionary<string, object> p)
@@ -149,7 +151,7 @@ namespace RevitWebAppSync.Services
                 sb.AppendLine("  System.IO.File.WriteAllLines(__path, __data.Select(rw =>");
                 sb.AppendLine("    string.Join(\",\", rw.Select(cell => \"\\\"\" + (cell ?? \"\").Replace(\"\\\"\", \"\\\"\\\"\") + \"\\\"\"))));");
             }
-            sb.AppendLine("  ShowMessage(\"Exported\", __s.Name + \" -> \" + __path);");
+            sb.AppendLine("  SetResult(new { kind = \"file\", headline = System.IO.Path.GetFileName(__path), sub = \"Exported \" + __s.Name, path = System.IO.Path.GetDirectoryName(__path) });");
             sb.AppendLine("}");
             return sb.ToString();
         }

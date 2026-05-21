@@ -14,6 +14,7 @@ namespace RevitWebAppSync.UI.Copilot
         public bool Success;
         public string Message;
         public string Error;
+        public string Data;   // JSON of the snippet's real structured return (drives the card)
     }
 
     /// <summary>Pluggable executor — set by the panel (Task 7 wires it to the Revit ExternalEvent).</summary>
@@ -250,25 +251,8 @@ namespace RevitWebAppSync.UI.Copilot
             var tool = CurrentTool;
             if (tool == null) return;
 
-            ResultModel result;
-            if (outcome != null && !outcome.Success)
-            {
-                result = new ResultModel
-                {
-                    Kind = CpResultKind.Plain,
-                    Headline = "Run failed",
-                    Sub = outcome.Error ?? "The operation did not complete.",
-                };
-            }
-            else
-            {
-                // Use the catalog result shape (faithful to design); real message refines the subtitle.
-                result = tool.Result != null ? tool.Result(FormValues) : new ResultModel { Kind = CpResultKind.Plain, Headline = tool.Title, Sub = "Done." };
-                if (outcome != null && !string.IsNullOrWhiteSpace(outcome.Message) && result.Kind == CpResultKind.Plain)
-                    result.Sub = outcome.Message;
-            }
-
-            RunResult = result;
+            RunResult = BuildResult(tool, outcome);
+            var result = RunResult;
             Screen = CpScreen.Result;
 
             string status = result.Kind == CpResultKind.Issues ? "warn" : (outcome != null && !outcome.Success ? "warn" : "ok");
@@ -278,6 +262,26 @@ namespace RevitWebAppSync.UI.Copilot
             Raise(nameof(RecentEntry));
 
             PopulateHighlights(tool.Id);
+        }
+
+        /// <summary>
+        /// Build the result card. On a real run we render the snippet's actual model data
+        /// (mapped from outcome.Data) — never the catalog mock. The catalog mock is used only
+        /// in offline preview (no Revit executor wired).
+        /// </summary>
+        private ResultModel BuildResult(ToolDef tool, ExecOutcome outcome)
+        {
+            if (outcome != null && !outcome.Success)
+                return new ResultModel { Kind = CpResultKind.Plain, Headline = "Run failed", Sub = outcome.Error ?? "The operation did not complete." };
+
+            if (Executor == null)
+            {
+                // Offline design preview only — no live model to query.
+                return tool.Result != null ? tool.Result(FormValues) : new ResultModel { Kind = CpResultKind.Plain, Headline = tool.Title, Sub = "Done." };
+            }
+
+            // Real run — map the actual structured return; fall back to the status message.
+            return CopilotResultMapper.Map(outcome?.Data, tool, outcome?.Message);
         }
 
         private static string SummaryOf(ResultModel r)
@@ -369,9 +373,7 @@ namespace RevitWebAppSync.UI.Copilot
 
             void Done(ExecOutcome outcome)
             {
-                var result = (outcome != null && !outcome.Success)
-                    ? new ResultModel { Kind = CpResultKind.Plain, Headline = "Run failed", Sub = outcome.Error ?? "The operation did not complete." }
-                    : (tool.Result != null ? tool.Result(new Dictionary<string, object>()) : new ResultModel { Kind = CpResultKind.Plain, Headline = tool.Title, Sub = "Done." });
+                var result = BuildResult(tool, outcome);
 
                 int j = -1;
                 for (int i = 0; i < Thread.Count; i++) if (Thread[i].Kind == CpMsgKind.Running && Thread[i].ToolId == tool.Id) j = i;

@@ -50,12 +50,30 @@ namespace RevitWebAppSync.Services
                 var instance = Activator.CreateInstance(type);
 
                 var result = method.Invoke(instance, new object[] { _doc, _uidoc, _activeView });
-                string message = result?.ToString() ?? "Executed successfully";
+
+                // A string return is a status message; any other object/array is structured
+                // model data — capture it as JSON so the Copilot card renders real numbers.
+                string message;
+                string data = null;
+                if (result is string s)
+                {
+                    message = string.IsNullOrEmpty(s) ? "Done" : s;
+                }
+                else if (result != null)
+                {
+                    message = "Done";
+                    data = SafeJson(result);
+                }
+                else
+                {
+                    message = "Executed successfully";
+                }
 
                 return new ExecutionResult
                 {
                     Success = true,
-                    Message = message
+                    Message = message,
+                    Data = data
                 };
             }
             catch (TargetInvocationException ex)
@@ -138,6 +156,27 @@ namespace RevitWebAppSync.Services
             return code;
         }
 
+        // Serialize a snippet's structured return to JSON, defensively — ignores reference
+        // loops, caps depth, and drops oversized payloads (e.g. a raw element dump) so a
+        // badly-shaped return degrades to a plain card instead of crashing.
+        private static string SafeJson(object value)
+        {
+            try
+            {
+                var settings = new Newtonsoft.Json.JsonSerializerSettings
+                {
+                    ReferenceLoopHandling = Newtonsoft.Json.ReferenceLoopHandling.Ignore,
+                    NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore,
+                    MaxDepth = 6,
+                    Error = (sender, e) => { e.ErrorContext.Handled = true; },
+                };
+                var json = Newtonsoft.Json.JsonConvert.SerializeObject(value, settings);
+                if (json != null && json.Length > 60000) return null;
+                return json;
+            }
+            catch { return null; }
+        }
+
         private string WrapCode(string userCode)
         {
             var sb = new StringBuilder();
@@ -183,6 +222,7 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("        private UIDocument uidoc;");
             sb.AppendLine("        private View activeView;");
             sb.AppendLine("        private System.Text.StringBuilder __aiOutput = new System.Text.StringBuilder();");
+            sb.AppendLine("        private object __result = null;");
             sb.AppendLine();
             sb.AppendLine("        private string GetParameterValue(Element elem, BuiltInParameter param)");
             sb.AppendLine("        {");
@@ -199,6 +239,10 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("            var t = string.IsNullOrEmpty(title) ? string.Empty : title + \": \";");
             sb.AppendLine("            __aiOutput.AppendLine(t + (message ?? string.Empty));");
             sb.AppendLine("        }");
+            sb.AppendLine();
+            // Snippets call SetResult(...) to emit a structured result card (count/issues/list/
+            // file/plain) from real model data. Stored and returned after the transaction commits.
+            sb.AppendLine("        private void SetResult(object data) { __result = data; }");
             sb.AppendLine();
             sb.AppendLine("        private void OpenView(View view)");
             sb.AppendLine("        {");
@@ -269,7 +313,9 @@ namespace RevitWebAppSync.Services
             }
 
             sb.AppendLine();
-            sb.AppendLine("            return __aiOutput.Length > 0 ? __aiOutput.ToString().TrimEnd() : \"Done\";");
+            // Prefer an explicit structured result (SetResult), else the accumulated messages.
+            sb.AppendLine("            if (__result != null) return __result;");
+            sb.AppendLine("            return __aiOutput.Length > 0 ? (object)__aiOutput.ToString().TrimEnd() : (object)\"Done\";");
             sb.AppendLine("        }");
             sb.AppendLine("    }");
             sb.AppendLine("}");
@@ -440,6 +486,10 @@ namespace RevitWebAppSync.Services
         public bool Success { get; set; }
         public string Message { get; set; }
         public string Error { get; set; }
+
+        /// <summary>JSON of the snippet's structured return value (real model data), when it
+        /// returned an object/array rather than a status string. Drives the Copilot result card.</summary>
+        public string Data { get; set; }
     }
 
     public class CompilationException : Exception

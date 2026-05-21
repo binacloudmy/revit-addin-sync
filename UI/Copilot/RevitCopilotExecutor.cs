@@ -44,7 +44,7 @@ namespace RevitWebAppSync.UI.Copilot
         private static ExecOutcome Map(ExecutionResult r)
         {
             if (r == null) return new ExecOutcome { Success = false, Error = "No result." };
-            return new ExecOutcome { Success = r.Success, Message = r.Message, Error = r.Error };
+            return new ExecOutcome { Success = r.Success, Message = r.Message, Error = r.Error, Data = r.Data };
         }
 
         private static void Dispatch(Action<ExecOutcome> onDone, ExecOutcome outcome)
@@ -107,8 +107,8 @@ namespace RevitWebAppSync.UI.Copilot
             sb.AppendLine("    .FirstOrDefault(x => x != null && !x.IsTemplate && string.Equals(x.Name, __name, StringComparison.OrdinalIgnoreCase));");
             sb.AppendLine("if (__v == null) __v = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()");
             sb.AppendLine("    .FirstOrDefault(x => x != null && !x.IsTemplate && x.Name != null && x.Name.IndexOf(__name, StringComparison.OrdinalIgnoreCase) >= 0);");
-            sb.AppendLine("if (__v != null) { uidoc.RequestViewChange(__v); ShowMessage(\"Opened\", __v.Name); }");
-            sb.AppendLine("else { ShowMessage(\"Not found\", \"No view named '\" + __name + \"'.\"); }");
+            sb.AppendLine("if (__v != null) { uidoc.RequestViewChange(__v); SetResult(new { kind = \"plain\", headline = \"Opened \" + __v.Name, sub = \"Switched the active view.\" }); }");
+            sb.AppendLine("else { SetResult(new { kind = \"plain\", headline = \"View not found\", sub = \"No view named '\" + __name + \"'.\" }); }");
             return sb.ToString();
         }
 
@@ -132,7 +132,7 @@ namespace RevitWebAppSync.UI.Copilot
             sb.AppendLine("var __ids = __els.Select(e => e.Id).ToList();");
             sb.AppendLine("uidoc.Selection.SetElementIds(__ids);");
             sb.AppendLine("if (__ids.Count > 0) uidoc.ShowElements(__ids);");
-            sb.AppendLine("ShowMessage(\"Selected\", __ids.Count + \" element(s)\");");
+            sb.AppendLine($"SetResult(new {{ kind = \"plain\", headline = __ids.Count + \" {c} selected\", sub = \"Zoomed to selection.\" }});");
             return sb.ToString();
         }
     }
