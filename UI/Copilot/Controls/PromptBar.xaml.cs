@@ -5,16 +5,20 @@ using System.Windows.Input;
 namespace RevitWebAppSync.UI.Copilot.Controls
 {
     /// <summary>
-    /// Bottom prompt bar. Enter or the send button fires SubmitCommand with the typed text.
-    /// The plain TextBox is swapped for the @-mention RichTextBox editor in Task 14.
+    /// Bottom prompt bar. Hosts a MentionInput; Enter or the send button fires SubmitCommand
+    /// with the composed text (mentions are parsed inline by the editor).
     /// </summary>
     public partial class PromptBar : UserControl
     {
         public PromptBar()
         {
             InitializeComponent();
-            SendBtn.Click += (_, __) => Submit();
-            Input.PreviewKeyDown += OnKeyDown;
+            SendBtn.Click += (_, __) => Input.TriggerSubmit();
+            Input.Submitted += (text, mentions) =>
+            {
+                if (SubmitCommand != null && SubmitCommand.CanExecute(text))
+                    SubmitCommand.Execute(text);
+            };
         }
 
         public static readonly DependencyProperty SubmitCommandProperty = DependencyProperty.Register(
@@ -22,25 +26,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public ICommand SubmitCommand { get => (ICommand)GetValue(SubmitCommandProperty); set => SetValue(SubmitCommandProperty, value); }
 
         public static readonly DependencyProperty PlaceholderProperty = DependencyProperty.Register(
-            nameof(Placeholder), typeof(string), typeof(PromptBar), new PropertyMetadata("Describe a task or ask anything…"));
+            nameof(Placeholder), typeof(string), typeof(PromptBar),
+            new PropertyMetadata("Describe a task or ask anything…", OnPlaceholderChanged));
         public string Placeholder { get => (string)GetValue(PlaceholderProperty); set => SetValue(PlaceholderProperty, value); }
 
-        private void OnKeyDown(object sender, KeyEventArgs e)
+        private static void OnPlaceholderChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
-            if (e.Key == Key.Enter && (Keyboard.Modifiers & ModifierKeys.Shift) == 0)
-            {
-                e.Handled = true;
-                Submit();
-            }
-        }
-
-        private void Submit()
-        {
-            var text = Input.Text?.Trim();
-            if (string.IsNullOrEmpty(text)) return;
-            if (SubmitCommand != null && SubmitCommand.CanExecute(text))
-                SubmitCommand.Execute(text);
-            Input.Clear();
+            var pb = (PromptBar)d;
+            if (pb.Input != null) pb.Input.PlaceholderText = (string)e.NewValue;
         }
     }
 }
