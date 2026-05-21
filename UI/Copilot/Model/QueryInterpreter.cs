@@ -59,6 +59,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static ToolDef PickResponseTool(string query)
         {
             var q = (query ?? "").ToLowerInvariant();
+            // View navigation — must come before generic verbs ('open', 'switch'),
+            // otherwise prompts like "switch to the 3D view" / "open the site plan"
+            // fall through to the default and get mis-proposed as count-doors.
+            bool isViewVerb = q.Contains("switch to") || q.Contains("show me") || q.StartsWith("open ");
+            bool isViewNoun = q.Contains(" view") || q.Contains("3d") || q.Contains("plan")
+                              || q.Contains("section") || q.Contains("elevation")
+                              || q.Contains("legend") || q.Contains("drafting");
+            if (isViewVerb && isViewNoun) return CopilotCatalog.Find("open-view");
             if (q.Contains("rename") || q.Contains("prefix")) return CopilotCatalog.Find("rename-level-prefix");
             if (q.Contains("fire rating") || q.Contains("frr"))
                 return (q.Contains("set") || q.Contains("apply")) ? CopilotCatalog.Find("set-frr-corridor") : CopilotCatalog.Find("walls-missing-frr");

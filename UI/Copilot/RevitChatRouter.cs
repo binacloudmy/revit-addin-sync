@@ -48,9 +48,22 @@ namespace RevitWebAppSync.UI.Copilot
                 .Select(a => a.Description)
                 .ToList();
 
+            // Map the backend's `tool` (e.g. "open_view") to the catalog Id via
+            // BackendName. Without this, the proposal visuals would default to
+            // the caller's fallback (e.g. "count-doors") for every prompt that
+            // QueryInterpreter doesn't keyword-match — turning "switch to the 3D
+            // view" into a "Count doors by level" proposal.
+            var backendTool = resp.Actions?
+                .Select(a => a?.Tool)
+                .FirstOrDefault(t => !string.IsNullOrWhiteSpace(t));
+            string mappedToolId = !string.IsNullOrEmpty(backendTool)
+                ? CopilotCatalog.All.FirstOrDefault(t =>
+                      string.Equals(t.BackendName, backendTool, StringComparison.OrdinalIgnoreCase))?.Id
+                : null;
+
             return new RouteResult
             {
-                ToolId = fallbackToolId,                       // catalog tool drives the proposal visuals
+                ToolId = mappedToolId ?? fallbackToolId,       // prefer backend's tool; offline fallback otherwise
                 Plan = (plan != null && plan.Count > 0) ? plan : null,
                 Code = code,
                 Reply = resp.Reply,
