@@ -16,15 +16,15 @@ namespace RevitWebAppSync.Services
         // Shared across all instances — see HttpClient guidelines.
         // Per-request Authorization is set via HttpRequestMessage so the
         // shared client stays thread-safe.
-        // 90s is the sweet spot: long enough that a slow Azure structured-
-        // output tick (typically 30-60s for the retry/explain path) still
-        // completes, short enough that a genuinely stuck request fails with a
-        // clear message instead of leaving the window dimmed for 3 minutes
-        // (which reads as a freeze). The Cancel button is also kept live
-        // during retries so the user is never trapped waiting.
+        // 180s: /route can stack intent + code-gen + the invisible auto-fix
+        // (3 sequential LLM calls), and Azure GPT-5.2 can spike to 30-60s
+        // per call under load. 90s clipped legitimate slow runs into the
+        // "timed out" message; 180s swallows the spikes while still
+        // bounding a genuinely stuck request. The Cancel button stays live
+        // throughout so the user can abort early.
         private static readonly HttpClient _httpClient = new HttpClient
         {
-            Timeout = TimeSpan.FromSeconds(90)
+            Timeout = TimeSpan.FromSeconds(180)
         };
 
         private readonly string _baseUrl;

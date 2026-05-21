@@ -107,6 +107,27 @@ namespace RevitWebAppSync.UI.Copilot
             sb.AppendLine("    .FirstOrDefault(x => x != null && !x.IsTemplate && string.Equals(x.Name, __name, StringComparison.OrdinalIgnoreCase));");
             sb.AppendLine("if (__v == null) __v = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()");
             sb.AppendLine("    .FirstOrDefault(x => x != null && !x.IsTemplate && x.Name != null && x.Name.IndexOf(__name, StringComparison.OrdinalIgnoreCase) >= 0);");
+            // View-TYPE fallback. Revit's default 3D view is named "{3D}",
+            // elevations/sections have arbitrary names — a pure name match
+            // never finds them when the user says "the 3D view" / "an
+            // elevation". If the request reads as a view kind, resolve by
+            // ViewType / View3D instead of failing.
+            sb.AppendLine("if (__v == null) {");
+            sb.AppendLine("    var __q = (__name ?? \"\").ToLowerInvariant();");
+            sb.AppendLine("    if (__q.Contains(\"3d\")) __v = new FilteredElementCollector(doc).OfClass(typeof(View3D)).Cast<View3D>()");
+            sb.AppendLine("        .Where(x => !x.IsTemplate).OrderByDescending(x => x.Name == \"{3D}\").FirstOrDefault();");
+            sb.AppendLine("    else {");
+            sb.AppendLine("        ViewType __t = ViewType.Undefined;");
+            sb.AppendLine("        if (__q.Contains(\"eleva\")) __t = ViewType.Elevation;");
+            sb.AppendLine("        else if (__q.Contains(\"section\")) __t = ViewType.Section;");
+            sb.AppendLine("        else if (__q.Contains(\"ceiling\")) __t = ViewType.CeilingPlan;");
+            sb.AppendLine("        else if (__q.Contains(\"legend\")) __t = ViewType.Legend;");
+            sb.AppendLine("        else if (__q.Contains(\"draft\")) __t = ViewType.DraftingView;");
+            sb.AppendLine("        else if (__q.Contains(\"plan\")) __t = ViewType.FloorPlan;");
+            sb.AppendLine("        if (__t != ViewType.Undefined) __v = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()");
+            sb.AppendLine("            .FirstOrDefault(x => !x.IsTemplate && x.ViewType == __t);");
+            sb.AppendLine("    }");
+            sb.AppendLine("}");
             sb.AppendLine("if (__v != null) { uidoc.RequestViewChange(__v); SetResult(new { kind = \"plain\", headline = \"Opened \" + __v.Name, sub = \"Switched the active view.\" }); }");
             sb.AppendLine("else { SetResult(new { kind = \"plain\", headline = \"View not found\", sub = \"No view named '\" + __name + \"'.\" }); }");
             return sb.ToString();
