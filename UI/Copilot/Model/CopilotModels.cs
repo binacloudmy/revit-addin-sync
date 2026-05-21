@@ -128,6 +128,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Question;      // clarify
         public List<ClarifyOption> Options = new List<ClarifyOption>();  // clarify
         public ResultModel Result;   // result
+        public string Code;          // proposal — generated C# (backend or catalog sample)
+        public List<string> PlanSteps = new List<string>();  // proposal — plan, English
     }
 
     /// <summary>Floating viewport marker (Task 15). Coordinates are % of the active view rect.</summary>

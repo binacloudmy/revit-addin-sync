@@ -48,10 +48,14 @@ namespace RevitWebAppSync.UI.Copilot
             ClearHighlightsCommand = new RelayCommand(_ => Highlights.Clear());
             ChatSendCommand = new RelayCommand(p => ChatSend(p as string));
             FollowUpCommand = new RelayCommand(p => ChatSend(p as string));
+            ChatRunCommand = new RelayCommand(p => ChatRun(p as ChatMessage));
+            ChatRegenerateCommand = new RelayCommand(p => ChatRegenerate(p as ChatMessage));
+            ChatOpenEditorCommand = new RelayCommand(p => OpenTool((p as ChatMessage)?.ToolId));
         }
 
         // ─── Injected context ────────────────────────────────────────────────
         public ICopilotExecutor Executor { get; set; }
+        public IChatRouter Router { get; set; }
         public string UserFirstName { get; set; } = "there";
         public string ModelName { get; set; } = "Main Model";
 
@@ -135,6 +139,9 @@ namespace RevitWebAppSync.UI.Copilot
         public RelayCommand ClearHighlightsCommand { get; }
         public RelayCommand ChatSendCommand { get; }
         public RelayCommand FollowUpCommand { get; }
+        public RelayCommand ChatRunCommand { get; }
+        public RelayCommand ChatRegenerateCommand { get; }
+        public RelayCommand ChatOpenEditorCommand { get; }
 
         private static CpTab ParseTab(object p)
         {
@@ -288,7 +295,7 @@ namespace RevitWebAppSync.UI.Copilot
                 Highlights.Add(m);
         }
 
-        // ─── Chat (skeleton — routing/clarify wired in Tasks 12/13) ────────────
+        // ─── Chat ──────────────────────────────────────────────────────────────
         public void ChatSend(string text)
         {
             text = (text ?? "").Trim();
@@ -297,7 +304,105 @@ namespace RevitWebAppSync.UI.Copilot
             Screen = CpScreen.Home;
             ToolId = null;
             Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text });
-            // Tier-2 routing + clarify cards are added in Tasks 12 & 13.
+
+            var interp = QueryInterpreter.Interpret(text);
+            if (interp.IsClarify)
+            {
+                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Clarify, Question = interp.Question, Options = interp.Options });
+                return;
+            }
+
+            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Drafting a command for that…" });
+            _ = ResolveProposalAsync(text, interp.ToolId);
+        }
+
+        private async System.Threading.Tasks.Task ResolveProposalAsync(string text, string fallbackToolId)
+        {
+            RouteResult rr = null;
+            if (Router != null)
+            {
+                try { rr = await Router.RouteAsync(text, fallbackToolId); }
+                catch { rr = null; }
+            }
+
+            string toolId = !string.IsNullOrEmpty(rr?.ToolId) ? rr.ToolId : fallbackToolId;
+            var tool = CopilotCatalog.Find(toolId) ?? CopilotCatalog.Find(fallbackToolId);
+            if (tool == null) return;
+
+            var plan = (rr?.Plan != null && rr.Plan.Count > 0) ? rr.Plan : tool.Plan;
+            string code = !string.IsNullOrWhiteSpace(rr?.Code) ? rr.Code : tool.Code;
+            string text2 = !string.IsNullOrWhiteSpace(rr?.Reply)
+                ? rr.Reply
+                : "Here's a command that should do it. Review the plan and hit Run when you're ready.";
+
+            ReplaceLastThinking(new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.Proposal, ToolId = tool.Id,
+                Text = text2, PlanSteps = new List<string>(plan ?? new List<string>()), Code = code,
+            });
+        }
+
+        private void ReplaceLastThinking(ChatMessage replacement)
+        {
+            void Apply()
+            {
+                for (int i = Thread.Count - 1; i >= 0; i--)
+                {
+                    if (Thread[i].Kind == CpMsgKind.Thinking) { Thread[i] = replacement; return; }
+                }
+                Thread.Add(replacement);
+            }
+            var disp = System.Windows.Application.Current?.Dispatcher;
+            if (disp != null && !disp.CheckAccess()) disp.Invoke(Apply); else Apply();
+        }
+
+        public void ChatRun(ChatMessage msg)
+        {
+            if (msg == null) return;
+            int idx = Thread.IndexOf(msg);
+            if (idx < 0) return;
+            var tool = CopilotCatalog.Find(msg.ToolId);
+            if (tool == null) return;
+
+            ToolId = tool.Id; // so highlights/history resolve against this tool
+            Thread[idx] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Running, ToolId = tool.Id, Code = msg.Code };
+
+            void Done(ExecOutcome outcome)
+            {
+                var result = (outcome != null && !outcome.Success)
+                    ? new ResultModel { Kind = CpResultKind.Plain, Headline = "Run failed", Sub = outcome.Error ?? "The operation did not complete." }
+                    : (tool.Result != null ? tool.Result(new Dictionary<string, object>()) : new ResultModel { Kind = CpResultKind.Plain, Headline = tool.Title, Sub = "Done." });
+
+                int j = -1;
+                for (int i = 0; i < Thread.Count; i++) if (Thread[i].Kind == CpMsgKind.Running && Thread[i].ToolId == tool.Id) j = i;
+                if (j >= 0) Thread[j] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Result, ToolId = tool.Id, Result = result };
+
+                History.Insert(0, new HistoryEntry("just now", tool.Id, result.Kind == CpResultKind.Issues ? "warn" : "ok", SummaryOf(result)));
+                CopilotStateStore.Save(_pinned, History);
+                Raise(nameof(RecentEntry));
+                PopulateHighlights(tool.Id);
+            }
+
+            if (Executor != null) Executor.Run(tool, new Dictionary<string, object>(), msg.Code, Done);
+            else Done(new ExecOutcome { Success = true });
+        }
+
+        public void ChatRegenerate(ChatMessage msg)
+        {
+            if (msg == null) return;
+            int idx = Thread.IndexOf(msg);
+            if (idx < 0) return;
+
+            var alts = CopilotCatalog.Ai.Where(a => a.Id != msg.ToolId).ToList();
+            var next = alts.Count > 0 ? alts[new System.Random().Next(alts.Count)] : CopilotCatalog.Find(msg.ToolId);
+            if (next == null) return;
+
+            Thread[idx] = new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.Proposal, ToolId = next.Id,
+                Text = "How about this instead?",
+                PlanSteps = new List<string>(next.Plan ?? new List<string>()), Code = next.Code,
+            };
         }
 
         // ─── INotifyPropertyChanged ────────────────────────────────────────────
