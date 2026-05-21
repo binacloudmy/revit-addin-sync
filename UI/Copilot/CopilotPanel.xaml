@@ -1,0 +1,19 @@
+<Page x:Class="RevitWebAppSync.UI.Copilot.CopilotPanel"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Background="#FFFFFF">
+
+    <!-- Plumbing stub. Chrome (header / tabs / breadcrumb / body) is built in Task 6.
+         Kept intentionally minimal so the pane registers and shows before the
+         design system + viewmodel land. -->
+    <Border Padding="16">
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+            <TextBlock Text="Revit Copilot"
+                       FontSize="15" FontWeight="SemiBold" Foreground="#0b0d12"
+                       HorizontalAlignment="Center"/>
+            <TextBlock Text="Panel scaffolding — chrome arrives in Task 6."
+                       FontSize="11.5" Foreground="#6b7280" Margin="0,4,0,0"
+                       HorizontalAlignment="Center"/>
+        </StackPanel>
+    </Border>
+</Page>

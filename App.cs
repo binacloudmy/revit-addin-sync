@@ -7,6 +7,7 @@ using Autodesk.Revit.UI;
 using RevitWebAppSync.Events;
 using RevitWebAppSync.Handlers;
 using RevitWebAppSync.UI;
+using RevitWebAppSync.UI.Copilot;
 
 namespace RevitWebAppSync
 {
@@ -30,6 +31,9 @@ namespace RevitWebAppSync
 
         // JKR BIM Compliance dockable pane host
         public static JkrComplianceDashboardHost JkrComplianceDashboardHost { get; private set; }
+
+        // Revit Copilot dockable pane host (right-docked side panel)
+        public static CopilotPaneHost CopilotPaneHost { get; private set; }
 
         // Live cost update handler
         public static CostUpdateHandler CostUpdateHandler { get; private set; }
@@ -85,6 +89,20 @@ namespace RevitWebAppSync
                 catch (Exception jkrEx)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA] JKR Compliance dockable pane registration failed: {jkrEx.Message}");
+                }
+
+                // Register Revit Copilot dockable pane
+                try
+                {
+                    CopilotPaneHost = new CopilotPaneHost();
+                    application.RegisterDockablePane(
+                        CopilotPaneHost.PaneId,
+                        "BINA Revit Copilot",
+                        CopilotPaneHost);
+                }
+                catch (Exception copilotEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Copilot dockable pane registration failed: {copilotEx.Message}");
                 }
 
                 // Subscribe to document changes for live cost updates
@@ -175,10 +193,10 @@ namespace RevitWebAppSync
                 "AskAI",
                 "AI Assistant",
                 Assembly.GetExecutingAssembly().Location,
-                "RevitWebAppSync.Commands.OpenAssistantCommand")
+                "RevitWebAppSync.Commands.OpenCopilotCommand")
             {
-                ToolTip = "Open AI Assistant",
-                LongDescription = "Open the AI Assistant to automate Revit tasks with natural language. Examples: Hide all furniture, Count doors on Level 1, Color walls by phase.",
+                ToolTip = "Open Revit Copilot",
+                LongDescription = "Open the Revit Copilot side panel to run vetted tools or AI commands with natural language. Examples: Count doors by level, Rename levels, Find walls missing fire rating.",
                 Image = LoadImage("RevitWebAppSync.Resources.microchip.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.microchip.png", 32)
             };
