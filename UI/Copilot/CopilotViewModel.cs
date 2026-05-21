@@ -103,6 +103,8 @@ namespace RevitWebAppSync.UI.Copilot
 
         public int LibraryCount => CopilotCatalog.All.Count();
         public int SavedCount => _pinned.Count;
+        public IEnumerable<CategoryDef> Categories => CopilotCatalog.Categories;
+        public bool IsPinned(string toolId) => toolId != null && _pinned.Contains(toolId);
 
         public IEnumerable<ToolDef> VettedFiltered => CopilotCatalog.Vetted.Where(MatchesFilter);
         public IEnumerable<ToolDef> AiFiltered => CopilotCatalog.Ai.Where(MatchesFilter);

@@ -1,19 +1,119 @@
 <Page x:Class="RevitWebAppSync.UI.Copilot.CopilotPanel"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      Background="#FFFFFF">
+      xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
+      Background="#FFFFFF"
+      FontFamily="{DynamicResource Cp.Font}">
 
-    <!-- Plumbing stub. Chrome (header / tabs / breadcrumb / body) is built in Task 6.
-         Kept intentionally minimal so the pane registers and shows before the
-         design system + viewmodel land. -->
-    <Border Padding="16">
-        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
-            <TextBlock Text="Revit Copilot"
-                       FontSize="15" FontWeight="SemiBold" Foreground="#0b0d12"
-                       HorizontalAlignment="Center"/>
-            <TextBlock Text="Panel scaffolding — chrome arrives in Task 6."
-                       FontSize="11.5" Foreground="#6b7280" Margin="0,4,0,0"
-                       HorizontalAlignment="Center"/>
-        </StackPanel>
-    </Border>
+    <Page.Resources>
+        <ctl:HexToBrushConverter x:Key="Hex"/>
+        <ctl:BoolToVisibilityConverter x:Key="BoolVis"/>
+        <ctl:NotEmptyToVisibilityConverter x:Key="NotEmptyVis"/>
+        <ctl:EnumEqualsConverter x:Key="EnumEq"/>
+    </Page.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>  <!-- header -->
+            <RowDefinition Height="Auto"/>  <!-- tabs -->
+            <RowDefinition Height="Auto"/>  <!-- breadcrumb -->
+            <RowDefinition Height="*"/>     <!-- body -->
+        </Grid.RowDefinitions>
+
+        <!-- ═══ Header ═══ -->
+        <Border Grid.Row="0" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1" Padding="14,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- bot avatar -->
+                <Border Grid.Column="0" Width="28" Height="28" CornerRadius="6"
+                        Background="{DynamicResource Cp.BotGradient}" VerticalAlignment="Center">
+                    <Path Width="15" Height="15" Stretch="Uniform" Fill="White"
+                          Data="M12,2 l2.09,6.26 L20,9.27 l-5,4.87 L16.18,22 12,18.27 7.82,22 9,14.14 4,9.27 l5.91,-1.01 L12,2 z"/>
+                </Border>
+
+                <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="Revit Copilot" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,1,0,0">
+                        <Ellipse Width="6" Height="6" Fill="{DynamicResource Cp.Green}" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <TextBlock FontSize="11" Foreground="{DynamicResource Cp.Muted}">
+                            <Run Text="Connected · "/><Run Text="{Binding ModelName, Mode=OneWay}"/>
+                        </TextBlock>
+                    </StackPanel>
+                </StackPanel>
+
+                <Button Grid.Column="2" Style="{DynamicResource Cp.IconButton}" Command="{Binding BackHomeCommand}" ToolTip="New">
+                    <Path Width="16" Height="16" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M12,5 v14 M5,12 h14"/>
+                </Button>
+                <Button Grid.Column="3" Style="{DynamicResource Cp.IconButton}" ToolTip="Menu">
+                    <Path Width="16" Height="16" Stretch="Uniform" Fill="{DynamicResource Cp.Muted}"
+                          Data="M11,5 A1,1 0 1 0 13,5 A1,1 0 1 0 11,5 Z M11,12 A1,1 0 1 0 13,12 A1,1 0 1 0 11,12 Z M11,19 A1,1 0 1 0 13,19 A1,1 0 1 0 11,19 Z"/>
+                </Button>
+            </Grid>
+        </Border>
+
+        <!-- ═══ Tabs (hidden on sub-screens) ═══ -->
+        <Border Grid.Row="1" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1" Padding="8,0,8,0"
+                Visibility="{Binding IsSubScreen, Converter={StaticResource BoolVis}, ConverterParameter=Invert}">
+            <StackPanel Orientation="Horizontal">
+                <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Chat"
+                              IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Chat}">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Width="11" Height="11" Stretch="Uniform" Margin="0,0,4,0" Fill="{DynamicResource Cp.Purple}"
+                              Data="M12,2 l2.09,6.26 L20,9.27 l-5,4.87 L16.18,22 12,18.27 7.82,22 9,14.14 4,9.27 l5.91,-1.01 L12,2 z"/>
+                        <TextBlock Text="Chat"/>
+                    </StackPanel>
+                </ToggleButton>
+                <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Library"
+                              IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Library}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Library"/>
+                        <Border CornerRadius="999" Background="{DynamicResource Cp.TabBadgeBg}" Padding="6,1" Margin="5,0,0,0">
+                            <TextBlock Text="{Binding LibraryCount, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="#374151"/>
+                        </Border>
+                    </StackPanel>
+                </ToggleButton>
+                <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="History"
+                              IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=History}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="History"/>
+                        <Border CornerRadius="999" Background="{DynamicResource Cp.TabBadgeBg}" Padding="6,1" Margin="5,0,0,0">
+                            <TextBlock Text="{Binding History.Count, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="#374151"/>
+                        </Border>
+                    </StackPanel>
+                </ToggleButton>
+                <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Saved"
+                              IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Saved}">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="Saved"/>
+                        <Border CornerRadius="999" Background="{DynamicResource Cp.TabBadgeBg}" Padding="6,1" Margin="5,0,0,0">
+                            <TextBlock Text="{Binding SavedCount, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="#374151"/>
+                        </Border>
+                    </StackPanel>
+                </ToggleButton>
+            </StackPanel>
+        </Border>
+
+        <!-- ═══ Breadcrumb (tool-form / tool-review) ═══ -->
+        <Border Grid.Row="2" BorderBrush="{DynamicResource Cp.LineSoft}" BorderThickness="0,0,0,1" Padding="14,7"
+                Visibility="{Binding ShowBreadcrumb, Converter={StaticResource BoolVis}}">
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <Button Command="{Binding BackCommand}" Background="Transparent" BorderThickness="0" Cursor="Hand"
+                        Padding="0" Foreground="{DynamicResource Cp.Muted}" FontSize="11.5"
+                        Content="{Binding BreadcrumbRoot, Mode=OneWay}"/>
+                <Path Width="11" Height="11" Margin="5,0,5,0" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"
+                      VerticalAlignment="Center" Data="M9,6 l6,6 -6,6"/>
+                <TextBlock Text="{Binding CurrentTool.Title, Mode=OneWay}" FontSize="11.5" Foreground="{DynamicResource Cp.Text}" VerticalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+
+        <!-- ═══ Body ═══ -->
+        <ContentControl Grid.Row="3" x:Name="BodyHost"/>
+    </Grid>
 </Page>

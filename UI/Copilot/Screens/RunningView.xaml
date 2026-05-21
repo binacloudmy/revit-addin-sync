@@ -1,0 +1,34 @@
+<UserControl x:Class="RevitWebAppSync.UI.Copilot.Screens.RunningView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
+             FontFamily="{DynamicResource Cp.Font}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <ctl:ToolHeader x:Name="Header" Grid.Row="0" Tool="{Binding CurrentTool}" HideBack="True"
+                        SubtitleText="Running…" SubtitleColor="#2563eb"/>
+
+        <Grid Grid.Row="1" Margin="14">
+            <StackPanel x:Name="StepsHost" VerticalAlignment="Top"/>
+            <Border VerticalAlignment="Bottom" Background="#f9fafb" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
+                    CornerRadius="9" Padding="12,10">
+                <StackPanel Orientation="Horizontal">
+                    <Path Width="13" Height="13" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"
+                          Margin="0,1,8,0" VerticalAlignment="Top" StrokeStartLineCap="Round"
+                          Data="M12,9 v4 M12,17 v0.01 M10.3,3.86 L1.82,18 a2,2 0 0 0 1.71,3 h16.94 a2,2 0 0 0 1.71,-3 L13.71,3.86 a2,2 0 0 0 -3.42,0 z"/>
+                    <TextBlock x:Name="InfoText" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}" TextWrapping="Wrap" MaxWidth="340"/>
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Border Grid.Row="2" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,1,0,0" Padding="12">
+            <Button Content="Cancel" Style="{DynamicResource Cp.Ghost}" HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center" Command="{Binding CancelRunCommand}"/>
+        </Border>
+    </Grid>
+</UserControl>

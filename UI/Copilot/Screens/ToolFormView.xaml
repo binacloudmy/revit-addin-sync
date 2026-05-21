@@ -1,0 +1,44 @@
+<UserControl x:Class="RevitWebAppSync.UI.Copilot.Screens.ToolFormView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
+             FontFamily="{DynamicResource Cp.Font}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <ctl:ToolHeader x:Name="Header" Grid.Row="0" Tool="{Binding CurrentTool}" BackCommand="{Binding BackCommand}"/>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="14">
+            <StackPanel>
+                <StackPanel x:Name="FieldsHost"/>
+
+                <!-- Preview card -->
+                <Border Background="#f0fdf4" BorderBrush="#bbf7d0" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,2,0,0">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                            <Path Width="11" Height="11" Stretch="Uniform" Stroke="#15803d" StrokeThickness="2.2"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M5,12 l5,5 L20,7" Margin="0,0,5,0"/>
+                            <TextBlock Text="PREVIEW" FontSize="11" FontWeight="SemiBold" Foreground="#15803d"/>
+                        </StackPanel>
+                        <TextBlock x:Name="PreviewText" FontSize="12.5" Foreground="{DynamicResource Cp.Text}" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,1,0,0" Background="White" Padding="12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Content="Cancel" Style="{DynamicResource Cp.Ghost}" Command="{Binding BackCommand}" Margin="0,0,8,0"/>
+                <Button x:Name="RunButton" Grid.Column="1" Style="{DynamicResource Cp.RunButton}" Command="{Binding RunCommand}"/>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>
