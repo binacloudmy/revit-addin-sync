@@ -1,9 +1,11 @@
+using System;
 using System.Collections.Specialized;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using RevitWebAppSync.UI.Copilot.Controls;
 using RevitWebAppSync.UI.Copilot.Model;
@@ -106,7 +108,20 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 2) };
             for (int i = 0; i < 3; i++)
-                sp.Children.Add(new Ellipse { Width = 6, Height = 6, Fill = CopilotColors.From("#9ca3af"), Margin = new Thickness(0, 0, 4, 0) });
+            {
+                var dot = new Ellipse { Width = 6, Height = 6, Fill = CopilotColors.From("#9ca3af"), Margin = new Thickness(0, 0, 4, 0), RenderTransformOrigin = new Point(0.5, 0.5) };
+                var tt = new TranslateTransform();
+                dot.RenderTransform = tt;
+                var anim = new DoubleAnimation(0, -3, new Duration(TimeSpan.FromMilliseconds(400)))
+                {
+                    AutoReverse = true,
+                    RepeatBehavior = RepeatBehavior.Forever,
+                    BeginTime = TimeSpan.FromMilliseconds(i * 200),
+                    EasingFunction = new SineEase(),
+                };
+                tt.BeginAnimation(TranslateTransform.YProperty, anim);
+                sp.Children.Add(dot);
+            }
             return sp;
         }
 
@@ -238,7 +253,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var tool = CopilotCatalog.Find(m.ToolId);
             var bar = new Border { CornerRadius = new CornerRadius(10), BorderBrush = CopilotColors.From("#e5e7eb"), BorderThickness = new Thickness(1), Background = CopilotColors.From("#eff6ff"), Padding = new Thickness(12, 10, 12, 10) };
             var sp = new StackPanel { Orientation = Orientation.Horizontal };
-            var ring = new System.Windows.Shapes.Ellipse { Width = 14, Height = 14, Stroke = CopilotColors.From("#2563eb"), StrokeThickness = 2, Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
+            var ring = new System.Windows.Shapes.Ellipse
+            {
+                Width = 14, Height = 14, Stroke = CopilotColors.From("#2563eb"), StrokeThickness = 2,
+                Margin = new Thickness(0, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center,
+                StrokeDashArray = new DoubleCollection { 3, 2 }, RenderTransformOrigin = new Point(0.5, 0.5),
+            };
+            var spin = new RotateTransform();
+            ring.RenderTransform = spin;
+            spin.BeginAnimation(RotateTransform.AngleProperty, new DoubleAnimation(0, 360, new Duration(TimeSpan.FromMilliseconds(800)))
+            {
+                RepeatBehavior = RepeatBehavior.Forever,
+            });
             sp.Children.Add(ring);
             sp.Children.Add(new TextBlock { Text = $"Running {tool?.Title?.ToLowerInvariant()}…", FontSize = 12.5, Foreground = CopilotColors.From("#1e40af"), VerticalAlignment = VerticalAlignment.Center });
             bar.Child = sp;

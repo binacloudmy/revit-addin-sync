@@ -14,6 +14,7 @@ namespace RevitWebAppSync.UI.Copilot
     public partial class CopilotPanel : Page
     {
         private readonly CopilotViewModel _vm = new CopilotViewModel();
+        private readonly Highlights.HighlightOverlay _overlay = new Highlights.HighlightOverlay();
         private UIApplication _uiApp;
 
         // Cached screen views (created on first use).
@@ -34,6 +35,7 @@ namespace RevitWebAppSync.UI.Copilot
             Controls.MentionInput.DefaultProvider = new RevitMentionProvider(() => _uiApp);
             DataContext = _vm;
             _vm.PropertyChanged += OnVmChanged;
+            _vm.Highlights.CollectionChanged += OnHighlightsChanged;
             UpdateBody();
         }
 
@@ -55,6 +57,14 @@ namespace RevitWebAppSync.UI.Copilot
         {
             if (e.PropertyName == nameof(CopilotViewModel.Screen) || e.PropertyName == nameof(CopilotViewModel.Tab))
                 UpdateBody();
+        }
+
+        private void OnHighlightsChanged(object sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+        {
+            if (_vm.Highlights.Count > 0)
+                _overlay.Show(_uiApp, _vm.Highlights, () => _vm.ClearHighlightsCommand.Execute(null));
+            else
+                _overlay.Hide();
         }
 
         private void UpdateBody()
