@@ -26,6 +26,8 @@
     <Compile Include="..\Services\JkrCodeParser.cs" Link="JkrCodeParser.cs" />
     <Compile Include="..\Services\AiUrl.cs" Link="AiUrl.cs" />
     <Compile Include="..\Services\VettedToolCode.cs" Link="VettedToolCode.cs" />
+    <Compile Include="..\UI\Copilot\Model\CopilotModels.cs" Link="CopilotModels.cs" />
+    <Compile Include="..\UI\Copilot\Model\CopilotCatalog.cs" Link="CopilotCatalog.cs" />
   </ItemGroup>
 
 </Project>
