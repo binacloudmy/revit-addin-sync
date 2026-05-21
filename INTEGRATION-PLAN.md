@@ -4,9 +4,12 @@ Status as of 2026-05-21. This plan integrates the two parallel efforts on the
 BINA Revit Copilot:
 
 - Our branches: backend `feat/copilot-prd` @ `265eb91`, addin
-  `feat/copilot-saved-commands` @ `92e0085`.
-- SV branches: backend `feat/sp6-model-routing`, addin
-  `feat/copilot-pane-redesign`.
+  `feat/copilot-saved-commands` @ `4309d28`.
+- SV branches: backend `feat/sp6-model-routing` @ `7074286`, addin
+  `feat/copilot-pane-redesign` @ `64dfb62`.
+- **Integration branches** (where the merge work landed): backend
+  `feat/integrate-pane-routing` @ `fe7f99a`, addin
+  `feat/integrate-pane-routing` @ `78999f6`.
 
 Companion docs: `GO-LIVE.md` (verification gates), `LIMITATIONS.md` (honest
 boundaries), `COPILOT-TESTING.md` (Gate 3 test plan).
@@ -14,6 +17,20 @@ boundaries), `COPILOT-TESTING.md` (Gate 3 test plan).
 The merge is **not** a `git merge`. The two branches diverged on architecture,
 not just files. This document is the deliberate-choice plan that lets two
 people divide the work without colliding.
+
+## Progress snapshot
+
+| Phase | Status | Commit hashes |
+|---|---|---|
+| 0 — Prep & alignment | ✅ done 2026-05-21 | tags `pre-integrate-tip` on both repos; integration branches cut from SV bases |
+| 1 — Backend integration | ✅ done 2026-05-21 | `64833d4` → `2056b12` → `c7fb54b` → `4efb9a8` → `fe7f99a` on `bina-ai feat/integrate-pane-routing`. SV pytest 28/28 + new lint tests 14/14 green |
+| 2 — Addin integration | ✅ done 2026-05-21 | `78999f6` on `revit-addin-sync feat/integrate-pane-routing`. Step I evaluated and judged a no-op against SV's `BuildExportSchedule` architecture |
+| 3 — Re-verify in real Revit | ⏳ pending | Needs Windows rebuild + Gate 1 + Gate 3 re-run on the integrated build |
+
+**Phase 3 must run** before the integrated branch is considered at
+supervised-pilot quality — Phase 1 + 2 verifications are static (pytest +
+diff review); Roslyn binding and in-Revit execution remain to be proven on
+the integrated build (the same gap `LIMITATIONS.md` § 8 calls out).
 
 ---
 

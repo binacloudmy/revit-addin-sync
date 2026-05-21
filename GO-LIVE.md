@@ -1,14 +1,28 @@
 # BINA Revit Copilot — Go-Live Checklist
 
-Status as of 2026-05-19. This checklist gates the move from
+Status as of 2026-05-21. This checklist gates the move from
 *supervised pilot / demo-with-a-driver* to *real-user use*. Nothing here is
 "tick it from memory" — every item has a concrete verification action and a
 "Done when" pass criterion.
 
-Parity baseline (the versions everything below must match):
+## Parity baselines
 
-- Backend `bina-ai` branch `feat/copilot-prd` @ `8e87761`
-- Addin `revit-addin-sync` branch `feat/copilot-saved-commands` @ `32a14b3`
+### Pre-integration (our standalone branches — Gates 1 + 3 PASS recorded here)
+
+- Backend `bina-ai` branch `feat/copilot-prd` @ `265eb91`
+- Addin `revit-addin-sync` branch `feat/copilot-saved-commands` @ `4309d28`
+- Safety bookmark: `pre-integrate-tip` tag on both repos points at these
+  commits — `git reset --hard pre-integrate-tip` reverts to this state.
+
+### Integration (SV branches + our hardening — Phase 3 verification PENDING)
+
+- Backend `bina-ai` branch `feat/integrate-pane-routing` @ `fe7f99a`
+  (5 commits on top of SV's `feat/sp6-model-routing` @ `7074286`)
+- Addin `revit-addin-sync` branch `feat/integrate-pane-routing` @ `78999f6`
+  (1 commit on top of SV's `feat/copilot-pane-redesign` @ `64dfb62`)
+- The Go/No-Go table below is recorded against the **pre-integration**
+  baseline. The integrated branch needs its own pass through Gates 1 + 3
+  before its results can be claimed.
 
 Sign-off at the bottom. Do not flip a gate to PASS until its criterion is met.
 
