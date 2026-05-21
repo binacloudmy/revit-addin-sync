@@ -114,9 +114,20 @@ namespace RevitWebAppSync.UI.Copilot
             // ViewType / View3D instead of failing.
             sb.AppendLine("if (__v == null) {");
             sb.AppendLine("    var __q = (__name ?? \"\").ToLowerInvariant();");
-            sb.AppendLine("    if (__q.Contains(\"3d\")) __v = new FilteredElementCollector(doc).OfClass(typeof(View3D)).Cast<View3D>()");
-            sb.AppendLine("        .Where(x => !x.IsTemplate).OrderByDescending(x => x.Name == \"{3D}\").FirstOrDefault();");
-            sb.AppendLine("    else {");
+            sb.AppendLine("    if (__q.Contains(\"3d\")) {");
+            sb.AppendLine("        // Some projects only have perspective/render-only View3D instances");
+            sb.AppendLine("        // (e.g. 'Perspektif Hadapan_Rendered'). Those are flagged 'internal'");
+            sb.AppendLine("        // by Revit and RequestViewChange throws. Prefer orthographic; if the");
+            sb.AppendLine("        // project has only perspectives, say so instead of failing cryptically.");
+            sb.AppendLine("        var __all3d = new FilteredElementCollector(doc).OfClass(typeof(View3D)).Cast<View3D>()");
+            sb.AppendLine("            .Where(x => !x.IsTemplate).ToList();");
+            sb.AppendLine("        __v = __all3d.Where(x => !x.IsPerspective)");
+            sb.AppendLine("            .OrderByDescending(x => x.Name == \"{3D}\").FirstOrDefault();");
+            sb.AppendLine("        if (__v == null && __all3d.Count > 0) {");
+            sb.AppendLine("            SetResult(new { kind = \"plain\", headline = \"No switchable 3D view\", sub = \"This project has only perspective/rendered views — create a regular 3D view (View > 3D View > Default 3D View) and try again.\" });");
+            sb.AppendLine("            return null;");
+            sb.AppendLine("        }");
+            sb.AppendLine("    } else {");
             sb.AppendLine("        ViewType __t = ViewType.Undefined;");
             sb.AppendLine("        if (__q.Contains(\"eleva\")) __t = ViewType.Elevation;");
             sb.AppendLine("        else if (__q.Contains(\"section\")) __t = ViewType.Section;");
@@ -128,8 +139,15 @@ namespace RevitWebAppSync.UI.Copilot
             sb.AppendLine("            .FirstOrDefault(x => !x.IsTemplate && x.ViewType == __t);");
             sb.AppendLine("    }");
             sb.AppendLine("}");
-            sb.AppendLine("if (__v != null) { uidoc.RequestViewChange(__v); SetResult(new { kind = \"plain\", headline = \"Opened \" + __v.Name, sub = \"Switched the active view.\" }); }");
-            sb.AppendLine("else { SetResult(new { kind = \"plain\", headline = \"View not found\", sub = \"No view named '\" + __name + \"'.\" }); }");
+            sb.AppendLine("if (__v != null) {");
+            sb.AppendLine("    try {");
+            sb.AppendLine("        uidoc.RequestViewChange(__v);");
+            sb.AppendLine("        SetResult(new { kind = \"plain\", headline = \"Opened \" + __v.Name, sub = \"Switched the active view.\" });");
+            sb.AppendLine("    } catch (Autodesk.Revit.Exceptions.ArgumentException) {");
+            sb.AppendLine("        // Revit refused to activate this view (internal / non-switchable).");
+            sb.AppendLine("        SetResult(new { kind = \"plain\", headline = \"Can't switch to that view\", sub = \"'\" + __v.Name + \"' is an internal or non-switchable view in this project.\" });");
+            sb.AppendLine("    }");
+            sb.AppendLine("} else { SetResult(new { kind = \"plain\", headline = \"View not found\", sub = \"No view named '\" + __name + \"'.\" }); }");
             return sb.ToString();
         }
 
