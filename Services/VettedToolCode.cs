@@ -115,7 +115,10 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("    }");
             sb.AppendLine("  } catch { }");
             sb.AppendLine("}");
-            sb.AppendLine($"SetResult(new {{ kind = \"plain\", headline = __n + \" {c} element(s) updated\", sub = \"Set {pn} to {v}\" + (__g > 0 ? \" · \" + __g + \" skipped (in groups)\" : \"\"), grouped = __g }});");
+            // Everything not updated and not in a group: parameter missing or read-only. Report
+            // it so the numbers add up (updated + in-groups + read-only/no-value == total).
+            sb.AppendLine("int __other = __els.Count - __n - __g; if (__other < 0) __other = 0;");
+            sb.AppendLine($"SetResult(new {{ kind = \"plain\", headline = __n + \" {c} element(s) updated\", sub = \"Set {pn} to {v}\" + (__g > 0 ? \" · \" + __g + \" in groups\" : \"\") + (__other > 0 ? \" · \" + __other + \" read-only / no value\" : \"\"), grouped = __g }});");
             return sb.ToString();
         }
 
@@ -148,7 +151,8 @@ namespace RevitWebAppSync.Services
             sb.AppendLine($"    case StorageType.Double: {{ if (double.TryParse(\"{v}\", out var __d)) {{ __p.Set(__d); __n++; }} break; }}");
             sb.AppendLine("    default: break; } } catch { }");
             sb.AppendLine("}");
-            sb.AppendLine($"SetResult(new {{ kind = \"plain\", headline = __n + \" {c} element(s) updated\", sub = \"Set {pn} to {v} · ungrouped \" + __ung + \" group(s)\", grouped = 0 }});");
+            sb.AppendLine("int __other = __els2.Count - __n; if (__other < 0) __other = 0;");
+            sb.AppendLine($"SetResult(new {{ kind = \"plain\", headline = __n + \" {c} element(s) updated\", sub = \"Set {pn} to {v} · ungrouped \" + __ung + \" group(s)\" + (__other > 0 ? \" · \" + __other + \" read-only / no value\" : \"\"), grouped = 0 }});");
             return sb.ToString();
         }
 
