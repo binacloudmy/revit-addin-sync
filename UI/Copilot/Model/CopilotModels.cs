@@ -62,6 +62,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<BarItem> Bars = new List<BarItem>();
         public List<IssueItem> Items = new List<IssueItem>();
         public List<DiffItem> Diffs = new List<DiffItem>();
+        public int GroupedSkipped;   // set-parameter: elements skipped for being inside groups
     }
 
     public class BarItem

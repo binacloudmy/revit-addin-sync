@@ -21,6 +21,7 @@ namespace RevitWebAppSync.UI.Copilot
     public interface ICopilotExecutor
     {
         void Run(ToolDef tool, IDictionary<string, object> values, string code, Action<ExecOutcome> onDone);
+        void RunCode(string code, Action<ExecOutcome> onDone);
     }
 
     /// <summary>
@@ -45,6 +46,7 @@ namespace RevitWebAppSync.UI.Copilot
             UnpinCommand = new RelayCommand(p => Unpin(p as string));
             RunCommand = new RelayCommand(_ => Run());
             CancelRunCommand = new RelayCommand(_ => CancelRun());
+            UngroupApplyCommand = new RelayCommand(_ => UngroupApply());
             ClearChatCommand = new RelayCommand(_ => Thread.Clear());
             ClearHighlightsCommand = new RelayCommand(_ => Highlights.Clear());
             ChatSendCommand = new RelayCommand(p => ChatSend(p as string));
@@ -140,6 +142,7 @@ namespace RevitWebAppSync.UI.Copilot
         public RelayCommand UnpinCommand { get; }
         public RelayCommand RunCommand { get; }
         public RelayCommand CancelRunCommand { get; }
+        public RelayCommand UngroupApplyCommand { get; }
         public RelayCommand ClearChatCommand { get; }
         public RelayCommand ClearHighlightsCommand { get; }
         public RelayCommand ChatSendCommand { get; }
@@ -253,6 +256,21 @@ namespace RevitWebAppSync.UI.Copilot
         public void CancelRun()
         {
             Screen = Prev == CpScreen.Running ? CpScreen.Home : Prev;
+        }
+
+        /// <summary>Opt-in: ungroup the groups holding the target elements, then set the parameter
+        /// on everything. Destructive (dissolves those groups) — invoked only from the explicit
+        /// "Ungroup & apply" action on the set-parameter result.</summary>
+        public void UngroupApply()
+        {
+            var tool = CurrentTool;
+            if (tool == null || tool.BackendName != "set_parameter" || Executor == null) return;
+            string code = RevitWebAppSync.Services.VettedToolCode.BuildSetParameterUngroup(FormValues);
+            if (string.IsNullOrEmpty(code)) return;
+            Prev = Screen;
+            Screen = CpScreen.Running;
+            _runClock = System.Diagnostics.Stopwatch.StartNew();
+            Executor.RunCode(code, FinishRun);
         }
 
         public void FinishRun(ExecOutcome outcome)

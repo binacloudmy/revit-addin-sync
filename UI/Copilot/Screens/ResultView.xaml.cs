@@ -56,6 +56,16 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private void BuildNextSteps()
         {
             NextHost.Children.Clear();
+
+            // Opt-in: only when set-parameter skipped elements for being in groups.
+            int grouped = Vm?.RunResult?.GroupedSkipped ?? 0;
+            if (grouped > 0 && Vm?.CurrentTool?.BackendName == "set_parameter")
+            {
+                NextHost.Children.Add(NextRow("layers", "#fef3c7", "#a16207",
+                    $"Ungroup {grouped} group(s) & apply  (this dissolves the groups)",
+                    () => Vm?.UngroupApplyCommand.Execute(null)));
+            }
+
             NextHost.Children.Add(NextRow("bookmark", "#fef3c7", "#a16207", "Save as a re-runnable command",
                 () => Vm?.PinCommand.Execute(Vm.ToolId)));
             NextHost.Children.Add(NextRow("history", "#f1f3f5", "#6b7280", "View history",

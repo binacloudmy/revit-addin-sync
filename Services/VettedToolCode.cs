@@ -115,9 +115,43 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("    }");
             sb.AppendLine("  } catch { }");
             sb.AppendLine("}");
-            sb.AppendLine($"SetResult(new {{ kind = \"plain\", headline = __n + \" {c} element(s) updated\", sub = \"Set {pn} to {v}\" + (__g > 0 ? \" · \" + __g + \" skipped (in groups)\" : \"\") }});");
+            sb.AppendLine($"SetResult(new {{ kind = \"plain\", headline = __n + \" {c} element(s) updated\", sub = \"Set {pn} to {v}\" + (__g > 0 ? \" · \" + __g + \" skipped (in groups)\" : \"\"), grouped = __g }});");
             return sb.ToString();
         }
+
+        /// <summary>
+        /// Opt-in variant of set-parameter: ungroups the group instances that contain target
+        /// elements, then sets the parameter on everything. DESTRUCTIVE (dissolves those groups)
+        /// — only invoked when the user explicitly clicks "Ungroup & apply".
+        /// </summary>
+        internal static string BuildSetParameterUngroup(IDictionary<string, object> p)
+        {
+            var cat = Get(p, "target_category", "category");
+            var name = Get(p, "parameter_name", "parameter", "param");
+            var val = Get(p, "value");
+            if (cat == null || name == null || val == null) return null;
+            string c = Lit(cat), pn = Lit(name), v = Lit(val);
+            var sb = new StringBuilder();
+            sb.AppendLine($"var __cat = doc.Settings.Categories.Cast<Category>().FirstOrDefault(x => x != null && string.Equals(x.Name, \"{c}\", StringComparison.OrdinalIgnoreCase));");
+            sb.AppendLine("var __els = __cat == null ? new List<Element>() : new FilteredElementCollector(doc).OfCategoryId(__cat.Id).WhereElementIsNotElementType().Cast<Element>().ToList();");
+            sb.AppendLine("var __grpIds = __els.Where(e => e.GroupId != null && e.GroupId != ElementId.InvalidElementId).Select(e => e.GroupId).Distinct().ToList();");
+            sb.AppendLine("int __ung = 0;");
+            sb.AppendLine("foreach (var __gid in __grpIds) { var __grp = doc.GetElement(__gid) as Group; if (__grp != null) { try { __grp.UngroupMembers(); __ung++; } catch { } } }");
+            sb.AppendLine("var __els2 = __cat == null ? new List<Element>() : new FilteredElementCollector(doc).OfCategoryId(__cat.Id).WhereElementIsNotElementType().Cast<Element>().ToList();");
+            sb.AppendLine("int __n = 0;");
+            sb.AppendLine("foreach (var __e in __els2) {");
+            sb.AppendLine("  if (__e.GroupId != null && __e.GroupId != ElementId.InvalidElementId) continue;");
+            sb.AppendLine($"  var __p = __e.LookupParameter(\"{pn}\"); if (__p == null || __p.IsReadOnly) continue;");
+            sb.AppendLine("  try { switch (__p.StorageType) {");
+            sb.AppendLine($"    case StorageType.String: __p.Set(\"{v}\"); __n++; break;");
+            sb.AppendLine($"    case StorageType.Integer: {{ if (int.TryParse(\"{v}\", out var __i)) {{ __p.Set(__i); __n++; }} else if (bool.TryParse(\"{v}\", out var __b)) {{ __p.Set(__b ? 1 : 0); __n++; }} break; }}");
+            sb.AppendLine($"    case StorageType.Double: {{ if (double.TryParse(\"{v}\", out var __d)) {{ __p.Set(__d); __n++; }} break; }}");
+            sb.AppendLine("    default: break; } } catch { }");
+            sb.AppendLine("}");
+            sb.AppendLine($"SetResult(new {{ kind = \"plain\", headline = __n + \" {c} element(s) updated\", sub = \"Set {pn} to {v} · ungrouped \" + __ung + \" group(s)\", grouped = 0 }});");
+            return sb.ToString();
+        }
+
         internal static string BuildExportSchedule(IDictionary<string, object> p)
         {
             var name = Get(p, "schedule_name", "name");

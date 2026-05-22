@@ -50,6 +50,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 default: r.Kind = CpResultKind.Plain; break;
             }
             if (string.IsNullOrEmpty(r.Headline)) r.Headline = message ?? "Done";
+            r.GroupedSkipped = Int(o, "grouped");
 
             if (o["bars"] is JArray bars)
             {

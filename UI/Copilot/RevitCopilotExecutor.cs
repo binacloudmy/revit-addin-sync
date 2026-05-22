@@ -21,17 +21,26 @@ namespace RevitWebAppSync.UI.Copilot
         public void Run(ToolDef tool, IDictionary<string, object> values, string code, Action<ExecOutcome> onDone)
         {
             string toRun = tool != null && tool.Tier == 1 ? SynthVetted(tool, values) : code;
-
             if (string.IsNullOrEmpty(toRun))
             {
                 Dispatch(onDone, new ExecOutcome { Success = false, Error = "Couldn't build runnable code for this tool." });
                 return;
             }
+            RunCode(toRun, onDone);
+        }
 
+        /// <summary>Run a raw synthesized snippet through the shared Revit ExternalEvent.</summary>
+        public void RunCode(string code, Action<ExecOutcome> onDone)
+        {
+            if (string.IsNullOrEmpty(code))
+            {
+                Dispatch(onDone, new ExecOutcome { Success = false, Error = "No code to run." });
+                return;
+            }
             try
             {
                 App.AIHandler.Action = "execute";
-                App.AIHandler.CodeToExecute = toRun;
+                App.AIHandler.CodeToExecute = code;
                 App.AIHandler.OnCompleted = result => Dispatch(onDone, Map(result));
                 App.AIExternalEvent.Raise();
             }
