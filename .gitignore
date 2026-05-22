@@ -1,0 +1,42 @@
+# Build outputs
+bin/
+obj/
+
+# Visual Studio / Rider / VS Code workspace state
+.vs/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+.vscode/
+
+# WPF temp-project leftovers (these accumulate, one set per build)
+*_wpftmp.*
+
+# NuGet (modern packages live in ~/.nuget; only legacy `packages/` is gitignored)
+packages/
+*.nupkg
+
+# Test / coverage outputs
+TestResults/
+*.trx
+coverage*
+
+# Backup / scratch files
+*.bak
+*.cache
+*.orig
+*.rej
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Local secrets / config
+.env
+.env.local
+*.secret
+
+# Claude Code local settings (per-machine)
+.claude/settings.local.json
