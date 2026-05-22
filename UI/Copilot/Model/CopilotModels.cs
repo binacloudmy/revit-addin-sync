@@ -131,6 +131,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public ResultModel Result;   // result
         public string Code;          // proposal — generated C# (backend or catalog sample)
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English
+        public string SourcePrompt;  // proposal — the user's original text, for Regenerate
     }
 
     /// <summary>Floating viewport marker (Task 15). Coordinates are % of the active view rect.</summary>

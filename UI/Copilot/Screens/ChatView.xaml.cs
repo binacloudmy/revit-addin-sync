@@ -226,23 +226,22 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             // actions
             var actions = new Border { Background = CopilotColors.From("#fafafa"), BorderBrush = CopilotColors.From("#f1f3f5"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(10, 8, 10, 8), CornerRadius = new CornerRadius(0, 0, 12, 12) };
+            // "Open editor" removed: it opened a catalog demo tool (the count-doors fallback),
+            // not the actual command. The real generated code is already shown via "View code".
             var ag = new Grid();
-            ag.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             ag.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             ag.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             ag.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var regen = SmallGhost("Regenerate"); Grid.SetColumn(regen, 0);
             regen.Click += (_, __) => Vm.ChatRegenerateCommand.Execute(m);
-            var edit = SmallGhost("Open editor"); Grid.SetColumn(edit, 1); edit.Margin = new Thickness(5, 0, 0, 0);
-            edit.Click += (_, __) => Vm.ChatOpenEditorCommand.Execute(m);
             var run = new Button { Style = (Style)TryFindResource("Cp.RunDark"), Padding = new Thickness(14, 6, 14, 6) };
             var rsp = new StackPanel { Orientation = Orientation.Horizontal };
             rsp.Children.Add(new Path { Width = 10, Height = 10, Stretch = Stretch.Uniform, Fill = Brushes.White, Data = CopilotIcons.Get("play"), Margin = new Thickness(0, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center });
             rsp.Children.Add(new TextBlock { Text = "Run", Foreground = Brushes.White });
             run.Content = rsp;
-            Grid.SetColumn(run, 3);
+            Grid.SetColumn(run, 2);
             run.Click += (_, __) => Vm.ChatRunCommand.Execute(m);
-            ag.Children.Add(regen); ag.Children.Add(edit); ag.Children.Add(run);
+            ag.Children.Add(regen); ag.Children.Add(run);
             actions.Child = ag;
             sp.Children.Add(actions);
 

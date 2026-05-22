@@ -373,6 +373,7 @@ namespace RevitWebAppSync.UI.Copilot
                 Text = text2,
                 PlanSteps = new List<string>(rr.Plan ?? new List<string>()),
                 Code = rr.Code,
+                SourcePrompt = text,          // original prompt, so Regenerate re-routes the real ask
             });
         }
 
@@ -426,16 +427,12 @@ namespace RevitWebAppSync.UI.Copilot
             int idx = Thread.IndexOf(msg);
             if (idx < 0) return;
 
-            var alts = CopilotCatalog.Ai.Where(a => a.Id != msg.ToolId).ToList();
-            var next = alts.Count > 0 ? alts[new System.Random().Next(alts.Count)] : CopilotCatalog.Find(msg.ToolId);
-            if (next == null) return;
-
-            Thread[idx] = new ChatMessage
-            {
-                Role = "ai", Kind = CpMsgKind.Proposal, ToolId = next.Id,
-                Text = "How about this instead?",
-                PlanSteps = new List<string>(next.Plan ?? new List<string>()), Code = next.Code,
-            };
+            // Re-route the ORIGINAL prompt through the backend (a real regenerate), instead of
+            // swapping in a random catalog demo tool.
+            string prompt = msg.SourcePrompt;
+            if (string.IsNullOrWhiteSpace(prompt)) return;
+            Thread[idx] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Regenerating…" };
+            _ = ResolveProposalAsync(prompt, QueryInterpreter.PickResponseTool(prompt)?.Id);
         }
 
         // ─── INotifyPropertyChanged ────────────────────────────────────────────
