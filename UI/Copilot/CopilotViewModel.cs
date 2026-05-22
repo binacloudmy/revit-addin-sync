@@ -349,9 +349,13 @@ namespace RevitWebAppSync.UI.Copilot
 
             if (!usable)
             {
-                string note = (rr != null && rr.NeedsClarification && !string.IsNullOrWhiteSpace(rr.ClarifyingQuestion))
-                    ? rr.ClarifyingQuestion
-                    : "I couldn't reach the Copilot backend. Check your sign-in and connection, then try again.";
+                string note;
+                if (rr != null && rr.NotAuthenticated)
+                    note = "You're not signed in. Click the BINA Login button on the ribbon to sign in, then ask again.";
+                else if (rr != null && rr.NeedsClarification && !string.IsNullOrWhiteSpace(rr.ClarifyingQuestion))
+                    note = rr.ClarifyingQuestion;
+                else
+                    note = "I couldn't reach the Copilot backend. Check your connection and try again.";
                 ReplaceLastThinking(new ChatMessage { Role = "ai", Kind = CpMsgKind.Note, Text = note });
                 return;
             }

@@ -30,7 +30,8 @@ namespace RevitWebAppSync.UI.Copilot
         public async Task<RouteResult> RouteAsync(string message, string fallbackToolId)
         {
             var cfg = BinaConfig.Load();
-            if (string.IsNullOrEmpty(cfg?.AccessToken)) return null; // not logged in → offline fallback
+            if (string.IsNullOrEmpty(cfg?.AccessToken))
+                return new RouteResult { NotAuthenticated = true }; // not logged in — tell the user to sign in
 
             var ctx = BuildContext();
             var resp = await _ai.RouteAsync(

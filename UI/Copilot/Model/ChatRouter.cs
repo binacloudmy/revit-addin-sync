@@ -7,6 +7,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     public class RouteResult
     {
         public bool NeedsClarification;
+        public bool NotAuthenticated;    // no access token — user must sign in
         public string ClarifyingQuestion;
         public string Intent;            // backend intent — drives the proposal title
         public string ToolId;            // catalog tool used for visuals
