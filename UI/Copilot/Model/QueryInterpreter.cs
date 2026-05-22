@@ -56,6 +56,76 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return new InterpretResult { IsClarify = false, ToolId = PickResponseTool(text).Id };
         }
 
+        /// <summary>A high-confidence client-side match to a vetted (Tier-1) tool + any params we
+        /// can pull from the text. Lets the chat skip the /route LLM call entirely for these.</summary>
+        public class VettedMatch
+        {
+            public string ToolId;
+            public Dictionary<string, object> Prefill = new Dictionary<string, object>();
+        }
+
+        private static readonly string[] Categories = { "Walls", "Doors", "Windows", "Floors", "Rooms", "Furniture" };
+
+        private static string MatchCategory(string q)
+        {
+            foreach (var c in Categories)
+            {
+                var lc = c.ToLowerInvariant();
+                if (q.Contains(lc) || q.Contains(lc.TrimEnd('s'))) return c;  // wall(s), door(s)…
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Conservative: only returns a tool when the request clearly maps to a vetted tool.
+        /// Anything ambiguous returns null and falls through to the backend /route.
+        /// </summary>
+        public static VettedMatch DetectVetted(string text)
+        {
+            var q = (text ?? "").ToLowerInvariant().Trim();
+            if (q.Length == 0) return null;
+
+            // Open a view — needs an open/switch/show verb + a view cue.
+            bool openVerb = q.Contains("open") || q.Contains("switch") || q.Contains("go to") || q.Contains("show");
+            bool viewCue = q.Contains("view") || q.Contains("3d") || q.Contains("floor plan")
+                           || q.Contains("section") || q.Contains("elevation") || q.Contains("drafting") || q.Contains("plan");
+            if (openVerb && viewCue)
+            {
+                var m = new VettedMatch { ToolId = "open-view" };
+                if (q.Contains("3d")) m.Prefill["type"] = "3D";
+                else if (q.Contains("section")) m.Prefill["type"] = "Section";
+                else if (q.Contains("elevation")) m.Prefill["type"] = "Elevation";
+                else if (q.Contains("drafting")) m.Prefill["type"] = "Drafting";
+                else if (q.Contains("floor") || q.Contains("plan")) m.Prefill["type"] = "Floor Plan";
+                return m;
+            }
+
+            // Select elements by category — only the SIMPLE case ("select all walls"). If there's
+            // a filter ("doors missing fire rating", "walls on level 2"), let /route extract it
+            // (it still returns a vetted action — no codegen tokens — but captures the filter).
+            if (q.Contains("select"))
+            {
+                var cat = MatchCategory(q);
+                string[] complex = { "missing", "without", "where", "that", "with", "contains",
+                                     "fire", "frr", "rating", "corridor", "level", "phase", "on " };
+                bool hasFilter = complex.Any(w => q.Contains(w));
+                if (cat != null && !hasFilter)
+                {
+                    var m = new VettedMatch { ToolId = "select" };
+                    m.Prefill["category"] = cat;
+                    return m;
+                }
+            }
+
+            // Export a schedule — the form picks the schedule, so nothing is lost.
+            if (q.Contains("export") && q.Contains("schedule")) return new VettedMatch { ToolId = "export-sched" };
+
+            // NOTE: rename / set-parameter are intentionally NOT short-circuited — their params
+            // (find/replace, parameter+value) are worth extracting via /route, which still returns
+            // a vetted action (deterministic synthesis, no codegen tokens).
+            return null;
+        }
+
         public static ToolDef PickResponseTool(string query)
         {
             var q = (query ?? "").ToLowerInvariant();

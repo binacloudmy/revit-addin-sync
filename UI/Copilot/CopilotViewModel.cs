@@ -162,7 +162,7 @@ namespace RevitWebAppSync.UI.Copilot
             RunResult = null;
         }
 
-        public void OpenTool(string toolId)
+        public void OpenTool(string toolId, IDictionary<string, object> prefill = null)
         {
             var tool = CopilotCatalog.Find(toolId);
             if (tool == null) return;
@@ -171,6 +171,10 @@ namespace RevitWebAppSync.UI.Copilot
             if (tool.Tier == 1)
             {
                 FormValues = tool.Fields.ToDictionary(f => f.Id, f => f.Default);
+                // Overlay any prefilled params BEFORE the screen flips, so the form (e.g. the
+                // live view dropdown filtered by type) builds with the right values.
+                if (prefill != null)
+                    foreach (var kv in prefill) FormValues[kv.Key] = kv.Value;
                 Raise(nameof(FormValues));
                 Screen = CpScreen.ToolForm;
             }
@@ -317,6 +321,16 @@ namespace RevitWebAppSync.UI.Copilot
             text = (text ?? "").Trim();
             if (text.Length == 0) return;
             Tab = CpTab.Chat;
+
+            // If the ask clearly maps to a vetted (deterministic) tool, open its form directly —
+            // no backend /route call, no codegen tokens. The user confirms params and Runs.
+            var vetted = QueryInterpreter.DetectVetted(text);
+            if (vetted != null)
+            {
+                OpenTool(vetted.ToolId, vetted.Prefill);
+                return;
+            }
+
             Screen = CpScreen.Home;
             ToolId = null;
             Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text });
