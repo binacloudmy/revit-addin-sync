@@ -33,6 +33,7 @@ namespace RevitWebAppSync.UI.Copilot
             _vm.Executor = new RevitCopilotExecutor();
             _vm.Router = new RevitChatRouter(() => _uiApp);
             Controls.MentionInput.DefaultProvider = new RevitMentionProvider(() => _uiApp);
+            Model.CopilotModelData.Current = new RevitModelData(() => _uiApp);
             DataContext = _vm;
             _vm.PropertyChanged += OnVmChanged;
             _vm.Highlights.CollectionChanged += OnHighlightsChanged;

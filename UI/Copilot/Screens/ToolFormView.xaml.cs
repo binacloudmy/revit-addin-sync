@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -99,15 +100,37 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private ComboBox BuildSelect(FieldDef f)
         {
+            var options = OptionsFor(f);
+            string current = (Vm?.FormValues != null && Vm.FormValues.TryGetValue(f.Id, out var v) ? v : f.Default) as string;
+            // If the stored value isn't in the (possibly live) option list, snap to the first.
+            if ((current == null || (options.Length > 0 && !options.Contains(current))) && options.Length > 0)
+            {
+                current = options[0];
+                Vm?.SetForm(f.Id, current);
+            }
             var cb = new ComboBox
             {
-                ItemsSource = f.Options,
-                SelectedItem = Vm?.FormValues != null && Vm.FormValues.TryGetValue(f.Id, out var v) ? v : f.Default,
+                ItemsSource = options,
+                SelectedItem = current,
                 FontSize = 13, Padding = new Thickness(10, 6, 10, 6),
                 FontFamily = (FontFamily)TryFindResource("Cp.Font"),
             };
             cb.SelectionChanged += (_, __) => { Vm?.SetForm(f.Id, cb.SelectedItem as string); Refresh(); };
             return cb;
+        }
+
+        // Live options for fields that should reflect the real model (open-view's view list,
+        // filtered by the selected view type); static catalog options otherwise.
+        private string[] OptionsFor(FieldDef f)
+        {
+            var tool = Vm?.CurrentTool;
+            if (tool != null && tool.Id == "open-view" && f.Id == "view" && CopilotModelData.Current != null)
+            {
+                string type = (Vm.FormValues != null && Vm.FormValues.TryGetValue("type", out var tv)) ? tv as string : null;
+                var live = CopilotModelData.Current.Views(type);
+                if (live != null && live.Count > 0) return live.ToArray();
+            }
+            return f.Options ?? new string[0];
         }
 
         private TextBox BuildText(FieldDef f)
@@ -147,7 +170,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     Vm?.SetForm(f.Id, opt);
                     foreach (var child in grid.Children)
                         if (child is Button b) StyleSeg(b, ReferenceEquals(b, btn));
-                    Refresh();
+                    // Changing open-view's type re-filters the (live) view dropdown.
+                    if (Vm?.CurrentTool?.Id == "open-view" && f.Id == "type") Rebuild();
+                    else Refresh();
                 };
                 grid.Children.Add(btn);
             }

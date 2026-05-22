@@ -87,7 +87,7 @@ namespace RevitWebAppSync.UI.Copilot
                         ["format"] = S(v, "format"),
                     });
                 case "open_view":
-                    return BuildOpenView(S(v, "view"));
+                    return BuildOpenView(S(v, "type"), S(v, "view"));
                 case "select_elements":
                     return BuildSelect(S(v, "category"), S(v, "level"));
                 default:
@@ -95,20 +95,38 @@ namespace RevitWebAppSync.UI.Copilot
             }
         }
 
-        private static string BuildOpenView(string viewName)
+        private static string BuildOpenView(string viewType, string viewName)
         {
             string n = Lit(viewName);
+            string t = (viewType ?? "").Trim().ToLowerInvariant();
+
+            // Filter to the requested view kind first, then match by name within it. This is
+            // what makes "3D" open a 3D view (not a floor plan with a matching name) and lets a
+            // type-only request fall back to the default view of that type.
+            string pred;
+            if (t.Contains("3d")) pred = "x is View3D";
+            else if (t.Contains("section")) pred = "x.ViewType == ViewType.Section";
+            else if (t.Contains("elevation")) pred = "x.ViewType == ViewType.Elevation";
+            else if (t.Contains("drafting")) pred = "x.ViewType == ViewType.DraftingView";
+            else if (t.Contains("floor") || t.Contains("plan"))
+                pred = "(x.ViewType == ViewType.FloorPlan || x.ViewType == ViewType.CeilingPlan || x.ViewType == ViewType.AreaPlan)";
+            else pred = "true";
+
             var sb = new StringBuilder();
             // Referencing uidoc.ActiveView opts out of the executor's auto-transaction wrap,
             // so RequestViewChange runs outside a transaction (Revit forbids it inside one).
             sb.AppendLine("var __cur = uidoc.ActiveView;");
             sb.AppendLine($"var __name = \"{n}\";");
-            sb.AppendLine("var __v = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()");
-            sb.AppendLine("    .FirstOrDefault(x => x != null && !x.IsTemplate && string.Equals(x.Name, __name, StringComparison.OrdinalIgnoreCase));");
-            sb.AppendLine("if (__v == null) __v = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()");
-            sb.AppendLine("    .FirstOrDefault(x => x != null && !x.IsTemplate && x.Name != null && x.Name.IndexOf(__name, StringComparison.OrdinalIgnoreCase) >= 0);");
+            sb.AppendLine("var __all = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()");
+            sb.AppendLine("    .Where(x => x != null && !x.IsTemplate).ToList();");
+            sb.AppendLine($"var __typed = __all.Where(x => {pred}).ToList();");
+            sb.AppendLine("var __pool = __typed.Count > 0 ? __typed : __all;");
+            sb.AppendLine("View __v = string.IsNullOrEmpty(__name) ? null :");
+            sb.AppendLine("    (__pool.FirstOrDefault(x => string.Equals(x.Name, __name, StringComparison.OrdinalIgnoreCase))");
+            sb.AppendLine("     ?? __pool.FirstOrDefault(x => x.Name != null && x.Name.IndexOf(__name, StringComparison.OrdinalIgnoreCase) >= 0));");
+            sb.AppendLine("if (__v == null) __v = __typed.FirstOrDefault();   // type-only / no name match -> default view of that type (e.g. the {3D} view)");
             sb.AppendLine("if (__v != null) { uidoc.RequestViewChange(__v); SetResult(new { kind = \"plain\", headline = \"Opened \" + __v.Name, sub = \"Switched the active view.\" }); }");
-            sb.AppendLine("else { SetResult(new { kind = \"plain\", headline = \"View not found\", sub = \"No view named '\" + __name + \"'.\" }); }");
+            sb.AppendLine("else { SetResult(new { kind = \"plain\", headline = \"View not found\", sub = \"No matching view for that type/name.\" }); }");
             return sb.ToString();
         }
 
