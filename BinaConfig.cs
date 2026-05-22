@@ -25,8 +25,8 @@ namespace RevitWebAppSync
         public string AIBaseUrl { get; set; }
         public string ApiBaseUrl { get; set; }
 
-        public const string DEFAULT_AI_BASE_URL = "https://6d2c-2001-f40-935-7c0f-d0a3-ab3c-5059-30b2.ngrok-free.app";
-        public const string DEFAULT_API_BASE_URL = "https://6d9e82978eba.ngrok-free.app";
+        public const string DEFAULT_AI_BASE_URL = "https://cd47-2001-f40-935-7c0f-d0a3-ab3c-5059-30b2.ngrok-free.app";
+        public const string DEFAULT_API_BASE_URL = "https://ff8e-2001-f40-935-7c0f-d0a3-ab3c-5059-30b2.ngrok-free.app";
 
         [JsonIgnore]
         public string ResolvedAIBaseUrl =>
