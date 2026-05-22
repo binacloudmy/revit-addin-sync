@@ -8,6 +8,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     {
         public bool NeedsClarification;
         public string ClarifyingQuestion;
+        public string Intent;            // backend intent — drives the proposal title
         public string ToolId;            // catalog tool used for visuals
         public List<string> Plan;        // plan steps (English)
         public string Code;              // runnable C# (backend action or catalog sample)

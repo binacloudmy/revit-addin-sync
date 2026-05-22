@@ -197,7 +197,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 Grid.SetColumn(tile, 0); hg.Children.Add(tile);
             }
             var hc = new StackPanel { Margin = new Thickness(9, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-            hc.Children.Add(new TextBlock { Text = tool?.Title ?? "Command", FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#0b0d12") });
+            string headerTitle = !string.IsNullOrEmpty(m.Title) ? m.Title : (tool?.Title ?? "Command");
+            hc.Children.Add(new TextBlock { Text = headerTitle, FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#0b0d12") });
             hc.Children.Add(new TextBlock { Text = "Proposed command", FontSize = 11, Foreground = CopilotColors.From("#6b7280") });
             Grid.SetColumn(hc, 1); hg.Children.Add(hc);
             var badge = new TierBadge { Tier = 2, VerticalAlignment = VerticalAlignment.Center };

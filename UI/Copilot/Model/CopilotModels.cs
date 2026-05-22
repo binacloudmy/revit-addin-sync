@@ -6,7 +6,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     // ─── Enums (mirror the prototype state machine) ──────────────────────────
     public enum CpScreen { Home, ToolForm, ToolReview, Running, Result }
     public enum CpTab { Chat, Library, History, Saved }
-    public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result }
+    public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, Note }
     public enum CpResultKind { Count, Issues, List, File, Plain }
     public enum CpFieldKind { Select, Text, Seg }
 
@@ -123,7 +123,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Role;          // "user" | "ai"
         public CpMsgKind Kind;
         public string Text;
-        public string ToolId;        // proposal/running/result target tool
+        public string ToolId;        // proposal/running/result target tool (catalog id, may be null)
+        public string Title;         // proposal display title (backend intent; falls back to tool title)
         public List<Mention> Mentions = new List<Mention>();
         public string Question;      // clarify
         public List<ClarifyOption> Options = new List<ClarifyOption>();  // clarify

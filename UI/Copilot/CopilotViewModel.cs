@@ -341,20 +341,34 @@ namespace RevitWebAppSync.UI.Copilot
                 catch { rr = null; }
             }
 
-            string toolId = !string.IsNullOrEmpty(rr?.ToolId) ? rr.ToolId : fallbackToolId;
-            var tool = CopilotCatalog.Find(toolId) ?? CopilotCatalog.Find(fallbackToolId);
-            if (tool == null) return;
+            // Only propose when the backend actually answered with a plan/code. Do NOT fabricate
+            // a proposal from the offline keyword pick (that's what mislabeled "count walls" as
+            // the doors tool). No usable answer -> say so honestly.
+            bool usable = rr != null && !rr.NeedsClarification
+                          && (!string.IsNullOrWhiteSpace(rr.Code) || (rr.Plan != null && rr.Plan.Count > 0));
 
-            var plan = (rr?.Plan != null && rr.Plan.Count > 0) ? rr.Plan : tool.Plan;
-            string code = !string.IsNullOrWhiteSpace(rr?.Code) ? rr.Code : tool.Code;
-            string text2 = !string.IsNullOrWhiteSpace(rr?.Reply)
+            if (!usable)
+            {
+                string note = (rr != null && rr.NeedsClarification && !string.IsNullOrWhiteSpace(rr.ClarifyingQuestion))
+                    ? rr.ClarifyingQuestion
+                    : "I couldn't reach the Copilot backend. Check your sign-in and connection, then try again.";
+                ReplaceLastThinking(new ChatMessage { Role = "ai", Kind = CpMsgKind.Note, Text = note });
+                return;
+            }
+
+            string title = !string.IsNullOrWhiteSpace(rr.Intent) ? rr.Intent : CopilotCatalog.Find(rr.ToolId)?.Title;
+            string text2 = !string.IsNullOrWhiteSpace(rr.Reply)
                 ? rr.Reply
                 : "Here's a command that should do it. Review the plan and hit Run when you're ready.";
 
             ReplaceLastThinking(new ChatMessage
             {
-                Role = "ai", Kind = CpMsgKind.Proposal, ToolId = tool.Id,
-                Text = text2, PlanSteps = new List<string>(plan ?? new List<string>()), Code = code,
+                Role = "ai", Kind = CpMsgKind.Proposal,
+                ToolId = rr.ToolId,           // icon + execution/history shape only
+                Title = title,                // shown title — the real intent, not the doors pick
+                Text = text2,
+                PlanSteps = new List<string>(rr.Plan ?? new List<string>()),
+                Code = rr.Code,
             });
         }
 

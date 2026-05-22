@@ -50,7 +50,8 @@ namespace RevitWebAppSync.UI.Copilot
 
             return new RouteResult
             {
-                ToolId = fallbackToolId,                       // catalog tool drives the proposal visuals
+                Intent = resp.Intent,                          // real intent → proposal title
+                ToolId = fallbackToolId,                       // catalog id (icon + execution/history only)
                 Plan = (plan != null && plan.Count > 0) ? plan : null,
                 Code = code,
                 Reply = resp.Reply,
