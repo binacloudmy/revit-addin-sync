@@ -32,7 +32,10 @@ namespace RevitWebAppSync.UI.Copilot
                 else if (t.Contains("drafting")) filtered = views.Where(v => v.ViewType == ViewType.DraftingView);
                 else if (t.Contains("floor") || t.Contains("plan"))
                     filtered = views.Where(v => v.ViewType == ViewType.FloorPlan || v.ViewType == ViewType.CeilingPlan || v.ViewType == ViewType.AreaPlan);
-                else filtered = views;
+                else
+                    // No specific type → all graphical views, but never schedules (own tool).
+                    filtered = views.Where(v => v.ViewType != ViewType.Schedule
+                        && v.ViewType != ViewType.ColumnSchedule && v.ViewType != ViewType.PanelSchedule);
 
                 return filtered.Select(v => v.Name).Where(n => !string.IsNullOrEmpty(n))
                     .Distinct().OrderBy(n => n).ToList();

@@ -117,8 +117,13 @@ namespace RevitWebAppSync.UI.Copilot
             // so RequestViewChange runs outside a transaction (Revit forbids it inside one).
             sb.AppendLine("var __cur = uidoc.ActiveView;");
             sb.AppendLine($"var __name = \"{n}\";");
+            // Schedules/column/panel schedules are View subclasses (FilteredElementCollector
+            // returns them) but "Open a view" must never land on one — exclude them up front so
+            // even the no-match-of-type fallback can't open a schedule.
             sb.AppendLine("var __all = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()");
-            sb.AppendLine("    .Where(x => x != null && !x.IsTemplate).ToList();");
+            sb.AppendLine("    .Where(x => x != null && !x.IsTemplate");
+            sb.AppendLine("        && x.ViewType != ViewType.Schedule && x.ViewType != ViewType.ColumnSchedule");
+            sb.AppendLine("        && x.ViewType != ViewType.PanelSchedule).ToList();");
             sb.AppendLine($"var __typed = __all.Where(x => {pred}).ToList();");
             sb.AppendLine("var __pool = __typed.Count > 0 ? __typed : __all;");
             sb.AppendLine("View __v = string.IsNullOrEmpty(__name) ? null :");
