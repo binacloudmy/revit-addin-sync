@@ -73,6 +73,8 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("int __n = 0;");
             sb.AppendLine("var __diffs = new List<object>();");
             sb.AppendLine("foreach (var __e in __els) {");
+            // Skip group members — renaming them outside group-edit mode throws a hard error.
+            sb.AppendLine("  if (__e.GroupId != null && __e.GroupId != ElementId.InvalidElementId) continue;");
             sb.AppendLine("  try {");
             sb.AppendLine("    var __o = __e.Name;");
             sb.AppendLine($"    if (!string.IsNullOrEmpty(__o) && __o.IndexOf(\"{f}\", StringComparison.Ordinal) >= 0) {{");
@@ -96,8 +98,12 @@ namespace RevitWebAppSync.Services
             sb.AppendLine($"    .FirstOrDefault(x => x != null && string.Equals(x.Name, \"{c}\", StringComparison.OrdinalIgnoreCase));");
             sb.AppendLine("var __els = __cat == null ? new List<Element>() : new FilteredElementCollector(doc)");
             sb.AppendLine("    .OfCategoryId(__cat.Id).WhereElementIsNotElementType().Cast<Element>().ToList();");
-            sb.AppendLine("int __n = 0;");
+            sb.AppendLine("int __n = 0; int __g = 0;");
             sb.AppendLine("foreach (var __e in __els) {");
+            // Editing a member of a Revit group outside group-edit mode throws a hard,
+            // un-ignorable error ("changes to groups are allowed only in group edit mode")
+            // that the transaction failure-handler can't swallow — so skip grouped members.
+            sb.AppendLine("  if (__e.GroupId != null && __e.GroupId != ElementId.InvalidElementId) { __g++; continue; }");
             sb.AppendLine($"  var __p = __e.LookupParameter(\"{pn}\");");
             sb.AppendLine("  if (__p == null || __p.IsReadOnly) continue;");
             sb.AppendLine("  try {");
@@ -109,7 +115,7 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("    }");
             sb.AppendLine("  } catch { }");
             sb.AppendLine("}");
-            sb.AppendLine($"SetResult(new {{ kind = \"plain\", headline = __n + \" {c} element(s) updated\", sub = \"Set {pn} to {v}\" }});");
+            sb.AppendLine($"SetResult(new {{ kind = \"plain\", headline = __n + \" {c} element(s) updated\", sub = \"Set {pn} to {v}\" + (__g > 0 ? \" · \" + __g + \" skipped (in groups)\" : \"\") }});");
             return sb.ToString();
         }
         internal static string BuildExportSchedule(IDictionary<string, object> p)
