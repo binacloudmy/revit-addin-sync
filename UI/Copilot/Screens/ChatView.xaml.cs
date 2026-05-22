@@ -267,7 +267,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 RepeatBehavior = RepeatBehavior.Forever,
             });
             sp.Children.Add(ring);
-            sp.Children.Add(new TextBlock { Text = $"Running {tool?.Title?.ToLowerInvariant()}…", FontSize = 12.5, Foreground = CopilotColors.From("#1e40af"), VerticalAlignment = VerticalAlignment.Center });
+            string running = !string.IsNullOrEmpty(m.Title) ? m.Title : tool?.Title;
+            sp.Children.Add(new TextBlock { Text = $"Running {running?.ToLowerInvariant()}…", FontSize = 12.5, Foreground = CopilotColors.From("#1e40af"), VerticalAlignment = VerticalAlignment.Center });
             bar.Child = sp;
             return bar;
         }
@@ -289,7 +290,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 var tile = new IconTile { Glyph = tool.Icon, TileBg = tool.TileBg, TileFg = tool.TileFg, TileSize = 22, GlyphSize = 11, Corner = 5, VerticalAlignment = VerticalAlignment.Center };
                 Grid.SetColumn(tile, 0); hg.Children.Add(tile);
             }
-            var title = new TextBlock { Text = tool?.Title, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#0b0d12"), Margin = new Thickness(9, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            string resultTitle = !string.IsNullOrEmpty(m.Title) ? m.Title : tool?.Title;
+            var title = new TextBlock { Text = resultTitle, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#0b0d12"), Margin = new Thickness(9, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
             Grid.SetColumn(title, 1); hg.Children.Add(title);
             var done = new Border { CornerRadius = new CornerRadius(999), Background = CopilotColors.From("#dcfce7"), Padding = new Thickness(8, 2, 8, 2) };
             var dsp = new StackPanel { Orientation = Orientation.Horizontal };

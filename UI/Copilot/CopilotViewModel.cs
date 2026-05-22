@@ -415,7 +415,7 @@ namespace RevitWebAppSync.UI.Copilot
 
             ToolId = tool.Id; // so highlights/history resolve against this tool
             _runClock = System.Diagnostics.Stopwatch.StartNew();
-            Thread[idx] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Running, ToolId = tool.Id, Code = msg.Code };
+            Thread[idx] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Running, ToolId = tool.Id, Title = msg.Title, Code = msg.Code };
 
             void Done(ExecOutcome outcome)
             {
@@ -423,7 +423,7 @@ namespace RevitWebAppSync.UI.Copilot
 
                 int j = -1;
                 for (int i = 0; i < Thread.Count; i++) if (Thread[i].Kind == CpMsgKind.Running && Thread[i].ToolId == tool.Id) j = i;
-                if (j >= 0) Thread[j] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Result, ToolId = tool.Id, Result = result };
+                if (j >= 0) Thread[j] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Result, ToolId = tool.Id, Title = msg.Title, Result = result };
 
                 History.Insert(0, new HistoryEntry("just now", tool.Id, result.Kind == CpResultKind.Issues ? "warn" : "ok", SummaryOf(result)));
                 CopilotStateStore.Save(_pinned, History);
