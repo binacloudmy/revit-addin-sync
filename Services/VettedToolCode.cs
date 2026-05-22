@@ -98,14 +98,15 @@ namespace RevitWebAppSync.Services
             sb.AppendLine($"    .FirstOrDefault(x => x != null && string.Equals(x.Name, \"{c}\", StringComparison.OrdinalIgnoreCase));");
             sb.AppendLine("var __els = __cat == null ? new List<Element>() : new FilteredElementCollector(doc)");
             sb.AppendLine("    .OfCategoryId(__cat.Id).WhereElementIsNotElementType().Cast<Element>().ToList();");
-            sb.AppendLine("int __n = 0; int __g = 0;");
+            sb.AppendLine("int __n = 0; int __g = 0; int __nf = 0; int __ro = 0;");
             sb.AppendLine("foreach (var __e in __els) {");
             // Editing a member of a Revit group outside group-edit mode throws a hard,
             // un-ignorable error ("changes to groups are allowed only in group edit mode")
             // that the transaction failure-handler can't swallow — so skip grouped members.
             sb.AppendLine("  if (__e.GroupId != null && __e.GroupId != ElementId.InvalidElementId) { __g++; continue; }");
             sb.AppendLine($"  var __p = __e.LookupParameter(\"{pn}\");");
-            sb.AppendLine("  if (__p == null || __p.IsReadOnly) continue;");
+            sb.AppendLine("  if (__p == null) { __nf++; continue; }      // no such parameter on this element");
+            sb.AppendLine("  if (__p.IsReadOnly) { __ro++; continue; }   // read-only parameter");
             sb.AppendLine("  try {");
             sb.AppendLine("    switch (__p.StorageType) {");
             sb.AppendLine($"      case StorageType.String: __p.Set(\"{v}\"); __n++; break;");
@@ -115,10 +116,16 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("    }");
             sb.AppendLine("  } catch { }");
             sb.AppendLine("}");
-            // Everything not updated and not in a group: parameter missing or read-only. Report
-            // it so the numbers add up (updated + in-groups + read-only/no-value == total).
-            sb.AppendLine("int __other = __els.Count - __n - __g; if (__other < 0) __other = 0;");
-            sb.AppendLine($"SetResult(new {{ kind = \"plain\", headline = __n + \" {c} element(s) updated\", sub = \"Set {pn} to {v}\" + (__g > 0 ? \" · \" + __g + \" in groups\" : \"\") + (__other > 0 ? \" · \" + __other + \" read-only / no value\" : \"\"), grouped = __g }});");
+            // Anything left (couldn't parse/convert the value to the param's type, etc.). Reporting
+            // every bucket makes the numbers add up: updated + in-groups + read-only + no-param + other == total.
+            sb.AppendLine("int __other = __els.Count - __n - __g - __nf - __ro; if (__other < 0) __other = 0;");
+            sb.AppendLine($"SetResult(new {{ kind = \"plain\", headline = __n + \" {c} element(s) updated\","
+                + $" sub = \"Set {pn} to {v}\""
+                + " + (__g > 0 ? \" · \" + __g + \" in groups\" : \"\")"
+                + " + (__ro > 0 ? \" · \" + __ro + \" read-only\" : \"\")"
+                + $" + (__nf > 0 ? \" · \" + __nf + \" no '{pn}' param\" : \"\")"
+                + " + (__other > 0 ? \" · \" + __other + \" not set\" : \"\"),"
+                + " grouped = __g });");
             return sb.ToString();
         }
 
