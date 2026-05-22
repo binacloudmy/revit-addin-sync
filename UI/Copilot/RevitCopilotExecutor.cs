@@ -125,7 +125,10 @@ namespace RevitWebAppSync.UI.Copilot
             sb.AppendLine("        && x.ViewType != ViewType.Schedule && x.ViewType != ViewType.ColumnSchedule");
             sb.AppendLine("        && x.ViewType != ViewType.PanelSchedule).ToList();");
             sb.AppendLine($"var __typed = __all.Where(x => {pred}).ToList();");
-            sb.AppendLine("var __pool = __typed.Count > 0 ? __typed : __all;");
+            // Match strictly within the requested type — never widen to other types (that's how
+            // "3D" could end up on a floor plan when no 3D view matched). For an unconstrained
+            // type the predicate is `true`, so __typed already is every graphical view.
+            sb.AppendLine("var __pool = __typed;");
             sb.AppendLine("View __v = string.IsNullOrEmpty(__name) ? null :");
             sb.AppendLine("    (__pool.FirstOrDefault(x => string.Equals(x.Name, __name, StringComparison.OrdinalIgnoreCase))");
             sb.AppendLine("     ?? __pool.FirstOrDefault(x => x.Name != null && x.Name.IndexOf(__name, StringComparison.OrdinalIgnoreCase) >= 0));");
