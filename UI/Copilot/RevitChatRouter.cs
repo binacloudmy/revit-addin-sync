@@ -43,7 +43,19 @@ namespace RevitWebAppSync.UI.Copilot
             if (resp.NeedsClarification)
                 return new RouteResult { NeedsClarification = true, ClarifyingQuestion = resp.ClarifyingQuestion };
 
-            string code = resp.Actions?.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a.Code))?.Code;
+            // Prefer generated code; but if the first action is a VETTED tool (params, no code),
+            // synthesize it via the type-aware synthesizer so chat open_view/select/etc. behave
+            // exactly like the forms (e.g. "open 3d view" actually opens a 3D view).
+            var first = resp.Actions?.FirstOrDefault();
+            string code = first?.Code;
+            if (string.IsNullOrWhiteSpace(code) && first != null
+                && !string.IsNullOrEmpty(first.Tool) && first.Tool != "code")
+            {
+                code = RevitCopilotExecutor.SynthForChat(first.Tool, first.Params);
+            }
+            if (string.IsNullOrWhiteSpace(code))
+                code = resp.Actions?.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a.Code))?.Code;
+
             var plan = resp.Actions?
                 .Where(a => !string.IsNullOrWhiteSpace(a.Description))
                 .Select(a => a.Description)

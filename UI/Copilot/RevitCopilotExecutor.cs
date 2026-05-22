@@ -62,6 +62,27 @@ namespace RevitWebAppSync.UI.Copilot
         private static string S(IDictionary<string, object> v, string k)
             => v != null && v.TryGetValue(k, out var o) && o != null ? o.ToString() : "";
 
+        /// <summary>
+        /// Synthesize runnable C# from a backend /route action that is a VETTED tool (which
+        /// carries params, not code). Lets the chat path run vetted actions through the same
+        /// type-aware synthesizers as the forms — e.g. open_view honors the view type.
+        /// Returns null for unvetted tools (caller uses action.Code).
+        /// </summary>
+        public static string SynthForChat(string tool, IDictionary<string, object> p)
+        {
+            if (string.IsNullOrEmpty(tool)) return null;
+            switch (tool.ToLowerInvariant())
+            {
+                case "open_view": return BuildOpenView(S(p, "view_type"), S(p, "view_name"));
+                case "select_elements": return BuildSelect(S(p, "target_category"), S(p, "level"));
+                case "rename_elements":
+                case "set_parameter":
+                case "export_schedule":
+                    return VettedToolCode.TryBuild(tool, p); // VettedToolCode.Get accepts the backend param keys
+                default: return null;
+            }
+        }
+
         private static string SynthVetted(ToolDef tool, IDictionary<string, object> v)
         {
             switch (tool.BackendName)
