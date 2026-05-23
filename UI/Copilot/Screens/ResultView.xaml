@@ -59,6 +59,6 @@
             </StackPanel>
         </ScrollViewer>
 
-        <ctl:PromptBar Grid.Row="2" Placeholder="Ask a follow-up…" SubmitCommand="{Binding FollowUpCommand}"/>
+        <ctl:PromptBar Grid.Row="2" Placeholder="Ask a follow-up…" SubmitCommand="{Binding FollowUpCommand}" IsBusy="{Binding IsRouting}"/>
     </Grid>
 </UserControl>

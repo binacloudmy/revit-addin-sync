@@ -45,5 +45,24 @@ namespace RevitWebAppSync.UI.Copilot
                 return new List<string>();
             }
         }
+
+        public List<string> Schedules()
+        {
+            try
+            {
+                var doc = _getApp()?.ActiveUIDocument?.Document;
+                if (doc == null) return new List<string>();
+                return new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule))
+                    .Cast<ViewSchedule>()
+                    .Where(s => s != null && !s.IsTemplate)
+                    .Select(s => s.Name)
+                    .Where(n => !string.IsNullOrEmpty(n))
+                    .Distinct().OrderBy(n => n).ToList();
+            }
+            catch
+            {
+                return new List<string>();
+            }
+        }
     }
 }

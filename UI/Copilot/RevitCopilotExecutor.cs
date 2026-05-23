@@ -83,7 +83,7 @@ namespace RevitWebAppSync.UI.Copilot
             switch (tool.ToLowerInvariant())
             {
                 case "open_view": return BuildOpenView(S(p, "view_type"), S(p, "view_name"));
-                case "select_elements": return BuildSelect(S(p, "target_category"), S(p, "level"));
+                case "select_elements": return BuildSelect(S(p, "target_category"), S(p, "level"), S(p, "filter"));
                 case "rename_elements":
                 case "set_parameter":
                 case "export_schedule":
@@ -119,7 +119,7 @@ namespace RevitWebAppSync.UI.Copilot
                 case "open_view":
                     return BuildOpenView(S(v, "type"), S(v, "view"));
                 case "select_elements":
-                    return BuildSelect(S(v, "category"), S(v, "level"));
+                    return BuildSelect(S(v, "category"), S(v, "level"), S(v, "filter"));
                 default:
                     return null;
             }
@@ -168,7 +168,7 @@ namespace RevitWebAppSync.UI.Copilot
             return sb.ToString();
         }
 
-        private static string BuildSelect(string category, string level)
+        private static string BuildSelect(string category, string level, string filter = null)
         {
             string c = Lit(category);
             string lvl = Lit(level);
@@ -185,11 +185,67 @@ namespace RevitWebAppSync.UI.Copilot
                 sb.AppendLine($"    .FirstOrDefault(l => string.Equals(l.Name, \"{lvl}\", StringComparison.OrdinalIgnoreCase));");
                 sb.AppendLine("if (__lvl != null) __els = __els.Where(e => e.LevelId == __lvl.Id).ToList();");
             }
+            // Optional free-form numeric filter: "height>3000", "length<=2", "area>5 m" etc.
+            // Maps to LookupParameter(<Height|Length|Area|Width>). Values in mm by default; cm/m/sqm
+            // recognised. If parse fails, no filter is applied (the user sees the full set).
+            var parsed = ParseSelectFilter(filter);
+            if (parsed.HasValue)
+            {
+                var f = parsed.Value;
+                string paramLit = Lit(f.ParamName);
+                sb.AppendLine($"// filter: {paramLit} {f.Op} {f.FeetValue:R} (ft)");
+                sb.AppendLine("__els = __els.Where(__e => {");
+                sb.AppendLine($"    var __pp = __e.LookupParameter(\"{paramLit}\");");
+                sb.AppendLine("    if (__pp == null || __pp.StorageType != StorageType.Double) return false;");
+                sb.AppendLine("    var __vv = __pp.AsDouble();");
+                sb.AppendLine($"    return __vv {f.Op} {f.FeetValue.ToString("R", System.Globalization.CultureInfo.InvariantCulture)};");
+                sb.AppendLine("}).ToList();");
+            }
             sb.AppendLine("var __ids = __els.Select(e => e.Id).ToList();");
             sb.AppendLine("uidoc.Selection.SetElementIds(__ids);");
             sb.AppendLine("if (__ids.Count > 0) uidoc.ShowElements(__ids);");
-            sb.AppendLine($"SetResult(new {{ kind = \"plain\", headline = __ids.Count + \" {c} selected\", sub = \"Zoomed to selection.\" }});");
+            string filterMsg = string.IsNullOrWhiteSpace(filter) ? "" : (parsed.HasValue ? " (filter: " + Lit(filter) + ")" : " (filter ignored: not parseable)");
+            sb.AppendLine($"SetResult(new {{ kind = \"plain\", headline = __ids.Count + \" {c} selected\", sub = \"Zoomed to selection.{filterMsg}\" }});");
             return sb.ToString();
+        }
+
+        private struct SelectFilter { public string ParamName; public string Op; public double FeetValue; }
+
+        // Cheap, deliberately small parser: <param> <op> <number>[unit]
+        // param: height|length|area|width  op: < <= > >= =
+        // unit (length): mm (default), cm, m   unit (area): sqm/m2 (default mm² if unitless under
+        // 100, else m² is too risky — so we require an explicit unit for area; otherwise treat as
+        // the param's native feet/sqft). Returns null if anything is off.
+        private static SelectFilter? ParseSelectFilter(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            var m = System.Text.RegularExpressions.Regex.Match(
+                raw.Trim(),
+                @"^(?<p>height|length|area|width)\s*(?<o><=|>=|<|>|=)\s*(?<n>-?\d+(?:\.\d+)?)\s*(?<u>mm|cm|m|sqm|m2)?\s*$",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!m.Success) return null;
+            string p = char.ToUpperInvariant(m.Groups["p"].Value[0]) + m.Groups["p"].Value.Substring(1).ToLowerInvariant();
+            string op = m.Groups["o"].Value; if (op == "=") op = "=="; // C#
+            if (!double.TryParse(m.Groups["n"].Value, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var num)) return null;
+            string u = m.Groups["u"].Value.ToLowerInvariant();
+            double feet;
+            bool isArea = string.Equals(p, "Area", StringComparison.OrdinalIgnoreCase);
+            if (isArea)
+            {
+                // Default: square metres if no unit (areas in mm² are absurdly large numbers).
+                // 1 m² = 10.7639 sqft (feet²).
+                feet = num * 10.7639;
+                if (u == "sqm" || u == "m2" || u == "m" || u == "") feet = num * 10.7639;
+            }
+            else
+            {
+                // Length default mm. mm→ft = *0.0032808399; cm = *0.032808399; m = *3.2808399.
+                if (u == "m") feet = num * 3.2808399;
+                else if (u == "cm") feet = num * 0.032808399;
+                else feet = num * 0.0032808399; // mm default
+            }
+            return new SelectFilter { ParamName = p, Op = op, FeetValue = feet };
         }
     }
 }

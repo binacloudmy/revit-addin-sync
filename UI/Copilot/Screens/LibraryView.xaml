@@ -36,6 +36,6 @@
             <StackPanel x:Name="ListHost"/>
         </ScrollViewer>
 
-        <ctl:PromptBar Grid.Row="3" Placeholder="Quick ask Copilot…" SubmitCommand="{Binding ChatSendCommand}"/>
+        <ctl:PromptBar Grid.Row="3" Placeholder="Quick ask Copilot…" SubmitCommand="{Binding ChatSendCommand}" IsBusy="{Binding IsRouting}"/>
     </Grid>
 </UserControl>

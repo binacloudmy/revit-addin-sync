@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace RevitWebAppSync.UI.Copilot.Model
@@ -23,6 +24,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
     /// </summary>
     public interface IChatRouter
     {
-        Task<RouteResult> RouteAsync(string message, string fallbackToolId);
+        Task<RouteResult> RouteAsync(string message, string fallbackToolId, CancellationToken ct = default);
     }
 }

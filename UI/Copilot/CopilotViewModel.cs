@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using RevitWebAppSync.UI.Copilot.Model;
 
 namespace RevitWebAppSync.UI.Copilot
@@ -35,6 +36,8 @@ namespace RevitWebAppSync.UI.Copilot
             var st = CopilotStateStore.Load();
             _pinned = new HashSet<string>(st.Pinned);
             History = new ObservableCollection<HistoryEntry>(st.History);
+            SavedCommands = new ObservableCollection<SavedCommand>(st.SavedCommands ?? new List<SavedCommand>());
+            Sessions = new ObservableCollection<ChatSession>(st.Sessions ?? new List<ChatSession>());
 
             GoTabCommand = new RelayCommand(p => GoTab(ParseTab(p)));
             OpenToolCommand = new RelayCommand(p => OpenTool(p as string));
@@ -46,14 +49,22 @@ namespace RevitWebAppSync.UI.Copilot
             UnpinCommand = new RelayCommand(p => Unpin(p as string));
             RunCommand = new RelayCommand(_ => Run());
             CancelRunCommand = new RelayCommand(_ => CancelRun());
+            CancelRouteCommand = new RelayCommand(_ => CancelRoute());
             UngroupApplyCommand = new RelayCommand(_ => UngroupApply());
-            ClearChatCommand = new RelayCommand(_ => Thread.Clear());
+            ClearChatCommand = new RelayCommand(_ => NewSession());
             ClearHighlightsCommand = new RelayCommand(_ => Highlights.Clear());
             ChatSendCommand = new RelayCommand(p => ChatSend(p as string));
             FollowUpCommand = new RelayCommand(p => ChatSend(p as string));
             ChatRunCommand = new RelayCommand(p => ChatRun(p as ChatMessage));
             ChatRegenerateCommand = new RelayCommand(p => ChatRegenerate(p as ChatMessage));
             ChatOpenEditorCommand = new RelayCommand(p => OpenTool((p as ChatMessage)?.ToolId));
+            SaveCurrentRunCommand = new RelayCommand(_ => SaveCurrentRun());
+            SaveChatResultCommand = new RelayCommand(p => SaveChatResult(p as ChatMessage));
+            DeleteSavedCommand = new RelayCommand(p => DeleteSaved(p as string));
+            RunSavedCommand = new RelayCommand(p => RunSaved(p as SavedCommand));
+            OpenSessionCommand = new RelayCommand(p => OpenSession(p as string));
+            DeleteSessionCommand = new RelayCommand(p => DeleteSession(p as string));
+            NewSessionCommand = new RelayCommand(_ => NewSession());
         }
 
         // ─── Injected context ────────────────────────────────────────────────
@@ -89,10 +100,21 @@ namespace RevitWebAppSync.UI.Copilot
 
         public ObservableCollection<ChatMessage> Thread { get; } = new ObservableCollection<ChatMessage>();
         public ObservableCollection<HistoryEntry> History { get; }
+        public ObservableCollection<SavedCommand> SavedCommands { get; }
+        public ObservableCollection<ChatSession> Sessions { get; }
         public ObservableCollection<HighlightMarker> Highlights { get; } = new ObservableCollection<HighlightMarker>();
 
         private readonly HashSet<string> _pinned;
         public IReadOnlyCollection<string> Pinned => _pinned;
+
+        // ─── Routing state (spam guard + cancel) ─────────────────────────────
+        private CancellationTokenSource _routeCts;
+        private bool _isRouting;
+        public bool IsRouting { get => _isRouting; private set { if (_isRouting == value) return; _isRouting = value; Raise(); } }
+
+        // Current chat session (lazy — first ChatSend creates it). Persisted to Sessions on
+        // NewSession/clear/leave.
+        private ChatSession _currentSession;
 
         private CpScreen _prev = CpScreen.Home;
         public CpScreen Prev { get => _prev; set { _prev = value; Raise(); } }
@@ -113,7 +135,8 @@ namespace RevitWebAppSync.UI.Copilot
         public string BreadcrumbRoot => Prev == CpScreen.Home && Tab == CpTab.Chat ? "Chat" : "Library";
 
         public int LibraryCount => CopilotCatalog.All.Count();
-        public int SavedCount => _pinned.Count;
+        public int SavedCount => SavedCommands.Count;
+        public int SessionCount => Sessions.Count;
         public IEnumerable<CategoryDef> Categories => CopilotCatalog.Categories;
         public bool IsPinned(string toolId) => toolId != null && _pinned.Contains(toolId);
 
@@ -142,6 +165,7 @@ namespace RevitWebAppSync.UI.Copilot
         public RelayCommand UnpinCommand { get; }
         public RelayCommand RunCommand { get; }
         public RelayCommand CancelRunCommand { get; }
+        public RelayCommand CancelRouteCommand { get; }
         public RelayCommand UngroupApplyCommand { get; }
         public RelayCommand ClearChatCommand { get; }
         public RelayCommand ClearHighlightsCommand { get; }
@@ -150,6 +174,13 @@ namespace RevitWebAppSync.UI.Copilot
         public RelayCommand ChatRunCommand { get; }
         public RelayCommand ChatRegenerateCommand { get; }
         public RelayCommand ChatOpenEditorCommand { get; }
+        public RelayCommand SaveCurrentRunCommand { get; }
+        public RelayCommand SaveChatResultCommand { get; }
+        public RelayCommand DeleteSavedCommand { get; }
+        public RelayCommand RunSavedCommand { get; }
+        public RelayCommand OpenSessionCommand { get; }
+        public RelayCommand DeleteSessionCommand { get; }
+        public RelayCommand NewSessionCommand { get; }
 
         private static CpTab ParseTab(object p)
         {
@@ -225,8 +256,7 @@ namespace RevitWebAppSync.UI.Copilot
 
         private void PersistAndRaisePinned()
         {
-            CopilotStateStore.Save(_pinned, History);
-            Raise(nameof(SavedCount));
+            PersistAll();
             Raise(nameof(SavedTools));
             Raise(nameof(Pinned));
         }
@@ -285,7 +315,7 @@ namespace RevitWebAppSync.UI.Copilot
             string status = result.Kind == CpResultKind.Issues ? "warn" : (outcome != null && !outcome.Success ? "warn" : "ok");
             string summary = SummaryOf(result);
             History.Insert(0, new HistoryEntry("just now", tool.Id, status, summary));
-            CopilotStateStore.Save(_pinned, History);
+            PersistAll();
             Raise(nameof(RecentEntry));
 
             PopulateHighlights(tool.Id);
@@ -338,6 +368,9 @@ namespace RevitWebAppSync.UI.Copilot
         {
             text = (text ?? "").Trim();
             if (text.Length == 0) return;
+            // Spam guard: drop new sends while a route is in flight. The Cancel chip on the
+            // Thinking message is the only way to free the channel.
+            if (IsRouting) return;
             Tab = CpTab.Chat;
 
             // If the ask clearly maps to a vetted (deterministic) tool, open its form directly —
@@ -351,12 +384,14 @@ namespace RevitWebAppSync.UI.Copilot
 
             Screen = CpScreen.Home;
             ToolId = null;
+            EnsureSession();
             Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text });
 
             var interp = QueryInterpreter.Interpret(text);
             if (interp.IsClarify)
             {
                 Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Clarify, Question = interp.Question, Options = interp.Options });
+                PersistSession();
                 return;
             }
 
@@ -364,13 +399,36 @@ namespace RevitWebAppSync.UI.Copilot
             _ = ResolveProposalAsync(text, interp.ToolId);
         }
 
+        public void CancelRoute()
+        {
+            try { _routeCts?.Cancel(); } catch { }
+        }
+
         private async System.Threading.Tasks.Task ResolveProposalAsync(string text, string fallbackToolId)
         {
             RouteResult rr = null;
-            if (Router != null)
+            _routeCts?.Dispose();
+            _routeCts = new CancellationTokenSource();
+            var ct = _routeCts.Token;
+            IsRouting = true;
+            try
             {
-                try { rr = await Router.RouteAsync(text, fallbackToolId); }
-                catch { rr = null; }
+                if (Router != null)
+                {
+                    try { rr = await Router.RouteAsync(text, fallbackToolId, ct); }
+                    catch (OperationCanceledException) { rr = null; }
+                    catch { rr = null; }
+                }
+                if (ct.IsCancellationRequested)
+                {
+                    ReplaceLastThinking(new ChatMessage { Role = "ai", Kind = CpMsgKind.Note, Text = "Cancelled." });
+                    PersistSession();
+                    return;
+                }
+            }
+            finally
+            {
+                IsRouting = false;
             }
 
             // Only propose when the backend actually answered with a plan/code. Do NOT fabricate
@@ -389,6 +447,7 @@ namespace RevitWebAppSync.UI.Copilot
                 else
                     note = "I couldn't reach the Copilot backend. Check your connection and try again.";
                 ReplaceLastThinking(new ChatMessage { Role = "ai", Kind = CpMsgKind.Note, Text = note });
+                PersistSession();
                 return;
             }
 
@@ -407,6 +466,7 @@ namespace RevitWebAppSync.UI.Copilot
                 Code = rr.Code,
                 SourcePrompt = text,          // original prompt, so Regenerate re-routes the real ask
             });
+            PersistSession();
         }
 
         private void ReplaceLastThinking(ChatMessage replacement)
@@ -444,13 +504,14 @@ namespace RevitWebAppSync.UI.Copilot
                 if (j >= 0) Thread[j] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Result, ToolId = tool.Id, Title = msg.Title, Result = result };
 
                 History.Insert(0, new HistoryEntry("just now", tool.Id, result.Kind == CpResultKind.Issues ? "warn" : "ok", SummaryOf(result)));
-                CopilotStateStore.Save(_pinned, History);
+                PersistAll();
                 Raise(nameof(RecentEntry));
                 PopulateHighlights(tool.Id);
             }
 
             if (Executor != null) Executor.Run(tool, new Dictionary<string, object>(), msg.Code, Done);
             else Done(new ExecOutcome { Success = true });
+            PersistSession();
         }
 
         public void ChatRegenerate(ChatMessage msg)
@@ -463,8 +524,144 @@ namespace RevitWebAppSync.UI.Copilot
             // swapping in a random catalog demo tool.
             string prompt = msg.SourcePrompt;
             if (string.IsNullOrWhiteSpace(prompt)) return;
+            if (IsRouting) return; // spam guard
             Thread[idx] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Regenerating…" };
             _ = ResolveProposalAsync(prompt, QueryInterpreter.PickResponseTool(prompt)?.Id);
+        }
+
+        // ─── Sessions (chat history) ──────────────────────────────────────────
+        private void EnsureSession()
+        {
+            if (_currentSession != null) return;
+            _currentSession = new ChatSession
+            {
+                Id = Guid.NewGuid().ToString(),
+                CreatedAt = DateTime.Now.ToString("o"),
+                Title = "(new chat)",
+                Messages = new List<ChatMessage>(),
+            };
+        }
+
+        private void PersistSession()
+        {
+            if (_currentSession == null) return;
+            // Snapshot the live Thread (in display order). First user turn -> title.
+            _currentSession.Messages = Thread.ToList();
+            var firstUser = Thread.FirstOrDefault(m => m.Role == "user" && !string.IsNullOrWhiteSpace(m.Text));
+            if (firstUser != null)
+            {
+                var t = firstUser.Text.Trim();
+                _currentSession.Title = t.Length > 60 ? t.Substring(0, 60) + "…" : t;
+            }
+            // Replace-or-prepend.
+            int idx = -1;
+            for (int i = 0; i < Sessions.Count; i++) if (Sessions[i].Id == _currentSession.Id) { idx = i; break; }
+            if (idx >= 0) Sessions[idx] = _currentSession;
+            else Sessions.Insert(0, _currentSession);
+            PersistAll();
+            Raise(nameof(Sessions));
+        }
+
+        public void NewSession()
+        {
+            // Persist whatever we have, then drop reference & clear the thread.
+            if (_currentSession != null && Thread.Count > 0) PersistSession();
+            _currentSession = null;
+            Thread.Clear();
+            PersistAll();
+        }
+
+        public void OpenSession(string sessionId)
+        {
+            var s = Sessions.FirstOrDefault(x => x.Id == sessionId);
+            if (s == null) return;
+            if (_currentSession != null && _currentSession.Id != s.Id) PersistSession();
+            _currentSession = s;
+            Thread.Clear();
+            foreach (var m in s.Messages ?? new List<ChatMessage>()) Thread.Add(m);
+            Tab = CpTab.Chat;
+            Screen = CpScreen.Home;
+        }
+
+        public void DeleteSession(string sessionId)
+        {
+            var s = Sessions.FirstOrDefault(x => x.Id == sessionId);
+            if (s == null) return;
+            Sessions.Remove(s);
+            if (_currentSession?.Id == sessionId) { _currentSession = null; Thread.Clear(); }
+            PersistAll();
+        }
+
+        // ─── Saved commands (re-runnable) ─────────────────────────────────────
+        public void SaveCurrentRun()
+        {
+            // From the form path: snapshot tool + FormValues so re-run pre-fills the form.
+            var tool = CurrentTool;
+            if (tool == null) return;
+            var paramsCopy = new Dictionary<string, object>(FormValues ?? new Dictionary<string, object>());
+            string title = tool.Title;
+            try { var rl = tool.RunLabel?.Invoke(paramsCopy); if (!string.IsNullOrWhiteSpace(rl)) title = rl; }
+            catch { }
+            var cmd = new SavedCommand
+            {
+                Id = Guid.NewGuid().ToString(),
+                Title = title,
+                ToolId = tool.Id,
+                Params = paramsCopy,
+                Source = "form",
+                CreatedAt = DateTime.Now.ToString("o"),
+            };
+            SavedCommands.Insert(0, cmd);
+            PersistAll();
+            Raise(nameof(SavedCount));
+        }
+
+        public void SaveChatResult(ChatMessage msg)
+        {
+            if (msg == null) return;
+            string prompt = msg.SourcePrompt ?? msg.Title ?? msg.Text;
+            if (string.IsNullOrWhiteSpace(prompt)) return;
+            string title = !string.IsNullOrWhiteSpace(msg.Title) ? msg.Title : (prompt.Length > 60 ? prompt.Substring(0, 60) + "…" : prompt);
+            var cmd = new SavedCommand
+            {
+                Id = Guid.NewGuid().ToString(),
+                Title = title,
+                Prompt = prompt,
+                ToolId = msg.ToolId,
+                Code = msg.Code,
+                Source = "chat",
+                CreatedAt = DateTime.Now.ToString("o"),
+            };
+            SavedCommands.Insert(0, cmd);
+            PersistAll();
+            Raise(nameof(SavedCount));
+        }
+
+        public void DeleteSaved(string id)
+        {
+            var cmd = SavedCommands.FirstOrDefault(x => x.Id == id);
+            if (cmd == null) return;
+            SavedCommands.Remove(cmd);
+            PersistAll();
+            Raise(nameof(SavedCount));
+        }
+
+        public void RunSaved(SavedCommand cmd)
+        {
+            if (cmd == null) return;
+            if (cmd.Source == "chat" && !string.IsNullOrWhiteSpace(cmd.Prompt))
+            {
+                ChatSend(cmd.Prompt);
+                return;
+            }
+            // Form path: open the tool with the saved params pre-filled.
+            if (!string.IsNullOrEmpty(cmd.ToolId))
+                OpenTool(cmd.ToolId, cmd.Params);
+        }
+
+        private void PersistAll()
+        {
+            CopilotStateStore.Save(_pinned, History, SavedCommands, Sessions);
         }
 
         // ─── INotifyPropertyChanged ────────────────────────────────────────────

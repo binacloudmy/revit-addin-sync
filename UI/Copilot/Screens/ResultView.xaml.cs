@@ -67,7 +67,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
 
             NextHost.Children.Add(NextRow("bookmark", "#fef3c7", "#a16207", "Save as a re-runnable command",
-                () => Vm?.PinCommand.Execute(Vm.ToolId)));
+                () => Vm?.SaveCurrentRunCommand.Execute(null)));
             NextHost.Children.Add(NextRow("history", "#f1f3f5", "#6b7280", "View history",
                 () => Vm?.GoTab(CpTab.History)));
             NextHost.Children.Add(NextRow("undo", "#fee2e2", "#b91c1c", "Undo this action", Undo));

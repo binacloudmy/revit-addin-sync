@@ -95,7 +95,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             switch (m.Kind)
             {
-                case CpMsgKind.Thinking: col.Children.Add(ThinkingDots()); break;
+                case CpMsgKind.Thinking: col.Children.Add(ThinkingWithCancel()); break;
                 case CpMsgKind.Clarify: col.Children.Add(ClarifyCard(m)); break;
                 case CpMsgKind.Proposal: col.Children.Add(ProposalCard(m)); break;
                 case CpMsgKind.Running: col.Children.Add(RunningBar(m)); break;
@@ -103,6 +103,19 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
             aiRow.Children.Add(col);
             return aiRow;
+        }
+
+        private FrameworkElement ThinkingWithCancel()
+        {
+            // Thinking dots + Cancel chip beside them so the user is never trapped waiting for a
+            // 30-90s /route to finish. The chip cancels the in-flight HTTP request via the VM's CTS.
+            var sp = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 2) };
+            sp.Children.Add(ThinkingDots());
+            var cancel = new Button { Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(8, -2, 0, 0), Padding = new Thickness(8, 2, 8, 2), Content = "Cancel", FontSize = 11, Foreground = CopilotColors.From("#6b7280"), VerticalAlignment = VerticalAlignment.Center };
+            cancel.Template = SmallGhostTemplate();
+            cancel.Click += (_, __) => Vm?.CancelRouteCommand.Execute(null);
+            sp.Children.Add(cancel);
+            return sp;
         }
 
         private FrameworkElement ThinkingDots()
@@ -305,7 +318,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var body = new StackPanel { Margin = new Thickness(12) };
             body.Children.Add(CompactBody(r));
             var chips = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
-            chips.Children.Add(ResultChip("bookmark", "Save", () => Vm.PinCommand.Execute(m.ToolId)));
+            chips.Children.Add(ResultChip("bookmark", "Save", () => Vm.SaveChatResultCommand.Execute(m)));
             chips.Children.Add(ResultChip("copy", "Copy", null));
             chips.Children.Add(ResultChip("undo", "Undo", null));
             body.Children.Add(chips);

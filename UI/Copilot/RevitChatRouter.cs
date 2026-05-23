@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -27,7 +28,7 @@ namespace RevitWebAppSync.UI.Copilot
             _ai = new AIService(BinaConfig.Load().ResolvedAIBaseUrl);
         }
 
-        public async Task<RouteResult> RouteAsync(string message, string fallbackToolId)
+        public async Task<RouteResult> RouteAsync(string message, string fallbackToolId, CancellationToken ct = default)
         {
             var cfg = BinaConfig.Load();
             if (string.IsNullOrEmpty(cfg?.AccessToken))
@@ -37,7 +38,7 @@ namespace RevitWebAppSync.UI.Copilot
             var resp = await _ai.RouteAsync(
                 message, ctx,
                 cfg.UserId > 0 ? cfg.UserId : (int?)null,
-                _sessionId, null, cfg.AccessToken);
+                _sessionId, null, cfg.AccessToken, ct);
 
             if (resp == null) return null;
             if (resp.NeedsClarification)

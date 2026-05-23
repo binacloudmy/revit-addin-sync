@@ -84,11 +84,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
                         Options = new[] { "Walls", "Doors", "Windows", "Floors", "Rooms", "Furniture" }, Default = "Doors" },
                     new FieldDef { Id = "level", Label = "Limit to level", Kind = CpFieldKind.Select,
                         Options = new[] { "Any", "Level 1", "Level 2", "Roof" }, Default = "Any" },
+                    new FieldDef { Id = "filter", Label = "Filter (optional)", Kind = CpFieldKind.Text, Default = "",
+                        Hint = "e.g. height>3000, length<2000, area>5 (mm or m). Leave blank for no filter." },
                 },
                 RunLabel = v => $"Select all {S(v, "category")}",
                 PlanText = v => {
                     var lvl = S(v, "level");
-                    return $"Select every {S(v, "category")} instance{(lvl == "Any" ? "" : " on " + lvl)}.";
+                    var fil = S(v, "filter");
+                    return $"Select every {S(v, "category")} instance{(lvl == "Any" || string.IsNullOrEmpty(lvl) ? "" : " on " + lvl)}"
+                        + (string.IsNullOrWhiteSpace(fil) ? "." : $" where {fil}.");
                 },
                 Result = v => new ResultModel { Kind = CpResultKind.Plain,
                     Headline = $"47 {S(v, "category").ToLowerInvariant()} selected", Sub = "Zoomed to selection bounds." },
@@ -99,12 +103,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Desc = "Revit schedule → Excel or CSV",
                 Icon = "table", TileBg = "#e0f2fe", TileFg = "#0369a1", Category = "sheets",
                 Fields = new List<FieldDef> {
+                    // Options are overridden live from the active doc's real schedules in
+                    // ToolFormView.OptionsFor — the static list is only the offline fallback.
                     new FieldDef { Id = "schedule", Label = "Schedule", Kind = CpFieldKind.Select,
-                        Options = new[] { "Door Schedule", "Window Schedule", "Room Schedule", "Wall Quantities" }, Default = "Door Schedule" },
+                        Options = new[] { "(no schedules in this model)" }, Default = "(no schedules in this model)",
+                        Hint = "Live list from your project — pick what to export." },
                     new FieldDef { Id = "format", Label = "Format", Kind = CpFieldKind.Seg,
                         Options = new[] { "xlsx", "csv" }, Default = "xlsx" },
-                    new FieldDef { Id = "open", Label = "After export", Kind = CpFieldKind.Seg,
-                        Options = new[] { "Open file", "Show in folder", "Do nothing" }, Default = "Open file" },
                 },
                 RunLabel = v => $"Export · {S(v, "schedule")} (.{S(v, "format")})",
                 PlanText = v => $"Export \"{S(v, "schedule")}\" to .{S(v, "format")} in the active project folder.",

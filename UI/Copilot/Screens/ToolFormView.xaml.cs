@@ -130,6 +130,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 var live = CopilotModelData.Current.Views(type);
                 if (live != null && live.Count > 0) return live.ToArray();
             }
+            if (tool != null && tool.Id == "export-sched" && f.Id == "schedule" && CopilotModelData.Current != null)
+            {
+                var live = CopilotModelData.Current.Schedules();
+                if (live != null && live.Count > 0) return live.ToArray();
+            }
             return f.Options ?? new string[0];
         }
 

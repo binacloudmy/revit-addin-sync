@@ -84,7 +84,7 @@
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="History"/>
                         <Border CornerRadius="999" Background="{DynamicResource Cp.TabBadgeBg}" Padding="6,1" Margin="5,0,0,0">
-                            <TextBlock Text="{Binding History.Count, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="#374151"/>
+                            <TextBlock Text="{Binding Sessions.Count, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="#374151"/>
                         </Border>
                     </StackPanel>
                 </ToggleButton>

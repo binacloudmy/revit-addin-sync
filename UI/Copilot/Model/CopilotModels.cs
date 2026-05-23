@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 
 namespace RevitWebAppSync.UI.Copilot.Model
 {
@@ -90,6 +91,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public DiffItem(string from, string to) { From = from; To = to; }
     }
 
+    [JsonObject(MemberSerialization.Fields)]
     public class HistoryEntry
     {
         public string Time;
@@ -119,6 +121,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
     /// <summary>A chat thread message. The VM swaps Kind by replacing the item in the
     /// ObservableCollection (so the DataTemplate selector re-evaluates).</summary>
+    [JsonObject(MemberSerialization.Fields)]
     public class ChatMessage
     {
         public string Role;          // "user" | "ai"
@@ -133,6 +136,28 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Code;          // proposal — generated C# (backend or catalog sample)
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English
         public string SourcePrompt;  // proposal — the user's original text, for Regenerate
+    }
+
+    /// <summary>A saved (re-runnable) command. Source = "form" (tool + Params) or "chat" (Prompt + Code).</summary>
+    public class SavedCommand
+    {
+        public string Id { get; set; }
+        public string Title { get; set; }
+        public string Source { get; set; }    // "form" | "chat"
+        public string ToolId { get; set; }
+        public string Prompt { get; set; }    // chat path — re-route this
+        public string Code { get; set; }      // chat path — last-resort raw code
+        public Dictionary<string, object> Params { get; set; }   // form path — pre-fill values
+        public string CreatedAt { get; set; }
+    }
+
+    /// <summary>A persisted chat conversation. Re-opens via OpenSession.</summary>
+    public class ChatSession
+    {
+        public string Id { get; set; }
+        public string Title { get; set; }
+        public string CreatedAt { get; set; }
+        public List<ChatMessage> Messages { get; set; } = new List<ChatMessage>();
     }
 
     /// <summary>Floating viewport marker (Task 15). Coordinates are % of the active view rect.</summary>

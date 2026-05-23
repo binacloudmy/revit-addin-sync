@@ -12,6 +12,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Real view names of the given type ("Floor Plan" / "3D" / "Section" /
         /// "Elevation" / "Drafting"); all views when type is null/empty.</summary>
         List<string> Views(string viewType);
+
+        /// <summary>Real schedule names in the active document (no templates, no special schedules).</summary>
+        List<string> Schedules();
     }
 
     public static class CopilotModelData
