@@ -11,10 +11,26 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);Tests\**</DefaultItemExcludes>
   </PropertyGroup>
 
+  <!-- Auto-detect installed Revit. Override with -p:RevitPath=... if needed.
+       Picks the newest installed version; falls back through 2027→2024. -->
   <PropertyGroup>
-    <RevitPath Condition="'$(RevitPath)' == ''">C:\Program Files\Autodesk\Revit 2027</RevitPath>
-    <RevitVersion Condition="'$(RevitVersion)' == ''">2027</RevitVersion>
+    <RevitPath Condition="'$(RevitPath)' == '' AND Exists('C:\Program Files\Autodesk\Revit 2027\RevitAPI.dll')">C:\Program Files\Autodesk\Revit 2027</RevitPath>
+    <RevitVersion Condition="'$(RevitPath)' == 'C:\Program Files\Autodesk\Revit 2027'">2027</RevitVersion>
+
+    <RevitPath Condition="'$(RevitPath)' == '' AND Exists('C:\Program Files\Autodesk\Revit 2026\RevitAPI.dll')">C:\Program Files\Autodesk\Revit 2026</RevitPath>
+    <RevitVersion Condition="'$(RevitPath)' == 'C:\Program Files\Autodesk\Revit 2026'">2026</RevitVersion>
+
+    <RevitPath Condition="'$(RevitPath)' == '' AND Exists('C:\Program Files\Autodesk\Revit 2025\RevitAPI.dll')">C:\Program Files\Autodesk\Revit 2025</RevitPath>
+    <RevitVersion Condition="'$(RevitPath)' == 'C:\Program Files\Autodesk\Revit 2025'">2025</RevitVersion>
+
+    <RevitPath Condition="'$(RevitPath)' == '' AND Exists('C:\Program Files\Autodesk\Revit 2024\RevitAPI.dll')">C:\Program Files\Autodesk\Revit 2024</RevitPath>
+    <RevitVersion Condition="'$(RevitPath)' == 'C:\Program Files\Autodesk\Revit 2024'">2024</RevitVersion>
   </PropertyGroup>
+
+  <Target Name="VerifyRevitPath" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(RevitPath)' == '' OR !Exists('$(RevitPath)\RevitAPI.dll')"
+           Text="RevitAPI.dll not found. Install Revit 2024-2027, or pass -p:RevitPath=C:\path\to\Revit (current: '$(RevitPath)')." />
+  </Target>
 
   <ItemGroup>
     <Reference Include="RevitAPI">
