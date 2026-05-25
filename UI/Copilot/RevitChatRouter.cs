@@ -12,9 +12,11 @@ using RevitWebAppSync.UI.Copilot.Model;
 namespace RevitWebAppSync.UI.Copilot
 {
     /// <summary>
-    /// Revit-aware chat router. Calls AIService.RouteAsync with live ModelContext + the stored
-    /// login token. Returns null on any failure (not logged in, backend unreachable) so the
-    /// viewmodel falls back to the deterministic QueryInterpreter proposal.
+    /// PRD revit_copilot_v2: chat routing runs LOCALLY (QueryInterpreter regex).
+    /// Vetted recipes synthesize C# in-process via RevitCopilotExecutor.SynthForChat;
+    /// only the NeedsAI path crosses the network, hitting bina-ai's codegen endpoint
+    /// (/agents/revit-ai/generate). The old /agents/revit-ai/route call is gone — backend
+    /// no longer routes.
     /// </summary>
     public class RevitChatRouter : IChatRouter
     {
@@ -30,45 +32,53 @@ namespace RevitWebAppSync.UI.Copilot
 
         public async Task<RouteResult> RouteAsync(string message, string fallbackToolId, CancellationToken ct = default)
         {
+            // 1. Local routing — decide vetted vs codegen without touching the network.
+            var decision = QueryInterpreter.Decide(message, fallbackToolId);
+
+            if (decision.Kind == RouteResultKind.VettedTool)
+            {
+                // Synthesize C# from the bound params via the same type-aware synthesizer the
+                // forms use. Runs offline; no codegen tokens spent.
+                decision.Code = RevitCopilotExecutor.SynthForChat(decision.ToolName, decision.ToolParams);
+                if (string.IsNullOrWhiteSpace(decision.Code))
+                {
+                    // Synth refused (e.g. missing required param) — fall through to AI rather
+                    // than ship empty code to the user.
+                    decision = RouteResult.NeedsAI(message, fallbackToolId);
+                }
+                else
+                {
+                    return decision;
+                }
+            }
+
+            // 2. NeedsAI — call bina-ai /generate.
             var cfg = BinaConfig.Load();
             if (string.IsNullOrEmpty(cfg?.AccessToken))
-                return new RouteResult { NotAuthenticated = true }; // not logged in — tell the user to sign in
+                return RouteResult.NotAuthed();
 
-            var ctx = BuildContext();
-            var resp = await _ai.RouteAsync(
-                message, ctx,
-                cfg.UserId > 0 ? cfg.UserId : (int?)null,
-                _sessionId, null, cfg.AccessToken, ct);
-
-            if (resp == null) return null;
-            if (resp.NeedsClarification)
-                return new RouteResult { NeedsClarification = true, ClarifyingQuestion = resp.ClarifyingQuestion };
-
-            // Prefer generated code; but if the first action is a VETTED tool (params, no code),
-            // synthesize it via the type-aware synthesizer so chat open_view/select/etc. behave
-            // exactly like the forms (e.g. "open 3d view" actually opens a 3D view).
-            var first = resp.Actions?.FirstOrDefault();
-            string code = first?.Code;
-            if (string.IsNullOrWhiteSpace(code) && first != null
-                && !string.IsNullOrEmpty(first.Tool) && first.Tool != "code")
+            var req = new AIRequest
             {
-                code = RevitCopilotExecutor.SynthForChat(first.Tool, first.Params);
-            }
-            if (string.IsNullOrWhiteSpace(code))
-                code = resp.Actions?.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a.Code))?.Code;
+                Prompt = message,
+                Context = BuildContext(),
+                UserId = cfg.UserId > 0 ? cfg.UserId : (int?)null,
+                SessionId = _sessionId,
+            };
 
-            var plan = resp.Actions?
-                .Where(a => !string.IsNullOrWhiteSpace(a.Description))
-                .Select(a => a.Description)
-                .ToList();
+            AIResponse resp;
+            try { resp = await _ai.GenerateCodeAsync(req, cfg.AccessToken, ct); }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex) { return RouteResult.Failed(ex.Message); }
+
+            if (resp == null || resp.Success == false)
+                return RouteResult.Failed(resp?.Error);
 
             return new RouteResult
             {
-                Intent = resp.Intent,                          // real intent → proposal title
-                ToolId = fallbackToolId,                       // catalog id (icon + execution/history only)
-                Plan = (plan != null && plan.Count > 0) ? plan : null,
-                Code = code,
-                Reply = resp.Reply,
+                Kind = RouteResultKind.NeedsAI,
+                ToolId = fallbackToolId,
+                Code = resp.Code,
+                Reply = resp.Explanation,
             };
         }
 

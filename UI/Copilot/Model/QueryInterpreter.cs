@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace RevitWebAppSync.UI.Copilot.Model
 {
@@ -56,14 +57,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return new InterpretResult { IsClarify = false, ToolId = PickResponseTool(text).Id };
         }
 
-        /// <summary>A high-confidence client-side match to a vetted (Tier-1) tool + any params we
-        /// can pull from the text. Lets the chat skip the /route LLM call entirely for these.</summary>
-        public class VettedMatch
-        {
-            public string ToolId;
-            public Dictionary<string, object> Prefill = new Dictionary<string, object>();
-        }
-
         private static readonly string[] Categories = { "Walls", "Doors", "Windows", "Floors", "Rooms", "Furniture" };
 
         private static string MatchCategory(string q)
@@ -76,53 +69,201 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return null;
         }
 
-        /// <summary>
-        /// Conservative: only returns a tool when the request clearly maps to a vetted tool.
-        /// Anything ambiguous returns null and falls through to the backend /route.
-        /// </summary>
-        public static VettedMatch DetectVetted(string text)
-        {
-            var q = (text ?? "").ToLowerInvariant().Trim();
-            if (q.Length == 0) return null;
+        // ─── PRD V2 chat-path router ────────────────────────────────────────────
+        // QueryInterpreter.Decide is the SOLE router under PRD revit_copilot_v2: a discriminated
+        // RouteResult tells the caller whether to synthesize a vetted action locally or to call
+        // bina-ai for codegen. The 5 vetted patterns mirror the regexes in the PRD §4.1; param
+        // extractors are deliberately conservative — if a required param can't be pulled
+        // confidently from the prompt we fall through to NeedsAI rather than guess.
 
-            // Open a view — needs an open/switch/show verb + a view cue.
-            bool openVerb = q.Contains("open") || q.Contains("switch") || q.Contains("go to") || q.Contains("show");
-            bool viewCue = q.Contains("view") || q.Contains("3d") || q.Contains("floor plan")
-                           || q.Contains("section") || q.Contains("elevation") || q.Contains("drafting") || q.Contains("plan");
-            if (openVerb && viewCue)
+        private static readonly Regex OpenViewRe = new Regex(
+            @"\b(open|show|switch\s+to|go\s+to|display)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex OpenViewCueRe = new Regex(
+            @"\b(view|3d|three[-\s]?d|plan|section|elevation|sheet)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex ExportScheduleRe = new Regex(
+            @"\b(export|save|download)\b.*\b(schedule|table)\b" +
+            @"|\bschedule\b.*\b(to|as)\b.*\b(excel|csv|xlsx|file)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex RenameRe = new Regex(
+            @"\b(rename|change\s+name|replace)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        // "rename <cat> from <find> to <replace>" — the only shape we'll synthesize unattended.
+        private static readonly Regex RenameExtractRe = new Regex(
+            @"\brename\s+(?<cat>\w+)\s+from\s+(?<find>\S+)\s+to\s+(?<replace>\S+)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        // "set <param> to <value> on <cat>"  /  "set <cat> <param> to <value>"
+        private static readonly Regex SetParamReA = new Regex(
+            @"\bset\s+(?<param>.+?)\s+to\s+(?<value>\S+)\s+(?:on|for)\s+(?<cat>\w+)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly Regex SetParamReB = new Regex(
+            @"\bset\s+(?<cat>\w+)\s+(?<param>.+?)\s+to\s+(?<value>\S+)",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static readonly Regex SelectRe = new Regex(
+            @"\b(select|highlight|pick|choose)\b.*\b(all|every)?\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        /// <summary>
+        /// Decide whether a prompt is handled locally (vetted recipe) or punted to AI codegen.
+        /// Returns a RouteResult with Kind set to VettedTool or NeedsAI; the caller is
+        /// responsible for synthesizing C# from the bound params (Revit assemblies stay out
+        /// of this class).
+        /// </summary>
+        public static RouteResult Decide(string text, string fallbackToolId = null)
+        {
+            var q = (text ?? "").Trim();
+            if (q.Length == 0) return RouteResult.NeedsAI(text, fallbackToolId);
+
+            var lower = q.ToLowerInvariant();
+
+            // 1. open_view ────────────────────────────────────────────────────
+            if (OpenViewRe.IsMatch(lower) && OpenViewCueRe.IsMatch(lower))
             {
-                var m = new VettedMatch { ToolId = "open-view" };
-                if (q.Contains("3d")) m.Prefill["type"] = "3D";
-                else if (q.Contains("section")) m.Prefill["type"] = "Section";
-                else if (q.Contains("elevation")) m.Prefill["type"] = "Elevation";
-                else if (q.Contains("drafting")) m.Prefill["type"] = "Drafting";
-                else if (q.Contains("floor") || q.Contains("plan")) m.Prefill["type"] = "Floor Plan";
-                return m;
+                var p = new Dictionary<string, object>();
+                string viewType = ExtractViewType(lower);
+                if (viewType != null) p["view_type"] = viewType;
+                string viewName = ExtractViewName(q);
+                if (!string.IsNullOrEmpty(viewName)) p["view_name"] = viewName;
+                string intent = "Open " + (viewName ?? viewType ?? "view");
+                return RouteResult.VettedTool("open_view", p, code: null, intent: intent, toolId: "open-view");
             }
 
-            // Select elements by category — only the SIMPLE case ("select all walls"). If there's
-            // a filter ("doors missing fire rating", "walls on level 2"), let /route extract it
-            // (it still returns a vetted action — no codegen tokens — but captures the filter).
-            if (q.Contains("select"))
+            // 2. rename_elements ─────────────────────────────────────────────
+            // Only synthesize when we can pull category+find+replace; otherwise punt to AI.
+            var rn = RenameExtractRe.Match(q);
+            if (rn.Success)
             {
-                var cat = MatchCategory(q);
-                string[] complex = { "missing", "without", "where", "that", "with", "contains",
-                                     "fire", "frr", "rating", "corridor", "level", "phase", "on " };
-                bool hasFilter = complex.Any(w => q.Contains(w));
-                if (cat != null && !hasFilter)
+                var cat = NormalizeCategory(rn.Groups["cat"].Value);
+                if (cat != null)
                 {
-                    var m = new VettedMatch { ToolId = "select" };
-                    m.Prefill["category"] = cat;
-                    return m;
+                    var p = new Dictionary<string, object>
+                    {
+                        ["target_category"] = cat,
+                        ["find"] = rn.Groups["find"].Value,
+                        ["replace"] = rn.Groups["replace"].Value,
+                    };
+                    return RouteResult.VettedTool("rename_elements", p, code: null,
+                        intent: $"Rename {cat} ({rn.Groups["find"].Value} → {rn.Groups["replace"].Value})",
+                        toolId: "rename");
+                }
+            }
+            // 3. set_parameter ────────────────────────────────────────────────
+            var sp = SetParamReA.Match(q);
+            if (!sp.Success) sp = SetParamReB.Match(q);
+            if (sp.Success)
+            {
+                var cat = NormalizeCategory(sp.Groups["cat"].Value);
+                if (cat != null)
+                {
+                    var p = new Dictionary<string, object>
+                    {
+                        ["target_category"] = cat,
+                        ["parameter_name"] = sp.Groups["param"].Value.Trim(),
+                        ["value"] = sp.Groups["value"].Value.Trim(),
+                    };
+                    return RouteResult.VettedTool("set_parameter", p, code: null,
+                        intent: $"Set {sp.Groups["param"].Value.Trim()} on {cat}",
+                        toolId: "set-param");
                 }
             }
 
-            // Export a schedule — the form picks the schedule, so nothing is lost.
-            if (q.Contains("export") && q.Contains("schedule")) return new VettedMatch { ToolId = "export-sched" };
+            // 4. export_schedule ──────────────────────────────────────────────
+            if (ExportScheduleRe.IsMatch(lower))
+            {
+                var p = new Dictionary<string, object>();
+                string fmt = lower.Contains("csv") ? "csv" : "xlsx";
+                p["format"] = fmt;
+                string name = ExtractScheduleName(q);
+                if (!string.IsNullOrEmpty(name)) p["schedule_name"] = name;
+                return RouteResult.VettedTool("export_schedule", p, code: null,
+                    intent: name != null ? $"Export {name}" : "Export schedule",
+                    toolId: "export-sched");
+            }
 
-            // NOTE: rename / set-parameter are intentionally NOT short-circuited — their params
-            // (find/replace, parameter+value) are worth extracting via /route, which still returns
-            // a vetted action (deterministic synthesis, no codegen tokens).
+            // 5. select_elements ──────────────────────────────────────────────
+            if (SelectRe.IsMatch(lower))
+            {
+                var cat = MatchCategory(lower);
+                if (cat != null)
+                {
+                    var p = new Dictionary<string, object> { ["target_category"] = cat };
+                    return RouteResult.VettedTool("select_elements", p, code: null,
+                        intent: $"Select {cat}", toolId: "select");
+                }
+            }
+
+            // No vetted match — punt to bina-ai codegen.
+            return RouteResult.NeedsAI(text, fallbackToolId);
+        }
+
+        private static string ExtractViewType(string lower)
+        {
+            if (Regex.IsMatch(lower, @"\b(3d|three[-\s]?d)\b")) return "3D";
+            if (lower.Contains("section")) return "Section";
+            if (lower.Contains("elevation")) return "Elevation";
+            if (lower.Contains("drafting")) return "Drafting";
+            if (lower.Contains("floor plan") || lower.Contains("floor") || lower.Contains("plan"))
+                return "Floor Plan";
+            if (lower.Contains("sheet")) return "Sheet";
+            return null;
+        }
+
+        // Pull a quoted name, or the tail after the last view-type/cue word.
+        private static readonly Regex QuotedNameRe = new Regex(
+            "[\"'“](?<name>[^\"'”]+)[\"'”]", RegexOptions.Compiled);
+        private static readonly Regex AfterCueRe = new Regex(
+            @"\b(view|3d|plan|section|elevation|sheet|schedule)\s+(?<name>[A-Za-z0-9 _\-\.]+?)\s*$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static string ExtractViewName(string original)
+        {
+            var qm = QuotedNameRe.Match(original);
+            if (qm.Success) return qm.Groups["name"].Value.Trim();
+            var am = AfterCueRe.Match(original);
+            if (am.Success)
+            {
+                var name = am.Groups["name"].Value.Trim();
+                if (!string.IsNullOrEmpty(name)
+                    && !name.Equals("view", StringComparison.OrdinalIgnoreCase))
+                    return name;
+            }
+            return null;
+        }
+
+        private static readonly Regex ScheduleNameRe = new Regex(
+            @"\b(export|save|download)\s+(?<name>[A-Za-z0-9 _\-]+?)\s+(schedule|table)\b",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
+        private static string ExtractScheduleName(string original)
+        {
+            var qm = QuotedNameRe.Match(original);
+            if (qm.Success) return qm.Groups["name"].Value.Trim();
+            var sn = ScheduleNameRe.Match(original);
+            if (sn.Success)
+            {
+                var name = sn.Groups["name"].Value.Trim();
+                // Capitalize first letter — addin matches case-insensitive anyway.
+                if (!string.IsNullOrEmpty(name))
+                    return char.ToUpperInvariant(name[0]) + name.Substring(1) + " Schedule";
+            }
+            return null;
+        }
+
+        // Map "wall" / "walls" → canonical Revit category name.
+        private static string NormalizeCategory(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            var w = raw.Trim().ToLowerInvariant();
+            foreach (var c in Categories)
+            {
+                var lc = c.ToLowerInvariant();
+                if (w == lc || w == lc.TrimEnd('s') || w + "s" == lc) return c;
+            }
             return null;
         }
 

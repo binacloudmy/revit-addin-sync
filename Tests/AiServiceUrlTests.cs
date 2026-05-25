@@ -10,16 +10,8 @@ namespace Tests
         public void Build_uses_agents_prefix()
         {
             Assert.Equal(
-                "http://x/agents/revit-ai/route",
-                AiUrl.Build("http://x", "route"));
-        }
-
-        [Fact]
-        public void Build_keeps_subpath()
-        {
-            Assert.Equal(
-                "https://h/agents/revit-ai/commands/abc",
-                AiUrl.Build("https://h", "commands/abc"));
+                "http://x/agents/revit-ai/generate",
+                AiUrl.Build("http://x", "generate"));
         }
 
         [Fact]

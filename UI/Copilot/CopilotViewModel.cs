@@ -373,15 +373,6 @@ namespace RevitWebAppSync.UI.Copilot
             if (IsRouting) return;
             Tab = CpTab.Chat;
 
-            // If the ask clearly maps to a vetted (deterministic) tool, open its form directly —
-            // no backend /route call, no codegen tokens. The user confirms params and Runs.
-            var vetted = QueryInterpreter.DetectVetted(text);
-            if (vetted != null)
-            {
-                OpenTool(vetted.ToolId, vetted.Prefill);
-                return;
-            }
-
             Screen = CpScreen.Home;
             ToolId = null;
             EnsureSession();
