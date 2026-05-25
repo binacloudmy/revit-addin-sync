@@ -12,11 +12,9 @@ using RevitWebAppSync.UI.Copilot.Model;
 namespace RevitWebAppSync.UI.Copilot
 {
     /// <summary>
-    /// PRD revit_copilot_v2: chat routing runs LOCALLY (QueryInterpreter regex).
-    /// Vetted recipes synthesize C# in-process via RevitCopilotExecutor.SynthForChat;
-    /// only the NeedsAI path crosses the network, hitting bina-ai's codegen endpoint
-    /// (/agents/revit-ai/generate). The old /agents/revit-ai/route call is gone — backend
-    /// no longer routes.
+    /// Chat tab always routes to bina-ai /generate. Vetted recipes are reserved for the
+    /// Library tab; the chat path skips QueryInterpreter.Decide so qualifiers like
+    /// "wider than 1000mm" or "in red" aren't swallowed by greedy regexes.
     /// </summary>
     public class RevitChatRouter : IChatRouter
     {
@@ -32,27 +30,6 @@ namespace RevitWebAppSync.UI.Copilot
 
         public async Task<RouteResult> RouteAsync(string message, string fallbackToolId, CancellationToken ct = default)
         {
-            // 1. Local routing — decide vetted vs codegen without touching the network.
-            var decision = QueryInterpreter.Decide(message, fallbackToolId);
-
-            if (decision.Kind == RouteResultKind.VettedTool)
-            {
-                // Synthesize C# from the bound params via the same type-aware synthesizer the
-                // forms use. Runs offline; no codegen tokens spent.
-                decision.Code = RevitCopilotExecutor.SynthForChat(decision.ToolName, decision.ToolParams);
-                if (string.IsNullOrWhiteSpace(decision.Code))
-                {
-                    // Synth refused (e.g. missing required param) — fall through to AI rather
-                    // than ship empty code to the user.
-                    decision = RouteResult.NeedsAI(message, fallbackToolId);
-                }
-                else
-                {
-                    return decision;
-                }
-            }
-
-            // 2. NeedsAI — call bina-ai /generate.
             var cfg = BinaConfig.Load();
             if (string.IsNullOrEmpty(cfg?.AccessToken))
                 return RouteResult.NotAuthed();
@@ -79,7 +56,21 @@ namespace RevitWebAppSync.UI.Copilot
                 ToolId = fallbackToolId,
                 Code = resp.Code,
                 Reply = resp.Explanation,
+                Intent = HumanizeIntent(resp.Intent),
             };
+        }
+
+        // ── helpers ─────────────────────────────────────────────────────
+        private static string HumanizeIntent(string raw)
+        {
+            // Backend ships snake_case labels (e.g. "create_view_from_view"); the
+            // chat card displays them as title-case ("Create view from view").
+            if (string.IsNullOrWhiteSpace(raw)) return null;
+            var parts = raw.Replace('_', ' ').Split(' ');
+            for (int i = 0; i < parts.Length; i++)
+                if (parts[i].Length > 0)
+                    parts[i] = char.ToUpperInvariant(parts[i][0]) + parts[i].Substring(1);
+            return string.Join(" ", parts);
         }
 
         private ModelContext BuildContext()

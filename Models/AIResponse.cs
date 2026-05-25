@@ -22,5 +22,14 @@ namespace RevitWebAppSync.Models
 
         [JsonProperty("warnings")]
         public List<string> Warnings { get; set; }
+
+        /// <summary>
+        /// Intent label the bina-ai classifier picked (e.g. "create_view_from_view",
+        /// "renumber_elements"). Used by the chat router for the proposal card title
+        /// so the user sees the REAL intent, not the catalog-fallback toolId pick.
+        /// Optional — older backends omit it.
+        /// </summary>
+        [JsonProperty("intent")]
+        public string Intent { get; set; }
     }
 }
