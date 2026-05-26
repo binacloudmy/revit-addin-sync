@@ -1,0 +1,45 @@
+<UserControl x:Class="BinaVibe.Plan.ApprovalCardView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             d:DesignHeight="180" d:DesignWidth="420"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d">
+    <!--
+        Approval gate card per PRD §9.2. Renders the gated MUTATE step,
+        offers Preview (highlights affected elements in Revit), Approve,
+        Reject, or Approve partial. Timeout shown in footer.
+    -->
+    <Border Padding="12" CornerRadius="8" BorderThickness="1"
+            BorderBrush="#7C4A1E" Background="#241B14">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <StackPanel Orientation="Horizontal" Grid.Row="0">
+                <TextBlock Text="⚠ Approval Required" FontWeight="Bold"
+                           Foreground="#F2C083" FontSize="13"/>
+                <TextBlock x:Name="ReasonText" Margin="10,0,0,0"
+                           Foreground="#D7C3A6" FontSize="11"/>
+            </StackPanel>
+
+            <TextBlock x:Name="GoalText" Grid.Row="1" Margin="0,8,0,4"
+                       Foreground="#E6D9C6" FontSize="12" TextWrapping="Wrap"/>
+
+            <TextBlock x:Name="AffectedText" Grid.Row="2" Margin="0,0,0,8"
+                       Foreground="#A99980" FontSize="11" TextWrapping="Wrap"/>
+
+            <StackPanel Orientation="Horizontal" Grid.Row="3">
+                <Button x:Name="PreviewButton" Content="Preview" Padding="10,4"/>
+                <Button x:Name="ApproveButton" Content="Approve" Margin="8,0,0,0" Padding="10,4"/>
+                <Button x:Name="RejectButton" Content="Reject" Margin="8,0,0,0" Padding="10,4"/>
+                <TextBlock x:Name="TimeoutText" Margin="14,4,0,0"
+                           Foreground="#8C7D67" FontSize="10"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</UserControl>

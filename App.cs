@@ -38,6 +38,12 @@ namespace RevitWebAppSync
         // Live cost update handler
         public static CostUpdateHandler CostUpdateHandler { get; private set; }
 
+        // BinaVibe v2 embedded MCP server (PRD §12 Step 1).
+        // Exposes /mcp/tools/{name} on localhost:8080 so the bina-ai
+        // backend can call back into the live Revit session for the
+        // Inspector preflight (and Step 3+ MUTATE tools).
+        public static BinaVibe.Mcp.McpServer VibeMcpServer { get; private set; }
+
         public Result OnStartup(UIControlledApplication application)
         {
             try
@@ -116,6 +122,21 @@ namespace RevitWebAppSync
                     System.Diagnostics.Debug.WriteLine($"[BINA] Cost update handler failed: {evtEx.Message}");
                 }
 
+                // Boot the BinaVibe MCP server. Failure is non-fatal —
+                // the rest of the addin must keep working if the port is
+                // taken or admin rights are missing.
+                try
+                {
+                    var port = int.TryParse(Environment.GetEnvironmentVariable("BINA_VIBE_MCP_PORT"), out var p) ? p : 8080;
+                    VibeMcpServer = new BinaVibe.Mcp.McpServer(port);
+                    VibeMcpServer.Start();
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP server listening on {VibeMcpServer.Prefix}");
+                }
+                catch (Exception mcpEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP server failed to start: {mcpEx.Message}");
+                }
+
                 CreateRibbonTab(application);
                 return Result.Succeeded;
             }
@@ -130,6 +151,10 @@ namespace RevitWebAppSync
         {
             // Unsubscribe from document change events
             CostUpdateHandler?.Unsubscribe();
+
+            // Stop the embedded MCP server cleanly so the port is free
+            // on next Revit start.
+            try { VibeMcpServer?.Dispose(); } catch { }
 
             return Result.Succeeded;
         }
