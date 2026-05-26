@@ -11,9 +11,19 @@ using RevitWebAppSync.UI.Copilot.Model;
 namespace RevitWebAppSync.UI.Copilot
 {
     /// <summary>
-    /// Revit-aware chat router. Calls AIService.RouteAsync with live ModelContext + the stored
-    /// login token. Returns null on any failure (not logged in, backend unreachable) so the
-    /// viewmodel falls back to the deterministic QueryInterpreter proposal.
+    /// Revit-aware chat router.
+    ///
+    /// Flow:
+    ///   1. Try AIService.RouteAsync (vetted-action classifier on bina-ai)
+    ///      → if it returns code or a clarifying question, use that.
+    ///   2. Else fall through to AIService.GenerateCodeAsync (/generate)
+    ///      so the bina-ai Inspector preflight (PRD §12 Step 1) fires and
+    ///      free-form prompts get real-model codegen instead of degrading
+    ///      to a local QueryInterpreter guess (which used to pick "Doors"
+    ///      as its default category).
+    ///   3. Returns null only on hard failures (backend unreachable, not
+    ///      logged in for routes that require it). Viewmodel still has a
+    ///      local fallback for that case.
     /// </summary>
     public class RevitChatRouter : IChatRouter
     {
@@ -30,31 +40,70 @@ namespace RevitWebAppSync.UI.Copilot
         public async Task<RouteResult> RouteAsync(string message, string fallbackToolId)
         {
             var cfg = BinaConfig.Load();
-            if (string.IsNullOrEmpty(cfg?.AccessToken)) return null; // not logged in → offline fallback
-
+            var token = cfg?.AccessToken ?? "";
             var ctx = BuildContext();
-            var resp = await _ai.RouteAsync(
-                message, ctx,
-                cfg.UserId > 0 ? cfg.UserId : (int?)null,
-                _sessionId, null, cfg.AccessToken);
+            int? userId = (cfg?.UserId ?? 0) > 0 ? (int?)cfg.UserId : null;
 
-            if (resp == null) return null;
-            if (resp.NeedsClarification)
-                return new RouteResult { NeedsClarification = true, ClarifyingQuestion = resp.ClarifyingQuestion };
-
-            string code = resp.Actions?.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a.Code))?.Code;
-            var plan = resp.Actions?
-                .Where(a => !string.IsNullOrWhiteSpace(a.Description))
-                .Select(a => a.Description)
-                .ToList();
-
-            return new RouteResult
+            // 1. Try vetted-action classifier. Empty token still attempts
+            //    the request — dev bina-ai doesn't enforce auth on /route.
+            RouteResponse routed = null;
+            if (!string.IsNullOrEmpty(token))
             {
-                ToolId = fallbackToolId,                       // catalog tool drives the proposal visuals
-                Plan = (plan != null && plan.Count > 0) ? plan : null,
-                Code = code,
-                Reply = resp.Reply,
-            };
+                try { routed = await _ai.RouteAsync(message, ctx, userId, _sessionId, null, token); }
+                catch { routed = null; }
+            }
+
+            if (routed != null)
+            {
+                if (routed.NeedsClarification)
+                    return new RouteResult { NeedsClarification = true, ClarifyingQuestion = routed.ClarifyingQuestion };
+
+                string vettedCode = routed.Actions?.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a.Code))?.Code;
+                if (!string.IsNullOrWhiteSpace(vettedCode))
+                {
+                    var vettedPlan = routed.Actions?
+                        .Where(a => !string.IsNullOrWhiteSpace(a.Description))
+                        .Select(a => a.Description)
+                        .ToList();
+                    return new RouteResult
+                    {
+                        ToolId = fallbackToolId,
+                        Plan = (vettedPlan != null && vettedPlan.Count > 0) ? vettedPlan : null,
+                        Code = vettedCode,
+                        Reply = routed.Reply,
+                    };
+                }
+                // Route had nothing actionable → fall through to /generate.
+            }
+
+            // 2. Free-form prompt → /generate. Inspector preflight runs
+            //    server-side: looks up real levels/types/selection via
+            //    WSS tunnel into the customer's live Revit before
+            //    codegen, so emitted C# references real names.
+            try
+            {
+                var req = new AIRequest
+                {
+                    Prompt = message,
+                    Context = ctx,
+                    UserId = userId,
+                    SessionId = _sessionId,
+                };
+                var gen = await _ai.GenerateCodeAsync(req, token);
+                if (gen != null && gen.Success && !string.IsNullOrWhiteSpace(gen.Code))
+                {
+                    return new RouteResult
+                    {
+                        ToolId = fallbackToolId,
+                        Code = gen.Code,
+                        Reply = gen.Explanation ?? "Generated. Review and Run when ready.",
+                        Plan = new List<string> { "Generated via bina-ai (with Inspector preflight)" },
+                    };
+                }
+            }
+            catch { /* fall to local fallback */ }
+
+            return null; // viewmodel handles local fallback
         }
 
         private ModelContext BuildContext()
