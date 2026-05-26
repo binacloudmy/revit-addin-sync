@@ -94,7 +94,11 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     return new RouteResult
                     {
-                        ToolId = fallbackToolId,
+                        // Always overwrite the toolId with the neutral
+                        // "ai-generated" entry so the proposal visual
+                        // reflects free-form codegen, not the
+                        // QueryInterpreter's category guess.
+                        ToolId = "ai-generated",
                         Code = gen.Code,
                         Reply = gen.Explanation ?? "Generated. Review and Run when ready.",
                         Plan = new List<string> { "Generated via bina-ai (with Inspector preflight)" },

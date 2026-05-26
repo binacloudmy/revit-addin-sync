@@ -70,7 +70,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (q.Contains("excel") || q.Contains("import")) return CopilotCatalog.Find("import-doors-excel");
             if (q.Contains("ubbl") || q.Contains("compliance") || q.Contains("room")) return CopilotCatalog.Find("ubbl-rooms");
             if (q.Contains("corridor") || q.Contains("set")) return CopilotCatalog.Find("set-frr-corridor");
-            return CopilotCatalog.Find("count-doors");
+            // Free-form / no keyword match → fall through to bina-ai's
+            // /generate (Inspector preflight). Returning the neutral
+            // "ai-generated" tool keeps the proposal card visuals from
+            // implying a category the user never asked for.
+            return CopilotCatalog.Find("ai-generated") ?? CopilotCatalog.Find("count-doors");
         }
 
         private class Clar { public string Question; public List<ClarifyOption> Options; }

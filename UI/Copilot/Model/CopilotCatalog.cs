@@ -342,6 +342,24 @@ return rooms.Where(r => {
                         new IssueItem("Kitchen", "Level 1 · 4.1 m² (min 4.5 m²)"),
                     } },
             },
+            // Neutral catalog entry used when the chat falls through to
+            // bina-ai's /generate (Inspector-preflighted free-form
+            // codegen). Plan + Code are filled in at runtime from the
+            // RouteResult; the doors-flavoured QueryInterpreter default
+            // never wins for an unrouted free-form prompt anymore.
+            new ToolDef {
+                Id = "ai-generated", BackendName = "code", Tier = 2,
+                Title = "AI-generated command",
+                Desc = "Free-form codegen with Inspector preflight against your live model",
+                Icon = "sparkles", TileBg = "#ede9fe", TileFg = "#6d28d9", Category = "query",
+                Plan = new List<string> {
+                    "Inspector picks the right read-only tools to ground the request",
+                    "Generates Revit C# referencing your real levels / types / selection",
+                    "Wraps in a Transaction — fully undoable",
+                },
+                Code = "",  // runtime-filled from /generate response
+                Result = v => new ResultModel { Kind = CpResultKind.Plain, Headline = "AI command ready", Sub = "Review the plan and Run when ready." },
+            },
         };
 
         public static readonly List<CategoryDef> Categories = new List<CategoryDef>
