@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  BINA Vibe Revit add-in — MSI installer skeleton (WiX v4 syntax).
+
+  Builds a single signed installer that drops the addin DLLs and .addin
+  manifest into the per-user Revit addins folder for each supported
+  version (2024, 2025, 2026, 2027). Run with /silent for enterprise
+  IT pushes (FR-INSTALL-02).
+
+  Build:
+    dotnet tool install --global wix
+    wix build installer/BinaVibe.wxs -ext WixToolset.UI.wixext -o BinaVibe.msi
+
+  Sign:
+    signtool sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /a BinaVibe.msi
+
+  NOTE: UpgradeCode is per-product permanent — DO NOT regenerate after
+  the first release or upgrades will break.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="BINA Vibe"
+           Manufacturer="Bina Cloudtech Sdn Bhd"
+           Version="1.0.0.0"
+           UpgradeCode="11111111-2222-3333-4444-555555555555"
+           Compressed="yes"
+           Scope="perMachine">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of BINA Vibe is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Per-version Revit addins targets. Each StandardDirectory installs
+         the same payload into %APPDATA%\Autodesk\Revit\Addins\<year>\. -->
+    <StandardDirectory Id="AppDataFolder">
+      <Directory Id="AutodeskFolder" Name="Autodesk">
+        <Directory Id="RevitFolder" Name="Revit">
+          <Directory Id="AddinsFolder" Name="Addins">
+            <Directory Id="Addins2024" Name="2024" />
+            <Directory Id="Addins2025" Name="2025" />
+            <Directory Id="Addins2026" Name="2026" />
+            <Directory Id="Addins2027" Name="2027" />
+          </Directory>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Feature: BINA Vibe (covers all supported Revit versions) -->
+    <Feature Id="BinaVibeFeature" Title="BINA Vibe Add-in" Level="1">
+      <ComponentGroupRef Id="AddinComponents" />
+    </Feature>
+
+    <ComponentGroup Id="AddinComponents">
+      <!-- Revit 2026 (most common today) -->
+      <Component Id="BinaVibeAddin2026" Directory="Addins2026" Guid="A1A1A1A1-1111-1111-1111-111111111111">
+        <File Id="Manifest2026" Name="RevitWebAppSync.addin" Source="..\bin\Release\net8.0-windows\RevitWebAppSync.addin" KeyPath="yes" />
+        <File Id="Dll2026" Name="RevitWebAppSync.dll" Source="..\bin\Release\net8.0-windows\RevitWebAppSync.dll" />
+        <!-- Newtonsoft.Json, ClosedXML, etc. dropped here too via heat.exe in CI -->
+      </Component>
+
+      <Component Id="BinaVibeAddin2027" Directory="Addins2027" Guid="A2A2A2A2-2222-2222-2222-222222222222">
+        <File Id="Manifest2027" Name="RevitWebAppSync.addin" Source="..\bin\Release\net8.0-windows\RevitWebAppSync.addin" KeyPath="yes" />
+        <File Id="Dll2027" Name="RevitWebAppSync.dll" Source="..\bin\Release\net8.0-windows\RevitWebAppSync.dll" />
+      </Component>
+
+      <Component Id="BinaVibeAddin2025" Directory="Addins2025" Guid="A3A3A3A3-3333-3333-3333-333333333333">
+        <File Id="Manifest2025" Name="RevitWebAppSync.addin" Source="..\bin\Release\net8.0-windows\RevitWebAppSync.addin" KeyPath="yes" />
+        <File Id="Dll2025" Name="RevitWebAppSync.dll" Source="..\bin\Release\net8.0-windows\RevitWebAppSync.dll" />
+      </Component>
+
+      <Component Id="BinaVibeAddin2024" Directory="Addins2024" Guid="A4A4A4A4-4444-4444-4444-444444444444">
+        <File Id="Manifest2024" Name="RevitWebAppSync.addin" Source="..\bin\Release\net8.0-windows\RevitWebAppSync.addin" KeyPath="yes" />
+        <File Id="Dll2024" Name="RevitWebAppSync.dll" Source="..\bin\Release\net8.0-windows\RevitWebAppSync.dll" />
+      </Component>
+    </ComponentGroup>
+
+    <ui:WixUI Id="WixUI_Minimal" />
+
+  </Package>
+</Wix>

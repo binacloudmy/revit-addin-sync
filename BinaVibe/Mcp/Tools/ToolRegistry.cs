@@ -42,6 +42,20 @@ namespace BinaVibe.Mcp.Tools
                 "get_active_view"        => Inspectors.GetActiveView(doc),
                 "get_project_info"       => Inspectors.GetProjectInfo(doc, app),
 
+                // MUTATE — Step 3, 10 tools, all wrap in Transaction.
+                // Orchestrator-side policy gates destructive ones via
+                // approval_decisions before they reach here.
+                "set_parameter"          => Mutators.SetParameter(doc, args),
+                "set_parameter_bulk"     => Mutators.SetParameterBulk(doc, args),
+                "change_type"            => Mutators.ChangeType(doc, args),
+                "delete_elements"        => Mutators.DeleteElements(doc, args),
+                "duplicate_view"         => Mutators.DuplicateView(doc, args),
+                "apply_view_template"    => Mutators.ApplyViewTemplate(doc, args),
+                "place_door"             => Mutators.PlaceDoor(doc, args),
+                "place_window"           => Mutators.PlaceWindow(doc, args),
+                "create_wall"            => Mutators.CreateWall(doc, args),
+                "create_room"            => Mutators.CreateRoom(doc, args),
+
                 _ => NotImplemented(tool),
             };
         }
@@ -49,7 +63,7 @@ namespace BinaVibe.Mcp.Tools
         private static Dictionary<string, object?> NotImplemented(string tool) =>
             new()
             {
-                ["error"] = $"tool {tool} not implemented yet — Step-1 ships only INSPECT",
+                ["error"] = $"tool {tool} not implemented yet",
                 ["status"] = "not_implemented",
             };
     }

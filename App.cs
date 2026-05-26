@@ -44,6 +44,13 @@ namespace RevitWebAppSync
         // Inspector preflight (and Step 3+ MUTATE tools).
         public static BinaVibe.Mcp.McpServer VibeMcpServer { get; private set; }
 
+        // BinaVibe v2 outbound WSS tunnel client (PRD §6.5 / production
+        // transport). When BINA_VIBE_MCP_TRANSPORT is "wss" or "both",
+        // the addin dials out to bina-ai at /vibe/mcp/tunnel and the
+        // cloud orchestrator pushes tool-call frames down the socket.
+        // No inbound port on the customer machine. Firewall-friendly.
+        public static BinaVibe.Mcp.McpTunnelClient VibeMcpTunnel { get; private set; }
+
         public Result OnStartup(UIControlledApplication application)
         {
             try
@@ -122,19 +129,49 @@ namespace RevitWebAppSync
                     System.Diagnostics.Debug.WriteLine($"[BINA] Cost update handler failed: {evtEx.Message}");
                 }
 
-                // Boot the BinaVibe MCP server. Failure is non-fatal —
-                // the rest of the addin must keep working if the port is
-                // taken or admin rights are missing.
-                try
+                // Decide which MCP transport(s) to boot. Default is
+                // `http` (HttpListener on :8080) for dev compatibility.
+                //   http  — inbound HTTP only (dev, needs tunnel for cloud)
+                //   wss   — outbound WSS only (production, firewall-safe)
+                //   both  — start both (handy during migration)
+                var transport = (Environment.GetEnvironmentVariable("BINA_VIBE_MCP_TRANSPORT") ?? "http").ToLowerInvariant();
+
+                if (transport == "http" || transport == "both")
                 {
-                    var port = int.TryParse(Environment.GetEnvironmentVariable("BINA_VIBE_MCP_PORT"), out var p) ? p : 8080;
-                    VibeMcpServer = new BinaVibe.Mcp.McpServer(port);
-                    VibeMcpServer.Start();
-                    System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP server listening on {VibeMcpServer.Prefix}");
+                    try
+                    {
+                        var port = int.TryParse(Environment.GetEnvironmentVariable("BINA_VIBE_MCP_PORT"), out var p) ? p : 8080;
+                        VibeMcpServer = new BinaVibe.Mcp.McpServer(port);
+                        VibeMcpServer.Start();
+                        System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP server listening on {VibeMcpServer.Prefix}");
+                    }
+                    catch (Exception mcpEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP server failed to start: {mcpEx.Message}");
+                    }
                 }
-                catch (Exception mcpEx)
+
+                if (transport == "wss" || transport == "both")
                 {
-                    System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP server failed to start: {mcpEx.Message}");
+                    try
+                    {
+                        var flags = BinaVibe.Policy.VibeFlags.Load();
+                        var cfg = BinaConfig.Load();
+                        var token = Environment.GetEnvironmentVariable("BINA_VIBE_TOKEN") ?? "dev-token";
+                        var sessionId = Guid.NewGuid().ToString();
+                        VibeMcpTunnel = new BinaVibe.Mcp.McpTunnelClient(
+                            cfg.ResolvedAIBaseUrl,
+                            flags.TenantId,
+                            sessionId,
+                            token,
+                            flags.UserId);
+                        VibeMcpTunnel.Start();
+                        System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel dialing out to {cfg.ResolvedAIBaseUrl}/vibe/mcp/tunnel (tenant={flags.TenantId})");
+                    }
+                    catch (Exception tunEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel failed to start: {tunEx.Message}");
+                    }
                 }
 
                 CreateRibbonTab(application);
@@ -155,6 +192,7 @@ namespace RevitWebAppSync
             // Stop the embedded MCP server cleanly so the port is free
             // on next Revit start.
             try { VibeMcpServer?.Dispose(); } catch { }
+            try { VibeMcpTunnel?.Dispose(); } catch { }
 
             return Result.Succeeded;
         }
