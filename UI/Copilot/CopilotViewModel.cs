@@ -347,6 +347,16 @@ namespace RevitWebAppSync.UI.Copilot
 
             var plan = (rr?.Plan != null && rr.Plan.Count > 0) ? rr.Plan : tool.Plan;
             string code = !string.IsNullOrWhiteSpace(rr?.Code) ? rr.Code : tool.Code;
+
+            // Query intent: auto-run and reply as a chat-text bubble.
+            // No Save/Copy/Undo card, no manual Run button — questions
+            // get answered, not staged as commands.
+            if (rr != null && rr.IsQuery && !string.IsNullOrWhiteSpace(code))
+            {
+                ExecuteAsChatReply(tool, code);
+                return;
+            }
+
             string text2 = !string.IsNullOrWhiteSpace(rr?.Reply)
                 ? rr.Reply
                 : "Here's a command that should do it. Review the plan and hit Run when you're ready.";
@@ -356,6 +366,52 @@ namespace RevitWebAppSync.UI.Copilot
                 Role = "ai", Kind = CpMsgKind.Proposal, ToolId = tool.Id,
                 Text = text2, PlanSteps = new List<string>(plan ?? new List<string>()), Code = code,
             });
+        }
+
+        private void ExecuteAsChatReply(ToolDef tool, string code)
+        {
+            ToolId = tool.Id;
+            _runClock = System.Diagnostics.Stopwatch.StartNew();
+
+            void Done(ExecOutcome outcome)
+            {
+                var result = BuildResult(tool, outcome);
+                var reply = FormatResultAsText(result, outcome);
+                ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
+                    Text = reply,
+                });
+                History.Insert(0, new HistoryEntry("just now", tool.Id, "ok", reply));
+                CopilotStateStore.Save(_pinned, History);
+                Raise(nameof(RecentEntry));
+                PopulateHighlights(tool.Id);
+            }
+
+            if (Executor != null) Executor.Run(tool, new Dictionary<string, object>(), code, Done);
+            else Done(new ExecOutcome { Success = true });
+        }
+
+        /// <summary>Reformulate the structured result as one conversational line for the
+        /// AiReply chat bubble. Falls back to the headline when no richer shape applies.</summary>
+        private static string FormatResultAsText(ResultModel r, ExecOutcome outcome)
+        {
+            if (outcome != null && !outcome.Success)
+                return "Sorry — that didn't run. " + (outcome.Error ?? "");
+            if (r == null) return "Done.";
+            switch (r.Kind)
+            {
+                case CpResultKind.Count:
+                    return $"{r.Headline} {r.Unit}".Trim() + (string.IsNullOrEmpty(r.Sub) ? "" : $". {r.Sub}");
+                case CpResultKind.Issues:
+                    return $"{r.Headline} {r.Unit}".Trim();
+                case CpResultKind.List:
+                    return r.Headline; // diffs render in History; chat keeps the line tight
+                case CpResultKind.File:
+                    return $"Saved {r.Headline}." + (string.IsNullOrEmpty(r.Sub) ? "" : $" {r.Sub}");
+                default:
+                    return string.IsNullOrEmpty(r.Sub) ? r.Headline : $"{r.Headline} — {r.Sub}";
+            }
         }
 
         private void ReplaceLastThinking(ChatMessage replacement)

@@ -22,5 +22,12 @@ namespace RevitWebAppSync.Models
 
         [JsonProperty("warnings")]
         public List<string> Warnings { get; set; }
+
+        /// <summary>Server-detected: code is a pure read + SetResult report
+        /// (no Transaction, no Selection.SetElementIds, no Delete/Set/Create).
+        /// When true the Copilot pane auto-runs and renders the result as a
+        /// chat-text bubble instead of the Save/Copy/Undo proposal card.</summary>
+        [JsonProperty("is_query")]
+        public bool IsQuery { get; set; }
     }
 }

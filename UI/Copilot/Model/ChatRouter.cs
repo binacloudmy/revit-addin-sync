@@ -12,6 +12,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<string> Plan;        // plan steps (English)
         public string Code;              // runnable C# (backend action or catalog sample)
         public string Reply;             // optional natural-language reply
+        public bool IsQuery;             // pure read+report — auto-run, render as chat text not card
     }
 
     /// <summary>

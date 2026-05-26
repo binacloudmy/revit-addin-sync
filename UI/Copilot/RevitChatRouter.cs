@@ -72,6 +72,7 @@ namespace RevitWebAppSync.UI.Copilot
                         Code = gen.Code,
                         Reply = gen.Explanation ?? "Generated. Review and Run when ready.",
                         Plan = new List<string> { "Generated via bina-ai (Inspector-preflighted against live model)" },
+                        IsQuery = gen.IsQuery,
                     };
                 }
                 if (gen != null && !gen.Success && !string.IsNullOrWhiteSpace(gen.Error))
