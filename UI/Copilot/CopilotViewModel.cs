@@ -367,9 +367,29 @@ namespace RevitWebAppSync.UI.Copilot
             var plan = (rr?.Plan != null && rr.Plan.Count > 0) ? rr.Plan : tool.Plan;
             string code = !string.IsNullOrWhiteSpace(rr?.Code) ? rr.Code : tool.Code;
 
-            // Query intent: auto-run and reply as a chat-text bubble.
-            // No Save/Copy/Undo card, no manual Run button — questions
-            // get answered, not staged as commands.
+            // Tool-calling agent answered directly — no C# to run.
+            // Render the reply as a plain chat bubble with the tool
+            // trace shown faintly underneath.
+            if (rr != null && rr.IsQuery && string.IsNullOrWhiteSpace(code))
+            {
+                ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
+                    Text = !string.IsNullOrWhiteSpace(rr.Reply) ? rr.Reply : "Done.",
+                    ToolCallTrace = rr.ToolCallTrace,
+                });
+                if (rr.ToolCallTrace != null && rr.ToolCallTrace.Count > 0)
+                    History.Insert(0, new HistoryEntry("just now", tool.Id, "ok",
+                        $"{rr.Reply} (used: {string.Join(" → ", rr.ToolCallTrace)})"));
+                else
+                    History.Insert(0, new HistoryEntry("just now", tool.Id, "ok", rr.Reply ?? "Done"));
+                CopilotStateStore.Save(_pinned, History);
+                Raise(nameof(RecentEntry));
+                return;
+            }
+
+            // Query intent with code: auto-run, render result as chat
+            // text (the legacy codegen-path query flow).
             if (rr != null && rr.IsQuery && !string.IsNullOrWhiteSpace(code))
             {
                 ExecuteAsChatReply(tool, code);

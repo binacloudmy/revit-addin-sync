@@ -13,6 +13,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Code;              // runnable C# (backend action or catalog sample)
         public string Reply;             // optional natural-language reply
         public bool IsQuery;             // pure read+report — auto-run, render as chat text not card
+        public List<string> ToolCallTrace;  // tool names called by the agent (in order). Renders as a faint trace under the reply.
     }
 
     /// <summary>

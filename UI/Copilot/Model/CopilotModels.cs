@@ -10,6 +10,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
     // AiReply = plain-text AI response (no card, no Save/Copy/Undo). Used
     // when the backend marks is_query=true: code is auto-run and the
     // structured result is reformulated as one conversational sentence.
+    // When ToolCallTrace is set, the chat renders a faint "used: tool1 →
+    // tool2" line under the reply so the drafter can see what the agent
+    // looked up.
     public enum CpResultKind { Count, Issues, List, File, Plain }
     public enum CpFieldKind { Select, Text, Seg }
 
@@ -133,6 +136,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public ResultModel Result;   // result
         public string Code;          // proposal — generated C# (backend or catalog sample)
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English
+        public List<string> ToolCallTrace; // tool-calling agent: ordered tool names called
     }
 
     /// <summary>Floating viewport marker (Task 15). Coordinates are % of the active view rect.</summary>

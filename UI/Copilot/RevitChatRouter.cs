@@ -116,16 +116,33 @@ namespace RevitWebAppSync.UI.Copilot
                 }
 
                 var gen = await _ai.GenerateCodeAsync(req, token);
-                if (gen != null && gen.Success && !string.IsNullOrWhiteSpace(gen.Code))
+                if (gen != null && gen.Success)
                 {
-                    return new RouteResult
+                    // Tool-calling agent path (VIBE_AGENT_MODE=tool):
+                    //   - gen.Reply has the natural-language answer
+                    //   - gen.Code may be empty when MUTATE tools did the
+                    //     work; populated when the agent fell back to
+                    //     raw C# for a visibility / crop override etc.
+                    //   - gen.ToolCalls carries the tool trace
+                    bool isToolMode = string.Equals(gen.AgentMode, "tool", StringComparison.OrdinalIgnoreCase);
+                    string code = gen.Code ?? "";
+                    string reply = !string.IsNullOrWhiteSpace(gen.Reply)
+                        ? gen.Reply
+                        : (gen.Explanation ?? "Generated. Review and Run when ready.");
+                    var trace = gen.ToolCalls?.Select(tc => tc?.Tool).Where(t => !string.IsNullOrEmpty(t)).ToList();
+
+                    if (isToolMode || !string.IsNullOrWhiteSpace(code))
                     {
-                        ToolId = "ai-generated",
-                        Code = gen.Code,
-                        Reply = gen.Explanation ?? "Generated. Review and Run when ready.",
-                        Plan = new List<string> { "Generated via bina-ai (Inspector-preflighted against live model)" },
-                        IsQuery = gen.IsQuery,
-                    };
+                        return new RouteResult
+                        {
+                            ToolId = "ai-generated",
+                            Code = code,
+                            Reply = reply,
+                            Plan = new List<string> { isToolMode ? "Tool-calling agent (native MCP)" : "Generated via bina-ai (Inspector-preflighted)" },
+                            IsQuery = gen.IsQuery || (isToolMode && string.IsNullOrEmpty(code)),
+                            ToolCallTrace = trace != null && trace.Count > 0 ? trace : null,
+                        };
+                    }
                 }
                 if (gen != null && !gen.Success && !string.IsNullOrWhiteSpace(gen.Error))
                 {

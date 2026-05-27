@@ -101,6 +101,25 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 case CpMsgKind.Running: col.Children.Add(RunningBar(m)); break;
                 case CpMsgKind.Result: col.Children.Add(CompactResult(m)); break;
             }
+
+            // Tool-calling agent trace: small faint line under the reply
+            // listing the tools the agent used. Gives the drafter audit
+            // visibility ("agent looked up list_levels then set_parameter")
+            // without taking screen space from the actual answer.
+            if (m.ToolCallTrace != null && m.ToolCallTrace.Count > 0)
+            {
+                var trace = "used: " + string.Join(" → ", m.ToolCallTrace);
+                col.Children.Add(new TextBlock
+                {
+                    Text = trace,
+                    FontSize = 10,
+                    Foreground = CopilotColors.From("#9aa3b8"),
+                    FontStyle = FontStyles.Italic,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 6, 0, 0),
+                });
+            }
+
             aiRow.Children.Add(col);
             return aiRow;
         }
