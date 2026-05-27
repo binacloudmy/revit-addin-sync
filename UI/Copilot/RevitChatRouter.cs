@@ -53,7 +53,7 @@ namespace RevitWebAppSync.UI.Copilot
             // Plan mode: when BINA_VIBE_CHAT_MODE=plan, get a structured Plan
             // from /agents/revit-ai/plan and let the chat render a Plan card. User
             // clicks Approve → addin calls /execute-plan with the same Plan.
-            var useVibeV2Mode = System.Environment.GetEnvironmentVariable("BINA_VIBE_CHAT_MODE") ?? "tool";  // tool | plan
+            var useVibeV2Mode = System.Environment.GetEnvironmentVariable("BINA_VIBE_CHAT_MODE") ?? "plan";  // plan | tool
             if (string.Equals(useVibeV2Mode, "plan", System.StringComparison.OrdinalIgnoreCase))
             {
                 try
