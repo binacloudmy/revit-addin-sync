@@ -100,6 +100,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 case CpMsgKind.Proposal: col.Children.Add(ProposalCard(m)); break;
                 case CpMsgKind.Running: col.Children.Add(RunningBar(m)); break;
                 case CpMsgKind.Result: col.Children.Add(CompactResult(m)); break;
+                case CpMsgKind.PlanCard: col.Children.Add(BuildPlanCard(m)); break;
+                case CpMsgKind.ApprovalCard: col.Children.Add(BuildApprovalCard(m)); break;
             }
 
             // Tool-calling agent trace: small faint line under the reply
@@ -117,6 +119,37 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     FontStyle = FontStyles.Italic,
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 6, 0, 0),
+                });
+            }
+
+            // Reviewer verdict badge (PRD §6.2 stage 7). Tiny line
+            // under the trace: green when verified, amber with issue
+            // count when not. Drafter can ignore it most of the time
+            // — it's audit signal, not a blocker.
+            if (m.Verdict != null)
+            {
+                string badge;
+                string color;
+                if (m.Verdict.Verified)
+                {
+                    badge = "verified ✓" + (m.Verdict.Remediated ? " (remediated)" : "");
+                    color = "#16a34a";  // green
+                }
+                else
+                {
+                    int n = m.Verdict.Issues != null ? m.Verdict.Issues.Count : 0;
+                    badge = $"review: {n} issue" + (n == 1 ? "" : "s") + " ⚠"
+                        + (m.Verdict.Remediated ? " (remediation didn't fully clear)" : "");
+                    color = "#b45309";  // amber
+                }
+                col.Children.Add(new TextBlock
+                {
+                    Text = badge,
+                    FontSize = 10,
+                    Foreground = CopilotColors.From(color),
+                    FontStyle = FontStyles.Italic,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 4, 0, 0),
                 });
             }
 
@@ -330,6 +363,25 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             outer.Child = sp;
             return outer;
+        }
+
+        private FrameworkElement BuildPlanCard(ChatMessage m)
+        {
+            var card = new BinaVibe.Plan.PlanCardView();
+            card.Bind(m.Plan);
+            card.Approve += (s, e) => Vm?.ApprovePlan(m);
+            card.Cancel += (s, e) => Vm?.CancelPlan(m);
+            return card;
+        }
+
+        private FrameworkElement BuildApprovalCard(ChatMessage m)
+        {
+            var card = new BinaVibe.Plan.ApprovalCardView();
+            card.BindWithArgs(m.PendingApproval);
+            card.Approved += (s, e) => Vm?.ApproveGate(m);
+            card.Rejected += (s, e) => Vm?.RejectGate(m);
+            card.PreviewRequested += (s, e) => Vm?.PreviewGate(m);
+            return card;
         }
 
         private FrameworkElement CompactBody(ResultModel r)

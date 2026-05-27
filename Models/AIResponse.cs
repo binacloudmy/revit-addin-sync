@@ -49,6 +49,30 @@ namespace RevitWebAppSync.Models
         /// (legacy raw-C# emission).</summary>
         [JsonProperty("agent_mode")]
         public string AgentMode { get; set; }
+
+        /// <summary>Plan-mode round-trip: matches the plan_id the
+        /// addin sent in ExecutePlanRequest.</summary>
+        [JsonProperty("plan_id")]
+        public string PlanId { get; set; }
+
+        /// <summary>Plan-mode (/execute-plan) gates that need user
+        /// approval. Empty when nothing is gated. One ApprovalCardView
+        /// per entry; on Approve, addin re-posts /execute-plan with
+        /// the entry's gate_id added to approval_tokens.</summary>
+        [JsonProperty("pending_approvals")]
+        public List<PendingApproval> PendingApprovals { get; set; }
+
+        /// <summary>Plan-mode round-trip: the tokens the addin sent
+        /// in the request. Lets the addin accumulate across cycles
+        /// without re-deriving from chat state.</summary>
+        [JsonProperty("approval_tokens")]
+        public List<string> ApprovalTokens { get; set; }
+
+        /// <summary>Reviewer agent's semantic verification of the
+        /// final reply + tool_calls. May be null when reviewer is
+        /// disabled server-side (VIBE_TOOL_REVIEW=false).</summary>
+        [JsonProperty("reviewer_verdict")]
+        public ReviewerVerdict ReviewerVerdict { get; set; }
     }
 
     /// <summary>One tool the tool-calling agent invoked. Used by the
@@ -59,5 +83,31 @@ namespace RevitWebAppSync.Models
         [JsonProperty("tool")] public string Tool { get; set; }
         [JsonProperty("args")] public object Args { get; set; }
         [JsonProperty("result")] public object Result { get; set; }
+    }
+
+    /// <summary>Reviewer agent verdict (PRD §6.2 stage 7). Attached
+    /// to /execute-plan and /generate (tool mode) responses when
+    /// VIBE_TOOL_REVIEW=true on the backend. Logging-only by default;
+    /// when ``remediated=true`` the orchestrator already ran a
+    /// remediation round on the failure and the response reflects
+    /// the remediated attempt.</summary>
+    public class ReviewerVerdict
+    {
+        [JsonProperty("verified")] public bool Verified { get; set; }
+        [JsonProperty("issues")] public List<string> Issues { get; set; } = new List<string>();
+        [JsonProperty("suggestions")] public List<string> Suggestions { get; set; } = new List<string>();
+        [JsonProperty("remediated")] public bool Remediated { get; set; }
+    }
+
+    /// <summary>One server-side gate awaiting drafter approval.
+    /// Carries everything ApprovalCardView needs to render: the tool
+    /// name, the args (so we can preview element_ids in Revit), and
+    /// a human-readable reason for the gate.</summary>
+    public class PendingApproval
+    {
+        [JsonProperty("gate_id")] public string GateId { get; set; }
+        [JsonProperty("tool")] public string Tool { get; set; }
+        [JsonProperty("args")] public Newtonsoft.Json.Linq.JObject Args { get; set; }
+        [JsonProperty("reason")] public string Reason { get; set; }
     }
 }

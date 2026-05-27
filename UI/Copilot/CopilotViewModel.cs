@@ -360,11 +360,26 @@ namespace RevitWebAppSync.UI.Copilot
                 if (revitRouter != null) revitRouter.OnCodeStream = null;
             }
 
+            // Plan card (PRD §6.2 Stage 3): render an approval card with the
+            // Plan's steps and an Approve / Cancel pair of buttons. On Approve,
+            // the addin calls /execute-plan with the same Plan blob.
+            if (rr != null && rr.IsPlan && rr.Plan != null && rr.Plan.Steps != null && rr.Plan.Steps.Count > 0)
+            {
+                var tool0 = CopilotCatalog.Find("ai-generated") ?? CopilotCatalog.Find(fallbackToolId);
+                ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.PlanCard, ToolId = tool0 != null ? tool0.Id : "ai-generated",
+                    Text = !string.IsNullOrWhiteSpace(rr.Reply) ? rr.Reply : rr.Plan.Intent,
+                    Plan = rr.Plan, PlanId = rr.PlanId,
+                });
+                return;
+            }
+
             string toolId = !string.IsNullOrEmpty(rr?.ToolId) ? rr.ToolId : fallbackToolId;
             var tool = CopilotCatalog.Find(toolId) ?? CopilotCatalog.Find(fallbackToolId);
             if (tool == null) return;
 
-            var plan = (rr?.Plan != null && rr.Plan.Count > 0) ? rr.Plan : tool.Plan;
+            var plan = (rr?.PlanSteps != null && rr.PlanSteps.Count > 0) ? rr.PlanSteps : tool.Plan;
             string code = !string.IsNullOrWhiteSpace(rr?.Code) ? rr.Code : tool.Code;
 
             // Tool-calling agent answered directly — no C# to run.
@@ -377,6 +392,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
                     Text = !string.IsNullOrWhiteSpace(rr.Reply) ? rr.Reply : "Done.",
                     ToolCallTrace = rr.ToolCallTrace,
+                    Verdict = rr.Verdict,
                 });
                 if (rr.ToolCallTrace != null && rr.ToolCallTrace.Count > 0)
                     History.Insert(0, new HistoryEntry("just now", tool.Id, "ok",
@@ -495,6 +511,153 @@ namespace RevitWebAppSync.UI.Copilot
 
             if (Executor != null) Executor.Run(tool, new Dictionary<string, object>(), msg.Code, Done);
             else Done(new ExecOutcome { Success = true });
+        }
+
+        /// <summary>Called by the Plan card when the user clicks Approve.
+        /// Sends the Plan to /execute-plan. If the response carries
+        /// PendingApprovals, render an ApprovalCard per gate; else
+        /// render the final reply.</summary>
+        public async void ApprovePlan(ChatMessage msg)
+        {
+            if (msg == null || msg.Plan == null) return;
+            int idx = Thread.IndexOf(msg);
+            if (idx < 0) return;
+
+            Thread[idx] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Running plan…" };
+
+            var router = Router as RevitChatRouter;
+            if (router == null)
+            {
+                ReplaceLastThinking(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = "Cannot run plan offline." });
+                return;
+            }
+
+            var result = await router.ExecutePlanAsync(msg.Plan, msg.PlanId, msg.ApprovalTokensAccumulated);
+            HandleExecuteResult(result, msg.Plan, msg.PlanId, msg.ApprovalTokensAccumulated ?? new System.Collections.Generic.List<string>());
+        }
+
+        private void HandleExecuteResult(
+            RevitWebAppSync.Models.AIResponse result,
+            RevitWebAppSync.Models.PlanModel plan,
+            string planId,
+            System.Collections.Generic.List<string> approvalTokensSoFar)
+        {
+            if (result == null || !result.Success)
+            {
+                ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = "Plan failed: " + (result != null ? result.Error : "unknown"),
+                });
+                return;
+            }
+
+            var pending = result.PendingApprovals;
+            if (pending != null && pending.Count > 0)
+            {
+                ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = pending.Count == 1
+                        ? "One step needs your approval before I continue:"
+                        : $"{pending.Count} steps need your approval before I continue:",
+                });
+                foreach (var pa in pending)
+                {
+                    Thread.Add(new ChatMessage
+                    {
+                        Role = "ai", Kind = CpMsgKind.ApprovalCard,
+                        PendingApproval = pa,
+                        PlanForApproval = plan,
+                        PlanIdForApproval = planId,
+                        ApprovalTokensAccumulated = new System.Collections.Generic.List<string>(approvalTokensSoFar),
+                    });
+                }
+                return;
+            }
+
+            var trace = result.ToolCalls != null
+                ? result.ToolCalls.Select(tc => tc.Tool).Where(t => !string.IsNullOrEmpty(t)).ToList()
+                : null;
+            ReplaceLastThinking(new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.AiReply,
+                Text = !string.IsNullOrWhiteSpace(result.Reply) ? result.Reply : "Done.",
+                ToolCallTrace = trace,
+                Verdict = result.ReviewerVerdict,
+            });
+        }
+
+        public void CancelPlan(ChatMessage msg)
+        {
+            if (msg == null) return;
+            int idx = Thread.IndexOf(msg);
+            if (idx < 0) return;
+            Thread[idx] = new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.AiReply, Text = "Plan cancelled. Nothing was changed.",
+            };
+        }
+
+        public async void ApproveGate(ChatMessage msg)
+        {
+            if (msg == null || msg.PendingApproval == null || msg.PlanForApproval == null) return;
+            int idx = Thread.IndexOf(msg);
+            if (idx < 0) return;
+
+            var tokens = new System.Collections.Generic.List<string>(msg.ApprovalTokensAccumulated ?? new System.Collections.Generic.List<string>());
+            if (!string.IsNullOrEmpty(msg.PendingApproval.GateId))
+                tokens.Add(msg.PendingApproval.GateId);
+
+            Thread[idx] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Approved. Continuing…" };
+
+            var router = Router as RevitChatRouter;
+            if (router == null)
+            {
+                ReplaceLastThinking(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = "Cannot continue offline." });
+                return;
+            }
+            var result = await router.ExecutePlanAsync(msg.PlanForApproval, msg.PlanIdForApproval, tokens);
+            HandleExecuteResult(result, msg.PlanForApproval, msg.PlanIdForApproval, tokens);
+        }
+
+        public void RejectGate(ChatMessage msg)
+        {
+            if (msg == null) return;
+            int idx = Thread.IndexOf(msg);
+            if (idx < 0) return;
+            Thread[idx] = new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.AiReply,
+                Text = $"Rejected. Skipping {msg.PendingApproval?.Tool ?? "this step"}.",
+            };
+        }
+
+        public void PreviewGate(ChatMessage msg)
+        {
+            if (msg?.PendingApproval == null) return;
+            var args = msg.PendingApproval.Args;
+            if (args == null) return;
+
+            var ids = new System.Collections.Generic.List<long>();
+            var arr = args["element_ids"] ?? args["elementIds"];
+            if (arr is Newtonsoft.Json.Linq.JArray ja)
+            {
+                foreach (var v in ja)
+                    if (long.TryParse(v?.ToString(), out var n)) ids.Add(n);
+            }
+            else
+            {
+                var one = args["element_id"] ?? args["elementId"];
+                if (one != null && long.TryParse(one.ToString(), out var n)) ids.Add(n);
+            }
+            if (ids.Count == 0) return;
+
+            if (App.AIExternalEvent != null && App.AIHandler != null)
+            {
+                App.AIHandler.PreviewIds = ids;
+                App.AIExternalEvent.Raise();
+            }
         }
 
         public void ChatRegenerate(ChatMessage msg)

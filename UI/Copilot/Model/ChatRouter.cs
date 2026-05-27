@@ -9,11 +9,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool NeedsClarification;
         public string ClarifyingQuestion;
         public string ToolId;            // catalog tool used for visuals
-        public List<string> Plan;        // plan steps (English)
+        public List<string> PlanSteps;        // plan steps (English)
         public string Code;              // runnable C# (backend action or catalog sample)
         public string Reply;             // optional natural-language reply
         public bool IsQuery;             // pure read+report — auto-run, render as chat text not card
         public List<string> ToolCallTrace;  // tool names called by the agent (in order). Renders as a faint trace under the reply.
+        public RevitWebAppSync.Models.PlanModel Plan;
+        public string PlanId;
+        public bool IsPlan;                   // true → render as PlanCard, await Approve
+        public RevitWebAppSync.Models.ReviewerVerdict Verdict;
     }
 
     /// <summary>

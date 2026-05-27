@@ -21,8 +21,27 @@ namespace RevitWebAppSync.Handlers
         /// </summary>
         public string Action { get; set; } = "execute";
 
+        /// <summary>Optional preview-only selection IDs. When set, the
+        /// next Execute() call sets the Revit UI selection to these
+        /// elements (instead of running code) and clears PreviewIds.
+        /// Approval-card "Preview" button uses this.</summary>
+        public System.Collections.Generic.List<long> PreviewIds { get; set; }
+
         public void Execute(UIApplication app)
         {
+            if (PreviewIds != null && PreviewIds.Count > 0)
+            {
+                try
+                {
+                    BinaVibe.Preview.RevitPreviewHighlighter.Highlight(app, PreviewIds);
+                }
+                finally
+                {
+                    PreviewIds = null;
+                }
+                return;
+            }
+
             try
             {
                 if (string.Equals(Action, "undo", StringComparison.OrdinalIgnoreCase))

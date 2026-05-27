@@ -125,6 +125,93 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// POST /agents/revit-ai/plan — runs the Planner agent server-side
+        /// and returns a structured Plan the chat renders as an approval card.
+        /// </summary>
+        public async Task<PlanResponse> GetPlanAsync(
+            AIRequest request,
+            string accessToken,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var json = JsonConvert.SerializeObject(request);
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, AiUrl.Build(_baseUrl, "plan"))
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                };
+                if (!string.IsNullOrEmpty(accessToken))
+                    httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                var body = await response.Content.ReadAsStringAsync();
+                if (!response.IsSuccessStatusCode)
+                    return new PlanResponse { Success = false, Error = $"HTTP {(int)response.StatusCode}: {body}" };
+                return JsonConvert.DeserializeObject<PlanResponse>(body);
+            }
+            catch (System.Exception ex)
+            {
+                return new PlanResponse { Success = false, Error = ex.Message };
+            }
+        }
+
+        /// <summary>
+        /// POST /agents/revit-ai/execute-plan — walks a previously-approved
+        /// Plan with the tool-calling agent. Returns the same shape as
+        /// /generate in tool mode (reply, tool_calls, plus plan_id round-trip
+        /// and any pending_approvals).
+        ///
+        /// On the first call, pass <paramref name="approvalTokens"/> = null
+        /// or empty. Any gated MUTATE surfaces in PendingApprovals; the
+        /// addin shows an approval card, the user approves, and the addin
+        /// re-calls this method with the gate_id added to approvalTokens.
+        /// </summary>
+        public async Task<AIResponse> ExecutePlanAsync(
+            string prompt,
+            PlanModel plan,
+            string planId,
+            ModelContext context,
+            int? userId,
+            string sessionId,
+            string accessToken,
+            System.Collections.Generic.IEnumerable<string> approvalTokens = null,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var body = new
+                {
+                    prompt = prompt,
+                    plan = plan,
+                    plan_id = planId,
+                    approval_tokens = approvalTokens != null
+                        ? new System.Collections.Generic.List<string>(approvalTokens)
+                        : new System.Collections.Generic.List<string>(),
+                    context = context,
+                    userId = userId,
+                    sessionId = sessionId,
+                };
+                var json = JsonConvert.SerializeObject(body);
+                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, AiUrl.Build(_baseUrl, "execute-plan"))
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                };
+                if (!string.IsNullOrEmpty(accessToken))
+                    httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+                var responseBody = await response.Content.ReadAsStringAsync();
+                if (!response.IsSuccessStatusCode)
+                    return new AIResponse { Success = false, Error = $"HTTP {(int)response.StatusCode}: {responseBody}" };
+                return JsonConvert.DeserializeObject<AIResponse>(responseBody);
+            }
+            catch (System.Exception ex)
+            {
+                return new AIResponse { Success = false, Error = ex.Message };
+            }
+        }
+
+        /// <summary>
         /// Unified Copilot entry point — classifies intent and returns an ordered
         /// list of actions for the addin to dispatch. POST /agents/revit-ai/route.
         /// </summary>
