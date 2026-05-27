@@ -37,6 +37,12 @@ namespace RevitWebAppSync.UI.Copilot
             _ai = new AIService(BinaConfig.Load().ResolvedAIBaseUrl);
         }
 
+        /// <summary>Optional callback invoked on every streamed code chunk
+        /// from /generate/stream so the chat can render code as it arrives.
+        /// Receives the cumulative code string so the UI can replace, not
+        /// append. Set null to disable streaming (falls back to one-shot).</summary>
+        public Action<string> OnCodeStream { get; set; }
+
         public async Task<RouteResult> RouteAsync(string message, string fallbackToolId)
         {
             var cfg = BinaConfig.Load();
@@ -63,6 +69,52 @@ namespace RevitWebAppSync.UI.Copilot
                     UserId = userId,
                     SessionId = _sessionId,
                 };
+
+                // Streaming path — preferred. Chunks arrive in <1s even
+                // when total codegen takes 8-12s, so the user sees the
+                // chat fill in token by token instead of waiting for a
+                // single big delivery. Falls back to one-shot on any
+                // streaming error (server returns 404 on /stream, etc).
+                if (OnCodeStream != null)
+                {
+                    try
+                    {
+                        AIResponse final = null;
+                        var sb = new System.Text.StringBuilder();
+                        await foreach (var chunk in _ai.GenerateCodeStreamAsync(req, token))
+                        {
+                            if (chunk.Kind == StreamChunkKind.CodePartial)
+                            {
+                                sb.Append(chunk.Delta);
+                                try { OnCodeStream(sb.ToString()); } catch { /* UI hiccup */ }
+                            }
+                            else if (chunk.Kind == StreamChunkKind.Done)
+                            {
+                                final = chunk.Final;
+                            }
+                            else if (chunk.Kind == StreamChunkKind.Error)
+                            {
+                                return new RouteResult { ToolId = "ai-generated", Reply = $"Backend error: {chunk.Error}" };
+                            }
+                        }
+                        if (final != null && final.Success && !string.IsNullOrWhiteSpace(final.Code))
+                        {
+                            return new RouteResult
+                            {
+                                ToolId = "ai-generated",
+                                Code = final.Code,
+                                Reply = final.Explanation ?? "Generated. Review and Run when ready.",
+                                Plan = new List<string> { "Generated via bina-ai (streaming, Inspector-preflighted)" },
+                                IsQuery = final.IsQuery,
+                            };
+                        }
+                    }
+                    catch
+                    {
+                        // Fall through to one-shot below.
+                    }
+                }
+
                 var gen = await _ai.GenerateCodeAsync(req, token);
                 if (gen != null && gen.Success && !string.IsNullOrWhiteSpace(gen.Code))
                 {

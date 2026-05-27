@@ -337,8 +337,27 @@ namespace RevitWebAppSync.UI.Copilot
             RouteResult rr = null;
             if (Router != null)
             {
+                // Hook streaming if the concrete router supports it. The
+                // backend's /generate/stream endpoint emits code chunks
+                // every ~80 chars so the user sees code fill in token by
+                // token instead of waiting for the full response.
+                var revitRouter = Router as RevitChatRouter;
+                if (revitRouter != null)
+                {
+                    revitRouter.OnCodeStream = (partial) =>
+                    {
+                        var snippet = partial.Length > 200
+                            ? "Drafting…\n\n" + partial.Substring(0, 200) + "…"
+                            : "Drafting…\n\n" + partial;
+                        ReplaceLastThinking(new ChatMessage
+                        {
+                            Role = "ai", Kind = CpMsgKind.Thinking, Text = snippet,
+                        });
+                    };
+                }
                 try { rr = await Router.RouteAsync(text, fallbackToolId); }
                 catch { rr = null; }
+                if (revitRouter != null) revitRouter.OnCodeStream = null;
             }
 
             string toolId = !string.IsNullOrEmpty(rr?.ToolId) ? rr.ToolId : fallbackToolId;
