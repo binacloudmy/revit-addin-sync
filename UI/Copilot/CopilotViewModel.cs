@@ -404,14 +404,18 @@ namespace RevitWebAppSync.UI.Copilot
                 return;
             }
 
-            // Query intent with code: auto-run, render result as chat
-            // text (the legacy codegen-path query flow).
-            if (rr != null && rr.IsQuery && !string.IsNullOrWhiteSpace(code))
+            // AI-generated code (query OR action): auto-run and show the
+            // result. Deletion is gated server-side (delete_elements →
+            // approval card), so any C# the agent emits here is non-delete
+            // and runs automatically — no Run button.
+            if (rr != null && !string.IsNullOrWhiteSpace(rr.Code))
             {
-                ExecuteAsChatReply(tool, code);
+                ExecuteAsChatReply(tool, rr.Code);
                 return;
             }
 
+            // Only reached for catalog tier-2 sample code (tool.Code) — the
+            // vetted library still shows a reviewable Proposal card.
             string text2 = !string.IsNullOrWhiteSpace(rr?.Reply)
                 ? rr.Reply
                 : "Here's a command that should do it. Review the plan and hit Run when you're ready.";
@@ -579,13 +583,40 @@ namespace RevitWebAppSync.UI.Copilot
             var trace = result.ToolCalls != null
                 ? result.ToolCalls.Select(tc => tc.Tool).Where(t => !string.IsNullOrEmpty(t)).ToList()
                 : null;
+
+            // The agent fell back to C# (no tool covered the task — e.g. sum
+            // floor areas, open a view, visibility overrides). Auto-run it and
+            // show the result — never print dead code. Deletion is gated at
+            // the tool layer (delete_elements → approval card), so any C# here
+            // is non-delete and safe to run automatically.
+            if (!string.IsNullOrWhiteSpace(result.Code))
+            {
+                var genTool = CopilotCatalog.Find("ai-generated") ?? CopilotCatalog.Find("revit-ai");
+                if (genTool != null)
+                {
+                    ExecuteAsChatReply(genTool, result.Code);
+                    return;
+                }
+            }
+
             ReplaceLastThinking(new ChatMessage
             {
                 Role = "ai", Kind = CpMsgKind.AiReply,
-                Text = !string.IsNullOrWhiteSpace(result.Reply) ? result.Reply : "Done.",
+                Text = !string.IsNullOrWhiteSpace(result.Reply) ? StripCodeFence(result.Reply) : "Done.",
                 ToolCallTrace = trace,
                 Verdict = result.ReviewerVerdict,
             });
+        }
+
+        /// <summary>Strip a ```csharp ... ``` (or plain ```) fenced block from a
+        /// reply so the chat shows the natural-language line, not raw code.
+        /// The code itself runs via the Code field / Proposal card.</summary>
+        private static string StripCodeFence(string reply)
+        {
+            if (string.IsNullOrWhiteSpace(reply)) return reply;
+            int fence = reply.IndexOf("```", System.StringComparison.Ordinal);
+            if (fence < 0) return reply.Trim();
+            return reply.Substring(0, fence).Trim();
         }
 
         public void CancelPlan(ChatMessage msg)
