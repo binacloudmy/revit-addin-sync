@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
@@ -9,247 +10,202 @@ using System.Windows.Media;
 namespace RevitWebAppSync.Helpers
 {
     /// <summary>
-    /// Lightweight markdown → WPF converter for chat bubbles.
-    /// Supports: **bold**, *italic*, `code`, ```code blocks```, 
-    /// # headers, - bullet lists, 📄 citations, and [links](url).
+    /// Lightweight markdown → WPF converter for the Copilot chat bubbles.
+    /// Light-themed (dark text on white). Supports headers, **bold**,
+    /// *italic*, `code`, ```code blocks```, bullet + numbered lists,
+    /// > blockquotes, [links](url), and GitHub-style | tables |.
     /// </summary>
     public static class MarkdownRenderer
     {
-        private static readonly SolidColorBrush CodeBg = new SolidColorBrush(Color.FromRgb(30, 30, 30));
-        private static readonly SolidColorBrush CodeFg = new SolidColorBrush(Color.FromRgb(156, 220, 254));
-        private static readonly SolidColorBrush AccentBlue = new SolidColorBrush(Color.FromRgb(86, 156, 214));
-        private static readonly SolidColorBrush CitationColor = new SolidColorBrush(Color.FromRgb(78, 201, 176));
-        private static readonly FontFamily CodeFont = new FontFamily("Consolas");
+        // Light-theme palette (matches CopilotTokens).
+        private static readonly SolidColorBrush Ink     = Brush("#0b0d12"); // headers
+        private static readonly SolidColorBrush Text    = Brush("#374151"); // body
+        private static readonly SolidColorBrush Muted   = Brush("#6b7280"); // quotes/citations
+        private static readonly SolidColorBrush Accent  = Brush("#2563eb"); // bullets/links
+        private static readonly SolidColorBrush Line    = Brush("#e5e7eb"); // table borders
+        private static readonly SolidColorBrush CodeBg  = Brush("#f3f4f6");
+        private static readonly SolidColorBrush CodeFg  = Brush("#9333ea");
+        private static readonly SolidColorBrush BlockBg = Brush("#f6f8fa");
+        private static readonly FontFamily CodeFont = new FontFamily("Cascadia Mono, Consolas, monospace");
 
-        /// <summary>
-        /// Render markdown string into a StackPanel of styled WPF elements.
-        /// </summary>
+        private static SolidColorBrush Brush(string hex) =>
+            new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+
         public static StackPanel Render(string markdown, double maxWidth = 350)
         {
             var panel = new StackPanel { MaxWidth = maxWidth };
-
-            if (string.IsNullOrWhiteSpace(markdown))
-                return panel;
+            if (string.IsNullOrWhiteSpace(markdown)) return panel;
 
             var lines = markdown.Replace("\r\n", "\n").Split('\n');
-            bool inCodeBlock = false;
+            bool inCode = false;
             var codeLines = new List<string>();
 
-            foreach (var line in lines)
+            for (int i = 0; i < lines.Length; i++)
             {
-                // Code block toggle
-                if (line.TrimStart().StartsWith("```"))
-                {
-                    if (inCodeBlock)
-                    {
-                        // End code block
-                        AddCodeBlock(panel, string.Join("\n", codeLines));
-                        codeLines.Clear();
-                        inCodeBlock = false;
-                    }
-                    else
-                    {
-                        inCodeBlock = true;
-                    }
-                    continue;
-                }
-
-                if (inCodeBlock)
-                {
-                    codeLines.Add(line);
-                    continue;
-                }
-
+                var line = lines[i];
                 var trimmed = line.TrimStart();
 
-                // Empty line → small spacer
-                if (string.IsNullOrWhiteSpace(trimmed))
+                // ``` fenced code block toggle
+                if (trimmed.StartsWith("```"))
                 {
-                    panel.Children.Add(new Border { Height = 6 });
+                    if (inCode) { AddCodeBlock(panel, string.Join("\n", codeLines), maxWidth); codeLines.Clear(); inCode = false; }
+                    else inCode = true;
+                    continue;
+                }
+                if (inCode) { codeLines.Add(line); continue; }
+
+                // | table | — gather the contiguous block of pipe rows
+                if (IsTableRow(trimmed))
+                {
+                    var rows = new List<string>();
+                    while (i < lines.Length && IsTableRow(lines[i].TrimStart()))
+                        rows.Add(lines[i++].Trim());
+                    i--; // step back; for-loop will advance
+                    AddTable(panel, rows, maxWidth);
                     continue;
                 }
 
-                // Headers
-                if (trimmed.StartsWith("### "))
-                {
-                    AddHeader(panel, trimmed.Substring(4), 13, FontWeights.Bold);
-                    continue;
-                }
-                if (trimmed.StartsWith("## "))
-                {
-                    AddHeader(panel, trimmed.Substring(3), 14, FontWeights.Bold);
-                    continue;
-                }
-                if (trimmed.StartsWith("# "))
-                {
-                    AddHeader(panel, trimmed.Substring(2), 15, FontWeights.Bold);
-                    continue;
-                }
+                if (string.IsNullOrWhiteSpace(trimmed)) { panel.Children.Add(new Border { Height = 6 }); continue; }
 
-                // Bullet points
+                if (trimmed.StartsWith("### ")) { AddHeader(panel, trimmed.Substring(4), 13, maxWidth); continue; }
+                if (trimmed.StartsWith("## "))  { AddHeader(panel, trimmed.Substring(3), 14, maxWidth); continue; }
+                if (trimmed.StartsWith("# "))   { AddHeader(panel, trimmed.Substring(2), 15, maxWidth); continue; }
+
+                if (trimmed.StartsWith("> "))   { AddBlockquote(panel, trimmed.Substring(2), maxWidth); continue; }
+
                 if (trimmed.StartsWith("- ") || trimmed.StartsWith("* "))
-                {
-                    var bulletText = trimmed.Substring(2);
-                    var bulletPanel = new StackPanel
-                    {
-                        Orientation = Orientation.Horizontal,
-                        Margin = new Thickness(8, 1, 0, 1)
-                    };
-                    bulletPanel.Children.Add(new TextBlock
-                    {
-                        Text = "•  ",
-                        Foreground = AccentBlue,
-                        FontSize = 12
-                    });
-                    var tb = new TextBlock
-                    {
-                        TextWrapping = TextWrapping.Wrap,
-                        Foreground = Brushes.White,
-                        FontSize = 12,
-                        MaxWidth = maxWidth - 30
-                    };
-                    AddInlines(tb.Inlines, bulletText);
-                    bulletPanel.Children.Add(tb);
-                    panel.Children.Add(bulletPanel);
-                    continue;
-                }
+                { AddListItem(panel, "•", trimmed.Substring(2), maxWidth); continue; }
 
-                // Citation lines (📄 Source: ...)
-                if (trimmed.StartsWith("📄"))
-                {
-                    var tb = new TextBlock
-                    {
-                        TextWrapping = TextWrapping.Wrap,
-                        Foreground = CitationColor,
-                        FontSize = 11,
-                        FontStyle = FontStyles.Italic,
-                        Margin = new Thickness(4, 2, 0, 2)
-                    };
-                    tb.Text = trimmed;
-                    panel.Children.Add(tb);
-                    continue;
-                }
+                var numbered = Regex.Match(trimmed, @"^(\d+)\.\s+(.*)$");
+                if (numbered.Success)
+                { AddListItem(panel, numbered.Groups[1].Value + ".", numbered.Groups[2].Value, maxWidth); continue; }
 
-                // Regular paragraph
-                {
-                    var tb = new TextBlock
-                    {
-                        TextWrapping = TextWrapping.Wrap,
-                        Foreground = Brushes.White,
-                        FontSize = 12,
-                        Margin = new Thickness(0, 1, 0, 1)
-                    };
-                    AddInlines(tb.Inlines, trimmed);
-                    panel.Children.Add(tb);
-                }
+                // paragraph
+                var p = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Text, FontSize = 12.5, LineHeight = 18, Margin = new Thickness(0, 1, 0, 1) };
+                AddInlines(p.Inlines, trimmed);
+                panel.Children.Add(p);
             }
 
-            // Unclosed code block
-            if (inCodeBlock && codeLines.Count > 0)
-            {
-                AddCodeBlock(panel, string.Join("\n", codeLines));
-            }
-
+            if (inCode && codeLines.Count > 0) AddCodeBlock(panel, string.Join("\n", codeLines), maxWidth);
             return panel;
         }
 
-        /// <summary>
-        /// Parse inline markdown (**bold**, *italic*, `code`, [link](url)) into Runs.
-        /// </summary>
-        private static void AddInlines(InlineCollection inlines, string text)
+        private static bool IsTableRow(string t) =>
+            t.StartsWith("|") && t.TrimEnd().EndsWith("|") && t.Count(c => c == '|') >= 2;
+
+        private static bool IsSeparatorRow(string t) =>
+            t.Replace("|", "").Replace("-", "").Replace(":", "").Trim().Length == 0
+            && t.Contains("-");
+
+        private static string[] SplitCells(string row)
         {
-            // Pattern: **bold** | *italic* | `code` | [text](url)
-            var pattern = @"(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`(.+?)`)|(\[(.+?)\]\((.+?)\))";
-            int lastIndex = 0;
-
-            foreach (Match match in Regex.Matches(text, pattern))
-            {
-                // Add text before match
-                if (match.Index > lastIndex)
-                {
-                    inlines.Add(new Run(text.Substring(lastIndex, match.Index - lastIndex)));
-                }
-
-                if (match.Groups[2].Success) // **bold**
-                {
-                    inlines.Add(new Run(match.Groups[2].Value) { FontWeight = FontWeights.Bold });
-                }
-                else if (match.Groups[4].Success) // *italic*
-                {
-                    inlines.Add(new Run(match.Groups[4].Value) { FontStyle = FontStyles.Italic });
-                }
-                else if (match.Groups[6].Success) // `code`
-                {
-                    inlines.Add(new Run(match.Groups[6].Value)
-                    {
-                        FontFamily = CodeFont,
-                        Foreground = CodeFg,
-                        FontSize = 11
-                    });
-                }
-                else if (match.Groups[8].Success) // [text](url)
-                {
-                    inlines.Add(new Run(match.Groups[8].Value)
-                    {
-                        Foreground = AccentBlue,
-                        TextDecorations = TextDecorations.Underline
-                    });
-                }
-
-                lastIndex = match.Index + match.Length;
-            }
-
-            // Add remaining text
-            if (lastIndex < text.Length)
-            {
-                inlines.Add(new Run(text.Substring(lastIndex)));
-            }
-
-            // If nothing was added (no matches), add the full text
-            if (inlines.Count == 0)
-            {
-                inlines.Add(new Run(text));
-            }
+            var t = row.Trim();
+            if (t.StartsWith("|")) t = t.Substring(1);
+            if (t.EndsWith("|")) t = t.Substring(0, t.Length - 1);
+            return t.Split('|').Select(c => c.Trim()).ToArray();
         }
 
-        private static void AddHeader(StackPanel panel, string text, double fontSize, FontWeight weight)
+        private static void AddTable(StackPanel panel, List<string> rows, double maxWidth)
         {
-            var tb = new TextBlock
+            var dataRows = rows.Where(r => !IsSeparatorRow(r)).Select(SplitCells).ToList();
+            if (dataRows.Count == 0) return;
+            int cols = dataRows.Max(r => r.Length);
+
+            var grid = new Grid { Margin = new Thickness(0, 4, 0, 4), MaxWidth = maxWidth };
+            for (int c = 0; c < cols; c++)
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            for (int r = 0; r < dataRows.Count; r++)
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+            for (int r = 0; r < dataRows.Count; r++)
             {
-                TextWrapping = TextWrapping.Wrap,
-                Foreground = Brushes.White,
-                FontSize = fontSize,
-                FontWeight = weight,
-                Margin = new Thickness(0, 4, 0, 2)
+                bool header = r == 0;
+                for (int c = 0; c < cols; c++)
+                {
+                    var cell = new Border
+                    {
+                        BorderBrush = Line,
+                        BorderThickness = new Thickness(0.5),
+                        Background = header ? CodeBg : Brushes.White,
+                        Padding = new Thickness(7, 4, 7, 4),
+                    };
+                    var tb = new TextBlock
+                    {
+                        TextWrapping = TextWrapping.Wrap,
+                        Foreground = header ? Ink : Text,
+                        FontSize = 11.5,
+                        FontWeight = header ? FontWeights.SemiBold : FontWeights.Normal,
+                    };
+                    AddInlines(tb.Inlines, c < dataRows[r].Length ? dataRows[r][c] : "");
+                    cell.Child = tb;
+                    Grid.SetRow(cell, r);
+                    Grid.SetColumn(cell, c);
+                    grid.Children.Add(cell);
+                }
+            }
+            panel.Children.Add(grid);
+        }
+
+        private static void AddBlockquote(StackPanel panel, string text, double maxWidth)
+        {
+            var border = new Border
+            {
+                BorderBrush = Accent,
+                BorderThickness = new Thickness(3, 0, 0, 0),
+                Background = BlockBg,
+                Padding = new Thickness(9, 5, 9, 5),
+                Margin = new Thickness(0, 3, 0, 3),
+                CornerRadius = new CornerRadius(0, 4, 4, 0),
             };
+            var tb = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Muted, FontSize = 12, MaxWidth = maxWidth - 24 };
+            AddInlines(tb.Inlines, text);
+            border.Child = tb;
+            panel.Children.Add(border);
+        }
+
+        private static void AddListItem(StackPanel panel, string marker, string text, double maxWidth)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 1, 0, 1) };
+            row.Children.Add(new TextBlock { Text = marker + "  ", Foreground = Accent, FontSize = 12.5, MinWidth = 16 });
+            var tb = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Text, FontSize = 12.5, MaxWidth = maxWidth - 30 };
+            AddInlines(tb.Inlines, text);
+            row.Children.Add(tb);
+            panel.Children.Add(row);
+        }
+
+        private static void AddHeader(StackPanel panel, string text, double fontSize, double maxWidth)
+        {
+            var tb = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Ink, FontSize = fontSize, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 5, 0, 2), MaxWidth = maxWidth };
             AddInlines(tb.Inlines, text);
             panel.Children.Add(tb);
         }
 
-        private static void AddCodeBlock(StackPanel panel, string code)
+        private static void AddCodeBlock(StackPanel panel, string code, double maxWidth)
         {
-            var border = new Border
+            var border = new Border { Background = BlockBg, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), Padding = new Thickness(9), Margin = new Thickness(0, 4, 0, 4), MaxWidth = maxWidth };
+            border.Child = new TextBox
             {
-                Background = CodeBg,
-                CornerRadius = new CornerRadius(4),
-                Padding = new Thickness(8),
-                Margin = new Thickness(0, 4, 0, 4)
+                Text = code, Foreground = Ink, Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                IsReadOnly = true, TextWrapping = TextWrapping.Wrap, FontFamily = CodeFont, FontSize = 11,
             };
-
-            var textBox = new TextBox
-            {
-                Text = code,
-                Foreground = CodeFg,
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                IsReadOnly = true,
-                TextWrapping = TextWrapping.Wrap,
-                FontFamily = CodeFont,
-                FontSize = 11
-            };
-
-            border.Child = textBox;
             panel.Children.Add(border);
+        }
+
+        private static void AddInlines(InlineCollection inlines, string text)
+        {
+            var pattern = @"(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`(.+?)`)|(\[(.+?)\]\((.+?)\))";
+            int last = 0;
+            foreach (Match m in Regex.Matches(text, pattern))
+            {
+                if (m.Index > last) inlines.Add(new Run(text.Substring(last, m.Index - last)));
+                if (m.Groups[2].Success) inlines.Add(new Run(m.Groups[2].Value) { FontWeight = FontWeights.Bold });
+                else if (m.Groups[4].Success) inlines.Add(new Run(m.Groups[4].Value) { FontStyle = FontStyles.Italic });
+                else if (m.Groups[6].Success) inlines.Add(new Run(m.Groups[6].Value) { FontFamily = CodeFont, Foreground = CodeFg, FontSize = 11 });
+                else if (m.Groups[8].Success) inlines.Add(new Run(m.Groups[8].Value) { Foreground = Accent, TextDecorations = TextDecorations.Underline });
+                last = m.Index + m.Length;
+            }
+            if (last < text.Length) inlines.Add(new Run(text.Substring(last)));
+            if (inlines.Count == 0) inlines.Add(new Run(text));
         }
     }
 }

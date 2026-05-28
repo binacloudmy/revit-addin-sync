@@ -91,7 +91,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var col = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
             col.MaxWidth = 360;
             if (!string.IsNullOrEmpty(m.Text))
-                col.Children.Add(new TextBlock { Text = m.Text, FontSize = 13, Foreground = CopilotColors.From("#374151"), TextWrapping = TextWrapping.Wrap, LineHeight = 20, Margin = new Thickness(0, 0, 0, 8) });
+            {
+                // AI replies are markdown (headers, **bold**, tables, lists) —
+                // render formatted, not as raw text. User bubbles stay plain.
+                var md = RevitWebAppSync.Helpers.MarkdownRenderer.Render(m.Text, col.MaxWidth);
+                md.Margin = new Thickness(0, 0, 0, 8);
+                col.Children.Add(md);
+            }
 
             switch (m.Kind)
             {
