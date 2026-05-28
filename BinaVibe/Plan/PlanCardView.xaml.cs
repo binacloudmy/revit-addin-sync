@@ -29,22 +29,51 @@ namespace BinaVibe.Plan
         public void Bind(PlanModel plan)
         {
             IntentText.Text = plan?.Intent ?? "";
+            int i = 0;
             StepsList.ItemsSource = plan?.Steps?
                 .OrderBy(s => s.Id)
-                .Select(s => new PlanStepRow
+                .Select(s =>
                 {
-                    Type = s.Type ?? "",
-                    Goal = s.Goal ?? "",
-                    RequiresApproval = s.RequiresApproval,
+                    var (bg, fg) = BadgeColors(s.Type, s.RequiresApproval);
+                    return new PlanStepRow
+                    {
+                        Index = (++i).ToString() + ".",
+                        Type = s.Type ?? "",
+                        TypeLabel = (s.Type ?? "step").ToUpperInvariant(),
+                        Goal = s.Goal ?? "",
+                        RequiresApproval = s.RequiresApproval,
+                        BadgeBg = bg,
+                        BadgeFg = fg,
+                    };
                 })
                 .ToList();
         }
 
+        // Category palette mirrors the Copilot tool-tile colors. MUTATE steps
+        // (and anything approval-gated) read amber/red so the drafter's eye
+        // lands on the consequential rows.
+        private static (string bg, string fg) BadgeColors(string type, bool gated)
+        {
+            string t = (type ?? "").Trim().ToLowerInvariant();
+            if (gated || t == "mutate") return ("#fee2e2", "#b91c1c");   // red
+            switch (t)
+            {
+                case "inspect": return ("#dbeafe", "#1d4ed8");           // blue
+                case "decide": return ("#ede9fe", "#6d28d9");            // violet
+                case "verify": return ("#dcfce7", "#15803d");           // green
+                default: return ("#f1f5f9", "#475569");                  // slate
+            }
+        }
+
         public sealed class PlanStepRow
         {
+            public string Index { get; set; }
             public string Type { get; set; }
+            public string TypeLabel { get; set; }
             public string Goal { get; set; }
             public bool RequiresApproval { get; set; }
+            public string BadgeBg { get; set; }
+            public string BadgeFg { get; set; }
         }
     }
 }

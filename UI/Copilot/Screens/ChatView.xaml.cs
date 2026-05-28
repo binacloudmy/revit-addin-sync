@@ -104,23 +104,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 case CpMsgKind.ApprovalCard: col.Children.Add(BuildApprovalCard(m)); break;
             }
 
-            // Tool-calling agent trace: small faint line under the reply
-            // listing the tools the agent used. Gives the drafter audit
-            // visibility ("agent looked up list_levels then set_parameter")
-            // without taking screen space from the actual answer.
+            // Tool-calling agent trace: a compact "steps" panel under the
+            // reply listing each tool the agent ran, with a check glyph.
+            // Gives the drafter audit visibility of what actually executed.
             if (m.ToolCallTrace != null && m.ToolCallTrace.Count > 0)
-            {
-                var trace = "used: " + string.Join(" → ", m.ToolCallTrace);
-                col.Children.Add(new TextBlock
-                {
-                    Text = trace,
-                    FontSize = 10,
-                    Foreground = CopilotColors.From("#9aa3b8"),
-                    FontStyle = FontStyles.Italic,
-                    TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 6, 0, 0),
-                });
-            }
+                col.Children.Add(ToolTracePanel(m.ToolCallTrace));
 
             // Reviewer verdict badge (PRD §6.2 stage 7). Tiny line
             // under the trace: green when verified, amber with issue
@@ -468,6 +456,60 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             b.Content = sp;
             if (onClick != null) b.Click += (_, __) => onClick();
             return b;
+        }
+
+        // Compact audit panel of the tools the agent ran this turn. Each
+        // tool is a row with a green check + monospace name, inside a light
+        // rounded container — readable but quiet, doesn't fight the answer.
+        private FrameworkElement ToolTracePanel(System.Collections.Generic.IList<string> tools)
+        {
+            var outer = new Border
+            {
+                Background = CopilotColors.From("#fafafa"),
+                BorderBrush = CopilotColors.From("#eef0f3"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(10, 7, 10, 7),
+                Margin = new Thickness(0, 8, 0, 0),
+            };
+            var sp = new StackPanel();
+            sp.Children.Add(new TextBlock
+            {
+                Text = tools.Count == 1 ? "1 STEP" : $"{tools.Count} STEPS",
+                FontSize = 9.5,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = CopilotColors.From("#9ca3af"),
+                Margin = new Thickness(0, 0, 0, 5),
+            });
+            foreach (var t in tools)
+            {
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 1.5, 0, 1.5) };
+                var dot = new Border
+                {
+                    Width = 14, Height = 14, CornerRadius = new CornerRadius(7),
+                    Background = CopilotColors.From("#dcfce7"),
+                    Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center,
+                };
+                dot.Child = new TextBlock
+                {
+                    Text = "✓", FontSize = 8.5, FontWeight = FontWeights.Bold,
+                    Foreground = CopilotColors.From("#16a34a"),
+                    HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                };
+                row.Children.Add(dot);
+                row.Children.Add(new TextBlock
+                {
+                    Text = t,
+                    FontFamily = new FontFamily("Cascadia Mono, Consolas, monospace"),
+                    FontSize = 11,
+                    Foreground = CopilotColors.From("#374151"),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+                sp.Children.Add(row);
+            }
+            outer.Child = sp;
+            return outer;
         }
 
         private static FrameworkElement BotAvatar(double size = 22)

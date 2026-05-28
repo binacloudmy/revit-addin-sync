@@ -4,47 +4,131 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d"
-             d:DesignHeight="320" d:DesignWidth="420">
+             d:DesignHeight="320" d:DesignWidth="360">
     <!--
-        Plan card per PRD §9.1: shows the structured Plan the Planner
-        produced before any MUTATE runs. INSPECT/DECIDE/MUTATE/VERIFY
-        steps render with type badge + goal + expected outcome.
-        Embedded inside the Copilot pane chat thread.
+        Plan card per PRD §9.1: the structured Plan the Planner produced
+        before any MUTATE runs. Light theme, matching the Copilot pane
+        design language (white card, gradient header, rounded 12).
     -->
-    <Border Padding="12" CornerRadius="8" BorderThickness="1"
-            BorderBrush="#3D414B" Background="#1B1E27">
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
+    <UserControl.Resources>
+        <FontFamily x:Key="UiFont">Segoe UI, system-ui, sans-serif</FontFamily>
 
-            <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,8">
-                <TextBlock Text="Plan" FontWeight="Bold" Foreground="#E1E5EE" FontSize="13"/>
-                <TextBlock x:Name="IntentText" Margin="8,0,0,0"
-                           Foreground="#A4ACBE" FontSize="12"
-                           TextTrimming="CharacterEllipsis"/>
-            </StackPanel>
+        <!-- Primary (blue) button -->
+        <Style x:Key="PrimaryBtn" TargetType="Button">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" CornerRadius="8" Background="#2563eb" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="#1d4ed8"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="b" Property="Background" Value="#bcccf5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
 
-            <ItemsControl x:Name="StepsList" Grid.Row="1">
+        <!-- Ghost (outline) button -->
+        <Style x:Key="GhostBtn" TargetType="Button">
+            <Setter Property="Foreground" Value="#374151"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Padding" Value="12,7"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" CornerRadius="8" Background="White"
+                                BorderBrush="#e5e7eb" BorderThickness="1" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="#f3f4f6"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Border CornerRadius="12" BorderThickness="1" BorderBrush="#e5e7eb" Background="White"
+            FontFamily="{StaticResource UiFont}">
+        <Border.Effect>
+            <DropShadowEffect Color="#1f2430" Opacity="0.08" BlurRadius="12" ShadowDepth="2" Direction="270"/>
+        </Border.Effect>
+        <StackPanel>
+
+            <!-- Header -->
+            <Border Padding="12,10" CornerRadius="12,12,0,0" BorderBrush="#eef0f3" BorderThickness="0,0,0,1">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#f5f3ff" Offset="0"/>
+                        <GradientStop Color="#eff6ff" Offset="1"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+                <StackPanel Orientation="Horizontal">
+                    <Border Width="22" Height="22" CornerRadius="6" Background="White" Margin="0,0,8,0">
+                        <TextBlock Text="✦" FontSize="12" Foreground="#7c3aed"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Plan" FontWeight="SemiBold" FontSize="12.5" Foreground="#3b1d75"/>
+                        <TextBlock x:Name="IntentText" FontSize="11" Foreground="#6b7280"
+                                   TextTrimming="CharacterEllipsis" MaxWidth="280"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Steps -->
+            <ItemsControl x:Name="StepsList" Margin="12,10,12,4">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
-                        <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
-                            <Border Padding="4,1" CornerRadius="3" Background="#2A2F3B" Margin="0,0,6,0">
-                                <TextBlock Text="{Binding Type}" FontSize="10" Foreground="#9AA3B8"/>
+                        <Grid Margin="0,3,0,3">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{Binding Index}" FontSize="11"
+                                       FontWeight="SemiBold" Foreground="#9ca3af"
+                                       VerticalAlignment="Center" Margin="0,0,8,0" MinWidth="14"/>
+                            <Border Grid.Column="1" Padding="6,2" CornerRadius="4" Margin="0,0,8,0"
+                                    Background="{Binding BadgeBg}" VerticalAlignment="Center">
+                                <TextBlock Text="{Binding TypeLabel}" FontSize="9.5" FontWeight="SemiBold"
+                                           Foreground="{Binding BadgeFg}"/>
                             </Border>
-                            <TextBlock Text="{Binding Goal}" Foreground="#D6DAE6" FontSize="12"/>
-                        </StackPanel>
+                            <TextBlock Grid.Column="2" Text="{Binding Goal}" Foreground="#374151"
+                                       FontSize="12" TextWrapping="Wrap" VerticalAlignment="Center" LineHeight="17"/>
+                        </Grid>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
 
-            <StackPanel Orientation="Horizontal" Grid.Row="2" Margin="0,8,0,0">
-                <Button x:Name="ApproveButton" Content="Approve &amp; Run" Padding="10,4"/>
-                <Button x:Name="EditButton" Content="Edit Plan" Margin="8,0,0,0" Padding="10,4"/>
-                <Button x:Name="CancelButton" Content="Cancel" Margin="8,0,0,0" Padding="10,4"/>
-            </StackPanel>
-        </Grid>
+            <!-- Actions -->
+            <Border Padding="10,9" CornerRadius="0,0,12,12" Background="#fafafa"
+                    BorderBrush="#f1f3f5" BorderThickness="0,1,0,0">
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button x:Name="EditButton" Content="Edit" Style="{StaticResource GhostBtn}" Margin="0,0,8,0"/>
+                    <Button x:Name="CancelButton" Content="Cancel" Style="{StaticResource GhostBtn}" Margin="0,0,8,0"/>
+                    <Button x:Name="ApproveButton" Content="Approve &amp; Run" Style="{StaticResource PrimaryBtn}"/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
     </Border>
 </UserControl>

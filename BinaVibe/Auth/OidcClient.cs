@@ -108,7 +108,7 @@ namespace BinaVibe.Auth
             var code = q["code"];
             var rxState = q["state"];
 
-            var html = "<html><body><h3>BINA Vibe — signed in.</h3>You can close this tab.</body></html>";
+            var html = "<html><body><h3>Revit Copilot — signed in.</h3>You can close this tab.</body></html>";
             var bytes = Encoding.UTF8.GetBytes(html);
             ctx.Response.ContentType = "text/html";
             ctx.Response.ContentLength64 = bytes.Length;

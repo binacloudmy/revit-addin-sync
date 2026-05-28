@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Revit Copilot add-in — MSI installer (WiX v4/v5 syntax).
+
+  Drops the addin DLL, all its NuGet dependencies, and the .addin manifest
+  into the per-user Revit Addins folder for each supported version. Per-user
+  scope means no admin elevation — a drafter without local-admin rights can
+  install it.
+
+  Supported Revit versions: 2025, 2026, 2027.
+    Revit <=2024 runs on .NET Framework 4.8 and CANNOT load this
+    net8.0-windows assembly, so it is intentionally excluded.
+
+  Payload is harvested from the publish dir with <Files> wildcards so new
+  transitive dependencies are picked up automatically — no manual file list,
+  no heat.exe. The build script copies the .addin manifest into that dir
+  before harvest so it ships alongside the DLLs.
+
+  Build (run installer\build-installer.ps1, or by hand):
+    dotnet build -c Release
+    copy RevitWebAppSync.addin bin\Release\net8.0-windows\
+    dotnet tool install --global wix
+    wix extension add -g WixToolset.UI.wixext
+    wix build installer\RevitCopilot.wxs -ext WixToolset.UI.wixext ^
+      -d PublishDir=bin\Release\net8.0-windows -o RevitCopilot.msi
+
+  Sign (needs an EV / OV code-signing cert — without it SmartScreen warns):
+    signtool sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /a RevitCopilot.msi
+
+  IMPORTANT: UpgradeCode is permanent per product. DO NOT regenerate it after
+  the first public release or in-place upgrades will break.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="Revit Copilot"
+           Manufacturer="Bina Cloudtech Sdn Bhd"
+           Version="1.0.0.0"
+           UpgradeCode="66179CD4-87C4-41EF-8CAF-81308C5047E2"
+           Compressed="yes"
+           Scope="perUser">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Revit Copilot is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- %APPDATA%\Autodesk\Revit\Addins\<year>\  (per-user) -->
+    <StandardDirectory Id="AppDataFolder">
+      <Directory Id="AutodeskFolder" Name="Autodesk">
+        <Directory Id="RevitFolder" Name="Revit">
+          <Directory Id="AddinsFolder" Name="Addins">
+            <Directory Id="Addins2025" Name="2025" />
+            <Directory Id="Addins2026" Name="2026" />
+            <Directory Id="Addins2027" Name="2027" />
+          </Directory>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="RevitCopilotFeature" Title="Revit Copilot Add-in" Level="1">
+      <ComponentGroupRef Id="Payload2025" />
+      <ComponentGroupRef Id="Payload2026" />
+      <ComponentGroupRef Id="Payload2027" />
+    </Feature>
+
+    <!-- One harvested payload per version folder. Same source, copied into
+         each Addins\<year>\ so the manifest's relative <Assembly> resolves to
+         the DLL sitting next to it. .pdb excluded to keep the MSI lean. -->
+    <ComponentGroup Id="Payload2025" Directory="Addins2025">
+      <Files Include="$(var.PublishDir)\**">
+        <Exclude Files="$(var.PublishDir)\*.pdb" />
+      </Files>
+    </ComponentGroup>
+
+    <ComponentGroup Id="Payload2026" Directory="Addins2026">
+      <Files Include="$(var.PublishDir)\**">
+        <Exclude Files="$(var.PublishDir)\*.pdb" />
+      </Files>
+    </ComponentGroup>
+
+    <ComponentGroup Id="Payload2027" Directory="Addins2027">
+      <Files Include="$(var.PublishDir)\**">
+        <Exclude Files="$(var.PublishDir)\*.pdb" />
+      </Files>
+    </ComponentGroup>
+
+    <ui:WixUI Id="WixUI_Minimal" />
+
+  </Package>
+</Wix>

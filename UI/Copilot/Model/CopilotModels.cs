@@ -14,9 +14,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
     // AiReply = plain-text AI response (no card, no Save/Copy/Undo). Used
     // when the backend marks is_query=true: code is auto-run and the
     // structured result is reformulated as one conversational sentence.
-    // When ToolCallTrace is set, the chat renders a faint "used: tool1 →
-    // tool2" line under the reply so the drafter can see what the agent
-    // looked up.
+    // When ToolCallTrace is set, the chat renders a compact "steps" panel
+    // under the reply (one checked row per tool) so the drafter can see what
+    // the agent actually ran.
     // PlanCard = the Plan card rendered BEFORE the agent executes (PRD §6.2
     // Stage 3). User clicks Approve to invoke /execute-plan or Cancel to
     // drop the plan. Distinct from Proposal (proposal carries C# to Run);

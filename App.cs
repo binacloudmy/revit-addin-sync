@@ -157,7 +157,13 @@ namespace RevitWebAppSync
                     {
                         var flags = BinaVibe.Policy.VibeFlags.Load();
                         var cfg = BinaConfig.Load();
-                        var token = Environment.GetEnvironmentVariable("BINA_VIBE_TOKEN") ?? "dev-token";
+                        // Send the logged-in user's BINA Cloud JWT so the backend can
+                        // validate the tunnel against bina-be and bind the tenant to the
+                        // verified identity. Falls back to BINA_VIBE_TOKEN / dev-token only
+                        // when no session exists (dev / not-yet-logged-in).
+                        var token = !string.IsNullOrWhiteSpace(cfg?.AccessToken)
+                            ? cfg.AccessToken
+                            : (Environment.GetEnvironmentVariable("BINA_VIBE_TOKEN") ?? "dev-token");
                         var sessionId = Guid.NewGuid().ToString();
                         VibeMcpTunnel = new BinaVibe.Mcp.McpTunnelClient(
                             cfg.ResolvedAIBaseUrl,

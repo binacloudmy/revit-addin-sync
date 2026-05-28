@@ -1,45 +1,132 @@
 <UserControl x:Class="BinaVibe.Plan.ApprovalCardView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             d:DesignHeight="180" d:DesignWidth="420"
+             d:DesignHeight="200" d:DesignWidth="360"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d">
     <!--
-        Approval gate card per PRD §9.2. Renders the gated MUTATE step,
-        offers Preview (highlights affected elements in Revit), Approve,
-        Reject, or Approve partial. Timeout shown in footer.
+        Approval gate card per PRD §9.2. Light theme with a red danger
+        accent so the drafter registers this is a consequential MUTATE.
+        Preview highlights affected elements in Revit; Approve runs it;
+        Reject stops the agent at this step.
     -->
-    <Border Padding="12" CornerRadius="8" BorderThickness="1"
-            BorderBrush="#7C4A1E" Background="#241B14">
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
+    <UserControl.Resources>
+        <FontFamily x:Key="UiFont">Segoe UI, system-ui, sans-serif</FontFamily>
 
-            <StackPanel Orientation="Horizontal" Grid.Row="0">
-                <TextBlock Text="⚠ Approval Required" FontWeight="Bold"
-                           Foreground="#F2C083" FontSize="13"/>
-                <TextBlock x:Name="ReasonText" Margin="10,0,0,0"
-                           Foreground="#D7C3A6" FontSize="11"/>
+        <!-- Danger (red) primary -->
+        <Style x:Key="DangerBtn" TargetType="Button">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" CornerRadius="8" Background="#dc2626" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="#b91c1c"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Ghost (outline) -->
+        <Style x:Key="GhostBtn" TargetType="Button">
+            <Setter Property="Foreground" Value="#374151"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="FontWeight" Value="Medium"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Padding" Value="12,7"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="b" CornerRadius="8" Background="White"
+                                BorderBrush="#e5e7eb" BorderThickness="1" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="b" Property="Background" Value="#f3f4f6"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Border CornerRadius="12" BorderThickness="1" BorderBrush="#fecaca" Background="White"
+            FontFamily="{StaticResource UiFont}">
+        <Border.Effect>
+            <DropShadowEffect Color="#7f1d1d" Opacity="0.10" BlurRadius="12" ShadowDepth="2" Direction="270"/>
+        </Border.Effect>
+        <StackPanel>
+
+            <!-- Header -->
+            <Border Padding="12,10" CornerRadius="12,12,0,0" BorderBrush="#fee2e2" BorderThickness="0,0,0,1">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#fff1f2" Offset="0"/>
+                        <GradientStop Color="#fef2f2" Offset="1"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+                <StackPanel Orientation="Horizontal">
+                    <Border Width="22" Height="22" CornerRadius="6" Background="White" Margin="0,0,8,0">
+                        <TextBlock Text="⚠" FontSize="12" Foreground="#dc2626"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="Approval required" FontWeight="SemiBold" FontSize="12.5" Foreground="#7f1d1d"/>
+                        <TextBlock x:Name="ReasonText" FontSize="11" Foreground="#b91c1c"
+                                   TextTrimming="CharacterEllipsis" MaxWidth="280"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Body: tool + affected elements -->
+            <StackPanel Margin="12,10,12,10">
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                    <Border Padding="7,3" CornerRadius="5" Background="#fee2e2" VerticalAlignment="Center">
+                        <TextBlock x:Name="GoalText" FontFamily="Cascadia Mono, Consolas, monospace"
+                                   FontSize="11.5" FontWeight="SemiBold" Foreground="#b91c1c"/>
+                    </Border>
+                </StackPanel>
+                <Border Background="#f9fafb" BorderBrush="#f1f3f5" BorderThickness="1"
+                        CornerRadius="7" Padding="10,7">
+                    <StackPanel>
+                        <TextBlock Text="AFFECTED" FontSize="9.5" FontWeight="SemiBold"
+                                   Foreground="#9ca3af" Margin="0,0,0,3"/>
+                        <TextBlock x:Name="AffectedText" FontSize="11.5" Foreground="#374151"
+                                   TextWrapping="Wrap" LineHeight="17"/>
+                    </StackPanel>
+                </Border>
             </StackPanel>
 
-            <TextBlock x:Name="GoalText" Grid.Row="1" Margin="0,8,0,4"
-                       Foreground="#E6D9C6" FontSize="12" TextWrapping="Wrap"/>
-
-            <TextBlock x:Name="AffectedText" Grid.Row="2" Margin="0,0,0,8"
-                       Foreground="#A99980" FontSize="11" TextWrapping="Wrap"/>
-
-            <StackPanel Orientation="Horizontal" Grid.Row="3">
-                <Button x:Name="PreviewButton" Content="Preview" Padding="10,4"/>
-                <Button x:Name="ApproveButton" Content="Approve" Margin="8,0,0,0" Padding="10,4"/>
-                <Button x:Name="RejectButton" Content="Reject" Margin="8,0,0,0" Padding="10,4"/>
-                <TextBlock x:Name="TimeoutText" Margin="14,4,0,0"
-                           Foreground="#8C7D67" FontSize="10"/>
-            </StackPanel>
-        </Grid>
+            <!-- Actions -->
+            <Border Padding="10,9" CornerRadius="0,0,12,12" Background="#fafafa"
+                    BorderBrush="#f1f3f5" BorderThickness="0,1,0,0">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Button x:Name="PreviewButton" Grid.Column="0" Content="Preview" Style="{StaticResource GhostBtn}"/>
+                    <TextBlock x:Name="TimeoutText" Grid.Column="1" FontSize="10" Foreground="#9ca3af"
+                               VerticalAlignment="Center" Margin="10,0,0,0"/>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal">
+                        <Button x:Name="RejectButton" Content="Reject" Style="{StaticResource GhostBtn}" Margin="0,0,8,0"/>
+                        <Button x:Name="ApproveButton" Content="Approve" Style="{StaticResource DangerBtn}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </StackPanel>
     </Border>
 </UserControl>
