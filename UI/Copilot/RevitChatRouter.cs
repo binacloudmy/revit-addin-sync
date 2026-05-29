@@ -50,10 +50,12 @@ namespace RevitWebAppSync.UI.Copilot
             var ctx = BuildContext();
             int? userId = (cfg?.UserId ?? 0) > 0 ? (int?)cfg.UserId : null;
 
-            // Plan mode: when BINA_VIBE_CHAT_MODE=plan, get a structured Plan
-            // from /agents/revit-ai/plan and let the chat render a Plan card. User
-            // clicks Approve → addin calls /execute-plan with the same Plan.
-            var useVibeV2Mode = System.Environment.GetEnvironmentVariable("BINA_VIBE_CHAT_MODE") ?? "plan";  // plan | tool
+            // Chat mode (default = tool): the tool-calling agent acts directly and
+            // streams (no plan card, no approve gate) — the snappy "vibe" path.
+            // Opt into multi-step Plan mode with BINA_VIBE_CHAT_MODE=plan: gets a
+            // structured Plan from /agents/revit-ai/plan, renders a Plan card, and
+            // executes on Approve. Reserve Plan mode for big multi-step mutations.
+            var useVibeV2Mode = System.Environment.GetEnvironmentVariable("BINA_VIBE_CHAT_MODE") ?? "tool";  // tool | plan
             if (string.Equals(useVibeV2Mode, "plan", System.StringComparison.OrdinalIgnoreCase))
             {
                 try
