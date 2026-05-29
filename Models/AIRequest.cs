@@ -46,5 +46,15 @@ namespace RevitWebAppSync.Models
 
         [JsonProperty("revitVersion")]
         public string RevitVersion { get; set; }
+
+        /// <summary>
+        /// Identifies the backend snapshot namespace for this project.
+        /// Must match the {project} segment used by DocumentChangedIndexer
+        /// when POSTing to /vibe/snapshot/{tenant}/{project} so the backend
+        /// can read the mirror for this specific model.
+        /// Serialised as "project_id" to match the backend RevitModelContext field.
+        /// </summary>
+        [JsonProperty("project_id")]
+        public string ProjectId { get; set; }
     }
 }

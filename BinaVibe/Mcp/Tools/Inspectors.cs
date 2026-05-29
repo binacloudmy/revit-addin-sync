@@ -211,6 +211,39 @@ namespace BinaVibe.Mcp.Tools
             };
         }
 
+        // ─── get_current_view_elements ──────────────────────────────────
+        public static Dictionary<string, object?> GetCurrentViewElements(UIDocument uidoc)
+        {
+            var doc = uidoc.Document;
+            var view = doc.ActiveView;
+            if (view == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["elements"] = new List<object>() };
+
+            const int cap = 200;
+            var elements = new FilteredElementCollector(doc, view.Id)
+                .WhereElementIsNotElementType()
+                .Take(cap)
+                .Select(el =>
+                {
+                    var typeEl = el.GetTypeId().Value != ElementId.InvalidElementId.Value
+                        ? doc.GetElement(el.GetTypeId()) : null;
+                    return (object)new Dictionary<string, object?>
+                    {
+                        ["id"] = el.Id.Value,
+                        ["category"] = el.Category?.Name,
+                        ["type_name"] = typeEl?.Name,
+                    };
+                })
+                .ToList<object>();
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["elements"] = elements,
+                ["view_name"] = view.Name,
+            };
+        }
+
         // ─── get_project_info ───────────────────────────────────────────
         public static Dictionary<string, object?> GetProjectInfo(Document doc, UIApplication app)
         {
@@ -230,6 +263,225 @@ namespace BinaVibe.Mcp.Tools
                 ["revit_version"] = app.Application?.VersionNumber,
                 ["units"] = lengthUnit,
                 ["title"] = doc.Title,
+            };
+        }
+
+        // ─── list_views ─────────────────────────────────────────────────
+        public static Dictionary<string, object?> ListViews(Document doc)
+        {
+            var views = new FilteredElementCollector(doc)
+                .OfClass(typeof(View)).Cast<View>()
+                .Where(v => !v.IsTemplate)
+                .Select(v =>
+                {
+                    var lvlId = v.GenLevel?.Id;
+                    var lvlName = lvlId != null && lvlId.Value != ElementId.InvalidElementId.Value
+                        ? doc.GetElement(lvlId)?.Name : null;
+                    return (object)new Dictionary<string, object?>
+                    {
+                        ["id"] = v.Id.Value,
+                        ["name"] = v.Name,
+                        ["view_type"] = v.ViewType.ToString(),
+                        ["level"] = lvlName,
+                    };
+                })
+                .ToList<object>();
+            return new Dictionary<string, object?> { ["ok"] = true, ["views"] = views };
+        }
+
+        // ─── list_sheets ────────────────────────────────────────────────
+        public static Dictionary<string, object?> ListSheets(Document doc)
+        {
+            var sheets = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewSheet)).Cast<ViewSheet>()
+                .Select(s => (object)new Dictionary<string, object?>
+                {
+                    ["id"] = s.Id.Value,
+                    ["number"] = s.SheetNumber,
+                    ["name"] = s.Name,
+                })
+                .ToList<object>();
+            return new Dictionary<string, object?> { ["ok"] = true, ["sheets"] = sheets };
+        }
+
+        // ─── list_schedules ─────────────────────────────────────────────
+        public static Dictionary<string, object?> ListSchedules(Document doc)
+        {
+            var schedules = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
+                .Where(v => !v.IsTemplate)
+                .Select(v => (object)new Dictionary<string, object?>
+                {
+                    ["id"] = v.Id.Value,
+                    ["name"] = v.Name,
+                })
+                .ToList<object>();
+            return new Dictionary<string, object?> { ["ok"] = true, ["schedules"] = schedules };
+        }
+
+        // ─── list_grids ─────────────────────────────────────────────────
+        public static Dictionary<string, object?> ListGrids(Document doc)
+        {
+            var grids = new FilteredElementCollector(doc)
+                .OfCategory(BuiltInCategory.OST_Grids)
+                .WhereElementIsNotElementType()
+                .Select(el => (object)new Dictionary<string, object?>
+                {
+                    ["id"] = el.Id.Value,
+                    ["name"] = el.Name,
+                })
+                .ToList<object>();
+            return new Dictionary<string, object?> { ["ok"] = true, ["grids"] = grids };
+        }
+
+        // ─── analyze_model_statistics ────────────────────────────────────
+        public static Dictionary<string, object?> AnalyzeModelStatistics(Document doc)
+        {
+            var counts = new Dictionary<string, int>();
+            int total = 0;
+
+            foreach (var el in new FilteredElementCollector(doc).WhereElementIsNotElementType())
+            {
+                var catName = el.Category?.Name;
+                if (string.IsNullOrEmpty(catName)) continue;
+                counts.TryGetValue(catName, out var n);
+                counts[catName] = n + 1;
+                total++;
+            }
+
+            // Sort descending by count for readability.
+            var sorted = counts
+                .OrderByDescending(kv => kv.Value)
+                .ToDictionary(kv => kv.Key, kv => (object)kv.Value);
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["counts"] = sorted,
+                ["total"] = total,
+            };
+        }
+
+        // ─── find_elements_by_parameter ─────────────────────────────────
+        /// <summary>
+        /// args: { category, conditions:[{param,op,value}], match:"all"|"any" }
+        /// ops: = != &lt; &gt; &lt;= &gt;= contains
+        /// </summary>
+        public static Dictionary<string, object?> FindElementsByParameter(Document doc, JsonElement args)
+        {
+            var category = TryGetString(args, "category") ?? "Walls";
+            var matchMode = TryGetString(args, "match") ?? "all";
+            bool matchAll = !matchMode.Equals("any", System.StringComparison.OrdinalIgnoreCase);
+
+            // Parse conditions array.
+            var conditions = new List<(string param, string op, string value)>();
+            if (args.ValueKind == JsonValueKind.Object &&
+                args.TryGetProperty("conditions", out var condArr) &&
+                condArr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var cond in condArr.EnumerateArray())
+                {
+                    if (cond.ValueKind != JsonValueKind.Object) continue;
+                    var p = TryGetString(cond, "param") ?? "";
+                    var op = TryGetString(cond, "op") ?? "=";
+                    var v = TryGetString(cond, "value") ?? "";
+                    if (!string.IsNullOrEmpty(p))
+                        conditions.Add((p, op, v));
+                }
+            }
+
+            var bic = ResolveBuiltInCategory(category);
+            IEnumerable<Element> q = new FilteredElementCollector(doc).WhereElementIsNotElementType();
+            if (bic.HasValue) q = q.OfCategory(bic.Value);
+
+            const int cap = 50;
+            var elements = new List<object>();
+
+            foreach (var el in q)
+            {
+                if (elements.Count >= cap) break;
+
+                bool passes = conditions.Count == 0
+                    ? true
+                    : matchAll
+                        ? conditions.All(c => EvaluateCondition(el, doc, c.param, c.op, c.value))
+                        : conditions.Any(c => EvaluateCondition(el, doc, c.param, c.op, c.value));
+
+                if (!passes) continue;
+
+                var typeEl = el.GetTypeId().Value != ElementId.InvalidElementId.Value
+                    ? doc.GetElement(el.GetTypeId()) : null;
+
+                // Collect matched param values.
+                var matchedParams = new Dictionary<string, object?>();
+                foreach (var (paramName, _, _) in conditions)
+                {
+                    var p = el.LookupParameter(paramName);
+                    if (p != null) matchedParams[paramName] = SafeParamValue(p);
+                }
+
+                elements.Add(new Dictionary<string, object?>
+                {
+                    ["id"] = el.Id.Value,
+                    ["category"] = el.Category?.Name,
+                    ["type_name"] = typeEl?.Name,
+                    ["params"] = matchedParams,
+                });
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["elements"] = elements,
+                ["count"] = elements.Count,
+            };
+        }
+
+        // ─── condition evaluator ─────────────────────────────────────────
+        private static bool EvaluateCondition(Element el, Document doc, string paramName, string op, string wantStr)
+        {
+            var p = el.LookupParameter(paramName);
+            if (p == null) return false;
+
+            var raw = SafeParamValue(p);
+            var rawStr = raw?.ToString() ?? "";
+
+            // Try numeric comparison first when both sides coerce.
+            if (double.TryParse(wantStr, System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out var wantNum))
+            {
+                double? actualNum = null;
+                if (p.StorageType == StorageType.Double) actualNum = p.AsDouble();
+                else if (p.StorageType == StorageType.Integer) actualNum = (double)p.AsInteger();
+                else if (double.TryParse(rawStr, System.Globalization.NumberStyles.Any,
+                             System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                    actualNum = parsed;
+
+                if (actualNum.HasValue)
+                {
+                    return op switch
+                    {
+                        "="  or "==" => System.Math.Abs(actualNum.Value - wantNum) < 1e-9,
+                        "!="         => System.Math.Abs(actualNum.Value - wantNum) >= 1e-9,
+                        "<"          => actualNum.Value < wantNum,
+                        ">"          => actualNum.Value > wantNum,
+                        "<="         => actualNum.Value <= wantNum,
+                        ">="         => actualNum.Value >= wantNum,
+                        "contains"   => rawStr.IndexOf(wantStr, System.StringComparison.OrdinalIgnoreCase) >= 0,
+                        _            => false,
+                    };
+                }
+            }
+
+            // String comparison.
+            return op switch
+            {
+                "="  or "==" => string.Equals(rawStr, wantStr, System.StringComparison.OrdinalIgnoreCase),
+                "!="         => !string.Equals(rawStr, wantStr, System.StringComparison.OrdinalIgnoreCase),
+                "contains"   => rawStr.IndexOf(wantStr, System.StringComparison.OrdinalIgnoreCase) >= 0,
+                // Non-numeric elements never satisfy numeric ordering — non-match.
+                "<" or ">" or "<=" or ">=" => false,
+                _ => false,
             };
         }
 

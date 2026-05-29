@@ -8,6 +8,7 @@ using RevitWebAppSync.Events;
 using RevitWebAppSync.Handlers;
 using RevitWebAppSync.UI;
 using RevitWebAppSync.UI.Copilot;
+using BinaVibe.Indexer;
 
 namespace RevitWebAppSync
 {
@@ -50,6 +51,11 @@ namespace RevitWebAppSync
         // cloud orchestrator pushes tool-call frames down the socket.
         // No inbound port on the customer machine. Firewall-friendly.
         public static BinaVibe.Mcp.McpTunnelClient VibeMcpTunnel { get; private set; }
+
+        // DocumentChangedIndexer — subscribes to Revit changes and ships
+        // deltas to the backend snapshot endpoint. Also fires a one-time
+        // BulkIndexAsync on connect to seed the mirror with a full baseline.
+        public static DocumentChangedIndexer VibeIndexer { get; private set; }
 
         public Result OnStartup(UIControlledApplication application)
         {
@@ -173,6 +179,30 @@ namespace RevitWebAppSync
                             flags.UserId);
                         VibeMcpTunnel.Start();
                         System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel dialing out to {cfg.ResolvedAIBaseUrl}/vibe/mcp/tunnel (tenant={flags.TenantId})");
+
+                        // Wire the DocumentChanged indexer so delta changes
+                        // are shipped on every edit. The DocumentOpened event
+                        // triggers a one-time bulk walk for each document that
+                        // opens, seeding the backend mirror with a full baseline.
+                        // Uses a shared HttpClient instance (not per-request).
+                        var indexerHttp = new System.Net.Http.HttpClient();
+                        VibeIndexer = new DocumentChangedIndexer(
+                            application.ControlledApplication,
+                            indexerHttp,
+                            cfg.ResolvedAIBaseUrl,
+                            flags.TenantId,
+                            cfg.ProjectId.ToString());
+
+                        // Capture for the lambda so it doesn't close over a
+                        // loop variable or mutable field.
+                        var indexer = VibeIndexer;
+                        application.ControlledApplication.DocumentOpened +=
+                            (s, e) =>
+                            {
+                                var openedDoc = e.Document;
+                                _ = System.Threading.Tasks.Task.Run(
+                                    () => indexer.BulkIndexAsync(openedDoc, version: 1));
+                            };
                     }
                     catch (Exception tunEx)
                     {
@@ -199,6 +229,7 @@ namespace RevitWebAppSync
             // on next Revit start.
             try { VibeMcpServer?.Dispose(); } catch { }
             try { VibeMcpTunnel?.Dispose(); } catch { }
+            try { VibeIndexer?.Dispose(); } catch { }
 
             return Result.Succeeded;
         }

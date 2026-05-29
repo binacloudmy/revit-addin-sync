@@ -248,6 +248,19 @@ namespace RevitWebAppSync.UI.Copilot
                 Phases = new List<string>(),
                 SelectedElementIds = new List<int>(),
             };
+
+            // Set the project id that matches the snapshot namespace the
+            // DocumentChangedIndexer uses for /vibe/snapshot/{tenant}/{project}.
+            // BinaConfig.ProjectId is the integer project id from bina-be,
+            // stored in the same config that the indexer reads at startup.
+            try
+            {
+                var cfgForProject = BinaConfig.Load();
+                if ((cfgForProject?.ProjectId ?? 0) > 0)
+                    ctx.ProjectId = cfgForProject.ProjectId.ToString();
+            }
+            catch { /* best-effort */ }
+
             try
             {
                 var uidoc = _getApp()?.ActiveUIDocument;
