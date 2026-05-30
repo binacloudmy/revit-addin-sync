@@ -1671,21 +1671,32 @@ namespace BinaVibe.Mcp.Tools
                     "<="         => ParameterFilterRuleFactory.CreateLessOrEqualRule(paramId, numValue, eps),
                     ">"          => ParameterFilterRuleFactory.CreateGreaterRule(paramId, numValue, eps),
                     ">="         => ParameterFilterRuleFactory.CreateGreaterOrEqualRule(paramId, numValue, eps),
-                    // "contains" on a numeric column falls through to string path below.
-                    _            => ParameterFilterRuleFactory.CreateEqualsRule(paramId, value, false),
+                    // "contains" on a numeric column → treat as string contains.
+                    _            => StringRule(paramId, "contains", value),
                 };
             }
-            else
+
+            return StringRule(paramId, op, value);
+        }
+
+        /// <summary>
+        /// String FilterRule built directly. Revit 2023+ removed the
+        /// ParameterFilterRuleFactory string overloads and the caseSensitive
+        /// arg, so we construct FilterStringRule ourselves. Not-equals is the
+        /// inverse of equals; string ordering ops fall back to equals.
+        /// </summary>
+        private static FilterRule StringRule(ElementId paramId, string op, string value)
+        {
+            var pvp = new ParameterValueProvider(paramId);
+            switch (op)
             {
-                return op switch
-                {
-                    "="  or "==" => ParameterFilterRuleFactory.CreateEqualsRule(paramId, value, false),
-                    "!="         => ParameterFilterRuleFactory.CreateNotEqualsRule(paramId, value, false),
-                    "contains"   => ParameterFilterRuleFactory.CreateContainsRule(paramId, value, false),
-                    // Ordering operators on strings: not well-defined in Revit API —
-                    // fall back to equals and flag in the future.
-                    _            => ParameterFilterRuleFactory.CreateEqualsRule(paramId, value, false),
-                };
+                case "!=":
+                    return new FilterInverseRule(
+                        new FilterStringRule(pvp, new FilterStringEquals(), value));
+                case "contains":
+                    return new FilterStringRule(pvp, new FilterStringContains(), value);
+                default: // "=", "==", and unsupported string ordering ops
+                    return new FilterStringRule(pvp, new FilterStringEquals(), value);
             }
         }
 

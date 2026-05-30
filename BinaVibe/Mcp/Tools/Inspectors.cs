@@ -52,9 +52,10 @@ namespace BinaVibe.Mcp.Tools
             var category = TryGetString(args, "category") ?? "OST_Doors";
             var bic = ResolveBuiltInCategory(category);
 
-            IEnumerable<Element> q = new FilteredElementCollector(doc).WhereElementIsElementType();
+            var col = new FilteredElementCollector(doc).WhereElementIsElementType();
             if (bic.HasValue)
-                q = q.OfCategory(bic.Value);
+                col = col.OfCategory(bic.Value);
+            IEnumerable<Element> q = col;
 
             var types = q
                 .Take(500)
@@ -147,8 +148,9 @@ namespace BinaVibe.Mcp.Tools
             var bic = ResolveBuiltInCategory(category);
             var predicate = TryGetString(args, "predicate");
 
-            IEnumerable<Element> q = new FilteredElementCollector(doc).WhereElementIsNotElementType();
-            if (bic.HasValue) q = q.OfCategory(bic.Value);
+            var col = new FilteredElementCollector(doc).WhereElementIsNotElementType();
+            if (bic.HasValue) col = col.OfCategory(bic.Value);
+            IEnumerable<Element> q = col;
 
             var matches = new List<object>();
             foreach (var el in q.Take(50))
@@ -537,8 +539,9 @@ namespace BinaVibe.Mcp.Tools
             }
 
             var bic = ResolveBuiltInCategory(category);
-            IEnumerable<Element> q = new FilteredElementCollector(doc).WhereElementIsNotElementType();
-            if (bic.HasValue) q = q.OfCategory(bic.Value);
+            var col = new FilteredElementCollector(doc).WhereElementIsNotElementType();
+            if (bic.HasValue) col = col.OfCategory(bic.Value);
+            IEnumerable<Element> q = col;
 
             const int cap = 50;
             var elements = new List<object>();
