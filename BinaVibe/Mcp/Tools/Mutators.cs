@@ -840,6 +840,861 @@ namespace BinaVibe.Mcp.Tools
             };
         }
 
+        // ─── rotate_elements ────────────────────────────────────────────
+        /// <summary>
+        /// args: { element_ids:[long], angle_deg:double, axis_x?:double, axis_y?:double }
+        /// Rotates elements about a vertical (Z-up) axis through (axis_x, axis_y) by angle_deg degrees.
+        /// Uses ElementTransformUtils.RotateElements (Revit 2015+).
+        /// </summary>
+        public static Dictionary<string, object?> RotateElements(Document doc, JsonElement args)
+        {
+            var ids = ArgsHelp.GetLongList(args, "element_ids");
+            double angleDeg = ArgsHelp.GetDouble(args, "angle_deg") ?? throw new ArgumentException("missing angle_deg");
+            double axisX = ArgsHelp.GetDouble(args, "axis_x") ?? 0.0;
+            double axisY = ArgsHelp.GetDouble(args, "axis_y") ?? 0.0;
+
+            if (ids.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = true, ["rotated"] = 0 };
+
+            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+            double angleRad = angleDeg * Math.PI / 180.0;
+
+            // Vertical axis through (axisX, axisY): two points along Z.
+            var axisLine = Line.CreateBound(
+                new XYZ(axisX, axisY, 0),
+                new XYZ(axisX, axisY, 10));
+
+            using var tx = new Transaction(doc, $"BinaVibe: rotate_elements ({ids.Count}, {angleDeg}°)");
+            tx.Start();
+            try
+            {
+                ElementTransformUtils.RotateElements(doc, elementIds, axisLine, angleRad);
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["rotated"] = ids.Count,
+            };
+        }
+
+        // ─── copy_elements ──────────────────────────────────────────────
+        /// <summary>
+        /// args: { element_ids:[long], dx:double, dy:double, dz:double }
+        /// Copies elements by translation (dx,dy,dz in feet).
+        /// Returns created_ids: the new element ids from the copy operation.
+        /// Uses ElementTransformUtils.CopyElements (Revit 2015+).
+        /// </summary>
+        public static Dictionary<string, object?> CopyElements(Document doc, JsonElement args)
+        {
+            var ids = ArgsHelp.GetLongList(args, "element_ids");
+            double dx = ArgsHelp.GetDouble(args, "dx") ?? throw new ArgumentException("missing dx");
+            double dy = ArgsHelp.GetDouble(args, "dy") ?? throw new ArgumentException("missing dy");
+            double dz = ArgsHelp.GetDouble(args, "dz") ?? throw new ArgumentException("missing dz");
+
+            if (ids.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = true, ["created_ids"] = new List<object>() };
+
+            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+            var translation = new XYZ(dx, dy, dz);
+
+            using var tx = new Transaction(doc, $"BinaVibe: copy_elements ({ids.Count})");
+            tx.Start();
+            ICollection<ElementId> newIds;
+            try
+            {
+                newIds = ElementTransformUtils.CopyElements(doc, elementIds, translation);
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            var createdIds = newIds.Select(eid => (object)eid.Value).ToList<object>();
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["created_ids"] = createdIds,
+            };
+        }
+
+        // ─── mirror_elements ─────────────────────────────────────────────
+        /// <summary>
+        /// args: { element_ids:[long], plane:"x"|"y", origin_x?:double, origin_y?:double, copy?:bool }
+        /// Mirrors elements across a vertical plane.
+        ///   plane="x" → mirror plane normal along X at x=origin_x  (the YZ plane shifted to origin_x).
+        ///   plane="y" → mirror plane normal along Y at y=origin_y  (the XZ plane shifted to origin_y).
+        /// copy=true (default) keeps originals; copy=false moves them.
+        /// Uses ElementTransformUtils.MirrorElements (Revit 2015+).
+        /// </summary>
+        public static Dictionary<string, object?> MirrorElements(Document doc, JsonElement args)
+        {
+            var ids = ArgsHelp.GetLongList(args, "element_ids");
+            var planeName = ArgsHelp.GetString(args, "plane") ?? "x";
+            double originX = ArgsHelp.GetDouble(args, "origin_x") ?? 0.0;
+            double originY = ArgsHelp.GetDouble(args, "origin_y") ?? 0.0;
+            bool copy = ArgsHelp.GetBool(args, "copy") ?? true;
+
+            if (ids.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = true, ["mirrored"] = 0 };
+
+            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+
+            // Build the mirror plane (vertical, Z is the out-of-plane axis).
+            Plane mirrorPlane;
+            if (planeName.Equals("y", StringComparison.OrdinalIgnoreCase))
+                mirrorPlane = Plane.CreateByNormalAndOrigin(XYZ.BasisY, new XYZ(0, originY, 0));
+            else
+                mirrorPlane = Plane.CreateByNormalAndOrigin(XYZ.BasisX, new XYZ(originX, 0, 0));
+
+            using var tx = new Transaction(doc, $"BinaVibe: mirror_elements ({ids.Count}, plane={planeName})");
+            tx.Start();
+            try
+            {
+                ElementTransformUtils.MirrorElements(doc, elementIds, mirrorPlane, copy);
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["mirrored"] = ids.Count,
+            };
+        }
+
+        // ─── export_views ────────────────────────────────────────────────
+        /// <summary>
+        /// args: { view_names:[string], fmt:"pdf"|"dwg", folder?:string }
+        /// Exports named views to PDF (Revit 2022+ Document.Export overload with PDFExportOptions)
+        /// or DWG (Document.Export with DWGExportOptions). folder defaults to a temp path.
+        /// Export methods may not need a Transaction (they are read-only/I-O), but we guard
+        /// with try/catch only. Returns files:[] and folder.
+        ///
+        /// NOTE: PDFExportOptions and the matching Document.Export overload require Revit 2022+.
+        /// On older Revit versions this method will throw NotSupportedException at runtime.
+        /// DWGExportOptions is available from Revit 2015+.
+        /// </summary>
+        public static Dictionary<string, object?> ExportViews(Document doc, JsonElement args)
+        {
+            var viewNames = ArgsHelp.GetStringList(args, "view_names");
+            var fmt = ArgsHelp.GetString(args, "fmt") ?? "pdf";
+            var folder = ArgsHelp.GetString(args, "folder");
+
+            // Default folder: system temp / BinaVibe_exports.
+            if (string.IsNullOrEmpty(folder))
+                folder = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BinaVibe_exports");
+
+            System.IO.Directory.CreateDirectory(folder);
+
+            // Resolve views by name → ElementIds.
+            var viewIdList = new List<ElementId>();
+            var notFound = new List<string>();
+            foreach (var vn in viewNames)
+            {
+                var v = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                    .FirstOrDefault(x => !x.IsTemplate && string.Equals(x.Name, vn, StringComparison.OrdinalIgnoreCase));
+                if (v == null) { notFound.Add(vn); continue; }
+                viewIdList.Add(v.Id);
+            }
+            if (viewIdList.Count == 0)
+                throw new ArgumentException(
+                    $"none of the supplied view names were found: {string.Join(", ", viewNames)}");
+
+            var exportedFiles = new List<object>();
+
+            if (fmt.Equals("dwg", StringComparison.OrdinalIgnoreCase))
+            {
+                // DWG: export each view individually so we control the file name.
+                var dwgOpts = new DWGExportOptions();
+                foreach (var viewId in viewIdList)
+                {
+                    var v = doc.GetElement(viewId) as View;
+                    if (v == null) continue;
+                    var baseName = SanitizeFileName(v.Name);
+                    var single = new List<ElementId> { viewId };
+                    try
+                    {
+                        doc.Export(folder, baseName, single, dwgOpts);
+                        exportedFiles.Add((object)System.IO.Path.Combine(folder, baseName + ".dwg"));
+                    }
+                    catch (Exception ex)
+                    {
+                        exportedFiles.Add((object)$"ERROR:{v.Name}:{ex.Message}");
+                    }
+                }
+            }
+            else
+            {
+                // PDF: batch export all views in one call (Revit 2022+).
+                // PDFExportOptions — available in Revit API 2022+. Compile-time reference
+                // is fine if the project targets Revit 2022+ assemblies; throws at runtime
+                // on older installs.
+                try
+                {
+                    var pdfOpts = new PDFExportOptions();
+                    pdfOpts.FileName = "BinaVibe_export";
+                    pdfOpts.Combine = false; // one file per view
+                    doc.Export(folder, viewIdList, pdfOpts);
+                    // Revit names files as <ViewName>.pdf — report all pdf files created after export.
+                    foreach (var viewId in viewIdList)
+                    {
+                        var v = doc.GetElement(viewId) as View;
+                        if (v == null) continue;
+                        var expectedFile = System.IO.Path.Combine(folder, SanitizeFileName(v.Name) + ".pdf");
+                        exportedFiles.Add((object)expectedFile);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException(
+                        $"PDF export failed (requires Revit 2022+): {ex.Message}", ex);
+                }
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["files"] = exportedFiles,
+                ["folder"] = folder,
+                ["not_found"] = notFound,
+            };
+        }
+
+        // ─── group_elements ──────────────────────────────────────────────
+        /// <summary>
+        /// args: { element_ids:[long], name?:string }
+        /// Groups elements into a model group using Document.Create.NewGroup.
+        /// If name is supplied, renames the new group's GroupType (guarding
+        /// against duplicate names). Returns {ok, group_id}.
+        /// Requires Revit 2015+.
+        /// </summary>
+        public static Dictionary<string, object?> GroupElements(Document doc, JsonElement args)
+        {
+            var ids = ArgsHelp.GetLongList(args, "element_ids");
+            var name = ArgsHelp.GetString(args, "name");
+
+            if (ids.Count == 0)
+                throw new ArgumentException("element_ids must not be empty");
+
+            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+
+            using var tx = new Transaction(doc, "BinaVibe: group_elements");
+            tx.Start();
+            try
+            {
+                var group = doc.Create.NewGroup(elementIds);
+
+                if (!string.IsNullOrEmpty(name))
+                {
+                    // Guard duplicate group type names: only rename if not already taken.
+                    var existingNames = new FilteredElementCollector(doc)
+                        .OfClass(typeof(GroupType))
+                        .Select(gt => gt.Name)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+                    if (!existingNames.Contains(name))
+                        group.GroupType.Name = name;
+                }
+
+                tx.Commit();
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["group_id"] = group.Id.Value,
+                };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
+        // ─── pin_elements ────────────────────────────────────────────────
+        /// <summary>
+        /// args: { element_ids:[long], pinned:bool }
+        /// Sets element.Pinned for each element in a single Transaction.
+        /// pinned=false unpins. Returns {ok, affected}.
+        /// Pinned property available Revit 2015+.
+        /// </summary>
+        public static Dictionary<string, object?> PinElements(Document doc, JsonElement args)
+        {
+            var ids = ArgsHelp.GetLongList(args, "element_ids");
+            bool pinned = ArgsHelp.GetBool(args, "pinned") ?? true;
+
+            int affected = 0;
+            var failures = new List<object>();
+
+            using var tx = new Transaction(doc, $"BinaVibe: pin_elements (pinned={pinned}, count={ids.Count})");
+            tx.Start();
+            try
+            {
+                foreach (var id in ids)
+                {
+                    try
+                    {
+                        var el = doc.GetElement(new ElementId(id));
+                        if (el == null) continue;
+                        el.Pinned = pinned;
+                        affected++;
+                    }
+                    catch (Exception ex)
+                    {
+                        failures.Add(new { id, error = ex.Message });
+                    }
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["affected"] = affected,
+                ["failures"] = failures,
+            };
+        }
+
+        // ─── join_geometry ───────────────────────────────────────────────
+        /// <summary>
+        /// args: { element_id_a:long, element_id_b:long }
+        /// Joins the geometry of two elements using JoinGeometryUtils.JoinGeometry.
+        /// Catches the "already joined" case and returns ok=true so it is idempotent.
+        /// Returns {ok}.
+        /// JoinGeometryUtils available Revit 2015+.
+        /// </summary>
+        public static Dictionary<string, object?> JoinGeometry(Document doc, JsonElement args)
+        {
+            var idA = ArgsHelp.GetLong(args, "element_id_a") ?? throw new ArgumentException("missing element_id_a");
+            var idB = ArgsHelp.GetLong(args, "element_id_b") ?? throw new ArgumentException("missing element_id_b");
+
+            var elA = doc.GetElement(new ElementId(idA)) ?? throw new ArgumentException($"element {idA} not found");
+            var elB = doc.GetElement(new ElementId(idB)) ?? throw new ArgumentException($"element {idB} not found");
+
+            using var tx = new Transaction(doc, "BinaVibe: join_geometry");
+            tx.Start();
+            try
+            {
+                // JoinGeometryUtils.AreElementsJoined can tell us if they're already joined;
+                // attempting to join again throws, so we check first.
+                if (!JoinGeometryUtils.AreElementsJoined(doc, elA, elB))
+                    JoinGeometryUtils.JoinGeometry(doc, elA, elB);
+
+                tx.Commit();
+            }
+            catch (Autodesk.Revit.Exceptions.InvalidOperationException)
+            {
+                // Elements cannot be joined (incompatible category, already joined race, etc.)
+                tx.RollBack();
+                throw;
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?> { ["ok"] = true };
+        }
+
+        // ─── renumber_elements ────────────────────────────────────────────
+        /// <summary>
+        /// args: { category:string, parameter?:string, start?:int, prefix?:string }
+        /// Collects all instances of category, orders by ElementId (stable),
+        /// then sets LookupParameter(parameter) to prefix+(start+i) for each.
+        /// Skips elements where the parameter is missing or read-only.
+        /// Returns {ok, renumbered}.
+        /// </summary>
+        public static Dictionary<string, object?> RenumberElements(Document doc, JsonElement args)
+        {
+            var category = ArgsHelp.GetString(args, "category") ?? throw new ArgumentException("missing category");
+            var parameter = ArgsHelp.GetString(args, "parameter") ?? "Mark";
+            int start = (int)(ArgsHelp.GetDouble(args, "start") ?? 1.0);
+            var prefix = ArgsHelp.GetString(args, "prefix") ?? "";
+
+            // Resolve BuiltInCategory by friendly or enum name (same as tag_elements).
+            BuiltInCategory bic = BuiltInCategory.INVALID;
+            foreach (BuiltInCategory c in Enum.GetValues(typeof(BuiltInCategory)))
+            {
+                try
+                {
+                    var cat = Category.GetCategory(doc, c);
+                    if (cat == null) continue;
+                    if (string.Equals(cat.Name, category, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(c.ToString(), category, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(c.ToString(), $"OST_{category}", StringComparison.OrdinalIgnoreCase))
+                    {
+                        bic = c;
+                        break;
+                    }
+                }
+                catch { }
+            }
+            if (bic == BuiltInCategory.INVALID)
+                throw new ArgumentException($"category '{category}' not recognised");
+
+            var elements = new FilteredElementCollector(doc)
+                .OfCategory(bic)
+                .WhereElementIsNotElementType()
+                .OrderBy(el => el.Id.Value)   // stable ordering by ElementId
+                .ToList();
+
+            int renumbered = 0;
+            using var tx = new Transaction(doc, $"BinaVibe: renumber_elements ({category})");
+            tx.Start();
+            try
+            {
+                for (int i = 0; i < elements.Count; i++)
+                {
+                    var el = elements[i];
+                    var p = el.LookupParameter(parameter);
+                    if (p == null || p.IsReadOnly) continue;
+                    try
+                    {
+                        p.Set(prefix + (start + i).ToString());
+                        renumbered++;
+                    }
+                    catch { /* skip this element */ }
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["renumbered"] = renumbered,
+            };
+        }
+
+        // ─── create_view_filter ──────────────────────────────────────────
+        /// <summary>
+        /// args: { name:string, categories:[string], param:string, op:string, value:string }
+        /// Creates a reusable ParameterFilterElement (view/parameter filter) that
+        /// selects elements of the given categories where param &lt;op&gt; value.
+        /// op: = != &lt; &gt; &lt;= &gt;= contains
+        ///
+        /// Implementation notes:
+        ///   1. categories → List&lt;ElementId&gt; via Category.GetCategory(doc, bic).
+        ///   2. param → ElementId by sampling the first instance of the first category
+        ///      and calling element.LookupParameter(param).Id.  This is best-effort;
+        ///      if no instances exist or the parameter is not found, the call throws.
+        ///   3. FilterRule built with ParameterFilterRuleFactory (factory method chosen
+        ///      by op and by whether value parses to double).
+        ///   4. ParameterFilterElement.Create(doc, name, catIds, epf) in a Transaction.
+        ///
+        /// Returns {ok, filter_id}.
+        /// FLAG: param→ElementId resolution is best-effort (samples first instance).
+        /// </summary>
+        public static Dictionary<string, object?> CreateViewFilter(Document doc, JsonElement args)
+        {
+            var name = ArgsHelp.GetString(args, "name") ?? throw new ArgumentException("missing name");
+            var categoriesRaw = ArgsHelp.GetStringList(args, "categories");
+            var paramName = ArgsHelp.GetString(args, "param") ?? throw new ArgumentException("missing param");
+            var op = ArgsHelp.GetString(args, "op") ?? "=";
+            var value = ArgsHelp.GetString(args, "value") ?? throw new ArgumentException("missing value");
+
+            if (categoriesRaw.Count == 0)
+                throw new ArgumentException("categories must not be empty");
+
+            // 1. Resolve categories → ElementId list.
+            var catIds = new List<ElementId>();
+            BuiltInCategory? firstBic = null;
+            foreach (var catStr in categoriesRaw)
+            {
+                BuiltInCategory bic;
+                if (!TryResolveBuiltInCategory(catStr, out bic))
+                    throw new ArgumentException($"category '{catStr}' not recognised");
+                catIds.Add(new ElementId(bic));
+                firstBic ??= bic;
+            }
+
+            // 2. Resolve param → ElementId by sampling first instance of first category.
+            ElementId paramId = ElementId.InvalidElementId;
+            var sampleEl = firstBic.HasValue
+                ? new FilteredElementCollector(doc)
+                    .OfCategory(firstBic.Value)
+                    .WhereElementIsNotElementType()
+                    .FirstOrDefault()
+                : null;
+
+            if (sampleEl != null)
+            {
+                var p = sampleEl.LookupParameter(paramName);
+                if (p != null)
+                    paramId = p.Id;
+            }
+
+            if (paramId == ElementId.InvalidElementId)
+            {
+                // Fallback: try built-in parameter map for common names.
+                paramId = ResolveBuiltInParameterId(doc, paramName)
+                    ?? throw new ArgumentException(
+                        $"param '{paramName}' not found on any instance of '{categoriesRaw[0]}' and not a known built-in");
+            }
+
+            // 3. Build FilterRule from op + value.
+            FilterRule rule = BuildFilterRule(paramId, op, value);
+
+            var epf = new ElementParameterFilter(rule);
+
+            // 4. Create ParameterFilterElement.
+            using var tx = new Transaction(doc, "BinaVibe: create_view_filter");
+            tx.Start();
+            try
+            {
+                var pfe = ParameterFilterElement.Create(doc, name, catIds, epf);
+                tx.Commit();
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["filter_id"] = pfe.Id.Value,
+                    ["name"] = pfe.Name,
+                };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
+        // ─── apply_view_filter ───────────────────────────────────────────
+        /// <summary>
+        /// args: { view_name:string, filter_name:string, hide?:bool,
+        ///         r?:int, g?:int, b?:int }
+        /// Applies an existing ParameterFilterElement to a view.
+        ///   hide=true → view.SetFilterVisibility(filter.Id, false)
+        ///   r/g/b present → OverrideGraphicSettings with surface + projection color
+        ///     (FLAG: solid-fill pattern may be needed for surface color to render in
+        ///      3D views; we set surface foreground pattern color but do not force a
+        ///      solid-fill pattern — if the element has no fill pattern the color may
+        ///      only appear on edges)
+        /// Transaction.  Returns {ok}.
+        /// </summary>
+        public static Dictionary<string, object?> ApplyViewFilter(Document doc, JsonElement args)
+        {
+            var viewName = ArgsHelp.GetString(args, "view_name") ?? throw new ArgumentException("missing view_name");
+            var filterName = ArgsHelp.GetString(args, "filter_name") ?? throw new ArgumentException("missing filter_name");
+            bool hide = ArgsHelp.GetBool(args, "hide") ?? false;
+            double? rRaw = ArgsHelp.GetDouble(args, "r");
+            double? gRaw = ArgsHelp.GetDouble(args, "g");
+            double? bRaw = ArgsHelp.GetDouble(args, "b");
+            bool hasColor = rRaw.HasValue && gRaw.HasValue && bRaw.HasValue;
+
+            // Resolve view by name.
+            var view = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                .FirstOrDefault(v => !v.IsTemplate &&
+                    string.Equals(v.Name, viewName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException($"view '{viewName}' not found");
+
+            // Resolve filter by name.
+            var filter = new FilteredElementCollector(doc)
+                .OfClass(typeof(ParameterFilterElement))
+                .Cast<ParameterFilterElement>()
+                .FirstOrDefault(pf => string.Equals(pf.Name, filterName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException($"filter '{filterName}' not found — create it first with create_view_filter");
+
+            using var tx = new Transaction(doc, $"BinaVibe: apply_view_filter ({filterName})");
+            tx.Start();
+            try
+            {
+                // Ensure the filter is added to the view first.
+                if (!view.GetFilters().Contains(filter.Id))
+                    view.AddFilter(filter.Id);
+
+                if (hide)
+                {
+                    view.SetFilterVisibility(filter.Id, false);
+                }
+                else if (hasColor)
+                {
+                    byte r = (byte)Math.Clamp((int)rRaw!.Value, 0, 255);
+                    byte g = (byte)Math.Clamp((int)gRaw!.Value, 0, 255);
+                    byte b = (byte)Math.Clamp((int)bRaw!.Value, 0, 255);
+
+                    var color = new Color(r, g, b);
+                    var ogs = new OverrideGraphicSettings();
+                    ogs.SetSurfaceForegroundPatternColor(color);
+                    ogs.SetProjectionLineColor(color);
+                    // FLAG: to guarantee surface fill is visible in floor plans the
+                    // caller should also ensure a solid-fill pattern is assigned to the
+                    // element category's surface pattern (not done here — would require
+                    // locating a solid-fill FillPatternElement and assigning it to ogs).
+                    view.SetFilterOverrides(filter.Id, ogs);
+                }
+
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?> { ["ok"] = true };
+        }
+
+        // ─── create_floor ────────────────────────────────────────────────
+        /// <summary>
+        /// args: { boundary:[[x,y],...], level:string, type_name?:string }
+        /// Creates a floor from a closed 2D boundary (list of [x,y] in feet) on a level.
+        ///
+        /// API: Floor.Create(doc, IList&lt;CurveLoop&gt;, floorTypeId, levelId)
+        ///   Available Revit 2022+.  On older Revit the overload does not exist;
+        ///   FLAG: falls back to doc.Create.NewFloor(profile, floorType, level, false)
+        ///   (Revit 2015-2021) via reflection-free try/catch structural approach — not
+        ///   implemented here; older-Revit users will get an exception.
+        ///
+        /// Returns {ok, floor_id}.
+        /// FLAG: Requires Revit 2022+ for Floor.Create(doc, loops, typeId, levelId).
+        /// </summary>
+        public static Dictionary<string, object?> CreateFloor(Document doc, JsonElement args)
+        {
+            var levelName = ArgsHelp.GetString(args, "level") ?? throw new ArgumentException("missing level");
+            var typeName = ArgsHelp.GetString(args, "type_name");
+
+            // Parse boundary: array of [x,y] pairs.
+            var points = ParseBoundary2D(args, "boundary");
+            if (points.Count < 3)
+                throw new ArgumentException("boundary must have at least 3 points");
+
+            // Build CurveLoop (close it: last point back to first).
+            var loop = BuildCurveLoop(points);
+
+            // Resolve level.
+            var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException($"level '{levelName}' not found");
+
+            // Resolve floor type — named or first available.
+            ElementId floorTypeId;
+            if (!string.IsNullOrEmpty(typeName))
+            {
+                var ft = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()
+                    .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"floor type '{typeName}' not found");
+                floorTypeId = ft.Id;
+            }
+            else
+            {
+                var first = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).FirstOrDefault()
+                    ?? throw new InvalidOperationException("no FloorType found in document");
+                floorTypeId = first.Id;
+            }
+
+            using var tx = new Transaction(doc, "BinaVibe: create_floor");
+            tx.Start();
+            try
+            {
+                // Revit 2022+ API: Floor.Create(doc, IList<CurveLoop>, ElementId typeId, ElementId levelId)
+                var floor = Floor.Create(doc, new List<CurveLoop> { loop }, floorTypeId, level.Id);
+                tx.Commit();
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["floor_id"] = floor.Id.Value,
+                    ["level"] = levelName,
+                    ["type_name"] = typeName ?? "(default)",
+                };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
+        // ─── create_ceiling ──────────────────────────────────────────────
+        /// <summary>
+        /// args: { boundary:[[x,y],...], level:string, type_name?:string }
+        /// Creates a ceiling from a closed 2D boundary on a level.
+        ///
+        /// API: Ceiling.Create(doc, IList&lt;CurveLoop&gt;, ceilingTypeId, levelId)
+        /// FLAG: Ceiling.Create is only available in Revit 2022+.  There is no
+        ///   equivalent pre-2022 API — this will throw a MissingMethodException on
+        ///   older installs (hard requirement).
+        ///
+        /// Returns {ok, ceiling_id}.
+        /// FLAG: Hard requirement — Revit 2022+ only.
+        /// </summary>
+        public static Dictionary<string, object?> CreateCeiling(Document doc, JsonElement args)
+        {
+            var levelName = ArgsHelp.GetString(args, "level") ?? throw new ArgumentException("missing level");
+            var typeName = ArgsHelp.GetString(args, "type_name");
+
+            var points = ParseBoundary2D(args, "boundary");
+            if (points.Count < 3)
+                throw new ArgumentException("boundary must have at least 3 points");
+
+            var loop = BuildCurveLoop(points);
+
+            var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException($"level '{levelName}' not found");
+
+            // Resolve ceiling type — named or first available.
+            ElementId ceilingTypeId;
+            if (!string.IsNullOrEmpty(typeName))
+            {
+                var ct = new FilteredElementCollector(doc).OfClass(typeof(CeilingType)).Cast<CeilingType>()
+                    .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"ceiling type '{typeName}' not found");
+                ceilingTypeId = ct.Id;
+            }
+            else
+            {
+                var first = new FilteredElementCollector(doc).OfClass(typeof(CeilingType)).FirstOrDefault()
+                    ?? throw new InvalidOperationException("no CeilingType found in document");
+                ceilingTypeId = first.Id;
+            }
+
+            using var tx = new Transaction(doc, "BinaVibe: create_ceiling");
+            tx.Start();
+            try
+            {
+                // Revit 2022+ API: Ceiling.Create(doc, IList<CurveLoop>, ElementId typeId, ElementId levelId)
+                var ceiling = Ceiling.Create(doc, new List<CurveLoop> { loop }, ceilingTypeId, level.Id);
+                tx.Commit();
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["ceiling_id"] = ceiling.Id.Value,
+                    ["level"] = levelName,
+                    ["type_name"] = typeName ?? "(default)",
+                };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
+        // ─── filter/boundary helpers ─────────────────────────────────────
+
+        /// <summary>
+        /// Parse a JSON array of [x,y] pairs from the args element.
+        /// Returns a list of XYZ with z=0.
+        /// </summary>
+        private static List<XYZ> ParseBoundary2D(JsonElement args, string name)
+        {
+            var pts = new List<XYZ>();
+            if (args.ValueKind != JsonValueKind.Object) return pts;
+            if (!args.TryGetProperty(name, out var arr) || arr.ValueKind != JsonValueKind.Array) return pts;
+
+            foreach (var pt in arr.EnumerateArray())
+            {
+                if (pt.ValueKind != JsonValueKind.Array) continue;
+                var nums = new List<double>();
+                foreach (var n in pt.EnumerateArray())
+                {
+                    if (n.ValueKind == JsonValueKind.Number && n.TryGetDouble(out var d))
+                        nums.Add(d);
+                }
+                if (nums.Count >= 2)
+                    pts.Add(new XYZ(nums[0], nums[1], 0.0));
+            }
+            return pts;
+        }
+
+        /// <summary>
+        /// Build a closed CurveLoop from a list of XYZ points (at least 3).
+        /// Connects consecutive points with Line.CreateBound, then closes last→first.
+        /// </summary>
+        private static CurveLoop BuildCurveLoop(List<XYZ> pts)
+        {
+            var loop = new CurveLoop();
+            for (int i = 0; i < pts.Count; i++)
+            {
+                var a = pts[i];
+                var b = pts[(i + 1) % pts.Count];
+                // Skip degenerate zero-length segments.
+                if (a.DistanceTo(b) < 1e-6) continue;
+                loop.Append(Line.CreateBound(a, b));
+            }
+            return loop;
+        }
+
+        /// <summary>
+        /// Resolve a category string (friendly or OST_ enum) to a BuiltInCategory.
+        /// Extends the Inspectors version with floors/ceilings/columns.
+        /// </summary>
+        private static bool TryResolveBuiltInCategory(string category, out BuiltInCategory bic)
+        {
+            if (category.StartsWith("OST_", StringComparison.OrdinalIgnoreCase)
+                && Enum.TryParse<BuiltInCategory>(category, true, out bic))
+                return true;
+
+            bic = category.ToLowerInvariant() switch
+            {
+                "walls"     => BuiltInCategory.OST_Walls,
+                "doors"     => BuiltInCategory.OST_Doors,
+                "windows"   => BuiltInCategory.OST_Windows,
+                "floors"    => BuiltInCategory.OST_Floors,
+                "ceilings"  => BuiltInCategory.OST_Ceilings,
+                "rooms"     => BuiltInCategory.OST_Rooms,
+                "levels"    => BuiltInCategory.OST_Levels,
+                "grids"     => BuiltInCategory.OST_Grids,
+                "columns"   => BuiltInCategory.OST_Columns,
+                "beams"     => BuiltInCategory.OST_StructuralFraming,
+                _           => BuiltInCategory.INVALID,
+            };
+            return bic != BuiltInCategory.INVALID;
+        }
+
+        /// <summary>
+        /// Try to resolve a parameter name to an ElementId via common BuiltInParameter
+        /// mappings. Returns null when no mapping is found.
+        /// FLAG: list is not exhaustive; best-effort.
+        /// </summary>
+        private static ElementId? ResolveBuiltInParameterId(Document doc, string paramName)
+        {
+            // Map well-known friendly names → BuiltInParameter.
+            BuiltInParameter? bip = paramName.ToLowerInvariant() switch
+            {
+                "mark"              => BuiltInParameter.ALL_MODEL_MARK,
+                "comments"          => BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS,
+                "type name"         => BuiltInParameter.ELEM_TYPE_PARAM,
+                "level"             => BuiltInParameter.FAMILY_LEVEL_PARAM,
+                "base constraint"   => BuiltInParameter.WALL_BASE_CONSTRAINT,
+                "top constraint"    => BuiltInParameter.WALL_HEIGHT_TYPE,
+                "fire_rating"       => BuiltInParameter.DOOR_FIRE_RATING,
+                "fire rating"       => BuiltInParameter.DOOR_FIRE_RATING,
+                _                   => null,
+            };
+
+            if (!bip.HasValue) return null;
+            var id = new ElementId(bip.Value);
+            return id == ElementId.InvalidElementId ? null : id;
+        }
+
+        /// <summary>
+        /// Build a FilterRule for ParameterFilterElement given a parameter ElementId,
+        /// comparison op, and string value. Uses ParameterFilterRuleFactory.
+        /// Chooses numeric vs string overload based on whether value parses to double.
+        /// </summary>
+        private static FilterRule BuildFilterRule(ElementId paramId, string op, string value)
+        {
+            bool isNumeric = double.TryParse(value,
+                System.Globalization.NumberStyles.Any,
+                System.Globalization.CultureInfo.InvariantCulture,
+                out double numValue);
+
+            // Tolerance for numeric equality/inequality.
+            const double eps = 1e-6;
+
+            if (isNumeric)
+            {
+                return op switch
+                {
+                    "="  or "==" => ParameterFilterRuleFactory.CreateEqualsRule(paramId, numValue, eps),
+                    "!="         => ParameterFilterRuleFactory.CreateNotEqualsRule(paramId, numValue, eps),
+                    "<"          => ParameterFilterRuleFactory.CreateLessRule(paramId, numValue, eps),
+                    "<="         => ParameterFilterRuleFactory.CreateLessOrEqualRule(paramId, numValue, eps),
+                    ">"          => ParameterFilterRuleFactory.CreateGreaterRule(paramId, numValue, eps),
+                    ">="         => ParameterFilterRuleFactory.CreateGreaterOrEqualRule(paramId, numValue, eps),
+                    // "contains" on a numeric column falls through to string path below.
+                    _            => ParameterFilterRuleFactory.CreateEqualsRule(paramId, value, false),
+                };
+            }
+            else
+            {
+                return op switch
+                {
+                    "="  or "==" => ParameterFilterRuleFactory.CreateEqualsRule(paramId, value, false),
+                    "!="         => ParameterFilterRuleFactory.CreateNotEqualsRule(paramId, value, false),
+                    "contains"   => ParameterFilterRuleFactory.CreateContainsRule(paramId, value, false),
+                    // Ordering operators on strings: not well-defined in Revit API —
+                    // fall back to equals and flag in the future.
+                    _            => ParameterFilterRuleFactory.CreateEqualsRule(paramId, value, false),
+                };
+            }
+        }
+
+        private static string SanitizeFileName(string name)
+        {
+            var invalid = System.IO.Path.GetInvalidFileNameChars();
+            return string.Concat(name.Select(c => invalid.Contains(c) ? '_' : c));
+        }
+
         // ─── shared place-family-on-wall helper ─────────────────────────
         private static Dictionary<string, object?> PlaceFamilyOnWall(
             Document doc, JsonElement args, BuiltInCategory cat, string label)

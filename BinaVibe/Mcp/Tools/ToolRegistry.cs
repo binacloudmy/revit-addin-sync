@@ -30,7 +30,7 @@ namespace BinaVibe.Mcp.Tools
 
             return tool switch
             {
-                // INSPECT — 17 tools, all live
+                // INSPECT — 20 tools, all live
                 "list_levels"                   => Inspectors.ListLevels(doc),
                 "list_wall_types"               => Inspectors.ListWallTypes(doc),
                 "list_family_types"             => Inspectors.ListFamilyTypes(doc, args),
@@ -48,6 +48,9 @@ namespace BinaVibe.Mcp.Tools
                 "list_grids"                    => Inspectors.ListGrids(doc),
                 "analyze_model_statistics"      => Inspectors.AnalyzeModelStatistics(doc),
                 "find_elements_by_parameter"    => Inspectors.FindElementsByParameter(doc, args),
+                "get_material_quantities"       => Inspectors.GetMaterialQuantities(doc, args),
+                "get_model_warnings"            => Inspectors.GetModelWarnings(doc),
+                "list_view_filters"             => Inspectors.ListViewFilters(doc),
 
                 // MUTATE — Step 3, 10 tools, all wrap in Transaction.
                 // Orchestrator-side policy gates destructive ones via
@@ -73,6 +76,18 @@ namespace BinaVibe.Mcp.Tools
                 "tag_elements"                  => Mutators.TagElements(doc, app, args),
                 "swap_element_type"             => Mutators.SwapElementType(doc, args),
                 "place_text_note"               => Mutators.PlaceTextNote(doc, args),
+                "rotate_elements"               => Mutators.RotateElements(doc, args),
+                "copy_elements"                 => Mutators.CopyElements(doc, args),
+                "mirror_elements"               => Mutators.MirrorElements(doc, args),
+                "export_views"                  => Mutators.ExportViews(doc, args),
+                "group_elements"                => Mutators.GroupElements(doc, args),
+                "pin_elements"                  => Mutators.PinElements(doc, args),
+                "join_geometry"                 => Mutators.JoinGeometry(doc, args),
+                "renumber_elements"             => Mutators.RenumberElements(doc, args),
+                "create_view_filter"            => Mutators.CreateViewFilter(doc, args),
+                "apply_view_filter"             => Mutators.ApplyViewFilter(doc, args),
+                "create_floor"                  => Mutators.CreateFloor(doc, args),
+                "create_ceiling"                => Mutators.CreateCeiling(doc, args),
 
                 _ => NotImplemented(tool),
             };

@@ -334,6 +334,152 @@ namespace BinaVibe.Mcp.Tools
             return new Dictionary<string, object?> { ["ok"] = true, ["grids"] = grids };
         }
 
+        // ─── get_material_quantities ────────────────────────────────────────
+        /// <summary>
+        /// args: { element_ids?: [long] }
+        /// Returns material takeoff (volume m³, area m²) aggregated by material name.
+        /// If element_ids is absent or empty, processes all non-type elements (capped at 5000).
+        /// Revit stores volume in ft³ (×0.0283168 → m³) and area in ft² (×0.0929030 → m²).
+        /// </summary>
+        public static Dictionary<string, object?> GetMaterialQuantities(Document doc, JsonElement args)
+        {
+            const int elementCap = 5000;
+            const double ft3ToM3 = 0.0283168;
+            const double ft2ToM2 = 0.0929030;
+
+            // Resolve element list: supplied ids or all non-type elements (capped).
+            IEnumerable<Element> elements;
+            var suppliedIds = new List<long>();
+            if (args.ValueKind == JsonValueKind.Object &&
+                args.TryGetProperty("element_ids", out var idsEl) &&
+                idsEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in idsEl.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.Number && item.TryGetInt64(out var n))
+                        suppliedIds.Add(n);
+                }
+            }
+
+            if (suppliedIds.Count > 0)
+            {
+                elements = suppliedIds
+                    .Select(id => doc.GetElement(new ElementId(id)))
+                    .Where(el => el != null);
+            }
+            else
+            {
+                elements = new FilteredElementCollector(doc)
+                    .WhereElementIsNotElementType()
+                    .Take(elementCap);
+            }
+
+            // Aggregate by material name.
+            var matVolume = new Dictionary<string, double>();
+            var matArea = new Dictionary<string, double>();
+
+            foreach (var el in elements)
+            {
+                if (el == null) continue;
+                try
+                {
+                    foreach (ElementId matId in el.GetMaterialIds(false))
+                    {
+                        var matEl = doc.GetElement(matId);
+                        if (matEl == null) continue;
+                        var matName = matEl.Name ?? "(unknown)";
+
+                        double volFt3 = el.GetMaterialVolume(matId);
+                        double areaFt2 = el.GetMaterialArea(matId, false);
+
+                        matVolume.TryGetValue(matName, out var v);
+                        matVolume[matName] = v + volFt3 * ft3ToM3;
+
+                        matArea.TryGetValue(matName, out var a);
+                        matArea[matName] = a + areaFt2 * ft2ToM2;
+                    }
+                }
+                catch { /* skip elements that throw (no geometry, etc.) */ }
+            }
+
+            var materials = matVolume.Keys
+                .OrderBy(k => k)
+                .Select(k => (object)new Dictionary<string, object?>
+                {
+                    ["name"] = k,
+                    ["volume_m3"] = System.Math.Round(matVolume[k], 6),
+                    ["area_m2"] = System.Math.Round(matArea.TryGetValue(k, out var a2) ? a2 : 0.0, 6),
+                })
+                .ToList<object>();
+
+            double totalVol = matVolume.Values.Sum();
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["materials"] = materials,
+                ["total_volume_m3"] = System.Math.Round(totalVol, 6),
+            };
+        }
+
+        // ─── get_model_warnings ──────────────────────────────────────────
+        /// <summary>
+        /// Returns the model's open Revit warnings: description + the element ids involved.
+        /// Uses Document.GetWarnings() (available Revit 2015+). Capped at 500 warnings.
+        /// Returns {ok, warnings:[{description, element_ids:[...]}], count}.
+        /// </summary>
+        public static Dictionary<string, object?> GetModelWarnings(Document doc)
+        {
+            const int cap = 500;
+            var warnings = doc.GetWarnings();
+            var result = new List<object>();
+
+            foreach (var w in warnings.Take(cap))
+            {
+                var eids = w.GetFailingElements()
+                    .Select(eid => (object)eid.Value)
+                    .ToList<object>();
+                result.Add(new Dictionary<string, object?>
+                {
+                    ["description"] = w.GetDescriptionText(),
+                    ["element_ids"] = eids,
+                });
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["warnings"] = result,
+                ["count"] = result.Count,
+            };
+        }
+
+        // ─── list_view_filters ──────────────────────────────────────────
+        /// <summary>
+        /// Returns all ParameterFilterElement instances in the document:
+        /// the reusable view/parameter filters available to views.
+        /// Uses FilteredElementCollector(doc).OfClass(typeof(ParameterFilterElement)).
+        /// Returns {ok, filters:[{id, name}]}.
+        /// </summary>
+        public static Dictionary<string, object?> ListViewFilters(Document doc)
+        {
+            var filters = new FilteredElementCollector(doc)
+                .OfClass(typeof(ParameterFilterElement))
+                .Cast<ParameterFilterElement>()
+                .Select(pf => (object)new Dictionary<string, object?>
+                {
+                    ["id"] = pf.Id.Value,
+                    ["name"] = pf.Name,
+                })
+                .ToList<object>();
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["filters"] = filters,
+            };
+        }
+
         // ─── analyze_model_statistics ────────────────────────────────────
         public static Dictionary<string, object?> AnalyzeModelStatistics(Document doc)
         {
