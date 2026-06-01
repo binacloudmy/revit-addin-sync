@@ -50,51 +50,9 @@ namespace RevitWebAppSync.UI.Copilot
             var ctx = BuildContext();
             int? userId = (cfg?.UserId ?? 0) > 0 ? (int?)cfg.UserId : null;
 
-            // Chat mode (default = tool): the tool-calling agent acts directly and
-            // streams (no plan card, no approve gate) — the snappy "vibe" path.
-            // Opt into multi-step Plan mode with BINA_VIBE_CHAT_MODE=plan: gets a
-            // structured Plan from /agents/revit-ai/plan, renders a Plan card, and
-            // executes on Approve. Reserve Plan mode for big multi-step mutations.
-            var useVibeV2Mode = System.Environment.GetEnvironmentVariable("BINA_VIBE_CHAT_MODE") ?? "tool";  // tool | plan
-            if (string.Equals(useVibeV2Mode, "plan", System.StringComparison.OrdinalIgnoreCase))
-            {
-                try
-                {
-                    var planReq = new AIRequest
-                    {
-                        Prompt = message,
-                        Context = ctx,
-                        UserId = userId,
-                        SessionId = _sessionId,
-                    };
-                    var planResp = await _ai.GetPlanAsync(planReq, token);
-                    if (planResp != null && planResp.Success && planResp.Plan != null && planResp.Plan.Steps != null && planResp.Plan.Steps.Count > 0)
-                    {
-                        return new RouteResult
-                        {
-                            ToolId = "ai-generated",
-                            IsPlan = true,
-                            Plan = planResp.Plan,
-                            PlanId = planResp.PlanId,
-                            Reply = planResp.IntentSummary ?? planResp.Plan.Intent,
-                        };
-                    }
-                    if (planResp != null && !planResp.Success)
-                    {
-                        return new RouteResult
-                        {
-                            ToolId = "ai-generated",
-                            Reply = "Planner error: " + (planResp.Error ?? "unknown"),
-                        };
-                    }
-                    // Plan came back empty — fall through to legacy /generate.
-                }
-                catch (System.Exception ex)
-                {
-                    // Fall through to /generate; log the failure for diagnosis.
-                    System.Diagnostics.Debug.WriteLine($"[BINA] /plan failed, falling back to /generate: {ex.Message}");
-                }
-            }
+            // Plan mode removed — the tool-calling agent acts directly and
+            // streams (no plan card, no approve gate). Every turn goes to
+            // /generate below.
 
             // bina-ai (Python) only exposes /agents/revit-ai/generate.
             // The legacy /route endpoint (NestJS bina-be) is not in this
@@ -218,28 +176,6 @@ namespace RevitWebAppSync.UI.Copilot
             return null; // viewmodel uses its local catalog fallback
         }
 
-        /// <summary>Called by CopilotViewModel.ApprovePlan and
-        /// ApproveGate. Sends the Plan back to /execute-plan with the
-        /// running list of approved gate_ids. Returns the agent
-        /// response (which may carry more pending_approvals).</summary>
-        public async Task<AIResponse> ExecutePlanAsync(
-            RevitWebAppSync.Models.PlanModel plan,
-            string planId,
-            System.Collections.Generic.IEnumerable<string> approvalTokens = null)
-        {
-            var cfg = BinaConfig.Load();
-            var token = cfg?.AccessToken ?? "";
-            int? userId = (cfg?.UserId ?? 0) > 0 ? (int?)cfg.UserId : null;
-            return await _ai.ExecutePlanAsync(
-                prompt: plan?.Intent ?? "",
-                plan: plan,
-                planId: planId,
-                context: BuildContext(),
-                userId: userId,
-                sessionId: _sessionId,
-                accessToken: token,
-                approvalTokens: approvalTokens);
-        }
 
         private ModelContext BuildContext()
         {

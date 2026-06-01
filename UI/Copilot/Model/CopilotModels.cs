@@ -6,21 +6,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
     // ─── Enums (mirror the prototype state machine) ──────────────────────────
     public enum CpScreen { Home, ToolForm, ToolReview, Running, Result }
     public enum CpTab { Chat, Library, History, Saved }
-    public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, AiReply, PlanCard, ApprovalCard }
-    // ApprovalCard = one gated MUTATE awaiting drafter approval (PRD
-    // §6.2 Stage 5). Carries a PendingApproval payload. On Approve,
-    // the viewmodel re-posts /execute-plan with the gate_id added to
-    // approval_tokens.
+    public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, AiReply }
     // AiReply = plain-text AI response (no card, no Save/Copy/Undo). Used
     // when the backend marks is_query=true: code is auto-run and the
     // structured result is reformulated as one conversational sentence.
     // When ToolCallTrace is set, the chat renders a compact "steps" panel
     // under the reply (one checked row per tool) so the drafter can see what
     // the agent actually ran.
-    // PlanCard = the Plan card rendered BEFORE the agent executes (PRD §6.2
-    // Stage 3). User clicks Approve to invoke /execute-plan or Cancel to
-    // drop the plan. Distinct from Proposal (proposal carries C# to Run);
-    // PlanCard carries a Plan JSON the executor walks.
     public enum CpResultKind { Count, Issues, List, File, Plain }
     public enum CpFieldKind { Select, Text, Seg }
 
@@ -145,12 +137,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Code;          // proposal — generated C# (backend or catalog sample)
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English
         public List<string> ToolCallTrace; // tool-calling agent: ordered tool names called
-        public RevitWebAppSync.Models.PlanModel Plan;  // PlanCard messages only
-        public string PlanId;                           // round-trip to /execute-plan
-        public RevitWebAppSync.Models.PendingApproval PendingApproval; // ApprovalCard messages only
-        public RevitWebAppSync.Models.PlanModel PlanForApproval;       // round-trip if user approves
-        public string PlanIdForApproval;                                // ditto
-        public System.Collections.Generic.List<string> ApprovalTokensAccumulated; // grows across cycles
         public RevitWebAppSync.Models.ReviewerVerdict Verdict; // attached to AiReply messages
     }
 

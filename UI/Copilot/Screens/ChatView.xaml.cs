@@ -106,8 +106,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 case CpMsgKind.Proposal: col.Children.Add(ProposalCard(m)); break;
                 case CpMsgKind.Running: col.Children.Add(RunningBar(m)); break;
                 case CpMsgKind.Result: col.Children.Add(CompactResult(m)); break;
-                case CpMsgKind.PlanCard: col.Children.Add(BuildPlanCard(m)); break;
-                case CpMsgKind.ApprovalCard: col.Children.Add(BuildApprovalCard(m)); break;
             }
 
             // Tool-calling agent trace: a compact "steps" panel under the
@@ -357,25 +355,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             outer.Child = sp;
             return outer;
-        }
-
-        private FrameworkElement BuildPlanCard(ChatMessage m)
-        {
-            var card = new BinaVibe.Plan.PlanCardView();
-            card.Bind(m.Plan);
-            card.Approve += (s, e) => Vm?.ApprovePlan(m);
-            card.Cancel += (s, e) => Vm?.CancelPlan(m);
-            return card;
-        }
-
-        private FrameworkElement BuildApprovalCard(ChatMessage m)
-        {
-            var card = new BinaVibe.Plan.ApprovalCardView();
-            card.BindWithArgs(m.PendingApproval);
-            card.Approved += (s, e) => Vm?.ApproveGate(m);
-            card.Rejected += (s, e) => Vm?.RejectGate(m);
-            card.PreviewRequested += (s, e) => Vm?.PreviewGate(m);
-            return card;
         }
 
         private FrameworkElement CompactBody(ResultModel r)
