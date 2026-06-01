@@ -145,8 +145,15 @@
                 </Canvas>
                 <TextBlock Text="Indexing your model…" Margin="0,16,0,0" HorizontalAlignment="Center"
                            FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
+                <!-- Determinate progress bar + percentage -->
+                <ProgressBar Minimum="0" Maximum="100" Value="{Binding IndexProgress}"
+                             Width="220" Height="6" Margin="0,12,0,0" BorderThickness="0"
+                             Background="#E5E7EB" Foreground="{DynamicResource Cp.Purple}"/>
+                <TextBlock Margin="0,6,0,0" HorizontalAlignment="Center" FontSize="11"
+                           FontWeight="SemiBold" Foreground="{DynamicResource Cp.Purple}"
+                           Text="{Binding IndexProgress, StringFormat={}{0}%}"/>
                 <TextBlock Text="One moment — getting your model ready so I can answer instantly."
-                           Margin="0,4,0,0" HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="240"
+                           Margin="0,6,0,0" HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="240"
                            FontSize="11" Foreground="{DynamicResource Cp.Muted}" TextWrapping="Wrap"/>
             </StackPanel>
         </Border>

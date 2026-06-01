@@ -95,6 +95,9 @@ namespace RevitWebAppSync.UI.Copilot
         private bool _isIndexing;
         public bool IsIndexing { get => _isIndexing; private set { if (_isIndexing == value) return; _isIndexing = value; Raise(); } }
 
+        private int _indexProgress;
+        public int IndexProgress { get => _indexProgress; private set { if (_indexProgress == value) return; _indexProgress = value; Raise(); } }
+
         /// <summary>On pane open: warm the cloud model mirror before the user
         /// prompts, showing an "Indexing model…" indicator and gating sends until
         /// it's ready. Best-effort — on failure/timeout the indicator clears and
@@ -114,23 +117,27 @@ namespace RevitWebAppSync.UI.Copilot
                     return;  // mirror already warm — no indicator needed
 
                 IsIndexing = true;
+                IndexProgress = status?.Progress ?? 0;
                 AddAi(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.Thinking,
                     Text = "Indexing your model so I can answer instantly… one moment.",
                 });
 
-                await ai.StartSeedAsync(cfg.ProjectId, cfg.UserId, cfg.AccessToken);
-
-                // Poll until warm (~25s budget: 17 × 1.5s).
-                for (int i = 0; i < 17; i++)
+                // Poll until warm (~30s budget: 20 × 1.5s). StartSeedAsync is
+                // retried each round (idempotent) so a tunnel that connects a
+                // moment after the pane opens still kicks off the seed — the
+                // user no longer has to type first.
+                bool warm = false;
+                for (int i = 0; i < 20; i++)
                 {
+                    await ai.StartSeedAsync(cfg.ProjectId, cfg.UserId, cfg.AccessToken);
                     await Task.Delay(1500);
                     status = await ai.GetSeedStatusAsync(cfg.ProjectId, cfg.AccessToken);
-                    if (status != null && status.Warm) break;
+                    if (status != null) IndexProgress = status.Progress;
+                    if (status != null && status.Warm) { warm = true; break; }
                 }
 
-                bool warm = status != null && status.Warm;
                 IsIndexing = false;
                 ReplaceLastThinking(new ChatMessage
                 {

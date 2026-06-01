@@ -95,6 +95,9 @@ namespace RevitWebAppSync.Services
             [JsonProperty("inflight")] public bool Inflight { get; set; }
             [JsonProperty("seeded_by_user_id")] public string SeededByUserId { get; set; }
             [JsonProperty("seeded_at")] public double? SeededAt { get; set; }
+            [JsonProperty("progress")] public int Progress { get; set; }   // 0–100
+            [JsonProperty("done")] public int Done { get; set; }
+            [JsonProperty("total")] public int Total { get; set; }
         }
 
         /// <summary>
