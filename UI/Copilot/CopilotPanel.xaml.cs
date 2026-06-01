@@ -51,6 +51,11 @@ namespace RevitWebAppSync.UI.Copilot
             var doc = uiApp?.ActiveUIDocument?.Document;
             if (doc != null)
                 _vm.ModelName = string.IsNullOrWhiteSpace(doc.Title) ? "Main Model" : Path.GetFileNameWithoutExtension(doc.Title);
+
+            // Warm the cloud model mirror on open: shows "Indexing model…" and
+            // gates prompting until ready, so reads are instant once the user
+            // starts. Fire-and-forget, best-effort.
+            _ = _vm.EnsureMirrorSeededAsync();
         }
 
         private void OnVmChanged(object sender, PropertyChangedEventArgs e)

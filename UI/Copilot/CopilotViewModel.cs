@@ -4,6 +4,8 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading.Tasks;
+using RevitWebAppSync.Services;
 using RevitWebAppSync.UI.Copilot.Model;
 
 namespace RevitWebAppSync.UI.Copilot
@@ -88,6 +90,69 @@ namespace RevitWebAppSync.UI.Copilot
         public ObservableCollection<ChatMessage> Thread { get; } = new ObservableCollection<ChatMessage>();
         public ObservableCollection<HistoryEntry> History { get; }
         public ObservableCollection<HighlightMarker> Highlights { get; } = new ObservableCollection<HighlightMarker>();
+
+        // ─── Model-mirror indexing (Copilot open → seed → then prompt) ────────
+        private bool _isIndexing;
+        public bool IsIndexing { get => _isIndexing; private set { if (_isIndexing == value) return; _isIndexing = value; Raise(); } }
+
+        /// <summary>On pane open: warm the cloud model mirror before the user
+        /// prompts, showing an "Indexing model…" indicator and gating sends until
+        /// it's ready. Best-effort — on failure/timeout the indicator clears and
+        /// prompting is allowed (reads just fall back to the tunnel). Safe to call
+        /// repeatedly; no-ops when the mirror is already warm.</summary>
+        public async Task EnsureMirrorSeededAsync()
+        {
+            try
+            {
+                var cfg = BinaConfig.Load();
+                if (cfg == null || cfg.ProjectId <= 0 || string.IsNullOrEmpty(cfg.AccessToken))
+                    return;  // not logged in / no project → nothing to seed
+
+                var ai = new AIService();
+                var status = await ai.GetSeedStatusAsync(cfg.ProjectId, cfg.AccessToken);
+                if (status != null && status.Warm)
+                    return;  // mirror already warm — no indicator needed
+
+                IsIndexing = true;
+                AddAi(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.Thinking,
+                    Text = "Indexing your model so I can answer instantly… one moment.",
+                });
+
+                await ai.StartSeedAsync(cfg.ProjectId, cfg.AccessToken);
+
+                // Poll until warm (~25s budget: 17 × 1.5s).
+                for (int i = 0; i < 17; i++)
+                {
+                    await Task.Delay(1500);
+                    status = await ai.GetSeedStatusAsync(cfg.ProjectId, cfg.AccessToken);
+                    if (status != null && status.Warm) break;
+                }
+
+                bool warm = status != null && status.Warm;
+                IsIndexing = false;
+                ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = warm
+                        ? "Model indexed — ask me anything."
+                        : "Still indexing in the background — you can ask now; the first few answers may be a little slower.",
+                });
+            }
+            catch
+            {
+                IsIndexing = false;  // never trap the user behind a failed seed
+            }
+        }
+
+        /// <summary>Add an AI message to the thread, marshalling to the UI thread.</summary>
+        private void AddAi(ChatMessage m)
+        {
+            var disp = System.Windows.Application.Current?.Dispatcher;
+            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => Thread.Add(m));
+            else Thread.Add(m);
+        }
 
         private readonly HashSet<string> _pinned;
         public IReadOnlyCollection<string> Pinned => _pinned;
@@ -316,6 +381,15 @@ namespace RevitWebAppSync.UI.Copilot
         {
             text = (text ?? "").Trim();
             if (text.Length == 0) return;
+            if (IsIndexing)
+            {
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = "Indexing your model — give me a couple seconds, then ask again.",
+                });
+                return;
+            }
             Tab = CpTab.Chat;
             Screen = CpScreen.Home;
             ToolId = null;

@@ -39,6 +39,58 @@ namespace RevitWebAppSync.Services
             _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedAIBaseUrl;
         }
 
+        // ─── Cloud model-mirror seeding (Copilot "Indexing model…" flow) ──────
+        // These hit /vibe/* (not /agents/revit-ai), so they build the URL
+        // directly instead of via AiUrl. Best-effort: any failure returns
+        // null / swallows — reads just fall back to the tunnel.
+
+        /// <summary>GET /vibe/seed/status — is the cloud model mirror warm for
+        /// this project? Drives the pane's "Indexing model…" indicator.</summary>
+        public async Task<SeedStatus> GetSeedStatusAsync(
+            int projectId, string accessToken, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(
+                    HttpMethod.Get, $"{_baseUrl}/vibe/seed/status?project_id={projectId}");
+                if (!string.IsNullOrEmpty(accessToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                var resp = await _httpClient.SendAsync(req, cancellationToken);
+                if (!resp.IsSuccessStatusCode) return null;
+                var body = await resp.Content.ReadAsStringAsync();
+                return JsonConvert.DeserializeObject<SeedStatus>(body);
+            }
+            catch { return null; }
+        }
+
+        /// <summary>POST /vibe/seed — kick off a background mirror seed. Idempotent
+        /// server-side; returns immediately (the caller polls GetSeedStatusAsync).</summary>
+        public async Task StartSeedAsync(
+            int projectId, string accessToken, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var payload = JsonConvert.SerializeObject(new { project_id = projectId.ToString() });
+                using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/vibe/seed")
+                {
+                    Content = new StringContent(payload, Encoding.UTF8, "application/json"),
+                };
+                if (!string.IsNullOrEmpty(accessToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                await _httpClient.SendAsync(req, cancellationToken);
+            }
+            catch { /* best-effort; 409 = no tunnel / already seeding */ }
+        }
+
+        /// <summary>Wire shape of GET /vibe/seed/status.</summary>
+        public class SeedStatus
+        {
+            [JsonProperty("warm")] public bool Warm { get; set; }
+            [JsonProperty("rows")] public int Rows { get; set; }
+            [JsonProperty("version")] public int Version { get; set; }
+            [JsonProperty("inflight")] public bool Inflight { get; set; }
+        }
+
         /// <summary>
         /// Send prompt to NestJS backend and get generated code.
         /// </summary>
