@@ -123,37 +123,22 @@
         <Border Grid.Row="0" Grid.RowSpan="4" Background="#F7FFFFFF"
                 Visibility="{Binding IsIndexing, Converter={StaticResource BoolVis}}">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                <!-- Spinner: a 90° arc rotating forever inside a static ring -->
-                <Canvas Width="46" Height="46" HorizontalAlignment="Center" RenderTransformOrigin="0.5,0.5">
-                    <Canvas.RenderTransform>
-                        <RotateTransform x:Name="IndexSpin" Angle="0"/>
-                    </Canvas.RenderTransform>
-                    <Canvas.Triggers>
-                        <EventTrigger RoutedEvent="FrameworkElement.Loaded">
-                            <BeginStoryboard>
-                                <Storyboard RepeatBehavior="Forever">
-                                    <DoubleAnimation Storyboard.TargetName="IndexSpin"
-                                                     Storyboard.TargetProperty="Angle"
-                                                     From="0" To="360" Duration="0:0:0.9"/>
-                                </Storyboard>
-                            </BeginStoryboard>
-                        </EventTrigger>
-                    </Canvas.Triggers>
-                    <Ellipse Width="46" Height="46" Stroke="#E5E7EB" StrokeThickness="4"/>
-                    <Path Stroke="{DynamicResource Cp.Purple}" StrokeThickness="4" StrokeStartLineCap="Round"
-                          Data="M23,3 A20,20 0 0 1 43,23"/>
-                </Canvas>
-                <TextBlock Text="Indexing your model…" Margin="0,16,0,0" HorizontalAlignment="Center"
+                <TextBlock Text="Indexing your model…" HorizontalAlignment="Center"
                            FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
-                <!-- Determinate progress bar + percentage -->
-                <ProgressBar Minimum="0" Maximum="100" Value="{Binding IndexProgress}"
-                             Width="220" Height="6" Margin="0,12,0,0" BorderThickness="0"
-                             Background="#E5E7EB" Foreground="{DynamicResource Cp.Purple}"/>
-                <TextBlock Margin="0,6,0,0" HorizontalAlignment="Center" FontSize="11"
+                <!-- Progress bar built from plain Borders — NO Storyboard / animation
+                     (WPF storyboards inside a Revit dockable pane crash Revit). The
+                     fill width is driven directly by IndexProgressBarWidth (0–220). -->
+                <Border Width="220" Height="8" CornerRadius="4" Background="#E5E7EB"
+                        Margin="0,14,0,0" HorizontalAlignment="Center" ClipToBounds="True">
+                    <Border HorizontalAlignment="Left" CornerRadius="4"
+                            Background="{DynamicResource Cp.Purple}"
+                            Width="{Binding IndexProgressBarWidth}"/>
+                </Border>
+                <TextBlock Margin="0,8,0,0" HorizontalAlignment="Center" FontSize="12"
                            FontWeight="SemiBold" Foreground="{DynamicResource Cp.Purple}"
                            Text="{Binding IndexProgress, StringFormat={}{0}%}"/>
                 <TextBlock Text="One moment — getting your model ready so I can answer instantly."
-                           Margin="0,6,0,0" HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="240"
+                           Margin="0,8,0,0" HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="240"
                            FontSize="11" Foreground="{DynamicResource Cp.Muted}" TextWrapping="Wrap"/>
             </StackPanel>
         </Border>

@@ -96,7 +96,11 @@ namespace RevitWebAppSync.UI.Copilot
         public bool IsIndexing { get => _isIndexing; private set { if (_isIndexing == value) return; _isIndexing = value; Raise(); } }
 
         private int _indexProgress;
-        public int IndexProgress { get => _indexProgress; private set { if (_indexProgress == value) return; _indexProgress = value; Raise(); } }
+        public int IndexProgress { get => _indexProgress; private set { if (_indexProgress == value) return; _indexProgress = value; Raise(); Raise(nameof(IndexProgressBarWidth)); } }
+
+        /// <summary>Fill width (px) for the indexing progress bar — 0..220 mapped
+        /// from IndexProgress (0..100). Drives a plain Border, no animation.</summary>
+        public double IndexProgressBarWidth => 220.0 * _indexProgress / 100.0;
 
         /// <summary>On pane open: warm the cloud model mirror before the user
         /// prompts, showing an "Indexing model…" indicator and gating sends until
