@@ -71,6 +71,7 @@ namespace BinaVibe.Mcp
 
             _handler = new McpExternalEventHandler();
             _externalEvent = ExternalEvent.Create(_handler);
+            _handler.Event = _externalEvent;  // lets the handler re-raise for the next queued job (no head-of-line block)
         }
 
         public void Start()
@@ -202,8 +203,10 @@ namespace BinaVibe.Mcp
 
         private static async Task RespondAsync(ClientWebSocket ws, string id, McpJob job, CancellationToken ct)
         {
-            // Wait for Revit thread to complete (30s cap).
-            var completed = job.Completed.Wait(TimeSpan.FromSeconds(30));
+            // Wait for Revit thread to complete (20s cap — kept below the
+            // backend's VIBE_WSS_CALL_TIMEOUT (30s) so the addin returns a
+            // clean timeout error first instead of racing it).
+            var completed = job.Completed.Wait(TimeSpan.FromSeconds(20));
             if (!completed)
             {
                 await SendJson(ws, new { id, error = new { message = "tool execution timed out" } }, ct).ConfigureAwait(false);

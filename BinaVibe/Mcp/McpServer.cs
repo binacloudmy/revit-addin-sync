@@ -27,7 +27,10 @@ namespace BinaVibe.Mcp
         private readonly McpExternalEventHandler _handler;
         private readonly ExternalEvent _externalEvent;
         private readonly CancellationTokenSource _cts = new();
-        private readonly TimeSpan _jobTimeout = TimeSpan.FromSeconds(30);
+        // Kept below the backend's WSS call timeout (VIBE_WSS_CALL_TIMEOUT,
+        // default 30s) so the addin returns a clean "timed out" error first
+        // instead of racing the backend's own timeout.
+        private readonly TimeSpan _jobTimeout = TimeSpan.FromSeconds(20);
 
         public int Port { get; }
         public string Prefix => $"http://localhost:{Port}/";
@@ -38,6 +41,7 @@ namespace BinaVibe.Mcp
             _listener.Prefixes.Add(Prefix);
             _handler = new McpExternalEventHandler();
             _externalEvent = ExternalEvent.Create(_handler);
+            _handler.Event = _externalEvent;  // lets the handler re-raise for the next queued job
         }
 
         public void Start()
