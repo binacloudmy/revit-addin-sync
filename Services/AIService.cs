@@ -66,11 +66,15 @@ namespace RevitWebAppSync.Services
         /// <summary>POST /vibe/seed — kick off a background mirror seed. Idempotent
         /// server-side; returns immediately (the caller polls GetSeedStatusAsync).</summary>
         public async Task StartSeedAsync(
-            int projectId, string accessToken, CancellationToken cancellationToken = default)
+            int projectId, int userId, string accessToken, CancellationToken cancellationToken = default)
         {
             try
             {
-                var payload = JsonConvert.SerializeObject(new { project_id = projectId.ToString() });
+                var payload = JsonConvert.SerializeObject(new
+                {
+                    project_id = projectId.ToString(),
+                    user_id = userId > 0 ? userId.ToString() : null,
+                });
                 using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/vibe/seed")
                 {
                     Content = new StringContent(payload, Encoding.UTF8, "application/json"),
@@ -89,6 +93,8 @@ namespace RevitWebAppSync.Services
             [JsonProperty("rows")] public int Rows { get; set; }
             [JsonProperty("version")] public int Version { get; set; }
             [JsonProperty("inflight")] public bool Inflight { get; set; }
+            [JsonProperty("seeded_by_user_id")] public string SeededByUserId { get; set; }
+            [JsonProperty("seeded_at")] public double? SeededAt { get; set; }
         }
 
         /// <summary>

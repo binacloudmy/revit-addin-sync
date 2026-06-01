@@ -120,7 +120,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Text = "Indexing your model so I can answer instantly… one moment.",
                 });
 
-                await ai.StartSeedAsync(cfg.ProjectId, cfg.AccessToken);
+                await ai.StartSeedAsync(cfg.ProjectId, cfg.UserId, cfg.AccessToken);
 
                 // Poll until warm (~25s budget: 17 × 1.5s).
                 for (int i = 0; i < 17; i++)
