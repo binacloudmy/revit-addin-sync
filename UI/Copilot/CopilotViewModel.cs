@@ -102,6 +102,13 @@ namespace RevitWebAppSync.UI.Copilot
         /// from IndexProgress (0..100). Drives a plain Border, no animation.</summary>
         public double IndexProgressBarWidth => 220.0 * _indexProgress / 100.0;
 
+        // Overlay title + subtitle (the full-pane "Preparing model" gate). Default
+        // to the mirror-seeding copy; the warm-up phase overrides them.
+        private string _indexTitle = "Indexing your model…";
+        public string IndexTitle { get => _indexTitle; private set { if (_indexTitle == value) return; _indexTitle = value; Raise(); } }
+        private string _indexSubtitle = "One moment — getting your model ready so I can answer instantly.";
+        public string IndexSubtitle { get => _indexSubtitle; private set { if (_indexSubtitle == value) return; _indexSubtitle = value; Raise(); } }
+
         // ─── In-process tool activity (tunnel mutations on Revit's main thread) ──
         // Set when a mutation tool dispatches to Revit, cleared on completion, so
         // the pane shows "applying create_wall…" during a slow cold-model build
@@ -199,29 +206,45 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 if (RevitWebAppSync.App.VibeModelWarm) return;  // already warm
 
+                // Take over the full-pane overlay: input is disabled (the overlay
+                // is hit-test opaque) and we show an honest, phased "Preparing
+                // model" progress. Note: during the actual heavy regen the UI
+                // thread freezes, so the bar stops mid-progress — that frozen
+                // "Preparing… 90%" reads as "working", which is the intent.
+                IndexTitle = "Preparing your model for editing…";
+                IndexSubtitle = "Loading the model — the first open can take up to a minute.";
+                IndexProgress = 0;
                 IsIndexing = true;
-                AddAi(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.Thinking,
-                    Text = "Warming the model for fast edits… one moment.",
-                });
 
                 // Budget covers a cold open (~77s) + first regen (~71s) + margin.
                 bool warm = false;
                 for (int i = 0; i < 160; i++)
                 {
                     if (RevitWebAppSync.App.VibeModelWarm) { warm = true; break; }
+
+                    if (RevitWebAppSync.App.VibeWarmupStarted)
+                    {
+                        // Heavy phase: warming geometry (50→95%).
+                        IndexSubtitle = "Warming up geometry so your first edit is instant…";
+                        if (IndexProgress < 50) IndexProgress = 50;
+                        else if (IndexProgress < 95) IndexProgress += 2;
+                    }
+                    else
+                    {
+                        // Loading phase: model still opening (0→48%).
+                        if (IndexProgress < 48) IndexProgress += 2;
+                    }
                     await Task.Delay(1000);
                 }
 
+                IndexProgress = 100;
                 IsIndexing = false;
-                ReplaceLastThinking(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.AiReply,
-                    Text = warm
-                        ? "Model ready — your first edit will be instant."
-                        : "Still warming in the background — your first edit may be a little slower.",
-                });
+                if (warm)
+                    AddAi(new ChatMessage
+                    {
+                        Role = "ai", Kind = CpMsgKind.AiReply,
+                        Text = "Model ready — your edits will be instant now.",
+                    });
             }
             catch
             {

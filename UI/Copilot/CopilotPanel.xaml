@@ -132,7 +132,7 @@
         <Border Grid.Row="0" Grid.RowSpan="4" Background="#F7FFFFFF"
                 Visibility="{Binding IsIndexing, Converter={StaticResource BoolVis}}">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
-                <TextBlock Text="Indexing your model…" HorizontalAlignment="Center"
+                <TextBlock Text="{Binding IndexTitle, Mode=OneWay}" HorizontalAlignment="Center"
                            FontSize="13" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
                 <!-- Progress bar built from plain Borders — NO Storyboard / animation
                      (WPF storyboards inside a Revit dockable pane crash Revit). The
@@ -146,7 +146,7 @@
                 <TextBlock Margin="0,8,0,0" HorizontalAlignment="Center" FontSize="12"
                            FontWeight="SemiBold" Foreground="{DynamicResource Cp.Purple}"
                            Text="{Binding IndexProgress, StringFormat={}{0}%}"/>
-                <TextBlock Text="One moment — getting your model ready so I can answer instantly."
+                <TextBlock Text="{Binding IndexSubtitle, Mode=OneWay}"
                            Margin="0,8,0,0" HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="240"
                            FontSize="11" Foreground="{DynamicResource Cp.Muted}" TextWrapping="Wrap"/>
             </StackPanel>

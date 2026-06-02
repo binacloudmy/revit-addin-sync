@@ -68,6 +68,11 @@ namespace RevitWebAppSync
         // Reset to false on each DocumentOpened, set in the warm-up after-hook.
         public static bool VibeModelWarm { get; set; }
 
+        // True once the warm-up edit has actually begun on the UI thread — lets
+        // the pane switch its "Preparing model" overlay from "Loading model…"
+        // to "Warming up…". Reset on DocumentOpened, set in WarmupHandler.
+        public static bool VibeWarmupStarted { get; set; }
+
         // Deferred warm-up: the project doc waiting to be warmed, and when it
         // opened. The throwaway-wall warm-up must run AFTER the model fully
         // loads (the big idle block clears) — at first-idle the model is still
@@ -316,6 +321,7 @@ namespace RevitWebAppSync
                                 // SETTLED (after its big load block) so the
                                 // throwaway wall actually pays the cold regen.
                                 VibeModelWarm = false;
+                                VibeWarmupStarted = false;
                                 _pendingWarmDoc = d;
                                 _warmOpenedTs = System.Diagnostics.Stopwatch.GetTimestamp();
                             };

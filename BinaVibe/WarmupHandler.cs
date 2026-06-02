@@ -41,6 +41,10 @@ namespace BinaVibe
                 if (doc.IsReadOnly || doc.IsLinked || doc.IsFamilyDocument) continue;
                 try
                 {
+                    // Tell the pane the heavy phase has begun (overlay flips to
+                    // "Warming up…"). The big regen freezes the UI right after, so
+                    // set this BEFORE the transaction while the pane can still paint.
+                    RevitWebAppSync.App.VibeWarmupStarted = true;
                     var sw = System.Diagnostics.Stopwatch.StartNew();
                     // A REAL (tiny, dependency-free) change forces the expensive
                     // first-transaction regen that a freshly opened large model
