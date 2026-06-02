@@ -214,7 +214,15 @@ namespace RevitWebAppSync
                         // thread.
                         VibeWarmup.AfterWarm = warmedDoc =>
                         {
+                            // Measure the on-thread walk: if this is the ~140s
+                            // freeze it'll show here; a high call-count means
+                            // it's firing per-document (links).
+                            var _sw = System.Diagnostics.Stopwatch.StartNew();
                             var snapshot = indexer.CollectBulkDocs(warmedDoc);
+                            _sw.Stop();
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[BinaVibe][timing] CollectBulkDocs (UI walk)={_sw.ElapsedMilliseconds}ms " +
+                                $"docs={snapshot.Count} doc={warmedDoc.Title}");
                             _ = System.Threading.Tasks.Task.Run(
                                 () => indexer.PostBulkAsync(snapshot, version: 1));
                         };
@@ -224,7 +232,18 @@ namespace RevitWebAppSync
                         application.ControlledApplication.DocumentOpened +=
                             (s, e) =>
                             {
-                                VibeWarmup.Enqueue(e.Document);
+                                var d = e.Document;
+                                // Only index the real project model. Revit raises
+                                // DocumentOpened for EVERY linked model and family
+                                // too — each would queue a full bulk walk on the UI
+                                // thread and stack into a multi-minute freeze.
+                                if (d == null || d.IsLinked || d.IsFamilyDocument)
+                                {
+                                    System.Diagnostics.Debug.WriteLine(
+                                        $"[BinaVibe] skip bulk-index for non-project doc: {d?.Title}");
+                                    return;
+                                }
+                                VibeWarmup.Enqueue(d);
                                 VibeWarmupEvent.Raise();
                             };
                     }
