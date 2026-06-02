@@ -16,6 +16,13 @@ namespace BinaVibe.Mcp
     {
         public string Tool { get; init; } = "";
         public JsonElement Args { get; init; }
+
+        // Stable hash of (tool, args, session) sent by the backend. Lets the
+        // transport dedup a retry of the SAME logical mutation (after a
+        // false-timeout, say) back to this one job instead of executing twice
+        // and creating a duplicate element. Empty => not deduped.
+        public string IdempotencyKey { get; init; } = "";
+
         public ManualResetEventSlim Completed { get; } = new(initialState: false);
 
         // Result of the call. Exactly one of these is non-null when

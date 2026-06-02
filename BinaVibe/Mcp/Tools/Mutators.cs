@@ -39,7 +39,7 @@ namespace BinaVibe.Mcp.Tools
             if (p.IsReadOnly) throw new InvalidOperationException($"parameter {paramName} is read-only");
 
             using var tx = new Transaction(doc, $"BinaVibe: set_parameter {paramName}");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 SetParamValue(p, value);
@@ -72,7 +72,7 @@ namespace BinaVibe.Mcp.Tools
             var failures = new List<object>();
 
             using var tx = new Transaction(doc, $"BinaVibe: set_parameter_bulk {paramName}");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 foreach (var id in ids)
@@ -119,7 +119,7 @@ namespace BinaVibe.Mcp.Tools
                 ?? throw new ArgumentException($"type '{typeName}' not found in category {el.Category.Name}");
 
             using var tx = new Transaction(doc, $"BinaVibe: change_type {typeName}");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 el.ChangeTypeId(newType.Id);
@@ -140,7 +140,7 @@ namespace BinaVibe.Mcp.Tools
         {
             var ids = ArgsHelp.GetLongList(args, "element_ids");
             using var tx = new Transaction(doc, $"BinaVibe: delete_elements ({ids.Count})");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             int deleted = 0;
             var failures = new List<object>();
             try
@@ -186,7 +186,7 @@ namespace BinaVibe.Mcp.Tools
                 ?? throw new ArgumentException($"view '{sourceName}' not found");
 
             using var tx = new Transaction(doc, "BinaVibe: duplicate_view");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 var newId = src.Duplicate(withDetailing ? ViewDuplicateOption.WithDetailing : ViewDuplicateOption.Duplicate);
@@ -240,7 +240,7 @@ namespace BinaVibe.Mcp.Tools
 
             int applied = 0;
             using var tx = new Transaction(doc, "BinaVibe: apply_view_template");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 foreach (var vid in viewIds)
@@ -291,7 +291,7 @@ namespace BinaVibe.Mcp.Tools
             }
 
             using var tx = new Transaction(doc, "BinaVibe: create_wall");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 var line = Line.CreateBound(p1, p2);
@@ -352,7 +352,7 @@ namespace BinaVibe.Mcp.Tools
             }
 
             using var tx = new Transaction(doc, "BinaVibe: place_family_instance");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 if (!symbol.IsActive) { symbol.Activate(); doc.Regenerate(); }
@@ -391,7 +391,7 @@ namespace BinaVibe.Mcp.Tools
             var translation = new XYZ(dx, dy, dz);
 
             using var tx = new Transaction(doc, $"BinaVibe: move_elements ({ids.Count})");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 ElementTransformUtils.MoveElements(doc, elementIds, translation);
@@ -436,7 +436,7 @@ namespace BinaVibe.Mcp.Tools
             }
 
             using var tx = new Transaction(doc, "BinaVibe: create_sheet");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 var sheet = ViewSheet.Create(doc, titleblockId);
@@ -471,7 +471,7 @@ namespace BinaVibe.Mcp.Tools
                 ?? throw new ArgumentException($"sheet number '{sheetNumber}' not found");
 
             using var tx = new Transaction(doc, "BinaVibe: place_view_on_sheet");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 var viewport = Viewport.Create(doc, sheet.Id, view.Id, new XYZ(x, y, 0));
@@ -533,7 +533,7 @@ namespace BinaVibe.Mcp.Tools
 
             int tagged = 0;
             using var tx = new Transaction(doc, $"BinaVibe: tag_elements ({categoryName})");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 // Room/Space tags use a different API.
@@ -582,7 +582,7 @@ namespace BinaVibe.Mcp.Tools
             double elevation = ArgsHelp.GetDouble(args, "elevation") ?? throw new ArgumentException("missing elevation");
 
             using var tx = new Transaction(doc, "BinaVibe: create_level");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 var level = Level.Create(doc, elevation);
@@ -611,7 +611,7 @@ namespace BinaVibe.Mcp.Tools
             var line = Line.CreateBound(new XYZ(startX, startY, 0), new XYZ(endX, endY, 0));
 
             using var tx = new Transaction(doc, "BinaVibe: create_grid");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 var grid = Grid.Create(doc, line);
@@ -640,7 +640,7 @@ namespace BinaVibe.Mcp.Tools
                 ?? throw new ArgumentException($"level '{levelName}' not found");
 
             using var tx = new Transaction(doc, "BinaVibe: create_room");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 var room = doc.Create.NewRoom(level, new UV(x, y));
@@ -690,7 +690,7 @@ namespace BinaVibe.Mcp.Tools
 
             int colored = 0;
             using var tx = new Transaction(doc, $"BinaVibe: color_elements ({ids.Count})");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 foreach (var id in ids)
@@ -725,7 +725,7 @@ namespace BinaVibe.Mcp.Tools
             if (newType is FamilySymbol fs && !fs.IsActive)
             {
                 using var txActivate = new Transaction(doc, "BinaVibe: activate_symbol");
-                txActivate.Start();
+                TxGuard.StartSwallowing(txActivate);
                 fs.Activate();
                 doc.Regenerate();
                 txActivate.Commit();
@@ -735,7 +735,7 @@ namespace BinaVibe.Mcp.Tools
             var failures = new List<object>();
 
             using var tx = new Transaction(doc, $"BinaVibe: swap_element_type ({ids.Count})");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 foreach (var id in ids)
@@ -789,7 +789,7 @@ namespace BinaVibe.Mcp.Tools
             }
 
             using var tx = new Transaction(doc, "BinaVibe: place_text_note");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 var note = TextNote.Create(doc, view.Id, new XYZ(x, y, 0), text, textNoteTypeId);
@@ -827,7 +827,7 @@ namespace BinaVibe.Mcp.Tools
             var elementIds = ids.Select(id => new ElementId(id)).ToList();
 
             using var tx = new Transaction(doc, $"BinaVibe: hide_isolate_elements ({mode}, {ids.Count})");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 if (string.Equals(mode, "isolate", StringComparison.OrdinalIgnoreCase))
@@ -871,7 +871,7 @@ namespace BinaVibe.Mcp.Tools
                 new XYZ(axisX, axisY, 10));
 
             using var tx = new Transaction(doc, $"BinaVibe: rotate_elements ({ids.Count}, {angleDeg}°)");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 ElementTransformUtils.RotateElements(doc, elementIds, axisLine, angleRad);
@@ -907,7 +907,7 @@ namespace BinaVibe.Mcp.Tools
             var translation = new XYZ(dx, dy, dz);
 
             using var tx = new Transaction(doc, $"BinaVibe: copy_elements ({ids.Count})");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             ICollection<ElementId> newIds;
             try
             {
@@ -954,7 +954,7 @@ namespace BinaVibe.Mcp.Tools
                 mirrorPlane = Plane.CreateByNormalAndOrigin(XYZ.BasisX, new XYZ(originX, 0, 0));
 
             using var tx = new Transaction(doc, $"BinaVibe: mirror_elements ({ids.Count}, plane={planeName})");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 ElementTransformUtils.MirrorElements(doc, elementIds, mirrorPlane, copy);
@@ -1086,7 +1086,7 @@ namespace BinaVibe.Mcp.Tools
             var elementIds = ids.Select(id => new ElementId(id)).ToList();
 
             using var tx = new Transaction(doc, "BinaVibe: group_elements");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 var group = doc.Create.NewGroup(elementIds);
@@ -1129,7 +1129,7 @@ namespace BinaVibe.Mcp.Tools
             var failures = new List<object>();
 
             using var tx = new Transaction(doc, $"BinaVibe: pin_elements (pinned={pinned}, count={ids.Count})");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 foreach (var id in ids)
@@ -1175,7 +1175,7 @@ namespace BinaVibe.Mcp.Tools
             var elB = doc.GetElement(new ElementId(idB)) ?? throw new ArgumentException($"element {idB} not found");
 
             using var tx = new Transaction(doc, "BinaVibe: join_geometry");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 // JoinGeometryUtils.AreElementsJoined can tell us if they're already joined;
@@ -1240,7 +1240,7 @@ namespace BinaVibe.Mcp.Tools
 
             int renumbered = 0;
             using var tx = new Transaction(doc, $"BinaVibe: renumber_elements ({category})");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 for (int i = 0; i < elements.Count; i++)
@@ -1339,7 +1339,7 @@ namespace BinaVibe.Mcp.Tools
 
             // 4. Create ParameterFilterElement.
             using var tx = new Transaction(doc, "BinaVibe: create_view_filter");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 var pfe = ParameterFilterElement.Create(doc, name, catIds, epf);
@@ -1391,7 +1391,7 @@ namespace BinaVibe.Mcp.Tools
                 ?? throw new ArgumentException($"filter '{filterName}' not found — create it first with create_view_filter");
 
             using var tx = new Transaction(doc, $"BinaVibe: apply_view_filter ({filterName})");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 // Ensure the filter is added to the view first.
@@ -1475,7 +1475,7 @@ namespace BinaVibe.Mcp.Tools
             }
 
             using var tx = new Transaction(doc, "BinaVibe: create_floor");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 // Revit 2022+ API: Floor.Create(doc, IList<CurveLoop>, ElementId typeId, ElementId levelId)
@@ -1537,7 +1537,7 @@ namespace BinaVibe.Mcp.Tools
             }
 
             using var tx = new Transaction(doc, "BinaVibe: create_ceiling");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 // Revit 2022+ API: Ceiling.Create(doc, IList<CurveLoop>, ElementId typeId, ElementId levelId)
@@ -1729,7 +1729,7 @@ namespace BinaVibe.Mcp.Tools
                 ?? throw new ArgumentException($"type '{typeName}' not found in category {cat}");
 
             using var tx = new Transaction(doc, $"BinaVibe: {label}");
-            tx.Start();
+            TxGuard.StartSwallowing(tx);
             try
             {
                 if (!symbol.IsActive) { symbol.Activate(); doc.Regenerate(); }

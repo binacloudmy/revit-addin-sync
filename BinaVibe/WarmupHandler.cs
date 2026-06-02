@@ -20,6 +20,7 @@ using System.Collections.Concurrent;
 using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
+using BinaVibe.Mcp.Tools;   // shared SwallowWarnings
 
 namespace BinaVibe
 {
@@ -108,18 +109,5 @@ namespace BinaVibe
         }
 
         public string GetName() => "BinaVibe.WarmupHandler";
-    }
-
-    /// <summary>Deletes warnings during a transaction so the warm-up edit can
-    /// never block on a modal failure dialog (it runs unattended at load).</summary>
-    internal sealed class SwallowWarnings : IFailuresPreprocessor
-    {
-        public FailureProcessingResult PreprocessFailures(FailuresAccessor a)
-        {
-            foreach (var f in a.GetFailureMessages())
-                if (f.GetSeverity() == FailureSeverity.Warning)
-                    a.DeleteWarning(f);
-            return FailureProcessingResult.Continue;
-        }
     }
 }

@@ -35,6 +35,7 @@ namespace BinaVibe.Mcp
     {
         private readonly McpExternalEventHandler _handler;
         private readonly ExternalEvent _externalEvent;
+        private readonly McpIdempotencyCache _idem = new();
         private readonly Uri _serverUri;
         private readonly string _token;
         private readonly string _tenantId;
@@ -199,11 +200,27 @@ namespace BinaVibe.Mcp
                     var args = paramsEl.TryGetProperty("args", out var aEl)
                         ? aEl.Clone()
                         : JsonDocument.Parse("{}").RootElement.Clone();
+                    var idemKey = paramsEl.TryGetProperty("idempotency_key", out var kEl)
+                        ? kEl.GetString() ?? "" : "";
 
-                    var job = new McpJob { Tool = tool, Args = args };
+                    var job = new McpJob { Tool = tool, Args = args, IdempotencyKey = idemKey };
                     job.TEnqueued = System.Diagnostics.Stopwatch.GetTimestamp();   // t0
-                    _handler.Pending.Enqueue(job);
-                    _externalEvent.Raise();
+
+                    // Dedup: if this key was already handled (a retry after a
+                    // false-timeout), reuse the ORIGINAL job — await its result
+                    // instead of executing the write a second time (which would
+                    // duplicate the element). Only enqueue when this job is new.
+                    var canonical = _idem.GetOrAdd(idemKey, job);
+                    if (ReferenceEquals(canonical, job))
+                    {
+                        _handler.Pending.Enqueue(job);
+                        _externalEvent.Raise();
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[BinaVibe] idempotent hit key={idemKey} tool={tool} — awaiting original, not re-executing");
+                    }
 
                     // Tell the backend/pane the job has started so it can show
                     // honest "applying…" progress instead of a frozen wait.
@@ -217,8 +234,9 @@ namespace BinaVibe.Mcp
                     catch { /* pane indicator is best-effort */ }
 
                     // Wait off the WS-read thread so we can keep reading
-                    // additional frames in parallel.
-                    _ = Task.Run(async () => await RespondAsync(ws, id, job, ct).ConfigureAwait(false));
+                    // additional frames in parallel. Wait on `canonical` so a
+                    // deduped retry resolves from the original job's result.
+                    _ = Task.Run(async () => await RespondAsync(ws, id, canonical, ct).ConfigureAwait(false));
                 }
             }
         }
