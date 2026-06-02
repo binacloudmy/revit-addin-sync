@@ -66,6 +66,27 @@ namespace RevitWebAppSync
         {
             try
             {
+                // Idle-gap heartbeat (diagnostic): Revit raises Idling whenever
+                // its UI thread is free. If two consecutive Idling events are
+                // >2s apart, the UI thread was BLOCKED that long ("Not
+                // Responding"). Logs the block duration so freezes show up in
+                // the timeline with nothing-of-ours running = Revit-internal
+                // (e.g. the large model still finishing its open).
+                long lastIdleTs = 0;
+                application.Idling += (s, e) =>
+                {
+                    var now = System.Diagnostics.Stopwatch.GetTimestamp();
+                    if (lastIdleTs != 0)
+                    {
+                        double gapMs = (now - lastIdleTs) * 1000.0
+                            / System.Diagnostics.Stopwatch.Frequency;
+                        if (gapMs > 2000)
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[BinaVibe][idle] UI thread blocked {gapMs:F0}ms before idle resumed");
+                    }
+                    lastIdleTs = now;
+                };
+
                 // Create external event handler for AI code execution
                 AIHandler = new CodeExecutionHandler();
                 AIExternalEvent = ExternalEvent.Create(AIHandler);
