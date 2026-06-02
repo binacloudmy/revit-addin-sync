@@ -8,14 +8,16 @@
 // a background thread at the same moment, is the ~90s "freeze + not
 // responding" on the first build of a session.
 //
-// This handler runs doc.Regenerate() in a throwaway transaction right after
-// the document opens, so the first-regen cost is paid invisibly here instead
-// of freezing the user's first mutation. It then invokes AfterWarm (the bulk
-// index) only once warming is done, so the index walk no longer contends for
-// idle while the user is mid-build.
+// This handler creates a throwaway WALL in a TransactionGroup right after the
+// document opens and rolls it back, so the heavy first-regen (geometry + joins
+// + room bounding) is paid invisibly here instead of freezing the user's first
+// mutation. doc.Regenerate() and a datum SketchPlane were both too light to
+// trigger it (~3ms / ~48ms). It then invokes AfterWarm (the bulk index) only
+// once warming is done, so the index walk no longer contends for idle.
 
 using System;
 using System.Collections.Concurrent;
+using System.Linq;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
@@ -59,8 +61,24 @@ namespace BinaVibe
                             fho.SetFailuresPreprocessor(new SwallowWarnings());
                             fho.SetClearAfterRollback(true);
                             tx.SetFailureHandlingOptions(fho);
-                            SketchPlane.Create(
-                                doc, Plane.CreateByNormalAndOrigin(XYZ.BasisZ, XYZ.Zero));
+                            // Create a throwaway WALL (not a datum) so the warm-up
+                            // exercises the SAME heavy first-regen path as the
+                            // user's real build — geometry + joins + room bounding.
+                            // A lighter SketchPlane logged ~48ms and did NOT trigger
+                            // the cold ~70s regen. Falls back to a SketchPlane only
+                            // if the model has no level to host a wall.
+                            var level = new FilteredElementCollector(doc)
+                                .OfClass(typeof(Level)).Cast<Level>().FirstOrDefault();
+                            if (level != null)
+                            {
+                                var line = Line.CreateBound(XYZ.Zero, new XYZ(1.0, 0, 0));
+                                Wall.Create(doc, line, level.Id, false);
+                            }
+                            else
+                            {
+                                SketchPlane.Create(
+                                    doc, Plane.CreateByNormalAndOrigin(XYZ.BasisZ, XYZ.Zero));
+                            }
                             tx.Commit();  // ← pays the first regen at load
                         }
                         tg.RollBack();    // ← undo: no trace, no undo entry
