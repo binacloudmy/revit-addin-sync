@@ -149,6 +149,19 @@ namespace BinaVibe.Indexer
         /// </summary>
         public async Task BulkIndexAsync(Document doc, int version)
         {
+            // Back-compat wrapper. Prefer CollectBulkDocs (UI thread) +
+            // PostBulkAsync (background) so Revit reads never run off-thread.
+            var collected = CollectBulkDocs(doc);
+            await PostBulkAsync(collected, version).ConfigureAwait(false);
+        }
+
+        // Revit element reads ONLY — MUST run on the UI thread. The Revit API
+        // is single-threaded; walking elements from a background thread (the
+        // old Task.Run path) serialises against the UI thread and starves
+        // Revit idle (~30s on a 2540-element model, measured) — which froze
+        // the user's first build. On-thread this is fast (~1-2s) idle work.
+        public List<SnapshotDoc> CollectBulkDocs(Document doc)
+        {
             var docs = new List<SnapshotDoc>();
 
             // ── Levels ───────────────────────────────────────────────────────
@@ -391,6 +404,12 @@ namespace BinaVibe.Indexer
                 }
             }
 
+            return docs;
+        }
+
+        // Network POST ONLY — safe on a background thread (no Revit reads).
+        public async Task PostBulkAsync(List<SnapshotDoc> docs, int version)
+        {
             var payload = BuildBulkPayload(docs, version);
 
             // Serialise with camelCase property names so field names match

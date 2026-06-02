@@ -206,12 +206,18 @@ namespace RevitWebAppSync
                         // Capture for the lambda so it doesn't close over a
                         // loop variable or mutable field.
                         var indexer = VibeIndexer;
-                        // Bulk index runs only AFTER the warm-up regen, so its
-                        // background element walk no longer contends for Revit
-                        // idle while the user is mid-build (was ~30s starvation).
+                        // Bulk index runs inside the warm-up's UI-thread context:
+                        // the Revit element walk (CollectBulkDocs) runs ON the UI
+                        // thread (fast, no idle contention — the old off-thread
+                        // Task.Run walk starved Revit idle ~30s and froze the
+                        // first build); only the network POST goes to a background
+                        // thread.
                         VibeWarmup.AfterWarm = warmedDoc =>
-                            System.Threading.Tasks.Task.Run(
-                                () => indexer.BulkIndexAsync(warmedDoc, version: 1));
+                        {
+                            var snapshot = indexer.CollectBulkDocs(warmedDoc);
+                            _ = System.Threading.Tasks.Task.Run(
+                                () => indexer.PostBulkAsync(snapshot, version: 1));
+                        };
                         // On open: warm the first regen on the UI thread (pays
                         // the one-time ~58s here, not on the user's first build),
                         // then AfterWarm kicks the bulk index.
