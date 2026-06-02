@@ -28,6 +28,7 @@
     <Compile Include="..\Services\VettedToolCode.cs" Link="VettedToolCode.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotModels.cs" Link="CopilotModels.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotCatalog.cs" Link="CopilotCatalog.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\BatchRefResolver.cs" Link="BatchRefResolver.cs" />
     <!--
       DocumentChangedIndexer: included for BuildBulkPayload / SnapshotDoc /
       SnapshotPayload (pure logic, no Revit refs). BulkIndexAsync and the

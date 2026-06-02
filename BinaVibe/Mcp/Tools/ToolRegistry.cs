@@ -52,9 +52,11 @@ namespace BinaVibe.Mcp.Tools
                 "get_model_warnings"            => Inspectors.GetModelWarnings(doc),
                 "list_view_filters"             => Inspectors.ListViewFilters(doc),
 
-                // MUTATE — Step 3, 10 tools, all wrap in Transaction.
+                // MUTATE — Step 3, all wrap in Transaction.
                 // Orchestrator-side policy gates destructive ones via
                 // approval_decisions before they reach here.
+                // Multi-element builds: ONE TransactionGroup, single undo.
+                "execute_revit_batch"    => BatchExecutor.Run(app, args),
                 "set_parameter"          => Mutators.SetParameter(doc, args),
                 "set_parameter_bulk"     => Mutators.SetParameterBulk(doc, args),
                 "change_type"            => Mutators.ChangeType(doc, args),
