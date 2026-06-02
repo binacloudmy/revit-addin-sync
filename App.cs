@@ -62,6 +62,12 @@ namespace RevitWebAppSync
         public static BinaVibe.WarmupHandler VibeWarmup { get; private set; }
         public static ExternalEvent VibeWarmupEvent { get; private set; }
 
+        // True once the active model has been warmed (first regen paid). The
+        // Copilot pane gates the first send until this is set, so the user's
+        // first build runs warm (~60ms) instead of paying the ~70s cold regen.
+        // Reset to false on each DocumentOpened, set in the warm-up after-hook.
+        public static bool VibeModelWarm { get; set; }
+
         public Result OnStartup(UIControlledApplication application)
         {
             try
@@ -235,6 +241,13 @@ namespace RevitWebAppSync
                         // thread.
                         VibeWarmup.AfterWarm = warmedDoc =>
                         {
+                            // The first-regen has now been paid (warm-up edit) —
+                            // mark the model warm so the pane releases its gate
+                            // and the user's first build runs warm. Always set,
+                            // even if the warm-up edit was best-effort-skipped, so
+                            // the gate never traps the user.
+                            VibeModelWarm = true;
+
                             // Measure the on-thread walk: if this is the ~140s
                             // freeze it'll show here; a high call-count means
                             // it's firing per-document (links).
@@ -264,6 +277,9 @@ namespace RevitWebAppSync
                                         $"[BinaVibe] skip bulk-index for non-project doc: {d?.Title}");
                                     return;
                                 }
+                                // A freshly opened project model is cold again —
+                                // gate sends until the warm-up below marks it warm.
+                                VibeModelWarm = false;
                                 VibeWarmup.Enqueue(d);
                                 VibeWarmupEvent.Raise();
                             };

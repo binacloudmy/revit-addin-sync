@@ -186,6 +186,49 @@ namespace RevitWebAppSync.UI.Copilot
             }
         }
 
+        /// <summary>On pane open (after mirror seeding): hold the send gate until
+        /// the Revit model is warm — i.e. the add-in's warm-up edit has paid the
+        /// one-time ~70s first regen — so the user's first BUILD runs warm (~60ms)
+        /// instead of freezing on the cold regen. Reuses IsIndexing (which gates
+        /// ChatSend). Best-effort: on timeout the gate releases and the first
+        /// build just pays the cost itself. Runs on the UI thread (same thread as
+        /// the warm-up ExternalEvent) so the await yields let the warm-up run.</summary>
+        public async Task EnsureModelWarmAsync()
+        {
+            try
+            {
+                if (RevitWebAppSync.App.VibeModelWarm) return;  // already warm
+
+                IsIndexing = true;
+                AddAi(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.Thinking,
+                    Text = "Warming the model for fast edits… one moment.",
+                });
+
+                // Budget covers a cold open (~77s) + first regen (~71s) + margin.
+                bool warm = false;
+                for (int i = 0; i < 160; i++)
+                {
+                    if (RevitWebAppSync.App.VibeModelWarm) { warm = true; break; }
+                    await Task.Delay(1000);
+                }
+
+                IsIndexing = false;
+                ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = warm
+                        ? "Model ready — your first edit will be instant."
+                        : "Still warming in the background — your first edit may be a little slower.",
+                });
+            }
+            catch
+            {
+                IsIndexing = false;  // never trap the user behind warm-up
+            }
+        }
+
         /// <summary>Add an AI message to the thread, marshalling to the UI thread.</summary>
         private void AddAi(ChatMessage m)
         {

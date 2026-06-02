@@ -36,23 +36,45 @@ namespace BinaVibe
             while (_pending.TryDequeue(out var doc))
             {
                 if (doc == null || !doc.IsValidObject) continue;
+                if (doc.IsReadOnly || doc.IsLinked || doc.IsFamilyDocument) continue;
                 try
                 {
                     var sw = System.Diagnostics.Stopwatch.StartNew();
-                    using (var tx = new Transaction(doc, "BinaVibe: warm-up regen"))
+                    // A REAL (tiny, dependency-free) change forces the expensive
+                    // first-transaction regen that a freshly opened large model
+                    // pays once (~58-71s measured). doc.Regenerate() alone is a
+                    // no-op (nothing dirty → ~3ms), so it never absorbed the
+                    // cost. Create a throwaway SketchPlane (no level/view/geometry
+                    // dependency — valid in any project doc), commit (pays the
+                    // first regen HERE, at load), then roll the whole group back
+                    // so it leaves no trace and no undo-stack entry. Warnings are
+                    // swallowed so it can never block on a modal dialog.
+                    using (var tg = new TransactionGroup(doc, "BinaVibe: warm-up"))
                     {
-                        tx.Start();
-                        doc.Regenerate();
-                        tx.Commit();
+                        tg.Start();
+                        using (var tx = new Transaction(doc, "BinaVibe: warm-up edit"))
+                        {
+                            tx.Start();
+                            var fho = tx.GetFailureHandlingOptions();
+                            fho.SetFailuresPreprocessor(new SwallowWarnings());
+                            fho.SetClearAfterRollback(true);
+                            tx.SetFailureHandlingOptions(fho);
+                            SketchPlane.Create(
+                                doc, Plane.CreateByNormalAndOrigin(XYZ.BasisZ, XYZ.Zero));
+                            tx.Commit();  // ← pays the first regen at load
+                        }
+                        tg.RollBack();    // ← undo: no trace, no undo entry
                     }
                     sw.Stop();
                     System.Diagnostics.Debug.WriteLine(
-                        $"[BinaVibe][timing] warm-up regen={sw.ElapsedMilliseconds}ms " +
+                        $"[BinaVibe][timing] warm-up edit (real, rolled back)={sw.ElapsedMilliseconds}ms " +
                         "(paid at load, not on first build)");
                 }
                 catch (Exception ex)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[BinaVibe] warm-up failed: {ex.Message}");
+                    // Best-effort: on any failure the first real build just pays
+                    // the cost itself (same as before). Never trap the user.
+                    System.Diagnostics.Debug.WriteLine($"[BinaVibe] warm-up edit failed (best-effort): {ex.Message}");
                 }
 
                 try { AfterWarm?.Invoke(doc); }
@@ -64,5 +86,18 @@ namespace BinaVibe
         }
 
         public string GetName() => "BinaVibe.WarmupHandler";
+    }
+
+    /// <summary>Deletes warnings during a transaction so the warm-up edit can
+    /// never block on a modal failure dialog (it runs unattended at load).</summary>
+    internal sealed class SwallowWarnings : IFailuresPreprocessor
+    {
+        public FailureProcessingResult PreprocessFailures(FailuresAccessor a)
+        {
+            foreach (var f in a.GetFailureMessages())
+                if (f.GetSeverity() == FailureSeverity.Warning)
+                    a.DeleteWarning(f);
+            return FailureProcessingResult.Continue;
+        }
     }
 }
