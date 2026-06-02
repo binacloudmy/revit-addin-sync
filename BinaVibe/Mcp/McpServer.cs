@@ -27,10 +27,13 @@ namespace BinaVibe.Mcp
         private readonly McpExternalEventHandler _handler;
         private readonly ExternalEvent _externalEvent;
         private readonly CancellationTokenSource _cts = new();
-        // Kept below the backend's WSS call timeout (VIBE_WSS_CALL_TIMEOUT,
-        // default 30s) so the addin returns a clean "timed out" error first
-        // instead of racing the backend's own timeout.
-        private readonly TimeSpan _jobTimeout = TimeSpan.FromSeconds(20);
+        // The tunnel now carries MUTATIONS (reads are served from the cloud
+        // mirror), and a single create/transaction+regen on a large model can
+        // run well past 20s. Give it room so the addin doesn't give up while
+        // Revit is still drawing — a premature timeout reported "failed" yet
+        // the element still got created (false failure + duplicate risk).
+        // Kept ≤ backend VIBE_WSS_CALL_TIMEOUT and ≤ the HttpClient 90s cap.
+        private readonly TimeSpan _jobTimeout = TimeSpan.FromSeconds(60);
 
         public int Port { get; }
         public string Prefix => $"http://localhost:{Port}/";

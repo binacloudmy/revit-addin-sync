@@ -204,10 +204,11 @@ namespace BinaVibe.Mcp
 
         private static async Task RespondAsync(ClientWebSocket ws, string id, McpJob job, CancellationToken ct)
         {
-            // Wait for Revit thread to complete (20s cap — kept below the
-            // backend's VIBE_WSS_CALL_TIMEOUT (30s) so the addin returns a
-            // clean timeout error first instead of racing it).
-            var completed = job.Completed.Wait(TimeSpan.FromSeconds(20));
+            // Wait for the Revit thread to complete. 60s: the tunnel now carries
+            // mutations (reads come from the cloud mirror), and a create +
+            // transaction + regen on a large model can exceed 20s. Too short a
+            // cap reported "failed" while Revit was still drawing the element.
+            var completed = job.Completed.Wait(TimeSpan.FromSeconds(60));
             if (!completed)
             {
                 await SendJson(ws, new { id, error = new { message = "tool execution timed out" } }, ct).ConfigureAwait(false);
