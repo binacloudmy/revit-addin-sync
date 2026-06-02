@@ -30,6 +30,7 @@ namespace BinaVibe.Mcp
         {
             while (Pending.TryDequeue(out var job))
             {
+                job.TStarted = System.Diagnostics.Stopwatch.GetTimestamp();   // t1
                 try
                 {
                     job.Result = ToolRegistry.Invoke(app, job.Tool, job.Args);
@@ -40,9 +41,28 @@ namespace BinaVibe.Mcp
                 }
                 finally
                 {
+                    job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();   // t2
+                    LogTimings(job);
                     job.Completed.Set();
                 }
             }
+        }
+
+        // A-vs-B split: idle(t1-t0) = time Revit took to reach idle and start
+        // the job; exec(t2-t1) = time the tool itself took (≈ transaction
+        // commit + regen). Big idle => idle-starvation (A); big exec => regen
+        // tax (B). Visible in DebugView / VS Output as "[BinaVibe][timing]".
+        private static void LogTimings(McpJob job)
+        {
+            double freq = System.Diagnostics.Stopwatch.Frequency;
+            double idleMs = job.TEnqueued > 0
+                ? (job.TStarted - job.TEnqueued) * 1000.0 / freq
+                : -1;
+            double execMs = (job.TFinished - job.TStarted) * 1000.0 / freq;
+            string verdict = idleMs > execMs ? "A:idle-starvation" : "B:regen-tax";
+            System.Diagnostics.Debug.WriteLine(
+                $"[BinaVibe][timing] tool={job.Tool} idle(t1-t0)={idleMs:F0}ms " +
+                $"exec(t2-t1)={execMs:F0}ms dominant={verdict}");
         }
     }
 }

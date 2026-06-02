@@ -22,5 +22,13 @@ namespace BinaVibe.Mcp
         // Completed is set.
         public Dictionary<string, object?>? Result { get; set; }
         public string? Error { get; set; }
+
+        // --- A-vs-B instrumentation (monotonic Stopwatch ticks; 0 = unset) ---
+        // t0: ExternalEvent.Raise() called (job queued)
+        public long TEnqueued { get; set; }
+        // t1: Execute() picked it up — Revit reached idle. (t1-t0) = idle wait.
+        public long TStarted { get; set; }
+        // t2: tool returned — commit+regen done. (t2-t1) = execution/regen.
+        public long TFinished { get; set; }
     }
 }

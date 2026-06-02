@@ -298,7 +298,13 @@ namespace BinaVibe.Mcp.Tools
                 var wall = wallType != null
                     ? Wall.Create(doc, line, wallType.Id, level.Id, height, 0, false, false)
                     : Wall.Create(doc, line, level.Id, false);
+                // Probe: tx.Commit() triggers the regen. Isolates the regen
+                // cost from the Wall.Create call. Big commit time => (B) regen tax.
+                var _swCommit = System.Diagnostics.Stopwatch.StartNew();
                 tx.Commit();
+                _swCommit.Stop();
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BinaVibe][timing] create_wall commit+regen={_swCommit.ElapsedMilliseconds}ms");
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,

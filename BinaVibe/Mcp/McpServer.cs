@@ -112,6 +112,7 @@ namespace BinaVibe.Mcp
                 }
 
                 var job = new McpJob { Tool = toolName, Args = args };
+                job.TEnqueued = System.Diagnostics.Stopwatch.GetTimestamp();   // t0
                 _handler.Pending.Enqueue(job);
                 _externalEvent.Raise();
 
