@@ -68,6 +68,14 @@ namespace RevitWebAppSync
         // Reset to false on each DocumentOpened, set in the warm-up after-hook.
         public static bool VibeModelWarm { get; set; }
 
+        // Deferred warm-up: the project doc waiting to be warmed, and when it
+        // opened. The throwaway-wall warm-up must run AFTER the model fully
+        // loads (the big idle block clears) — at first-idle the model is still
+        // light and the wall logged ~8-17ms, warming nothing while the real
+        // build later paid ~32-70s. Set on DocumentOpened, consumed in Idling.
+        private static Autodesk.Revit.DB.Document _pendingWarmDoc;
+        private static long _warmOpenedTs;
+
         public Result OnStartup(UIControlledApplication application)
         {
             try
@@ -82,15 +90,38 @@ namespace RevitWebAppSync
                 application.Idling += (s, e) =>
                 {
                     var now = System.Diagnostics.Stopwatch.GetTimestamp();
-                    if (lastIdleTs != 0)
-                    {
-                        double gapMs = (now - lastIdleTs) * 1000.0
-                            / System.Diagnostics.Stopwatch.Frequency;
-                        if (gapMs > 2000)
-                            System.Diagnostics.Debug.WriteLine(
-                                $"[BinaVibe][idle] UI thread blocked {gapMs:F0}ms before idle resumed");
-                    }
+                    double freq = System.Diagnostics.Stopwatch.Frequency;
+                    double gapMs = lastIdleTs != 0 ? (now - lastIdleTs) * 1000.0 / freq : 0;
+                    if (gapMs > 2000)
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[BinaVibe][idle] UI thread blocked {gapMs:F0}ms before idle resumed");
                     lastIdleTs = now;
+
+                    // Deferred warm-up trigger: once the model has SETTLED, warm
+                    // it (throwaway wall pays the cold regen on the fully-loaded
+                    // model). "Settled" = an idle resumed after a big load block
+                    // (>5s) — Revit just finished heavy work — or a fallback
+                    // window elapsed (light model that never blocked). Until then
+                    // VibeModelWarm stays false so the pane holds the send gate.
+                    if (_pendingWarmDoc != null)
+                    {
+                        double sinceOpenMs = (now - _warmOpenedTs) * 1000.0 / freq;
+                        bool settledAfterLoad = gapMs > 5000;
+                        bool fallback = sinceOpenMs > 15000;
+                        if (settledAfterLoad || fallback)
+                        {
+                            var d = _pendingWarmDoc;
+                            _pendingWarmDoc = null;
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[BinaVibe] warm-up trigger ({(settledAfterLoad ? "settled" : "fallback")}) " +
+                                $"after {sinceOpenMs:F0}ms — warming {d?.Title}");
+                            if (d != null && d.IsValidObject && VibeWarmup != null)
+                            {
+                                VibeWarmup.Enqueue(d);
+                                VibeWarmupEvent?.Raise();
+                            }
+                        }
+                    }
                 };
 
                 // Create external event handler for AI code execution
@@ -278,10 +309,15 @@ namespace RevitWebAppSync
                                     return;
                                 }
                                 // A freshly opened project model is cold again —
-                                // gate sends until the warm-up below marks it warm.
+                                // gate sends until warm. DON'T warm now: at this
+                                // first idle the model is still light (warm-up
+                                // logged ~8-17ms and warmed nothing). Defer to the
+                                // Idling handler, which warms once the model has
+                                // SETTLED (after its big load block) so the
+                                // throwaway wall actually pays the cold regen.
                                 VibeModelWarm = false;
-                                VibeWarmup.Enqueue(d);
-                                VibeWarmupEvent.Raise();
+                                _pendingWarmDoc = d;
+                                _warmOpenedTs = System.Diagnostics.Stopwatch.GetTimestamp();
                             };
                     }
                     catch (Exception tunEx)
