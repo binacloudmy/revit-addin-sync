@@ -45,6 +45,16 @@ namespace BinaVibe.Mcp
         private Task? _readLoop;
         private int _reconnectAttempt;
 
+        // Honest-progress ceiling. A cold large model can take ~150s for its
+        // first build (Revit finishing the open + first-transaction regen),
+        // far past the old 60s cap which reported "timed out" while Revit was
+        // still drawing the element (false failure + duplicate risk). Wait
+        // generously and report the TRUTH; the backend is already patient
+        // (VIBE_WSS_MAX_WAIT, default 300s). Override via BINA_VIBE_JOB_MAX_WAIT.
+        private static readonly TimeSpan JobMaxWait = TimeSpan.FromSeconds(
+            int.TryParse(Environment.GetEnvironmentVariable("BINA_VIBE_JOB_MAX_WAIT"),
+                out var _jw) && _jw > 0 ? _jw : 600);
+
         public McpTunnelClient(
             string baseUrl,
             string tenantId,
@@ -195,6 +205,11 @@ namespace BinaVibe.Mcp
                     _handler.Pending.Enqueue(job);
                     _externalEvent.Raise();
 
+                    // Tell the backend/pane the job has started so it can show
+                    // honest "applying…" progress instead of a frozen wait.
+                    // Informational only — does not complete the call.
+                    await SendJson(ws, new { id, status = "running" }, ct).ConfigureAwait(false);
+
                     // Wait off the WS-read thread so we can keep reading
                     // additional frames in parallel.
                     _ = Task.Run(async () => await RespondAsync(ws, id, job, ct).ConfigureAwait(false));
@@ -204,14 +219,19 @@ namespace BinaVibe.Mcp
 
         private static async Task RespondAsync(ClientWebSocket ws, string id, McpJob job, CancellationToken ct)
         {
-            // Wait for the Revit thread to complete. 60s: the tunnel now carries
-            // mutations (reads come from the cloud mirror), and a create +
-            // transaction + regen on a large model can exceed 20s. Too short a
-            // cap reported "failed" while Revit was still drawing the element.
-            var completed = job.Completed.Wait(TimeSpan.FromSeconds(60));
+            // Wait for the Revit thread to COMPLETE, however long it honestly
+            // takes (JobMaxWait, default 600s). The first build on a cold large
+            // model can run ~150s (Revit open + first regen); the old 60s cap
+            // reported "timed out" while Revit was still drawing the element —
+            // a false failure that the user saw as "failed but it's there".
+            var completed = job.Completed.Wait(JobMaxWait);
             if (!completed)
             {
-                await SendJson(ws, new { id, error = new { message = "tool execution timed out" } }, ct).ConfigureAwait(false);
+                // Genuine ceiling hit — be honest, and do NOT imply a clean
+                // failure (Revit may still be applying; a retry could duplicate).
+                await SendJson(ws, new { id, error = new { message =
+                    $"Revit did not finish within {JobMaxWait.TotalSeconds:F0}s — it may still be applying; not retried to avoid duplicates." } },
+                    ct).ConfigureAwait(false);
                 return;
             }
 

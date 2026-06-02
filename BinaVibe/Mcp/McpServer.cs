@@ -27,13 +27,13 @@ namespace BinaVibe.Mcp
         private readonly McpExternalEventHandler _handler;
         private readonly ExternalEvent _externalEvent;
         private readonly CancellationTokenSource _cts = new();
-        // The tunnel now carries MUTATIONS (reads are served from the cloud
-        // mirror), and a single create/transaction+regen on a large model can
-        // run well past 20s. Give it room so the addin doesn't give up while
-        // Revit is still drawing — a premature timeout reported "failed" yet
-        // the element still got created (false failure + duplicate risk).
-        // Kept ≤ backend VIBE_WSS_CALL_TIMEOUT and ≤ the HttpClient 90s cap.
-        private readonly TimeSpan _jobTimeout = TimeSpan.FromSeconds(60);
+        // A cold large model's first build (Revit open + first-transaction
+        // regen) can run ~150s. A short cap reported "failed" while Revit was
+        // still drawing the element (false failure + duplicate risk), so wait
+        // generously and report the truth. Override via BINA_VIBE_JOB_MAX_WAIT.
+        private readonly TimeSpan _jobTimeout = TimeSpan.FromSeconds(
+            int.TryParse(Environment.GetEnvironmentVariable("BINA_VIBE_JOB_MAX_WAIT"),
+                out var _jw) && _jw > 0 ? _jw : 600);
 
         public int Port { get; }
         public string Prefix => $"http://localhost:{Port}/";
