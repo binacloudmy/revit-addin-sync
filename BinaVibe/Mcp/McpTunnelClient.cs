@@ -210,6 +210,12 @@ namespace BinaVibe.Mcp
                     // Informational only — does not complete the call.
                     await SendJson(ws, new { id, status = "running" }, ct).ConfigureAwait(false);
 
+                    // Drive the in-process Copilot pane directly (no round-trip):
+                    // show "applying <tool>…" while Revit works. Null-safe — the
+                    // pane may not be open. Cleared in RespondAsync on completion.
+                    try { RevitWebAppSync.App.CopilotPaneHost?.Panel?.ViewModel?.SetToolActivity(tool); }
+                    catch { /* pane indicator is best-effort */ }
+
                     // Wait off the WS-read thread so we can keep reading
                     // additional frames in parallel.
                     _ = Task.Run(async () => await RespondAsync(ws, id, job, ct).ConfigureAwait(false));
@@ -224,19 +230,19 @@ namespace BinaVibe.Mcp
             // model can run ~150s (Revit open + first regen); the old 60s cap
             // reported "timed out" while Revit was still drawing the element —
             // a false failure that the user saw as "failed but it's there".
-            var completed = job.Completed.Wait(JobMaxWait);
-            if (!completed)
-            {
-                // Genuine ceiling hit — be honest, and do NOT imply a clean
-                // failure (Revit may still be applying; a retry could duplicate).
-                await SendJson(ws, new { id, error = new { message =
-                    $"Revit did not finish within {JobMaxWait.TotalSeconds:F0}s — it may still be applying; not retried to avoid duplicates." } },
-                    ct).ConfigureAwait(false);
-                return;
-            }
-
             try
             {
+                var completed = job.Completed.Wait(JobMaxWait);
+                if (!completed)
+                {
+                    // Genuine ceiling hit — be honest, and do NOT imply a clean
+                    // failure (Revit may still be applying; a retry could duplicate).
+                    await SendJson(ws, new { id, error = new { message =
+                        $"Revit did not finish within {JobMaxWait.TotalSeconds:F0}s — it may still be applying; not retried to avoid duplicates." } },
+                        ct).ConfigureAwait(false);
+                    return;
+                }
+
                 if (job.Error != null)
                 {
                     await SendJson(ws, new { id, error = new { message = job.Error } }, ct).ConfigureAwait(false);
@@ -249,6 +255,12 @@ namespace BinaVibe.Mcp
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[BinaVibe] failed to send tool result: {ex.Message}");
+            }
+            finally
+            {
+                // Always clear the pane indicator, whatever the outcome.
+                try { RevitWebAppSync.App.CopilotPaneHost?.Panel?.ViewModel?.ClearToolActivity(); }
+                catch { /* best-effort */ }
             }
         }
 

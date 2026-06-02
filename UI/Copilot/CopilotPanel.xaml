@@ -45,6 +45,15 @@
                             <Run Text="Connected · "/><Run Text="{Binding ModelName, Mode=OneWay}"/>
                         </TextBlock>
                     </StackPanel>
+                    <!-- Live tool activity: "applying create_wall…" while a mutation
+                         runs on Revit's main thread (a slow cold-model build reads as
+                         honest progress, not a frozen wait). -->
+                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0"
+                                Visibility="{Binding ToolActivity, Converter={StaticResource NotEmptyVis}}">
+                        <Ellipse Width="6" Height="6" Fill="{DynamicResource Cp.BotGradient}" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"
+                                   Text="{Binding ToolActivity, Mode=OneWay}"/>
+                    </StackPanel>
                 </StackPanel>
 
                 <Button Grid.Column="2" Style="{DynamicResource Cp.IconButton}" Command="{Binding BackHomeCommand}" ToolTip="New">

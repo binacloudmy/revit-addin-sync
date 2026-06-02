@@ -102,6 +102,35 @@ namespace RevitWebAppSync.UI.Copilot
         /// from IndexProgress (0..100). Drives a plain Border, no animation.</summary>
         public double IndexProgressBarWidth => 220.0 * _indexProgress / 100.0;
 
+        // ─── In-process tool activity (tunnel mutations on Revit's main thread) ──
+        // Set when a mutation tool dispatches to Revit, cleared on completion, so
+        // the pane shows "applying create_wall…" during a slow cold-model build
+        // instead of a frozen, silent wait. The tunnel calls these from its
+        // background read thread, so they marshal to the UI thread (AddAi pattern).
+        private string _toolActivity = "";
+        public string ToolActivity
+        {
+            get => _toolActivity;
+            private set { if (_toolActivity == value) return; _toolActivity = value; Raise(); }
+        }
+
+        /// <summary>Show "applying &lt;tool&gt;…" in the pane chrome (UI-thread safe).</summary>
+        public void SetToolActivity(string tool)
+        {
+            var text = string.IsNullOrEmpty(tool) ? "applying…" : $"applying {tool}…";
+            var disp = System.Windows.Application.Current?.Dispatcher;
+            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => ToolActivity = text);
+            else ToolActivity = text;
+        }
+
+        /// <summary>Clear the tool-activity indicator (UI-thread safe).</summary>
+        public void ClearToolActivity()
+        {
+            var disp = System.Windows.Application.Current?.Dispatcher;
+            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => ToolActivity = "");
+            else ToolActivity = "";
+        }
+
         /// <summary>On pane open: warm the cloud model mirror before the user
         /// prompts, showing an "Indexing model…" indicator and gating sends until
         /// it's ready. Best-effort — on failure/timeout the indicator clears and

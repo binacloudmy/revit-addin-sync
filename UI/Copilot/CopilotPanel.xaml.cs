@@ -15,6 +15,10 @@ namespace RevitWebAppSync.UI.Copilot
     {
         private readonly CopilotViewModel _vm = new CopilotViewModel();
         private readonly Highlights.HighlightOverlay _overlay = new Highlights.HighlightOverlay();
+
+        /// <summary>The active view-model, reachable in-process from non-UI code
+        /// (e.g. the MCP tunnel) via App.CopilotPaneHost?.Panel?.ViewModel.</summary>
+        public CopilotViewModel ViewModel => _vm;
         private UIApplication _uiApp;
 
         // Cached screen views (created on first use).
