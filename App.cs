@@ -57,6 +57,11 @@ namespace RevitWebAppSync
         // BulkIndexAsync on connect to seed the mirror with a full baseline.
         public static DocumentChangedIndexer VibeIndexer { get; private set; }
 
+        // Warm-up handler/event — runs the first (expensive) regen of a newly
+        // opened model at load so the user's first build is not frozen by it.
+        public static BinaVibe.WarmupHandler VibeWarmup { get; private set; }
+        public static ExternalEvent VibeWarmupEvent { get; private set; }
+
         public Result OnStartup(UIControlledApplication application)
         {
             try
@@ -67,6 +72,11 @@ namespace RevitWebAppSync
 
                 JkrRenameHandler = new JkrRenameHandler();
                 JkrRenameEvent = ExternalEvent.Create(JkrRenameHandler);
+
+                // Warm-up: pays the one-time first-regen at doc-open so the
+                // user's first build doesn't freeze (see WarmupHandler).
+                VibeWarmup = new BinaVibe.WarmupHandler();
+                VibeWarmupEvent = ExternalEvent.Create(VibeWarmup);
 
                 // Register Cost Dashboard dockable pane
                 try
@@ -196,12 +206,20 @@ namespace RevitWebAppSync
                         // Capture for the lambda so it doesn't close over a
                         // loop variable or mutable field.
                         var indexer = VibeIndexer;
+                        // Bulk index runs only AFTER the warm-up regen, so its
+                        // background element walk no longer contends for Revit
+                        // idle while the user is mid-build (was ~30s starvation).
+                        VibeWarmup.AfterWarm = warmedDoc =>
+                            System.Threading.Tasks.Task.Run(
+                                () => indexer.BulkIndexAsync(warmedDoc, version: 1));
+                        // On open: warm the first regen on the UI thread (pays
+                        // the one-time ~58s here, not on the user's first build),
+                        // then AfterWarm kicks the bulk index.
                         application.ControlledApplication.DocumentOpened +=
                             (s, e) =>
                             {
-                                var openedDoc = e.Document;
-                                _ = System.Threading.Tasks.Task.Run(
-                                    () => indexer.BulkIndexAsync(openedDoc, version: 1));
+                                VibeWarmup.Enqueue(e.Document);
+                                VibeWarmupEvent.Raise();
                             };
                     }
                     catch (Exception tunEx)
