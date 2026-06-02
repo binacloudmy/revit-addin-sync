@@ -41,15 +41,24 @@ namespace RevitWebAppSync.Services
                 // Wrap code in executable class
                 string fullCode = WrapCode(code);
 
-                // Compile
+                // Compile  (timed — Roslyn compile cost)
+                var _swCompile = System.Diagnostics.Stopwatch.StartNew();
                 var assembly = CompileCode(fullCode, out loadContext);
+                _swCompile.Stop();
 
-                // Execute
+                // Execute  (timed — runs on UI thread: includes transaction
+                // commit + regen, the freeze suspect)
                 var type = assembly.GetType("RevitWebAppSync.Dynamic.AIGeneratedCode");
                 var method = type.GetMethod("Execute");
                 var instance = Activator.CreateInstance(type);
 
+                var _swExec = System.Diagnostics.Stopwatch.StartNew();
                 var result = method.Invoke(instance, new object[] { _doc, _uidoc, _activeView });
+                _swExec.Stop();
+
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BinaVibe][timing] codegen compile={_swCompile.ElapsedMilliseconds}ms " +
+                    $"exec(tx+regen)={_swExec.ElapsedMilliseconds}ms");
 
                 // A string return is a status message; any other object/array is structured
                 // model data — capture it as JSON so the Copilot card renders real numbers.
@@ -87,6 +96,8 @@ namespace RevitWebAppSync.Services
             }
             catch (CompilationException ex)
             {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BinaVibe][timing] codegen COMPILE FAILED — {ex.Message}");
                 return new ExecutionResult
                 {
                     Success = false,
