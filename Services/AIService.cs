@@ -333,9 +333,14 @@ namespace RevitWebAppSync.Services
         /// Fire-and-forget: tell the backend that this (error, working_code)
         /// pair just succeeded so future explain-error calls for the same
         /// signature can surface the prior fix (FR-022).
+        ///
+        /// <paramref name="originalPrompt"/> is required by recipe auto-grow —
+        /// recipes are retrieved by prompt similarity, so an empty prompt makes
+        /// the verified fix unretrievable. The retry-loop call site has the
+        /// prompt in scope and passes it through here.
         /// </summary>
         public async Task RecordFixAsync(
-            string error, string workingCode, int? userId, string sessionId,
+            string error, string workingCode, string originalPrompt, int? userId, string sessionId,
             string accessToken, CancellationToken cancellationToken = default)
         {
             try
@@ -344,6 +349,7 @@ namespace RevitWebAppSync.Services
                 {
                     error = error ?? string.Empty,
                     working_code = workingCode ?? string.Empty,
+                    original_prompt = originalPrompt ?? string.Empty,
                     userId = userId,
                     sessionId = sessionId
                 };

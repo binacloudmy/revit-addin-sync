@@ -70,5 +70,60 @@ namespace Tests
             var payload = DocumentChangedIndexer.BuildBulkPayload(new List<SnapshotDoc>(), version: 42);
             Assert.Equal(42, payload.Version);
         }
+
+        // ── Pause/Resume (master-plan Item 8) ───────────────────────────────
+        // No Revit SDK in this project: construct with a null app/http so the
+        // pause gate can be exercised without a live document or network.
+        private static DocumentChangedIndexer NewIndexer() =>
+            new DocumentChangedIndexer(
+                app: null, http: null, baseUrl: "http://localhost",
+                tenantId: "t", projectId: "p");
+
+        [Fact]
+        public void Pause_SetsIsPaused_AndFlushIsSuppressedWhilePaused()
+        {
+            var ix = NewIndexer();
+
+            Assert.False(ix.IsPaused);
+
+            ix.Pause();
+            Assert.True(ix.IsPaused);
+
+            // While paused, FlushAsync must NOT ship anything (and must not throw
+            // even with a null HttpClient) — it returns 0 because the gate is up.
+            Assert.Equal(0, ix.FlushAsync().GetAwaiter().GetResult());
+        }
+
+        [Fact]
+        public async System.Threading.Tasks.Task ResumeAsync_ClearsPause_AndOnlyOutermostResumeFlushes()
+        {
+            var ix = NewIndexer();
+
+            // Nested pauses must balance: depth 2 -> first Resume stays paused.
+            ix.Pause();
+            ix.Pause();
+            Assert.True(ix.IsPaused);
+
+            var innerFlushed = await ix.ResumeAsync();
+            Assert.True(ix.IsPaused);          // still paused (depth 1)
+            Assert.Equal(0, innerFlushed);     // inner Resume does not flush
+
+            // Outermost Resume clears the gate and performs the single flush.
+            // Nothing was buffered (no Revit doc), so the flush count is 0.
+            var outerFlushed = await ix.ResumeAsync();
+            Assert.False(ix.IsPaused);
+            Assert.Equal(0, outerFlushed);
+        }
+
+        [Fact]
+        public async System.Threading.Tasks.Task ResumeAsync_WhenNotPaused_IsNoOp()
+        {
+            var ix = NewIndexer();
+
+            Assert.False(ix.IsPaused);
+            var flushed = await ix.ResumeAsync();   // stray Resume
+            Assert.False(ix.IsPaused);
+            Assert.Equal(0, flushed);               // must not flush / underflow
+        }
     }
 }

@@ -44,6 +44,23 @@ namespace BinaVibe.Indexer
         private readonly ConcurrentQueue<SnapshotDoc> _pendingUpserts = new();
         private readonly ConcurrentQueue<string> _pendingDeletes = new();
 
+        // ── Pause/Resume (master-plan Item 8) ───────────────────────────────
+        // While paused, DocumentChanged deltas are still buffered into the
+        // pending queues but FlushAsync is suppressed, so a single command's
+        // many micro-edits do not trigger a burst of snapshot POSTs that
+        // contend with the Revit UI thread. Resume() flips the gate back on
+        // and fires exactly ONE flush for everything buffered during the pause.
+        // Pause counts are tracked so nested/overlapping commands behave
+        // correctly: only the outermost Resume flushes.
+        private int _pauseDepth;
+        private readonly object _pauseLock = new();
+
+        /// <summary>True while the indexer is paused (flush suppressed).</summary>
+        public bool IsPaused
+        {
+            get { lock (_pauseLock) { return _pauseDepth > 0; } }
+        }
+
         // HOT categories walked during bulk index — instances only.
         private static readonly BuiltInCategory[] HotCategories = new[]
         {
@@ -70,7 +87,55 @@ namespace BinaVibe.Indexer
             _baseUrl = baseUrl.TrimEnd('/');
             _tenantId = tenantId;
             _projectId = projectId;
-            _app.DocumentChanged += OnDocumentChanged;
+            // Allow a null app in unit tests (no Revit SDK there) so Pause/Resume
+            // buffering can be exercised without the Revit event source.
+            if (_app != null) _app.DocumentChanged += OnDocumentChanged;
+        }
+
+        /// <summary>
+        /// Suppress flushing while a command runs. Deltas keep buffering into
+        /// the pending queues; nothing is shipped to the backend until Resume.
+        /// Re-entrant: nested Pause/Resume pairs are balanced and only the
+        /// outermost Resume flushes. (master-plan Item 8)
+        /// </summary>
+        public void Pause()
+        {
+            lock (_pauseLock) { _pauseDepth++; }
+        }
+
+        /// <summary>
+        /// Re-enable flushing. The outermost Resume fires exactly ONE flush of
+        /// everything buffered while paused. Inner Resumes (depth still &gt; 0)
+        /// and stray Resumes (depth already 0) do not flush.
+        /// </summary>
+        public Task<int> ResumeAsync()
+        {
+            bool shouldFlush;
+            lock (_pauseLock)
+            {
+                if (_pauseDepth > 0) _pauseDepth--;
+                shouldFlush = _pauseDepth == 0;
+            }
+            return shouldFlush ? FlushAsync() : Task.FromResult(0);
+        }
+
+        /// <summary>
+        /// Fire-and-forget Resume for callers (e.g. a finally block) that
+        /// cannot await. Swallows flush exceptions so teardown never throws.
+        /// </summary>
+        public void Resume()
+        {
+            _ = ResumeSafeAsync();
+        }
+
+        private async Task ResumeSafeAsync()
+        {
+            try { await ResumeAsync().ConfigureAwait(false); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BinaVibe] Resume flush failed — {ex.Message}");
+            }
         }
 
         private void OnDocumentChanged(object? sender, DocumentChangedEventArgs e)
@@ -108,6 +173,9 @@ namespace BinaVibe.Indexer
         /// </summary>
         public async Task<int> FlushAsync()
         {
+            // While paused, keep everything buffered — Resume drains it in one go.
+            if (IsPaused) return 0;
+
             var docs = new List<SnapshotDoc>();
             while (_pendingUpserts.TryDequeue(out var d)) docs.Add(d);
             var deleted = new List<string>();
@@ -445,7 +513,7 @@ namespace BinaVibe.Indexer
 
         public void Dispose()
         {
-            _app.DocumentChanged -= OnDocumentChanged;
+            if (_app != null) _app.DocumentChanged -= OnDocumentChanged;
         }
     }
 

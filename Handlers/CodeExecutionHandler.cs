@@ -84,10 +84,26 @@ namespace RevitWebAppSync.Handlers
                     return;
                 }
 
-                var executor = new CodeExecutor(uidoc);
-                var result = executor.Execute(CodeToExecute);
+                // master-plan Item 8: pause the DocumentChanged indexer for the
+                // duration of the command so its many micro-edits buffer into a
+                // single snapshot flush on Resume — instead of a burst of POSTs
+                // that contend with the Revit UI thread mid-command. Guarded:
+                // the indexer is null until the Vibe mirror has connected.
+                var indexer = App.VibeIndexer;
+                indexer?.Pause();
+                try
+                {
+                    var executor = new CodeExecutor(uidoc);
+                    var result = executor.Execute(CodeToExecute);
 
-                OnCompleted?.Invoke(result);
+                    OnCompleted?.Invoke(result);
+                }
+                finally
+                {
+                    // Resume always runs (even if Execute threw) so a failed
+                    // command can never leave the indexer permanently paused.
+                    indexer?.Resume();
+                }
             }
             catch (Exception ex)
             {
