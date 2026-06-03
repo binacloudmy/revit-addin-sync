@@ -120,17 +120,19 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return cb;
         }
 
-        // Live dropdown options pulled from the real project browser via the same provider the
-        // @-mention picker uses (open-view's view list, select's level list). Curated catalog
-        // fields (e.g. per-tool category lists) and fields with no live source keep f.Options.
-        // Falls back to the static catalog list whenever no document/provider is available.
+        // Live dropdown options pulled from the real project browser. open-view's view list is
+        // filtered by the selected View type (and uncapped) via CopilotModelData; select's level
+        // list comes from the same provider the @-mention picker uses. Curated catalog fields
+        // (e.g. per-tool category lists) and fields with no live source keep f.Options. Falls back
+        // to the static catalog list whenever no document/provider is available.
         private string[] OptionsFor(FieldDef f)
         {
             var tool = Vm?.CurrentTool;
-            if (tool != null && tool.Id == "open-view" && f.Id == "view")
+            if (tool != null && tool.Id == "open-view" && f.Id == "view" && CopilotModelData.Current != null)
             {
-                var live = LiveGroup("view");
-                if (live.Count > 0) return live.ToArray();
+                string type = (Vm.FormValues != null && Vm.FormValues.TryGetValue("type", out var tv) ? tv : null) as string;
+                var live = CopilotModelData.Current.Views(type);
+                if (live != null && live.Count > 0) return live.ToArray();
             }
             if (tool != null && tool.Id == "select" && f.Id == "level")
             {
@@ -189,7 +191,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     Vm?.SetForm(f.Id, opt);
                     foreach (var child in grid.Children)
                         if (child is Button b) StyleSeg(b, ReferenceEquals(b, btn));
-                    Refresh();
+                    // Changing open-view's type re-filters the (live) view dropdown.
+                    if (Vm?.CurrentTool?.Id == "open-view" && f.Id == "type") Rebuild();
+                    else Refresh();
                 };
                 grid.Children.Add(btn);
             }
