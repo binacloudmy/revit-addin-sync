@@ -1,4 +1,6 @@
+using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -99,15 +101,55 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private ComboBox BuildSelect(FieldDef f)
         {
+            var options = OptionsFor(f);
+            string current = (Vm?.FormValues != null && Vm.FormValues.TryGetValue(f.Id, out var v) ? v : f.Default) as string;
+            // If the stored value isn't in the (possibly live) option list, snap to the first.
+            if ((current == null || (options.Length > 0 && !options.Contains(current))) && options.Length > 0)
+            {
+                current = options[0];
+                Vm?.SetForm(f.Id, current);
+            }
             var cb = new ComboBox
             {
-                ItemsSource = f.Options,
-                SelectedItem = Vm?.FormValues != null && Vm.FormValues.TryGetValue(f.Id, out var v) ? v : f.Default,
+                ItemsSource = options,
+                SelectedItem = current,
                 FontSize = 13, Padding = new Thickness(10, 6, 10, 6),
                 FontFamily = (FontFamily)TryFindResource("Cp.Font"),
             };
             cb.SelectionChanged += (_, __) => { Vm?.SetForm(f.Id, cb.SelectedItem as string); Refresh(); };
             return cb;
+        }
+
+        // Live dropdown options pulled from the real project browser via the same provider the
+        // @-mention picker uses (open-view's view list, select's level list). Curated catalog
+        // fields (e.g. per-tool category lists) and fields with no live source keep f.Options.
+        // Falls back to the static catalog list whenever no document/provider is available.
+        private string[] OptionsFor(FieldDef f)
+        {
+            var tool = Vm?.CurrentTool;
+            if (tool != null && tool.Id == "open-view" && f.Id == "view")
+            {
+                var live = LiveGroup("view");
+                if (live.Count > 0) return live.ToArray();
+            }
+            if (tool != null && tool.Id == "select" && f.Id == "level")
+            {
+                var live = LiveGroup("level");
+                // "Any" stays the first choice (no level filter); real levels follow.
+                if (live.Count > 0) return new[] { "Any" }.Concat(live).ToArray();
+            }
+            return f.Options ?? new string[0];
+        }
+
+        private static List<string> LiveGroup(string groupId)
+        {
+            try
+            {
+                var groups = MentionInput.DefaultProvider?.GetGroups();
+                var g = groups?.FirstOrDefault(x => x.Id == groupId);
+                return g?.Items ?? new List<string>();
+            }
+            catch { return new List<string>(); }
         }
 
         private TextBox BuildText(FieldDef f)
