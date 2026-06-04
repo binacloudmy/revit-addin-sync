@@ -13,6 +13,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// "Elevation" / "Drafting"); all views when type is null/empty.</summary>
         List<string> Views(string viewType);
 
+        /// <summary>View names matching a free-text query, for open-view
+        /// disambiguation. A case-insensitive EXACT match returns alone
+        /// (unambiguous); otherwise every token-match is returned (numbers match
+        /// with or without leading zeros, e.g. "aras 1" matches "Aras 01") so the
+        /// caller can ask the user which one.</summary>
+        List<string> MatchViews(string query);
+
         /// <summary>Real schedule names in the active document (no templates, no special schedules).</summary>
         List<string> Schedules();
     }

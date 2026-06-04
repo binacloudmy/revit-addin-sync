@@ -623,6 +623,30 @@ namespace RevitWebAppSync.UI.Copilot
             var tool = QueryInterpreter.MatchVetted(text, values);
             if (tool == null) return false;
 
+            // open-view: if several views match the typed name (e.g. "aras 1"
+            // hits Aras 01 across multiple phases), ask which one instead of
+            // silently opening an arbitrary first match.
+            if (tool.Id == "open-view" && values.TryGetValue("view", out var vnObj))
+            {
+                var name = vnObj as string ?? "";
+                var matches = CopilotModelData.Current?.MatchViews(name) ?? new List<string>();
+                if (matches.Count > 1)
+                {
+                    Thread.Add(new ChatMessage
+                    {
+                        Role = "ai", Kind = CpMsgKind.Clarify,
+                        Question = $"A few views match “{name}” — which one?",
+                        Options = matches.Take(8).Select(m => new ClarifyOption
+                        {
+                            ToolId = "open-view", Label = m, Prompt = "open view " + m,
+                        }).ToList(),
+                    });
+                    return true;
+                }
+                if (matches.Count == 1) values["view"] = matches[0];   // resolve to the exact name
+                // 0 matches → fall through; the synth reports "View not found".
+            }
+
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = $"{tool.Title}…" });
             RunVettedAsChatReply(tool, values);
             return true;
