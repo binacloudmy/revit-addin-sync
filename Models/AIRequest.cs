@@ -41,6 +41,12 @@ namespace RevitWebAppSync.Models
         [JsonProperty("selectedElementIds")]
         public List<int> SelectedElementIds { get; set; }
 
+        /// <summary>Real view list (id + name + type) so the agent resolves
+        /// "open Aras 01" to the exact view instead of guessing. Bounded by
+        /// BuildContext to avoid dumping thousands of views.</summary>
+        [JsonProperty("views")]
+        public List<ViewInfo> Views { get; set; }
+
         [JsonProperty("phases")]
         public List<string> Phases { get; set; }
 
@@ -56,5 +62,14 @@ namespace RevitWebAppSync.Models
         /// </summary>
         [JsonProperty("project_id")]
         public string ProjectId { get; set; }
+    }
+
+    public class ViewInfo
+    {
+        [JsonProperty("id")] public int Id { get; set; }
+        [JsonProperty("name")] public string Name { get; set; }
+        [JsonProperty("viewType")] public string ViewType { get; set; }
+        /// <summary>The level a plan view belongs to — disambiguates same-named views.</summary>
+        [JsonProperty("ownerView")] public string OwnerView { get; set; }
     }
 }

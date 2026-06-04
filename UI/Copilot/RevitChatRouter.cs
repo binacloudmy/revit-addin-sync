@@ -107,7 +107,7 @@ namespace RevitWebAppSync.UI.Copilot
         {
             var cfg = BinaConfig.Load();
             var token = cfg?.AccessToken ?? "";
-            var ctx = BuildContext();
+            var ctx = BuildContext(message);
             int? userId = (cfg?.UserId ?? 0) > 0 ? (int?)cfg.UserId : null;
 
             // Plan mode removed — the tool-calling agent acts directly and
@@ -291,7 +291,30 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
 
-        private ModelContext BuildContext()
+        // Cap the view list so large projects don't blow up token cost / add noise.
+        private const int MaxViewsInContext = 60;
+
+        // Bound the view list: if there are more than the cap, prefer views whose
+        // name shares a word with the prompt (so "open aras 01" surfaces the Aras
+        // 01 views), then fill the rest up to the cap. Small projects send all.
+        private static List<ViewInfo> BoundViews(List<ViewInfo> all, string prompt)
+        {
+            if (all == null || all.Count <= MaxViewsInContext) return all;
+            var tokens = (prompt ?? "")
+                .Split(new[] { ' ', '\t', '\n', ',', '.', '(', ')', '"', '\'' },
+                       System.StringSplitOptions.RemoveEmptyEntries)
+                .Where(t => t.Length >= 2)
+                .Select(t => t.ToLowerInvariant())
+                .ToList();
+            bool Matches(ViewInfo v) => tokens.Any(t =>
+                (v.Name ?? "").ToLowerInvariant().Contains(t));
+            var matched = all.Where(Matches).ToList();
+            if (matched.Count >= MaxViewsInContext) return matched.Take(MaxViewsInContext).ToList();
+            var rest = all.Where(v => !matched.Contains(v)).Take(MaxViewsInContext - matched.Count);
+            return matched.Concat(rest).ToList();
+        }
+
+        private ModelContext BuildContext(string prompt = "")
         {
             var ctx = new ModelContext
             {
@@ -327,6 +350,20 @@ namespace RevitWebAppSync.UI.Copilot
                 if (view != null) { ctx.ActiveViewName = view.Name; ctx.ActiveViewType = view.ViewType.ToString(); }
                 ctx.SelectedElementIds = uidoc.Selection.GetElementIds().Select(id => (int)id.Value).ToList();
                 ctx.Phases = new FilteredElementCollector(doc).OfClass(typeof(Phase)).Cast<Phase>().Select(p => p.Name).ToList();
+
+                // Real view list (id+name+type) — lets the agent resolve
+                // "open Aras 01" to the exact view instead of guessing. Bounded.
+                var __allViews = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                    .Where(v => !v.IsTemplate)
+                    .Select(v => new ViewInfo
+                    {
+                        Id = (int)v.Id.Value,
+                        Name = v.Name,
+                        ViewType = v.ViewType.ToString(),
+                        OwnerView = (v as ViewPlan)?.GenLevel?.Name ?? "",
+                    })
+                    .ToList();
+                ctx.Views = BoundViews(__allViews, prompt);
             }
             catch { /* best-effort context */ }
             return ctx;
