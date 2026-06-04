@@ -154,6 +154,7 @@ namespace RevitWebAppSync.UI.Copilot
                     {
                         AIResponse final = null;
                         var sb = new System.Text.StringBuilder();
+                        var replySb = new System.Text.StringBuilder();
                         await foreach (var chunk in _ai.GenerateCodeStreamAsync(req, token, cts.Token))
                         {
                             if (chunk.Kind == StreamChunkKind.Status || chunk.Kind == StreamChunkKind.Tool)
@@ -162,10 +163,18 @@ namespace RevitWebAppSync.UI.Copilot
                                 // updates on each status/tool event.
                                 EmitProgress(chunk.StatusLabel);
                             }
+                            else if (chunk.Kind == StreamChunkKind.Reply)
+                            {
+                                // The user-facing MARKDOWN message streams in first;
+                                // show it live (final markdown bubble lands at done).
+                                replySb.Append(chunk.Delta);
+                                try { OnCodeStream?.Invoke(replySb.ToString()); } catch { /* UI hiccup */ }
+                            }
                             else if (chunk.Kind == StreamChunkKind.CodePartial)
                             {
+                                // Code accumulates silently — it RUNS, it is never
+                                // shown as chat text.
                                 sb.Append(chunk.Delta);
-                                try { OnCodeStream?.Invoke(sb.ToString()); } catch { /* UI hiccup */ }
                             }
                             else if (chunk.Kind == StreamChunkKind.Done)
                             {
@@ -178,14 +187,25 @@ namespace RevitWebAppSync.UI.Copilot
                             }
                         }
                         ClearProgress();   // clear the progress card on stream completion
-                        if (final != null && final.Success && !string.IsNullOrWhiteSpace(final.Code))
+                        if (final != null && final.Success)
                         {
+                            // Backend already split the response: `reply` = markdown
+                            // message (rendered via MarkdownRenderer), `code` = C#
+                            // that runs. Return even when code is empty (a pure
+                            // message / clarification) so it is NOT re-run as a
+                            // one-shot below.
+                            var replyText = !string.IsNullOrWhiteSpace(final.Reply)
+                                ? final.Reply
+                                : replySb.ToString();
+                            bool hasCode = !string.IsNullOrWhiteSpace(final.Code);
+                            if (string.IsNullOrWhiteSpace(replyText))
+                                replyText = hasCode ? "" : "Done.";
                             return new RouteResult
                             {
                                 ToolId = "ai-generated",
-                                Code = final.Code,
-                                Reply = final.Explanation ?? "Generated. Review and Run when ready.",
-                                PlanSteps = new List<string> { "Generated via bina-ai (streaming, Inspector-preflighted)" },
+                                Code = final.Code ?? "",
+                                Reply = replyText,
+                                PlanSteps = hasCode ? new List<string> { "Generated via bina-ai (streaming)" } : null,
                                 IsQuery = final.IsQuery,
                                 Verdict = final.ReviewerVerdict,
                             };

@@ -31,7 +31,7 @@ using RevitWebAppSync.Models;
 
 namespace RevitWebAppSync.Services
 {
-    public enum StreamChunkKind { Meta, Status, Tool, CodePartial, Done, Error, Unknown }
+    public enum StreamChunkKind { Meta, Status, Tool, Reply, CodePartial, Done, Error, Unknown }
 
     public sealed class StreamChunk
     {
@@ -166,6 +166,14 @@ namespace RevitWebAppSync.Services
                                 RawData = raw,
                             };
                         }
+                    case "reply_partial":
+                        using (var rdoc = JsonDocument.Parse(raw))
+                            return new StreamChunk
+                            {
+                                Kind = StreamChunkKind.Reply,
+                                Delta = rdoc.RootElement.TryGetProperty("delta", out var rd) ? (rd.GetString() ?? "") : "",
+                                RawData = raw,
+                            };
                     case "code_partial":
                         using (var doc = JsonDocument.Parse(raw))
                             return new StreamChunk
