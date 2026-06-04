@@ -19,6 +19,11 @@ namespace RevitWebAppSync.Models
 
         [JsonProperty("templateId")]
         public string TemplateId { get; set; }
+
+        /// <summary>Tells bina-ai this addin can run a structured vetted-tool
+        /// directive (deterministic Tier-1 synth) instead of generated C#.</summary>
+        [JsonProperty("supports_vetted_dispatch")]
+        public bool SupportsVettedDispatch { get; set; }
     }
 
     public class ModelContext

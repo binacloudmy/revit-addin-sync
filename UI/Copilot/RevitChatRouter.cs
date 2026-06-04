@@ -132,6 +132,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Context = ctx,
                     UserId = userId,
                     SessionId = _sessionId,
+                    SupportsVettedDispatch = true,   // hybrid routing — we can run vetted directives
                 };
 
                 // Streaming path — preferred. Chunks arrive in <1s even
@@ -187,6 +188,19 @@ namespace RevitWebAppSync.UI.Copilot
                             }
                         }
                         ClearProgress();   // clear the progress card on stream completion
+                        if (final != null && final.Success && !string.IsNullOrWhiteSpace(final.VettedTool))
+                        {
+                            // Hybrid routing: backend mapped this to a vetted tool.
+                            return new RouteResult
+                            {
+                                ToolId = "ai-generated",
+                                VettedTool = final.VettedTool,
+                                VettedArgs = final.VettedArgs,
+                                Reply = final.Reply,
+                                IsQuery = final.IsQuery,
+                                Verdict = final.ReviewerVerdict,
+                            };
+                        }
                         if (final != null && final.Success)
                         {
                             // Backend already split the response: `reply` = markdown
@@ -235,6 +249,19 @@ namespace RevitWebAppSync.UI.Copilot
                 }
 
                 var gen = await _ai.GenerateCodeAsync(req, token);
+                if (gen != null && gen.Success && !string.IsNullOrWhiteSpace(gen.VettedTool))
+                {
+                    // Hybrid routing: backend mapped this to a vetted tool.
+                    return new RouteResult
+                    {
+                        ToolId = "ai-generated",
+                        VettedTool = gen.VettedTool,
+                        VettedArgs = gen.VettedArgs,
+                        Reply = gen.Reply,
+                        IsQuery = gen.IsQuery,
+                        Verdict = gen.ReviewerVerdict,
+                    };
+                }
                 if (gen != null && gen.Success)
                 {
                     // Tool-calling agent path (VIBE_AGENT_MODE=tool):

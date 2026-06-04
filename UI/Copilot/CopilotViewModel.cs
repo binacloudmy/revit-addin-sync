@@ -548,6 +548,34 @@ namespace RevitWebAppSync.UI.Copilot
             }
 
 
+            // Hybrid routing: backend mapped the prompt to a deterministic vetted
+            // tool. Run it (confirm first if it mutates) instead of any codegen.
+            if (rr != null && !string.IsNullOrWhiteSpace(rr.VettedTool))
+            {
+                var vtool = CopilotCatalog.FindByBackendName(rr.VettedTool);
+                if (vtool != null)
+                {
+                    var vals = rr.VettedArgs ?? new Dictionary<string, object>();
+                    if (IsMutatingVetted(vtool.Id))
+                    {
+                        var preview = vtool.PlanText?.Invoke(vals);
+                        ReplaceLastThinking(new ChatMessage
+                        {
+                            Role = "ai", Kind = CpMsgKind.Proposal, ToolId = vtool.Id,
+                            Text = !string.IsNullOrWhiteSpace(preview) ? preview
+                                 : (!string.IsNullOrWhiteSpace(rr.Reply) ? rr.Reply : "Confirm this change."),
+                            PlanSteps = new List<string> { string.IsNullOrWhiteSpace(preview) ? "Apply this change." : preview },
+                            FormValues = vals, Code = "",
+                        });
+                    }
+                    else
+                    {
+                        RunVettedAsChatReply(vtool, vals);   // Done() replaces the thinking bubble
+                    }
+                    return;
+                }
+            }
+
             string toolId = !string.IsNullOrEmpty(rr?.ToolId) ? rr.ToolId : fallbackToolId;
             var tool = CopilotCatalog.Find(toolId) ?? CopilotCatalog.Find(fallbackToolId);
             if (tool == null) return;

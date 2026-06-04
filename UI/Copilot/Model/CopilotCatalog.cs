@@ -380,6 +380,13 @@ return rooms.Where(r => {
 
         public static ToolDef Find(string id) => All.FirstOrDefault(t => t.Id == id);
 
+        /// <summary>Resolve a tool by its backend name (e.g. "rename_elements"),
+        /// used by the hybrid vetted-dispatch contract. Prefers vetted (Tier-1).</summary>
+        public static ToolDef FindByBackendName(string backendName)
+            => string.IsNullOrEmpty(backendName) ? null
+               : Vetted.FirstOrDefault(t => t.BackendName == backendName)
+                 ?? All.FirstOrDefault(t => t.BackendName == backendName);
+
         public static bool IsVetted(string id) => Vetted.Any(t => t.Id == id);
     }
 }

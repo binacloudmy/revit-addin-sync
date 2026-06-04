@@ -55,6 +55,17 @@ namespace RevitWebAppSync.Models
         /// disabled server-side (VIBE_TOOL_REVIEW=false).</summary>
         [JsonProperty("reviewer_verdict")]
         public ReviewerVerdict ReviewerVerdict { get; set; }
+
+        /// <summary>Hybrid routing: when set, the backend mapped the prompt to a
+        /// deterministic vetted Tier-1 tool (its BackendName, e.g. "rename_elements").
+        /// The addin runs that tool with <see cref="VettedArgs"/> instead of Code.</summary>
+        [JsonProperty("vetted_tool")]
+        public string VettedTool { get; set; }
+
+        /// <summary>Arguments for <see cref="VettedTool"/>, keyed by the catalog
+        /// field ids the vetted synth reads (view / category / find / replace / etc.).</summary>
+        [JsonProperty("vetted_args")]
+        public Dictionary<string, object> VettedArgs { get; set; }
     }
 
     /// <summary>One tool the tool-calling agent invoked. Used by the

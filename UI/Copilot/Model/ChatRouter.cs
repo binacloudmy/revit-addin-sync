@@ -15,6 +15,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool IsQuery;             // pure read+report — auto-run, render as chat text not card
         public List<string> ToolCallTrace;  // tool names called by the agent (in order). Renders as a faint trace under the reply.
         public RevitWebAppSync.Models.ReviewerVerdict Verdict;
+
+        // Hybrid routing: backend chose a deterministic vetted tool (BackendName)
+        // + args instead of code. The VM runs the vetted synth (confirm if mutating).
+        public string VettedTool;
+        public IDictionary<string, object> VettedArgs;
     }
 
     /// <summary>
