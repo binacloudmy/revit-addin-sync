@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace RevitWebAppSync.UI.Copilot.Model
 {
@@ -54,6 +55,81 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
 
             return new InterpretResult { IsClarify = false, ToolId = PickResponseTool(text).Id };
+        }
+
+        // ── Local deterministic fast-path ───────────────────────────────────
+        // Navigation/selection prompts that map 1:1 to a Tier-1 vetted tool run
+        // instantly against the live model instead of going to cloud codegen
+        // (faster, reliable, no Revit freeze). Returns the matched ToolDef and
+        // fills `values` with its form fields, or null when the text isn't a
+        // confident vetted match (then the normal /generate path takes over).
+
+        // User word → real Revit category name (BuildSelect matches by name).
+        private static readonly Dictionary<string, string> CategorySynonyms = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["door"] = "Doors", ["doors"] = "Doors",
+            ["wall"] = "Walls", ["walls"] = "Walls",
+            ["window"] = "Windows", ["windows"] = "Windows",
+            ["floor"] = "Floors", ["floors"] = "Floors",
+            ["room"] = "Rooms", ["rooms"] = "Rooms",
+            ["furniture"] = "Furniture",
+            ["casework"] = "Casework",
+            ["ceiling"] = "Ceilings", ["ceilings"] = "Ceilings",
+            ["roof"] = "Roofs", ["roofs"] = "Roofs",
+            ["column"] = "Columns", ["columns"] = "Columns",
+            ["structural column"] = "Structural Columns", ["structural columns"] = "Structural Columns",
+        };
+
+        public static ToolDef MatchVetted(string text, IDictionary<string, object> values)
+        {
+            if (values == null) return null;
+            var raw = (text ?? "").Trim();
+            if (raw.Length == 0) return null;
+            var low = raw.ToLowerInvariant();
+
+            // open-view: "open view <name>", "go to view <name>", "show <name> view", …
+            if (low.Contains("view")
+                && Regex.IsMatch(low, @"\b(open|go ?to|goto|show|switch ?to|jump ?to|activate)\b"))
+            {
+                var name = ExtractViewName(raw);
+                if (!string.IsNullOrWhiteSpace(name))
+                {
+                    values["view"] = name;
+                    return CopilotCatalog.Find("open-view");
+                }
+            }
+
+            // select: "select [all] <category> [on/in/at <level>]"
+            var sel = Regex.Match(raw,
+                @"^\s*select\s+(?:all\s+)?(?<cat>.+?)(?:\s+(?:on|in|at)\s+(?<lvl>.+))?\s*$",
+                RegexOptions.IgnoreCase);
+            if (sel.Success && CategorySynonyms.TryGetValue(sel.Groups["cat"].Value.Trim(), out var cat))
+            {
+                values["category"] = cat;
+                var lvl = sel.Groups["lvl"].Success ? sel.Groups["lvl"].Value.Trim() : "";
+                values["level"] = string.IsNullOrWhiteSpace(lvl) ? "Any" : lvl;
+                return CopilotCatalog.Find("select");
+            }
+
+            return null;
+        }
+
+        private static string ExtractViewName(string raw)
+        {
+            // Prefer the text after the word "view"; else the text between the
+            // verb and "view" (e.g. "open the aras 02 view").
+            var m = Regex.Match(raw, @"\bview\b\s*(?:named|called|of|:)?\s*(?<n>.+)$", RegexOptions.IgnoreCase);
+            var name = m.Success ? m.Groups["n"].Value : "";
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                var m2 = Regex.Match(raw,
+                    @"\b(?:open|go ?to|goto|show|switch ?to|jump ?to|activate)\b\s+(?<n>.+?)\s+view\b",
+                    RegexOptions.IgnoreCase);
+                name = m2.Success ? m2.Groups["n"].Value : "";
+            }
+            name = name.Trim().Trim('"', '\'');
+            name = Regex.Replace(name, @"^(the|to|a)\s+", "", RegexOptions.IgnoreCase).Trim();
+            return name;
         }
 
         public static ToolDef PickResponseTool(string query)

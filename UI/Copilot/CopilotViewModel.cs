@@ -501,6 +501,11 @@ namespace RevitWebAppSync.UI.Copilot
             ToolId = null;
             Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text });
 
+            // Local deterministic fast-path: navigation/selection prompts that
+            // map to a Tier-1 vetted tool run instantly against the live model
+            // instead of going to cloud codegen (faster, reliable, no freeze).
+            if (TryRunVettedLocally(text)) return;
+
             var interp = QueryInterpreter.Interpret(text);
             if (interp.IsClarify)
             {
@@ -580,6 +585,23 @@ namespace RevitWebAppSync.UI.Copilot
                 return;
             }
 
+            // No runnable code and not a query — show the reply (or a helpful
+            // hint) instead of a Proposal card with empty code that fails with
+            // "Couldn't build runnable code" when Run is pressed.
+            if (string.IsNullOrWhiteSpace(code))
+            {
+                ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
+                    Text = !string.IsNullOrWhiteSpace(rr?.Reply)
+                        ? rr.Reply
+                        : "I couldn't turn that into a runnable command. Try the matching tool in the Library, or rephrase.",
+                    ToolCallTrace = rr?.ToolCallTrace,
+                    Verdict = rr?.Verdict,
+                });
+                return;
+            }
+
             // Only reached for catalog tier-2 sample code (tool.Code) — the
             // vetted library still shows a reviewable Proposal card.
             string text2 = !string.IsNullOrWhiteSpace(rr?.Reply)
@@ -591,6 +613,45 @@ namespace RevitWebAppSync.UI.Copilot
                 Role = "ai", Kind = CpMsgKind.Proposal, ToolId = tool.Id,
                 Text = text2, PlanSteps = new List<string>(plan ?? new List<string>()), Code = code,
             });
+        }
+
+        // Returns true when the prompt is a confident Tier-1 vetted match and was
+        // dispatched locally (skipping cloud codegen). See QueryInterpreter.MatchVetted.
+        private bool TryRunVettedLocally(string text)
+        {
+            var values = new Dictionary<string, object>();
+            var tool = QueryInterpreter.MatchVetted(text, values);
+            if (tool == null) return false;
+
+            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = $"{tool.Title}…" });
+            RunVettedAsChatReply(tool, values);
+            return true;
+        }
+
+        // Like ExecuteAsChatReply, but runs a Tier-1 vetted tool from parsed form
+        // values (deterministic synthesis) — no backend, no codegen.
+        private void RunVettedAsChatReply(ToolDef tool, IDictionary<string, object> values)
+        {
+            ToolId = tool.Id;
+            _runClock = System.Diagnostics.Stopwatch.StartNew();
+
+            void Done(ExecOutcome outcome)
+            {
+                var result = BuildResult(tool, outcome);
+                var reply = FormatResultAsText(result, outcome);
+                ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id, Text = reply,
+                });
+                bool ok = outcome != null && outcome.Success;
+                History.Insert(0, new HistoryEntry("just now", tool.Id, ok ? "ok" : "error", reply));
+                CopilotStateStore.Save(_pinned, History);
+                Raise(nameof(RecentEntry));
+                if (ok) PopulateHighlights(tool.Id);
+            }
+
+            if (Executor != null) Executor.Run(tool, values, null, Done);
+            else Done(new ExecOutcome { Success = true });
         }
 
         private void ExecuteAsChatReply(ToolDef tool, string code)
