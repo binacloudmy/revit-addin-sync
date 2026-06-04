@@ -14,11 +14,21 @@ namespace RevitWebAppSync.UI.Copilot
 
         public RevitModelData(Func<UIApplication> getApp) => _getApp = getApp;
 
+        // Prefer the context pushed in via the ribbon command; fall back to the
+        // app cached from the Idling event so the tool forms still read the live
+        // model when the pane was auto-restored on startup (no ribbon click) and
+        // _uiApp was never set — which left dropdowns on the static placeholders.
+        private Document Doc()
+        {
+            try { return (_getApp() ?? RevitWebAppSync.App.UiApp)?.ActiveUIDocument?.Document; }
+            catch { return null; }
+        }
+
         public List<string> Views(string viewType)
         {
             try
             {
-                var doc = _getApp()?.ActiveUIDocument?.Document;
+                var doc = Doc();
                 if (doc == null) return new List<string>();
 
                 var views = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
@@ -50,7 +60,7 @@ namespace RevitWebAppSync.UI.Copilot
         {
             try
             {
-                var doc = _getApp()?.ActiveUIDocument?.Document;
+                var doc = Doc();
                 if (doc == null) return new List<string>();
                 return new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule))
                     .Cast<ViewSchedule>()
