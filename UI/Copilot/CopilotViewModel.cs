@@ -52,6 +52,7 @@ namespace RevitWebAppSync.UI.Copilot
             ChatSendCommand = new RelayCommand(p => ChatSend(p as string));
             FollowUpCommand = new RelayCommand(p => ChatSend(p as string));
             ChatRunCommand = new RelayCommand(p => ChatRun(p as ChatMessage));
+            ChatDismissCommand = new RelayCommand(p => ChatDismiss(p as ChatMessage));
             ChatRegenerateCommand = new RelayCommand(p => ChatRegenerate(p as ChatMessage));
             ChatOpenEditorCommand = new RelayCommand(p => OpenTool((p as ChatMessage)?.ToolId));
         }
@@ -316,6 +317,7 @@ namespace RevitWebAppSync.UI.Copilot
         public RelayCommand ChatSendCommand { get; }
         public RelayCommand FollowUpCommand { get; }
         public RelayCommand ChatRunCommand { get; }
+        public RelayCommand ChatDismissCommand { get; }
         public RelayCommand ChatRegenerateCommand { get; }
         public RelayCommand ChatOpenEditorCommand { get; }
 
@@ -647,10 +649,30 @@ namespace RevitWebAppSync.UI.Copilot
                 // 0 matches → fall through; the synth reports "View not found".
             }
 
+            // Mutating tools (rename, set-parameter) change the model — show a
+            // one-line confirm/preview first instead of auto-running. Read-only /
+            // navigation tools (open-view, select) run immediately.
+            if (IsMutatingVetted(tool.Id))
+            {
+                var preview = tool.PlanText?.Invoke(values);
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.Proposal, ToolId = tool.Id,
+                    Text = string.IsNullOrWhiteSpace(preview) ? "Confirm this change." : preview,
+                    PlanSteps = new List<string> { string.IsNullOrWhiteSpace(preview) ? "Apply this change." : preview },
+                    FormValues = values,
+                    Code = "",   // deterministic vetted synth — no code shown / editable
+                });
+                return true;
+            }
+
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = $"{tool.Title}…" });
             RunVettedAsChatReply(tool, values);
             return true;
         }
+
+        private static bool IsMutatingVetted(string toolId)
+            => toolId == "rename" || toolId == "set-param";
 
         // Like ExecuteAsChatReply, but runs a Tier-1 vetted tool from parsed form
         // values (deterministic synthesis) — no backend, no codegen.
@@ -764,8 +786,19 @@ namespace RevitWebAppSync.UI.Copilot
                 PopulateHighlights(tool.Id);
             }
 
-            if (Executor != null) Executor.Run(tool, new Dictionary<string, object>(), msg.Code, Done);
+            // Carry parsed args for vetted (Tier-1) confirm cards; the synth uses
+            // them. Tier-2 cards have empty FormValues and run msg.Code instead.
+            var runValues = msg.FormValues ?? new Dictionary<string, object>();
+            if (Executor != null) Executor.Run(tool, runValues, msg.Code, Done);
             else Done(new ExecOutcome { Success = true });
+        }
+
+        public void ChatDismiss(ChatMessage msg)
+        {
+            if (msg == null) return;
+            int idx = Thread.IndexOf(msg);
+            if (idx < 0) return;
+            Thread[idx] = new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, ToolId = msg.ToolId, Text = "Okay — cancelled." };
         }
 
 

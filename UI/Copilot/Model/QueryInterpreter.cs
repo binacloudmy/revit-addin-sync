@@ -80,6 +80,33 @@ namespace RevitWebAppSync.UI.Copilot.Model
             ["structural column"] = "Structural Columns", ["structural columns"] = "Structural Columns",
         };
 
+        // rename also targets non-instance categories that select doesn't.
+        private static readonly Dictionary<string, string> RenameCategorySynonyms = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["view"] = "Views", ["views"] = "Views",
+            ["level"] = "Levels", ["levels"] = "Levels",
+            ["sheet"] = "Sheets", ["sheets"] = "Sheets",
+        };
+
+        // set-parameter param names are matched case-sensitively by Revit's
+        // LookupParameter, so only resolve to known parameter names we can spell
+        // exactly; anything else falls through to the backend classifier.
+        private static readonly Dictionary<string, string> ParamSynonyms = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["fire rating"] = "Fire Rating", ["fire-rating"] = "Fire Rating", ["frr"] = "Fire Rating", ["fire"] = "Fire Rating",
+            ["comment"] = "Comments", ["comments"] = "Comments",
+            ["mark"] = "Mark",
+            ["phase"] = "Phase",
+        };
+
+        private static string ResolveCategory(string raw, bool includeRename = false)
+        {
+            var key = (raw ?? "").Trim();
+            if (CategorySynonyms.TryGetValue(key, out var c)) return c;
+            if (includeRename && RenameCategorySynonyms.TryGetValue(key, out var rc)) return rc;
+            return null;
+        }
+
         public static ToolDef MatchVetted(string text, IDictionary<string, object> values)
         {
             if (values == null) return null;
@@ -111,8 +138,47 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 return CopilotCatalog.Find("select");
             }
 
+            // rename: "rename/replace <find> to/with <replace> in <category>"
+            var ren = Regex.Match(raw,
+                @"^\s*(?:rename|replace)\s+(?<find>.+?)\s+(?:to|with|->|→)\s+(?<replace>.+?)\s+(?:in|on|for|across|of)\s+(?<cat>.+?)\s*$",
+                RegexOptions.IgnoreCase);
+            if (ren.Success)
+            {
+                var rcat = ResolveCategory(ren.Groups["cat"].Value, includeRename: true);
+                if (rcat != null)
+                {
+                    values["category"] = rcat;
+                    values["find"] = Unquote(ren.Groups["find"].Value);
+                    values["replace"] = Unquote(ren.Groups["replace"].Value);
+                    values["scope"] = "Whole model";
+                    return CopilotCatalog.Find("rename");
+                }
+            }
+
+            // set-parameter: "set <param> to <value> on <category>" (and the
+            // "set <param> on <category> to <value>" ordering).
+            var setA = Regex.Match(raw,
+                @"^\s*set\s+(?<param>.+?)\s+(?:to|=)\s+(?<value>.+?)\s+(?:on|for|across|in)\s+(?<cat>.+?)\s*$",
+                RegexOptions.IgnoreCase);
+            var setB = Regex.Match(raw,
+                @"^\s*set\s+(?<param>.+?)\s+(?:on|for|across|in)\s+(?<cat>.+?)\s+(?:to|=)\s+(?<value>.+?)\s*$",
+                RegexOptions.IgnoreCase);
+            var set = setA.Success ? setA : setB;
+            if (set.Success && ParamSynonyms.TryGetValue(set.Groups["param"].Value.Trim(), out var prm)
+                            && CategorySynonyms.TryGetValue(set.Groups["cat"].Value.Trim(), out var scat))
+            {
+                values["category"] = scat;
+                values["param"] = prm;
+                values["value"] = Unquote(set.Groups["value"].Value);
+                values["scope"] = "Whole model";
+                return CopilotCatalog.Find("set-param");
+            }
+
             return null;
         }
+
+        private static string Unquote(string s)
+            => (s ?? "").Trim().Trim('"', '\'', '“', '”', '‘', '’').Trim();
 
         private static string ExtractViewName(string raw)
         {

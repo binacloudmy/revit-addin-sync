@@ -135,6 +135,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<ClarifyOption> Options = new List<ClarifyOption>();  // clarify
         public ResultModel Result;   // result
         public string Code;          // proposal — generated C# (backend or catalog sample)
+        public IDictionary<string, object> FormValues; // vetted confirm — parsed Tier-1 tool args
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English
         public List<string> ToolCallTrace; // tool-calling agent: ordered tool names called
         public RevitWebAppSync.Models.ReviewerVerdict Verdict; // attached to AiReply messages

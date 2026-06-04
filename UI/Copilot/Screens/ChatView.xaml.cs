@@ -240,11 +240,14 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 var tile = new IconTile { Glyph = tool.Icon, TileBg = tool.TileBg, TileFg = tool.TileFg, TileSize = 26, GlyphSize = 13, Corner = 6, VerticalAlignment = VerticalAlignment.Center };
                 Grid.SetColumn(tile, 0); hg.Children.Add(tile);
             }
+            // Vetted (Tier-1) confirm cards carry parsed args (FormValues) and no
+            // C# code; Tier-2 proposals carry generated code. Render accordingly.
+            bool hasCode = !string.IsNullOrEmpty(m.Code);
             var hc = new StackPanel { Margin = new Thickness(9, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
             hc.Children.Add(new TextBlock { Text = tool?.Title ?? "Command", FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#0b0d12") });
-            hc.Children.Add(new TextBlock { Text = "Proposed command", FontSize = 11, Foreground = CopilotColors.From("#6b7280") });
+            hc.Children.Add(new TextBlock { Text = hasCode ? "Proposed command" : "Confirm before running", FontSize = 11, Foreground = CopilotColors.From("#6b7280") });
             Grid.SetColumn(hc, 1); hg.Children.Add(hc);
-            var badge = new TierBadge { Tier = 2, VerticalAlignment = VerticalAlignment.Center };
+            var badge = new TierBadge { Tier = tool?.Tier ?? 2, VerticalAlignment = VerticalAlignment.Center };
             Grid.SetColumn(badge, 2); hg.Children.Add(badge);
             head.Child = hg;
             sp.Children.Add(head);
@@ -256,15 +259,19 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             foreach (var step in m.PlanSteps)
                 planBox.Children.Add(new TextBlock { Text = $"{i++}.  {step}", FontSize = 12, Foreground = CopilotColors.From("#374151"), TextWrapping = TextWrapping.Wrap, LineHeight = 18, Margin = new Thickness(0, 0, 0, 2) });
 
-            int lines = string.IsNullOrEmpty(m.Code) ? 0 : m.Code.Split('\n').Length;
-            var toggle = new ToggleButton { Cursor = System.Windows.Input.Cursors.Hand, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, Foreground = CopilotColors.From("#6b7280") };
-            toggle.Template = LinkToggleTemplate();
-            toggle.Content = $"View code ({lines} lines)";
-            var codeBox = new TextBox { Text = m.Code ?? "", Style = (Style)TryFindResource("Cp.CodeBlock"), Visibility = Visibility.Collapsed, Margin = new Thickness(0, 6, 0, 0), MaxHeight = 180 };
-            toggle.Checked += (_, __) => { codeBox.Visibility = Visibility.Visible; toggle.Content = "Hide code"; };
-            toggle.Unchecked += (_, __) => { codeBox.Visibility = Visibility.Collapsed; toggle.Content = $"View code ({lines} lines)"; };
-            planBox.Children.Add(toggle);
-            planBox.Children.Add(codeBox);
+            // Code toggle only for Tier-2 proposals; vetted confirms have no code.
+            if (hasCode)
+            {
+                int lines = m.Code.Split('\n').Length;
+                var toggle = new ToggleButton { Cursor = System.Windows.Input.Cursors.Hand, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, Foreground = CopilotColors.From("#6b7280") };
+                toggle.Template = LinkToggleTemplate();
+                toggle.Content = $"View code ({lines} lines)";
+                var codeBox = new TextBox { Text = m.Code ?? "", Style = (Style)TryFindResource("Cp.CodeBlock"), Visibility = Visibility.Collapsed, Margin = new Thickness(0, 6, 0, 0), MaxHeight = 180 };
+                toggle.Checked += (_, __) => { codeBox.Visibility = Visibility.Visible; toggle.Content = "Hide code"; };
+                toggle.Unchecked += (_, __) => { codeBox.Visibility = Visibility.Collapsed; toggle.Content = $"View code ({lines} lines)"; };
+                planBox.Children.Add(toggle);
+                planBox.Children.Add(codeBox);
+            }
             sp.Children.Add(planBox);
 
             // actions
@@ -274,10 +281,22 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             ag.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             ag.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             ag.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var regen = SmallGhost("Regenerate"); Grid.SetColumn(regen, 0);
-            regen.Click += (_, __) => Vm.ChatRegenerateCommand.Execute(m);
-            var edit = SmallGhost("Open editor"); Grid.SetColumn(edit, 1); edit.Margin = new Thickness(5, 0, 0, 0);
-            edit.Click += (_, __) => Vm.ChatOpenEditorCommand.Execute(m);
+            if (hasCode)
+            {
+                // Tier-2 proposal: Regenerate + Open editor.
+                var regen = SmallGhost("Regenerate"); Grid.SetColumn(regen, 0);
+                regen.Click += (_, __) => Vm.ChatRegenerateCommand.Execute(m);
+                var edit = SmallGhost("Open editor"); Grid.SetColumn(edit, 1); edit.Margin = new Thickness(5, 0, 0, 0);
+                edit.Click += (_, __) => Vm.ChatOpenEditorCommand.Execute(m);
+                ag.Children.Add(regen); ag.Children.Add(edit);
+            }
+            else
+            {
+                // Vetted confirm: Cancel (no code to regenerate/edit).
+                var cancel = SmallGhost("Cancel"); Grid.SetColumn(cancel, 0);
+                cancel.Click += (_, __) => Vm.ChatDismissCommand.Execute(m);
+                ag.Children.Add(cancel);
+            }
             var run = new Button { Style = (Style)TryFindResource("Cp.RunDark"), Padding = new Thickness(14, 6, 14, 6) };
             var rsp = new StackPanel { Orientation = Orientation.Horizontal };
             rsp.Children.Add(new Path { Width = 10, Height = 10, Stretch = Stretch.Uniform, Fill = Brushes.White, Data = CopilotIcons.Get("play"), Margin = new Thickness(0, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center });
@@ -285,7 +304,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             run.Content = rsp;
             Grid.SetColumn(run, 3);
             run.Click += (_, __) => Vm.ChatRunCommand.Execute(m);
-            ag.Children.Add(regen); ag.Children.Add(edit); ag.Children.Add(run);
+            ag.Children.Add(run);
             actions.Child = ag;
             sp.Children.Add(actions);
 
