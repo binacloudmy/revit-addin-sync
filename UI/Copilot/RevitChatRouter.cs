@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -43,6 +44,65 @@ namespace RevitWebAppSync.UI.Copilot
         /// append. Set null to disable streaming (falls back to one-shot).</summary>
         public Action<string> OnCodeStream { get; set; }
 
+        /// <summary>Optional callback for live progress — fires on every
+        /// backend "status" event (labels like "Analyzing your request…",
+        /// "Collecting information…", "Generating code…") and every "tool"
+        /// event ("create_wall (running)…"). The pane renders these as a
+        /// status line + spinner in a live progress card and clears it on
+        /// done/error. When unset, progress lines fall back to OnCodeStream
+        /// so the existing "Drafting…" card still updates.</summary>
+        public Action<string> OnProgress { get; set; }
+
+        // Drives Cancel — set per stream so the pane's Cancel button can abort
+        // the in-flight HttpClient request (CancelStream() trips this token,
+        // which unwinds GenerateCodeStreamAsync's reader and disposes the
+        // HttpClient). Guarded by _cancelLock since the pane (UI thread) and
+        // the stream loop (router) touch it concurrently.
+        private readonly object _cancelLock = new object();
+        private CancellationTokenSource _streamCts;
+
+        /// <summary>True while a /generate/stream request is in flight — lets
+        /// the pane show/enable the Cancel button only when there's something
+        /// to cancel.</summary>
+        public bool IsStreaming
+        {
+            get { lock (_cancelLock) return _streamCts != null; }
+        }
+
+        /// <summary>Cancel the in-flight streaming request (wired to the pane's
+        /// Cancel button). Cancels the underlying HttpClient request; the
+        /// stream loop then unwinds and the route call returns. No-op when
+        /// nothing is streaming.</summary>
+        public void CancelStream()
+        {
+            CancellationTokenSource cts;
+            lock (_cancelLock) cts = _streamCts;
+            try { cts?.Cancel(); } catch { /* already disposed */ }
+        }
+
+        /// <summary>Push a progress line to the pane. Prefers the dedicated
+        /// OnProgress hook; falls back to OnCodeStream so a pane that only
+        /// wired the streaming-code callback still sees live updates.</summary>
+        private void EmitProgress(string label)
+        {
+            if (string.IsNullOrWhiteSpace(label)) return;
+            var sink = OnProgress;
+            if (sink != null) { try { sink(label); } catch { /* UI hiccup */ } return; }
+            var code = OnCodeStream;
+            if (code != null) { try { code(label); } catch { /* UI hiccup */ } }
+        }
+
+        /// <summary>Clear the live progress card (on done / error / cancel).
+        /// Sends an empty label to OnProgress so the pane can hide the card +
+        /// stop the spinner. OnCodeStream is left alone — the pane replaces the
+        /// "Drafting…" card with the final reply on its own, so blanking it
+        /// here would only flash an empty bubble.</summary>
+        private void ClearProgress()
+        {
+            var sink = OnProgress;
+            if (sink != null) { try { sink(""); } catch { /* UI hiccup */ } }
+        }
+
         public async Task<RouteResult> RouteAsync(string message, string fallbackToolId)
         {
             var cfg = BinaConfig.Load();
@@ -79,18 +139,42 @@ namespace RevitWebAppSync.UI.Copilot
                 // chat fill in token by token instead of waiting for a
                 // single big delivery. Falls back to one-shot on any
                 // streaming error (server returns 404 on /stream, etc).
-                if (OnCodeStream != null)
+                if (OnCodeStream != null || OnProgress != null)
                 {
+                    // New CTS per request so the pane's Cancel button can abort
+                    // exactly this stream. Replaces any stale one (defensive —
+                    // routes are serial in practice).
+                    CancellationTokenSource cts = new CancellationTokenSource();
+                    lock (_cancelLock)
+                    {
+                        try { _streamCts?.Dispose(); } catch { }
+                        _streamCts = cts;
+                    }
                     try
                     {
                         AIResponse final = null;
                         var sb = new System.Text.StringBuilder();
-                        await foreach (var chunk in _ai.GenerateCodeStreamAsync(req, token))
+                        var replySb = new System.Text.StringBuilder();
+                        await foreach (var chunk in _ai.GenerateCodeStreamAsync(req, token, cts.Token))
                         {
-                            if (chunk.Kind == StreamChunkKind.CodePartial)
+                            if (chunk.Kind == StreamChunkKind.Status || chunk.Kind == StreamChunkKind.Tool)
                             {
+                                // Live progress card: status line + spinner that
+                                // updates on each status/tool event.
+                                EmitProgress(chunk.StatusLabel);
+                            }
+                            else if (chunk.Kind == StreamChunkKind.Reply)
+                            {
+                                // The user-facing MARKDOWN message streams in first;
+                                // show it live (final markdown bubble lands at done).
+                                replySb.Append(chunk.Delta);
+                                try { OnCodeStream?.Invoke(replySb.ToString()); } catch { /* UI hiccup */ }
+                            }
+                            else if (chunk.Kind == StreamChunkKind.CodePartial)
+                            {
+                                // Code accumulates silently — it RUNS, it is never
+                                // shown as chat text.
                                 sb.Append(chunk.Delta);
-                                try { OnCodeStream(sb.ToString()); } catch { /* UI hiccup */ }
                             }
                             else if (chunk.Kind == StreamChunkKind.Done)
                             {
@@ -98,25 +182,55 @@ namespace RevitWebAppSync.UI.Copilot
                             }
                             else if (chunk.Kind == StreamChunkKind.Error)
                             {
+                                ClearProgress();   // clear the progress card on error
                                 return new RouteResult { ToolId = "ai-generated", Reply = $"Backend error: {chunk.Error}" };
                             }
                         }
-                        if (final != null && final.Success && !string.IsNullOrWhiteSpace(final.Code))
+                        ClearProgress();   // clear the progress card on stream completion
+                        if (final != null && final.Success)
                         {
+                            // Backend already split the response: `reply` = markdown
+                            // message (rendered via MarkdownRenderer), `code` = C#
+                            // that runs. Return even when code is empty (a pure
+                            // message / clarification) so it is NOT re-run as a
+                            // one-shot below.
+                            var replyText = !string.IsNullOrWhiteSpace(final.Reply)
+                                ? final.Reply
+                                : replySb.ToString();
+                            bool hasCode = !string.IsNullOrWhiteSpace(final.Code);
+                            if (string.IsNullOrWhiteSpace(replyText))
+                                replyText = hasCode ? "" : "Done.";
                             return new RouteResult
                             {
                                 ToolId = "ai-generated",
-                                Code = final.Code,
-                                Reply = final.Explanation ?? "Generated. Review and Run when ready.",
-                                PlanSteps = new List<string> { "Generated via bina-ai (streaming, Inspector-preflighted)" },
+                                Code = final.Code ?? "",
+                                Reply = replyText,
+                                PlanSteps = hasCode ? new List<string> { "Generated via bina-ai (streaming)" } : null,
                                 IsQuery = final.IsQuery,
                                 Verdict = final.ReviewerVerdict,
                             };
                         }
                     }
+                    catch (OperationCanceledException)
+                    {
+                        // User hit Cancel — clear the card and report it plainly
+                        // instead of degrading to a one-shot retry (which would
+                        // ignore the cancel and keep the model spinning).
+                        ClearProgress();
+                        return new RouteResult { ToolId = "ai-generated", Reply = "Cancelled." };
+                    }
                     catch
                     {
                         // Fall through to one-shot below.
+                        ClearProgress();
+                    }
+                    finally
+                    {
+                        lock (_cancelLock)
+                        {
+                            if (ReferenceEquals(_streamCts, cts)) _streamCts = null;
+                        }
+                        try { cts.Dispose(); } catch { }
                     }
                 }
 

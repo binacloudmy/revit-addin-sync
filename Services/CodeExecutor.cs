@@ -19,6 +19,15 @@ namespace RevitWebAppSync.Services
         private readonly UIDocument _uidoc;
         private readonly View _activeView;
 
+        // Hard cap on a single snippet's execution. A generated loop that hangs
+        // must not freeze Revit forever. Revit API calls must run on the UI
+        // thread, so we cannot safely abort a runaway Invoke mid-flight (killing
+        // the UI thread corrupts the session). v1 contract: detect the overrun,
+        // log it, and surface a timeout ExecutionResult instead of reporting
+        // success — the work that did run stays committed, but the user is told
+        // it exceeded the limit rather than being left staring at a frozen UI.
+        private static readonly TimeSpan ExecutionWatchdogTimeout = TimeSpan.FromSeconds(30);
+
         // Number of generated wrapper lines that precede the first line of user
         // code — set by WrapCode, used to map compile errors back to user lines.
         private int _userCodeLineOffset;
@@ -59,6 +68,21 @@ namespace RevitWebAppSync.Services
                 System.Diagnostics.Debug.WriteLine(
                     $"[BinaVibe][timing] codegen compile={_swCompile.ElapsedMilliseconds}ms " +
                     $"exec(tx+regen)={_swExec.ElapsedMilliseconds}ms");
+
+                // Watchdog: a snippet that ran past the hard cap is reported as a
+                // timeout rather than success — the self-heal loop then feeds this
+                // back as an error (e.g. "tighten the loop / add a bound").
+                if (_swExec.Elapsed > ExecutionWatchdogTimeout)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BinaVibe][timing] codegen EXEC OVERRAN watchdog — " +
+                        $"{_swExec.ElapsedMilliseconds}ms > {ExecutionWatchdogTimeout.TotalMilliseconds}ms");
+                    return new ExecutionResult
+                    {
+                        Success = false,
+                        Error = $"Execution exceeded {(int)ExecutionWatchdogTimeout.TotalSeconds}s and was stopped."
+                    };
+                }
 
                 // A string return is a status message; any other object/array is structured
                 // model data — capture it as JSON so the Copilot card renders real numbers.

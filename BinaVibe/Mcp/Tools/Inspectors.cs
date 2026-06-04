@@ -152,6 +152,9 @@ namespace BinaVibe.Mcp.Tools
             if (bic.HasValue) col = col.OfCategory(bic.Value);
             IEnumerable<Element> q = col;
 
+            bool isRooms = bic == BuiltInCategory.OST_Rooms;
+            const double ft2ToM2 = 0.092903;
+
             var matches = new List<object>();
             foreach (var el in q.Take(50))
             {
@@ -160,12 +163,25 @@ namespace BinaVibe.Mcp.Tools
                     ? doc.GetElement(el.GetTypeId()) : null;
                 var lvl = el.LevelId.Value != ElementId.InvalidElementId.Value
                     ? doc.GetElement(el.LevelId) : null;
+
+                // params dict — seeds the mirror with per-element attributes.
+                var paramsDict = new Dictionary<string, object?>();
+                if (isRooms && el is SpatialElement room)
+                {
+                    // Revit stores room Area in ft² (×0.092903 → m²). Skip
+                    // unplaced/unbounded rooms (Area <= 0) — they have no area.
+                    double areaFt2 = room.Area;
+                    if (areaFt2 > 0)
+                        paramsDict["Area"] = System.Math.Round(areaFt2 * ft2ToM2, 6);
+                }
+
                 matches.Add(new Dictionary<string, object?>
                 {
                     ["id"] = el.Id.Value,
                     ["name"] = el.Name,
                     ["type_name"] = typeEl?.Name,
                     ["level"] = lvl?.Name,
+                    ["params"] = paramsDict,
                 });
                 if (matches.Count >= 20) break;
             }

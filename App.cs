@@ -284,17 +284,24 @@ namespace RevitWebAppSync
                             // the gate never traps the user.
                             VibeModelWarm = true;
 
-                            // Measure the on-thread walk: if this is the ~140s
-                            // freeze it'll show here; a high call-count means
-                            // it's firing per-document (links).
-                            var _sw = System.Diagnostics.Stopwatch.StartNew();
-                            var snapshot = indexer.CollectBulkDocs(warmedDoc);
-                            _sw.Stop();
-                            System.Diagnostics.Debug.WriteLine(
-                                $"[BinaVibe][timing] CollectBulkDocs (UI walk)={_sw.ElapsedMilliseconds}ms " +
-                                $"docs={snapshot.Count} doc={warmedDoc.Title}");
-                            _ = System.Threading.Tasks.Task.Run(
-                                () => indexer.PostBulkAsync(snapshot, version: 1));
+                            // DISABLED (freeze fix, 2026-06-04): CollectBulkDocs
+                            // walks the ENTIRE model on the UI thread to seed the
+                            // cloud mirror — measured ~178s per document, firing
+                            // once per opened doc (main + every linked model) =
+                            // the multi-minute "[BinaVibe][idle] UI thread blocked"
+                            // freezes. The mirror it feeds is currently UNUSED
+                            // (VIBE_MIRROR_READS=0, grounding inert), so the walk
+                            // is pure cost. Re-enable only once the mirror walk is
+                            // moved off the UI thread / chunked across idle cycles.
+                            //
+                            // var _sw = System.Diagnostics.Stopwatch.StartNew();
+                            // var snapshot = indexer.CollectBulkDocs(warmedDoc);
+                            // _sw.Stop();
+                            // System.Diagnostics.Debug.WriteLine(
+                            //     $"[BinaVibe][timing] CollectBulkDocs (UI walk)={_sw.ElapsedMilliseconds}ms " +
+                            //     $"docs={snapshot.Count} doc={warmedDoc.Title}");
+                            // _ = System.Threading.Tasks.Task.Run(
+                            //     () => indexer.PostBulkAsync(snapshot, version: 1));
                         };
                         // On open: warm the first regen on the UI thread (pays
                         // the one-time ~58s here, not on the user's first build),

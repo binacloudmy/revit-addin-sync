@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 using System.Windows;
 using RevitWebAppSync.Services;
 using RevitWebAppSync.UI.Copilot.Model;
@@ -15,12 +16,42 @@ namespace RevitWebAppSync.UI.Copilot
     /// via the existing VettedToolCode; open-view/select natively). Tier-2 commands run the
     /// C# passed in (real codegen via AIService is wired in Task 12). The CodeExecutor
     /// auto-wraps an undoable transaction and swallows Revit warnings.
+    ///
+    /// Self-heal: when a generated snippet fails to compile or run, the executor feeds the
+    /// REAL error back to the backend (<see cref="AIService.RetryCodeAsync"/>), re-executes,
+    /// and repeats up to <see cref="MaxAttempts"/> times. On success the verified fix is
+    /// recorded (<see cref="AIService.RecordFixAsync"/>) WITH the prompt so recipe auto-grow
+    /// can gate on a real run result. Tier-1 synthesized code is never sent through the loop
+    /// (it's deterministic and has no backend prompt to regenerate from).
     /// </summary>
     public class RevitCopilotExecutor : ICopilotExecutor
     {
+        /// <summary>Bounded retries for the self-heal loop. 2 retries = up to 3 executions.</summary>
+        public int MaxAttempts { get; set; } = 2;
+
+        // ─── Self-heal context (injected by the panel, like the executor itself) ──────────
+        /// <summary>Backend client used to regenerate failed code and record verified fixes.
+        /// When null, the executor runs once with no self-heal (back-compat).</summary>
+        public AIService Ai { get; set; }
+
+        /// <summary>Returns the natural-language prompt for the current run (the user's
+        /// request). Used as the retry/record prompt; falls back to the tool title.</summary>
+        public Func<string> PromptProvider { get; set; }
+
+        /// <summary>Bearer token for backend calls (optional).</summary>
+        public Func<string> AccessTokenProvider { get; set; }
+
+        public int? UserId { get; set; }
+        public string SessionId { get; set; }
+
+        /// <summary>Optional progress callback for "Fixing… (attempt N)" cards shown
+        /// between retries. Dispatched to the UI thread.</summary>
+        public Action<int> OnRetryProgress { get; set; }
+
         public void Run(ToolDef tool, IDictionary<string, object> values, string code, Action<ExecOutcome> onDone)
         {
-            string toRun = tool != null && tool.Tier == 1 ? SynthVetted(tool, values) : code;
+            bool tier1 = tool != null && tool.Tier == 1;
+            string toRun = tier1 ? SynthVetted(tool, values) : code;
 
             if (string.IsNullOrEmpty(toRun))
             {
@@ -28,6 +59,21 @@ namespace RevitWebAppSync.UI.Copilot
                 return;
             }
 
+            // Tier-1 is deterministic synthesized code with no backend prompt to regenerate
+            // from — run it once. Only Tier-2 codegen (or any run with an AIService wired)
+            // goes through the bounded self-heal loop.
+            if (tier1 || Ai == null)
+            {
+                RunOnce(toRun, onDone);
+                return;
+            }
+
+            RunWithSelfHeal(tool, toRun, onDone);
+        }
+
+        // Single fire-and-forget execution through the ExternalEvent (original behaviour).
+        private void RunOnce(string toRun, Action<ExecOutcome> onDone)
+        {
             try
             {
                 App.AIHandler.Action = "execute";
@@ -39,6 +85,92 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 Dispatch(onDone, new ExecOutcome { Success = false, Error = ex.Message });
             }
+        }
+
+        // The bounded retry loop. Runs on a worker thread so it can block on each
+        // ExternalEvent round-trip without freezing the UI/Revit thread (the
+        // ExternalEvent handler runs on Revit's UI thread and signals us back).
+        private void RunWithSelfHeal(ToolDef tool, string initialCode, Action<ExecOutcome> onDone)
+        {
+            string prompt = ResolvePrompt(tool);
+            string token = AccessTokenProvider != null ? AccessTokenProvider() : null;
+
+            System.Threading.Tasks.Task.Run(() =>
+            {
+                try
+                {
+                    var result = SelfHeal.RunWithRetries(
+                        initialCode: initialCode,
+                        executeFn: ExecuteOnUiThread,
+                        retryFn: (failedCode, error, attempt) =>
+                        {
+                            // Surface "Fixing… (attempt N+1)" before regenerating.
+                            DispatchProgress(attempt + 1);
+                            var resp = Ai.RetryCodeAsync(prompt, failedCode, error, attempt,
+                                                         UserId, SessionId, token)
+                                         .GetAwaiter().GetResult();
+                            return resp != null && resp.Success ? resp.Code : null;
+                        },
+                        recordFn: (error, workingCode) =>
+                        {
+                            // Fire-and-forget: record the verified (error, code, prompt) triple.
+                            // Passing the prompt is REQUIRED for recipe auto-grow.
+                            _ = Ai.RecordFixAsync(error, workingCode, prompt, UserId, SessionId, token);
+                        },
+                        maxAttempts: MaxAttempts);
+
+                    Dispatch(onDone, Map(result));
+                }
+                catch (Exception ex)
+                {
+                    Dispatch(onDone, new ExecOutcome { Success = false, Error = ex.Message });
+                }
+            });
+        }
+
+        // Raise the ExternalEvent and block until OnCompleted fires. Called from the
+        // worker thread, so blocking here is safe — the handler runs on Revit's UI thread.
+        private ExecutionResult ExecuteOnUiThread(string code)
+        {
+            ExecutionResult captured = null;
+            using (var done = new ManualResetEventSlim(false))
+            {
+                try
+                {
+                    App.AIHandler.Action = "execute";
+                    App.AIHandler.CodeToExecute = code;
+                    App.AIHandler.OnCompleted = r => { captured = r; done.Set(); };
+                    App.AIExternalEvent.Raise();
+                }
+                catch (Exception ex)
+                {
+                    return new ExecutionResult { Success = false, Error = ex.Message };
+                }
+
+                // Bound the wait so a never-firing event can't hang the worker forever.
+                // The CodeExecutor itself has a per-execution watchdog (~30s); allow a
+                // little headroom for the ExternalEvent to be serviced.
+                if (!done.Wait(TimeSpan.FromSeconds(60)))
+                    return new ExecutionResult { Success = false, Error = "Execution did not complete in time." };
+            }
+            return captured ?? new ExecutionResult { Success = false, Error = "No result." };
+        }
+
+        private string ResolvePrompt(ToolDef tool)
+        {
+            string p = PromptProvider != null ? PromptProvider() : null;
+            if (!string.IsNullOrWhiteSpace(p)) return p;
+            return tool != null ? (tool.Title ?? string.Empty) : string.Empty;
+        }
+
+        private void DispatchProgress(int attempt)
+        {
+            if (OnRetryProgress == null) return;
+            var disp = Application.Current?.Dispatcher;
+            if (disp != null && !disp.CheckAccess())
+                disp.Invoke(() => OnRetryProgress(attempt));
+            else
+                OnRetryProgress(attempt);
         }
 
         private static ExecOutcome Map(ExecutionResult r)
