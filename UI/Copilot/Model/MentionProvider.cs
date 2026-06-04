@@ -41,6 +41,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 case "level": return ("#fef3c7", "#92400e");
                 case "category": return ("#dbeafe", "#1e40af");
                 case "view": return ("#dcfce7", "#15803d");
+                case "room": return ("#cffafe", "#0e7490");
                 case "selection": return ("#ede9fe", "#6d28d9");
                 default: return ("#eef0f3", "#374151");
             }

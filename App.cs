@@ -36,6 +36,12 @@ namespace RevitWebAppSync
         // Revit Copilot dockable pane host (right-docked side panel)
         public static CopilotPaneHost CopilotPaneHost { get; private set; }
 
+        // Last-known live UIApplication, cached from the Idling event. Lets
+        // UI code (e.g. the @-mention provider) reach the active document even
+        // when the dockable pane was auto-restored on startup and never had
+        // context pushed in via the ribbon command (OpenCopilotCommand).
+        public static Autodesk.Revit.UI.UIApplication UiApp { get; private set; }
+
         // Live cost update handler
         public static CostUpdateHandler CostUpdateHandler { get; private set; }
 
@@ -94,6 +100,10 @@ namespace RevitWebAppSync
                 long lastIdleTs = 0;
                 application.Idling += (s, e) =>
                 {
+                    // Cache the live UIApplication so non-command UI code can
+                    // reach the active document without a ribbon click.
+                    if (s is Autodesk.Revit.UI.UIApplication ua) UiApp = ua;
+
                     var now = System.Diagnostics.Stopwatch.GetTimestamp();
                     double freq = System.Diagnostics.Stopwatch.Frequency;
                     double gapMs = lastIdleTs != 0 ? (now - lastIdleTs) * 1000.0 / freq : 0;
