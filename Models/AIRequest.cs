@@ -28,7 +28,11 @@ namespace RevitWebAppSync.Models
 
     public class ModelContext
     {
-        [JsonProperty("projectName")]
+        // Field names match bina-ai's RevitModelContext (snake_case) so the
+        // backend actually receives them — previously camelCase fields were
+        // silently dropped, leaving the agent/classifier blind to view/schedule
+        // names, active view, selection, etc.
+        [JsonProperty("project_name")]
         public string ProjectName { get; set; }
 
         [JsonProperty("levels")]
@@ -37,19 +41,25 @@ namespace RevitWebAppSync.Models
         [JsonProperty("categories")]
         public List<string> Categories { get; set; }
 
-        [JsonProperty("activeViewName")]
+        [JsonProperty("view_names")]
+        public List<string> ViewNames { get; set; }
+
+        [JsonProperty("schedule_names")]
+        public List<string> ScheduleNames { get; set; }
+
+        [JsonProperty("active_view_name")]
         public string ActiveViewName { get; set; }
 
-        [JsonProperty("activeViewType")]
+        [JsonProperty("active_view_type")]
         public string ActiveViewType { get; set; }
 
-        [JsonProperty("selectedElementIds")]
+        [JsonProperty("selected_element_ids")]
         public List<int> SelectedElementIds { get; set; }
 
         [JsonProperty("phases")]
         public List<string> Phases { get; set; }
 
-        [JsonProperty("revitVersion")]
+        [JsonProperty("revit_version")]
         public string RevitVersion { get; set; }
 
         /// <summary>

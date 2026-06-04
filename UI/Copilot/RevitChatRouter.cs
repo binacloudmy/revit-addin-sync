@@ -342,7 +342,7 @@ namespace RevitWebAppSync.UI.Copilot
 
             try
             {
-                var uidoc = _getApp()?.ActiveUIDocument;
+                var uidoc = (_getApp() ?? RevitWebAppSync.App.UiApp)?.ActiveUIDocument;
                 var doc = uidoc?.Document;
                 if (doc == null) return ctx;
 
@@ -354,6 +354,16 @@ namespace RevitWebAppSync.UI.Copilot
                 if (view != null) { ctx.ActiveViewName = view.Name; ctx.ActiveViewType = view.ViewType.ToString(); }
                 ctx.SelectedElementIds = uidoc.Selection.GetElementIds().Select(id => (int)id.Value).ToList();
                 ctx.Phases = new FilteredElementCollector(doc).OfClass(typeof(Phase)).Cast<Phase>().Select(p => p.Name).ToList();
+
+                // View + schedule names let the backend vetted-dispatch classifier
+                // fill exact names for open_view / export_schedule (capped to keep
+                // the request small).
+                ctx.ViewNames = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                    .Where(v => v != null && !v.IsTemplate).Select(v => v.Name)
+                    .Where(n => !string.IsNullOrEmpty(n)).Distinct().Take(200).ToList();
+                ctx.ScheduleNames = new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
+                    .Where(s => s != null && !s.IsTemplate).Select(s => s.Name)
+                    .Where(n => !string.IsNullOrEmpty(n)).Distinct().OrderBy(n => n).ToList();
             }
             catch { /* best-effort context */ }
             return ctx;

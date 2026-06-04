@@ -61,12 +61,10 @@ tool with `vetted_args` and **ignores `code`**. Otherwise behaves as today
   or declines (`tool=null`) → request falls through to the pipeline.
 - Validates tool allowlist, required args, and a confidence gate (default 0.7).
 
-## Known follow-up
-The add-in's `ModelContext` JSON uses camelCase for some fields
-(`activeViewName`, …) while the backend `RevitModelContext` expects snake_case
-(`active_view_name`, `view_names`, `schedule_names`). `levels`, `categories`,
-`project_id` already match. Until the rest are aligned (and `view_names` /
-`schedule_names` are sent), the classifier can confidently dispatch
-category/level tools (select / rename / set-parameter) but will decline
-view/schedule-name tools (open_view / export_schedule) when those names aren't in
-context — which is fine: open-view is covered by the local fast-path.
+## Context fields (aligned)
+The add-in's `ModelContext` JSON now uses snake_case matching the backend
+`RevitModelContext` (`project_name`, `active_view_name`, `active_view_type`,
+`selected_element_ids`, `revit_version`), and `BuildContext` now sends
+`view_names` (≤200) and `schedule_names`. So the classifier can fill exact names
+for **all** vetted tools, including `open_view` and `export_schedule`.
+Previously camelCased fields were silently dropped by the backend.
