@@ -69,19 +69,41 @@ namespace RevitWebAppSync.UI.Copilot
             return views;
         }
 
-        // Placed rooms only (Area > 0 skips unplaced/unbounded). Shown as
-        // "Number - Name" (e.g. "101 - Office"), or just the name when a room
-        // has no number.
-        private static List<string> Rooms(Document doc) =>
-            new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms)
-                .WhereElementIsNotElementType()
+        // Upper bound on rooms shown so the popup stays responsive on large
+        // models (the picker filters live as you type). Raise if a project has
+        // more rooms than this and you need them all in one unfiltered list.
+        private const int RoomCap = 500;
+
+        // Rooms shown as "Number - Name" (e.g. "101 - Office"), or just the name
+        // when a room has no number. Scoped to the active view when that view
+        // contains rooms (plan/section); otherwise (3D/elevation/template) falls
+        // back to the whole model so the group is never mysteriously empty.
+        // Unplaced/unbounded rooms (Area <= 0) only appear in the whole-model
+        // fallback, marked "(unplaced)".
+        private static List<string> Rooms(Document doc)
+        {
+            var view = doc.ActiveView;
+            if (view != null && !view.IsTemplate)
+            {
+                var inView = RoomNames(new FilteredElementCollector(doc, view.Id));
+                if (inView.Count > 0) return inView;
+            }
+            return RoomNames(new FilteredElementCollector(doc));
+        }
+
+        private static List<string> RoomNames(FilteredElementCollector col) =>
+            col.OfCategory(BuiltInCategory.OST_Rooms).WhereElementIsNotElementType()
                 .OfType<Autodesk.Revit.DB.Architecture.Room>()
-                .Where(r => r.Area > 0)
                 .OrderBy(r => r.Number, StringComparer.OrdinalIgnoreCase)
-                .Select(r => string.IsNullOrWhiteSpace(r.Number)
-                    ? r.Name
-                    : $"{r.Number} - {r.Name}")
-                .Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().Take(50).ToList();
+                .Select(RoomLabel)
+                .Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().Take(RoomCap).ToList();
+
+        private static string RoomLabel(Autodesk.Revit.DB.Architecture.Room r)
+        {
+            var name = string.IsNullOrWhiteSpace(r.Number) ? r.Name : $"{r.Number} - {r.Name}";
+            if (string.IsNullOrWhiteSpace(name)) return null;
+            return r.Area > 0 ? name : $"{name} (unplaced)";
+        }
 
         private static List<string> Selection(UIDocument uidoc)
         {
