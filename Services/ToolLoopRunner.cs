@@ -24,6 +24,10 @@ namespace RevitWebAppSync.Services
     {
         public bool Success { get; set; } = true;
         public string Reply { get; set; } = "";
+        // Set when the tool agent fell back to codegen — the addin runs it via
+        // its normal executor (compile-gate + transaction wrap), same as /generate.
+        public string Code { get; set; } = "";
+        public bool IsQuery { get; set; } = true;
         public string Error { get; set; }
         public List<string> ToolsUsed { get; } = new();
     }
@@ -64,8 +68,11 @@ namespace RevitWebAppSync.Services
 
                 if (!turn.AwaitingRevit)
                 {
-                    // "done" — the agent finished (it answered, or all tools ran).
+                    // "done" — the agent finished (answered, ran tools, OR fell
+                    // back to codegen). Carry any code so the addin runs it.
                     outcome.Reply = turn.Reply ?? "";
+                    outcome.Code = turn.Code ?? "";
+                    outcome.IsQuery = turn.IsQuery;
                     return outcome;
                 }
 

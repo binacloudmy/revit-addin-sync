@@ -33,6 +33,10 @@ namespace RevitWebAppSync.Services
         [JsonPropertyName("run_id")] public string RunId { get; set; } = "";
         [JsonPropertyName("session_id")] public string SessionId { get; set; } = "";
         [JsonPropertyName("reply")] public string Reply { get; set; } = "";
+        // When the tool agent fell back to codegen (no tool fit), the done turn
+        // carries the C# to run; empty when it answered in prose / via tools.
+        [JsonPropertyName("code")] public string Code { get; set; } = "";
+        [JsonPropertyName("is_query")] public bool IsQuery { get; set; } = true;
         [JsonPropertyName("error")] public string Error { get; set; }
         [JsonPropertyName("success")] public bool Success { get; set; } = true;
         [JsonPropertyName("pending_tool_calls")] public List<PendingToolCall> Pending { get; set; } = new();

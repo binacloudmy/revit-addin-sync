@@ -45,11 +45,13 @@ namespace RevitWebAppSync.UI.Copilot
             _toolLoop = new ToolLoopRunner(new ToolLoopService(_toolHttp));
         }
 
-        // Opt-in: tunnel-free tool-calling (the agent calls vetted MUTATE tools
-        // the addin runs in real Revit) instead of codegen. Separate flag from
-        // BINA_VIBE_TOOLPATH (the DEAD WSS tunnel, which stays off).
+        // Tunnel-free tool-calling: the agent calls vetted MUTATE tools the addin
+        // runs in real Revit; when no tool fits it falls back to codegen (the done
+        // turn carries the C#, run via the normal executor). ON BY DEFAULT — set
+        // BINA_VIBE_TOOL_HTTP=0 to force codegen-only. Separate from the DEAD
+        // BINA_VIBE_TOOLPATH (WSS tunnel, stays off).
         private static bool ToolHttpEnabled =>
-            (Environment.GetEnvironmentVariable("BINA_VIBE_TOOL_HTTP") ?? "0") == "1";
+            (Environment.GetEnvironmentVariable("BINA_VIBE_TOOL_HTTP") ?? "1") != "0";
 
         /// <summary>Optional callback invoked on every streamed code chunk
         /// from /generate/stream so the chat can render code as it arrives.
@@ -156,11 +158,14 @@ namespace RevitWebAppSync.UI.Copilot
                 return new RouteResult
                 {
                     ToolId = "ai-generated",
-                    Code = "",   // tools already ran in Revit — nothing for the pane to execute
+                    // Empty when tools ran (nothing for the pane to execute);
+                    // populated when the agent fell back to codegen → the pane
+                    // runs it through the normal executor (compile-gate + tx).
+                    Code = outcome.Code ?? "",
                     Reply = !string.IsNullOrWhiteSpace(outcome.Reply)
                         ? outcome.Reply
                         : (outcome.Success ? "Done." : (outcome.Error ?? "Tool run failed.")),
-                    IsQuery = true,
+                    IsQuery = string.IsNullOrWhiteSpace(outcome.Code) || outcome.IsQuery,
                     ToolCallTrace = outcome.ToolsUsed.Count > 0 ? outcome.ToolsUsed : null,
                 };
             }
