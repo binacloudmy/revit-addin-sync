@@ -548,10 +548,14 @@ namespace RevitWebAppSync.UI.Copilot
             var plan = (rr?.PlanSteps != null && rr.PlanSteps.Count > 0) ? rr.PlanSteps : tool.Plan;
             string code = !string.IsNullOrWhiteSpace(rr?.Code) ? rr.Code : tool.Code;
 
-            // Tool-calling agent answered directly — no C# to run.
-            // Render the reply as a plain chat bubble with the tool
-            // trace shown faintly underneath.
-            if (rr != null && rr.IsQuery && string.IsNullOrWhiteSpace(code))
+            // Backend answered with NO code to run — a clarification ("which
+            // view did you mean?"), an answer-from-context, or a refusal to
+            // guess. Render rr.Reply as a chat bubble. Check rr.Code DIRECTLY,
+            // not the `code` var above (which falls back to the catalog tool's
+            // sample code and would mask this case → the empty response then
+            // gets routed to the executor as "Couldn't build runnable code").
+            if (rr != null && string.IsNullOrWhiteSpace(rr.Code)
+                && !string.IsNullOrWhiteSpace(rr.Reply))
             {
                 ReplaceLastThinking(new ChatMessage
                 {
