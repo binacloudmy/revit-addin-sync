@@ -52,6 +52,12 @@ namespace RevitWebAppSync
         // No inbound port on the customer machine. Firewall-friendly.
         public static BinaVibe.Mcp.McpTunnelClient VibeMcpTunnel { get; private set; }
 
+        // Tool-calling execution handler + its ExternalEvent — ALWAYS created
+        // (not gated with the tunnel). The HTTP tool-loop enqueues an McpJob and
+        // raises McpToolEvent to run the tool on Revit's UI thread.
+        public static BinaVibe.Mcp.McpExternalEventHandler McpToolHandler { get; private set; }
+        public static Autodesk.Revit.UI.ExternalEvent McpToolEvent { get; private set; }
+
         // DocumentChangedIndexer — subscribes to Revit changes and ships
         // deltas to the backend snapshot endpoint. Also fires a one-time
         // BulkIndexAsync on connect to seed the mirror with a full baseline.
@@ -135,6 +141,15 @@ namespace RevitWebAppSync
 
                 JkrRenameHandler = new JkrRenameHandler();
                 JkrRenameEvent = ExternalEvent.Create(JkrRenameHandler);
+
+                // Tool-calling execution handler — ALWAYS created (independent of
+                // the gated tunnel/MCP transport). The HTTP tool-loop (ToolLoopRunner)
+                // enqueues an McpJob here, raises the event, and waits; the handler
+                // runs the tool via ToolRegistry.Invoke on the Revit UI thread. This
+                // is the addin half of Step 4 (/tool/generate ↔ /tool/resume) — no
+                // tunnel needed, the backend just hands us pending tool calls.
+                McpToolHandler = new BinaVibe.Mcp.McpExternalEventHandler();
+                McpToolEvent = ExternalEvent.Create(McpToolHandler);
 
                 // Warm-up: pays the one-time first-regen at doc-open so the
                 // user's first build doesn't freeze (see WarmupHandler).

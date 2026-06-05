@@ -30,13 +30,26 @@ namespace RevitWebAppSync.UI.Copilot
     {
         private readonly Func<UIApplication> _getApp;
         private readonly AIService _ai;
+        private readonly ToolLoopRunner _toolLoop;
         private readonly string _sessionId = Guid.NewGuid().ToString();
+
+        // Shared HttpClient for the tool-loop (long timeout — a tool's Revit
+        // execution can run minutes on a cold/large model).
+        private static readonly System.Net.Http.HttpClient _toolHttp =
+            new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(620) };
 
         public RevitChatRouter(Func<UIApplication> getApp)
         {
             _getApp = getApp;
             _ai = new AIService(BinaConfig.Load().ResolvedAIBaseUrl);
+            _toolLoop = new ToolLoopRunner(new ToolLoopService(_toolHttp));
         }
+
+        // Opt-in: tunnel-free tool-calling (the agent calls vetted MUTATE tools
+        // the addin runs in real Revit) instead of codegen. Separate flag from
+        // BINA_VIBE_TOOLPATH (the DEAD WSS tunnel, which stays off).
+        private static bool ToolHttpEnabled =>
+            (Environment.GetEnvironmentVariable("BINA_VIBE_TOOL_HTTP") ?? "0") == "1";
 
         /// <summary>Optional callback invoked on every streamed code chunk
         /// from /generate/stream so the chat can render code as it arrives.
@@ -118,6 +131,39 @@ namespace RevitWebAppSync.UI.Copilot
             System.Diagnostics.Debug.WriteLine(
                 $"[BinaVibe][timing] BuildContext={__swCtx.ElapsedMilliseconds}ms (UI thread) views={ctx?.Views?.Count ?? 0} levels={ctx?.Levels?.Count ?? 0}");
             int? userId = (cfg?.UserId ?? 0) > 0 ? (int?)cfg.UserId : null;
+
+            // ─── Tunnel-free tool-calling path (opt-in: BINA_VIBE_TOOL_HTTP=1) ──
+            // The agent calls vetted MUTATE tools that the addin runs in real
+            // Revit via /tool/generate ↔ /tool/resume. No codegen, no tunnel.
+            if (ToolHttpEnabled)
+            {
+                var treq = new AIRequest
+                {
+                    Prompt = message, Context = ctx, UserId = userId, SessionId = _sessionId,
+                };
+                ToolLoopOutcome outcome;
+                try
+                {
+                    outcome = await _toolLoop.RunAsync(
+                        treq, token, t => OnProgress?.Invoke($"applying {t}…")).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    outcome = new ToolLoopOutcome { Success = false, Error = ex.Message };
+                }
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BinaVibe][timing] tool-loop total={__swRoute.ElapsedMilliseconds}ms tools={string.Join(",", outcome.ToolsUsed)} ok={outcome.Success}");
+                return new RouteResult
+                {
+                    ToolId = "ai-generated",
+                    Code = "",   // tools already ran in Revit — nothing for the pane to execute
+                    Reply = !string.IsNullOrWhiteSpace(outcome.Reply)
+                        ? outcome.Reply
+                        : (outcome.Success ? "Done." : (outcome.Error ?? "Tool run failed.")),
+                    IsQuery = true,
+                    ToolCallTrace = outcome.ToolsUsed.Count > 0 ? outcome.ToolsUsed : null,
+                };
+            }
 
             // Plan mode removed — the tool-calling agent acts directly and
             // streams (no plan card, no approve gate). Every turn goes to
