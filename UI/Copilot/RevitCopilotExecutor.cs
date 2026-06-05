@@ -128,10 +128,21 @@ namespace RevitWebAppSync.UI.Copilot
             });
         }
 
-        // Raise the ExternalEvent and block until OnCompleted fires. Called from the
-        // worker thread, so blocking here is safe — the handler runs on Revit's UI thread.
+        // Compile-gate, then (only if clean) raise the ExternalEvent and block until
+        // OnCompleted fires. Called from the worker thread, so blocking is safe — the
+        // handler runs on Revit's UI thread.
         private ExecutionResult ExecuteOnUiThread(string code)
         {
+            // Step 3 compile-gate: Roslyn-check the snippet on THIS worker thread
+            // (pure CPU, no Revit) before touching the live document. A hallucinated
+            // API member — wrong overload, removed-in-2024 member, misspelled enum —
+            // fails here and is returned as an error, so the self-heal loop regenerates
+            // from the exact compiler diagnostic WITHOUT an ExternalEvent round-trip or
+            // an opened transaction. Only code that compiles clean reaches Revit.
+            string compileError = CodeExecutor.CompileCheck(code);
+            if (compileError != null)
+                return new ExecutionResult { Success = false, Error = compileError };
+
             ExecutionResult captured = null;
             using (var done = new ManualResetEventSlim(false))
             {

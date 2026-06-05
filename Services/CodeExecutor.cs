@@ -28,10 +28,6 @@ namespace RevitWebAppSync.Services
         // it exceeded the limit rather than being left staring at a frozen UI.
         private static readonly TimeSpan ExecutionWatchdogTimeout = TimeSpan.FromSeconds(30);
 
-        // Number of generated wrapper lines that precede the first line of user
-        // code — set by WrapCode, used to map compile errors back to user lines.
-        private int _userCodeLineOffset;
-
         public CodeExecutor(UIDocument uidoc)
         {
             _uidoc = uidoc;
@@ -48,11 +44,11 @@ namespace RevitWebAppSync.Services
             try
             {
                 // Wrap code in executable class
-                string fullCode = WrapCode(code);
+                string fullCode = WrapCode(code, out int userCodeLineOffset);
 
                 // Compile  (timed — Roslyn compile cost)
                 var _swCompile = System.Diagnostics.Stopwatch.StartNew();
-                var assembly = CompileCode(fullCode, out loadContext);
+                var assembly = CompileCode(fullCode, userCodeLineOffset, out loadContext);
                 _swCompile.Stop();
 
                 // Execute  (timed — runs on UI thread: includes transaction
@@ -145,6 +141,63 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Compile-only check — no execution, no Revit thread.
+        ///
+        /// Wraps + compiles the snippet with the EXACT same wrapper and reference
+        /// set <see cref="Execute"/> uses, but stops after Roslyn emit: it never
+        /// loads or invokes the assembly and never opens a transaction. Pure CPU,
+        /// so it runs safely on a worker thread — the self-heal loop calls this
+        /// BEFORE the ExternalEvent, so a snippet with a hallucinated API member
+        /// (wrong overload, removed member, misspelled enum) is caught and fed
+        /// back to the model without a single Revit round-trip.
+        /// </summary>
+        /// <returns>null when it compiles clean; otherwise the formatted error
+        /// string (same shape as a runtime <see cref="CompilationException"/>).</returns>
+        public static string CompileCheck(string userCode)
+        {
+            try
+            {
+                string fullCode = WrapCode(userCode, out int userCodeLineOffset);
+                var syntaxTree = CSharpSyntaxTree.ParseText(fullCode);
+                var compilation = CSharpCompilation.Create(
+                    $"AICheck_{Guid.NewGuid():N}",
+                    new[] { syntaxTree },
+                    BuildReferences(),
+                    new CSharpCompilationOptions(
+                        OutputKind.DynamicallyLinkedLibrary,
+                        optimizationLevel: OptimizationLevel.Release,
+                        allowUnsafe: false));
+
+                using var ms = new MemoryStream();
+                var emitResult = compilation.Emit(ms);
+                if (emitResult.Success) return null;
+
+                return "Compilation failed:\n" + FormatErrors(emitResult.Diagnostics, userCodeLineOffset);
+            }
+            catch (Exception ex)
+            {
+                // A check that itself throws must not block execution — let the
+                // normal run path surface any real problem.
+                System.Diagnostics.Debug.WriteLine($"[BinaVibe] CompileCheck threw, skipping gate: {ex.Message}");
+                return null;
+            }
+        }
+
+        // Map Roslyn error diagnostics to user-line-numbered strings.
+        private static string FormatErrors(IEnumerable<Diagnostic> diagnostics, int userCodeLineOffset)
+        {
+            var errors = diagnostics
+                .Where(d => d.Severity == DiagnosticSeverity.Error)
+                .Select(d =>
+                {
+                    var lineSpan = d.Location.GetLineSpan();
+                    var adjustedLine = Math.Max(1, lineSpan.StartLinePosition.Line - userCodeLineOffset + 1);
+                    return $"Line {adjustedLine}: {d.GetMessage()}";
+                });
+            return string.Join("\n", errors);
+        }
+
+        /// <summary>
         /// Wrap user code in a class structure
         /// </summary>
         // For each `var x = new Transaction(...)` (or `Transaction x = new ...`)
@@ -212,7 +265,7 @@ namespace RevitWebAppSync.Services
             catch { return null; }
         }
 
-        private string WrapCode(string userCode)
+        private static string WrapCode(string userCode, out int userCodeLineOffset)
         {
             var sb = new StringBuilder();
             var code = userCode ?? string.Empty;
@@ -323,7 +376,7 @@ namespace RevitWebAppSync.Services
             }
 
             // Count preamble lines so CompileCode can map errors to user lines.
-            _userCodeLineOffset = sb.ToString().Split('\n').Length - 1;
+            userCodeLineOffset = sb.ToString().Split('\n').Length - 1;
 
             // When the agent self-manages a Transaction, inject the silent
             // fail-handler into it and turn its Commit() statement into a
@@ -434,13 +487,13 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
-        /// Compile code using Roslyn
+        /// Build the Roslyn reference set — every loaded assembly with a location,
+        /// plus a guaranteed RevitAPI / RevitAPIUI / ClosedXML. Shared by the
+        /// execution path AND the compile-only gate so both see the IDENTICAL
+        /// reference surface (a divergent set would give false pass/fail).
         /// </summary>
-        private Assembly CompileCode(string code, out AssemblyLoadContext loadContext)
+        private static List<MetadataReference> BuildReferences()
         {
-            var syntaxTree = CSharpSyntaxTree.ParseText(code);
-
-            // Collect all necessary references
             var references = new List<MetadataReference>();
 
             // Add references from all currently loaded assemblies that have a location
@@ -471,13 +524,25 @@ namespace RevitWebAppSync.Services
                 catch { }
             }
 
-            // Ensure Revit API is included
+            // Ensure Revit API is included — the LOADED (running version's) assemblies,
+            // so the compiler catches version-specific hallucinations (a 2024 member
+            // used against 2026 references fails to compile).
             EnsureRef(typeof(Document).Assembly, "RevitAPI");
             EnsureRef(typeof(UIDocument).Assembly, "RevitAPIUI");
 
             // Ensure ClosedXML is included — the wrapper may `using ClosedXML.Excel;`
             // and use the WriteExcel/ReadExcel* helpers. typeof(...) also forces a load.
             try { EnsureRef(typeof(ClosedXML.Excel.XLWorkbook).Assembly, "ClosedXML"); } catch { }
+
+            return references;
+        }
+
+        /// <summary>
+        /// Compile code using Roslyn
+        /// </summary>
+        private static Assembly CompileCode(string code, int userCodeLineOffset, out AssemblyLoadContext loadContext)
+        {
+            var syntaxTree = CSharpSyntaxTree.ParseText(code);
 
             var compilationOptions = new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
@@ -487,26 +552,14 @@ namespace RevitWebAppSync.Services
             var compilation = CSharpCompilation.Create(
                 $"AIGenerated_{Guid.NewGuid():N}",
                 new[] { syntaxTree },
-                references,
+                BuildReferences(),
                 compilationOptions);
 
             using var ms = new MemoryStream();
             var emitResult = compilation.Emit(ms);
 
             if (!emitResult.Success)
-            {
-                var errors = emitResult.Diagnostics
-                    .Where(d => d.Severity == DiagnosticSeverity.Error)
-                    .Select(d =>
-                    {
-                        var lineSpan = d.Location.GetLineSpan();
-                        // Map back to the user's line numbering (WrapCode counted the preamble).
-                        var adjustedLine = Math.Max(1, lineSpan.StartLinePosition.Line - _userCodeLineOffset + 1);
-                        return $"Line {adjustedLine}: {d.GetMessage()}";
-                    });
-
-                throw new CompilationException("Compilation failed:\n" + string.Join("\n", errors));
-            }
+                throw new CompilationException("Compilation failed:\n" + FormatErrors(emitResult.Diagnostics, userCodeLineOffset));
 
             ms.Seek(0, SeekOrigin.Begin);
 
