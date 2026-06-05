@@ -16,6 +16,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using BinaVibe.Mcp;
+using RevitWebAppSync.Models;
 
 namespace RevitWebAppSync.Services
 {
@@ -139,7 +140,7 @@ namespace RevitWebAppSync.Services
             return new ToolResultDto
             {
                 ToolCallId = call.ToolCallId, Ok = true,
-                Result = job.Result ?? new Dictionary<string, object>(),
+                Result = job.Result ?? new Dictionary<string, object?>(),
             };
         }
     }
