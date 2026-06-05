@@ -215,6 +215,21 @@ namespace RevitWebAppSync
                 //   both  — start both (handy during migration)
                 var transport = (Environment.GetEnvironmentVariable("BINA_VIBE_MCP_TRANSPORT") ?? "http").ToLowerInvariant();
 
+                // HARD GATE — the MCP tool path is disabled. The backend is
+                // codegen-only and rejects the tunnel (403), and the mirror the
+                // DocumentChangedIndexer feeds is unread. Running this block is
+                // pure cost: ~15 tunnel reconnect attempts PER PROMPT plus a
+                // UI-thread element walk on every edit (mirror delta) that
+                // nothing consumes — the source of the post-prompt UI-thread
+                // blocks. Off by default; set BINA_VIBE_TOOLPATH=1 to revive
+                // once the backend's tool-calling path is back.
+                if ((Environment.GetEnvironmentVariable("BINA_VIBE_TOOLPATH") ?? "0") != "1")
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        "[BINA] MCP tool path gated OFF (codegen-only) — no tunnel, no mirror indexer. Set BINA_VIBE_TOOLPATH=1 to enable.");
+                    transport = "off";
+                }
+
                 if (transport == "http" || transport == "both")
                 {
                     try
