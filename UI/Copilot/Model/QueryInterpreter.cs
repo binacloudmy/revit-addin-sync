@@ -174,8 +174,27 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 return CopilotCatalog.Find("set-param");
             }
 
+            // tag: "tag [all/every/each] <category> [instance(s)] [in this view]"
+            if (Regex.IsMatch(low, @"^\s*tag\b"))
+            {
+                bool everyInstance = Regex.IsMatch(low, @"\b(every|each)\b") || low.Contains("instance");
+                var tg = Regex.Match(low,
+                    @"^\s*tag\s+(?:all\s+|every\s+|each\s+)?(?:the\s+)?(?<cat>[a-z ]+?)\s*(?:instances?)?\s*(?:in\b.*|on\b.*)?$");
+                if (tg.Success && CategorySynonyms.TryGetValue(tg.Groups["cat"].Value.Trim(), out var tcat)
+                              && _taggable.Contains(tcat))
+                {
+                    values["category"] = tcat;
+                    values["mode"] = everyInstance ? "Every instance" : "One per type";
+                    return CopilotCatalog.Find("tag");
+                }
+            }
+
             return null;
         }
+
+        // Categories the vetted tag tool supports (Rooms need NewRoomTag — separate).
+        private static readonly HashSet<string> _taggable = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        { "Walls", "Doors", "Windows", "Floors", "Furniture" };
 
         private static string Unquote(string s)
             => (s ?? "").Trim().Trim('"', '\'', '“', '”', '‘', '’').Trim();

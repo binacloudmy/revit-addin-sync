@@ -700,7 +700,7 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         private static bool IsMutatingVetted(string toolId)
-            => toolId == "rename" || toolId == "set-param";
+            => toolId == "rename" || toolId == "set-param" || toolId == "tag";
 
         // Like ExecuteAsChatReply, but runs a Tier-1 vetted tool from parsed form
         // values (deterministic synthesis) — no backend, no codegen.

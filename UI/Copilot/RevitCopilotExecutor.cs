@@ -222,6 +222,8 @@ namespace RevitWebAppSync.UI.Copilot
                     return BuildOpenView(S(v, "view"));
                 case "select_elements":
                     return BuildSelect(S(v, "category"), S(v, "level"));
+                case "tag_elements":
+                    return BuildTag(S(v, "category"), S(v, "mode"));
                 default:
                     return null;
             }
@@ -241,6 +243,66 @@ namespace RevitWebAppSync.UI.Copilot
             sb.AppendLine("    .FirstOrDefault(x => x != null && !x.IsTemplate && x.Name != null && x.Name.IndexOf(__name, StringComparison.OrdinalIgnoreCase) >= 0);");
             sb.AppendLine("if (__v != null) { uidoc.RequestViewChange(__v); SetResult(new { kind = \"plain\", headline = \"Opened \" + __v.Name, sub = \"Switched the active view.\" }); }");
             sb.AppendLine("else { SetResult(new { kind = \"plain\", headline = \"View not found\", sub = \"No view named '\" + __name + \"'.\" }); }");
+            return sb.ToString();
+        }
+
+        // Deterministic tag placement in the active view. "One per type" tags
+        // the representative of each type (longest instance for walls, skipping
+        // < 1 m stair/infill noise); "Every instance" tags all. Group members are
+        // always skipped (IndependentTag.Create throws inside a group). Uses the
+        // `activeView` variable so the executor's auto-transaction wrap applies.
+        private static string BuildTag(string category, string mode)
+        {
+            string c = Lit(category);
+            bool perInstance = (mode ?? "").IndexOf("instance", StringComparison.OrdinalIgnoreCase) >= 0;
+            var sb = new StringBuilder();
+            sb.AppendLine($"var __catName = \"{c}\";");
+            sb.AppendLine("BuiltInCategory __hostBic; BuiltInCategory __tagBic;");
+            sb.AppendLine("switch (__catName.ToLowerInvariant()) {");
+            sb.AppendLine("  case \"walls\": __hostBic = BuiltInCategory.OST_Walls; __tagBic = BuiltInCategory.OST_WallTags; break;");
+            sb.AppendLine("  case \"doors\": __hostBic = BuiltInCategory.OST_Doors; __tagBic = BuiltInCategory.OST_DoorTags; break;");
+            sb.AppendLine("  case \"windows\": __hostBic = BuiltInCategory.OST_Windows; __tagBic = BuiltInCategory.OST_WindowTags; break;");
+            sb.AppendLine("  case \"floors\": __hostBic = BuiltInCategory.OST_Floors; __tagBic = BuiltInCategory.OST_FloorTags; break;");
+            sb.AppendLine("  case \"furniture\": __hostBic = BuiltInCategory.OST_Furniture; __tagBic = BuiltInCategory.OST_FurnitureTags; break;");
+            sb.AppendLine("  default: SetResult(new { kind = \"plain\", headline = \"Can't tag \" + __catName, sub = \"Unsupported category for tagging.\" }); return null;");
+            sb.AppendLine("}");
+            sb.AppendLine("var __tagSym = new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).OfCategory(__tagBic).Cast<FamilySymbol>().FirstOrDefault();");
+            sb.AppendLine("if (__tagSym == null) { SetResult(new { kind = \"plain\", headline = \"No tag loaded\", sub = \"Load a \" + __catName + \" tag family first.\" }); return null; }");
+            sb.AppendLine("if (!__tagSym.IsActive) { __tagSym.Activate(); doc.Regenerate(); }");
+            sb.AppendLine("var __all = new FilteredElementCollector(doc, activeView.Id).OfCategory(__hostBic).WhereElementIsNotElementType()");
+            sb.AppendLine("    .Where(e => e.GroupId == ElementId.InvalidElementId).ToList();");
+            sb.AppendLine("int __total = __all.Count;");
+            if (perInstance)
+            {
+                sb.AppendLine("var __targets = __all;");
+                sb.AppendLine("int __skipped = 0;");
+            }
+            else
+            {
+                sb.AppendLine("double __minFt = 3.28084;   // 1 m — drop wall stair/infill noise");
+                sb.AppendLine("var __eligible = (__hostBic == BuiltInCategory.OST_Walls)");
+                sb.AppendLine("    ? __all.Where(e => { var lc = e.Location as LocationCurve; return lc?.Curve != null && lc.Curve.Length >= __minFt; }).ToList()");
+                sb.AppendLine("    : __all;");
+                sb.AppendLine("int __skipped = __total - __eligible.Count;");
+                sb.AppendLine("var __targets = __eligible.GroupBy(e => e.GetTypeId())");
+                sb.AppendLine("    .Select(g => (__hostBic == BuiltInCategory.OST_Walls)");
+                sb.AppendLine("        ? g.OrderByDescending(e => ((e.Location as LocationCurve)?.Curve?.Length ?? 0)).First()");
+                sb.AppendLine("        : g.First()).ToList();");
+            }
+            sb.AppendLine("int __tagged = 0; int __failed = 0;");
+            sb.AppendLine("foreach (var __e in __targets) {");
+            sb.AppendLine("    XYZ __pt = null;");
+            sb.AppendLine("    if (__e.Location is LocationCurve __lc && __lc.Curve != null) __pt = __lc.Curve.Evaluate(0.5, true);");
+            sb.AppendLine("    else if (__e.Location is LocationPoint __lp) __pt = __lp.Point;");
+            sb.AppendLine("    else { var __bb = __e.get_BoundingBox(activeView); if (__bb != null) __pt = (__bb.Min + __bb.Max) * 0.5; }");
+            sb.AppendLine("    if (__pt == null) { __failed++; continue; }");
+            sb.AppendLine("    try { IndependentTag.Create(doc, __tagSym.Id, activeView.Id, new Reference(__e), false, TagOrientation.Horizontal, __pt); __tagged++; }");
+            sb.AppendLine("    catch { __failed++; }");
+            sb.AppendLine("}");
+            if (perInstance)
+                sb.AppendLine("SetResult(new { kind = \"count\", headline = __tagged.ToString(), unit = __catName.ToLowerInvariant() + \" tagged\", sub = \"Tagged every instance in the active view.\" + (__failed > 0 ? \" \" + __failed + \" failed.\" : \"\") });");
+            else
+                sb.AppendLine("SetResult(new { kind = \"count\", headline = __tagged.ToString(), unit = \"types tagged\", sub = \"One tag per type in the active view. Skipped \" + __skipped + \" short/duplicate. Say 'tag every instance' to tag all.\" + (__failed > 0 ? \" \" + __failed + \" failed.\" : \"\") });");
             return sb.ToString();
         }
 

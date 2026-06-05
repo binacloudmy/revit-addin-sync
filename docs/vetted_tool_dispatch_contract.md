@@ -47,6 +47,7 @@ tool with `vetted_args` and **ignores `code`**. Otherwise behaves as today
 | `rename_elements` | **yes** | `category`, `find`, `replace`, `scope?` |
 | `set_parameter` | **yes** | `category`, `param`, `value`, `scope?` |
 | `export_schedule` | no | `schedule`, `format` (xlsx\|csv) |
+| `tag_elements` | **yes** | `category` (Walls\|Doors\|Windows\|Floors\|Furniture), `mode?` (One per type\|Every instance) |
 
 ## Add-in behavior
 - `CopilotCatalog.FindByBackendName(vetted_tool)` → tool; `vetted_args` → FormValues.

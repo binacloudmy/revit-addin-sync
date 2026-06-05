@@ -111,6 +111,23 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Result = v => new ResultModel { Kind = CpResultKind.File,
                     Headline = $"{S(v, "schedule")}.{S(v, "format")}", Sub = "47 rows · 1.2 MB", Path = @"C:\Projects\jkrAR24\Exports\" },
             },
+            new ToolDef {
+                Id = "tag", BackendName = "tag_elements", Tier = 1,
+                Title = "Tag elements",
+                Desc = "Place tags on a category in the active view — deterministic",
+                Icon = "layers", TileBg = "#e0e7ff", TileFg = "#4338ca", Category = "annotate",
+                Fields = new List<FieldDef> {
+                    new FieldDef { Id = "category", Label = "Category", Kind = CpFieldKind.Select,
+                        Options = new[] { "Walls", "Doors", "Windows", "Floors", "Furniture" }, Default = "Walls" },
+                    new FieldDef { Id = "mode", Label = "Tags", Kind = CpFieldKind.Seg,
+                        Options = new[] { "One per type", "Every instance" }, Default = "One per type",
+                        Hint = "One per type tags the longest instance of each type (walls skip < 1 m); every instance tags all." },
+                },
+                RunLabel = v => $"Tag {S(v, "category")}",
+                PlanText = v => $"Tag {S(v, "category")} in the active view — {S(v, "mode").ToLowerInvariant()}.",
+                Result = v => new ResultModel { Kind = CpResultKind.Plain,
+                    Headline = "Tagged", Sub = "Placed tags in the active view." },
+            },
         };
 
         // ─── Tier 2 — AI commands ────────────────────────────────────────────
