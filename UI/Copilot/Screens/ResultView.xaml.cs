@@ -257,10 +257,61 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             col.Children.Add(new TextBlock { Text = r.Headline, FontSize = 13.5, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#0b0d12"), TextTrimming = TextTrimming.CharacterEllipsis });
             col.Children.Add(new TextBlock { Text = r.Sub, FontSize = 11.5, Foreground = CopilotColors.From("#6b7280") });
             col.Children.Add(new TextBlock { Text = r.Path, FontSize = 10.5, FontFamily = Mono, Foreground = CopilotColors.From("#9ca3af"), Margin = new Thickness(0, 2, 0, 0) });
+
+            // One-click access — the file is local (written on this machine), so
+            // "download" = open it / reveal it. r.Path is the folder, r.Headline
+            // the file name (the backend SetResult(kind="file") splits them).
+            string fullPath = (!string.IsNullOrWhiteSpace(r.Path) && !string.IsNullOrWhiteSpace(r.Headline))
+                ? System.IO.Path.Combine(r.Path, r.Headline)
+                : (r.Path ?? r.Headline);
+            var btnRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
+            // Labeled "Download" to match the Claude mental model — the file is
+            // already local (Revit wrote it to disk), so this opens it directly.
+            btnRow.Children.Add(MakeFileButton("Download", () => OpenLocalPath(fullPath)));
+            btnRow.Children.Add(MakeFileButton("Show in folder", () => RevealInFolder(fullPath)));
+            col.Children.Add(btnRow);
+
             Grid.SetColumn(col, 1);
             g.Children.Add(ft); g.Children.Add(col);
             card.Child = g;
             return card;
+        }
+
+        private static Button MakeFileButton(string text, System.Action onClick)
+        {
+            var b = new Button
+            {
+                Content = text,
+                Margin = new Thickness(0, 0, 8, 0),
+                Padding = new Thickness(11, 5, 11, 5),
+                FontSize = 11.5,
+                Cursor = System.Windows.Input.Cursors.Hand,
+                Background = Brushes.White,
+                BorderBrush = CopilotColors.From("#86efac"),
+                BorderThickness = new Thickness(1),
+                Foreground = CopilotColors.From("#15803d"),
+            };
+            b.Click += (s, e) => { try { onClick(); } catch { /* best-effort */ } };
+            return b;
+        }
+
+        private static void OpenLocalPath(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path)) return;
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path) { UseShellExecute = true });
+        }
+
+        private static void RevealInFolder(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path)) return;
+            if (System.IO.File.Exists(path))
+                System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{path}\"");
+            else
+            {
+                var dir = System.IO.Directory.Exists(path) ? path : System.IO.Path.GetDirectoryName(path);
+                if (!string.IsNullOrWhiteSpace(dir) && System.IO.Directory.Exists(dir))
+                    System.Diagnostics.Process.Start("explorer.exe", $"\"{dir}\"");
+            }
         }
 
         private FrameworkElement BuildPlain(ResultModel r)
