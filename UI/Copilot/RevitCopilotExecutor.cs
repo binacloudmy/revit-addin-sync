@@ -290,15 +290,19 @@ namespace RevitWebAppSync.UI.Copilot
                 sb.AppendLine("        : g.First()).ToList();");
             }
             sb.AppendLine("int __tagged = 0; int __failed = 0;");
+            sb.AppendLine("var __taggedIds = new List<ElementId>();");
             sb.AppendLine("foreach (var __e in __targets) {");
             sb.AppendLine("    XYZ __pt = null;");
             sb.AppendLine("    if (__e.Location is LocationCurve __lc && __lc.Curve != null) __pt = __lc.Curve.Evaluate(0.5, true);");
             sb.AppendLine("    else if (__e.Location is LocationPoint __lp) __pt = __lp.Point;");
             sb.AppendLine("    else { var __bb = __e.get_BoundingBox(activeView); if (__bb != null) __pt = (__bb.Min + __bb.Max) * 0.5; }");
             sb.AppendLine("    if (__pt == null) { __failed++; continue; }");
-            sb.AppendLine("    try { IndependentTag.Create(doc, __tagSym.Id, activeView.Id, new Reference(__e), false, TagOrientation.Horizontal, __pt); __tagged++; }");
+            sb.AppendLine("    try { IndependentTag.Create(doc, __tagSym.Id, activeView.Id, new Reference(__e), false, TagOrientation.Horizontal, __pt); __tagged++; __taggedIds.Add(__e.Id); }");
             sb.AppendLine("    catch { __failed++; }");
             sb.AppendLine("}");
+            // Select + zoom to what was tagged so the user sees it in the active
+            // view (selection isn't a model edit; safe inside the auto-transaction).
+            sb.AppendLine("if (__taggedIds.Count > 0) { try { uidoc.Selection.SetElementIds(__taggedIds); uidoc.ShowElements(__taggedIds); } catch { } }");
             if (perInstance)
                 sb.AppendLine("SetResult(new { kind = \"count\", headline = __tagged.ToString(), unit = __catName.ToLowerInvariant() + \" tagged\", sub = \"Tagged every instance in the active view.\" + (__failed > 0 ? \" \" + __failed + \" failed.\" : \"\") });");
             else
