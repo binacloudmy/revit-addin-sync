@@ -492,7 +492,29 @@ namespace RevitWebAppSync.Services
         /// execution path AND the compile-only gate so both see the IDENTICAL
         /// reference surface (a divergent set would give false pass/fail).
         /// </summary>
+        // MetadataReference objects are immutable and reusable across compilations.
+        // Building them re-reads ~hundreds of assembly files from disk
+        // (MetadataReference.CreateFromFile) — measured 0.4s warm, up to ~15s cold,
+        // PER COMPILE, on the UI thread. With the compile-gate compiling twice
+        // (worker + UI), that doubled the disk reads + GC churn and the two threads
+        // contended for disk I/O — the multi-second UI freezes. Build the set ONCE
+        // and reuse it: every later compile is sub-second. Thread-safe (the gate
+        // calls from a worker thread, Execute from the UI thread).
+        private static readonly object _refsLock = new object();
+        private static List<MetadataReference> _cachedReferences;
+
         private static List<MetadataReference> BuildReferences()
+        {
+            if (_cachedReferences != null) return _cachedReferences;
+            lock (_refsLock)
+            {
+                if (_cachedReferences != null) return _cachedReferences;
+                _cachedReferences = BuildReferencesUncached();
+                return _cachedReferences;
+            }
+        }
+
+        private static List<MetadataReference> BuildReferencesUncached()
         {
             var references = new List<MetadataReference>();
 
