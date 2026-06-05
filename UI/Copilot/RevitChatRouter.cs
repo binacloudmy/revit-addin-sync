@@ -105,9 +105,18 @@ namespace RevitWebAppSync.UI.Copilot
 
         public async Task<RouteResult> RouteAsync(string message, string fallbackToolId)
         {
+            // Phase timing — pinpoint where post-send wall-clock goes. Correlate
+            // these with the [idle] UI-thread-blocked heartbeat to see whether a
+            // freeze is context capture (UI thread), the backend round-trip
+            // (should be off-UI), or post-response work.
+            var __swRoute = System.Diagnostics.Stopwatch.StartNew();
             var cfg = BinaConfig.Load();
             var token = cfg?.AccessToken ?? "";
+            var __swCtx = System.Diagnostics.Stopwatch.StartNew();
             var ctx = BuildContext(message);
+            __swCtx.Stop();
+            System.Diagnostics.Debug.WriteLine(
+                $"[BinaVibe][timing] BuildContext={__swCtx.ElapsedMilliseconds}ms (UI thread) views={ctx?.Views?.Count ?? 0} levels={ctx?.Levels?.Count ?? 0}");
             int? userId = (cfg?.UserId ?? 0) > 0 ? (int?)cfg.UserId : null;
 
             // Plan mode removed — the tool-calling agent acts directly and
@@ -189,6 +198,8 @@ namespace RevitWebAppSync.UI.Copilot
                         ClearProgress();   // clear the progress card on stream completion
                         if (final != null && final.Success)
                         {
+                            System.Diagnostics.Debug.WriteLine(
+                                $"[BinaVibe][timing] backend round-trip (stream, off-UI)={__swRoute.ElapsedMilliseconds}ms codeLen={final.Code?.Length ?? 0}");
                             // Backend already split the response: `reply` = markdown
                             // message (rendered via MarkdownRenderer), `code` = C#
                             // that runs. Return even when code is empty (a pure
