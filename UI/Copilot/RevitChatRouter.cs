@@ -250,7 +250,15 @@ namespace RevitWebAppSync.UI.Copilot
                         : (gen.Explanation ?? "Generated. Review and Run when ready.");
                     var trace = gen.ToolCalls?.Select(tc => tc?.Tool).Where(t => !string.IsNullOrEmpty(t)).ToList();
 
-                    if (isToolMode || !string.IsNullOrWhiteSpace(code))
+                    // Return when there's code to run, a tool-mode answer, OR a
+                    // reply-only response (a clarification / answer-from-context
+                    // with no code — e.g. "which view did you mean?"). The last
+                    // case MUST return here; otherwise rr is null, the viewmodel
+                    // falls back to a catalog tool, and the user gets an empty
+                    // "0 lines" proposal that fails on Run. (The streaming path
+                    // already returns on empty code — keep this in parity.)
+                    if (isToolMode || !string.IsNullOrWhiteSpace(code)
+                        || !string.IsNullOrWhiteSpace(gen.Reply))
                     {
                         return new RouteResult
                         {
@@ -258,7 +266,7 @@ namespace RevitWebAppSync.UI.Copilot
                             Code = code,
                             Reply = reply,
                             PlanSteps = new List<string> { isToolMode ? "Tool-calling agent (native MCP)" : "Generated via bina-ai (Inspector-preflighted)" },
-                            IsQuery = gen.IsQuery || (isToolMode && string.IsNullOrEmpty(code)),
+                            IsQuery = gen.IsQuery || string.IsNullOrEmpty(code),
                             ToolCallTrace = trace != null && trace.Count > 0 ? trace : null,
                             Verdict = gen.ReviewerVerdict,
                         };
