@@ -90,6 +90,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             aiRow.Children.Add(BotAvatar());
             var col = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
             col.MaxWidth = 360;
+
+            // Claude-style: show the tools the agent ran FIRST (a compact steps
+            // panel with check glyphs), then the final answer below it.
+            if (m.ToolCallTrace != null && m.ToolCallTrace.Count > 0)
+                col.Children.Add(ToolTracePanel(m.ToolCallTrace));
+
             if (!string.IsNullOrEmpty(m.Text))
             {
                 // AI replies are markdown (headers, **bold**, tables, lists) —
@@ -107,12 +113,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 case CpMsgKind.Running: col.Children.Add(RunningBar(m)); break;
                 case CpMsgKind.Result: col.Children.Add(CompactResult(m)); break;
             }
-
-            // Tool-calling agent trace: a compact "steps" panel under the
-            // reply listing each tool the agent ran, with a check glyph.
-            // Gives the drafter audit visibility of what actually executed.
-            if (m.ToolCallTrace != null && m.ToolCallTrace.Count > 0)
-                col.Children.Add(ToolTracePanel(m.ToolCallTrace));
 
             // Reviewer verdict badge (PRD §6.2 stage 7). Tiny line
             // under the trace: green when verified, amber with issue
