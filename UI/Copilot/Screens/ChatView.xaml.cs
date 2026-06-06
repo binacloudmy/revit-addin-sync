@@ -484,9 +484,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 row.Children.Add(dot);
                 row.Children.Add(new TextBlock
                 {
-                    Text = t,
-                    FontFamily = new FontFamily("Cascadia Mono, Consolas, monospace"),
-                    FontSize = 11,
+                    Text = Humanize(t),
+                    FontSize = 11.5,
                     Foreground = CopilotColors.From("#374151"),
                     VerticalAlignment = VerticalAlignment.Center,
                     TextWrapping = TextWrapping.Wrap,
@@ -495,6 +494,40 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
             outer.Child = sp;
             return outer;
+        }
+
+        // Raw tool name → friendly step label. Polished labels for the common
+        // tools; everything else falls back to a clean snake_case → sentence
+        // transform (e.g. "find_elements_by_filter" → "Find elements by filter").
+        private static readonly System.Collections.Generic.Dictionary<string, string> _toolLabels =
+            new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase)
+            {
+                ["list_levels"] = "Reading levels",
+                ["list_wall_types"] = "Reading wall types",
+                ["list_family_types"] = "Reading family types",
+                ["list_view_templates"] = "Reading view templates",
+                ["get_current_selection"] = "Checking your selection",
+                ["get_active_view"] = "Checking the active view",
+                ["find_elements_by_filter"] = "Finding elements",
+                ["find_elements_by_parameter"] = "Finding elements",
+                ["duplicate_view"] = "Duplicating the view",
+                ["apply_view_template"] = "Applying the view template",
+                ["set_parameter"] = "Setting a parameter",
+                ["set_parameter_bulk"] = "Setting parameters",
+                ["change_type"] = "Changing the type",
+                ["delete_elements"] = "Deleting elements",
+                ["tag_elements"] = "Tagging elements",
+                ["export_views"] = "Exporting views",
+                ["think"] = "Thinking it through",
+            };
+
+        private static string Humanize(string tool)
+        {
+            if (string.IsNullOrWhiteSpace(tool)) return "Step";
+            if (_toolLabels.TryGetValue(tool, out var label)) return label;
+            var s = tool.Replace('_', ' ').Trim();
+            if (s.Length == 0) return tool;
+            return char.ToUpperInvariant(s[0]) + s.Substring(1);
         }
 
         private static FrameworkElement BotAvatar(double size = 22)
