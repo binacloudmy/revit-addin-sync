@@ -580,7 +580,7 @@ namespace RevitWebAppSync.UI.Copilot
             // and runs automatically — no Run button.
             if (rr != null && !string.IsNullOrWhiteSpace(rr.Code))
             {
-                ExecuteAsChatReply(tool, rr.Code);
+                ExecuteAsChatReply(tool, rr.Code, text);
                 return;
             }
 
@@ -597,10 +597,24 @@ namespace RevitWebAppSync.UI.Copilot
             });
         }
 
-        private void ExecuteAsChatReply(ToolDef tool, string code)
+        private void ExecuteAsChatReply(ToolDef tool, string code, string prompt = null)
         {
             ToolId = tool.Id;
             _runClock = System.Diagnostics.Stopwatch.StartNew();
+
+            // Feed the user's actual request to the self-heal loop so a retry
+            // regenerates WITH the right recipe/grounding (the backend retrieves
+            // recipes from this prompt). Without it, ResolvePrompt falls back to
+            // the catalog tool title and the fix loses context.
+            if (Executor != null)
+            {
+                Executor.PromptProvider = () => prompt ?? tool?.Title ?? "";
+                Executor.OnRetryProgress = attempt => ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.Thinking,
+                    Text = $"That didn't compile — fixing it… (attempt {attempt})",
+                });
+            }
 
             void Done(ExecOutcome outcome)
             {

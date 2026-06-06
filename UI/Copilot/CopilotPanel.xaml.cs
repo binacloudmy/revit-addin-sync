@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Windows.Controls;
 using Autodesk.Revit.UI;
+using RevitWebAppSync.Services;
 using RevitWebAppSync.UI.Copilot.Model;
 using RevitWebAppSync.UI.Copilot.Screens;
 
@@ -34,7 +35,18 @@ namespace RevitWebAppSync.UI.Copilot
         public CopilotPanel()
         {
             InitializeComponent();
-            _vm.Executor = new RevitCopilotExecutor();
+            // Arm the executor with a backend client so the bounded self-heal
+            // loop actually engages. Without Ai set, RevitCopilotExecutor.Run
+            // takes the RunOnce path (Ai == null) and a compile/runtime error
+            // surfaces on the FIRST try with no retry — exactly the "Sorry —
+            // that didn't run. Compilation failed…" the codegen-chat path hit.
+            var cfg = BinaConfig.Load();
+            _vm.Executor = new RevitCopilotExecutor
+            {
+                Ai = new AIService(),
+                AccessTokenProvider = () => BinaConfig.Load().AccessToken,
+                UserId = cfg?.UserId,
+            };
             _vm.Router = new RevitChatRouter(() => _uiApp);
             Controls.MentionInput.DefaultProvider = new RevitMentionProvider(() => _uiApp);
             DataContext = _vm;

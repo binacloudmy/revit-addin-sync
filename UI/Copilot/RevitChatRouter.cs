@@ -107,6 +107,16 @@ namespace RevitWebAppSync.UI.Copilot
             if (code != null) { try { code(label); } catch { /* UI hiccup */ } }
         }
 
+        /// <summary>Snake_case tool name → readable phrase for the live status
+        /// line, e.g. "list_levels" → "list levels". The chat trace (above the
+        /// answer) gets richer labels via ChatView.Humanize; this is the inline
+        /// "Running …" line, kept lightweight to avoid duplicating that map.</summary>
+        private static string Prettify(string tool)
+        {
+            if (string.IsNullOrWhiteSpace(tool)) return "a step";
+            return tool.Replace('_', ' ').Trim();
+        }
+
         /// <summary>Clear the live progress card (on done / error / cancel).
         /// Sends an empty label to OnProgress so the pane can hide the card +
         /// stop the spinner. OnCodeStream is left alone — the pane replaces the
@@ -144,34 +154,20 @@ namespace RevitWebAppSync.UI.Copilot
                     Prompt = message, Context = ctx, UserId = userId, SessionId = _sessionId,
                 };
 
-                // Live progress — /tool/generate is a single non-streaming POST, so
-                // without this the pane shows a frozen wait. Cycle friendly labels
-                // (via EmitProgress, which the pane already renders as the live
-                // status card) while the agent thinks; the per-tool callback bumps
-                // a specific "Running <tool>…" label as each tool fires.
-                var progressCts = new CancellationTokenSource();
-                _ = System.Threading.Tasks.Task.Run(async () =>
-                {
-                    string[] labels =
-                    {
-                        "Analyzing your request…", "Collecting information…",
-                        "Reading the model…", "Thinking through the steps…",
-                        "Working on it…",
-                    };
-                    int i = 0;
-                    while (!progressCts.IsCancellationRequested)
-                    {
-                        EmitProgress(labels[i++ % labels.Length]);
-                        try { await System.Threading.Tasks.Task.Delay(1600, progressCts.Token).ConfigureAwait(false); }
-                        catch { break; }
-                    }
-                });
+                // Live progress — HONEST, event-driven (no fake timer rotation).
+                // /tool/generate is a single non-streaming POST, so until the
+                // backend answers we genuinely only know one thing: we're waiting
+                // on the model. Show ONE truthful "Thinking…" (the pane's spinner
+                // animates, so it doesn't look frozen). The ONLY specific step
+                // labels come from the per-tool callback below, which fires when a
+                // REAL tool actually executes in Revit — never a guessed phase.
+                EmitProgress("Thinking…");
 
                 ToolLoopOutcome outcome;
                 try
                 {
                     outcome = await _toolLoop.RunAsync(
-                        treq, token, t => EmitProgress($"Running {t}…")).ConfigureAwait(false);
+                        treq, token, t => EmitProgress($"Running {Prettify(t)}…")).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -179,7 +175,6 @@ namespace RevitWebAppSync.UI.Copilot
                 }
                 finally
                 {
-                    progressCts.Cancel();
                     ClearProgress();
                 }
                 System.Diagnostics.Debug.WriteLine(
