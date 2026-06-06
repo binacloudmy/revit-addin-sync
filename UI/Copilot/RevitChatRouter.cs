@@ -143,15 +143,44 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     Prompt = message, Context = ctx, UserId = userId, SessionId = _sessionId,
                 };
+
+                // Live progress — /tool/generate is a single non-streaming POST, so
+                // without this the pane shows a frozen wait. Cycle friendly labels
+                // (via EmitProgress, which the pane already renders as the live
+                // status card) while the agent thinks; the per-tool callback bumps
+                // a specific "Running <tool>…" label as each tool fires.
+                var progressCts = new CancellationTokenSource();
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    string[] labels =
+                    {
+                        "Analyzing your request…", "Collecting information…",
+                        "Reading the model…", "Thinking through the steps…",
+                        "Working on it…",
+                    };
+                    int i = 0;
+                    while (!progressCts.IsCancellationRequested)
+                    {
+                        EmitProgress(labels[i++ % labels.Length]);
+                        try { await System.Threading.Tasks.Task.Delay(1600, progressCts.Token).ConfigureAwait(false); }
+                        catch { break; }
+                    }
+                });
+
                 ToolLoopOutcome outcome;
                 try
                 {
                     outcome = await _toolLoop.RunAsync(
-                        treq, token, t => OnProgress?.Invoke($"applying {t}…")).ConfigureAwait(false);
+                        treq, token, t => EmitProgress($"Running {t}…")).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
                     outcome = new ToolLoopOutcome { Success = false, Error = ex.Message };
+                }
+                finally
+                {
+                    progressCts.Cancel();
+                    ClearProgress();
                 }
                 System.Diagnostics.Debug.WriteLine(
                     $"[BinaVibe][timing] tool-loop total={__swRoute.ElapsedMilliseconds}ms tools={string.Join(",", outcome.ToolsUsed)} ok={outcome.Success}");
