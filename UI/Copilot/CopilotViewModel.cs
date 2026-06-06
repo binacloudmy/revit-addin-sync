@@ -23,6 +23,14 @@ namespace RevitWebAppSync.UI.Copilot
     public interface ICopilotExecutor
     {
         void Run(ToolDef tool, IDictionary<string, object> values, string code, Action<ExecOutcome> onDone);
+
+        /// <summary>Returns the user's natural-language request for the current run.
+        /// Fed to the self-heal retry so a regeneration keeps the right grounding.</summary>
+        Func<string> PromptProvider { get; set; }
+
+        /// <summary>Called with the attempt number when the self-heal loop retries
+        /// after a compile/runtime failure (drives the "fixing… (attempt N)" line).</summary>
+        Action<int> OnRetryProgress { get; set; }
     }
 
     /// <summary>
