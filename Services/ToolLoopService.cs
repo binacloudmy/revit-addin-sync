@@ -13,7 +13,9 @@
 // calls. The addin runs each in real Revit (ToolLoopRunner) and posts the
 // results back, which resumes the paused run. No WSS tunnel.
 
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
@@ -40,9 +42,18 @@ namespace RevitWebAppSync.Services
         [JsonPropertyName("error")] public string Error { get; set; }
         [JsonPropertyName("success")] public bool Success { get; set; } = true;
         [JsonPropertyName("pending_tool_calls")] public List<PendingToolCall> Pending { get; set; } = new();
+        // Tools the agent ran SERVER-SIDE this turn (list_views, find_elements_by_filter,
+        // …). These never come back as pending (they don't execute in Revit), so without
+        // this the trace would be empty for any read/codegen request. Drives the step chips.
+        [JsonPropertyName("tool_calls")] public List<ServerToolCall> ToolCalls { get; set; } = new();
 
         public bool AwaitingRevit =>
             Status == "awaiting_revit" && Pending != null && Pending.Count > 0;
+    }
+
+    public sealed class ServerToolCall
+    {
+        [JsonPropertyName("tool")] public string Tool { get; set; } = "";
     }
 
     public sealed class PendingToolCall
@@ -87,6 +98,111 @@ namespace RevitWebAppSync.Services
             // in the shape the backend expects.
             var bodyJson = Newtonsoft.Json.JsonConvert.SerializeObject(request);
             return PostAsync(AiUrl.Build(_baseUrl, "tool/generate"), bodyJson, accessToken, ct);
+        }
+
+        /// <summary>START a tool-calling turn over SSE so the agent's steps stream
+        /// LIVE. Fires <paramref name="onProgress"/> with a ready-to-show label for
+        /// each tool the agent calls ("Running …") and each status ("Generating…").
+        /// Returns the SAME final ToolTurn the non-streaming GenerateAsync does
+        /// (done OR awaiting_revit), so the caller's execute/resume loop is
+        /// unchanged. Falls back cleanly to an error ToolTurn on transport issues.</summary>
+        public async Task<ToolTurn> GenerateStreamAsync(
+            AIRequest request, string accessToken, Action<string> onProgress, CancellationToken ct = default)
+        {
+            var bodyJson = Newtonsoft.Json.JsonConvert.SerializeObject(request);
+            using var req = new HttpRequestMessage(HttpMethod.Post, AiUrl.Build(_baseUrl, "tool/generate/stream"))
+            {
+                Content = new StringContent(bodyJson, Encoding.UTF8, "application/json"),
+            };
+            req.Headers.Accept.ParseAdd("text/event-stream");
+            if (!string.IsNullOrEmpty(accessToken))
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            HttpResponseMessage resp;
+            try
+            {
+                resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                return new ToolTurn { Status = "error", Success = false, Error = $"stream connect failed: {ex.Message}" };
+            }
+            using (resp)
+            {
+                if (!resp.IsSuccessStatusCode)
+                {
+                    var t = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                    return new ToolTurn { Status = "error", Success = false, Error = $"HTTP {(int)resp.StatusCode}: {t}" };
+                }
+                using var stream = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false);
+                using var reader = new StreamReader(stream, Encoding.UTF8);
+                string ev = null;
+                var data = new StringBuilder();
+                ToolTurn final = null;
+                while (!reader.EndOfStream)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var line = await reader.ReadLineAsync().ConfigureAwait(false);
+                    if (line == null) break;
+                    if (line.Length == 0)
+                    {
+                        if (ev != null && data.Length > 0)
+                            final = HandleStreamEvent(ev, data.ToString(), onProgress) ?? final;
+                        ev = null; data.Clear();
+                        continue;
+                    }
+                    if (line.StartsWith("event:")) ev = line.Substring(6).Trim();
+                    else if (line.StartsWith("data:")) data.Append(line.Substring(5).Trim());
+                }
+                if (ev != null && data.Length > 0)
+                    final = HandleStreamEvent(ev, data.ToString(), onProgress) ?? final;
+                return final ?? new ToolTurn { Status = "error", Success = false, Error = "stream ended without a result" };
+            }
+        }
+
+        // Translate one SSE event. tool/status fire the live progress label and
+        // return null (not terminal); done/awaiting_revit deserialize to the
+        // terminal ToolTurn; error becomes an error ToolTurn.
+        private ToolTurn HandleStreamEvent(string ev, string raw, Action<string> onProgress)
+        {
+            switch (ev)
+            {
+                case "tool":
+                    try
+                    {
+                        using var d = JsonDocument.Parse(raw);
+                        var name = d.RootElement.TryGetProperty("name", out var n) ? (n.GetString() ?? "")
+                                 : d.RootElement.TryGetProperty("tool", out var t) ? (t.GetString() ?? "") : "";
+                        if (!string.IsNullOrWhiteSpace(name))
+                            try { onProgress?.Invoke("Running " + name.Replace('_', ' ').Trim() + "…"); } catch { }
+                    }
+                    catch { }
+                    return null;
+                case "status":
+                    try
+                    {
+                        using var d = JsonDocument.Parse(raw);
+                        var label = d.RootElement.TryGetProperty("label", out var l) ? (l.GetString() ?? "") : "";
+                        if (!string.IsNullOrWhiteSpace(label))
+                            try { onProgress?.Invoke(label); } catch { }
+                    }
+                    catch { }
+                    return null;
+                case "awaiting_revit":
+                case "done":
+                    try { return JsonSerializer.Deserialize<ToolTurn>(raw, _json); }
+                    catch (Exception ex) { return new ToolTurn { Status = "error", Success = false, Error = $"parse failed: {ex.Message}" }; }
+                case "error":
+                    try
+                    {
+                        using var d = JsonDocument.Parse(raw);
+                        return new ToolTurn { Status = "error", Success = false,
+                            Error = d.RootElement.TryGetProperty("message", out var m) ? (m.GetString() ?? raw) : raw };
+                    }
+                    catch { return new ToolTurn { Status = "error", Success = false, Error = raw }; }
+                default:
+                    return null;   // meta and anything else — ignore
+            }
         }
 
         /// <summary>RESUME a paused run with the addin's Revit execution results.</summary>

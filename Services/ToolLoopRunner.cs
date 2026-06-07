@@ -45,8 +45,14 @@ namespace RevitWebAppSync.Services
 
         public ToolLoopRunner(ToolLoopService svc) => _svc = svc;
 
+        private static string Prettify(string tool) =>
+            string.IsNullOrWhiteSpace(tool) ? "a step" : tool.Replace('_', ' ').Trim();
+
+        // onProgress receives a READY-TO-SHOW label ("Generating…", "Running list
+        // levels…") — the streaming first turn pushes the agent's live steps
+        // through it, and each pending Revit execution pushes its own.
         public async Task<ToolLoopOutcome> RunAsync(
-            AIRequest request, string accessToken, Action<string> onToolActivity = null,
+            AIRequest request, string accessToken, Action<string> onProgress = null,
             CancellationToken ct = default)
         {
             var outcome = new ToolLoopOutcome();
@@ -54,7 +60,10 @@ namespace RevitWebAppSync.Services
             ToolTurn turn;
             try
             {
-                turn = await _svc.GenerateAsync(request, accessToken, ct).ConfigureAwait(false);
+                // Stream the first turn so the agent's steps appear live instead
+                // of a static "Thinking…". Returns the same ToolTurn (done OR
+                // awaiting_revit) the non-streaming path did.
+                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -73,6 +82,14 @@ namespace RevitWebAppSync.Services
                     outcome.Reply = turn.Reply ?? "";
                     outcome.Code = turn.Code ?? "";
                     outcome.IsQuery = turn.IsQuery;
+                    // Fold in the server-side tools the agent ran this turn
+                    // (read/inspect tools that never executed in Revit) so the
+                    // trace shows real steps, not just "Thinking…". Dedup against
+                    // any pending tools already recorded.
+                    if (turn.ToolCalls != null)
+                        foreach (var tc in turn.ToolCalls)
+                            if (!string.IsNullOrWhiteSpace(tc.Tool) && !outcome.ToolsUsed.Contains(tc.Tool))
+                                outcome.ToolsUsed.Add(tc.Tool);
                     return outcome;
                 }
 
@@ -81,7 +98,7 @@ namespace RevitWebAppSync.Services
                 foreach (var call in turn.Pending)
                 {
                     outcome.ToolsUsed.Add(call.Tool);
-                    try { onToolActivity?.Invoke(call.Tool); } catch { /* best-effort UI */ }
+                    try { onProgress?.Invoke("Running " + Prettify(call.Tool) + "…"); } catch { /* best-effort UI */ }
                     results.Add(await ExecuteOneAsync(call, ct).ConfigureAwait(false));
                 }
 

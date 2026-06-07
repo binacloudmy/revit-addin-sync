@@ -107,15 +107,6 @@ namespace RevitWebAppSync.UI.Copilot
             if (code != null) { try { code(label); } catch { /* UI hiccup */ } }
         }
 
-        /// <summary>Snake_case tool name → readable phrase for the live status
-        /// line, e.g. "list_levels" → "list levels". The chat trace (above the
-        /// answer) gets richer labels via ChatView.Humanize; this is the inline
-        /// "Running …" line, kept lightweight to avoid duplicating that map.</summary>
-        private static string Prettify(string tool)
-        {
-            if (string.IsNullOrWhiteSpace(tool)) return "a step";
-            return tool.Replace('_', ' ').Trim();
-        }
 
         /// <summary>Clear the live progress card (on done / error / cancel).
         /// Sends an empty label to OnProgress so the pane can hide the card +
@@ -166,8 +157,10 @@ namespace RevitWebAppSync.UI.Copilot
                 ToolLoopOutcome outcome;
                 try
                 {
+                    // onProgress now receives ready-to-show labels (the streaming
+                    // first turn pushes "Generating…" / "Running <tool>…" live).
                     outcome = await _toolLoop.RunAsync(
-                        treq, token, t => EmitProgress($"Running {Prettify(t)}…")).ConfigureAwait(false);
+                        treq, token, EmitProgress).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
