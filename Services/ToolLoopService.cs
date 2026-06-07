@@ -139,23 +139,36 @@ namespace RevitWebAppSync.Services
                 string ev = null;
                 var data = new StringBuilder();
                 ToolTurn final = null;
+                // Flush a buffered event whenever a boundary is reached. We treat
+                // BOTH a blank line AND the start of the next `event:` as a
+                // boundary — relying on the blank line alone is fragile across
+                // chunked transfer + \r\n vs \n line endings (a missed blank line
+                // would merge two events' data and the JSON deserialize would fail
+                // with "'{' is invalid after a single JSON value").
+                void Flush()
+                {
+                    if (ev != null && data.Length > 0)
+                        final = HandleStreamEvent(ev, data.ToString(), onProgress) ?? final;
+                    data.Clear();
+                }
                 while (!reader.EndOfStream)
                 {
                     ct.ThrowIfCancellationRequested();
                     var line = await reader.ReadLineAsync().ConfigureAwait(false);
                     if (line == null) break;
-                    if (line.Length == 0)
+                    if (line.Length == 0) { Flush(); ev = null; continue; }
+                    if (line.StartsWith("event:"))
                     {
-                        if (ev != null && data.Length > 0)
-                            final = HandleStreamEvent(ev, data.ToString(), onProgress) ?? final;
-                        ev = null; data.Clear();
-                        continue;
+                        Flush();                       // close the previous event first
+                        ev = line.Substring(6).Trim();
                     }
-                    if (line.StartsWith("event:")) ev = line.Substring(6).Trim();
-                    else if (line.StartsWith("data:")) data.Append(line.Substring(5).Trim());
+                    else if (line.StartsWith("data:"))
+                    {
+                        data.Append(line.Substring(5).Trim());
+                    }
+                    // ": ping" comments, chunk markers, anything else → ignore
                 }
-                if (ev != null && data.Length > 0)
-                    final = HandleStreamEvent(ev, data.ToString(), onProgress) ?? final;
+                Flush();
                 return final ?? new ToolTurn { Status = "error", Success = false, Error = "stream ended without a result" };
             }
         }
