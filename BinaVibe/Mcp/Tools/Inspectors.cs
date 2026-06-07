@@ -5,6 +5,7 @@
 // IExternalEventHandler execute). Returns are plain dicts/lists so
 // JSON serialization is trivial — never embed Revit objects.
 
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
@@ -735,6 +736,188 @@ namespace BinaVibe.Mcp.Tools
                 "grids" => BuiltInCategory.OST_Grids,
                 _ => null,
             };
+        }
+
+        // ─── open_view ──────────────────────────────────────────────────
+        // Activate a graphical view by (partial) name. UI navigation, not a
+        // document edit — no Transaction. Runs on the Revit UI thread (the
+        // ExternalEvent handler), so setting ActiveView takes effect at once.
+        public static Dictionary<string, object?> OpenView(UIDocument uidoc, JsonElement args)
+        {
+            var doc = uidoc.Document;
+            string name = args.TryGetProperty("name", out var n) ? (n.GetString() ?? "") : "";
+            if (string.IsNullOrWhiteSpace(name))
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no view name given" };
+
+            var views = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                .Where(v => !v.IsTemplate && v.ViewType != ViewType.Internal).ToList();
+            // Prefer a plan view (the usual "open Aras 01" intent), else any
+            // view whose name contains the term.
+            var view = views.FirstOrDefault(v =>
+                           v.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0
+                           && (v.ViewType == ViewType.FloorPlan || v.ViewType == ViewType.CeilingPlan))
+                       ?? views.FirstOrDefault(v =>
+                           v.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
+            if (view == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"no view matching '{name}'" };
+
+            try { uidoc.ActiveView = view; }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"cannot open '{view.Name}': {ex.Message}" };
+            }
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["opened"] = view.Name, ["view_id"] = view.Id.Value,
+            };
+        }
+
+        // ─── select_elements ────────────────────────────────────────────
+        // Highlight (select) + zoom to elements by id. The reliable way to
+        // satisfy "highlight / show me / bring me to" — pure UI selection, no
+        // Transaction. Pair with find_elements_by_filter to get the ids.
+        public static Dictionary<string, object?> SelectElements(UIDocument uidoc, JsonElement args)
+        {
+            var ids = new List<ElementId>();
+            if (args.TryGetProperty("element_ids", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                foreach (var e in arr.EnumerateArray())
+                    if (e.ValueKind == JsonValueKind.Number && e.TryGetInt64(out var v))
+                        ids.Add(new ElementId(v));
+            if (ids.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no element ids given" };
+
+            uidoc.Selection.SetElementIds(ids);     // highlight (turns them blue)
+            try { uidoc.ShowElements(ids); } catch { /* zoom best-effort */ }
+            return new Dictionary<string, object?> { ["ok"] = true, ["selected"] = ids.Count };
+        }
+
+        // ─── count_by ───────────────────────────────────────────────────
+        // Count a category broken down by level / type / workset. Read-only.
+        public static Dictionary<string, object?> CountBy(Document doc, JsonElement args)
+        {
+            string category = TryGetString(args, "category") ?? "";
+            string groupBy = (TryGetString(args, "group_by") ?? "level").ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(category))
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no category given" };
+            var bic = ResolveCategoryRobust(doc, category);
+            if (bic == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
+
+            var els = new FilteredElementCollector(doc).OfCategory(bic.Value)
+                .WhereElementIsNotElementType().ToList();
+
+            string KeyOf(Element el)
+            {
+                if (groupBy == "type")
+                {
+                    var t = el.GetTypeId();
+                    return (t != null && t.Value != ElementId.InvalidElementId.Value
+                        ? doc.GetElement(t)?.Name : null) ?? "(no type)";
+                }
+                if (groupBy == "workset")
+                {
+                    var wp = el.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
+                    return wp?.AsValueString() ?? "(no workset)";
+                }
+                // default: level — direct LevelId, else a level-ish param for hosted elements
+                var lid = el.LevelId;
+                if (lid != null && lid.Value != ElementId.InvalidElementId.Value)
+                    return doc.GetElement(lid)?.Name ?? "(no level)";
+                var lp = el.get_Parameter(BuiltInParameter.FAMILY_LEVEL_PARAM)
+                      ?? el.get_Parameter(BuiltInParameter.SCHEDULE_LEVEL_PARAM);
+                var lpId = lp?.AsElementId();
+                if (lpId != null && lpId.Value != ElementId.InvalidElementId.Value)
+                    return doc.GetElement(lpId)?.Name ?? "(no level)";
+                return "(no level)";
+            }
+
+            var groups = els.GroupBy(KeyOf)
+                .Select(g => new Dictionary<string, object?> { ["group"] = g.Key, ["count"] = g.Count() })
+                .OrderByDescending(d => (int)d["count"]!)
+                .Cast<object>().ToList();
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["category"] = category, ["group_by"] = groupBy,
+                ["total"] = els.Count, ["groups"] = groups,
+            };
+        }
+
+        // ─── export_schedule_to_excel ───────────────────────────────────
+        // Read a ViewSchedule's body cells and write a .xlsx on the Desktop.
+        // Read-only on the document (no Transaction); only writes a file.
+        public static Dictionary<string, object?> ExportScheduleToExcel(Document doc, JsonElement args)
+        {
+            string name = TryGetString(args, "name") ?? "";
+            if (string.IsNullOrWhiteSpace(name))
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no schedule name given" };
+
+            var sched = new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
+                .Where(s => !s.IsTemplate)
+                .FirstOrDefault(s => s.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
+            if (sched == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"no schedule matching '{name}'" };
+
+            var body = sched.GetTableData().GetSectionData(SectionType.Body);
+            int nCols = body.NumberOfColumns, nRows = body.NumberOfRows;
+            var headers = new List<string>();
+            for (int c = 0; c < nCols; c++) headers.Add(sched.GetCellText(SectionType.Body, 0, c) ?? "");
+            var rows = new List<List<string>>();
+            for (int r = 1; r < nRows; r++)
+            {
+                var row = new List<string>();
+                for (int c = 0; c < nCols; c++) row.Add(sched.GetCellText(SectionType.Body, r, c) ?? "");
+                rows.Add(row);
+            }
+
+            string fileName = SanitizeFileName(sched.Name) + ".xlsx";
+            string dir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            string path = System.IO.Path.Combine(dir, fileName);
+            using (var wb = new ClosedXML.Excel.XLWorkbook())
+            {
+                var ws = wb.Worksheets.Add("Sheet1");
+                for (int c = 0; c < headers.Count; c++) ws.Cell(1, c + 1).Value = headers[c];
+                for (int r = 0; r < rows.Count; r++)
+                    for (int c = 0; c < rows[r].Count; c++) ws.Cell(r + 2, c + 1).Value = rows[r][c];
+                wb.SaveAs(path);
+            }
+            // kind/headline/path mirror the SetResult(kind="file") shape so the
+            // pane renders the Download / Show-in-folder card.
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["kind"] = "file", ["headline"] = fileName,
+                ["path"] = dir, ["sub"] = rows.Count + " rows · " + sched.Name,
+                ["full_path"] = path,
+            };
+        }
+
+        private static string SanitizeFileName(string s)
+        {
+            foreach (var ch in System.IO.Path.GetInvalidFileNameChars())
+                s = s.Replace(ch, '_');
+            return s.Replace(' ', '_');
+        }
+
+        // Robust category resolver — friendly name, OST_ enum, or live
+        // Category.Name lookup (handles "Plumbing Fixtures" etc.).
+        private static BuiltInCategory? ResolveCategoryRobust(Document doc, string category)
+        {
+            var simple = ResolveBuiltInCategory(category);
+            if (simple != null) return simple;
+            var compact = "OST_" + category.Replace(" ", "");
+            foreach (BuiltInCategory c in Enum.GetValues(typeof(BuiltInCategory)))
+            {
+                try
+                {
+                    var cat = Category.GetCategory(doc, c);
+                    if (cat == null) continue;
+                    if (string.Equals(cat.Name, category, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(c.ToString(), compact, StringComparison.OrdinalIgnoreCase))
+                        return c;
+                }
+                catch { /* some BICs have no category in this doc */ }
+            }
+            return null;
         }
     }
 }

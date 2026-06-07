@@ -51,6 +51,17 @@ namespace BinaVibe.Mcp.Tools
                 "get_material_quantities"       => Inspectors.GetMaterialQuantities(doc, args),
                 "get_model_warnings"            => Inspectors.GetModelWarnings(doc),
                 "list_view_filters"             => Inspectors.ListViewFilters(doc),
+                "open_view"                     => Inspectors.OpenView(uidoc, args),
+                "select_elements"               => Inspectors.SelectElements(uidoc, args),
+                "count_by"                      => Inspectors.CountBy(doc, args),
+                "export_schedule_to_excel"      => Inspectors.ExportScheduleToExcel(doc, args),
+                "isolate_elements"              => Mutators.IsolateElements(doc, args),
+                "tag_all_in_view"               => Mutators.TagAllInView(doc, args),
+                "create_schedule"               => Mutators.CreateSchedule(doc, args),
+                "dimension_grids"               => Mutators.DimensionGrids(doc, args),
+                "crop_view_to_elements"         => Mutators.CropViewToElements(doc, args),
+                "create_3d_view"                => Mutators.Create3dView(uidoc, args),
+                "set_section_box"               => Mutators.SetSectionBox(doc, args),
 
                 // MUTATE — Step 3, all wrap in Transaction.
                 // Orchestrator-side policy gates destructive ones via

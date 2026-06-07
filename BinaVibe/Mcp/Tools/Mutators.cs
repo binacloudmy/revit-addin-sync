@@ -1787,6 +1787,365 @@ namespace BinaVibe.Mcp.Tools
             }
             catch { return null; }
         }
+
+        // ─── isolate_elements ───────────────────────────────────────────
+        public static Dictionary<string, object?> IsolateElements(Document doc, JsonElement args)
+        {
+            var ids = ArgsHelp.GetLongList(args, "element_ids");
+            if (ids.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no element ids given" };
+            var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
+            var eids = ids.Select(id => new ElementId(id)).ToList();
+            using var tx = new Transaction(doc, "BinaVibe: isolate_elements");
+            TxGuard.StartSwallowing(tx);
+            try { view.IsolateElementsTemporary(eids); tx.Commit(); }
+            catch { tx.RollBack(); throw; }
+            return new Dictionary<string, object?> { ["ok"] = true, ["isolated"] = ids.Count };
+        }
+
+        // ─── create_3d_view ─────────────────────────────────────────────
+        public static Dictionary<string, object?> Create3dView(UIDocument uidoc, JsonElement args)
+        {
+            var doc = uidoc.Document;
+            var name = ArgsHelp.GetString(args, "name");
+            var vft = new FilteredElementCollector(doc).OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
+                .FirstOrDefault(t => t.ViewFamily == ViewFamily.ThreeDimensional)
+                ?? throw new InvalidOperationException("no 3D view family type in this project");
+
+            View3D view;
+            using (var tx = new Transaction(doc, "BinaVibe: create_3d_view"))
+            {
+                TxGuard.StartSwallowing(tx);
+                try
+                {
+                    view = View3D.CreateIsometric(doc, vft.Id);
+                    if (!string.IsNullOrWhiteSpace(name)) { try { view.Name = name; } catch { /* dup name */ } }
+                    tx.Commit();
+                }
+                catch { tx.RollBack(); throw; }
+            }
+            // Open it OUTSIDE the transaction (view activation is not a doc edit).
+            try { uidoc.ActiveView = view; } catch { /* best-effort */ }
+            return new Dictionary<string, object?> { ["ok"] = true, ["view_id"] = view.Id.Value, ["name"] = view.Name };
+        }
+
+        // ─── set_section_box ────────────────────────────────────────────
+        // Scope the active 3D view's section box to a level or to elements.
+        public static Dictionary<string, object?> SetSectionBox(Document doc, JsonElement args)
+        {
+            if (!(doc.ActiveView is View3D v3))
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "active view is not a 3D view — call create_3d_view first" };
+
+            double marginFt = 1000.0 / 304.8;
+            var ids = ArgsHelp.GetLongList(args, "element_ids");
+            var level = ArgsHelp.GetString(args, "level");
+
+            // Resolve the target element set: explicit ids, or everything on a level.
+            List<ElementId> targets;
+            string scopedTo;
+            if (ids.Count > 0)
+            {
+                targets = ids.Select(i => new ElementId(i)).ToList();
+                scopedTo = ids.Count + " element(s)";
+            }
+            else if (!string.IsNullOrWhiteSpace(level))
+            {
+                var lvl = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                    .FirstOrDefault(l => l.Name.IndexOf(level, StringComparison.OrdinalIgnoreCase) >= 0);
+                if (lvl == null)
+                    return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"no level matching '{level}'" };
+                targets = new FilteredElementCollector(doc).WhereElementIsNotElementType()
+                    .Where(e => e.LevelId != null && e.LevelId == lvl.Id).Select(e => e.Id).ToList();
+                scopedTo = lvl.Name;
+            }
+            else
+            {
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "give a level or element_ids" };
+            }
+
+            XYZ min = null, max = null;
+            foreach (var id in targets)
+            {
+                var el = doc.GetElement(id);
+                var bb = el?.get_BoundingBox(null);
+                if (bb == null) continue;
+                min = min == null ? bb.Min : new XYZ(Math.Min(min.X, bb.Min.X), Math.Min(min.Y, bb.Min.Y), Math.Min(min.Z, bb.Min.Z));
+                max = max == null ? bb.Max : new XYZ(Math.Max(max.X, bb.Max.X), Math.Max(max.Y, bb.Max.Y), Math.Max(max.Z, bb.Max.Z));
+            }
+            if (min == null || max == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no geometry found for the target" };
+
+            var box = new BoundingBoxXYZ
+            {
+                Min = new XYZ(min.X - marginFt, min.Y - marginFt, min.Z - marginFt),
+                Max = new XYZ(max.X + marginFt, max.Y + marginFt, max.Z + marginFt),
+            };
+
+            using var tx = new Transaction(doc, "BinaVibe: set_section_box");
+            TxGuard.StartSwallowing(tx);
+            try { v3.IsSectionBoxActive = true; v3.SetSectionBox(box); tx.Commit(); }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?> { ["ok"] = true, ["scoped_to"] = scopedTo };
+        }
+
+        // ─── crop_view_to_elements ──────────────────────────────────────
+        // Turn on the active view's crop and fit it to the combined bounding
+        // box of the given elements (+ margin). Handles rotated crop boxes by
+        // mapping the world bbox corners into crop-local coordinates.
+        public static Dictionary<string, object?> CropViewToElements(Document doc, JsonElement args)
+        {
+            var ids = ArgsHelp.GetLongList(args, "element_ids");
+            if (ids.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no element ids given" };
+            double marginFt = (ArgsHelp.GetDouble(args, "margin_mm") ?? 1000.0) / 304.8;
+            var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
+
+            // Combined world-space bounding box of the elements.
+            XYZ? wMin = null, wMax = null;
+            foreach (var id in ids)
+            {
+                var el = doc.GetElement(new ElementId(id));
+                if (el == null) continue;
+                var bb = el.get_BoundingBox(view) ?? el.get_BoundingBox(null);
+                if (bb == null) continue;
+                wMin = wMin == null ? bb.Min : new XYZ(Math.Min(wMin.X, bb.Min.X), Math.Min(wMin.Y, bb.Min.Y), Math.Min(wMin.Z, bb.Min.Z));
+                wMax = wMax == null ? bb.Max : new XYZ(Math.Max(wMax.X, bb.Max.X), Math.Max(wMax.Y, bb.Max.Y), Math.Max(wMax.Z, bb.Max.Z));
+            }
+            if (wMin == null || wMax == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "elements have no geometry in this view" };
+
+            var min = new XYZ(wMin.X - marginFt, wMin.Y - marginFt, wMin.Z);
+            var max = new XYZ(wMax.X + marginFt, wMax.Y + marginFt, wMax.Z);
+
+            using var tx = new Transaction(doc, "BinaVibe: crop_view_to_elements");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                view.CropBoxActive = true;
+                view.CropBoxVisible = true;
+                var cb = view.CropBox;
+                var inv = cb.Transform.Inverse;
+                var corners = new[]
+                {
+                    new XYZ(min.X, min.Y, min.Z), new XYZ(max.X, min.Y, min.Z),
+                    new XYZ(min.X, max.Y, min.Z), new XYZ(max.X, max.Y, min.Z),
+                    new XYZ(min.X, min.Y, max.Z), new XYZ(max.X, min.Y, max.Z),
+                    new XYZ(min.X, max.Y, max.Z), new XYZ(max.X, max.Y, max.Z),
+                };
+                double lminX = double.MaxValue, lminY = double.MaxValue, lmaxX = double.MinValue, lmaxY = double.MinValue;
+                foreach (var c in corners)
+                {
+                    var l = inv.OfPoint(c);
+                    lminX = Math.Min(lminX, l.X); lminY = Math.Min(lminY, l.Y);
+                    lmaxX = Math.Max(lmaxX, l.X); lmaxY = Math.Max(lmaxY, l.Y);
+                }
+                cb.Min = new XYZ(lminX, lminY, cb.Min.Z);
+                cb.Max = new XYZ(lmaxX, lmaxY, cb.Max.Z);
+                view.CropBox = cb;
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?> { ["ok"] = true, ["cropped_to"] = ids.Count };
+        }
+
+        // ─── tag_all_in_view ────────────────────────────────────────────
+        // Auto-tag every UNTAGGED, ungrouped element of each category in the
+        // active view. Smart-annotation primitive.
+        public static Dictionary<string, object?> TagAllInView(Document doc, JsonElement args)
+        {
+            var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
+            var cats = new List<string>();
+            var single = ArgsHelp.GetString(args, "category");
+            if (!string.IsNullOrWhiteSpace(single)) cats.Add(single!);
+            else cats.AddRange(new[] { "Doors", "Windows", "Walls", "Rooms" });
+
+            var byCat = new List<object>();
+            int totalTagged = 0, totalSkipped = 0;
+            using var tx = new Transaction(doc, "BinaVibe: tag_all_in_view");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                // Element ids that already carry a tag in this view.
+                var taggedIds = new HashSet<long>();
+                foreach (var tg in new FilteredElementCollector(doc, view.Id)
+                            .OfClass(typeof(IndependentTag)).Cast<IndependentTag>())
+                    foreach (var id in tg.GetTaggedLocalElementIds()) taggedIds.Add(id.Value);
+
+                foreach (var catName in cats)
+                {
+                    if (!TryResolveCatOrLive(doc, catName, out var bic)) continue;
+                    bool isRoom = bic == BuiltInCategory.OST_Rooms;
+                    int tagged = 0, skipped = 0;
+                    var els = new FilteredElementCollector(doc, view.Id).OfCategory(bic)
+                        .WhereElementIsNotElementType().ToList();
+                    foreach (var el in els)
+                    {
+                        if (taggedIds.Contains(el.Id.Value)) { skipped++; continue; }
+                        if (el.GroupId != null && el.GroupId.Value != ElementId.InvalidElementId.Value) { skipped++; continue; }
+                        try
+                        {
+                            if (isRoom && el is SpatialElement sp)
+                            {
+                                if (!(sp.Location is LocationPoint lp)) { skipped++; continue; }
+                                doc.Create.NewRoomTag(new LinkElementId(el.Id), new UV(lp.Point.X, lp.Point.Y), view.Id);
+                            }
+                            else
+                            {
+                                var bb = el.get_BoundingBox(view);
+                                if (bb == null) { skipped++; continue; }
+                                var mid = (bb.Min + bb.Max) / 2.0;
+                                IndependentTag.Create(doc, view.Id, new Reference(el), false,
+                                    TagMode.TM_ADDBY_CATEGORY, TagOrientation.Horizontal,
+                                    new XYZ(mid.X, mid.Y, 0));
+                            }
+                            tagged++;
+                        }
+                        catch { skipped++; }
+                    }
+                    byCat.Add(new Dictionary<string, object?> { ["category"] = catName, ["tagged"] = tagged, ["skipped"] = skipped });
+                    totalTagged += tagged; totalSkipped += skipped;
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["tagged"] = totalTagged, ["skipped"] = totalSkipped, ["by_category"] = byCat,
+            };
+        }
+
+        // ─── create_schedule ────────────────────────────────────────────
+        public static Dictionary<string, object?> CreateSchedule(Document doc, JsonElement args)
+        {
+            var catName = ArgsHelp.GetString(args, "category") ?? throw new ArgumentException("missing category");
+            if (!TryResolveCatOrLive(doc, catName, out var bic))
+                throw new ArgumentException($"category '{catName}' not recognised");
+            var fields = ArgsHelp.GetStringList(args, "fields");
+
+            using var tx = new Transaction(doc, "BinaVibe: create_schedule");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                var sched = ViewSchedule.CreateSchedule(doc, new ElementId(bic));
+                var def = sched.Definition;
+                var available = new Dictionary<string, SchedulableField>(StringComparer.OrdinalIgnoreCase);
+                foreach (var sf in def.GetSchedulableFields())
+                {
+                    try { var n = sf.GetName(doc); if (!string.IsNullOrEmpty(n) && !available.ContainsKey(n)) available[n] = sf; }
+                    catch { }
+                }
+                var wanted = (fields != null && fields.Count > 0) ? fields : DefaultScheduleFields(catName);
+                var added = new List<string>();
+                foreach (var f in wanted)
+                {
+                    var key = available.Keys.FirstOrDefault(k => string.Equals(k, f, StringComparison.OrdinalIgnoreCase))
+                           ?? available.Keys.FirstOrDefault(k => k.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0);
+                    if (key != null) { try { def.AddField(available[key]); added.Add(key); } catch { } }
+                }
+                tx.Commit();
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["schedule_id"] = sched.Id.Value, ["name"] = sched.Name, ["fields"] = added,
+                };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
+        private static List<string> DefaultScheduleFields(string category)
+        {
+            switch (category.ToLowerInvariant())
+            {
+                case "doors":   return new List<string> { "Mark", "Family and Type", "Width", "Height", "Level" };
+                case "windows": return new List<string> { "Mark", "Family and Type", "Width", "Height", "Level" };
+                case "walls":   return new List<string> { "Family and Type", "Length", "Area", "Volume", "Base Constraint" };
+                case "rooms":   return new List<string> { "Number", "Name", "Area", "Level", "Department" };
+                default:         return new List<string> { "Family and Type", "Count", "Level" };
+            }
+        }
+
+        // ─── dimension_grids ────────────────────────────────────────────
+        public static Dictionary<string, object?> DimensionGrids(Document doc, JsonElement args)
+        {
+            var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
+            if (!(view is ViewPlan))
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "active view is not a plan view" };
+
+            var grids = new FilteredElementCollector(doc, view.Id).OfClass(typeof(Grid)).Cast<Grid>()
+                .Where(g => g.Curve is Line).ToList();
+            var vertical = new List<Grid>();    // run along Y → dimension across X
+            var horizontal = new List<Grid>();  // run along X → dimension across Y
+            foreach (var g in grids)
+            {
+                var d = ((Line)g.Curve).Direction;
+                if (Math.Abs(d.X) > Math.Abs(d.Y)) horizontal.Add(g); else vertical.Add(g);
+            }
+
+            int created = 0;
+            using var tx = new Transaction(doc, "BinaVibe: dimension_grids");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                created += MakeGridDimension(doc, view, vertical, true);
+                created += MakeGridDimension(doc, view, horizontal, false);
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?> { ["ok"] = true, ["dimensions"] = created, ["grids"] = grids.Count };
+        }
+
+        private static int MakeGridDimension(Document doc, View view, List<Grid> grids, bool vertical)
+        {
+            if (grids.Count < 2) return 0;
+            double Pos(Grid g) { var o = ((Line)g.Curve).Origin; return vertical ? o.X : o.Y; }
+            var ordered = grids.OrderBy(Pos).ToList();
+            var refs = new ReferenceArray();
+            foreach (var g in ordered) refs.Append(new Reference(g));
+
+            var firstCurve = (Line)ordered.First().Curve;
+            double offset = 3.0;  // ft beyond the grid heads
+            XYZ p1, p2;
+            if (vertical)
+            {
+                double y = Math.Max(firstCurve.GetEndPoint(0).Y, firstCurve.GetEndPoint(1).Y) + offset;
+                p1 = new XYZ(Pos(ordered.First()), y, 0);
+                p2 = new XYZ(Pos(ordered.Last()), y, 0);
+            }
+            else
+            {
+                double x = Math.Max(firstCurve.GetEndPoint(0).X, firstCurve.GetEndPoint(1).X) + offset;
+                p1 = new XYZ(x, Pos(ordered.First()), 0);
+                p2 = new XYZ(x, Pos(ordered.Last()), 0);
+            }
+            if (p1.DistanceTo(p2) < 1e-6) return 0;
+            try { doc.Create.NewDimension(view, Line.CreateBound(p1, p2), refs); return 1; }
+            catch { return 0; }
+        }
+
+        // Resolve a category by friendly name / OST_ enum, falling back to a
+        // live Category.Name scan (handles "Plumbing Fixtures", "Furniture"…).
+        private static bool TryResolveCatOrLive(Document doc, string category, out BuiltInCategory bic)
+        {
+            if (TryResolveBuiltInCategory(category, out bic)) return true;
+            var compact = "OST_" + category.Replace(" ", "");
+            foreach (BuiltInCategory c in Enum.GetValues(typeof(BuiltInCategory)))
+            {
+                try
+                {
+                    var cat = Category.GetCategory(doc, c);
+                    if (cat == null) continue;
+                    if (string.Equals(cat.Name, category, StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(c.ToString(), compact, StringComparison.OrdinalIgnoreCase))
+                    { bic = c; return true; }
+                }
+                catch { }
+            }
+            bic = BuiltInCategory.INVALID;
+            return false;
+        }
     }
 
     // ─── ArgsHelp — shared JSON arg extraction ──────────────────────────
