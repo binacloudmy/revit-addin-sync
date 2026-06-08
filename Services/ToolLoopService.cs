@@ -183,7 +183,7 @@ namespace RevitWebAppSync.Services
                 case "tool":
                     try
                     {
-                        using var d = JsonDocument.Parse(raw);
+                        using var d = JsonDocument.Parse(ExtractLastJsonObject(raw));
                         var name = d.RootElement.TryGetProperty("name", out var n) ? (n.GetString() ?? "")
                                  : d.RootElement.TryGetProperty("tool", out var t) ? (t.GetString() ?? "") : "";
                         if (!string.IsNullOrWhiteSpace(name))
@@ -194,7 +194,7 @@ namespace RevitWebAppSync.Services
                 case "status":
                     try
                     {
-                        using var d = JsonDocument.Parse(raw);
+                        using var d = JsonDocument.Parse(ExtractLastJsonObject(raw));
                         var label = d.RootElement.TryGetProperty("label", out var l) ? (l.GetString() ?? "") : "";
                         if (!string.IsNullOrWhiteSpace(label))
                             try { onProgress?.Invoke(label); } catch { }
@@ -203,7 +203,12 @@ namespace RevitWebAppSync.Services
                     return null;
                 case "awaiting_revit":
                 case "done":
-                    try { return JsonSerializer.Deserialize<ToolTurn>(raw, _json); }
+                    // BULLETPROOF: even if SSE framing merged several events into
+                    // this buffer (meta+status+…+terminal), extract the LAST
+                    // complete JSON object — that's always the terminal payload.
+                    // Plain Deserialize on a merged buffer throws "'{' is invalid
+                    // after a single JSON value".
+                    try { return JsonSerializer.Deserialize<ToolTurn>(ExtractLastJsonObject(raw), _json); }
                     catch (Exception ex) { return new ToolTurn { Status = "error", Success = false, Error = $"parse failed: {ex.Message}" }; }
                 case "error":
                     try
@@ -216,6 +221,27 @@ namespace RevitWebAppSync.Services
                 default:
                     return null;   // meta and anything else — ignore
             }
+        }
+
+        // Return the LAST balanced top-level {...} object in s (brace-counting,
+        // string-aware). If SSE events merged into one buffer, the terminal
+        // payload is always the last object; a single clean object is returned
+        // unchanged. Guarantees Deserialize never sees "value followed by '{'".
+        private static string ExtractLastJsonObject(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            int depth = 0, start = -1, lastStart = -1, lastEnd = -1;
+            bool inStr = false; char prev = '\0';
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (inStr) { if (c == '"' && prev != '\\') inStr = false; }
+                else if (c == '"') inStr = true;
+                else if (c == '{') { if (depth == 0) start = i; depth++; }
+                else if (c == '}') { depth--; if (depth == 0 && start >= 0) { lastStart = start; lastEnd = i; } }
+                prev = c;
+            }
+            return (lastStart >= 0 && lastEnd > lastStart) ? s.Substring(lastStart, lastEnd - lastStart + 1) : s;
         }
 
         /// <summary>RESUME a paused run with the addin's Revit execution results.</summary>
