@@ -232,13 +232,21 @@ namespace RevitWebAppSync.UI.Copilot
                         AIResponse final = null;
                         var sb = new System.Text.StringBuilder();
                         var replySb = new System.Text.StringBuilder();
+                        // Live step trail (BIMLogiq-style): each status/tool event
+                        // is reduced into a step row and the whole trail is
+                        // re-rendered (▶ running, ✓ done, ✗ error) into the
+                        // thinking bubble. step_id pairs running->done onto one row.
+                        var trail = new System.Collections.ObjectModel.ObservableCollection<ProgressStep>();
                         await foreach (var chunk in _ai.GenerateCodeStreamAsync(req, token, cts.Token))
                         {
                             if (chunk.Kind == StreamChunkKind.Status || chunk.Kind == StreamChunkKind.Tool)
                             {
-                                // Live progress card: status line + spinner that
-                                // updates on each status/tool event.
-                                EmitProgress(chunk.StatusLabel);
+                                // Reduce into the trail and re-render. Absent fields
+                                // (un-upgraded backend) still render as a transient
+                                // line via the synthesized step_id + default state.
+                                ProgressReducer.Apply(trail, chunk.StepId, chunk.Phase,
+                                    chunk.StatusLabel, chunk.Detail, ProgressTrail.StateFrom(chunk.State));
+                                EmitProgress(ProgressTrail.Render(trail));
                             }
                             else if (chunk.Kind == StreamChunkKind.Reply)
                             {

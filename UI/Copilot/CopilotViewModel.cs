@@ -540,20 +540,23 @@ namespace RevitWebAppSync.UI.Copilot
                 var revitRouter = Router as RevitChatRouter;
                 if (revitRouter != null)
                 {
-                    revitRouter.OnCodeStream = (partial) =>
+                    // Live step trail in the thinking bubble (▶ running, ✓ done,
+                    // ✗ error) — backend-authored, BIMLogiq-style. Replaces the
+                    // old "Drafting…" code preview: the step trail is the progress
+                    // display now; the final reply lands in the answer bubble on
+                    // completion.
+                    revitRouter.OnProgress = (trail) =>
                     {
-                        var snippet = partial.Length > 200
-                            ? "Drafting…\n\n" + partial.Substring(0, 200) + "…"
-                            : "Drafting…\n\n" + partial;
                         ReplaceLastThinking(new ChatMessage
                         {
-                            Role = "ai", Kind = CpMsgKind.Thinking, Text = snippet,
+                            Role = "ai", Kind = CpMsgKind.Thinking,
+                            Text = string.IsNullOrEmpty(trail) ? "Thinking…" : trail,
                         });
                     };
                 }
                 try { rr = await Router.RouteAsync(text, fallbackToolId); }
                 catch { rr = null; }
-                if (revitRouter != null) revitRouter.OnCodeStream = null;
+                if (revitRouter != null) revitRouter.OnProgress = null;
             }
 
 
