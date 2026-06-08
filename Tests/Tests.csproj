@@ -12,6 +12,7 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
   <ItemGroup>
@@ -25,6 +26,8 @@
     <Compile Include="..\UI\Jkr\JkrTheme.cs" Link="JkrTheme.cs" />
     <Compile Include="..\Services\JkrCodeParser.cs" Link="JkrCodeParser.cs" />
     <Compile Include="..\Services\AiUrl.cs" Link="AiUrl.cs" />
+    <Compile Include="..\Services\AIServiceStreamParser.cs" Link="AIServiceStreamParser.cs" />
+    <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
     <Compile Include="..\Services\VettedToolCode.cs" Link="VettedToolCode.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotModels.cs" Link="CopilotModels.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotCatalog.cs" Link="CopilotCatalog.cs" />

@@ -245,7 +245,13 @@ git commit -m "feat(copilot): phase steps on codegen stream"
 **Files:**
 - Modify: `app/main.py` — the `async for ev in revit_ai_tool.arun(...)` loops in `tool_generate_stream` (~line 1464) and the second streaming loop (~line 1749).
 
-Use the event names confirmed in Task 0. Replace `<<START_EVENT>>`, `<<DONE_EVENT>>`, `<<ID_ATTR>>`, `<<ARGS_ATTR>>` with the confirmed values.
+Use the event names confirmed in Task 0:
+- `<<START_EVENT>>` = `ToolCallStartedEvent`
+- `<<DONE_EVENT>>` = `ToolCallCompletedEvent` (and `ToolCallErrorEvent` for failures)
+- `<<ID_ATTR>>` = `tool_call_id`
+- `<<ARGS_ATTR>>` = `tool_args`
+
+The tool object is `ev.tool` (an `agno.models.response.ToolExecution`), which carries `tool_name`, `tool_call_id`, `tool_args`, and `result`. Confirmed by introspection on agno 2.6.8 AND by the existing `main.py` loops (lines 1471-1477, 1748-1759) which already consume `ToolCallStartedEvent`/`ToolCallCompletedEvent` against the live stream.
 
 - [ ] **Step 1: Add a tool-step emitter helper at module scope**
 
