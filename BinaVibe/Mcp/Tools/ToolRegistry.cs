@@ -62,6 +62,14 @@ namespace BinaVibe.Mcp.Tools
                 "crop_view_to_elements"         => Mutators.CropViewToElements(doc, args),
                 "create_3d_view"                => Mutators.Create3dView(uidoc, args),
                 "set_section_box"               => Mutators.SetSectionBox(doc, args),
+                "find_missing_parameter"        => Inspectors.FindMissingParameter(doc, args),
+                "rename_elements"               => Mutators.RenameElements(doc, args),
+                "color_by_parameter"            => Mutators.ColorByParameter(doc, args),
+                "delete_unused_views"           => Mutators.DeleteUnusedViews(doc, args),
+                "purge_unused"                  => Mutators.PurgeUnused(doc, args),
+                "create_project_parameter"      => Mutators.CreateProjectParameter(app, args),
+                "place_in_each_room"            => Mutators.PlaceInEachRoom(doc, args),
+                "set_parameter_where"           => Mutators.SetParameterWhere(doc, args),
 
                 // MUTATE — Step 3, all wrap in Transaction.
                 // Orchestrator-side policy gates destructive ones via

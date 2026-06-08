@@ -898,6 +898,54 @@ namespace BinaVibe.Mcp.Tools
             return s.Replace(' ', '_');
         }
 
+        // ─── find_missing_parameter ─────────────────────────────────────
+        // Elements with NO value for a parameter — checks instance AND type,
+        // by display-name lookup (catches shared/type params like Fire Rating).
+        public static Dictionary<string, object?> FindMissingParameter(Document doc, JsonElement args)
+        {
+            string category = TryGetString(args, "category") ?? "";
+            string param = TryGetString(args, "parameter") ?? "";
+            if (string.IsNullOrWhiteSpace(category) || string.IsNullOrWhiteSpace(param))
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "need category and parameter" };
+            var bic = ResolveCategoryRobust(doc, category);
+            if (bic == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
+
+            var els = new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType().ToList();
+            var missing = new List<object>();
+            foreach (var e in els)
+            {
+                if (!string.IsNullOrWhiteSpace(ResolveParamValue(doc, e, param))) continue;
+                var typeEl = e.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(e.GetTypeId()) : null;
+                missing.Add(new Dictionary<string, object?>
+                {
+                    ["id"] = e.Id.Value,
+                    ["type_name"] = typeEl?.Name,
+                    ["level"] = doc.GetElement(e.LevelId)?.Name,
+                });
+            }
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["category"] = category, ["parameter"] = param,
+                ["missing"] = missing.Count, ["total"] = els.Count, ["elements"] = missing,
+            };
+        }
+
+        // Resolve a parameter's value by display name on the instance, falling
+        // back to its type. "" when truly absent/blank. Shared by find/colour.
+        internal static string ResolveParamValue(Document doc, Element e, string name)
+        {
+            string Val(Parameter q) => q == null ? null : (q.AsString() ?? q.AsValueString());
+            var v = Val(e?.LookupParameter(name));
+            if (string.IsNullOrWhiteSpace(v))
+            {
+                var typeEl = e != null && e.GetTypeId().Value != ElementId.InvalidElementId.Value
+                    ? doc.GetElement(e.GetTypeId()) : null;
+                v = Val(typeEl?.LookupParameter(name));
+            }
+            return v ?? "";
+        }
+
         // Robust category resolver — friendly name, OST_ enum, or live
         // Category.Name lookup (handles "Plumbing Fixtures" etc.).
         private static BuiltInCategory? ResolveCategoryRobust(Document doc, string category)

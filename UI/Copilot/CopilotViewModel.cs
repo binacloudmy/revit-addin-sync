@@ -146,13 +146,20 @@ namespace RevitWebAppSync.UI.Copilot
             else ToolActivity = "";
         }
 
-        /// <summary>On pane open: warm the cloud model mirror before the user
-        /// prompts, showing an "Indexing model…" indicator and gating sends until
-        /// it's ready. Best-effort — on failure/timeout the indicator clears and
-        /// prompting is allowed (reads just fall back to the tunnel). Safe to call
-        /// repeatedly; no-ops when the mirror is already warm.</summary>
+        /// <summary>DEPRECATED (2026-06-08) — NO-OP. Seeded the cloud model
+        /// mirror on pane open ("Preparing your model… 48%"). The mirror is no
+        /// longer read by any live path: inspect tools run natively in Revit
+        /// (external_execution) or answer from the live snapshot, and backend
+        /// reads are gated behind VIBE_MIRROR_READS (=0). Seeding it just delayed
+        /// first-open by up to a minute for zero benefit, so it's disabled. The
+        /// body below is retained (parked) for when the zero-round-trip mirror
+        /// read path is wired up; flip the early-return to re-enable.</summary>
         public async Task EnsureMirrorSeededAsync()
         {
+            // DEPRECATED mirror seed — disabled. See summary above.
+            await Task.CompletedTask;
+            return;
+#pragma warning disable CS0162 // unreachable (parked for future re-enable)
             try
             {
                 var cfg = BinaConfig.Load();
@@ -199,6 +206,7 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 IsIndexing = false;  // never trap the user behind a failed seed
             }
+#pragma warning restore CS0162
         }
 
         /// <summary>On pane open (after mirror seeding): hold the send gate until

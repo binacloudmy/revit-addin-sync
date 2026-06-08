@@ -180,6 +180,7 @@ namespace BinaVibe.Mcp.Tools
             var sourceName = ArgsHelp.GetString(args, "source") ?? throw new ArgumentException("missing source (view name)");
             var newName = ArgsHelp.GetString(args, "new_name") ?? throw new ArgumentException("missing new_name");
             var withDetailing = ArgsHelp.GetBool(args, "with_detailing") ?? false;
+            var asDependent = ArgsHelp.GetBool(args, "as_dependent") ?? false;
 
             var src = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
                 .FirstOrDefault(v => !v.IsTemplate && string.Equals(v.Name, sourceName, StringComparison.OrdinalIgnoreCase))
@@ -189,7 +190,10 @@ namespace BinaVibe.Mcp.Tools
             TxGuard.StartSwallowing(tx);
             try
             {
-                var newId = src.Duplicate(withDetailing ? ViewDuplicateOption.WithDetailing : ViewDuplicateOption.Duplicate);
+                var opt = asDependent ? ViewDuplicateOption.AsDependent
+                        : withDetailing ? ViewDuplicateOption.WithDetailing
+                        : ViewDuplicateOption.Duplicate;
+                var newId = src.Duplicate(opt);
                 var newView = doc.GetElement(newId) as View;
                 if (newView != null)
                     newView.Name = newName;
@@ -1887,6 +1891,386 @@ namespace BinaVibe.Mcp.Tools
             catch { tx.RollBack(); throw; }
 
             return new Dictionary<string, object?> { ["ok"] = true, ["scoped_to"] = scopedTo };
+        }
+
+        // ─── create_project_parameter ───────────────────────────────────
+        // Creates a (shared-backed) project parameter and binds it to categories.
+        public static Dictionary<string, object?> CreateProjectParameter(UIApplication app, JsonElement args)
+        {
+            var doc = app.ActiveUIDocument.Document;
+            var application = app.Application;
+            string name = ArgsHelp.GetString(args, "name") ?? throw new ArgumentException("missing name");
+            string ptype = (ArgsHelp.GetString(args, "param_type") ?? "yesno").ToLowerInvariant();
+            bool instance = ArgsHelp.GetBool(args, "instance") ?? true;
+            var catNames = ArgsHelp.GetStringList(args, "categories");
+
+            ForgeTypeId spec;
+            switch (ptype)
+            {
+                case "yesno": case "boolean": case "bool": spec = SpecTypeId.Boolean.YesNo; break;
+                case "integer": case "int": spec = SpecTypeId.Int.Integer; break;
+                case "number": spec = SpecTypeId.Number; break;
+                case "length": spec = SpecTypeId.Length; break;
+                case "area": spec = SpecTypeId.Area; break;
+                case "angle": spec = SpecTypeId.Angle; break;
+                default: spec = SpecTypeId.String.Text; break;
+            }
+
+            // Build the category set (named categories, else current selection).
+            var catSet = application.Create.NewCategorySet();
+            if (catNames != null && catNames.Count > 0)
+            {
+                foreach (var cn in catNames)
+                    if (TryResolveCatOrLive(doc, cn, out var bic))
+                    {
+                        var cat = Category.GetCategory(doc, bic);
+                        if (cat != null && cat.AllowsBoundParameters) catSet.Insert(cat);
+                    }
+            }
+            else
+            {
+                foreach (var id in app.ActiveUIDocument.Selection.GetElementIds())
+                {
+                    var cat = doc.GetElement(id)?.Category;
+                    if (cat != null && cat.AllowsBoundParameters) catSet.Insert(cat);
+                }
+            }
+            if (catSet.IsEmpty)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no bindable categories (pass categories or select elements first)" };
+
+            // Define in a temp shared-parameter file (Revit requires a definition).
+            string prevFile = application.SharedParametersFilename;
+            try
+            {
+                string tempPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "BINA_SharedParams.txt");
+                if (!System.IO.File.Exists(tempPath)) System.IO.File.WriteAllText(tempPath, "");
+                application.SharedParametersFilename = tempPath;
+                var spFile = application.OpenSharedParameterFile();
+                var group = spFile.Groups.get_Item("BINA") ?? spFile.Groups.Create("BINA");
+                var def = group.Definitions.get_Item(name) as ExternalDefinition;
+                if (def == null)
+                {
+                    var opt = new ExternalDefinitionCreationOptions(name, spec);
+                    def = group.Definitions.Create(opt) as ExternalDefinition;
+                }
+
+                using var tx = new Transaction(doc, "BinaVibe: create_project_parameter");
+                TxGuard.StartSwallowing(tx);
+                try
+                {
+                    Binding binding = instance
+                        ? application.Create.NewInstanceBinding(catSet)
+                        : (Binding)application.Create.NewTypeBinding(catSet);
+                    if (!doc.ParameterBindings.Insert(def, binding, GroupTypeId.Data))
+                        doc.ParameterBindings.ReInsert(def, binding, GroupTypeId.Data);
+                    tx.Commit();
+                }
+                catch { tx.RollBack(); throw; }
+            }
+            finally { if (prevFile != null) application.SharedParametersFilename = prevFile; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["name"] = name, ["param_type"] = ptype,
+                ["instance"] = instance, ["categories"] = catSet.Size,
+            };
+        }
+
+        // ─── place_in_each_room ─────────────────────────────────────────
+        public static Dictionary<string, object?> PlaceInEachRoom(Document doc, JsonElement args)
+        {
+            string familyType = ArgsHelp.GetString(args, "family_type") ?? throw new ArgumentException("missing family_type");
+            string roomsNamed = ArgsHelp.GetString(args, "rooms_named");
+
+            var sym = new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>()
+                .FirstOrDefault(s => string.Equals(s.Name, familyType, StringComparison.OrdinalIgnoreCase)
+                    || (s.FamilyName + ": " + s.Name).IndexOf(familyType, StringComparison.OrdinalIgnoreCase) >= 0
+                    || s.FamilyName.IndexOf(familyType, StringComparison.OrdinalIgnoreCase) >= 0);
+            if (sym == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"no loaded family/type matching '{familyType}'" };
+
+            var rooms = new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms)
+                .WhereElementIsNotElementType().Cast<Room>()
+                .Where(r => r.Area > 0 && (string.IsNullOrEmpty(roomsNamed) || (r.Name ?? "").IndexOf(roomsNamed, StringComparison.OrdinalIgnoreCase) >= 0))
+                .ToList();
+
+            int placed = 0, skipped = 0;
+            using var tx = new Transaction(doc, "BinaVibe: place_in_each_room");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
+                foreach (var room in rooms)
+                {
+                    if (!(room.Location is LocationPoint lp)) { skipped++; continue; }
+                    var level = doc.GetElement(room.LevelId) as Level;
+                    try
+                    {
+                        doc.Create.NewFamilyInstance(lp.Point, sym, level, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                        placed++;
+                    }
+                    catch { skipped++; }
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+            return new Dictionary<string, object?> { ["ok"] = true, ["placed"] = placed, ["skipped"] = skipped, ["family"] = sym.Name };
+        }
+
+        // ─── set_parameter_where (spatial: elements in matching rooms) ───
+        public static Dictionary<string, object?> SetParameterWhere(Document doc, JsonElement args)
+        {
+            string category = ArgsHelp.GetString(args, "category") ?? throw new ArgumentException("missing category");
+            string param = ArgsHelp.GetString(args, "parameter") ?? throw new ArgumentException("missing parameter");
+            string value = ArgsHelp.GetString(args, "value") ?? "";
+            string inRooms = ArgsHelp.GetString(args, "in_rooms_named") ?? throw new ArgumentException("missing in_rooms_named");
+            if (!TryResolveCatOrLive(doc, category, out var bic))
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
+
+            var roomIds = new HashSet<long>(new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms)
+                .WhereElementIsNotElementType().Cast<Room>()
+                .Where(r => r.Area > 0 && (r.Name ?? "").IndexOf(inRooms, StringComparison.OrdinalIgnoreCase) >= 0)
+                .Select(r => r.Id.Value));
+            if (roomIds.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"no rooms matching '{inRooms}'" };
+
+            var els = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType().ToList();
+            int matched = 0, setCount = 0;
+            using var tx = new Transaction(doc, "BinaVibe: set_parameter_where");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var e in els)
+                {
+                    bool inMatch = false;
+                    if (e is FamilyInstance fi)
+                    {
+                        try { var rm = fi.Room; if (rm != null && roomIds.Contains(rm.Id.Value)) inMatch = true; } catch { }
+                        if (!inMatch) { try { var fr = fi.FromRoom; if (fr != null && roomIds.Contains(fr.Id.Value)) inMatch = true; } catch { } }
+                        if (!inMatch) { try { var tr = fi.ToRoom; if (tr != null && roomIds.Contains(tr.Id.Value)) inMatch = true; } catch { } }
+                    }
+                    if (!inMatch && e.Location is LocationPoint lp)
+                    {
+                        try { var rm = doc.GetRoomAtPoint(lp.Point); if (rm != null && roomIds.Contains(rm.Id.Value)) inMatch = true; } catch { }
+                    }
+                    if (!inMatch) continue;
+                    matched++;
+                    var p = e.LookupParameter(param);
+                    if (p != null && !p.IsReadOnly && SetParamFromString(p, value)) setCount++;
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+            return new Dictionary<string, object?> { ["ok"] = true, ["set"] = setCount, ["matched"] = matched, ["rooms"] = roomIds.Count };
+        }
+
+        // Set a parameter from a string, coercing to its storage type.
+        private static bool SetParamFromString(Parameter p, string value)
+        {
+            try
+            {
+                switch (p.StorageType)
+                {
+                    case StorageType.String: return p.Set(value);
+                    case StorageType.Integer:
+                        if (int.TryParse(value, out var iv)) return p.Set(iv);
+                        return p.Set(value.Trim().ToLowerInvariant() == "yes" || value.Trim() == "1" || value.Trim().ToLowerInvariant() == "true" ? 1 : 0);
+                    case StorageType.Double:
+                        if (double.TryParse(value, out var dv)) return p.Set(dv);
+                        return false;
+                    default: return false;
+                }
+            }
+            catch { return false; }
+        }
+
+        // ─── rename_elements ────────────────────────────────────────────
+        public static Dictionary<string, object?> RenameElements(Document doc, JsonElement args)
+        {
+            string category = ArgsHelp.GetString(args, "category") ?? throw new ArgumentException("missing category");
+            string find = ArgsHelp.GetString(args, "find") ?? throw new ArgumentException("missing find");
+            string replace = ArgsHelp.GetString(args, "replace") ?? "";
+
+            var lc = category.ToLowerInvariant();
+            List<Element> targets;
+            if (lc == "views" || lc == "view")
+                targets = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                    .Where(v => !v.IsTemplate && !(v is ViewSchedule) && v.ViewType != ViewType.DrawingSheet).Cast<Element>().ToList();
+            else if (lc == "sheets" || lc == "sheet")
+                targets = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<Element>().ToList();
+            else if (lc == "schedules" || lc == "schedule")
+                targets = new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
+                    .Where(s => !s.IsTemplate).Cast<Element>().ToList();
+            else if (TryResolveCatOrLive(doc, category, out var bic))
+                targets = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType().ToList();
+            else
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
+
+            int renamed = 0; var examples = new List<object>();
+            using var tx = new Transaction(doc, "BinaVibe: rename_elements");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var e in targets)
+                {
+                    var name = e.Name;
+                    if (string.IsNullOrEmpty(name) || !name.Contains(find)) continue;
+                    var nn = name.Replace(find, replace);
+                    if (nn == name || string.IsNullOrWhiteSpace(nn)) continue;
+                    try { e.Name = nn; renamed++; if (examples.Count < 5) examples.Add(name + " → " + nn); } catch { /* dup / read-only */ }
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+            return new Dictionary<string, object?> { ["ok"] = true, ["renamed"] = renamed, ["examples"] = examples };
+        }
+
+        // ─── color_by_parameter ─────────────────────────────────────────
+        public static Dictionary<string, object?> ColorByParameter(Document doc, JsonElement args)
+        {
+            string category = ArgsHelp.GetString(args, "category") ?? throw new ArgumentException("missing category");
+            string param = ArgsHelp.GetString(args, "parameter") ?? throw new ArgumentException("missing parameter");
+            if (!TryResolveCatOrLive(doc, category, out var bic))
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
+            var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
+
+            var rules = new List<(string match, Color color)>();
+            if (args.TryGetProperty("rules", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                foreach (var r in arr.EnumerateArray())
+                {
+                    string m = r.TryGetProperty("match", out var mm) ? mm.GetString() : null;
+                    string c = r.TryGetProperty("color", out var cc) ? cc.GetString() : null;
+                    var col = ParseColor(c);
+                    if (m != null && col != null) rules.Add((m, col));
+                }
+            if (rules.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no usable rules (need [{match,color}])" };
+
+            var solid = GetSolidFillId(doc);
+            var els = new FilteredElementCollector(doc, view.Id).OfCategory(bic).WhereElementIsNotElementType().ToList();
+            var byRule = new Dictionary<string, int>();
+            int colored = 0;
+            using var tx = new Transaction(doc, "BinaVibe: color_by_parameter");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var e in els)
+                {
+                    var val = Inspectors.ResolveParamValue(doc, e, param);
+                    Color chosen = null; string key = null;
+                    foreach (var (m, col) in rules)
+                    {
+                        bool hit = m == "*"
+                            || (m.Equals("empty", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(val))
+                            || string.Equals(val, m, StringComparison.OrdinalIgnoreCase);
+                        if (hit) { chosen = col; key = m; break; }
+                    }
+                    if (chosen == null) continue;
+                    var ogs = new OverrideGraphicSettings();
+                    ogs.SetProjectionLineColor(chosen);
+                    ogs.SetSurfaceForegroundPatternColor(chosen);
+                    if (solid != null) ogs.SetSurfaceForegroundPatternId(solid);
+                    try { view.SetElementOverrides(e.Id, ogs); colored++; byRule[key] = (byRule.TryGetValue(key, out var n) ? n : 0) + 1; }
+                    catch { /* some elements can't be overridden in this view */ }
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+            return new Dictionary<string, object?> { ["ok"] = true, ["colored"] = colored, ["by_rule"] = byRule };
+        }
+
+        private static Color ParseColor(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return null;
+            s = s.Trim();
+            if (s.Contains(","))
+            {
+                var p = s.Split(',');
+                if (p.Length >= 3 && byte.TryParse(p[0].Trim(), out var r) && byte.TryParse(p[1].Trim(), out var g) && byte.TryParse(p[2].Trim(), out var b))
+                    return new Color(r, g, b);
+                return null;
+            }
+            switch (s.ToLowerInvariant())
+            {
+                case "red": return new Color(220, 40, 40);
+                case "green": return new Color(40, 170, 70);
+                case "blue": return new Color(40, 90, 220);
+                case "yellow": return new Color(240, 210, 40);
+                case "orange": return new Color(240, 140, 30);
+                case "grey": case "gray": return new Color(150, 150, 150);
+                case "purple": return new Color(150, 60, 200);
+                case "cyan": return new Color(40, 200, 200);
+                default: return null;
+            }
+        }
+
+        private static ElementId GetSolidFillId(Document doc)
+        {
+            try
+            {
+                var solid = new FilteredElementCollector(doc).OfClass(typeof(FillPatternElement)).Cast<FillPatternElement>()
+                    .FirstOrDefault(f => f.GetFillPattern()?.IsSolidFill == true);
+                return solid?.Id;
+            }
+            catch { return null; }
+        }
+
+        // ─── delete_unused_views ────────────────────────────────────────
+        public static Dictionary<string, object?> DeleteUnusedViews(Document doc, JsonElement args)
+        {
+            var active = doc.ActiveView?.Id;
+            var placed = new HashSet<long>();
+            foreach (var vp in new FilteredElementCollector(doc).OfClass(typeof(Viewport)).Cast<Viewport>())
+                placed.Add(vp.ViewId.Value);
+
+            var toDelete = new List<ElementId>();
+            foreach (var v in new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>())
+            {
+                if (v.IsTemplate) continue;
+                if (v is ViewSchedule) continue;
+                if (v.ViewType == ViewType.Legend || v.ViewType == ViewType.DrawingSheet
+                    || v.ViewType == ViewType.ProjectBrowser || v.ViewType == ViewType.SystemBrowser
+                    || v.ViewType == ViewType.Internal) continue;
+                if (active != null && v.Id == active) continue;
+                if (placed.Contains(v.Id.Value)) continue;
+                toDelete.Add(v.Id);
+            }
+
+            int deleted = 0;
+            using var tx = new Transaction(doc, "BinaVibe: delete_unused_views");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var id in toDelete)
+                {
+                    try { if (doc.GetElement(id) != null) { doc.Delete(id); deleted++; } } catch { /* dependents already gone */ }
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+            return new Dictionary<string, object?> { ["ok"] = true, ["deleted"] = deleted };
+        }
+
+        // ─── purge_unused ────────────────────────────────────────────────
+        public static Dictionary<string, object?> PurgeUnused(Document doc, JsonElement args)
+        {
+            int purged = 0;
+            using var tx = new Transaction(doc, "BinaVibe: purge_unused");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                // Document.GetUnusedElements (Revit 2024+): empty input set = all purgeable.
+                var unused = doc.GetUnusedElements(new HashSet<ElementId>());
+                var ids = unused.Where(id => doc.GetElement(id) != null).ToList();
+                if (ids.Count > 0)
+                {
+                    var del = doc.Delete(ids);
+                    purged = del != null ? del.Count : ids.Count;
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+            return new Dictionary<string, object?> { ["ok"] = true, ["purged"] = purged };
         }
 
         // ─── crop_view_to_elements ──────────────────────────────────────

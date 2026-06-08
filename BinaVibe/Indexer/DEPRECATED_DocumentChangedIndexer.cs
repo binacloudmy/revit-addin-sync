@@ -1,3 +1,8 @@
+// DEPRECATED (2026-06-08): feeds the cloud "mirror", which no live path reads
+// (backend VIBE_MIRROR_READS=0). Already hard-gated OFF in App.cs behind
+// BINA_VIBE_TOOLPATH, so it never runs. Kept (parked) for the future
+// zero-round-trip read path. See backend DEPRECATED_model_index.py.
+//
 // BinaVibe.Indexer — subscribes to Revit DocumentChanged and ships deltas
 // to the v2 backend so Channel 3 (indexed model snapshot, PRD §7.3) stays
 // fresh.
