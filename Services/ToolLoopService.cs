@@ -15,6 +15,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -24,6 +25,7 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using RevitWebAppSync.Models;
+using RevitWebAppSync.UI.Copilot.Model;
 
 namespace RevitWebAppSync.Services
 {
@@ -107,8 +109,15 @@ namespace RevitWebAppSync.Services
         /// (done OR awaiting_revit), so the caller's execute/resume loop is
         /// unchanged. Falls back cleanly to an error ToolTurn on transport issues.</summary>
         public async Task<ToolTurn> GenerateStreamAsync(
-            AIRequest request, string accessToken, Action<string> onProgress, CancellationToken ct = default)
+            AIRequest request, string accessToken, Action<string> onProgress,
+            ObservableCollection<ProgressStep> trail = null, CancellationToken ct = default)
         {
+            // Accumulate phase/tool events into a step trail (BIMLogiq-style)
+            // and push the rendered trail through onProgress, instead of a
+            // single replacing line. Shared with ToolLoopRunner so the Revit
+            // execution rounds tick the SAME trail. Self-owns one if the caller
+            // didn't pass it (keeps the method usable standalone).
+            trail ??= new ObservableCollection<ProgressStep>();
             var bodyJson = Newtonsoft.Json.JsonConvert.SerializeObject(request);
             using var req = new HttpRequestMessage(HttpMethod.Post, AiUrl.Build(_baseUrl, "tool/generate/stream"))
             {
@@ -148,7 +157,7 @@ namespace RevitWebAppSync.Services
                 void Flush()
                 {
                     if (ev != null && data.Length > 0)
-                        final = HandleStreamEvent(ev, data.ToString(), onProgress) ?? final;
+                        final = HandleStreamEvent(ev, data.ToString(), onProgress, trail) ?? final;
                     data.Clear();
                 }
                 while (!reader.EndOfStream)
@@ -173,10 +182,13 @@ namespace RevitWebAppSync.Services
             }
         }
 
-        // Translate one SSE event. tool/status fire the live progress label and
-        // return null (not terminal); done/awaiting_revit deserialize to the
-        // terminal ToolTurn; error becomes an error ToolTurn.
-        private ToolTurn HandleStreamEvent(string ev, string raw, Action<string> onProgress)
+        // Translate one SSE event. tool/status reduce into the live step trail
+        // (running -> done ticks one row, keyed by step_id) and push the rendered
+        // trail through onProgress; they return null (not terminal).
+        // done/awaiting_revit deserialize to the terminal ToolTurn; error becomes
+        // an error ToolTurn.
+        private ToolTurn HandleStreamEvent(string ev, string raw, Action<string> onProgress,
+            ObservableCollection<ProgressStep> trail)
         {
             switch (ev)
             {
@@ -184,10 +196,24 @@ namespace RevitWebAppSync.Services
                     try
                     {
                         using var d = JsonDocument.Parse(ExtractLastJsonObject(raw));
-                        var name = d.RootElement.TryGetProperty("name", out var n) ? (n.GetString() ?? "")
-                                 : d.RootElement.TryGetProperty("tool", out var t) ? (t.GetString() ?? "") : "";
-                        if (!string.IsNullOrWhiteSpace(name))
-                            try { onProgress?.Invoke("Running " + name.Replace('_', ' ').Trim() + "…"); } catch { }
+                        var root = d.RootElement;
+                        // Old backend: bare {"name":"create_wall"}. New backend also
+                        // carries step_id/phase/label/detail/state — read all tolerantly.
+                        string tool = GetStr(root, "name");
+                        if (string.IsNullOrEmpty(tool)) tool = GetStr(root, "tool");
+                        string stepId = GetStr(root, "step_id");
+                        string phase = GetStr(root, "phase");
+                        string detail = GetStr(root, "detail");
+                        string state = GetStr(root, "state");
+                        if (string.IsNullOrEmpty(state)) state = "running";
+                        string label = GetStr(root, "label");
+                        if (string.IsNullOrEmpty(stepId))
+                            stepId = string.IsNullOrEmpty(tool) ? Guid.NewGuid().ToString("N") : tool;
+                        if (string.IsNullOrEmpty(label))
+                            label = string.IsNullOrEmpty(tool)
+                                ? "Working…"
+                                : "Running " + tool.Replace('_', ' ').Trim() + "…";
+                        ReduceAndEmit(trail, onProgress, stepId, phase, label, detail, state);
                     }
                     catch { }
                     return null;
@@ -195,9 +221,19 @@ namespace RevitWebAppSync.Services
                     try
                     {
                         using var d = JsonDocument.Parse(ExtractLastJsonObject(raw));
-                        var label = d.RootElement.TryGetProperty("label", out var l) ? (l.GetString() ?? "") : "";
-                        if (!string.IsNullOrWhiteSpace(label))
-                            try { onProgress?.Invoke(label); } catch { }
+                        var root = d.RootElement;
+                        string label = GetStr(root, "label");
+                        string stepId = GetStr(root, "step_id");
+                        string phase = GetStr(root, "phase");
+                        string detail = GetStr(root, "detail");
+                        string state = GetStr(root, "state");
+                        if (string.IsNullOrEmpty(state)) state = "running";
+                        // No step_id (old backend): key off the label so a repeated
+                        // phase coalesces; fall back to a guid only when label-less.
+                        if (string.IsNullOrEmpty(stepId))
+                            stepId = string.IsNullOrEmpty(label) ? Guid.NewGuid().ToString("N") : "status:" + label;
+                        if (!string.IsNullOrEmpty(label) || !string.IsNullOrEmpty(detail))
+                            ReduceAndEmit(trail, onProgress, stepId, phase, label, detail, state);
                     }
                     catch { }
                     return null;
@@ -222,6 +258,22 @@ namespace RevitWebAppSync.Services
                     return null;   // meta and anything else — ignore
             }
         }
+
+        // Reduce one parsed progress event into the trail and push the freshly
+        // rendered multi-row trail through onProgress. Pure reuse of the same
+        // ProgressReducer/ProgressTrail the codegen path uses.
+        private static void ReduceAndEmit(ObservableCollection<ProgressStep> trail, Action<string> onProgress,
+            string stepId, string phase, string label, string detail, string state)
+        {
+            if (trail == null) return;
+            ProgressReducer.Apply(trail, stepId, phase, label, detail, ProgressTrail.StateFrom(state));
+            try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* UI hiccup */ }
+        }
+
+        // Read a string property tolerantly (missing / non-string -> "").
+        private static string GetStr(JsonElement root, string name) =>
+            root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
+                ? (v.GetString() ?? "") : "";
 
         // Return the LAST balanced top-level {...} object in s (brace-counting,
         // string-aware). If SSE events merged into one buffer, the terminal

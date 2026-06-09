@@ -13,10 +13,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Threading;
 using System.Threading.Tasks;
 using BinaVibe.Mcp;
 using RevitWebAppSync.Models;
+using RevitWebAppSync.UI.Copilot.Model;
 
 namespace RevitWebAppSync.Services
 {
@@ -57,13 +59,21 @@ namespace RevitWebAppSync.Services
         {
             var outcome = new ToolLoopOutcome();
 
+            // One trail spans the whole loop: the streamed first turn AND every
+            // Revit-execution round reduce into it, so the addin shows a single
+            // accumulating BIMLogiq-style step trail (▶ running, ✓ done) instead
+            // of a replacing one-liner. step_id pairs running->done onto one row,
+            // and the pending tools the backend already announced (same
+            // tool_call_id) tick to ✓ when Revit finishes them.
+            var trail = new ObservableCollection<ProgressStep>();
+
             ToolTurn turn;
             try
             {
                 // Stream the first turn so the agent's steps appear live instead
                 // of a static "Thinking…". Returns the same ToolTurn (done OR
                 // awaiting_revit) the non-streaming path did.
-                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, ct).ConfigureAwait(false);
+                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -93,13 +103,28 @@ namespace RevitWebAppSync.Services
                     return outcome;
                 }
 
-                // Execute each pending tool in Revit, collect results.
+                // Execute each pending tool in Revit, collect results. Each ticks
+                // the SAME trail: a ▶ row on start (keyed by tool_call_id, which
+                // matches the step_id the backend already streamed, so it reuses
+                // that row rather than adding a duplicate) and ✓/✗ on finish.
                 var results = new List<ToolResultDto>(turn.Pending.Count);
                 foreach (var call in turn.Pending)
                 {
                     outcome.ToolsUsed.Add(call.Tool);
-                    try { onProgress?.Invoke("Running " + Prettify(call.Tool) + "…"); } catch { /* best-effort UI */ }
-                    results.Add(await ExecuteOneAsync(call, ct).ConfigureAwait(false));
+                    // Only supply a fallback label when the backend hasn't already
+                    // given this row a (richer) one — empty label preserves it.
+                    bool known = false;
+                    foreach (var s in trail) { if (s.StepId == call.ToolCallId) { known = true; break; } }
+                    string runLabel = known ? "" : "Running " + Prettify(call.Tool) + "…";
+                    ProgressReducer.Apply(trail, call.ToolCallId, "executing", runLabel, "", StepState.Running);
+                    try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* best-effort UI */ }
+
+                    var res = await ExecuteOneAsync(call, ct).ConfigureAwait(false);
+
+                    ProgressReducer.Apply(trail, call.ToolCallId, "executing", "", "",
+                        res.Ok ? StepState.Done : StepState.Error);
+                    try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* best-effort UI */ }
+                    results.Add(res);
                 }
 
                 try
