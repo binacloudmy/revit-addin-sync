@@ -218,6 +218,17 @@ namespace RevitWebAppSync.UI.Copilot
         /// the warm-up ExternalEvent) so the await yields let the warm-up run.</summary>
         public async Task EnsureModelWarmAsync()
         {
+            // DISABLED (2026-06-08) — no-op. This pre-paid Revit's ~58s first
+            // regeneration on pane open ("Preparing your model for editing… 48%")
+            // so the FIRST model edit wouldn't freeze. But it blocked pane-open
+            // for every session, including read-only Q&A that never edits. Off for
+            // now: instant pane open. TRADE-OFF: the first mutate/codegen edit in a
+            // session pays the ~58s cold regen itself (frozen, no progress). Parked
+            // body below — flip the early-return (or make it lazy: warm right
+            // before the first edit) to re-enable.
+            await Task.CompletedTask;
+            return;
+#pragma warning disable CS0162 // unreachable (parked for re-enable / lazy warmup)
             try
             {
                 if (RevitWebAppSync.App.VibeModelWarm) return;  // already warm
@@ -266,6 +277,7 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 IsIndexing = false;  // never trap the user behind warm-up
             }
+#pragma warning restore CS0162
         }
 
         /// <summary>Add an AI message to the thread, marshalling to the UI thread.</summary>

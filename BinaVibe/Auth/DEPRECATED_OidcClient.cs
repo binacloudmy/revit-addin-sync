@@ -1,3 +1,4 @@
+// DEPRECATED (2026-06-04): superseded by McpTunnelClient (WSS) + BinaConfig. 0 references. Kept for history; safe to delete.
 // OIDC PKCE flow for BINA Cloud SSO (PRD §10.9 FR-AUTH-01/03).
 //
 // First launch:

@@ -1,3 +1,4 @@
+// DEPRECATED (2026-06-04): superseded by McpTunnelClient (WSS) + BinaConfig. 0 references. Kept for history; safe to delete.
 // BinaVibe.Bridge — HTTP + SSE client for the v2 orchestrator.
 //
 // Per PRD v2 §6.5: the addin POSTs a message + ambient context to

@@ -1,3 +1,4 @@
+// DEPRECATED (2026-06-04): superseded by McpTunnelClient (WSS) + BinaConfig. 0 references. Kept for history; safe to delete.
 // CredentialStore — persist OIDC refresh token in Windows Credential
 // Manager (Generic Credential type), not in plaintext JSON.
 //
