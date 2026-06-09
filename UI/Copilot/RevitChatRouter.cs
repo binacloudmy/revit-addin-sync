@@ -119,6 +119,16 @@ namespace RevitWebAppSync.UI.Copilot
             if (sink != null) { try { sink(""); } catch { /* UI hiccup */ } }
         }
 
+        // Close any phase rows still ▶ at successful completion, then snapshot the
+        // live trail into an immutable list for the final bubble (same rule as
+        // ToolLoopRunner). A finished run has no genuinely-running step.
+        private static List<ProgressStep> SnapshotTrail(
+            System.Collections.ObjectModel.ObservableCollection<ProgressStep> trail)
+        {
+            ProgressReducer.CompleteRunning(trail);
+            return new List<ProgressStep>(trail);
+        }
+
         public async Task<RouteResult> RouteAsync(string message, string fallbackToolId)
         {
             // Phase timing — pinpoint where post-send wall-clock goes. Correlate
@@ -296,7 +306,9 @@ namespace RevitWebAppSync.UI.Copilot
                                 PlanSteps = hasCode ? new List<string> { "Generated via bina-ai (streaming)" } : null,
                                 IsQuery = final.IsQuery,
                                 Verdict = final.ReviewerVerdict,
-                                Steps = new List<ProgressStep>(trail),
+                                // Close any phase rows still ▶ at successful
+                                // completion so the persisted trail shows all ✓.
+                                Steps = SnapshotTrail(trail),
                             };
                         }
                     }

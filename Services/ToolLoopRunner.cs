@@ -104,8 +104,12 @@ namespace RevitWebAppSync.Services
                         foreach (var tc in turn.ToolCalls)
                             if (!string.IsNullOrWhiteSpace(tc.Tool) && !outcome.ToolsUsed.Contains(tc.Tool))
                                 outcome.ToolsUsed.Add(tc.Tool);
-                    // Snapshot the live trail into an immutable list so the final
-                    // message keeps the rich rows after the live collection is gone.
+                    // The run finished successfully — close any phase rows whose
+                    // backend "done" frame never landed (awaiting-Revit multi-turn
+                    // path) so the persisted trail shows all ✓, not stuck ▶. Then
+                    // snapshot into an immutable list so the final message keeps the
+                    // rich rows after the live collection is gone.
+                    ProgressReducer.CompleteRunning(trail);
                     outcome.Steps = new List<ProgressStep>(trail);
                     return outcome;
                 }

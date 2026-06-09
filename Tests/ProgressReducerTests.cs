@@ -49,5 +49,22 @@ namespace Tests
             Assert.Single(steps);
             Assert.Equal(StepState.Error, steps[0].State);
         }
+
+        [Fact]
+        public void CompleteRunning_flips_running_to_done_but_keeps_error()
+        {
+            var steps = new ObservableCollection<ProgressStep>();
+            ProgressReducer.Apply(steps, "gather", "retrieving", "Collecting information", "", StepState.Running);
+            ProgressReducer.Apply(steps, "run", "writing", "Generating answer", "", StepState.Running);
+            ProgressReducer.Apply(steps, "tool", "executing", "Analyzing the model", "", StepState.Done);
+            ProgressReducer.Apply(steps, "bad", "executing", "Creating wall", "", StepState.Error);
+
+            ProgressReducer.CompleteRunning(steps);
+
+            Assert.Equal(StepState.Done, steps[0].State);   // gather: running -> done
+            Assert.Equal(StepState.Done, steps[1].State);   // run: running -> done
+            Assert.Equal(StepState.Done, steps[2].State);   // already done
+            Assert.Equal(StepState.Error, steps[3].State);  // error preserved
+        }
     }
 }

@@ -66,6 +66,18 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 existing.State = state;
             }
         }
+
+        /// <summary>On SUCCESSFUL completion, flip any row still marked Running to
+        /// Done. A finished run has no genuinely-running step — this closes phase
+        /// brackets whose backend "done" frame never landed in the snapshot (e.g.
+        /// the awaiting-Revit multi-turn path), so the persisted final trail shows
+        /// all ✓ instead of leaving phases stuck on ▶. Error rows are left as-is.</summary>
+        public static void CompleteRunning(ObservableCollection<ProgressStep> steps)
+        {
+            if (steps == null) return;
+            foreach (var s in steps)
+                if (s.State == StepState.Running) s.State = StepState.Done;
+        }
     }
 
     /// <summary>
