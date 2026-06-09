@@ -518,16 +518,6 @@ namespace RevitWebAppSync.UI.Copilot
         public void ChatSend(string text)
         {
             text = (text ?? "").Trim();
-            // DIAG (TEMP — remove once the auto-run trigger is found): log every
-            // send with its caller stack so we can see what fires a query on panel
-            // load (e.g. a starter chip, a warm-up, restored state). View in
-            // DebugView/VS Output, filter on "chatsend-diag".
-            try
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[BinaVibe][chatsend-diag] text=\"{text}\" isIndexing={IsIndexing}\nCALLER STACK:\n{new System.Diagnostics.StackTrace(1, true)}");
-            }
-            catch { /* never let diagnostics break a send */ }
             if (text.Length == 0) return;
             if (IsIndexing)
             {
