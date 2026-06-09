@@ -93,7 +93,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             // Claude-style: show the tools the agent ran FIRST (a compact steps
             // panel with check glyphs), then the final answer below it.
-            if (m.ToolCallTrace != null && m.ToolCallTrace.Count > 0)
+            // Prefer the full persisted phased trail (phases + tools). Legacy
+            // messages (no Steps) fall back to the tool-name-only summary card.
+            if (m.Steps != null && m.Steps.Count > 0)
+                col.Children.Add(ProgressTracePanel(m.Steps));
+            else if (m.ToolCallTrace != null && m.ToolCallTrace.Count > 0)
                 col.Children.Add(ToolTracePanel(m.ToolCallTrace));
 
             if (!string.IsNullOrEmpty(m.Text))
@@ -485,6 +489,70 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 row.Children.Add(new TextBlock
                 {
                     Text = Humanize(t),
+                    FontSize = 11.5,
+                    Foreground = CopilotColors.From("#374151"),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    TextWrapping = TextWrapping.Wrap,
+                });
+                sp.Children.Add(row);
+            }
+            outer.Child = sp;
+            return outer;
+        }
+
+        // Persisted phased trail (phases + per-tool rows) shown in the FINAL
+        // bubble — the same rows the live thinking-bubble trail showed, so a
+        // completed run keeps its rich trail instead of collapsing to "1 STEP".
+        // Always expanded. State-aware glyph/colour (✓ done / ▶ running / ✗ error).
+        private FrameworkElement ProgressTracePanel(
+            System.Collections.Generic.IReadOnlyList<RevitWebAppSync.UI.Copilot.Model.ProgressStep> steps)
+        {
+            var outer = new Border
+            {
+                Background = CopilotColors.From("#fafafa"),
+                BorderBrush = CopilotColors.From("#eef0f3"),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(10, 7, 10, 7),
+                Margin = new Thickness(0, 8, 0, 0),
+            };
+            var sp = new StackPanel();
+            sp.Children.Add(new TextBlock
+            {
+                Text = steps.Count == 1 ? "1 STEP" : $"{steps.Count} STEPS",
+                FontSize = 9.5,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = CopilotColors.From("#9ca3af"),
+                Margin = new Thickness(0, 0, 0, 5),
+            });
+            foreach (var s in steps)
+            {
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 1.5, 0, 1.5) };
+
+                // Glyph swatch colours follow state: green check (done),
+                // grey arrow (running/incomplete), red cross (error).
+                string dotBg = s.State == RevitWebAppSync.UI.Copilot.Model.StepState.Done ? "#dcfce7"
+                             : s.State == RevitWebAppSync.UI.Copilot.Model.StepState.Error ? "#fee2e2" : "#eef0f3";
+                string glyphFg = s.State == RevitWebAppSync.UI.Copilot.Model.StepState.Done ? "#16a34a"
+                               : s.State == RevitWebAppSync.UI.Copilot.Model.StepState.Error ? "#dc2626" : "#9ca3af";
+
+                var dot = new Border
+                {
+                    Width = 14, Height = 14, CornerRadius = new CornerRadius(7),
+                    Background = CopilotColors.From(dotBg),
+                    Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center,
+                };
+                dot.Child = new TextBlock
+                {
+                    Text = RevitWebAppSync.UI.Copilot.Model.ProgressTrail.Glyph(s.State),
+                    FontSize = 8.5, FontWeight = FontWeights.Bold,
+                    Foreground = CopilotColors.From(glyphFg),
+                    HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                };
+                row.Children.Add(dot);
+                row.Children.Add(new TextBlock
+                {
+                    Text = RevitWebAppSync.UI.Copilot.Model.ProgressTrail.RowText(s),
                     FontSize = 11.5,
                     Foreground = CopilotColors.From("#374151"),
                     VerticalAlignment = VerticalAlignment.Center,
