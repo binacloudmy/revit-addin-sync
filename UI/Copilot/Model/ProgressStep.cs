@@ -78,6 +78,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
             foreach (var s in steps)
                 if (s.State == StepState.Running) s.State = StepState.Done;
         }
+
+        /// <summary>Move the row with this step id to the end of the trail (no-op if
+        /// absent). Keeps the "Checking the result" review phase LAST: the backend
+        /// emits it in stream turn 1, but on the awaiting-Revit path the real tool
+        /// rows are appended later (resume round), which would otherwise leave
+        /// review sitting before them.</summary>
+        public static void MoveStepToEnd(ObservableCollection<ProgressStep> steps, string stepId)
+        {
+            if (steps == null || string.IsNullOrEmpty(stepId)) return;
+            ProgressStep found = null;
+            foreach (var s in steps) { if (s.StepId == stepId) { found = s; break; } }
+            if (found == null) return;
+            steps.Remove(found);
+            steps.Add(found);
+        }
     }
 
     /// <summary>

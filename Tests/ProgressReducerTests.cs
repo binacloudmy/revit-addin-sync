@@ -66,5 +66,30 @@ namespace Tests
             Assert.Equal(StepState.Done, steps[2].State);   // already done
             Assert.Equal(StepState.Error, steps[3].State);  // error preserved
         }
+
+        [Fact]
+        public void MoveStepToEnd_sorts_review_last()
+        {
+            var steps = new ObservableCollection<ProgressStep>();
+            ProgressReducer.Apply(steps, "gather", "retrieving", "Collecting information", "", StepState.Done);
+            ProgressReducer.Apply(steps, "review", "reviewing", "Checking the result", "", StepState.Done);
+            ProgressReducer.Apply(steps, "tc1", "executing", "Analyzing the model", "", StepState.Done);
+
+            ProgressReducer.MoveStepToEnd(steps, "review");
+
+            Assert.Equal("gather", steps[0].StepId);
+            Assert.Equal("tc1", steps[1].StepId);
+            Assert.Equal("review", steps[2].StepId);   // moved to last
+        }
+
+        [Fact]
+        public void MoveStepToEnd_absent_id_is_noop()
+        {
+            var steps = new ObservableCollection<ProgressStep>();
+            ProgressReducer.Apply(steps, "a", "writing", "Writing", "", StepState.Done);
+            ProgressReducer.MoveStepToEnd(steps, "review");
+            Assert.Single(steps);
+            Assert.Equal("a", steps[0].StepId);
+        }
     }
 }

@@ -109,6 +109,9 @@ namespace RevitWebAppSync.Services
                     // path) so the persisted trail shows all ✓, not stuck ▶. Then
                     // snapshot into an immutable list so the final message keeps the
                     // rich rows after the live collection is gone.
+                    // Keep the review phase last (backend emits it in turn 1, but
+                    // Revit tool rows are appended in the resume round).
+                    ProgressReducer.MoveStepToEnd(trail, "review");
                     ProgressReducer.CompleteRunning(trail);
                     outcome.Steps = new List<ProgressStep>(trail);
                     return outcome;

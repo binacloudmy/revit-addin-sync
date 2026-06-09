@@ -125,6 +125,7 @@ namespace RevitWebAppSync.UI.Copilot
         private static List<ProgressStep> SnapshotTrail(
             System.Collections.ObjectModel.ObservableCollection<ProgressStep> trail)
         {
+            ProgressReducer.MoveStepToEnd(trail, "review");
             ProgressReducer.CompleteRunning(trail);
             return new List<ProgressStep>(trail);
         }
