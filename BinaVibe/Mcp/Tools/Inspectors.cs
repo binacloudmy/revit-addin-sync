@@ -745,31 +745,67 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> OpenView(UIDocument uidoc, JsonElement args)
         {
             var doc = uidoc.Document;
-            string name = args.TryGetProperty("name", out var n) ? (n.GetString() ?? "") : "";
+            string name = (args.TryGetProperty("name", out var n) ? (n.GetString() ?? "") : "").Trim();
             if (string.IsNullOrWhiteSpace(name))
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no view name given" };
 
             var views = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
-                .Where(v => !v.IsTemplate && v.ViewType != ViewType.Internal).ToList();
-            // Prefer a plan view (the usual "open Aras 01" intent), else any
-            // view whose name contains the term.
-            var view = views.FirstOrDefault(v =>
-                           v.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0
-                           && (v.ViewType == ViewType.FloorPlan || v.ViewType == ViewType.CeilingPlan))
-                       ?? views.FirstOrDefault(v =>
-                           v.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
-            if (view == null)
-                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"no view matching '{name}'" };
+                .Where(v => !v.IsTemplate && v.ViewType != ViewType.Internal
+                            && v.ViewType != ViewType.ProjectBrowser && v.ViewType != ViewType.SystemBrowser).ToList();
 
+            string lname = name.ToLowerInvariant();
+            bool wants3d = lname == "3d" || lname == "3 d" || lname == "{3d}" || lname == "three d"
+                           || lname == "3d view" || lname == "three dimensional" || lname == "3d views";
+
+            List<View> candidates;
+            if (wants3d)
+            {
+                candidates = views.Where(v => v is View3D).ToList();
+            }
+            else
+            {
+                // An exact name match wins outright (no ambiguity).
+                var exact = views.FirstOrDefault(v => string.Equals(v.Name, name, StringComparison.OrdinalIgnoreCase));
+                if (exact != null) return OpenOne(uidoc, exact);
+                candidates = views.Where(v => v.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+            }
+
+            if (candidates.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"no view matching '{name}'" };
+            if (candidates.Count == 1)
+                return OpenOne(uidoc, candidates[0]);
+
+            // If exactly one match is a plan, that's almost certainly the intent
+            // ("open Aras 01" → the plan, not the ceiling/3D with the same name).
+            if (!wants3d)
+            {
+                var plans = candidates.Where(v => v.ViewType == ViewType.FloorPlan || v.ViewType == ViewType.CeilingPlan).ToList();
+                if (plans.Count == 1) return OpenOne(uidoc, plans[0]);
+            }
+
+            // Genuinely ambiguous (e.g. "open 3d view" with many 3D views) — hand
+            // the candidates back so the agent ASKS the user which one, instead of
+            // silently opening an arbitrary one.
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = false,
+                ["ambiguous"] = true,
+                ["note"] = $"{candidates.Count} views match '{name}' — ask the user which one to open (by name), do not guess.",
+                ["matches"] = candidates.OrderBy(v => v.Name).Take(25).Select(v => (object)new Dictionary<string, object?>
+                {
+                    ["name"] = v.Name, ["type"] = v.ViewType.ToString(), ["view_id"] = v.Id.Value,
+                }).ToList(),
+            };
+        }
+
+        private static Dictionary<string, object?> OpenOne(UIDocument uidoc, View view)
+        {
             try { uidoc.ActiveView = view; }
             catch (Exception ex)
             {
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"cannot open '{view.Name}': {ex.Message}" };
             }
-            return new Dictionary<string, object?>
-            {
-                ["ok"] = true, ["opened"] = view.Name, ["view_id"] = view.Id.Value,
-            };
+            return new Dictionary<string, object?> { ["ok"] = true, ["opened"] = view.Name, ["view_id"] = view.Id.Value };
         }
 
         // ─── select_elements ────────────────────────────────────────────
