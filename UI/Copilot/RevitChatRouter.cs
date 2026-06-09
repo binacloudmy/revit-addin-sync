@@ -176,7 +176,8 @@ namespace RevitWebAppSync.UI.Copilot
                     _streamCts = cts;
                 }
 
-                ToolLoopOutcome outcome;
+                ToolLoopOutcome outcome = null;
+                bool canceled = false;
                 try
                 {
                     // onProgress now receives ready-to-show labels (the streaming
@@ -186,8 +187,7 @@ namespace RevitWebAppSync.UI.Copilot
                 }
                 catch (OperationCanceledException)
                 {
-                    // User hit Stop — report it plainly, don't degrade to an error.
-                    return new RouteResult { ToolId = "ai-generated", Reply = "Cancelled.", IsQuery = true };
+                    canceled = true;
                 }
                 catch (Exception ex)
                 {
@@ -195,6 +195,10 @@ namespace RevitWebAppSync.UI.Copilot
                 }
                 finally
                 {
+                    // The tool loop swallows the cancel internally and returns an
+                    // error outcome rather than throwing — so trust the TOKEN, not
+                    // the exception, to tell a user Stop from a real failure.
+                    if (cts.IsCancellationRequested) canceled = true;
                     ClearProgress();
                     lock (_cancelLock)
                     {
@@ -202,6 +206,11 @@ namespace RevitWebAppSync.UI.Copilot
                     }
                     try { cts.Dispose(); } catch { }
                 }
+
+                // User hit Stop — clean message, not the raw "tool/generate failed:
+                // The operation was canceled." internal error.
+                if (canceled)
+                    return new RouteResult { ToolId = "ai-generated", Reply = "Stopped.", IsQuery = true };
                 System.Diagnostics.Debug.WriteLine(
                     $"[BinaVibe][timing] tool-loop total={__swRoute.ElapsedMilliseconds}ms tools={string.Join(",", outcome.ToolsUsed)} ok={outcome.Success}");
                 return new RouteResult
@@ -340,7 +349,7 @@ namespace RevitWebAppSync.UI.Copilot
                         // instead of degrading to a one-shot retry (which would
                         // ignore the cancel and keep the model spinning).
                         ClearProgress();
-                        return new RouteResult { ToolId = "ai-generated", Reply = "Cancelled." };
+                        return new RouteResult { ToolId = "ai-generated", Reply = "Stopped." };
                     }
                     catch
                     {
