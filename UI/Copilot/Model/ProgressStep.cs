@@ -86,6 +86,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static string Glyph(StepState st) =>
             st == StepState.Done ? "✓" : st == StepState.Error ? "✗" : "▶";
 
+        /// <summary>Display text for one trail row: the rich backend label, or
+        /// the raw step id when no label was supplied. Pure — unit-testable.</summary>
+        public static string RowText(ProgressStep s) =>
+            s == null ? "" : (string.IsNullOrEmpty(s.Label) ? s.StepId : s.Label);
+
         public static string Render(IEnumerable<ProgressStep> steps, bool collapsed = false)
         {
             var list = steps as IList<ProgressStep> ?? new List<ProgressStep>(steps ?? new List<ProgressStep>());

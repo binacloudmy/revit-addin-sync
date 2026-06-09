@@ -44,5 +44,19 @@ namespace Tests
             ProgressReducer.Apply(steps, "a", "executing", "Creating wall", "", StepState.Error);
             Assert.Equal("✗ Creating wall", ProgressTrail.Render(steps));
         }
+
+        [Fact]
+        public void RowText_prefers_label_over_stepid()
+        {
+            var withLabel = new ProgressStep { StepId = "run", Label = "Generating answer" };
+            Assert.Equal("Generating answer", ProgressTrail.RowText(withLabel));
+        }
+
+        [Fact]
+        public void RowText_falls_back_to_stepid_when_label_empty()
+        {
+            var noLabel = new ProgressStep { StepId = "gather", Label = "" };
+            Assert.Equal("gather", ProgressTrail.RowText(noLabel));
+        }
     }
 }
