@@ -581,6 +581,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
                     Text = !string.IsNullOrWhiteSpace(rr.Reply) ? rr.Reply : "Done.",
                     ToolCallTrace = rr.ToolCallTrace,
+                    Steps = rr.Steps,
                     Verdict = rr.Verdict,
                 });
                 if (rr.ToolCallTrace != null && rr.ToolCallTrace.Count > 0)

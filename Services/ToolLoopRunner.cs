@@ -32,6 +32,10 @@ namespace RevitWebAppSync.Services
         public bool IsQuery { get; set; } = true;
         public string Error { get; set; }
         public List<string> ToolsUsed { get; } = new();
+        // The full phased step trail (backend phases + per-tool rows) accumulated
+        // this turn, snapshotted at completion. Null on early-error returns.
+        // Surfaced to the final chat bubble so the rich trail survives ClearProgress.
+        public IReadOnlyList<ProgressStep> Steps { get; set; }
     }
 
     public sealed class ToolLoopRunner
@@ -100,6 +104,9 @@ namespace RevitWebAppSync.Services
                         foreach (var tc in turn.ToolCalls)
                             if (!string.IsNullOrWhiteSpace(tc.Tool) && !outcome.ToolsUsed.Contains(tc.Tool))
                                 outcome.ToolsUsed.Add(tc.Tool);
+                    // Snapshot the live trail into an immutable list so the final
+                    // message keeps the rich rows after the live collection is gone.
+                    outcome.Steps = new List<ProgressStep>(trail);
                     return outcome;
                 }
 

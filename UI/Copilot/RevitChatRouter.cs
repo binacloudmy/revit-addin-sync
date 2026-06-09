@@ -184,6 +184,7 @@ namespace RevitWebAppSync.UI.Copilot
                         : (outcome.Success ? "Done." : (outcome.Error ?? "Tool run failed.")),
                     IsQuery = string.IsNullOrWhiteSpace(outcome.Code) || outcome.IsQuery,
                     ToolCallTrace = outcome.ToolsUsed.Count > 0 ? outcome.ToolsUsed : null,
+                    Steps = outcome.Steps,
                 };
             }
 
@@ -295,6 +296,7 @@ namespace RevitWebAppSync.UI.Copilot
                                 PlanSteps = hasCode ? new List<string> { "Generated via bina-ai (streaming)" } : null,
                                 IsQuery = final.IsQuery,
                                 Verdict = final.ReviewerVerdict,
+                                Steps = new List<ProgressStep>(trail),
                             };
                         }
                     }
