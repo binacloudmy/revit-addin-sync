@@ -59,6 +59,7 @@ namespace RevitWebAppSync.UI.Copilot
             ClearHighlightsCommand = new RelayCommand(_ => Highlights.Clear());
             ChatSendCommand = new RelayCommand(p => ChatSend(p as string));
             FollowUpCommand = new RelayCommand(p => ChatSend(p as string));
+            CancelSendCommand = new RelayCommand(_ => CancelSend());
             ChatRunCommand = new RelayCommand(p => ChatRun(p as ChatMessage));
             ChatRegenerateCommand = new RelayCommand(p => ChatRegenerate(p as ChatMessage));
             ChatOpenEditorCommand = new RelayCommand(p => OpenTool((p as ChatMessage)?.ToolId));
@@ -331,6 +332,21 @@ namespace RevitWebAppSync.UI.Copilot
         public RelayCommand ClearHighlightsCommand { get; }
         public RelayCommand ChatSendCommand { get; }
         public RelayCommand FollowUpCommand { get; }
+        public RelayCommand CancelSendCommand { get; }
+
+        // True while a reply is in flight (the RouteAsync window). Bound to the
+        // PromptBar so the send button becomes a Stop button the user can click
+        // to cancel the prompt mid-reply.
+        private bool _isSending;
+        public bool IsSending { get => _isSending; set { _isSending = value; Raise(); } }
+
+        /// <summary>User clicked Stop — abort the streaming reply. The router's
+        /// RouteAsync then returns a "Cancelled." result which resolves the bubble;
+        /// IsSending clears in ResolveProposalAsync's finally.</summary>
+        public void CancelSend()
+        {
+            try { (Router as RevitChatRouter)?.CancelStream(); } catch { /* already done */ }
+        }
         public RelayCommand ChatRunCommand { get; }
         public RelayCommand ChatRegenerateCommand { get; }
         public RelayCommand ChatOpenEditorCommand { get; }
@@ -564,9 +580,14 @@ namespace RevitWebAppSync.UI.Copilot
                         });
                     };
                 }
+                IsSending = true;   // send button shows Stop until the reply resolves
                 try { rr = await Router.RouteAsync(text, fallbackToolId); }
                 catch { rr = null; }
-                if (revitRouter != null) revitRouter.OnProgress = null;
+                finally
+                {
+                    IsSending = false;
+                    if (revitRouter != null) revitRouter.OnProgress = null;
+                }
             }
 
 

@@ -165,13 +165,29 @@ namespace RevitWebAppSync.UI.Copilot
                 // REAL tool actually executes in Revit — never a guessed phase.
                 EmitProgress("Thinking…");
 
+                // Per-request CTS so the pane's Stop button can abort this tool
+                // reply mid-flight — CancelStream() trips this token (same gate the
+                // codegen path uses). Without this the tool path could not be
+                // cancelled until the reply finished.
+                CancellationTokenSource cts = new CancellationTokenSource();
+                lock (_cancelLock)
+                {
+                    try { _streamCts?.Dispose(); } catch { }
+                    _streamCts = cts;
+                }
+
                 ToolLoopOutcome outcome;
                 try
                 {
                     // onProgress now receives ready-to-show labels (the streaming
                     // first turn pushes "Generating…" / "Running <tool>…" live).
                     outcome = await _toolLoop.RunAsync(
-                        treq, token, EmitProgress).ConfigureAwait(false);
+                        treq, token, EmitProgress, cts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    // User hit Stop — report it plainly, don't degrade to an error.
+                    return new RouteResult { ToolId = "ai-generated", Reply = "Cancelled.", IsQuery = true };
                 }
                 catch (Exception ex)
                 {
@@ -180,6 +196,11 @@ namespace RevitWebAppSync.UI.Copilot
                 finally
                 {
                     ClearProgress();
+                    lock (_cancelLock)
+                    {
+                        if (ReferenceEquals(_streamCts, cts)) _streamCts = null;
+                    }
+                    try { cts.Dispose(); } catch { }
                 }
                 System.Diagnostics.Debug.WriteLine(
                     $"[BinaVibe][timing] tool-loop total={__swRoute.ElapsedMilliseconds}ms tools={string.Join(",", outcome.ToolsUsed)} ok={outcome.Success}");

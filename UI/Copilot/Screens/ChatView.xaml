@@ -25,6 +25,7 @@
             <StackPanel x:Name="BodyHost"/>
         </ScrollViewer>
 
-        <ctl:PromptBar x:Name="Prompt" Grid.Row="2" SubmitCommand="{Binding ChatSendCommand}"/>
+        <ctl:PromptBar x:Name="Prompt" Grid.Row="2" SubmitCommand="{Binding ChatSendCommand}"
+                       Busy="{Binding IsSending}" CancelCommand="{Binding CancelSendCommand}"/>
     </Grid>
 </UserControl>
