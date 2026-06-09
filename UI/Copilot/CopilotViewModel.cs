@@ -59,6 +59,7 @@ namespace RevitWebAppSync.UI.Copilot
             ClearHighlightsCommand = new RelayCommand(_ => Highlights.Clear());
             ChatSendCommand = new RelayCommand(p => ChatSend(p as string));
             FollowUpCommand = new RelayCommand(p => ChatSend(p as string));
+            CancelSendCommand = new RelayCommand(_ => CancelSend());
             ChatRunCommand = new RelayCommand(p => ChatRun(p as ChatMessage));
             ChatRegenerateCommand = new RelayCommand(p => ChatRegenerate(p as ChatMessage));
             ChatOpenEditorCommand = new RelayCommand(p => OpenTool((p as ChatMessage)?.ToolId));
@@ -343,6 +344,21 @@ namespace RevitWebAppSync.UI.Copilot
         public RelayCommand ClearHighlightsCommand { get; }
         public RelayCommand ChatSendCommand { get; }
         public RelayCommand FollowUpCommand { get; }
+        public RelayCommand CancelSendCommand { get; }
+
+        // True while a reply is in flight (the RouteAsync window). Bound to the
+        // PromptBar so the send button becomes a Stop button the user can click
+        // to cancel the prompt mid-reply.
+        private bool _isSending;
+        public bool IsSending { get => _isSending; set { _isSending = value; Raise(); } }
+
+        /// <summary>User clicked Stop — abort the streaming reply. The router's
+        /// RouteAsync then returns a "Cancelled." result which resolves the bubble;
+        /// IsSending clears in ResolveProposalAsync's finally.</summary>
+        public void CancelSend()
+        {
+            try { (Router as RevitChatRouter)?.CancelStream(); } catch { /* already done */ }
+        }
         public RelayCommand ChatRunCommand { get; }
         public RelayCommand ChatRegenerateCommand { get; }
         public RelayCommand ChatOpenEditorCommand { get; }
@@ -552,20 +568,28 @@ namespace RevitWebAppSync.UI.Copilot
                 var revitRouter = Router as RevitChatRouter;
                 if (revitRouter != null)
                 {
-                    revitRouter.OnCodeStream = (partial) =>
+                    // Live step trail in the thinking bubble (▶ running, ✓ done,
+                    // ✗ error) — backend-authored, BIMLogiq-style. Replaces the
+                    // old "Drafting…" code preview: the step trail is the progress
+                    // display now; the final reply lands in the answer bubble on
+                    // completion.
+                    revitRouter.OnProgress = (trail) =>
                     {
-                        var snippet = partial.Length > 200
-                            ? "Drafting…\n\n" + partial.Substring(0, 200) + "…"
-                            : "Drafting…\n\n" + partial;
                         ReplaceLastThinking(new ChatMessage
                         {
-                            Role = "ai", Kind = CpMsgKind.Thinking, Text = snippet,
+                            Role = "ai", Kind = CpMsgKind.Thinking,
+                            Text = string.IsNullOrEmpty(trail) ? "Thinking…" : trail,
                         });
                     };
                 }
+                IsSending = true;   // send button shows Stop until the reply resolves
                 try { rr = await Router.RouteAsync(text, fallbackToolId); }
                 catch { rr = null; }
-                if (revitRouter != null) revitRouter.OnCodeStream = null;
+                finally
+                {
+                    IsSending = false;
+                    if (revitRouter != null) revitRouter.OnProgress = null;
+                }
             }
 
 
@@ -590,6 +614,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
                     Text = !string.IsNullOrWhiteSpace(rr.Reply) ? rr.Reply : "Done.",
                     ToolCallTrace = rr.ToolCallTrace,
+                    Steps = rr.Steps,
                     Verdict = rr.Verdict,
                 });
                 if (rr.ToolCallTrace != null && rr.ToolCallTrace.Count > 0)

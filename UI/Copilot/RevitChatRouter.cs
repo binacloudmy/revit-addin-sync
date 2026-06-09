@@ -119,6 +119,17 @@ namespace RevitWebAppSync.UI.Copilot
             if (sink != null) { try { sink(""); } catch { /* UI hiccup */ } }
         }
 
+        // Close any phase rows still ▶ at successful completion, then snapshot the
+        // live trail into an immutable list for the final bubble (same rule as
+        // ToolLoopRunner). A finished run has no genuinely-running step.
+        private static List<ProgressStep> SnapshotTrail(
+            System.Collections.ObjectModel.ObservableCollection<ProgressStep> trail)
+        {
+            ProgressReducer.MoveStepToEnd(trail, "review");
+            ProgressReducer.CompleteRunning(trail);
+            return new List<ProgressStep>(trail);
+        }
+
         public async Task<RouteResult> RouteAsync(string message, string fallbackToolId)
         {
             // Phase timing — pinpoint where post-send wall-clock goes. Correlate
@@ -154,13 +165,29 @@ namespace RevitWebAppSync.UI.Copilot
                 // REAL tool actually executes in Revit — never a guessed phase.
                 EmitProgress("Thinking…");
 
-                ToolLoopOutcome outcome;
+                // Per-request CTS so the pane's Stop button can abort this tool
+                // reply mid-flight — CancelStream() trips this token (same gate the
+                // codegen path uses). Without this the tool path could not be
+                // cancelled until the reply finished.
+                CancellationTokenSource cts = new CancellationTokenSource();
+                lock (_cancelLock)
+                {
+                    try { _streamCts?.Dispose(); } catch { }
+                    _streamCts = cts;
+                }
+
+                ToolLoopOutcome outcome = null;
+                bool canceled = false;
                 try
                 {
                     // onProgress now receives ready-to-show labels (the streaming
                     // first turn pushes "Generating…" / "Running <tool>…" live).
                     outcome = await _toolLoop.RunAsync(
-                        treq, token, EmitProgress).ConfigureAwait(false);
+                        treq, token, EmitProgress, cts.Token).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    canceled = true;
                 }
                 catch (Exception ex)
                 {
@@ -168,8 +195,22 @@ namespace RevitWebAppSync.UI.Copilot
                 }
                 finally
                 {
+                    // The tool loop swallows the cancel internally and returns an
+                    // error outcome rather than throwing — so trust the TOKEN, not
+                    // the exception, to tell a user Stop from a real failure.
+                    if (cts.IsCancellationRequested) canceled = true;
                     ClearProgress();
+                    lock (_cancelLock)
+                    {
+                        if (ReferenceEquals(_streamCts, cts)) _streamCts = null;
+                    }
+                    try { cts.Dispose(); } catch { }
                 }
+
+                // User hit Stop — clean message, not the raw "tool/generate failed:
+                // The operation was canceled." internal error.
+                if (canceled)
+                    return new RouteResult { ToolId = "ai-generated", Reply = "Stopped.", IsQuery = true };
                 System.Diagnostics.Debug.WriteLine(
                     $"[BinaVibe][timing] tool-loop total={__swRoute.ElapsedMilliseconds}ms tools={string.Join(",", outcome.ToolsUsed)} ok={outcome.Success}");
                 return new RouteResult
@@ -184,6 +225,7 @@ namespace RevitWebAppSync.UI.Copilot
                         : (outcome.Success ? "Done." : (outcome.Error ?? "Tool run failed.")),
                     IsQuery = string.IsNullOrWhiteSpace(outcome.Code) || outcome.IsQuery,
                     ToolCallTrace = outcome.ToolsUsed.Count > 0 ? outcome.ToolsUsed : null,
+                    Steps = outcome.Steps,
                 };
             }
 
@@ -232,13 +274,21 @@ namespace RevitWebAppSync.UI.Copilot
                         AIResponse final = null;
                         var sb = new System.Text.StringBuilder();
                         var replySb = new System.Text.StringBuilder();
+                        // Live step trail (BIMLogiq-style): each status/tool event
+                        // is reduced into a step row and the whole trail is
+                        // re-rendered (▶ running, ✓ done, ✗ error) into the
+                        // thinking bubble. step_id pairs running->done onto one row.
+                        var trail = new System.Collections.ObjectModel.ObservableCollection<ProgressStep>();
                         await foreach (var chunk in _ai.GenerateCodeStreamAsync(req, token, cts.Token))
                         {
                             if (chunk.Kind == StreamChunkKind.Status || chunk.Kind == StreamChunkKind.Tool)
                             {
-                                // Live progress card: status line + spinner that
-                                // updates on each status/tool event.
-                                EmitProgress(chunk.StatusLabel);
+                                // Reduce into the trail and re-render. Absent fields
+                                // (un-upgraded backend) still render as a transient
+                                // line via the synthesized step_id + default state.
+                                ProgressReducer.Apply(trail, chunk.StepId, chunk.Phase,
+                                    chunk.StatusLabel, chunk.Detail, ProgressTrail.StateFrom(chunk.State));
+                                EmitProgress(ProgressTrail.Render(trail));
                             }
                             else if (chunk.Kind == StreamChunkKind.Reply)
                             {
@@ -287,6 +337,9 @@ namespace RevitWebAppSync.UI.Copilot
                                 PlanSteps = hasCode ? new List<string> { "Generated via bina-ai (streaming)" } : null,
                                 IsQuery = final.IsQuery,
                                 Verdict = final.ReviewerVerdict,
+                                // Close any phase rows still ▶ at successful
+                                // completion so the persisted trail shows all ✓.
+                                Steps = SnapshotTrail(trail),
                             };
                         }
                     }
@@ -296,7 +349,7 @@ namespace RevitWebAppSync.UI.Copilot
                         // instead of degrading to a one-shot retry (which would
                         // ignore the cancel and keep the model spinning).
                         ClearProgress();
-                        return new RouteResult { ToolId = "ai-generated", Reply = "Cancelled." };
+                        return new RouteResult { ToolId = "ai-generated", Reply = "Stopped." };
                     }
                     catch
                     {

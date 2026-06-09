@@ -14,6 +14,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Reply;             // optional natural-language reply
         public bool IsQuery;             // pure read+report — auto-run, render as chat text not card
         public List<string> ToolCallTrace;  // tool names called by the agent (in order). Renders as a faint trace under the reply.
+        public IReadOnlyList<ProgressStep> Steps;  // full phased trail (phases + tools); preferred over ToolCallTrace when present
         public RevitWebAppSync.Models.ReviewerVerdict Verdict;
     }
 

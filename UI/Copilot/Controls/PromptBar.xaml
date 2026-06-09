@@ -12,17 +12,19 @@
                             Padding="6,2" Margin="6,0,6,0" VerticalAlignment="Center">
                         <TextBlock Text="AI" FontSize="10" Foreground="{DynamicResource Cp.Purple}"/>
                     </Border>
-                    <!-- send -->
+                    <!-- send / stop (icon swaps to a stop square while a reply streams) -->
                     <Button x:Name="SendBtn" DockPanel.Dock="Right" Width="26" Height="26" Cursor="Hand"
-                            Background="{DynamicResource Cp.Ink}" BorderThickness="0" VerticalAlignment="Center">
+                            Background="{DynamicResource Cp.Ink}" BorderThickness="0" VerticalAlignment="Center"
+                            ToolTip="Send">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" CornerRadius="6">
-                                    <Path Width="11" Height="11" Stretch="Uniform" Fill="White"
-                                          Data="M6,4 l14,8 -14,8 V4 z"/>
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                             </ControlTemplate>
                         </Button.Template>
+                        <Path x:Name="SendIcon" Width="11" Height="11" Stretch="Uniform" Fill="White"
+                              Data="M6,4 l14,8 -14,8 V4 z"/>
                     </Button>
                     <ctl:MentionInput x:Name="Input" VerticalAlignment="Center"/>
                 </DockPanel>

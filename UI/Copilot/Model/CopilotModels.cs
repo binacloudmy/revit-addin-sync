@@ -137,6 +137,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Code;          // proposal — generated C# (backend or catalog sample)
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English
         public List<string> ToolCallTrace; // tool-calling agent: ordered tool names called
+        public IReadOnlyList<ProgressStep> Steps; // full phased trail; ChatView prefers this over ToolCallTrace
         public RevitWebAppSync.Models.ReviewerVerdict Verdict; // attached to AiReply messages
     }
 
