@@ -25,9 +25,7 @@ namespace RevitWebAppSync
         public string AIBaseUrl { get; set; }
         public string ApiBaseUrl { get; set; }
 
-        // TEST ONLY — points at the dev Mac's tunnel (bina-ai feat/copilot-image-input).
-        // REVERT to the SV tunnel (michelina-extrajudicial-logily) before PR.
-        public const string DEFAULT_AI_BASE_URL = "https://gastrodermal-ace-overvaliantly.ngrok-free.dev";
+        public const string DEFAULT_AI_BASE_URL = "https://michelina-extrajudicial-logily.ngrok-free.dev";
         public const string DEFAULT_API_BASE_URL = "https://6d9e82978eba.ngrok-free.app";
 
         [JsonIgnore]
