@@ -68,6 +68,11 @@ namespace RevitWebAppSync.UI.Copilot
         /// so the existing "Drafting…" card still updates.</summary>
         public Action<string> OnProgress { get; set; }
 
+        /// <summary>Screenshots pasted with the NEXT prompt (base64 PNG). Set by
+        /// the viewmodel right before RouteAsync, consumed and cleared by the
+        /// route that builds the request — same per-call pattern as OnProgress.</summary>
+        public List<string> PendingImages { get; set; }
+
         // Drives Cancel — set per stream so the pane's Cancel button can abort
         // the in-flight HttpClient request (CancelStream() trips this token,
         // which unwinds GenerateCodeStreamAsync's reader and disposes the
@@ -146,6 +151,11 @@ namespace RevitWebAppSync.UI.Copilot
                 $"[BinaVibe][timing] BuildContext={__swCtx.ElapsedMilliseconds}ms (UI thread) views={ctx?.Views?.Count ?? 0} levels={ctx?.Levels?.Count ?? 0}");
             int? userId = (cfg?.UserId ?? 0) > 0 ? (int?)cfg.UserId : null;
 
+            // Consume any screenshots pasted with this prompt (cleared so they
+            // never leak into the next route).
+            var images = PendingImages;
+            PendingImages = null;
+
             // ─── Tunnel-free tool-calling path (opt-in: BINA_VIBE_TOOL_HTTP=1) ──
             // The agent calls vetted MUTATE tools that the addin runs in real
             // Revit via /tool/generate ↔ /tool/resume. No codegen, no tunnel.
@@ -154,6 +164,7 @@ namespace RevitWebAppSync.UI.Copilot
                 var treq = new AIRequest
                 {
                     Prompt = message, Context = ctx, UserId = userId, SessionId = _sessionId,
+                    Images = images,
                 };
 
                 // Live progress — HONEST, event-driven (no fake timer rotation).
@@ -251,6 +262,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Context = ctx,
                     UserId = userId,
                     SessionId = _sessionId,
+                    Images = images,
                 };
 
                 // Streaming path — preferred. Chunks arrive in <1s even

@@ -80,15 +80,30 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 string initial = !string.IsNullOrEmpty(Vm?.UserFirstName) ? Vm.UserFirstName.Substring(0, 1).ToUpperInvariant() : "?";
                 av.Child = new TextBlock { Text = initial, FontSize = 9, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#374151"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
                 var bubble = new Border { Background = CopilotColors.From("#f1f3f5"), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 8, 12, 8) };
+                var bubbleStack = new StackPanel();
+                // Screenshots pasted with this prompt render above the text.
+                if (m.ImagesBase64 != null)
+                    foreach (var b64 in m.ImagesBase64)
+                    {
+                        var src = ImageFromBase64(b64);
+                        if (src == null) continue;
+                        bubbleStack.Children.Add(new Border
+                        {
+                            CornerRadius = new CornerRadius(6), ClipToBounds = true,
+                            MaxWidth = 220, Margin = new Thickness(0, 0, 0, 6),
+                            Child = new Image { Source = src, Stretch = Stretch.Uniform, MaxHeight = 140 },
+                        });
+                    }
                 // Selectable read-only TextBox (a WPF TextBlock cannot be selected/
                 // copied) — styled to look identical to the old TextBlock.
-                bubble.Child = new TextBox
+                bubbleStack.Children.Add(new TextBox
                 {
                     Text = m.Text, FontSize = 13, Foreground = CopilotColors.From("#0b0d12"),
                     TextWrapping = TextWrapping.Wrap, IsReadOnly = true,
                     BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent,
                     Padding = new Thickness(0), IsTabStop = false,
-                };
+                });
+                bubble.Child = bubbleStack;
                 AttachCopyMenu(bubble, m.Text);
                 row.Children.Add(av); row.Children.Add(bubble);
                 if (!string.IsNullOrEmpty(m.Text))
@@ -631,6 +646,27 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 t.Start();
             };
             return btn;
+        }
+
+        /// <summary>Decode a base64 PNG (a pasted screenshot) into a frozen
+        /// BitmapImage for the chat thumbnail. Null on bad input.</summary>
+        private static System.Windows.Media.Imaging.BitmapImage ImageFromBase64(string b64)
+        {
+            try
+            {
+                var bytes = System.Convert.FromBase64String(b64);
+                var img = new System.Windows.Media.Imaging.BitmapImage();
+                using (var ms = new System.IO.MemoryStream(bytes))
+                {
+                    img.BeginInit();
+                    img.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    img.StreamSource = ms;
+                    img.EndInit();
+                }
+                img.Freeze();
+                return img;
+            }
+            catch { return null; }
         }
 
         // Keeps the chat quiet: the affordance only appears while the pointer is

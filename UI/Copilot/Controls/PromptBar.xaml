@@ -5,6 +5,8 @@
              FontFamily="{DynamicResource Cp.Font}">
     <Border BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,1,0,0" Background="White" Padding="12">
         <StackPanel>
+            <!-- pending pasted screenshots (thumbnail chips with an × to remove) -->
+            <StackPanel x:Name="ThumbStrip" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,8"/>
             <Border BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1" CornerRadius="12" Padding="12,8,10,8">
                 <DockPanel LastChildFill="True">
                     <!-- AI pill -->

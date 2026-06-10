@@ -35,9 +35,107 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 // Enter while a reply streams must not queue another prompt.
                 if (Busy) return;
-                if (SubmitCommand != null && SubmitCommand.CanExecute(text))
-                    SubmitCommand.Execute(text);
+                // With screenshots attached, submit a composed payload (text +
+                // base64 PNGs) and clear the strip; plain text otherwise so the
+                // other PromptBar hosts (Result/Library follow-ups) see no change.
+                object payload = text;
+                if (_images.Count > 0)
+                {
+                    var encoded = new System.Collections.Generic.List<string>();
+                    foreach (var img in _images)
+                    {
+                        var b64 = EncodePng(img);
+                        if (!string.IsNullOrEmpty(b64)) encoded.Add(b64);
+                    }
+                    if (encoded.Count > 0)
+                        payload = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, ImagesBase64 = encoded };
+                    _images.Clear();
+                    RebuildThumbStrip();
+                }
+                if (SubmitCommand != null && SubmitCommand.CanExecute(payload))
+                    SubmitCommand.Execute(payload);
             };
+            Input.ImagePasted += AddImage;
+        }
+
+        // ─── Pasted screenshots (pending, sent with the next prompt) ─────────
+        private const int MaxImages = 3;
+        // Cap the long edge before base64-encoding: keeps the JSON payload sane
+        // while leaving plenty of resolution for the model to read a screenshot.
+        private const int MaxImageDim = 1568;
+        private readonly System.Collections.Generic.List<System.Windows.Media.Imaging.BitmapSource> _images
+            = new System.Collections.Generic.List<System.Windows.Media.Imaging.BitmapSource>();
+
+        private void AddImage(System.Windows.Media.Imaging.BitmapSource img)
+        {
+            if (img == null || _images.Count >= MaxImages) return;
+            _images.Add(img);
+            RebuildThumbStrip();
+        }
+
+        private void RemoveImage(System.Windows.Media.Imaging.BitmapSource img)
+        {
+            _images.Remove(img);
+            RebuildThumbStrip();
+        }
+
+        private void RebuildThumbStrip()
+        {
+            ThumbStrip.Children.Clear();
+            ThumbStrip.Visibility = _images.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var img in _images)
+            {
+                var chip = new Grid { Margin = new Thickness(0, 0, 6, 0) };
+                var frame = new Border
+                {
+                    Width = 56, Height = 56, CornerRadius = new CornerRadius(8),
+                    BorderThickness = new Thickness(1),
+                    BorderBrush = (Brush)FindResource("Cp.Line"),
+                    ClipToBounds = true,
+                };
+                frame.Child = new Image { Source = img, Stretch = Stretch.UniformToFill };
+                chip.Children.Add(frame);
+
+                var close = new Button
+                {
+                    Content = "✕", FontSize = 8, Width = 16, Height = 16, Cursor = Cursors.Hand,
+                    HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new Thickness(0, -4, -4, 0), Padding = new Thickness(0),
+                    Background = Brushes.White, BorderThickness = new Thickness(1),
+                    BorderBrush = (Brush)FindResource("Cp.Line"), IsTabStop = false,
+                    ToolTip = "Remove screenshot",
+                };
+                var captured = img;
+                close.Click += (_, __) => RemoveImage(captured);
+                chip.Children.Add(close);
+                ThumbStrip.Children.Add(chip);
+            }
+        }
+
+        /// <summary>PNG-encode a pasted bitmap as base64, downscaling so the long
+        /// edge ≤ MaxImageDim (screenshots from 4K monitors would otherwise bloat
+        /// the request body). Returns null on encode failure.</summary>
+        private static string EncodePng(System.Windows.Media.Imaging.BitmapSource src)
+        {
+            try
+            {
+                System.Windows.Media.Imaging.BitmapSource frame = src;
+                double longEdge = System.Math.Max(src.PixelWidth, src.PixelHeight);
+                if (longEdge > MaxImageDim)
+                {
+                    double scale = MaxImageDim / longEdge;
+                    frame = new System.Windows.Media.Imaging.TransformedBitmap(
+                        src, new ScaleTransform(scale, scale));
+                }
+                var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(frame));
+                using (var ms = new System.IO.MemoryStream())
+                {
+                    enc.Save(ms);
+                    return System.Convert.ToBase64String(ms.ToArray());
+                }
+            }
+            catch { return null; }
         }
 
         public static readonly DependencyProperty SubmitCommandProperty = DependencyProperty.Register(

@@ -25,6 +25,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Raised on Enter — composed text + parsed mentions.</summary>
         public event Action<string, List<Mention>> Submitted;
 
+        /// <summary>Raised when the user pastes an image (e.g. a screenshot) into
+        /// the editor. The PromptBar shows it as a pending thumbnail and sends it
+        /// with the next prompt. Text pastes are unaffected.</summary>
+        public event Action<System.Windows.Media.Imaging.BitmapSource> ImagePasted;
+
         private int _atIndex = -1;
 
         public MentionInput()
@@ -32,7 +37,23 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             InitializeComponent();
             Editor.TextChanged += OnTextChanged;
             Editor.PreviewKeyDown += OnPreviewKeyDown;
+            DataObject.AddPastingHandler(Editor, OnPaste);
             Loaded += (_, __) => UpdatePlaceholder();
+        }
+
+        private void OnPaste(object sender, DataObjectPastingEventArgs e)
+        {
+            try
+            {
+                // Image on the clipboard (screenshot / snip) → intercept; let
+                // plain text fall through to the normal TextBox paste.
+                if (!e.DataObject.GetDataPresent(DataFormats.Bitmap)) return;
+                var img = Clipboard.GetImage();
+                if (img == null) return;
+                e.CancelCommand();
+                ImagePasted?.Invoke(img);
+            }
+            catch { /* clipboard access can fail transiently inside Revit — ignore */ }
         }
 
         public static readonly DependencyProperty PlaceholderTextProperty = DependencyProperty.Register(
