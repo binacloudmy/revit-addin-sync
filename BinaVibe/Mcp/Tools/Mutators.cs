@@ -193,6 +193,91 @@ namespace BinaVibe.Mcp.Tools
             return true;
         }
 
+        private static XYZ BBoxCenter(Element e)
+        {
+            var bb = e.get_BoundingBox(null);
+            if (bb != null) return (bb.Min + bb.Max) * 0.5;
+            return (e.Location as LocationPoint)?.Point ?? XYZ.Zero;
+        }
+
+        private static string Fmt(XYZ p) =>
+            p == null ? "null" : $"({p.X:F2},{p.Y:F2},{p.Z:F2})";
+
+        // ─── replace_with_reference ──────────────────────────────────────────
+        // Clone a user-selected REFERENCE instance 1:1 onto each target's
+        // location, then delete the targets. The clone INHERITS the reference's
+        // exact type, vertical offset and orientation ("follow this format") —
+        // no origin math, no re-placement, which is why this is reliable where
+        // NewFamilyInstance/ChangeTypeId misalign (different family origins,
+        // e.g. tandas duduk's origin sits off the visible pan). Position comes
+        // from each target's VISIBLE (bbox) centre; a target facing the opposite
+        // way gets the clone rotated 180°.
+        public static Dictionary<string, object?> ReplaceWithReference(Document doc, JsonElement args)
+        {
+            var refId = ArgsHelp.GetLong(args, "reference_id") ?? throw new ArgumentException("missing reference_id");
+            var targetIds = ArgsHelp.GetLongList(args, "target_ids");
+            var reference = doc.GetElement(new ElementId(refId)) as FamilyInstance
+                ?? throw new ArgumentException($"reference {refId} is not a family instance");
+
+            XYZ refCenter = BBoxCenter(reference);
+            XYZ refFacing = reference.FacingOrientation;
+
+            int replaced = 0;
+            var failures = new List<object>();
+            var dbg = new List<object>();
+
+            using var tx = new Transaction(doc, $"BinaVibe: replace_with_reference ({targetIds.Count})");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var tid in targetIds)
+                {
+                    try
+                    {
+                        if (tid == refId) continue;  // never replace the reference itself
+                        var target = doc.GetElement(new ElementId(tid)) as FamilyInstance;
+                        if (target == null) { failures.Add(new { id = tid, error = "not a family instance" }); continue; }
+
+                        XYZ tgtCenter = BBoxCenter(target);
+                        // XY-only shift: the clone keeps the reference's correct
+                        // vertical; we only match the target's plan position.
+                        XYZ shift = new XYZ(tgtCenter.X - refCenter.X, tgtCenter.Y - refCenter.Y, 0);
+
+                        var copied = ElementTransformUtils.CopyElement(doc, reference.Id, shift);
+                        doc.Regenerate();
+                        var clone = copied.Count > 0 ? doc.GetElement(copied.First()) as FamilyInstance : null;
+
+                        // Flip 180° if the target faces the opposite way.
+                        if (clone != null && target.FacingOrientation.DotProduct(refFacing) < 0)
+                        {
+                            XYZ c = BBoxCenter(clone);
+                            ElementTransformUtils.RotateElement(
+                                doc, clone.Id, Line.CreateBound(c, c + XYZ.BasisZ), Math.PI);
+                            doc.Regenerate();
+                        }
+
+                        doc.Delete(target.Id);
+                        replaced++;
+                        dbg.Add(new { target = tid, refCenter = Fmt(refCenter), tgtCenter = Fmt(tgtCenter), shift = Fmt(shift) });
+                    }
+                    catch (Exception ex)
+                    {
+                        failures.Add(new { id = tid, error = ex.Message });
+                    }
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["replaced"] = replaced,
+                ["failures"] = failures,
+                ["debug"] = dbg,
+            };
+        }
+
         // ─── delete_elements ────────────────────────────────────────────
         public static Dictionary<string, object?> DeleteElements(Document doc, JsonElement args)
         {
