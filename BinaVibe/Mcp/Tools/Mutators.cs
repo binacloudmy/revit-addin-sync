@@ -220,6 +220,7 @@ namespace BinaVibe.Mcp.Tools
                 ?? throw new ArgumentException($"reference {refId} is not a family instance");
 
             XYZ refCenter = BBoxCenter(reference);
+            XYZ refLoc = (reference.Location as LocationPoint)?.Point ?? refCenter;
             XYZ refFacing = reference.FacingOrientation;
 
             int replaced = 0;
@@ -239,9 +240,14 @@ namespace BinaVibe.Mcp.Tools
                         if (target == null) { failures.Add(new { id = tid, error = "not a family instance" }); continue; }
 
                         XYZ tgtCenter = BBoxCenter(target);
-                        // XY-only shift: the clone keeps the reference's correct
-                        // vertical; we only match the target's plan position.
-                        XYZ shift = new XYZ(tgtCenter.X - refCenter.X, tgtCenter.Y - refCenter.Y, 0);
+                        XYZ tgtLoc = (target.Location as LocationPoint)?.Point ?? tgtCenter;
+                        // Align by INSERTION POINT (LocationPoint), NOT bbox-centre.
+                        // The two families have different footprints, so aligning
+                        // bbox-centres leaves a constant offset (the squat pan vs
+                        // sitting WC footprint diff). Both families insert at the
+                        // same stall anchor, so insertion-point alignment is 1:1.
+                        // XY only — the clone keeps the reference's correct vertical.
+                        XYZ shift = new XYZ(tgtLoc.X - refLoc.X, tgtLoc.Y - refLoc.Y, 0);
 
                         var copied = ElementTransformUtils.CopyElement(doc, reference.Id, shift);
                         doc.Regenerate();
@@ -258,7 +264,13 @@ namespace BinaVibe.Mcp.Tools
 
                         doc.Delete(target.Id);
                         replaced++;
-                        dbg.Add(new { target = tid, refCenter = Fmt(refCenter), tgtCenter = Fmt(tgtCenter), shift = Fmt(shift) });
+                        dbg.Add(new
+                        {
+                            target = tid,
+                            refLoc = Fmt(refLoc), tgtLoc = Fmt(tgtLoc),
+                            refCenter = Fmt(refCenter), tgtCenter = Fmt(tgtCenter),
+                            shift = Fmt(shift),
+                        });
                     }
                     catch (Exception ex)
                     {
