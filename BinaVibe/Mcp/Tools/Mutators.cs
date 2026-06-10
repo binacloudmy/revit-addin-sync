@@ -122,7 +122,14 @@ namespace BinaVibe.Mcp.Tools
             TxGuard.StartSwallowing(tx);
             try
             {
-                el.ChangeTypeId(newType.Id);
+                // Cross-family (different Family) → ChangeTypeId would keep the
+                // source's origin + "Offset from Host", misaligning the result.
+                // Place a fresh instance preserving placement, then delete.
+                if (el is FamilyInstance fiX && newType is FamilySymbol symX
+                    && fiX.Symbol.Family.Id != symX.Family.Id)
+                    ReplaceCrossFamily(doc, fiX, symX);
+                else
+                    el.ChangeTypeId(newType.Id);
                 tx.Commit();
             }
             catch { tx.RollBack(); throw; }
@@ -133,6 +140,57 @@ namespace BinaVibe.Mcp.Tools
                 ["element_id"] = id,
                 ["new_type"] = typeName,
             };
+        }
+
+        // ─── cross-family replace (place + delete, preserve placement) ───────
+        // ChangeTypeId across families keeps the source's origin + vertical
+        // offset (e.g. tandas cangkung 1231.5mm), so the replacement lands
+        // misaligned / at the wrong height. Instead place a FRESH target
+        // instance at the source's plan point + facing + level, take the TARGET
+        // family's own vertical (matched from an existing sibling, never copied
+        // from the source), then delete the source. Caller must wrap in a
+        // Transaction. Returns false if the source has no usable location point.
+        private static bool ReplaceCrossFamily(Document doc, FamilyInstance src, FamilySymbol sym)
+        {
+            if (!(src.Location is LocationPoint lp)) return false;
+            if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
+
+            XYZ pt = lp.Point;
+            Level level = doc.GetElement(src.LevelId) as Level;
+            XYZ srcFacing = src.FacingOrientation;
+            bool flipped = src.HandFlipped;
+
+            var nw = level != null
+                ? doc.Create.NewFamilyInstance(pt, sym, level, Autodesk.Revit.DB.Structure.StructuralType.NonStructural)
+                : doc.Create.NewFamilyInstance(pt, sym, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+            doc.Regenerate();
+
+            // Match facing (rotate about the location's Z axis).
+            double ang = srcFacing.AngleTo(nw.FacingOrientation);
+            if (ang > 1e-9)
+            {
+                XYZ cross = nw.FacingOrientation.CrossProduct(srcFacing);
+                if (cross.Z < 0) ang = -ang;
+                ElementTransformUtils.RotateElement(
+                    doc, nw.Id, Line.CreateBound(pt, pt + XYZ.BasisZ), ang);
+            }
+            if (flipped && nw.CanFlipHand) nw.flipHand();
+
+            // Vertical: match an existing instance of the TARGET family (its own
+            // convention) — NEVER copy the source's offset. Leave default if none.
+            var sibling = new FilteredElementCollector(doc).OfClass(typeof(FamilyInstance))
+                .Cast<FamilyInstance>()
+                .FirstOrDefault(x => x.Symbol.Family.Id == sym.Family.Id && x.Id != nw.Id);
+            if (sibling != null)
+            {
+                var sp = sibling.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM);
+                var np = nw.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM);
+                if (sp != null && np != null && !np.IsReadOnly && sp.StorageType == StorageType.Double)
+                    np.Set(sp.AsDouble());
+            }
+
+            doc.Delete(src.Id);
+            return true;
         }
 
         // ─── delete_elements ────────────────────────────────────────────
@@ -748,6 +806,16 @@ namespace BinaVibe.Mcp.Tools
                     {
                         var el = doc.GetElement(new ElementId(id));
                         if (el == null) continue;
+                        // Cross-family → place + delete (preserve placement).
+                        // ChangeTypeId across families misaligns (keeps source
+                        // origin/offset).
+                        if (el is FamilyInstance fiX && newType is FamilySymbol symX
+                            && fiX.Symbol.Family.Id != symX.Family.Id)
+                        {
+                            if (ReplaceCrossFamily(doc, fiX, symX)) swapped++;
+                            else failures.Add(new { id, error = "cross-family replace failed (no location point)" });
+                            continue;
+                        }
                         el.ChangeTypeId(newType.Id);
                         swapped++;
                     }
