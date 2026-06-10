@@ -110,7 +110,46 @@ namespace RevitWebAppSync.Services
         /// unchanged. Falls back cleanly to an error ToolTurn on transport issues.</summary>
         public async Task<ToolTurn> GenerateStreamAsync(
             AIRequest request, string accessToken, Action<string> onProgress,
-            ObservableCollection<ProgressStep> trail = null, CancellationToken ct = default)
+            ObservableCollection<ProgressStep> trail = null, CancellationToken ct = default,
+            Action<string> onReply = null)
+        {
+            var bodyJson = Newtonsoft.Json.JsonConvert.SerializeObject(request);
+            return await StreamTurnAsync(
+                AiUrl.Build(_baseUrl, "tool/generate/stream"),
+                bodyJson, accessToken, onProgress, trail, onReply, ct).ConfigureAwait(false);
+        }
+
+        /// <summary>RESUME a paused run over SSE — the resume leg is where the
+        /// model decodes its (often longest) final answer, and the blocking
+        /// /tool/resume left the user staring at a frozen trail for 7-15s.
+        /// Streams the same event shapes as the generate stream (tool rows tick,
+        /// reply text arrives live via <paramref name="onReply"/>). Falls back
+        /// to the blocking /tool/resume automatically when the backend doesn't
+        /// have the /stream twin yet (404), so the loop works on every backend.</summary>
+        public async Task<ToolTurn> ResumeStreamAsync(
+            string runId, string sessionId, IReadOnlyList<ToolResultDto> results,
+            string accessToken, Action<string> onProgress,
+            ObservableCollection<ProgressStep> trail = null,
+            Action<string> onReply = null, CancellationToken ct = default)
+        {
+            var body = new ToolResumeBody { RunId = runId, SessionId = sessionId, ToolResults = results };
+            var bodyJson = JsonSerializer.Serialize(body, _json);
+            var turn = await StreamTurnAsync(
+                AiUrl.Build(_baseUrl, "tool/resume/stream"),
+                bodyJson, accessToken, onProgress, trail, onReply, ct).ConfigureAwait(false);
+            // Older backend without the streaming twin → transparent fallback.
+            if (turn != null && turn.Status == "error" && (turn.Error ?? "").StartsWith("HTTP 404"))
+                return await ResumeAsync(runId, sessionId, results, accessToken, ct).ConfigureAwait(false);
+            return turn;
+        }
+
+        // Shared SSE turn driver for generate/stream and resume/stream — POSTs
+        // the body, reads server-sent events incrementally, reduces tool/status
+        // events into the live trail, surfaces reply_partial text through
+        // onReply (cumulative), and returns the terminal ToolTurn.
+        private async Task<ToolTurn> StreamTurnAsync(
+            string url, string bodyJson, string accessToken, Action<string> onProgress,
+            ObservableCollection<ProgressStep> trail, Action<string> onReply, CancellationToken ct)
         {
             // Accumulate phase/tool events into a step trail (BIMLogiq-style)
             // and push the rendered trail through onProgress, instead of a
@@ -118,8 +157,7 @@ namespace RevitWebAppSync.Services
             // execution rounds tick the SAME trail. Self-owns one if the caller
             // didn't pass it (keeps the method usable standalone).
             trail ??= new ObservableCollection<ProgressStep>();
-            var bodyJson = Newtonsoft.Json.JsonConvert.SerializeObject(request);
-            using var req = new HttpRequestMessage(HttpMethod.Post, AiUrl.Build(_baseUrl, "tool/generate/stream"))
+            using var req = new HttpRequestMessage(HttpMethod.Post, url)
             {
                 Content = new StringContent(bodyJson, Encoding.UTF8, "application/json"),
             };
@@ -147,6 +185,7 @@ namespace RevitWebAppSync.Services
                 using var reader = new StreamReader(stream, Encoding.UTF8);
                 string ev = null;
                 var data = new StringBuilder();
+                var replySb = new StringBuilder();
                 ToolTurn final = null;
                 // Flush a buffered event whenever a boundary is reached. We treat
                 // BOTH a blank line AND the start of the next `event:` as a
@@ -157,7 +196,7 @@ namespace RevitWebAppSync.Services
                 void Flush()
                 {
                     if (ev != null && data.Length > 0)
-                        final = HandleStreamEvent(ev, data.ToString(), onProgress, trail) ?? final;
+                        final = HandleStreamEvent(ev, data.ToString(), onProgress, trail, onReply, replySb) ?? final;
                     data.Clear();
                 }
                 while (!reader.EndOfStream)
@@ -188,10 +227,27 @@ namespace RevitWebAppSync.Services
         // done/awaiting_revit deserialize to the terminal ToolTurn; error becomes
         // an error ToolTurn.
         private ToolTurn HandleStreamEvent(string ev, string raw, Action<string> onProgress,
-            ObservableCollection<ProgressStep> trail)
+            ObservableCollection<ProgressStep> trail, Action<string> onReply, StringBuilder replySb)
         {
             switch (ev)
             {
+                case "reply_partial":
+                    // Live answer text — the backend streams the model's reply
+                    // token-by-token. Push the CUMULATIVE text (same contract as
+                    // the codegen path's OnCodeStream) so the pane renders a
+                    // growing bubble instead of waiting out the full decode.
+                    try
+                    {
+                        using var d = JsonDocument.Parse(ExtractLastJsonObject(raw));
+                        var delta = GetStr(d.RootElement, "delta");
+                        if (!string.IsNullOrEmpty(delta) && replySb != null)
+                        {
+                            replySb.Append(delta);
+                            try { onReply?.Invoke(replySb.ToString()); } catch { /* UI hiccup */ }
+                        }
+                    }
+                    catch { }
+                    return null;
                 case "tool":
                     try
                     {

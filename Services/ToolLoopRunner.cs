@@ -59,7 +59,7 @@ namespace RevitWebAppSync.Services
         // through it, and each pending Revit execution pushes its own.
         public async Task<ToolLoopOutcome> RunAsync(
             AIRequest request, string accessToken, Action<string> onProgress = null,
-            CancellationToken ct = default)
+            CancellationToken ct = default, Action<string> onReply = null)
         {
             var outcome = new ToolLoopOutcome();
 
@@ -77,7 +77,7 @@ namespace RevitWebAppSync.Services
                 // Stream the first turn so the agent's steps appear live instead
                 // of a static "Thinking…". Returns the same ToolTurn (done OR
                 // awaiting_revit) the non-streaming path did.
-                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct).ConfigureAwait(false);
+                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct, onReply).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
@@ -143,7 +143,12 @@ namespace RevitWebAppSync.Services
 
                 try
                 {
-                    turn = await _svc.ResumeAsync(turn.RunId, turn.SessionId ?? request?.SessionId, results, accessToken, ct)
+                    // Streamed resume: the agent's post-execution answer (often the
+                    // longest decode of the loop) now ticks tool rows and streams
+                    // reply text live instead of a blocking 7-15s POST. Falls back
+                    // to the blocking endpoint on older backends (404) internally.
+                    turn = await _svc.ResumeStreamAsync(turn.RunId, turn.SessionId ?? request?.SessionId, results,
+                                                        accessToken, onProgress, trail, onReply, ct)
                                      .ConfigureAwait(false);
                 }
                 catch (Exception ex)

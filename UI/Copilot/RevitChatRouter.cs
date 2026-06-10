@@ -182,8 +182,14 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     // onProgress now receives ready-to-show labels (the streaming
                     // first turn pushes "Generating…" / "Running <tool>…" live).
+                    // onReply receives the CUMULATIVE answer text as the model
+                    // decodes it — surfaced through OnCodeStream so the pane can
+                    // render the reply growing live (same hook the codegen
+                    // streaming path uses).
                     outcome = await _toolLoop.RunAsync(
-                        treq, token, EmitProgress, cts.Token).ConfigureAwait(false);
+                        treq, token, EmitProgress, cts.Token,
+                        onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } }
+                        ).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
                 {

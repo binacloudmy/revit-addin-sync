@@ -573,12 +573,27 @@ namespace RevitWebAppSync.UI.Copilot
                     // old "Drafting…" code preview: the step trail is the progress
                     // display now; the final reply lands in the answer bubble on
                     // completion.
+                    // Once answer TEXT starts streaming (OnCodeStream), the reply
+                    // takes over the bubble — late trail re-renders (review ticks,
+                    // resume rounds) must not stomp the text the user is reading.
+                    bool replyStreaming = false;
                     revitRouter.OnProgress = (trail) =>
                     {
+                        if (replyStreaming) return;
                         ReplaceLastThinking(new ChatMessage
                         {
                             Role = "ai", Kind = CpMsgKind.Thinking,
                             Text = string.IsNullOrEmpty(trail) ? "Thinking…" : trail,
+                        });
+                    };
+                    revitRouter.OnCodeStream = (cumulative) =>
+                    {
+                        if (string.IsNullOrWhiteSpace(cumulative)) return;
+                        replyStreaming = true;
+                        ReplaceLastThinking(new ChatMessage
+                        {
+                            Role = "ai", Kind = CpMsgKind.Thinking,
+                            Text = cumulative,
                         });
                     };
                 }
@@ -588,7 +603,11 @@ namespace RevitWebAppSync.UI.Copilot
                 finally
                 {
                     IsSending = false;
-                    if (revitRouter != null) revitRouter.OnProgress = null;
+                    if (revitRouter != null)
+                    {
+                        revitRouter.OnProgress = null;
+                        revitRouter.OnCodeStream = null;
+                    }
                 }
             }
 
