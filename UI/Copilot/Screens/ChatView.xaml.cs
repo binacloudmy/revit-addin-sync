@@ -38,6 +38,29 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             InitializeComponent();
             DataContextChanged += (_, __) => Hook();
             Loaded += (_, __) => Rebuild();
+            // Re-flow bubbles when the PANE is resized (docked narrow ↔ pulled
+            // wide) so message width tracks the panel instead of staying at the
+            // narrow default. Delta-guarded: rebuilding on every pixel would
+            // churn during a drag.
+            SizeChanged += (_, e) =>
+            {
+                if (System.Math.Abs(e.NewSize.Width - _lastLayoutWidth) < 24) return;
+                _lastLayoutWidth = e.NewSize.Width;
+                Rebuild();
+            };
+        }
+
+        private double _lastLayoutWidth;
+
+        /// <summary>Message column width: ~85% of the visible chat area (minus
+        /// the avatar gutter), so wide panes get wide bubbles/tables instead of
+        /// a fixed 360px strip. Falls back to the narrow default pre-layout.</summary>
+        private double BubbleMaxWidth()
+        {
+            double w = BodyHost != null && BodyHost.ActualWidth > 0 ? BodyHost.ActualWidth
+                     : (Scroller != null ? Scroller.ActualWidth : 0);
+            if (w <= 0) return 360;
+            return System.Math.Max(320, w * 0.85 - 44);
         }
 
         private void Hook()
@@ -79,7 +102,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 var av = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = CopilotColors.From("#e5e7eb"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 0, 10, 0) };
                 string initial = !string.IsNullOrEmpty(Vm?.UserFirstName) ? Vm.UserFirstName.Substring(0, 1).ToUpperInvariant() : "?";
                 av.Child = new TextBlock { Text = initial, FontSize = 9, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#374151"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                var bubble = new Border { Background = CopilotColors.From("#f1f3f5"), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 8, 12, 8) };
+                var bubble = new Border { Background = CopilotColors.From("#f1f3f5"), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 8, 12, 8), MaxWidth = BubbleMaxWidth() };
                 var bubbleStack = new StackPanel();
                 // Screenshots pasted with this prompt render above the text.
                 if (m.ImagesBase64 != null)
@@ -115,7 +138,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var aiRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
             aiRow.Children.Add(BotAvatar());
             var col = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
-            col.MaxWidth = 360;
+            col.MaxWidth = BubbleMaxWidth();
 
             // Claude-style: show the tools the agent ran FIRST (a compact steps
             // panel with check glyphs), then the final answer below it.
