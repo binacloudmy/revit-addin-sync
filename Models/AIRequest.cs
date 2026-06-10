@@ -19,6 +19,11 @@ namespace RevitWebAppSync.Models
 
         [JsonProperty("templateId")]
         public string TemplateId { get; set; }
+
+        /// <summary>Screenshots pasted with the prompt (base64 PNG). Omitted from
+        /// the JSON when null so un-upgraded backends see an unchanged body.</summary>
+        [JsonProperty("images", NullValueHandling = NullValueHandling.Ignore)]
+        public List<string> Images { get; set; }
     }
 
     public class ModelContext

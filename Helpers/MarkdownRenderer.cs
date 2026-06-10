@@ -5,6 +5,7 @@ using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
 using System.Windows.Media;
 
 namespace RevitWebAppSync.Helpers
@@ -14,6 +15,12 @@ namespace RevitWebAppSync.Helpers
     /// Light-themed (dark text on white). Supports headers, **bold**,
     /// *italic*, `code`, ```code blocks```, bullet + numbered lists,
     /// > blockquotes, [links](url), and GitHub-style | tables |.
+    ///
+    /// Renders into a FlowDocument hosted in a read-only borderless
+    /// RichTextBox so the user can HIGHLIGHT AND COPY any part of an AI
+    /// reply (a plain TextBlock cannot be selected). Tables keep their
+    /// auto-sizing Grid look via BlockUIContainer (not text-selectable —
+    /// the bubble's ⧉ copy button covers them).
     /// </summary>
     public static class MarkdownRenderer
     {
@@ -31,14 +38,64 @@ namespace RevitWebAppSync.Helpers
         private static SolidColorBrush Brush(string hex) =>
             new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
 
-        public static StackPanel Render(string markdown, double maxWidth = 350)
+        public static FrameworkElement Render(string markdown, double maxWidth = 350)
         {
-            var panel = new StackPanel { MaxWidth = maxWidth };
-            if (string.IsNullOrWhiteSpace(markdown)) return panel;
+            var doc = new FlowDocument
+            {
+                PagePadding = new Thickness(0),
+                FontSize = 12.5,
+                Foreground = Text,
+            };
 
+            if (!string.IsNullOrWhiteSpace(markdown))
+                BuildBlocks(doc.Blocks, markdown, maxWidth);
+
+            var box = new RichTextBox
+            {
+                Document = doc,
+                IsReadOnly = true,
+                IsTabStop = false,
+                BorderThickness = new Thickness(0),
+                Background = Brushes.Transparent,
+                Padding = new Thickness(0),
+                MaxWidth = maxWidth,
+                VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+                HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            };
+            // TextBoxBase swallows the mouse wheel even when it has nothing to
+            // scroll — re-raise it as a bubbling event so the CHAT scrolls when
+            // the pointer happens to sit over a reply.
+            box.PreviewMouseWheel += (s, e) =>
+            {
+                if (e.Handled) return;
+                e.Handled = true;
+                box.RaiseEvent(new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta)
+                {
+                    RoutedEvent = UIElement.MouseWheelEvent,
+                    Source = s,
+                });
+            };
+            return box;
+        }
+
+        private static void BuildBlocks(BlockCollection blocks, string markdown, double maxWidth)
+        {
             var lines = markdown.Replace("\r\n", "\n").Split('\n');
             bool inCode = false;
             var codeLines = new List<string>();
+            // A blank markdown line becomes extra top-margin on the NEXT block
+            // (an empty FlowDocument paragraph would render a full line tall).
+            double pendingSpace = 0;
+
+            void Add(Block b)
+            {
+                if (pendingSpace > 0)
+                {
+                    b.Margin = new Thickness(b.Margin.Left, b.Margin.Top + pendingSpace, b.Margin.Right, b.Margin.Bottom);
+                    pendingSpace = 0;
+                }
+                blocks.Add(b);
+            }
 
             for (int i = 0; i < lines.Length; i++)
             {
@@ -48,7 +105,7 @@ namespace RevitWebAppSync.Helpers
                 // ``` fenced code block toggle
                 if (trimmed.StartsWith("```"))
                 {
-                    if (inCode) { AddCodeBlock(panel, string.Join("\n", codeLines), maxWidth); codeLines.Clear(); inCode = false; }
+                    if (inCode) { Add(CodeBlock(string.Join("\n", codeLines))); codeLines.Clear(); inCode = false; }
                     else inCode = true;
                     continue;
                 }
@@ -61,33 +118,78 @@ namespace RevitWebAppSync.Helpers
                     while (i < lines.Length && IsTableRow(lines[i].TrimStart()))
                         rows.Add(lines[i++].Trim());
                     i--; // step back; for-loop will advance
-                    AddTable(panel, rows, maxWidth);
+                    var grid = TableGrid(rows, maxWidth);
+                    if (grid != null) Add(new BlockUIContainer(grid) { Margin = new Thickness(0, 4, 0, 4) });
                     continue;
                 }
 
-                if (string.IsNullOrWhiteSpace(trimmed)) { panel.Children.Add(new Border { Height = 6 }); continue; }
+                if (string.IsNullOrWhiteSpace(trimmed)) { pendingSpace = 6; continue; }
 
-                if (trimmed.StartsWith("### ")) { AddHeader(panel, trimmed.Substring(4), 13, maxWidth); continue; }
-                if (trimmed.StartsWith("## "))  { AddHeader(panel, trimmed.Substring(3), 14, maxWidth); continue; }
-                if (trimmed.StartsWith("# "))   { AddHeader(panel, trimmed.Substring(2), 15, maxWidth); continue; }
+                if (trimmed.StartsWith("### ")) { Add(Header(trimmed.Substring(4), 13)); continue; }
+                if (trimmed.StartsWith("## "))  { Add(Header(trimmed.Substring(3), 14)); continue; }
+                if (trimmed.StartsWith("# "))   { Add(Header(trimmed.Substring(2), 15)); continue; }
 
-                if (trimmed.StartsWith("> "))   { AddBlockquote(panel, trimmed.Substring(2), maxWidth); continue; }
+                if (trimmed.StartsWith("> "))   { Add(Blockquote(trimmed.Substring(2))); continue; }
 
                 if (trimmed.StartsWith("- ") || trimmed.StartsWith("* "))
-                { AddListItem(panel, "•", trimmed.Substring(2), maxWidth); continue; }
+                { Add(ListItem("•", trimmed.Substring(2))); continue; }
 
                 var numbered = Regex.Match(trimmed, @"^(\d+)\.\s+(.*)$");
                 if (numbered.Success)
-                { AddListItem(panel, numbered.Groups[1].Value + ".", numbered.Groups[2].Value, maxWidth); continue; }
+                { Add(ListItem(numbered.Groups[1].Value + ".", numbered.Groups[2].Value)); continue; }
 
                 // paragraph
-                var p = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Text, FontSize = 12.5, LineHeight = 18, Margin = new Thickness(0, 1, 0, 1) };
+                var p = new Paragraph { Margin = new Thickness(0, 1, 0, 1), LineHeight = 18 };
                 AddInlines(p.Inlines, trimmed);
-                panel.Children.Add(p);
+                Add(p);
             }
 
-            if (inCode && codeLines.Count > 0) AddCodeBlock(panel, string.Join("\n", codeLines), maxWidth);
-            return panel;
+            if (inCode && codeLines.Count > 0) Add(CodeBlock(string.Join("\n", codeLines)));
+        }
+
+        private static Paragraph Header(string text, double fontSize)
+        {
+            var p = new Paragraph
+            {
+                Foreground = Ink, FontSize = fontSize, FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 5, 0, 2),
+            };
+            AddInlines(p.Inlines, text);
+            return p;
+        }
+
+        private static Paragraph ListItem(string marker, string text)
+        {
+            var p = new Paragraph { Margin = new Thickness(8, 1, 0, 1) };
+            p.Inlines.Add(new Run(marker + "  ") { Foreground = Accent });
+            AddInlines(p.Inlines, text);
+            return p;
+        }
+
+        private static Paragraph Blockquote(string text)
+        {
+            var p = new Paragraph
+            {
+                Foreground = Muted, FontSize = 12,
+                Background = BlockBg, BorderBrush = Accent,
+                BorderThickness = new Thickness(3, 0, 0, 0),
+                Padding = new Thickness(9, 5, 9, 5),
+                Margin = new Thickness(0, 3, 0, 3),
+            };
+            AddInlines(p.Inlines, text);
+            return p;
+        }
+
+        private static Paragraph CodeBlock(string code)
+        {
+            return new Paragraph(new Run(code))
+            {
+                Foreground = Ink, FontFamily = CodeFont, FontSize = 11,
+                Background = BlockBg, BorderBrush = Line,
+                BorderThickness = new Thickness(1),
+                Padding = new Thickness(9),
+                Margin = new Thickness(0, 4, 0, 4),
+            };
         }
 
         private static bool IsTableRow(string t) =>
@@ -105,13 +207,15 @@ namespace RevitWebAppSync.Helpers
             return t.Split('|').Select(c => c.Trim()).ToArray();
         }
 
-        private static void AddTable(StackPanel panel, List<string> rows, double maxWidth)
+        /// <summary>The auto-sizing Grid table the chat has always used — hosted
+        /// in a BlockUIContainer (FlowDocument Tables can't auto-fit columns).</summary>
+        private static Grid TableGrid(List<string> rows, double maxWidth)
         {
             var dataRows = rows.Where(r => !IsSeparatorRow(r)).Select(SplitCells).ToList();
-            if (dataRows.Count == 0) return;
+            if (dataRows.Count == 0) return null;
             int cols = dataRows.Max(r => r.Length);
 
-            var grid = new Grid { Margin = new Thickness(0, 4, 0, 4), MaxWidth = maxWidth };
+            var grid = new Grid { MaxWidth = maxWidth };
             for (int c = 0; c < cols; c++)
                 grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             for (int r = 0; r < dataRows.Count; r++)
@@ -143,52 +247,7 @@ namespace RevitWebAppSync.Helpers
                     grid.Children.Add(cell);
                 }
             }
-            panel.Children.Add(grid);
-        }
-
-        private static void AddBlockquote(StackPanel panel, string text, double maxWidth)
-        {
-            var border = new Border
-            {
-                BorderBrush = Accent,
-                BorderThickness = new Thickness(3, 0, 0, 0),
-                Background = BlockBg,
-                Padding = new Thickness(9, 5, 9, 5),
-                Margin = new Thickness(0, 3, 0, 3),
-                CornerRadius = new CornerRadius(0, 4, 4, 0),
-            };
-            var tb = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Muted, FontSize = 12, MaxWidth = maxWidth - 24 };
-            AddInlines(tb.Inlines, text);
-            border.Child = tb;
-            panel.Children.Add(border);
-        }
-
-        private static void AddListItem(StackPanel panel, string marker, string text, double maxWidth)
-        {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 1, 0, 1) };
-            row.Children.Add(new TextBlock { Text = marker + "  ", Foreground = Accent, FontSize = 12.5, MinWidth = 16 });
-            var tb = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Text, FontSize = 12.5, MaxWidth = maxWidth - 30 };
-            AddInlines(tb.Inlines, text);
-            row.Children.Add(tb);
-            panel.Children.Add(row);
-        }
-
-        private static void AddHeader(StackPanel panel, string text, double fontSize, double maxWidth)
-        {
-            var tb = new TextBlock { TextWrapping = TextWrapping.Wrap, Foreground = Ink, FontSize = fontSize, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 5, 0, 2), MaxWidth = maxWidth };
-            AddInlines(tb.Inlines, text);
-            panel.Children.Add(tb);
-        }
-
-        private static void AddCodeBlock(StackPanel panel, string code, double maxWidth)
-        {
-            var border = new Border { Background = BlockBg, BorderBrush = Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(5), Padding = new Thickness(9), Margin = new Thickness(0, 4, 0, 4), MaxWidth = maxWidth };
-            border.Child = new TextBox
-            {
-                Text = code, Foreground = Ink, Background = Brushes.Transparent, BorderThickness = new Thickness(0),
-                IsReadOnly = true, TextWrapping = TextWrapping.Wrap, FontFamily = CodeFont, FontSize = 11,
-            };
-            panel.Children.Add(border);
+            return grid;
         }
 
         private static void AddInlines(InlineCollection inlines, string text)
