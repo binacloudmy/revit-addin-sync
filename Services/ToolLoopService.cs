@@ -48,14 +48,44 @@ namespace RevitWebAppSync.Services
         // …). These never come back as pending (they don't execute in Revit), so without
         // this the trace would be empty for any read/codegen request. Drives the step chips.
         [JsonPropertyName("tool_calls")] public List<ServerToolCall> ToolCalls { get; set; } = new();
+        // Clarify requirements when the agent paused to ask the user (HITL).
+        [JsonPropertyName("clarify")] public List<ClarifyRequirement> Clarify { get; set; } = new();
 
         public bool AwaitingRevit =>
             Status == "awaiting_revit" && Pending != null && Pending.Count > 0;
+
+        public bool AwaitingUserInput =>
+            Status == "awaiting_user_input" && Clarify != null && Clarify.Count > 0;
     }
 
     public sealed class ServerToolCall
     {
         [JsonPropertyName("tool")] public string Tool { get; set; } = "";
+    }
+
+    // ─── Clarify (HITL get_user_input pause) wire DTOs ──────────────────────
+    // Backend pauses with status "awaiting_user_input" + clarify requirements;
+    // the pane asks the user, answers POST back via /tool/resume-input keyed by
+    // requirement_id. Field shape mirrors agno's UserInputField.
+    public sealed class ClarifyField
+    {
+        [JsonPropertyName("name")] public string Name { get; set; } = "";
+        [JsonPropertyName("field_type")] public string FieldType { get; set; } = "";
+        [JsonPropertyName("description")] public string Description { get; set; } = "";
+        [JsonPropertyName("value")] public object Value { get; set; }
+    }
+
+    public sealed class ClarifyRequirement
+    {
+        [JsonPropertyName("requirement_id")] public string RequirementId { get; set; } = "";
+        [JsonPropertyName("tool_call_id")] public string ToolCallId { get; set; }
+        [JsonPropertyName("fields")] public List<ClarifyField> Fields { get; set; } = new();
+    }
+
+    public sealed class ClarifyAnswerDto
+    {
+        [JsonPropertyName("requirement_id")] public string RequirementId { get; set; } = "";
+        [JsonPropertyName("values")] public Dictionary<string, object> Values { get; set; } = new();
     }
 
     public sealed class PendingToolCall
@@ -236,13 +266,24 @@ namespace RevitWebAppSync.Services
                     // token-by-token. Push the CUMULATIVE text (same contract as
                     // the codegen path's OnCodeStream) so the pane renders a
                     // growing bubble instead of waiting out the full decode.
+                    // Process EVERY object in the buffer: if SSE framing merged
+                    // two reply events, taking only the last would silently drop
+                    // a delta — that reads as randomly-chopped text in the pane.
                     try
                     {
-                        using var d = JsonDocument.Parse(ExtractLastJsonObject(raw));
-                        var delta = GetStr(d.RootElement, "delta");
-                        if (!string.IsNullOrEmpty(delta) && replySb != null)
+                        bool grew = false;
+                        foreach (var objJson in ExtractAllJsonObjects(raw))
                         {
-                            replySb.Append(delta);
+                            using var d = JsonDocument.Parse(objJson);
+                            var delta = GetStr(d.RootElement, "delta");
+                            if (!string.IsNullOrEmpty(delta) && replySb != null)
+                            {
+                                replySb.Append(delta);
+                                grew = true;
+                            }
+                        }
+                        if (grew)
+                        {
                             try { onReply?.Invoke(replySb.ToString()); } catch { /* UI hiccup */ }
                         }
                     }
@@ -294,6 +335,7 @@ namespace RevitWebAppSync.Services
                     catch { }
                     return null;
                 case "awaiting_revit":
+                case "awaiting_user_input":
                 case "done":
                     // BULLETPROOF: even if SSE framing merged several events into
                     // this buffer (meta+status+…+terminal), extract the LAST
@@ -331,6 +373,26 @@ namespace RevitWebAppSync.Services
             root.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String
                 ? (v.GetString() ?? "") : "";
 
+        // ALL balanced top-level {...} objects in s, in order (brace-counting,
+        // string-aware). Used by reply_partial so a merged buffer loses nothing.
+        private static List<string> ExtractAllJsonObjects(string s)
+        {
+            var found = new List<string>();
+            if (string.IsNullOrEmpty(s)) return found;
+            int depth = 0, start = -1;
+            bool inStr = false; char prev = '\0';
+            for (int i = 0; i < s.Length; i++)
+            {
+                char c = s[i];
+                if (inStr) { if (c == '"' && prev != '\\') inStr = false; }
+                else if (c == '"') inStr = true;
+                else if (c == '{') { if (depth == 0) start = i; depth++; }
+                else if (c == '}') { depth--; if (depth == 0 && start >= 0) { found.Add(s.Substring(start, i - start + 1)); start = -1; } }
+                prev = c;
+            }
+            return found;
+        }
+
         // Return the LAST balanced top-level {...} object in s (brace-counting,
         // string-aware). If SSE events merged into one buffer, the terminal
         // payload is always the last object; a single clean object is returned
@@ -361,6 +423,17 @@ namespace RevitWebAppSync.Services
             return PostAsync(AiUrl.Build(_baseUrl, "tool/resume"), bodyJson, accessToken, ct);
         }
 
+        /// <summary>RESUME a run paused on get_user_input (clarify) with the
+        /// user's answers. Returns the same ToolTurn shapes — the agent may act
+        /// now (done / awaiting_revit) or ask again (awaiting_user_input).</summary>
+        public Task<ToolTurn> ResumeInputAsync(string runId, string sessionId,
+            IReadOnlyList<ClarifyAnswerDto> answers, string accessToken, CancellationToken ct = default)
+        {
+            var body = new ToolResumeInputBody { RunId = runId, SessionId = sessionId, Answers = answers };
+            var bodyJson = JsonSerializer.Serialize(body, _json);
+            return PostAsync(AiUrl.Build(_baseUrl, "tool/resume-input"), bodyJson, accessToken, ct);
+        }
+
         private async Task<ToolTurn> PostAsync(string url, string bodyJson, string accessToken, CancellationToken ct)
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, url)
@@ -389,6 +462,13 @@ namespace RevitWebAppSync.Services
             [JsonPropertyName("run_id")] public string RunId { get; set; }
             [JsonPropertyName("session_id")] public string SessionId { get; set; }
             [JsonPropertyName("tool_results")] public IReadOnlyList<ToolResultDto> ToolResults { get; set; }
+        }
+
+        private sealed class ToolResumeInputBody
+        {
+            [JsonPropertyName("run_id")] public string RunId { get; set; }
+            [JsonPropertyName("session_id")] public string SessionId { get; set; }
+            [JsonPropertyName("answers")] public IReadOnlyList<ClarifyAnswerDto> Answers { get; set; }
         }
     }
 }

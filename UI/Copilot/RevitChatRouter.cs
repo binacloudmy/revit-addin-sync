@@ -81,6 +81,18 @@ namespace RevitWebAppSync.UI.Copilot
         private readonly object _cancelLock = new object();
         private CancellationTokenSource _streamCts;
 
+        // HITL clarify pause carried between turns: the agent asked a question,
+        // the user's NEXT message is the answer (resumed via /tool/resume-input),
+        // not a new command. Cleared on consume; a stale entry (server restart)
+        // fails the resume and surfaces as a normal error reply.
+        private sealed class PendingHitl
+        {
+            public string RunId;
+            public string SessionId;
+            public List<ClarifyRequirement> Clarify;
+        }
+        private PendingHitl _pendingHitl;
+
         /// <summary>True while a /generate/stream request is in flight — lets
         /// the pane show/enable the Cancel button only when there's something
         /// to cancel.</summary>
@@ -124,6 +136,85 @@ namespace RevitWebAppSync.UI.Copilot
             if (sink != null) { try { sink(""); } catch { /* UI hiccup */ } }
         }
 
+        /// <summary>Map a tool-loop outcome to the wire RouteResult. A clarify
+        /// pause stashes the HITL state for the next message and surfaces the
+        /// agent's question; otherwise it's the normal reply/code conversion.</summary>
+        private RouteResult ToolOutcomeToRoute(ToolLoopOutcome outcome)
+        {
+            if (outcome == null)
+                return new RouteResult { ToolId = "ai-generated", Reply = "Tool run failed.", IsQuery = true };
+            if (outcome.AwaitingUserInput)
+            {
+                _pendingHitl = new PendingHitl
+                {
+                    RunId = outcome.RunId,
+                    SessionId = outcome.SessionId,
+                    Clarify = outcome.Clarify,
+                };
+                return new RouteResult
+                {
+                    ToolId = "ai-generated",
+                    NeedsClarification = true,
+                    ClarifyingQuestion = ComposeClarifyQuestion(outcome),
+                    IsQuery = true,
+                    Steps = outcome.Steps,
+                };
+            }
+            return new RouteResult
+            {
+                ToolId = "ai-generated",
+                // Empty when tools ran (nothing for the pane to execute);
+                // populated when the agent fell back to codegen → the pane
+                // runs it through the normal executor (compile-gate + tx).
+                Code = outcome.Code ?? "",
+                Reply = !string.IsNullOrWhiteSpace(outcome.Reply)
+                    ? outcome.Reply
+                    : (outcome.Success ? "Done." : (outcome.Error ?? "Tool run failed.")),
+                IsQuery = string.IsNullOrWhiteSpace(outcome.Code) || outcome.IsQuery,
+                ToolCallTrace = outcome.ToolsUsed.Count > 0 ? outcome.ToolsUsed : null,
+                Steps = outcome.Steps,
+            };
+        }
+
+        // The user-facing clarify question: the agent's own reply line first,
+        // then each unanswered field's description (the prompt instructs the
+        // agent to put the actual available options in there).
+        private static string ComposeClarifyQuestion(ToolLoopOutcome o)
+        {
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(o.Reply)) parts.Add(o.Reply.Trim());
+            foreach (var req in o.Clarify ?? new List<ClarifyRequirement>())
+                foreach (var f in req.Fields ?? new List<ClarifyField>())
+                {
+                    if (f.Value != null) continue;   // already pre-filled
+                    var line = !string.IsNullOrWhiteSpace(f.Description) ? f.Description : f.Name;
+                    if (!string.IsNullOrWhiteSpace(line) && !parts.Contains(line.Trim()))
+                        parts.Add(line.Trim());
+                }
+            return parts.Count > 0 ? string.Join("\n", parts) : "I need one more detail to proceed.";
+        }
+
+        // Map the user's free-text answer onto the clarify schema: pre-filled
+        // values pass through; the message fills the FIRST empty field. Any
+        // remaining empty fields stay unanswered, so the backend re-pauses and
+        // asks for them next — sequential Q&A instead of a guessed mapping.
+        private static List<ClarifyAnswerDto> BuildAnswers(PendingHitl h, string message)
+        {
+            var answers = new List<ClarifyAnswerDto>();
+            bool used = false;
+            foreach (var req in h.Clarify ?? new List<ClarifyRequirement>())
+            {
+                var a = new ClarifyAnswerDto { RequirementId = req.RequirementId };
+                foreach (var f in req.Fields ?? new List<ClarifyField>())
+                {
+                    if (f.Value != null) { a.Values[f.Name] = f.Value; continue; }
+                    if (!used) { a.Values[f.Name] = message; used = true; }
+                }
+                answers.Add(a);
+            }
+            return answers;
+        }
+
         // Close any phase rows still ▶ at successful completion, then snapshot the
         // live trail into an immutable list for the final bubble (same rule as
         // ToolLoopRunner). A finished run has no genuinely-running step.
@@ -155,6 +246,46 @@ namespace RevitWebAppSync.UI.Copilot
             // never leak into the next route).
             var images = PendingImages;
             PendingImages = null;
+
+            // ─── HITL clarify continuation ───────────────────────────────────
+            // The previous turn paused on get_user_input — THIS message is the
+            // user's ANSWER, not a new command. Resume the paused run with it.
+            var hitl = _pendingHitl;
+            if (hitl != null)
+            {
+                _pendingHitl = null;
+                EmitProgress("Thinking…");
+                CancellationTokenSource hcts = new CancellationTokenSource();
+                lock (_cancelLock)
+                {
+                    try { _streamCts?.Dispose(); } catch { }
+                    _streamCts = hcts;
+                }
+                ToolLoopOutcome ho = null;
+                bool hcanceled = false;
+                try
+                {
+                    ho = await _toolLoop.ResumeWithInputAsync(
+                        hitl.RunId, hitl.SessionId, BuildAnswers(hitl, message), token, EmitProgress,
+                        hcts.Token, onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } }
+                        ).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { hcanceled = true; }
+                catch (Exception ex) { ho = new ToolLoopOutcome { Success = false, Error = ex.Message }; }
+                finally
+                {
+                    if (hcts.IsCancellationRequested) hcanceled = true;
+                    ClearProgress();
+                    lock (_cancelLock)
+                    {
+                        if (ReferenceEquals(_streamCts, hcts)) _streamCts = null;
+                    }
+                    try { hcts.Dispose(); } catch { }
+                }
+                if (hcanceled)
+                    return new RouteResult { ToolId = "ai-generated", Reply = "Stopped.", IsQuery = true };
+                return ToolOutcomeToRoute(ho);
+            }
 
             // ─── Tunnel-free tool-calling path (opt-in: BINA_VIBE_TOOL_HTTP=1) ──
             // The agent calls vetted MUTATE tools that the addin runs in real
@@ -230,20 +361,7 @@ namespace RevitWebAppSync.UI.Copilot
                     return new RouteResult { ToolId = "ai-generated", Reply = "Stopped.", IsQuery = true };
                 System.Diagnostics.Debug.WriteLine(
                     $"[BinaVibe][timing] tool-loop total={__swRoute.ElapsedMilliseconds}ms tools={string.Join(",", outcome.ToolsUsed)} ok={outcome.Success}");
-                return new RouteResult
-                {
-                    ToolId = "ai-generated",
-                    // Empty when tools ran (nothing for the pane to execute);
-                    // populated when the agent fell back to codegen → the pane
-                    // runs it through the normal executor (compile-gate + tx).
-                    Code = outcome.Code ?? "",
-                    Reply = !string.IsNullOrWhiteSpace(outcome.Reply)
-                        ? outcome.Reply
-                        : (outcome.Success ? "Done." : (outcome.Error ?? "Tool run failed.")),
-                    IsQuery = string.IsNullOrWhiteSpace(outcome.Code) || outcome.IsQuery,
-                    ToolCallTrace = outcome.ToolsUsed.Count > 0 ? outcome.ToolsUsed : null,
-                    Steps = outcome.Steps,
-                };
+                return ToolOutcomeToRoute(outcome);
             }
 
             // Plan mode removed — the tool-calling agent acts directly and

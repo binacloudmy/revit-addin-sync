@@ -625,6 +625,22 @@ namespace RevitWebAppSync.UI.Copilot
             }
 
 
+            // HITL clarify pause: the agent needs an answer before acting. Render
+            // the question as a Clarify card; the user's NEXT message is routed
+            // back into the paused run by the router (resume-input), so no
+            // option chips are required — they type the answer in the prompt bar.
+            if (rr != null && rr.NeedsClarification && !string.IsNullOrWhiteSpace(rr.ClarifyingQuestion))
+            {
+                ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.Clarify,
+                    Question = rr.ClarifyingQuestion,
+                    Options = new List<ClarifyOption>(),
+                    Steps = rr.Steps,
+                });
+                return;
+            }
+
             string toolId = !string.IsNullOrEmpty(rr?.ToolId) ? rr.ToolId : fallbackToolId;
             var tool = CopilotCatalog.Find(toolId) ?? CopilotCatalog.Find(fallbackToolId);
             if (tool == null) return;

@@ -700,7 +700,14 @@ namespace BinaVibe.Mcp.Tools
             {
                 var t = el.GetTypeId().Value != ElementId.InvalidElementId.Value
                     ? doc.GetElement(el.GetTypeId()) : null;
-                return string.Equals(t?.Name, want, System.StringComparison.OrdinalIgnoreCase);
+                // JKR names embed codes in parentheses ("Tandas Cangkung (LSc096a)")
+                // and the agent often passes just one part — "(LSc096a)" or
+                // "Tandas Cangkung". Exact-equals returned nothing for every
+                // JKR-coded family, forcing codegen fallback. Match type name OR
+                // family name, containment either way. Levels stay exact-match
+                // below ("Level 1" must never match "Level 10").
+                return TypeNameMatches(t?.Name, want)
+                    || TypeNameMatches((t as ElementType)?.FamilyName, want);
             }
             if (key.Equals("level", System.StringComparison.OrdinalIgnoreCase))
             {
@@ -716,6 +723,14 @@ namespace BinaVibe.Mcp.Tools
                 return string.Equals(SafeParamValue(p)?.ToString(), want, System.StringComparison.OrdinalIgnoreCase);
             }
             return true;
+        }
+
+        private static bool TypeNameMatches(string? actual, string want)
+        {
+            if (string.IsNullOrWhiteSpace(actual) || string.IsNullOrWhiteSpace(want)) return false;
+            if (string.Equals(actual, want, System.StringComparison.OrdinalIgnoreCase)) return true;
+            return actual.IndexOf(want, System.StringComparison.OrdinalIgnoreCase) >= 0
+                || want.IndexOf(actual, System.StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static BuiltInCategory? ResolveBuiltInCategory(string category)
