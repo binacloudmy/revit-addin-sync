@@ -283,7 +283,7 @@ namespace RevitWebAppSync.UI.Copilot
                     try { hcts.Dispose(); } catch { }
                 }
                 if (hcanceled)
-                    return new RouteResult { ToolId = "ai-generated", Reply = "Stopped.", IsQuery = true };
+                    return new RouteResult { ToolId = "ai-generated", Reply = "Stopped — if Revit was mid-operation (e.g. opening a view), it may still finish that step.", IsQuery = true };
                 return ToolOutcomeToRoute(ho);
             }
 
@@ -358,7 +358,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // User hit Stop — clean message, not the raw "tool/generate failed:
                 // The operation was canceled." internal error.
                 if (canceled)
-                    return new RouteResult { ToolId = "ai-generated", Reply = "Stopped.", IsQuery = true };
+                    return new RouteResult { ToolId = "ai-generated", Reply = "Stopped — if Revit was mid-operation (e.g. opening a view), it may still finish that step.", IsQuery = true };
                 System.Diagnostics.Debug.WriteLine(
                     $"[BinaVibe][timing] tool-loop total={__swRoute.ElapsedMilliseconds}ms tools={string.Join(",", outcome.ToolsUsed)} ok={outcome.Success}");
                 return ToolOutcomeToRoute(outcome);

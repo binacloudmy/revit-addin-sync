@@ -244,10 +244,23 @@ namespace RevitWebAppSync.Services
 
             // Block on a threadpool thread so we don't pin the caller; the handler
             // signals Completed from the Revit UI thread.
-            bool completed = await Task.Run(() => job.Completed.Wait(JobMaxWait), ct).ConfigureAwait(false);
+            bool completed;
+            try
+            {
+                completed = await Task.Run(() => job.Completed.Wait(JobMaxWait), ct).ConfigureAwait(false);
+            }
+            catch (System.OperationCanceledException)
+            {
+                // User hit Stop. Revit can't abort a job mid-execution, but
+                // marking it abandoned makes the handler skip it if it's still
+                // queued — so cancelled work can't jam the turns that follow.
+                job.Abandoned = true;
+                throw;
+            }
 
             if (!completed)
             {
+                job.Abandoned = true;   // same drain rule on timeout
                 return new ToolResultDto
                 {
                     ToolCallId = call.ToolCallId, Ok = false,
