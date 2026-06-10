@@ -2,30 +2,27 @@
 <!--
   Revit Copilot add-in — MSI installer (WiX v4/v5 syntax).
 
-  Drops the addin DLL, all its NuGet dependencies, and the .addin manifest
-  into the per-user Revit Addins folder for each supported version. Per-user
-  scope means no admin elevation — a drafter without local-admin rights can
-  install it.
+  OTA layout (one-time install; afterwards the addin self-updates):
+    %APPDATA%\Autodesk\Revit\Addins\<year>\
+        BinaSync.addin + BinaLoader.dll          <- loader shim, never changes
+    %LocalAppData%\Bina\RevitSync\versions\<ver>\
+        RevitWebAppSync.dll + deps + manifest.json + .complete
+                                                 <- seed build; UpdateService
+                                                    stages newer ones here
 
-  Supported Revit versions: 2025, 2026, 2027.
-    Revit <=2024 runs on .NET Framework 4.8 and CANNOT load this
-    net8.0-windows assembly, so it is intentionally excluded.
+  Versions staged by the updater AFTER install are unknown to the MSI and are
+  left behind on uninstall (delete %LocalAppData%\Bina\RevitSync manually for
+  a full purge).
 
-  Payload is harvested from the publish dir with <Files> wildcards so new
-  transitive dependencies are picked up automatically — no manual file list,
-  no heat.exe. The build script copies the .addin manifest into that dir
-  before harvest so it ships alongside the DLLs.
+  Supported Revit versions: 2025, 2026, 2027 (net8 hosts only; <=2024 is
+  .NET Framework 4.8 and cannot load these assemblies).
 
-  Build (run installer\build-installer.ps1, or by hand):
-    dotnet build -c Release
-    copy RevitWebAppSync.addin bin\Release\net8.0-windows\
-    dotnet tool install --global wix
-    wix extension add -g WixToolset.UI.wixext
-    wix build installer\RevitCopilot.wxs -ext WixToolset.UI.wixext ^
-      -d PublishDir=bin\Release\net8.0-windows -o RevitCopilot.msi
-
-  Sign (needs an EV / OV code-signing cert — without it SmartScreen warns):
-    signtool sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /a RevitCopilot.msi
+  Build via installer\build-installer.ps1 or CI (.github/workflows/release.yml).
+  Required preprocessor vars:
+    -d LoaderDir=<dir with BinaLoader.dll + BinaSync.addin>
+    -d PluginDir=<dotnet publish output + manifest.json + .complete>
+    -d SeedVersion=<MAJOR.MINOR.PATCH, must match PluginDir build>
+    -d ProductVersion=<MAJOR.MINOR.PATCH>
 
   IMPORTANT: UpgradeCode is permanent per product. DO NOT regenerate it after
   the first public release or in-place upgrades will break.
@@ -35,7 +32,7 @@
 
   <Package Name="Revit Copilot"
            Manufacturer="Bina Cloudtech Sdn Bhd"
-           Version="1.0.0.0"
+           Version="$(var.ProductVersion)"
            UpgradeCode="66179CD4-87C4-41EF-8CAF-81308C5047E2"
            Compressed="yes"
            Scope="perUser">
@@ -56,30 +53,48 @@
       </Directory>
     </StandardDirectory>
 
+    <!-- %LocalAppData%\Bina\RevitSync\versions\<SeedVersion>\ -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="BinaFolder" Name="Bina">
+        <Directory Id="RevitSyncFolder" Name="RevitSync">
+          <Directory Id="VersionsFolder" Name="versions">
+            <Directory Id="SeedVersionFolder" Name="$(var.SeedVersion)" />
+          </Directory>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
     <Feature Id="RevitCopilotFeature" Title="Revit Copilot Add-in" Level="1">
-      <ComponentGroupRef Id="Payload2025" />
-      <ComponentGroupRef Id="Payload2026" />
-      <ComponentGroupRef Id="Payload2027" />
+      <ComponentGroupRef Id="Loader2025" />
+      <ComponentGroupRef Id="Loader2026" />
+      <ComponentGroupRef Id="Loader2027" />
+      <ComponentGroupRef Id="SeedPayload" />
     </Feature>
 
-    <!-- One harvested payload per version folder. Same source, copied into
-         each Addins\<year>\ so the manifest's relative <Assembly> resolves to
-         the DLL sitting next to it. .pdb excluded to keep the MSI lean. -->
-    <ComponentGroup Id="Payload2025" Directory="Addins2025">
-      <Files Include="$(var.PublishDir)\**">
-        <Exclude Files="$(var.PublishDir)\*.pdb" />
+    <!-- Loader shim per Revit year — the only files Revit locks in place. -->
+    <ComponentGroup Id="Loader2025" Directory="Addins2025">
+      <Files Include="$(var.LoaderDir)\**">
+        <Exclude Files="$(var.LoaderDir)\*.pdb" />
       </Files>
     </ComponentGroup>
 
-    <ComponentGroup Id="Payload2026" Directory="Addins2026">
-      <Files Include="$(var.PublishDir)\**">
-        <Exclude Files="$(var.PublishDir)\*.pdb" />
+    <ComponentGroup Id="Loader2026" Directory="Addins2026">
+      <Files Include="$(var.LoaderDir)\**">
+        <Exclude Files="$(var.LoaderDir)\*.pdb" />
       </Files>
     </ComponentGroup>
 
-    <ComponentGroup Id="Payload2027" Directory="Addins2027">
-      <Files Include="$(var.PublishDir)\**">
-        <Exclude Files="$(var.PublishDir)\*.pdb" />
+    <ComponentGroup Id="Loader2027" Directory="Addins2027">
+      <Files Include="$(var.LoaderDir)\**">
+        <Exclude Files="$(var.LoaderDir)\*.pdb" />
+      </Files>
+    </ComponentGroup>
+
+    <!-- First plugin build, seeded so the loader has something to boot before
+         the updater ever runs. One shared copy for all Revit years. -->
+    <ComponentGroup Id="SeedPayload" Directory="SeedVersionFolder">
+      <Files Include="$(var.PluginDir)\**">
+        <Exclude Files="$(var.PluginDir)\*.pdb" />
       </Files>
     </ComponentGroup>
 

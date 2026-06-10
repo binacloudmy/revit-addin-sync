@@ -370,6 +370,12 @@ namespace RevitWebAppSync
                 }
 
                 CreateRibbonTab(application);
+
+                // OTA: stage any newer build in the background; BinaLoader
+                // applies it on the next Revit start. No-op if no feed is
+                // configured (see BinaConfig.UpdateFeedUrl).
+                Services.UpdateService.Start(application);
+
                 return Result.Succeeded;
             }
             catch (Exception ex)

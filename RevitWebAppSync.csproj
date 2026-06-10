@@ -9,6 +9,11 @@
     <OutputType>Library</OutputType>
     <AssemblyName>RevitWebAppSync</AssemblyName>
     <UseWPF>true</UseWPF>
+    <!-- OTA versioning: CI overrides with -p:Version=<git tag>. The updater
+         compares this against the update feed. -->
+    <Version Condition="'$(Version)' == ''">0.0.1</Version>
+    <!-- Build net8.0-windows + WPF on macOS/Linux (CI and non-Windows dev). -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <!-- Ensure all NuGet dependencies are copied to output -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <DefaultItemExcludes>$(DefaultItemExcludes);Tests\**</DefaultItemExcludes>
@@ -37,14 +42,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Reference Include="RevitAPI">
-      <HintPath>$(RevitPath)\RevitAPI.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
-    <Reference Include="RevitAPIUI">
-      <HintPath>$(RevitPath)\RevitAPIUI.dll</HintPath>
-      <Private>False</Private>
-    </Reference>
+    <!-- Reference-only Revit API from NuGet: builds anywhere (CI, macOS) with
+         no Revit install. 2025 = lowest net8 Revit, so the DLL loads on every
+         supported host (2025-2027). RevitPath above is now only used by the
+         PostBuild copy to pick the local Addins\<year>\ folder. -->
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2025.*" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2025.*" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Manifest for the BinaLoader bootstrap shim. This is what the installer puts
+  in %APPDATA%\Autodesk\Revit\Addins\<year>\ — it references ONLY the loader,
+  which then loads the real plugin from %LocalAppData%\Bina\RevitSync\versions\.
+
+  No per-command entries: the plugin builds its ribbon at runtime with
+  PushButtonData pointing at the versioned assembly path.
+
+  Do NOT install this alongside the dev-flow RevitWebAppSync.addin — the plugin
+  would load twice and ribbon-tab creation would collide.
+-->
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>BINA Sync</Name>
+    <Assembly>BinaLoader.dll</Assembly>
+    <FullClassName>BinaLoader.LoaderApp</FullClassName>
+    <AddInId>7A3F1C9E-5B24-4E8D-9C61-0D2F84A6B7E3</AddInId>
+    <VendorId>BINA_CLOUD</VendorId>
+    <VendorDescription>Bina Cloud, app.bina.cloud</VendorDescription>
+    <Text>Sync Revit files to Bina Cloud</Text>
+    <Description>Loads the latest installed BINA Sync build (auto-updates without reinstall).</Description>
+    <VisibilityMode>NotVisibleInFamily</VisibilityMode>
+  </AddIn>
+</RevitAddIns>

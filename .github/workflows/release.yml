@@ -1,0 +1,125 @@
+# OTA release pipeline.
+#
+# Flow: git tag v0.0.2 && git push --tags
+#   → builds plugin + loader with Version=0.0.2
+#   → RevitWebAppSync-0.0.2.zip (the OTA payload) + sha256 + version.json
+#   → RevitCopilot-0.0.2.msi (loader + seeded first version; one-time install)
+#   → GitHub Release with all assets attached
+#
+# version.json is the update feed the addin polls (BinaConfig.UpdateFeedUrl).
+# NOTE: while this repo is private, GitHub release asset URLs need auth —
+# re-host version.json + zip on app.bina.cloud (or any public host) and point
+# UpdateFeedUrl there. The asset contents stay identical.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 0.0.2) — no tag/release is created'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Derive version
+        id: ver
+        shell: pwsh
+        run: |
+          $v = if ('${{ github.event_name }}' -eq 'workflow_dispatch') {
+            '${{ inputs.version }}'
+          } else {
+            '${{ github.ref_name }}'.TrimStart('v')
+          }
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Bad version '$v' — want MAJOR.MINOR.PATCH" }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Publish plugin (OTA payload)
+        shell: pwsh
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          dotnet publish RevitWebAppSync.csproj -c Release -o artifacts/plugin -p:Version=$v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          # Loader metadata: which dll/type to bootstrap, marker that the
+          # folder is a complete build (MSI-seeded; the updater writes its own).
+          @{ version = $v; assembly = 'RevitWebAppSync.dll'; entryType = 'RevitWebAppSync.App' } |
+            ConvertTo-Json | Set-Content artifacts/plugin/manifest.json
+          Remove-Item artifacts/plugin/*.pdb -ErrorAction SilentlyContinue
+
+      - name: Publish loader
+        shell: pwsh
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          dotnet publish BinaLoader/BinaLoader.csproj -c Release -o artifacts/loader -p:Version=$v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Copy-Item BinaLoader/BinaSync.addin artifacts/loader/
+          Remove-Item artifacts/loader/*.pdb -ErrorAction SilentlyContinue
+
+      - name: Zip payload + feed json
+        id: payload
+        shell: pwsh
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          $zip = "RevitWebAppSync-$v.zip"
+          Compress-Archive -Path artifacts/plugin/* -DestinationPath $zip
+          $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          @{
+            version = $v
+            url     = "https://github.com/${{ github.repository }}/releases/download/v$v/$zip"
+            sha256  = $sha
+            notes   = "BINA Sync $v"
+          } | ConvertTo-Json | Set-Content version.json
+          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+      - name: Build MSI
+        shell: pwsh
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          dotnet tool install --global wix
+          wix extension add -g WixToolset.UI.wixext
+          # Seed folder must look exactly like an updater-staged one.
+          Set-Content artifacts/plugin/.complete $v
+          wix build installer/RevitCopilot.wxs `
+            -ext WixToolset.UI.wixext `
+            -d LoaderDir=artifacts/loader `
+            -d PluginDir=artifacts/plugin `
+            -d SeedVersion=$v `
+            -d ProductVersion=$v `
+            -o RevitCopilot-$v.msi
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      - name: Create GitHub Release
+        if: github.event_name == 'push'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          gh release create "v$v" `
+            '${{ steps.payload.outputs.zip }}' `
+            version.json `
+            "RevitCopilot-$v.msi" `
+            --title "BINA Sync $v" --generate-notes
+
+      - name: Upload artifacts (manual runs)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ steps.ver.outputs.version }}
+          path: |
+            RevitWebAppSync-*.zip
+            RevitCopilot-*.msi
+            version.json
