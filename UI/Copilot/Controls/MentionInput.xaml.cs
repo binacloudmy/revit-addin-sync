@@ -45,9 +45,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             try
             {
-                // Image on the clipboard (screenshot / snip) → intercept; let
-                // plain text fall through to the normal TextBox paste.
+                // Only fires when the paste command actually runs (i.e. the
+                // clipboard had a text format too — e.g. copied from Word).
+                // Text wins there; image-only pastes are handled in
+                // OnPreviewKeyDown because the TextBox DISABLES its paste
+                // command for a text-less clipboard and this handler never runs.
                 if (!e.DataObject.GetDataPresent(DataFormats.Bitmap)) return;
+                if (e.DataObject.GetDataPresent(DataFormats.UnicodeText)
+                    || e.DataObject.GetDataPresent(DataFormats.Text)) return;
                 var img = Clipboard.GetImage();
                 if (img == null) return;
                 e.CancelCommand();
@@ -155,6 +160,28 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private void OnPreviewKeyDown(object sender, KeyEventArgs e)
         {
+            // Ctrl+V with an IMAGE-ONLY clipboard (Win+Shift+S snip, PrtScn):
+            // the TextBox disables its paste command when there's no text
+            // format, so DataObject.AddPastingHandler never fires — catch the
+            // keystroke directly. Text (or text+image) pastes stay native.
+            if (e.Key == Key.V && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            {
+                try
+                {
+                    if (Clipboard.ContainsImage() && !Clipboard.ContainsText())
+                    {
+                        var img = Clipboard.GetImage();
+                        if (img != null)
+                        {
+                            e.Handled = true;
+                            ImagePasted?.Invoke(img);
+                            return;
+                        }
+                    }
+                }
+                catch { /* clipboard busy — fall through to the normal paste */ }
+            }
+
             if (Picker.IsOpen)
             {
                 if (e.Key == Key.Escape) { ClosePicker(); e.Handled = true; return; }
