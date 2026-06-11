@@ -27,8 +27,7 @@
   IMPORTANT: UpgradeCode is permanent per product. DO NOT regenerate it after
   the first public release or in-place upgrades will break.
 -->
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
 
   <Package Name="Revit Copilot"
            Manufacturer="Bina Cloudtech Sdn Bhd"
@@ -120,7 +119,8 @@
       </Files>
     </ComponentGroup>
 
-    <ui:WixUI Id="WixUI_Minimal" />
+    <!-- No dialog set: double-click = progress bar only, fully automatic.
+         (msiexec /qn still works for silent IT rollout.) -->
 
   </Package>
 </Wix>

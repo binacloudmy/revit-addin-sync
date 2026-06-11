@@ -48,17 +48,16 @@ Copy-Item -Force (Join-Path $repo "BinaLoader\BinaSync.addin") $loaderDir
     ConvertTo-Json | Set-Content (Join-Path $pluginDir "manifest.json")
 Set-Content (Join-Path $pluginDir ".complete") $Version
 
-# Ensure the WiX toolset + UI extension are available.
+# Ensure the WiX toolset is available.
 if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
     Write-Host "==> Installing WiX global tool..." -ForegroundColor Cyan
     # Pinned: wix v7+ refuses to run without accepting the OSMF EULA (WIX7015).
     dotnet tool install --global wix --version 5.0.2
     $env:Path += ";$env:USERPROFILE\.dotnet\tools"
 }
-wix extension add -g WixToolset.UI.wixext/5.0.2 2>$null | Out-Null
 
 Write-Host "==> Building MSI..." -ForegroundColor Cyan
-wix build $wxs -ext WixToolset.UI.wixext `
+wix build $wxs `
     -d "LoaderDir=$loaderDir" `
     -d "PluginDir=$pluginDir" `
     -d "SeedVersion=$Version" `
