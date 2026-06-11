@@ -87,32 +87,25 @@ jobs:
           } | ConvertTo-Json | Set-Content version.json
           "zip=$zip" >> $env:GITHUB_OUTPUT
 
-      - name: Build MSI
+      - name: Build installer (Inno Setup EXE)
         shell: pwsh
         run: |
           $v = '${{ steps.ver.outputs.version }}'
-          # Pinned: wix v7+ refuses to run without accepting the OSMF EULA
-          # (WIX7015). v5 has no gate and our .wxs is v4/v5 syntax.
-          dotnet tool install --global wix --version 5.0.2
           # Seed folder must look exactly like an updater-staged one.
           Set-Content artifacts/plugin/.complete $v
-          # ABSOLUTE paths: WiX resolves <Files Include> relative to the .wxs
-          # directory, not the cwd — relative -d paths made it harvest
-          # installer/artifacts/** (empty) and silently ship a fileless MSI
-          # (the v0.0.1-v0.0.6 32KB shells).
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
+          # ABSOLUTE source dirs — relative paths once made the old WiX MSI
+          # harvest nothing and ship 32KB shells (v0.0.1-v0.0.6).
           $loaderDir = (Resolve-Path artifacts/loader).Path
           $pluginDir = (Resolve-Path artifacts/plugin).Path
-          wix build installer/RevitCopilot.wxs `
-            -d "LoaderDir=$loaderDir" `
-            -d "PluginDir=$pluginDir" `
-            -d SeedVersion=$v `
-            -d ProductVersion=$v `
-            -o RevitCopilot-$v.msi
+          & $iscc installer/RevitCopilot.iss /DAppVersion=$v "/DLoaderDir=$loaderDir" "/DPluginDir=$pluginDir" /Oinstaller
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          # Guard: a payload-less MSI is ~32KB; the real one carries the whole
-          # plugin. Never ship a shell again.
-          $msiSize = (Get-Item "RevitCopilot-$v.msi").Length
-          if ($msiSize -lt 1MB) { throw "MSI is only $([math]::Round($msiSize/1KB)) KB — file harvest failed, refusing to release" }
+          Move-Item "installer/RevitCopilot-$v-setup.exe" .
+          # Guard: a payload-less installer is tiny; the real one carries the
+          # whole plugin. Never ship a shell again.
+          $size = (Get-Item "RevitCopilot-$v-setup.exe").Length
+          if ($size -lt 1MB) { throw "Installer is only $([math]::Round($size/1KB)) KB — harvest failed, refusing to release" }
 
       - name: Create GitHub Release
         if: github.event_name == 'push'
@@ -122,13 +115,13 @@ jobs:
         run: |
           $v = '${{ steps.ver.outputs.version }}'
           # Stable-named copy → evergreen landing-page link:
-          # releases/latest/download/RevitCopilot.msi always serves the newest.
-          Copy-Item "RevitCopilot-$v.msi" RevitCopilot.msi
+          # releases/latest/download/RevitCopilotSetup.exe always serves the newest.
+          Copy-Item "RevitCopilot-$v-setup.exe" RevitCopilotSetup.exe
           gh release create "v$v" `
             '${{ steps.payload.outputs.zip }}' `
             version.json `
-            "RevitCopilot-$v.msi" `
-            RevitCopilot.msi `
+            "RevitCopilot-$v-setup.exe" `
+            RevitCopilotSetup.exe `
             --title "BINA Sync $v" --generate-notes
 
       - name: Upload artifacts (manual runs)
@@ -138,5 +131,5 @@ jobs:
           name: release-${{ steps.ver.outputs.version }}
           path: |
             RevitWebAppSync-*.zip
-            RevitCopilot-*.msi
+            RevitCopilot-*-setup.exe
             version.json
