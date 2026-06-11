@@ -20,6 +20,20 @@ namespace RevitWebAppSync.Services
     {
         public static void Purge(UIControlledApplication application)
         {
+            // Only purge when WE were loaded by BinaLoader (i.e. from the
+            // versions\ store). A direct-load install (manual zip drop or the
+            // dev PostBuild flow) is the manifest we'd be deleting — purging
+            // there removes the running install itself on next start.
+            var loc = System.Reflection.Assembly.GetExecutingAssembly().Location;
+            var versionsDir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Bina", "RevitSync", "versions");
+            if (!loc.StartsWith(versionsDir, StringComparison.OrdinalIgnoreCase))
+            {
+                Log($"direct-load install ({loc}) — purge skipped");
+                return;
+            }
+
             var year = application.ControlledApplication.VersionNumber; // "2026"
 
             string[] addinDirs =
