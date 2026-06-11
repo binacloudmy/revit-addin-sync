@@ -113,10 +113,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $v = '${{ steps.ver.outputs.version }}'
+          # Stable-named copy → evergreen landing-page link:
+          # releases/latest/download/RevitCopilot.msi always serves the newest.
+          Copy-Item "RevitCopilot-$v.msi" RevitCopilot.msi
           gh release create "v$v" `
             '${{ steps.payload.outputs.zip }}' `
             version.json `
             "RevitCopilot-$v.msi" `
+            RevitCopilot.msi `
             --title "BINA Sync $v" --generate-notes
 
       - name: Upload artifacts (manual runs)
