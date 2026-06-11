@@ -77,10 +77,13 @@ jobs:
           Compress-Archive -Path artifacts/plugin/* -DestinationPath $zip
           $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
           @{
-            version = $v
-            url     = "https://github.com/${{ github.repository }}/releases/download/v$v/$zip"
-            sha256  = $sha
-            notes   = "BINA Sync $v"
+            version   = $v
+            url       = "https://github.com/${{ github.repository }}/releases/download/v$v/$zip"
+            sha256    = $sha
+            notes     = "BINA Sync $v"
+            # Stale clients are blocked until they update (UpdateWindow gate).
+            # Flip to $false for releases old builds may keep using.
+            mandatory = $true
           } | ConvertTo-Json | Set-Content version.json
           "zip=$zip" >> $env:GITHUB_OUTPUT
 
@@ -88,8 +91,10 @@ jobs:
         shell: pwsh
         run: |
           $v = '${{ steps.ver.outputs.version }}'
-          dotnet tool install --global wix
-          wix extension add -g WixToolset.UI.wixext
+          # Pinned: wix v7+ refuses to run without accepting the OSMF EULA
+          # (WIX7015). v5 has no gate and our .wxs is v4/v5 syntax.
+          dotnet tool install --global wix --version 5.0.2
+          wix extension add -g WixToolset.UI.wixext/5.0.2
           # Seed folder must look exactly like an updater-staged one.
           Set-Content artifacts/plugin/.complete $v
           wix build installer/RevitCopilot.wxs `
