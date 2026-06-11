@@ -96,13 +96,23 @@ jobs:
           dotnet tool install --global wix --version 5.0.2
           # Seed folder must look exactly like an updater-staged one.
           Set-Content artifacts/plugin/.complete $v
+          # ABSOLUTE paths: WiX resolves <Files Include> relative to the .wxs
+          # directory, not the cwd — relative -d paths made it harvest
+          # installer/artifacts/** (empty) and silently ship a fileless MSI
+          # (the v0.0.1-v0.0.6 32KB shells).
+          $loaderDir = (Resolve-Path artifacts/loader).Path
+          $pluginDir = (Resolve-Path artifacts/plugin).Path
           wix build installer/RevitCopilot.wxs `
-            -d LoaderDir=artifacts/loader `
-            -d PluginDir=artifacts/plugin `
+            -d "LoaderDir=$loaderDir" `
+            -d "PluginDir=$pluginDir" `
             -d SeedVersion=$v `
             -d ProductVersion=$v `
             -o RevitCopilot-$v.msi
           if ($LASTEXITCODE -ne 0) { exit 1 }
+          # Guard: a payload-less MSI is ~32KB; the real one carries the whole
+          # plugin. Never ship a shell again.
+          $msiSize = (Get-Item "RevitCopilot-$v.msi").Length
+          if ($msiSize -lt 1MB) { throw "MSI is only $([math]::Round($msiSize/1KB)) KB — file harvest failed, refusing to release" }
 
       - name: Create GitHub Release
         if: github.event_name == 'push'
