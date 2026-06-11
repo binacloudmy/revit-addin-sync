@@ -25,14 +25,15 @@ namespace RevitWebAppSync
         public string AIBaseUrl { get; set; }
         public string ApiBaseUrl { get; set; }
 
-        // OTA update feed (version.json). Empty default = updater disabled
-        // until a host is chosen; overridable via config.json like the URLs
-        // above, so enabling updates later needs no rebuild.
+        // OTA update feed (version.json). Default = newest GitHub Release's
+        // version.json (public repo, stable redirect URL, no auth). Overridable
+        // via config.json like the URLs above, so re-hosting needs no rebuild.
         public string UpdateFeedUrl { get; set; }
 
         public const string DEFAULT_AI_BASE_URL = "https://bina-ai-staging.azurewebsites.net";
         public const string DEFAULT_API_BASE_URL = "https://6d9e82978eba.ngrok-free.app";
-        public const string DEFAULT_UPDATE_FEED_URL = "";
+        public const string DEFAULT_UPDATE_FEED_URL =
+            "https://github.com/binacloudmy/revit-addin-sync/releases/latest/download/version.json";
 
         [JsonIgnore]
         public string ResolvedAIBaseUrl =>
