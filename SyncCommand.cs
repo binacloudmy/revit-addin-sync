@@ -16,6 +16,9 @@ namespace RevitWebAppSync
     {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
+            // OTA gate: a mandatory update blocks the plugin until installed.
+            if (!Services.UpdateService.EnsureUpToDate()) return Result.Cancelled;
+
             try
             {
                 System.Diagnostics.Debug.WriteLine("[BINA] Add-in started executing");
