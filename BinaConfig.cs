@@ -30,7 +30,7 @@ namespace RevitWebAppSync
         // above, so enabling updates later needs no rebuild.
         public string UpdateFeedUrl { get; set; }
 
-        public const string DEFAULT_AI_BASE_URL = "https://michelina-extrajudicial-logily.ngrok-free.dev";
+        public const string DEFAULT_AI_BASE_URL = "https://bina-ai-staging.azurewebsites.net";
         public const string DEFAULT_API_BASE_URL = "https://6d9e82978eba.ngrok-free.app";
         public const string DEFAULT_UPDATE_FEED_URL = "";
 
