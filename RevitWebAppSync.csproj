@@ -59,6 +59,7 @@
     <EmbeddedResource Include="Resources\revitSync.png" />
     <EmbeddedResource Include="Resources\revitSave.png" />
     <EmbeddedResource Include="Resources\microchip.png" />
+    <EmbeddedResource Include="Resources\aiAssistant.png" />
   </ItemGroup>
 
   <ItemGroup>
