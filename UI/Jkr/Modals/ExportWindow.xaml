@@ -1,0 +1,47 @@
+<Window x:Class="RevitWebAppSync.UI.Jkr.Modals.ExportWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="380" SizeToContent="Height"
+        WindowStyle="None" AllowsTransparency="True"
+        Background="Transparent" WindowStartupLocation="CenterOwner"
+        ShowInTaskbar="False" FontFamily="Segoe UI">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Tokens.xaml"/>
+                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Styles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid Background="#6B0A141E" MouseLeftButtonDown="Scrim_Click">
+        <Border Width="380" Background="White" CornerRadius="10" MouseLeftButtonDown="Card_Click">
+            <Border.Effect>
+                <DropShadowEffect Color="Black" BlurRadius="60" ShadowDepth="20" Opacity="0.3"/>
+            </Border.Effect>
+            <StackPanel>
+                <Border Padding="16,12,16,12" BorderBrush="{StaticResource Surface.Line}" BorderThickness="0,0,0,1">
+                    <TextBlock Text="Export Report" FontSize="14" FontWeight="SemiBold" Foreground="{StaticResource Ink}"/>
+                </Border>
+                <StackPanel Margin="16">
+                    <TextBlock Text="Download compliance results as CSV or Excel."
+                               FontSize="12" Foreground="{StaticResource Ink2}" Margin="0,0,0,10"
+                               TextWrapping="Wrap"/>
+                    <CheckBox x:Name="CbOpen" Style="{StaticResource Cb.Flat}" IsChecked="True" Margin="0,0,0,6"/>
+                    <CheckBox x:Name="CbResolved" Style="{StaticResource Cb.Flat}" IsChecked="True" Margin="0,0,0,6"/>
+                    <CheckBox x:Name="CbSpec" Content="Include spec references" Style="{StaticResource Cb.Flat}" IsChecked="True" Margin="0,0,0,6"/>
+                    <CheckBox x:Name="CbJson" Content="Include request/response JSON" Style="{StaticResource Cb.Flat}" IsChecked="False"/>
+                    <Grid Margin="0,16,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="8"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Button Grid.Column="0" Style="{StaticResource Btn.Primary}" Click="Csv_Click" Content="Download CSV"/>
+                        <Button Grid.Column="2" Style="{StaticResource Btn.Sec}" Click="Excel_Click" Content="Excel"/>
+                    </Grid>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>

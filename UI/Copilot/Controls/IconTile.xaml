@@ -1,0 +1,11 @@
+<UserControl x:Class="RevitWebAppSync.UI.Copilot.Controls.IconTile"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             HorizontalAlignment="Left" VerticalAlignment="Top">
+    <Border x:Name="Tile" CornerRadius="7" SnapsToDevicePixels="True">
+        <Viewbox x:Name="GlyphBox" Stretch="Uniform" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <Path x:Name="GlyphPath" Width="24" Height="24"
+                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"/>
+        </Viewbox>
+    </Border>
+</UserControl>

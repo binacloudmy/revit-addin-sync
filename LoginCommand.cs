@@ -52,6 +52,7 @@ namespace RevitWebAppSync
                         config.RefreshToken = loginWindow.RefreshToken;
                         config.TokenExpiry = loginWindow.TokenExpiry;
                         config.UserId = loginWindow.UserId;
+                        if (loginWindow.OrgId.HasValue) config.OrgId = loginWindow.OrgId;
                         config.UserName = loginWindow.Email; // Use email as username for now
 
                         // Show project picker

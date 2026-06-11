@@ -12,6 +12,7 @@ namespace RevitWebAppSync
         public string RefreshToken { get; private set; }
         public DateTime TokenExpiry { get; private set; }
         public int UserId { get; private set; }
+        public int? OrgId { get; private set; }
 
         public LoginWindow()
         {
@@ -70,6 +71,9 @@ namespace RevitWebAppSync
                 AccessToken = loginResponse.AccessToken;
                 RefreshToken = loginResponse.RefreshToken;
                 UserId = loginResponse.UserId;
+                // Either field shape is accepted — the auth backend doesn't
+                // return one today, but the wiring is in place.
+                OrgId = loginResponse.OrgId ?? loginResponse.OrganizationId;
 
                 // Convert expiry timestamp to DateTime
                 if (loginResponse.AccessTokenExpiry > 0)

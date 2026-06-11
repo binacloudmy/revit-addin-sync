@@ -1,6 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
+    <!-- Revit 2025+ ships .NET 8. net10.0-windows DLLs fail to load with
+         System.Runtime 0.0.0.0 FileNotFoundException at addin startup;
+         keep this on net8.0-windows until Autodesk bumps the host. -->
     <TargetFramework>net8.0-windows</TargetFramework>
     <PlatformTarget>x64</PlatformTarget>
     <OutputType>Library</OutputType>
@@ -8,11 +11,29 @@
     <UseWPF>true</UseWPF>
     <!-- Ensure all NuGet dependencies are copied to output -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Tests\**</DefaultItemExcludes>
   </PropertyGroup>
 
+  <!-- Autodetect installed Revit. Override with -p:RevitPath=... if needed.
+       Picks the newest installed version; falls back through 2027→2024. -->
   <PropertyGroup>
-    <RevitPath Condition="'$(RevitPath)' == ''">D:\Autodesk\Revit2026\Revit 2026</RevitPath>
-    <RevitVersion Condition="'$(RevitVersion)' == ''">2026</RevitVersion>
+    <RevitPath Condition="'$(RevitPath)' == '' AND Exists('C:\Program Files\Autodesk\Revit 2027\RevitAPI.dll')">C:\Program Files\Autodesk\Revit 2027</RevitPath>
+    <RevitVersion Condition="'$(RevitPath)' == 'C:\Program Files\Autodesk\Revit 2027'">2027</RevitVersion>
+
+    <RevitPath Condition="'$(RevitPath)' == '' AND Exists('C:\Program Files\Autodesk\Revit 2026\RevitAPI.dll')">C:\Program Files\Autodesk\Revit 2026</RevitPath>
+    <RevitVersion Condition="'$(RevitPath)' == 'C:\Program Files\Autodesk\Revit 2026'">2026</RevitVersion>
+
+    <RevitPath Condition="'$(RevitPath)' == '' AND Exists('C:\Program Files\Autodesk\Revit 2025\RevitAPI.dll')">C:\Program Files\Autodesk\Revit 2025</RevitPath>
+    <RevitVersion Condition="'$(RevitPath)' == 'C:\Program Files\Autodesk\Revit 2025'">2025</RevitVersion>
+
+    <RevitPath Condition="'$(RevitPath)' == '' AND Exists('C:\Program Files\Autodesk\Revit 2024\RevitAPI.dll')">C:\Program Files\Autodesk\Revit 2024</RevitPath>
+    <RevitVersion Condition="'$(RevitPath)' == 'C:\Program Files\Autodesk\Revit 2024'">2024</RevitVersion>
+
+    <!-- Last-resort default so MSBuild always has something to evaluate
+         the HintPath against; the build will then surface a clean
+         "RevitAPI.dll not found" error rather than empty CS0246s. -->
+    <RevitPath Condition="'$(RevitPath)' == ''">C:\Program Files\Autodesk\Revit 2027</RevitPath>
+    <RevitVersion Condition="'$(RevitVersion)' == ''">2027</RevitVersion>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,12 +51,29 @@
     <!-- Roslyn compiler for runtime code compilation -->
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- Excel support for import/export -->
+    <PackageReference Include="ClosedXML" Version="0.102.2" />
   </ItemGroup>
 
   <ItemGroup>
     <EmbeddedResource Include="Resources\revitSync.png" />
     <EmbeddedResource Include="Resources\revitSave.png" />
     <EmbeddedResource Include="Resources\microchip.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- JKR BIM spec PDFs — deployed alongside the addin DLL rather than embedded
+         because ~170MB of PDF would bloat the DLL and slow every build. The bootstrap
+         locates them via the addin's runtime directory. -->
+    <Content Include="Resources\bim-reference\*.pdf">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Data\master_prices_seed.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
 
   <!-- Post-build: Copy addin manifest and ALL DLLs to Revit folder -->
@@ -52,7 +90,7 @@
           DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\"
           Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\')" />
 
-    <Message Text="Copied $(TargetDir)*.dll to Revit Addins folder" Importance="high" />
+    <Message Text="Copied $(TargetDir)*.dll to Revit Addins folder (version $(RevitVersion))" Importance="high" />
   </Target>
 
 </Project>

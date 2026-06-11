@@ -1,0 +1,43 @@
+<UserControl x:Class="RevitWebAppSync.UI.Copilot.Screens.HistoryView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FontFamily="{DynamicResource Cp.Font}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1" Padding="10,12,14,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="BackBtn" Grid.Column="0" Visibility="Collapsed"
+                        Click="BackBtn_Click"
+                        Background="Transparent" BorderThickness="0"
+                        Cursor="Hand" Padding="0,0,8,0" VerticalAlignment="Center">
+                    <Path Width="8" Height="13" Stretch="Uniform"
+                          Stroke="#6b7280" StrokeThickness="1.8"
+                          Data="M8,2 L2,7 L8,12"/>
+                </Button>
+                <StackPanel Grid.Column="1">
+                    <TextBlock x:Name="HeaderTitle" Text="History" FontSize="13.5" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
+                    <TextBlock x:Name="Sub" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}" Margin="0,1,0,0"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Session list -->
+        <ScrollViewer x:Name="ListPanel" Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="RowsHost"/>
+        </ScrollViewer>
+
+        <!-- Session detail -->
+        <ScrollViewer x:Name="DetailPanel" Grid.Row="1" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+            <StackPanel x:Name="MessagesHost" Margin="0,8,0,16"/>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

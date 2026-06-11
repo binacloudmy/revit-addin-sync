@@ -10,6 +10,7 @@ namespace RevitWebAppSync
         public string Password { get; set; }
         public int ProjectId { get; set; }
         public int UserId { get; set; }
+        public int? OrgId { get; set; }   // organisation/team id, when the user belongs to one
 
         // Session data
         public string UserName { get; set; }
@@ -17,6 +18,23 @@ namespace RevitWebAppSync
         public string AccessToken { get; set; }
         public string RefreshToken { get; set; }
         public DateTime TokenExpiry { get; set; }
+
+        // Backend URLs — overridable via config.json so the addin doesn't need
+        // a rebuild when ngrok tunnels rotate. Empty/missing values fall back
+        // to the DEFAULT_* constants below.
+        public string AIBaseUrl { get; set; }
+        public string ApiBaseUrl { get; set; }
+
+        public const string DEFAULT_AI_BASE_URL = "https://michelina-extrajudicial-logily.ngrok-free.dev";
+        public const string DEFAULT_API_BASE_URL = "https://6d9e82978eba.ngrok-free.app";
+
+        [JsonIgnore]
+        public string ResolvedAIBaseUrl =>
+            !string.IsNullOrWhiteSpace(AIBaseUrl) ? AIBaseUrl : DEFAULT_AI_BASE_URL;
+
+        [JsonIgnore]
+        public string ResolvedApiBaseUrl =>
+            !string.IsNullOrWhiteSpace(ApiBaseUrl) ? ApiBaseUrl : DEFAULT_API_BASE_URL;
 
         private static readonly string ConfigPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
