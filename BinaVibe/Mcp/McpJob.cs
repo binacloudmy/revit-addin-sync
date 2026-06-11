@@ -25,6 +25,13 @@ namespace BinaVibe.Mcp
 
         public ManualResetEventSlim Completed { get; } = new(initialState: false);
 
+        // Set by the waiting side (ToolLoopRunner) when the user cancels or the
+        // wait times out. Revit can't abort a job that already STARTED, but the
+        // handler skips abandoned jobs still sitting in the queue — without
+        // this, every job queued behind a cancelled heavy operation (open_view
+        // on a cold view) executed anyway, jamming turns that came after.
+        public volatile bool Abandoned;
+
         // Result of the call. Exactly one of these is non-null when
         // Completed is set.
         public Dictionary<string, object?>? Result { get; set; }

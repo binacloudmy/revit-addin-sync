@@ -96,6 +96,7 @@ namespace BinaVibe.Mcp.Tools
                 "place_view_on_sheet"    => Mutators.PlaceViewOnSheet(doc, args),
                 "tag_elements"                  => Mutators.TagElements(doc, app, args),
                 "swap_element_type"             => Mutators.SwapElementType(doc, args),
+                "replace_with_reference"        => Mutators.ReplaceWithReference(doc, args),
                 "place_text_note"               => Mutators.PlaceTextNote(doc, args),
                 "rotate_elements"               => Mutators.RotateElements(doc, args),
                 "copy_elements"                 => Mutators.CopyElements(doc, args),

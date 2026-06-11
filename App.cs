@@ -36,6 +36,14 @@ namespace RevitWebAppSync
         // Revit Copilot dockable pane host (right-docked side panel)
         public static CopilotPaneHost CopilotPaneHost { get; private set; }
 
+        // Live UIApplication captured on Idling (a valid Revit API context).
+        // Fallback for the dockable Copilot pane: its _uiApp is only pushed by
+        // OpenCopilotCommand, so it stays NULL when Revit auto-restores the
+        // docked pane on startup (no ribbon click). Without this, BuildContext
+        // sees a null ActiveUIDocument and ships a BLANK context (no selection,
+        // levels, or views) to the agent.
+        public static UIApplication UiApp { get; private set; }
+
         // Live cost update handler
         public static CostUpdateHandler CostUpdateHandler { get; private set; }
 
@@ -100,6 +108,9 @@ namespace RevitWebAppSync
                 long lastIdleTs = 0;
                 application.Idling += (s, e) =>
                 {
+                    // Capture a live UIApplication for the Copilot pane fallback
+                    // (sender of Idling IS the UIApplication, in valid context).
+                    if (UiApp == null && s is UIApplication __ua) UiApp = __ua;
                     var now = System.Diagnostics.Stopwatch.GetTimestamp();
                     double freq = System.Diagnostics.Stopwatch.Frequency;
                     double gapMs = lastIdleTs != 0 ? (now - lastIdleTs) * 1000.0 / freq : 0;

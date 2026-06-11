@@ -38,6 +38,29 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             InitializeComponent();
             DataContextChanged += (_, __) => Hook();
             Loaded += (_, __) => Rebuild();
+            // Re-flow bubbles when the PANE is resized (docked narrow ↔ pulled
+            // wide) so message width tracks the panel instead of staying at the
+            // narrow default. Delta-guarded: rebuilding on every pixel would
+            // churn during a drag.
+            SizeChanged += (_, e) =>
+            {
+                if (System.Math.Abs(e.NewSize.Width - _lastLayoutWidth) < 24) return;
+                _lastLayoutWidth = e.NewSize.Width;
+                Rebuild();
+            };
+        }
+
+        private double _lastLayoutWidth;
+
+        /// <summary>Message column width: ~85% of the visible chat area (minus
+        /// the avatar gutter), so wide panes get wide bubbles/tables instead of
+        /// a fixed 360px strip. Falls back to the narrow default pre-layout.</summary>
+        private double BubbleMaxWidth()
+        {
+            double w = BodyHost != null && BodyHost.ActualWidth > 0 ? BodyHost.ActualWidth
+                     : (Scroller != null ? Scroller.ActualWidth : 0);
+            if (w <= 0) return 360;
+            return System.Math.Max(320, w * 0.85 - 44);
         }
 
         private void Hook()
@@ -79,9 +102,35 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 var av = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = CopilotColors.From("#e5e7eb"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 0, 10, 0) };
                 string initial = !string.IsNullOrEmpty(Vm?.UserFirstName) ? Vm.UserFirstName.Substring(0, 1).ToUpperInvariant() : "?";
                 av.Child = new TextBlock { Text = initial, FontSize = 9, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#374151"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                var bubble = new Border { Background = CopilotColors.From("#f1f3f5"), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 8, 12, 8) };
-                bubble.Child = new TextBlock { Text = m.Text, FontSize = 13, Foreground = CopilotColors.From("#0b0d12"), TextWrapping = TextWrapping.Wrap, LineHeight = 19 };
+                var bubble = new Border { Background = CopilotColors.From("#f1f3f5"), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 8, 12, 8), MaxWidth = BubbleMaxWidth() };
+                var bubbleStack = new StackPanel();
+                // Screenshots pasted with this prompt render above the text.
+                if (m.ImagesBase64 != null)
+                    foreach (var b64 in m.ImagesBase64)
+                    {
+                        var src = ImageFromBase64(b64);
+                        if (src == null) continue;
+                        bubbleStack.Children.Add(new Border
+                        {
+                            CornerRadius = new CornerRadius(6), ClipToBounds = true,
+                            MaxWidth = 220, Margin = new Thickness(0, 0, 0, 6),
+                            Child = new Image { Source = src, Stretch = Stretch.Uniform, MaxHeight = 140 },
+                        });
+                    }
+                // Selectable read-only TextBox (a WPF TextBlock cannot be selected/
+                // copied) — styled to look identical to the old TextBlock.
+                bubbleStack.Children.Add(new TextBox
+                {
+                    Text = m.Text, FontSize = 13, Foreground = CopilotColors.From("#0b0d12"),
+                    TextWrapping = TextWrapping.Wrap, IsReadOnly = true,
+                    BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent,
+                    Padding = new Thickness(0), IsTabStop = false,
+                });
+                bubble.Child = bubbleStack;
+                AttachCopyMenu(bubble, m.Text);
                 row.Children.Add(av); row.Children.Add(bubble);
+                if (!string.IsNullOrEmpty(m.Text))
+                    row.Children.Add(HoverReveal(row, CopyButton(m.Text)));
                 return row;
             }
 
@@ -89,7 +138,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var aiRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
             aiRow.Children.Add(BotAvatar());
             var col = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
-            col.MaxWidth = 360;
+            col.MaxWidth = BubbleMaxWidth();
 
             // Claude-style: show the tools the agent ran FIRST (a compact steps
             // panel with check glyphs), then the final answer below it.
@@ -107,6 +156,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 var md = RevitWebAppSync.Helpers.MarkdownRenderer.Render(m.Text, col.MaxWidth);
                 md.Margin = new Thickness(0, 0, 0, 8);
                 col.Children.Add(md);
+                // Copyable: right-click → Copy message, plus a hover ⧉ button.
+                // Thinking bubbles are excluded (their text is the live trail).
+                if (m.Kind != CpMsgKind.Thinking)
+                {
+                    AttachCopyMenu(col, m.Text);
+                    col.Children.Add(HoverReveal(aiRow, CopyButton(m.Text)));
+                }
             }
 
             switch (m.Kind)
@@ -562,6 +618,88 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
             outer.Child = sp;
             return outer;
+        }
+
+        // ─── Copy-to-clipboard affordances ─────────────────────────────────
+        // WPF TextBlocks are not selectable, so chat text could be pasted INTO
+        // the input but never copied OUT. Every bubble now gets a right-click
+        // "Copy message" menu + a hover ⧉ button; user bubbles are additionally
+        // text-selectable (read-only TextBox).
+
+        private static void CopyText(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            // Revit add-ins share the clipboard with the host; SetDataObject can
+            // throw CLIPBRD_E_CANT_OPEN when another app holds it — retry once.
+            try { Clipboard.SetDataObject(text, true); }
+            catch { try { Clipboard.SetDataObject(text, false); } catch { /* clipboard busy */ } }
+        }
+
+        private static void AttachCopyMenu(FrameworkElement el, string text)
+        {
+            if (el == null || string.IsNullOrEmpty(text)) return;
+            var menu = new ContextMenu();
+            var item = new MenuItem { Header = "Copy message" };
+            item.Click += (_, __) => CopyText(text);
+            menu.Items.Add(item);
+            el.ContextMenu = menu;
+        }
+
+        // Small ⧉ button that copies the message and flashes ✓ as feedback.
+        private static Button CopyButton(string text)
+        {
+            var label = new TextBlock { Text = "⧉", FontSize = 12, Foreground = CopilotColors.From("#9ca3af") };
+            var btn = new Button
+            {
+                Content = label, Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "Copy",
+                Background = System.Windows.Media.Brushes.Transparent, BorderThickness = new Thickness(0),
+                Padding = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(4, 2, 0, 0), IsTabStop = false,
+            };
+            btn.Click += (_, __) =>
+            {
+                CopyText(text);
+                label.Text = "✓"; label.Foreground = CopilotColors.From("#16a34a");
+                var t = new System.Windows.Threading.DispatcherTimer { Interval = System.TimeSpan.FromSeconds(1.2) };
+                t.Tick += (s, e2) =>
+                {
+                    label.Text = "⧉"; label.Foreground = CopilotColors.From("#9ca3af");
+                    ((System.Windows.Threading.DispatcherTimer)s).Stop();
+                };
+                t.Start();
+            };
+            return btn;
+        }
+
+        /// <summary>Decode a base64 PNG (a pasted screenshot) into a frozen
+        /// BitmapImage for the chat thumbnail. Null on bad input.</summary>
+        private static System.Windows.Media.Imaging.BitmapImage ImageFromBase64(string b64)
+        {
+            try
+            {
+                var bytes = System.Convert.FromBase64String(b64);
+                var img = new System.Windows.Media.Imaging.BitmapImage();
+                using (var ms = new System.IO.MemoryStream(bytes))
+                {
+                    img.BeginInit();
+                    img.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    img.StreamSource = ms;
+                    img.EndInit();
+                }
+                img.Freeze();
+                return img;
+            }
+            catch { return null; }
+        }
+
+        // Keeps the chat quiet: the affordance only appears while the pointer is
+        // over its message row.
+        private static FrameworkElement HoverReveal(FrameworkElement row, FrameworkElement affordance)
+        {
+            affordance.Visibility = Visibility.Hidden;
+            row.MouseEnter += (_, __) => affordance.Visibility = Visibility.Visible;
+            row.MouseLeave += (_, __) => affordance.Visibility = Visibility.Hidden;
+            return affordance;
         }
 
         // Raw tool name → friendly step label. Polished labels for the common

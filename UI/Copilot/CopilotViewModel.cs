@@ -57,8 +57,8 @@ namespace RevitWebAppSync.UI.Copilot
             CancelRunCommand = new RelayCommand(_ => CancelRun());
             ClearChatCommand = new RelayCommand(_ => Thread.Clear());
             ClearHighlightsCommand = new RelayCommand(_ => Highlights.Clear());
-            ChatSendCommand = new RelayCommand(p => ChatSend(p as string));
-            FollowUpCommand = new RelayCommand(p => ChatSend(p as string));
+            ChatSendCommand = new RelayCommand(ChatSendAny);
+            FollowUpCommand = new RelayCommand(ChatSendAny);
             CancelSendCommand = new RelayCommand(_ => CancelSend());
             ChatRunCommand = new RelayCommand(p => ChatRun(p as ChatMessage));
             ChatRegenerateCommand = new RelayCommand(p => ChatRegenerate(p as ChatMessage));
@@ -527,7 +527,16 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         // ─── Chat ──────────────────────────────────────────────────────────────
-        public void ChatSend(string text)
+
+        /// <summary>Command entry: the PromptBar sends a PromptPayload when
+        /// screenshots are attached; chips/follow-ups still send a plain string.</summary>
+        private void ChatSendAny(object p)
+        {
+            if (p is PromptPayload pp) ChatSend(pp.Text, pp.ImagesBase64);
+            else ChatSend(p as string);
+        }
+
+        public void ChatSend(string text, List<string> images = null)
         {
             text = (text ?? "").Trim();
             if (text.Length == 0) return;
@@ -543,7 +552,7 @@ namespace RevitWebAppSync.UI.Copilot
             Tab = CpTab.Chat;
             Screen = CpScreen.Home;
             ToolId = null;
-            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text });
+            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images });
 
             var interp = QueryInterpreter.Interpret(text);
             if (interp.IsClarify)
@@ -553,10 +562,10 @@ namespace RevitWebAppSync.UI.Copilot
             }
 
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Drafting a command for that…" });
-            _ = ResolveProposalAsync(text, interp.ToolId);
+            _ = ResolveProposalAsync(text, interp.ToolId, images);
         }
 
-        private async System.Threading.Tasks.Task ResolveProposalAsync(string text, string fallbackToolId)
+        private async System.Threading.Tasks.Task ResolveProposalAsync(string text, string fallbackToolId, List<string> images = null)
         {
             RouteResult rr = null;
             if (Router != null)
@@ -573,25 +582,64 @@ namespace RevitWebAppSync.UI.Copilot
                     // old "Drafting…" code preview: the step trail is the progress
                     // display now; the final reply lands in the answer bubble on
                     // completion.
+                    // Once answer TEXT starts streaming (OnCodeStream), the reply
+                    // takes over the bubble — late trail re-renders (review ticks,
+                    // resume rounds) must not stomp the text the user is reading.
+                    bool replyStreaming = false;
                     revitRouter.OnProgress = (trail) =>
                     {
+                        if (replyStreaming) return;
                         ReplaceLastThinking(new ChatMessage
                         {
                             Role = "ai", Kind = CpMsgKind.Thinking,
                             Text = string.IsNullOrEmpty(trail) ? "Thinking…" : trail,
                         });
                     };
+                    revitRouter.OnCodeStream = (cumulative) =>
+                    {
+                        if (string.IsNullOrWhiteSpace(cumulative)) return;
+                        replyStreaming = true;
+                        ReplaceLastThinking(new ChatMessage
+                        {
+                            Role = "ai", Kind = CpMsgKind.Thinking,
+                            Text = cumulative,
+                        });
+                    };
                 }
+                // Pasted screenshots ride along with this route only — the router
+                // consumes and clears them when it builds the request (same
+                // per-call pattern as OnProgress).
+                if (revitRouter != null) revitRouter.PendingImages = images;
                 IsSending = true;   // send button shows Stop until the reply resolves
                 try { rr = await Router.RouteAsync(text, fallbackToolId); }
                 catch { rr = null; }
                 finally
                 {
                     IsSending = false;
-                    if (revitRouter != null) revitRouter.OnProgress = null;
+                    if (revitRouter != null)
+                    {
+                        revitRouter.OnProgress = null;
+                        revitRouter.OnCodeStream = null;
+                    }
                 }
             }
 
+
+            // HITL clarify pause: the agent needs an answer before acting. Render
+            // the question as a Clarify card; the user's NEXT message is routed
+            // back into the paused run by the router (resume-input), so no
+            // option chips are required — they type the answer in the prompt bar.
+            if (rr != null && rr.NeedsClarification && !string.IsNullOrWhiteSpace(rr.ClarifyingQuestion))
+            {
+                ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.Clarify,
+                    Question = rr.ClarifyingQuestion,
+                    Options = new List<ClarifyOption>(),
+                    Steps = rr.Steps,
+                });
+                return;
+            }
 
             string toolId = !string.IsNullOrEmpty(rr?.ToolId) ? rr.ToolId : fallbackToolId;
             var tool = CopilotCatalog.Find(toolId) ?? CopilotCatalog.Find(fallbackToolId);

@@ -30,6 +30,14 @@ namespace BinaVibe.Mcp
         {
             while (Pending.TryDequeue(out var job))
             {
+                // Cancelled before execution — drain WITHOUT running. The
+                // waiter is gone; complete it as an error so nothing blocks.
+                if (job.Abandoned)
+                {
+                    job.Error = "abandoned: request was cancelled before execution";
+                    job.Completed.Set();
+                    continue;
+                }
                 job.TStarted = System.Diagnostics.Stopwatch.GetTimestamp();   // t1
                 try
                 {
