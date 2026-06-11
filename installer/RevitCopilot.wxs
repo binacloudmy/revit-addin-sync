@@ -69,7 +69,29 @@
       <ComponentGroupRef Id="Loader2026" />
       <ComponentGroupRef Id="Loader2027" />
       <ComponentGroupRef Id="SeedPayload" />
+      <ComponentGroupRef Id="DevCleanup" />
     </Feature>
+
+    <!-- Dev machines have a direct-load RevitWebAppSync.addin dropped by the
+         project's PostBuild copy. Left in place it loads the plugin a second
+         time next to the loader and ribbon-tab creation collides. Removing
+         just the manifest is enough — orphaned DLLs without a manifest are
+         never loaded. Exact filename only: Addins\<year>\ is shared with
+         other vendors' addins, so no wildcards here. -->
+    <ComponentGroup Id="DevCleanup">
+      <Component Id="CleanDevManifest2025" Directory="Addins2025" Guid="3B5E9D71-4C2A-4F8B-A6E3-9D1C7B2F5A84">
+        <RemoveFile Id="RmDevManifest2025" Name="RevitWebAppSync.addin" On="both" />
+        <CreateFolder />
+      </Component>
+      <Component Id="CleanDevManifest2026" Directory="Addins2026" Guid="8F2A6C43-1D9B-4E57-B8A1-3C6F9E4D2B75">
+        <RemoveFile Id="RmDevManifest2026" Name="RevitWebAppSync.addin" On="both" />
+        <CreateFolder />
+      </Component>
+      <Component Id="CleanDevManifest2027" Directory="Addins2027" Guid="5D8B3F92-7A4E-4C16-9E5B-1F8A2D6C4E93">
+        <RemoveFile Id="RmDevManifest2027" Name="RevitWebAppSync.addin" On="both" />
+        <CreateFolder />
+      </Component>
+    </ComponentGroup>
 
     <!-- Loader shim per Revit year — the only files Revit locks in place. -->
     <ComponentGroup Id="Loader2025" Directory="Addins2025">
