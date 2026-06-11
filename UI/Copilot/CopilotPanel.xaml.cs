@@ -47,8 +47,11 @@ namespace RevitWebAppSync.UI.Copilot
                 AccessTokenProvider = () => BinaConfig.Load().AccessToken,
                 UserId = cfg?.UserId,
             };
-            _vm.Router = new RevitChatRouter(() => _uiApp);
-            Controls.MentionInput.DefaultProvider = new RevitMentionProvider(() => _uiApp);
+            // Fall back to the Idling-captured global when _uiApp is null (the
+            // pane was auto-restored docked, so OpenCopilotCommand never pushed
+            // the UIApplication). Fixes the agent seeing an empty model context.
+            _vm.Router = new RevitChatRouter(() => _uiApp ?? App.UiApp);
+            Controls.MentionInput.DefaultProvider = new RevitMentionProvider(() => _uiApp ?? App.UiApp);
             DataContext = _vm;
             _vm.PropertyChanged += OnVmChanged;
             _vm.Highlights.CollectionChanged += OnHighlightsChanged;

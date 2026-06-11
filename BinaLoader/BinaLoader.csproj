@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Must match the host plugin's target: Revit 2025+ ships .NET 8. -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <OutputType>Library</OutputType>
+    <AssemblyName>BinaLoader</AssemblyName>
+    <Version Condition="'$(Version)' == ''">0.0.1</Version>
+    <!-- Lets the loader build on macOS/Linux CI and dev machines. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reference-only Revit API packages (no Revit install needed to build).
+         Compiled against 2025 so the loader runs on every net8 Revit (2025+). -->
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2025.*" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2025.*" />
+  </ItemGroup>
+
+</Project>

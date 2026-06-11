@@ -25,6 +25,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Raised on Enter — composed text + parsed mentions.</summary>
         public event Action<string, List<Mention>> Submitted;
 
+        /// <summary>Raised when the user pastes an image (e.g. a screenshot) into
+        /// the editor. The PromptBar shows it as a pending thumbnail and sends it
+        /// with the next prompt. Text pastes are unaffected.</summary>
+        public event Action<System.Windows.Media.Imaging.BitmapSource> ImagePasted;
+
         private int _atIndex = -1;
 
         public MentionInput()
@@ -32,7 +37,28 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             InitializeComponent();
             Editor.TextChanged += OnTextChanged;
             Editor.PreviewKeyDown += OnPreviewKeyDown;
+            DataObject.AddPastingHandler(Editor, OnPaste);
             Loaded += (_, __) => UpdatePlaceholder();
+        }
+
+        private void OnPaste(object sender, DataObjectPastingEventArgs e)
+        {
+            try
+            {
+                // Only fires when the paste command actually runs (i.e. the
+                // clipboard had a text format too — e.g. copied from Word).
+                // Text wins there; image-only pastes are handled in
+                // OnPreviewKeyDown because the TextBox DISABLES its paste
+                // command for a text-less clipboard and this handler never runs.
+                if (!e.DataObject.GetDataPresent(DataFormats.Bitmap)) return;
+                if (e.DataObject.GetDataPresent(DataFormats.UnicodeText)
+                    || e.DataObject.GetDataPresent(DataFormats.Text)) return;
+                var img = Clipboard.GetImage();
+                if (img == null) return;
+                e.CancelCommand();
+                ImagePasted?.Invoke(img);
+            }
+            catch { /* clipboard access can fail transiently inside Revit — ignore */ }
         }
 
         public static readonly DependencyProperty PlaceholderTextProperty = DependencyProperty.Register(
@@ -134,6 +160,28 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private void OnPreviewKeyDown(object sender, KeyEventArgs e)
         {
+            // Ctrl+V with an IMAGE-ONLY clipboard (Win+Shift+S snip, PrtScn):
+            // the TextBox disables its paste command when there's no text
+            // format, so DataObject.AddPastingHandler never fires — catch the
+            // keystroke directly. Text (or text+image) pastes stay native.
+            if (e.Key == Key.V && (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            {
+                try
+                {
+                    if (Clipboard.ContainsImage() && !Clipboard.ContainsText())
+                    {
+                        var img = Clipboard.GetImage();
+                        if (img != null)
+                        {
+                            e.Handled = true;
+                            ImagePasted?.Invoke(img);
+                            return;
+                        }
+                    }
+                }
+                catch { /* clipboard busy — fall through to the normal paste */ }
+            }
+
             if (Picker.IsOpen)
             {
                 if (e.Key == Key.Escape) { ClosePicker(); e.Handled = true; return; }

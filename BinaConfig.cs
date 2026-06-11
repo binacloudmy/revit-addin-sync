@@ -25,16 +25,33 @@ namespace RevitWebAppSync
         public string AIBaseUrl { get; set; }
         public string ApiBaseUrl { get; set; }
 
-        public const string DEFAULT_AI_BASE_URL = "https://michelina-extrajudicial-logily.ngrok-free.dev";
+        // OTA update feed (version.json). Default = newest GitHub Release's
+        // version.json (public repo, stable redirect URL, no auth). Overridable
+        // via config.json like the URLs above, so re-hosting needs no rebuild.
+        public string UpdateFeedUrl { get; set; }
+
+        public const string DEFAULT_AI_BASE_URL = "https://bina-ai-staging.azurewebsites.net";
         public const string DEFAULT_API_BASE_URL = "https://6d9e82978eba.ngrok-free.app";
+        public const string DEFAULT_UPDATE_FEED_URL =
+            "https://github.com/binacloudmy/revit-addin-sync/releases/latest/download/version.json";
 
         [JsonIgnore]
         public string ResolvedAIBaseUrl =>
-            !string.IsNullOrWhiteSpace(AIBaseUrl) ? AIBaseUrl : DEFAULT_AI_BASE_URL;
+            // Ignore stale ngrok overrides left in config.json — the addin now
+            // targets the cloud (DEFAULT_AI_BASE_URL = staging). A leftover ngrok
+            // AIBaseUrl points at a dead local tunnel (HTTP 502 / ERR_NGROK_8012).
+            // Honor only a real, non-ngrok custom override.
+            (!string.IsNullOrWhiteSpace(AIBaseUrl) &&
+             AIBaseUrl.IndexOf("ngrok", StringComparison.OrdinalIgnoreCase) < 0)
+                ? AIBaseUrl : DEFAULT_AI_BASE_URL;
 
         [JsonIgnore]
         public string ResolvedApiBaseUrl =>
             !string.IsNullOrWhiteSpace(ApiBaseUrl) ? ApiBaseUrl : DEFAULT_API_BASE_URL;
+
+        [JsonIgnore]
+        public string ResolvedUpdateFeedUrl =>
+            !string.IsNullOrWhiteSpace(UpdateFeedUrl) ? UpdateFeedUrl : DEFAULT_UPDATE_FEED_URL;
 
         private static readonly string ConfigPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),

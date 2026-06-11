@@ -51,26 +51,68 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> ListFamilyTypes(Document doc, JsonElement args)
         {
             var category = TryGetString(args, "category") ?? "OST_Doors";
+            var nameContains = TryGetString(args, "name_contains");
             var bic = ResolveBuiltInCategory(category);
+            if (!bic.HasValue)
+            {
+                // Unknown category must FAIL LOUDLY — running unfiltered used to
+                // return arrowheads as "plumbing fixtures" and the agent toured
+                // for rounds trying to make sense of it.
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"unknown category '{category}' — pass a BuiltInCategory like OST_PlumbingFixtures or a friendly name like 'Plumbing Fixtures'",
+                };
+            }
+
+            // One pass over INSTANCES grouped by type id → per-type counts.
+            // This is what lets the agent answer "berapa banyak X" in a SINGLE
+            // round trip instead of touring list→count_by→find (measured 5-round
+            // tours for one count question).
+            var counts = new Dictionary<long, int>();
+            int totalInstances = 0;
+            var icol = new FilteredElementCollector(doc).WhereElementIsNotElementType();
+            if (bic.HasValue)
+                icol = icol.OfCategory(bic.Value);
+            foreach (var el in icol)
+            {
+                var tid = el.GetTypeId().Value;
+                if (tid == ElementId.InvalidElementId.Value) continue;
+                counts[tid] = counts.TryGetValue(tid, out var n) ? n + 1 : 1;
+                totalInstances++;
+            }
 
             var col = new FilteredElementCollector(doc).WhereElementIsElementType();
             if (bic.HasValue)
                 col = col.OfCategory(bic.Value);
             IEnumerable<Element> q = col;
 
+            bool NameHit(Element t)
+            {
+                if (string.IsNullOrEmpty(nameContains)) return true;
+                var tn = t.Name;
+                var fn = (t as ElementType)?.FamilyName;
+                return (tn != null && tn.IndexOf(nameContains, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    || (fn != null && fn.IndexOf(nameContains, System.StringComparison.OrdinalIgnoreCase) >= 0);
+            }
+
             var types = q
+                .Where(NameHit)
                 .Take(500)
                 .Select(t => new Dictionary<string, object?>
                 {
                     ["id"] = t.Id.Value,
                     ["name"] = t.Name,
                     ["family_name"] = (t as ElementType)?.FamilyName,
+                    ["instances"] = counts.TryGetValue(t.Id.Value, out var c) ? c : 0,
                 })
                 .ToList<object>();
             return new Dictionary<string, object?>
             {
                 ["category"] = category,
+                ["name_contains"] = nameContains,
                 ["types"] = types,
+                ["total_instances_in_category"] = totalInstances,
             };
         }
 
@@ -148,6 +190,17 @@ namespace BinaVibe.Mcp.Tools
             var category = TryGetString(args, "category") ?? "Walls";
             var bic = ResolveBuiltInCategory(category);
             var predicate = TryGetString(args, "predicate");
+            if (!bic.HasValue)
+            {
+                // Same loud-failure rule as ListFamilyTypes: an unfiltered
+                // collector returns junk ("Project Phase Information" as a
+                // plumbing fixture) and sends the agent touring.
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"unknown category '{category}' — pass a BuiltInCategory like OST_PlumbingFixtures or a friendly name like 'Plumbing Fixtures'",
+                };
+            }
 
             var col = new FilteredElementCollector(doc).WhereElementIsNotElementType();
             if (bic.HasValue) col = col.OfCategory(bic.Value);
@@ -700,7 +753,14 @@ namespace BinaVibe.Mcp.Tools
             {
                 var t = el.GetTypeId().Value != ElementId.InvalidElementId.Value
                     ? doc.GetElement(el.GetTypeId()) : null;
-                return string.Equals(t?.Name, want, System.StringComparison.OrdinalIgnoreCase);
+                // JKR names embed codes in parentheses ("Tandas Cangkung (LSc096a)")
+                // and the agent often passes just one part — "(LSc096a)" or
+                // "Tandas Cangkung". Exact-equals returned nothing for every
+                // JKR-coded family, forcing codegen fallback. Match type name OR
+                // family name, containment either way. Levels stay exact-match
+                // below ("Level 1" must never match "Level 10").
+                return TypeNameMatches(t?.Name, want)
+                    || TypeNameMatches((t as ElementType)?.FamilyName, want);
             }
             if (key.Equals("level", System.StringComparison.OrdinalIgnoreCase))
             {
@@ -718,13 +778,31 @@ namespace BinaVibe.Mcp.Tools
             return true;
         }
 
+        private static bool TypeNameMatches(string? actual, string want)
+        {
+            if (string.IsNullOrWhiteSpace(actual) || string.IsNullOrWhiteSpace(want)) return false;
+            if (string.Equals(actual, want, System.StringComparison.OrdinalIgnoreCase)) return true;
+            return actual.IndexOf(want, System.StringComparison.OrdinalIgnoreCase) >= 0
+                || want.IndexOf(actual, System.StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         private static BuiltInCategory? ResolveBuiltInCategory(string category)
         {
             // Accept either the BIC enum literal ("OST_Walls") or the
-            // friendly category name ("Walls", "Doors", "Windows").
+            // friendly category name ("Walls", "Doors", "Plumbing Fixtures").
+            // The old 7-entry switch silently returned null for everything
+            // else — and callers then ran UNFILTERED collectors, handing the
+            // agent 500 junk types ("Arrowhead" as a plumbing fixture). That
+            // garbage is what forced the multi-round tool tours on every
+            // "tandas" question. Resolve generically: any friendly name maps
+            // to OST_<NameWithoutSpaces>.
+            if (string.IsNullOrWhiteSpace(category)) return null;
             if (category.StartsWith("OST_", System.StringComparison.OrdinalIgnoreCase)
                 && System.Enum.TryParse<BuiltInCategory>(category, true, out var bic))
                 return bic;
+            var compact = "OST_" + category.Replace(" ", "").Replace("-", "");
+            if (System.Enum.TryParse<BuiltInCategory>(compact, true, out var bic2))
+                return bic2;
             return category.ToLowerInvariant() switch
             {
                 "walls" => BuiltInCategory.OST_Walls,

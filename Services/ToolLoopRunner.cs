@@ -36,6 +36,13 @@ namespace RevitWebAppSync.Services
         // this turn, snapshotted at completion. Null on early-error returns.
         // Surfaced to the final chat bubble so the rich trail survives ClearProgress.
         public IReadOnlyList<ProgressStep> Steps { get; set; }
+        // HITL clarify pause: the agent needs the user's answer before it can
+        // continue. The pane renders the question, then re-enters the loop via
+        // ResumeWithInputAsync with the same RunId/SessionId.
+        public bool AwaitingUserInput { get; set; }
+        public string RunId { get; set; }
+        public string SessionId { get; set; }
+        public List<ClarifyRequirement> Clarify { get; set; }
     }
 
     public sealed class ToolLoopRunner
@@ -59,10 +66,8 @@ namespace RevitWebAppSync.Services
         // through it, and each pending Revit execution pushes its own.
         public async Task<ToolLoopOutcome> RunAsync(
             AIRequest request, string accessToken, Action<string> onProgress = null,
-            CancellationToken ct = default)
+            CancellationToken ct = default, Action<string> onReply = null)
         {
-            var outcome = new ToolLoopOutcome();
-
             // One trail spans the whole loop: the streamed first turn AND every
             // Revit-execution round reduce into it, so the addin shows a single
             // accumulating BIMLogiq-style step trail (▶ running, ✓ done) instead
@@ -77,17 +82,64 @@ namespace RevitWebAppSync.Services
                 // Stream the first turn so the agent's steps appear live instead
                 // of a static "Thinking…". Returns the same ToolTurn (done OR
                 // awaiting_revit) the non-streaming path did.
-                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct).ConfigureAwait(false);
+                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct, onReply).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 return new ToolLoopOutcome { Success = false, Error = $"tool/generate failed: {ex.Message}" };
             }
+            return await DriveAsync(turn, request?.SessionId, accessToken, onProgress, onReply, trail, ct).ConfigureAwait(false);
+        }
+
+        /// <summary>Re-enter the loop after a clarify pause: POST the user's
+        /// answers to /tool/resume-input, then keep driving (the agent may act,
+        /// pause for Revit, or ask again).</summary>
+        public async Task<ToolLoopOutcome> ResumeWithInputAsync(
+            string runId, string sessionId, IReadOnlyList<ClarifyAnswerDto> answers,
+            string accessToken, Action<string> onProgress = null,
+            CancellationToken ct = default, Action<string> onReply = null)
+        {
+            var trail = new ObservableCollection<ProgressStep>();
+            ToolTurn turn;
+            try
+            {
+                turn = await _svc.ResumeInputAsync(runId, sessionId, answers, accessToken, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                return new ToolLoopOutcome { Success = false, Error = $"tool/resume-input failed: {ex.Message}" };
+            }
+            return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply, trail, ct).ConfigureAwait(false);
+        }
+
+        // Shared execute/resume driver: takes the latest turn and loops until
+        // done / clarify pause / error / round cap.
+        private async Task<ToolLoopOutcome> DriveAsync(
+            ToolTurn turn, string sessionFallback, string accessToken,
+            Action<string> onProgress, Action<string> onReply,
+            ObservableCollection<ProgressStep> trail, CancellationToken ct)
+        {
+            var outcome = new ToolLoopOutcome();
 
             for (int round = 0; round < MaxRounds; round++)
             {
                 if (turn == null || turn.Status == "error" || !turn.Success)
                     return new ToolLoopOutcome { Success = false, Error = turn?.Error ?? "tool turn failed" };
+
+                // Clarify pause (HITL): hand the question up to the pane. The
+                // loop ends here; the pane re-enters via ResumeWithInputAsync
+                // once the user answers.
+                if (turn.AwaitingUserInput)
+                {
+                    outcome.AwaitingUserInput = true;
+                    outcome.RunId = turn.RunId;
+                    outcome.SessionId = string.IsNullOrEmpty(turn.SessionId) ? sessionFallback : turn.SessionId;
+                    outcome.Clarify = turn.Clarify;
+                    outcome.Reply = turn.Reply ?? "";
+                    ProgressReducer.CompleteRunning(trail);
+                    outcome.Steps = new List<ProgressStep>(trail);
+                    return outcome;
+                }
 
                 if (!turn.AwaitingRevit)
                 {
@@ -143,7 +195,12 @@ namespace RevitWebAppSync.Services
 
                 try
                 {
-                    turn = await _svc.ResumeAsync(turn.RunId, turn.SessionId ?? request?.SessionId, results, accessToken, ct)
+                    // Streamed resume: the agent's post-execution answer (often the
+                    // longest decode of the loop) now ticks tool rows and streams
+                    // reply text live instead of a blocking 7-15s POST. Falls back
+                    // to the blocking endpoint on older backends (404) internally.
+                    turn = await _svc.ResumeStreamAsync(turn.RunId, turn.SessionId ?? sessionFallback, results,
+                                                        accessToken, onProgress, trail, onReply, ct)
                                      .ConfigureAwait(false);
                 }
                 catch (Exception ex)
@@ -187,10 +244,23 @@ namespace RevitWebAppSync.Services
 
             // Block on a threadpool thread so we don't pin the caller; the handler
             // signals Completed from the Revit UI thread.
-            bool completed = await Task.Run(() => job.Completed.Wait(JobMaxWait), ct).ConfigureAwait(false);
+            bool completed;
+            try
+            {
+                completed = await Task.Run(() => job.Completed.Wait(JobMaxWait), ct).ConfigureAwait(false);
+            }
+            catch (System.OperationCanceledException)
+            {
+                // User hit Stop. Revit can't abort a job mid-execution, but
+                // marking it abandoned makes the handler skip it if it's still
+                // queued — so cancelled work can't jam the turns that follow.
+                job.Abandoned = true;
+                throw;
+            }
 
             if (!completed)
             {
+                job.Abandoned = true;   // same drain rule on timeout
                 return new ToolResultDto
                 {
                     ToolCallId = call.ToolCallId, Ok = false,

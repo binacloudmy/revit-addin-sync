@@ -122,7 +122,14 @@ namespace BinaVibe.Mcp.Tools
             TxGuard.StartSwallowing(tx);
             try
             {
-                el.ChangeTypeId(newType.Id);
+                // Cross-family (different Family) → ChangeTypeId would keep the
+                // source's origin + "Offset from Host", misaligning the result.
+                // Place a fresh instance preserving placement, then delete.
+                if (el is FamilyInstance fiX && newType is FamilySymbol symX
+                    && fiX.Symbol.Family.Id != symX.Family.Id)
+                    ReplaceCrossFamily(doc, fiX, symX);
+                else
+                    el.ChangeTypeId(newType.Id);
                 tx.Commit();
             }
             catch { tx.RollBack(); throw; }
@@ -132,6 +139,154 @@ namespace BinaVibe.Mcp.Tools
                 ["ok"] = true,
                 ["element_id"] = id,
                 ["new_type"] = typeName,
+            };
+        }
+
+        // ─── cross-family replace (place + delete, preserve placement) ───────
+        // ChangeTypeId across families keeps the source's origin + vertical
+        // offset (e.g. tandas cangkung 1231.5mm), so the replacement lands
+        // misaligned / at the wrong height. Instead place a FRESH target
+        // instance at the source's plan point + facing + level, take the TARGET
+        // family's own vertical (matched from an existing sibling, never copied
+        // from the source), then delete the source. Caller must wrap in a
+        // Transaction. Returns false if the source has no usable location point.
+        private static bool ReplaceCrossFamily(Document doc, FamilyInstance src, FamilySymbol sym)
+        {
+            if (!(src.Location is LocationPoint lp)) return false;
+            if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
+
+            XYZ pt = lp.Point;
+            Level level = doc.GetElement(src.LevelId) as Level;
+            XYZ srcFacing = src.FacingOrientation;
+            bool flipped = src.HandFlipped;
+
+            var nw = level != null
+                ? doc.Create.NewFamilyInstance(pt, sym, level, Autodesk.Revit.DB.Structure.StructuralType.NonStructural)
+                : doc.Create.NewFamilyInstance(pt, sym, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+            doc.Regenerate();
+
+            // Match facing (rotate about the location's Z axis).
+            double ang = srcFacing.AngleTo(nw.FacingOrientation);
+            if (ang > 1e-9)
+            {
+                XYZ cross = nw.FacingOrientation.CrossProduct(srcFacing);
+                if (cross.Z < 0) ang = -ang;
+                ElementTransformUtils.RotateElement(
+                    doc, nw.Id, Line.CreateBound(pt, pt + XYZ.BasisZ), ang);
+            }
+            if (flipped && nw.CanFlipHand) nw.flipHand();
+
+            // Vertical: match an existing instance of the TARGET family (its own
+            // convention) — NEVER copy the source's offset. Leave default if none.
+            var sibling = new FilteredElementCollector(doc).OfClass(typeof(FamilyInstance))
+                .Cast<FamilyInstance>()
+                .FirstOrDefault(x => x.Symbol.Family.Id == sym.Family.Id && x.Id != nw.Id);
+            if (sibling != null)
+            {
+                var sp = sibling.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM);
+                var np = nw.get_Parameter(BuiltInParameter.INSTANCE_FREE_HOST_OFFSET_PARAM);
+                if (sp != null && np != null && !np.IsReadOnly && sp.StorageType == StorageType.Double)
+                    np.Set(sp.AsDouble());
+            }
+
+            doc.Delete(src.Id);
+            return true;
+        }
+
+        private static XYZ BBoxCenter(Element e)
+        {
+            var bb = e.get_BoundingBox(null);
+            if (bb != null) return (bb.Min + bb.Max) * 0.5;
+            return (e.Location as LocationPoint)?.Point ?? XYZ.Zero;
+        }
+
+        private static string Fmt(XYZ p) =>
+            p == null ? "null" : $"({p.X:F2},{p.Y:F2},{p.Z:F2})";
+
+        // ─── replace_with_reference ──────────────────────────────────────────
+        // Clone a user-selected REFERENCE instance 1:1 onto each target's
+        // location, then delete the targets. The clone INHERITS the reference's
+        // exact type, vertical offset and orientation ("follow this format") —
+        // no origin math, no re-placement, which is why this is reliable where
+        // NewFamilyInstance/ChangeTypeId misalign (different family origins,
+        // e.g. tandas duduk's origin sits off the visible pan). Position comes
+        // from each target's VISIBLE (bbox) centre; a target facing the opposite
+        // way gets the clone rotated 180°.
+        public static Dictionary<string, object?> ReplaceWithReference(Document doc, JsonElement args)
+        {
+            var refId = ArgsHelp.GetLong(args, "reference_id") ?? throw new ArgumentException("missing reference_id");
+            var targetIds = ArgsHelp.GetLongList(args, "target_ids");
+            var reference = doc.GetElement(new ElementId(refId)) as FamilyInstance
+                ?? throw new ArgumentException($"reference {refId} is not a family instance");
+
+            XYZ refCenter = BBoxCenter(reference);
+            XYZ refLoc = (reference.Location as LocationPoint)?.Point ?? refCenter;
+            XYZ refFacing = reference.FacingOrientation;
+
+            int replaced = 0;
+            var failures = new List<object>();
+            var dbg = new List<object>();
+
+            using var tx = new Transaction(doc, $"BinaVibe: replace_with_reference ({targetIds.Count})");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var tid in targetIds)
+                {
+                    try
+                    {
+                        if (tid == refId) continue;  // never replace the reference itself
+                        var target = doc.GetElement(new ElementId(tid)) as FamilyInstance;
+                        if (target == null) { failures.Add(new { id = tid, error = "not a family instance" }); continue; }
+
+                        XYZ tgtCenter = BBoxCenter(target);
+                        XYZ tgtLoc = (target.Location as LocationPoint)?.Point ?? tgtCenter;
+                        // Align by INSERTION POINT (LocationPoint), NOT bbox-centre.
+                        // The two families have different footprints, so aligning
+                        // bbox-centres leaves a constant offset (the squat pan vs
+                        // sitting WC footprint diff). Both families insert at the
+                        // same stall anchor, so insertion-point alignment is 1:1.
+                        // XY only — the clone keeps the reference's correct vertical.
+                        XYZ shift = new XYZ(tgtLoc.X - refLoc.X, tgtLoc.Y - refLoc.Y, 0);
+
+                        var copied = ElementTransformUtils.CopyElement(doc, reference.Id, shift);
+                        doc.Regenerate();
+                        var clone = copied.Count > 0 ? doc.GetElement(copied.First()) as FamilyInstance : null;
+
+                        // Flip 180° if the target faces the opposite way.
+                        if (clone != null && target.FacingOrientation.DotProduct(refFacing) < 0)
+                        {
+                            XYZ c = BBoxCenter(clone);
+                            ElementTransformUtils.RotateElement(
+                                doc, clone.Id, Line.CreateBound(c, c + XYZ.BasisZ), Math.PI);
+                            doc.Regenerate();
+                        }
+
+                        doc.Delete(target.Id);
+                        replaced++;
+                        dbg.Add(new
+                        {
+                            target = tid,
+                            refLoc = Fmt(refLoc), tgtLoc = Fmt(tgtLoc),
+                            refCenter = Fmt(refCenter), tgtCenter = Fmt(tgtCenter),
+                            shift = Fmt(shift),
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        failures.Add(new { id = tid, error = ex.Message });
+                    }
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["replaced"] = replaced,
+                ["failures"] = failures,
+                ["debug"] = dbg,
             };
         }
 
@@ -748,6 +903,16 @@ namespace BinaVibe.Mcp.Tools
                     {
                         var el = doc.GetElement(new ElementId(id));
                         if (el == null) continue;
+                        // Cross-family → place + delete (preserve placement).
+                        // ChangeTypeId across families misaligns (keeps source
+                        // origin/offset).
+                        if (el is FamilyInstance fiX && newType is FamilySymbol symX
+                            && fiX.Symbol.Family.Id != symX.Family.Id)
+                        {
+                            if (ReplaceCrossFamily(doc, fiX, symX)) swapped++;
+                            else failures.Add(new { id, error = "cross-family replace failed (no location point)" });
+                            continue;
+                        }
                         el.ChangeTypeId(newType.Id);
                         swapped++;
                     }

@@ -150,7 +150,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English
         public List<string> ToolCallTrace; // tool-calling agent: ordered tool names called
         public IReadOnlyList<ProgressStep> Steps; // full phased trail; ChatView prefers this over ToolCallTrace
+        public List<string> ImagesBase64;  // screenshots pasted with this prompt (base64 PNG) — rendered as thumbnails
         public RevitWebAppSync.Models.ReviewerVerdict Verdict; // attached to AiReply messages
+    }
+
+    /// <summary>Composed prompt-bar submission: text plus any screenshots the user
+    /// pasted (base64 PNG). The PromptBar sends this object through ChatSendCommand
+    /// when images are attached; plain string when not (chips, follow-ups).</summary>
+    public class PromptPayload
+    {
+        public string Text;
+        public List<string> ImagesBase64;
     }
 
     /// <summary>Floating viewport marker (Task 15). Coordinates are % of the active view rect.</summary>

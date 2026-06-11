@@ -36,6 +36,14 @@ namespace RevitWebAppSync
         // Revit Copilot dockable pane host (right-docked side panel)
         public static CopilotPaneHost CopilotPaneHost { get; private set; }
 
+        // Live UIApplication captured on Idling (a valid Revit API context).
+        // Fallback for the dockable Copilot pane: its _uiApp is only pushed by
+        // OpenCopilotCommand, so it stays NULL when Revit auto-restores the
+        // docked pane on startup (no ribbon click). Without this, BuildContext
+        // sees a null ActiveUIDocument and ships a BLANK context (no selection,
+        // levels, or views) to the agent.
+        public static UIApplication UiApp { get; private set; }
+
         // Live cost update handler
         public static CostUpdateHandler CostUpdateHandler { get; private set; }
 
@@ -100,6 +108,9 @@ namespace RevitWebAppSync
                 long lastIdleTs = 0;
                 application.Idling += (s, e) =>
                 {
+                    // Capture a live UIApplication for the Copilot pane fallback
+                    // (sender of Idling IS the UIApplication, in valid context).
+                    if (UiApp == null && s is UIApplication __ua) UiApp = __ua;
                     var now = System.Diagnostics.Stopwatch.GetTimestamp();
                     double freq = System.Diagnostics.Stopwatch.Frequency;
                     double gapMs = lastIdleTs != 0 ? (now - lastIdleTs) * 1000.0 / freq : 0;
@@ -370,6 +381,12 @@ namespace RevitWebAppSync
                 }
 
                 CreateRibbonTab(application);
+
+                // OTA: stage any newer build in the background; BinaLoader
+                // applies it on the next Revit start. No-op if no feed is
+                // configured (see BinaConfig.UpdateFeedUrl).
+                Services.UpdateService.Start(application);
+
                 return Result.Succeeded;
             }
             catch (Exception ex)
@@ -395,10 +412,13 @@ namespace RevitWebAppSync
 
         private void CreateRibbonTab(UIControlledApplication application)
         {
-            string tabName = "Sync";
+            string tabName = "Bina"; // Renamed from "Sync" as requested
             application.CreateRibbonTab(tabName);
 
-            RibbonPanel ribbonPanel = application.CreateRibbonPanel(tabName, "Sync Tools");
+            // Labeled panel groups instead of one flat "Sync Tools" strip
+            RibbonPanel cloudPanel = application.CreateRibbonPanel(tabName, "BINA Cloud");
+            RibbonPanel aiPanel = application.CreateRibbonPanel(tabName, "AI");
+            RibbonPanel compliancePanel = application.CreateRibbonPanel(tabName, "Compliance");
 
             PushButtonData buttonData = new PushButtonData(
                 "SyncToWebApp",
@@ -426,7 +446,7 @@ namespace RevitWebAppSync
 
             PushButtonData bimDisciplineButtonData = new PushButtonData(
                 "BimDiscipline",
-                "Download BIM Disciplines",
+                "Download BIM\nDisciplines",
                 Assembly.GetExecutingAssembly().Location,
                 "RevitWebAppSync.BimDisciplineCommand")
             {
@@ -456,8 +476,8 @@ namespace RevitWebAppSync
             {
                 ToolTip = "Open Revit Copilot",
                 LongDescription = "Open the Revit Copilot side panel to run vetted tools or AI commands with natural language. Examples: Count doors by level, Rename levels, Find walls missing fire rating.",
-                Image = LoadImage("RevitWebAppSync.Resources.microchip.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.microchip.png", 32)
+                Image = LoadImage("RevitWebAppSync.Resources.aiAssistant.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.aiAssistant.png", 32)
             };
 
             // Cost Tracker buttons
@@ -521,20 +541,23 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
 
-            // Large buttons
-            ribbonPanel.AddItem(buttonData);
-            ribbonPanel.AddItem(loginButtonData);
-            ribbonPanel.AddItem(bimDisciplineButtonData);
-            ribbonPanel.AddItem(askAiButtonData);
+            // BINA Cloud: sync, account, downloads
+            cloudPanel.AddItem(buttonData);
+            cloudPanel.AddItem(loginButtonData);
+            cloudPanel.AddItem(bimDisciplineButtonData);
 
-            ribbonPanel.AddSeparator();
+            // AI: copilot
+            aiPanel.AddItem(askAiButtonData);
+
+            // Compliance: JKR (Cost/Fire hidden below)
+            compliancePanel.AddItem(jkrComplianceButtonData);
 
             // Stack: Export Cost Items / Import Prices
-            ribbonPanel.AddStackedItems(costExportButtonData, costImportButtonData);
+            // cloudPanel.AddStackedItems(costExportButtonData, costImportButtonData); // Hidden as requested
 
-            // Stack: Cost Tracker / Fire Compliance / JKR Compliance
-            ribbonPanel.AddStackedItems(costDashboardButtonData, complianceButtonData, jkrComplianceButtonData);
-            // ribbonPanel.AddItem(federateButtonData); // Hidden as requested
+            // Stack: Cost Tracker / Fire Compliance
+            // compliancePanel.AddStackedItems(costDashboardButtonData, complianceButtonData); // Hidden as requested
+            // cloudPanel.AddItem(federateButtonData); // Hidden as requested
         }
 
         private BitmapImage LoadImage(string resourceName, int size = 32)
