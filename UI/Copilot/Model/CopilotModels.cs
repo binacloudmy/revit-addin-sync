@@ -95,15 +95,27 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public DiffItem(string from, string to) { From = from; To = to; }
     }
 
+    public class History
+    {
+        public string Sender;   // "user" | "bot"
+        public string Text;
+        public string Time;
+        public List<string> Tools;  // bot messages only — tool IDs used in the reply
+        public History() { }
+        public History(string sender, string text, string time, List<string> tools = null)
+        { Sender = sender; Text = text; Time = time; Tools = tools; }
+    }
+
     public class HistoryEntry
     {
         public string Time;
-        public string ToolId;
         public string Status;    // "ok" | "warn" | "undone"
         public string Summary;
+        public string Label;     // user-set display name; null means show auto-generated Summary
+        public List<History> History = new List<History>();
         public HistoryEntry() { }
-        public HistoryEntry(string time, string toolId, string status, string summary)
-        { Time = time; ToolId = toolId; Status = status; Summary = summary; }
+        public HistoryEntry(string time, string status, string summary, List<History> history = null)
+        { Time = time; Status = status; Summary = summary; History = history ?? new List<History>(); }
     }
 
     public class Mention
