@@ -36,7 +36,13 @@ namespace RevitWebAppSync
 
         [JsonIgnore]
         public string ResolvedAIBaseUrl =>
-            !string.IsNullOrWhiteSpace(AIBaseUrl) ? AIBaseUrl : DEFAULT_AI_BASE_URL;
+            // Ignore stale ngrok overrides left in config.json — the addin now
+            // targets the cloud (DEFAULT_AI_BASE_URL = staging). A leftover ngrok
+            // AIBaseUrl points at a dead local tunnel (HTTP 502 / ERR_NGROK_8012).
+            // Honor only a real, non-ngrok custom override.
+            (!string.IsNullOrWhiteSpace(AIBaseUrl) &&
+             AIBaseUrl.IndexOf("ngrok", StringComparison.OrdinalIgnoreCase) < 0)
+                ? AIBaseUrl : DEFAULT_AI_BASE_URL;
 
         [JsonIgnore]
         public string ResolvedApiBaseUrl =>
