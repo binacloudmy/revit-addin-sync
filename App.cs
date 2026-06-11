@@ -395,7 +395,7 @@ namespace RevitWebAppSync
 
         private void CreateRibbonTab(UIControlledApplication application)
         {
-            string tabName = "Sync";
+            string tabName = "Bina"; // Renamed from "Sync" as requested
             application.CreateRibbonTab(tabName);
 
             RibbonPanel ribbonPanel = application.CreateRibbonPanel(tabName, "Sync Tools");
@@ -530,10 +530,11 @@ namespace RevitWebAppSync
             ribbonPanel.AddSeparator();
 
             // Stack: Export Cost Items / Import Prices
-            ribbonPanel.AddStackedItems(costExportButtonData, costImportButtonData);
+            // ribbonPanel.AddStackedItems(costExportButtonData, costImportButtonData); // Hidden as requested
 
             // Stack: Cost Tracker / Fire Compliance / JKR Compliance
-            ribbonPanel.AddStackedItems(costDashboardButtonData, complianceButtonData, jkrComplianceButtonData);
+            // ribbonPanel.AddStackedItems(costDashboardButtonData, complianceButtonData, jkrComplianceButtonData); // Hidden as requested (JKR kept below)
+            ribbonPanel.AddItem(jkrComplianceButtonData);
             // ribbonPanel.AddItem(federateButtonData); // Hidden as requested
         }
 
