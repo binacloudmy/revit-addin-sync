@@ -25,10 +25,14 @@ namespace RevitWebAppSync
         public string AIBaseUrl { get; set; }
         public string ApiBaseUrl { get; set; }
 
-        // TEST ONLY — points at the dev Mac's tunnel (bina-ai feat/copilot-image-input).
-        // REVERT to the SV tunnel (michelina-extrajudicial-logily) before PR.
-        public const string DEFAULT_AI_BASE_URL = "https://gastrodermal-ace-overvaliantly.ngrok-free.dev";
+        // OTA update feed (version.json). Empty default = updater disabled
+        // until a host is chosen; overridable via config.json like the URLs
+        // above, so enabling updates later needs no rebuild.
+        public string UpdateFeedUrl { get; set; }
+
+        public const string DEFAULT_AI_BASE_URL = "https://bina-ai-staging.azurewebsites.net";
         public const string DEFAULT_API_BASE_URL = "https://6d9e82978eba.ngrok-free.app";
+        public const string DEFAULT_UPDATE_FEED_URL = "";
 
         [JsonIgnore]
         public string ResolvedAIBaseUrl =>
@@ -37,6 +41,10 @@ namespace RevitWebAppSync
         [JsonIgnore]
         public string ResolvedApiBaseUrl =>
             !string.IsNullOrWhiteSpace(ApiBaseUrl) ? ApiBaseUrl : DEFAULT_API_BASE_URL;
+
+        [JsonIgnore]
+        public string ResolvedUpdateFeedUrl =>
+            !string.IsNullOrWhiteSpace(UpdateFeedUrl) ? UpdateFeedUrl : DEFAULT_UPDATE_FEED_URL;
 
         private static readonly string ConfigPath = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
