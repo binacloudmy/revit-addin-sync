@@ -803,29 +803,29 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             greet.Children.Add(gcol);
             root.Children.Add(greet);
 
-            // Suggested prompts
-            root.Children.Add(Label("TRY ONE OF THESE"));
-            foreach (var p in Prompts)
-                root.Children.Add(PromptCard(p));
+            // // Suggested prompts
+            // root.Children.Add(Label("TRY ONE OF THESE"));
+            // foreach (var p in Prompts)
+            //     root.Children.Add(PromptCard(p));
 
-            // Topic chips
-            root.Children.Add(Label("NOT SURE? TYPE A TOPIC — I'LL ASK"));
-            var chips = new WrapPanel { Margin = new Thickness(0, 0, 0, 18) };
-            foreach (var t in Topics)
-            {
-                var chip = new Button { Content = t, Cursor = System.Windows.Input.Cursors.Hand, FontSize = 11.5, Foreground = CopilotColors.From("#374151"), Margin = new Thickness(0, 0, 5, 5), Padding = new Thickness(10, 4, 10, 4) };
-                chip.Template = PillTemplate();
-                var topic = t;
-                chip.Click += (_, __) => Vm.ChatSendCommand.Execute(topic);
-                chips.Children.Add(chip);
-            }
-            root.Children.Add(chips);
+            // // Topic chips
+            // root.Children.Add(Label("NOT SURE? TYPE A TOPIC — I'LL ASK"));
+            // var chips = new WrapPanel { Margin = new Thickness(0, 0, 0, 18) };
+            // foreach (var t in Topics)
+            // {
+            //     var chip = new Button { Content = t, Cursor = System.Windows.Input.Cursors.Hand, FontSize = 11.5, Foreground = CopilotColors.From("#374151"), Margin = new Thickness(0, 0, 5, 5), Padding = new Thickness(10, 4, 10, 4) };
+            //     chip.Template = PillTemplate();
+            //     var topic = t;
+            //     chip.Click += (_, __) => Vm.ChatSendCommand.Execute(topic);
+            //     chips.Children.Add(chip);
+            // }
+            // root.Children.Add(chips);
 
-            // Library CTA
-            root.Children.Add(LibraryCta());
+            // // Library CTA
+            // root.Children.Add(LibraryCta());
 
-            // How runs work
-            root.Children.Add(HowRuns());
+            // // How runs work
+            // root.Children.Add(HowRuns());
             return root;
         }
 
