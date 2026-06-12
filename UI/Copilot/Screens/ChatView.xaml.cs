@@ -799,7 +799,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             greet.Children.Add(BotAvatar(32));
             var gcol = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
             gcol.Children.Add(new TextBlock { Text = $"Hi {Vm.UserFirstName} 👋", FontSize = 16, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#0b0d12") });
-            gcol.Children.Add(new TextBlock { Text = "I can run Revit commands for you. Describe what you need, or pick from the suggestions below.", FontSize = 13.5, Foreground = CopilotColors.From("#374151"), TextWrapping = TextWrapping.Wrap, LineHeight = 20, Margin = new Thickness(0, 4, 0, 0), MaxWidth = 340 });
+            gcol.Children.Add(new TextBlock { Text = "I can run Revit commands for you. Describe what you need in your own words.", FontSize = 13.5, Foreground = CopilotColors.From("#374151"), TextWrapping = TextWrapping.Wrap, LineHeight = 20, Margin = new Thickness(0, 4, 0, 0), MaxWidth = 340 });
             greet.Children.Add(gcol);
             root.Children.Add(greet);
 

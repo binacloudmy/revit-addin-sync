@@ -593,16 +593,20 @@ namespace RevitWebAppSync.UI.Copilot
             ToolId = null;
             Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images });
 
-            var interp = QueryInterpreter.Interpret(text);
-            if (interp.IsClarify)
-            {
-                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Clarify, Question = interp.Question, Options = interp.Options });
-                AppendToCurrentSession(text, interp.Question ?? "Needs clarification");
-                return;
-            }
+            // Local vetted-tool clarify intercept — DISABLED (vetted tools removed).
+            // It answered vague prompts with canned tool chips BEFORE the backend was
+            // ever reached. All messages now route to bina-ai; when the agent needs
+            // detail it pauses with its own clarifying question (HITL card below).
+            // var interp = QueryInterpreter.Interpret(text);
+            // if (interp.IsClarify)
+            // {
+            //     Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Clarify, Question = interp.Question, Options = interp.Options });
+            //     AppendToCurrentSession(text, interp.Question ?? "Needs clarification");
+            //     return;
+            // }
 
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Drafting a command for that…" });
-            _ = ResolveProposalAsync(text, interp.ToolId, images);
+            _ = ResolveProposalAsync(text, QueryInterpreter.PickResponseTool(text).Id, images);
         }
 
         private async System.Threading.Tasks.Task ResolveProposalAsync(string text, string fallbackToolId, List<string> images = null)
