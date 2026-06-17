@@ -14,6 +14,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <Button x:Name="BackBtn" Grid.Column="0" Visibility="Collapsed"
                         Click="BackBtn_Click"
@@ -27,6 +28,20 @@
                     <TextBlock x:Name="HeaderTitle" Text="History" FontSize="13.5" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
                     <TextBlock x:Name="Sub" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}" Margin="0,1,0,0"/>
                 </StackPanel>
+                <!-- Download report (visible only in session detail) -->
+                <Button x:Name="DownloadBtn" Grid.Column="2" Visibility="Collapsed"
+                        Click="DownloadBtn_Click"
+                        Background="Transparent" BorderThickness="0"
+                        Cursor="Hand" Padding="6,3,6,3" VerticalAlignment="Center"
+                        ToolTip="Download this session as a report">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Width="13" Height="13" Stretch="Uniform"
+                              Stroke="#6d28d9" StrokeThickness="1.8"
+                              Data="M12,3 L12,15 M7,10 L12,15 L17,10 M4,19 L20,19"/>
+                        <TextBlock Text="Download" FontSize="12" FontWeight="Medium"
+                                   Foreground="#6d28d9" Margin="5,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
             </Grid>
         </Border>
 

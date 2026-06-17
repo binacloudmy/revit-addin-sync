@@ -56,6 +56,8 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <!-- Excel support for import/export -->
     <PackageReference Include="ClosedXML" Version="0.102.2" />
+    <!-- PDF generation for Copilot session report export -->
+    <PackageReference Include="QuestPDF" Version="2024.*" />
   </ItemGroup>
 
   <ItemGroup>
