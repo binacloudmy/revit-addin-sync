@@ -1,2 +1,7 @@
 .octogent
 graphify-out/
+obj/
+bin/
+BinaLoader/bin/
+BinaLoader/obj/
+Tests/obj

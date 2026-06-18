@@ -30,6 +30,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// with the next prompt. Text pastes are unaffected.</summary>
         public event Action<System.Windows.Media.Imaging.BitmapSource> ImagePasted;
 
+        /// <summary>Raised when the user drops one or more files onto the input area.</summary>
+        public event Action<string[]> FileDropped;
+
         private int _atIndex = -1;
 
         public MentionInput()
@@ -39,6 +42,23 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Editor.PreviewKeyDown += OnPreviewKeyDown;
             DataObject.AddPastingHandler(Editor, OnPaste);
             Loaded += (_, __) => UpdatePlaceholder();
+            Editor.DragOver += (_, e) =>
+            {
+                if (e.Data.GetDataPresent(DataFormats.FileDrop))
+                {
+                    e.Effects = DragDropEffects.Copy;
+                    e.Handled = true;
+                }
+            };
+            Editor.Drop += (_, e) =>
+            {
+                if (e.Data.GetDataPresent(DataFormats.FileDrop))
+                {
+                    var paths = (string[])e.Data.GetData(DataFormats.FileDrop);
+                    if (paths?.Length > 0) FileDropped?.Invoke(paths);
+                    e.Handled = true;
+                }
+            };
         }
 
         private void OnPaste(object sender, DataObjectPastingEventArgs e)
