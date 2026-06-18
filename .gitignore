@@ -5,3 +5,4 @@ bin/
 BinaLoader/bin/
 BinaLoader/obj/
 Tests/obj
+.vs/
