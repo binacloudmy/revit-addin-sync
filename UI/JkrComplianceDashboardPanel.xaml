@@ -91,21 +91,39 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- LOD level selector -->
-                    <Border Grid.Column="0" Background="#26FFFFFF" CornerRadius="6" Padding="8,4,4,4"
-                            VerticalAlignment="Center" ToolTip="Level of Development target">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="LOD" Foreground="White" FontSize="11" FontWeight="SemiBold"
-                                       VerticalAlignment="Center" Margin="0,0,8,0"
-                                       FontFamily="{StaticResource Font.Sans}"/>
-                            <ComboBox x:Name="LodCombo" Width="72" Height="26" FontSize="14"
-                                      Foreground="#0F1A33" Background="White" BorderThickness="0"
-                                      FontWeight="Bold"
-                                      VerticalContentAlignment="Center"
-                                      Padding="8,0,4,0"
-                                      FontFamily="{StaticResource Font.Mono}"/>
-                        </StackPanel>
-                    </Border>
+                    <!-- LOD + Discipline selectors -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                        <!-- LOD level selector -->
+                        <Border Background="#26FFFFFF" CornerRadius="6" Padding="8,4,4,4"
+                                VerticalAlignment="Center" ToolTip="Level of Development target">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="LOD" Foreground="White" FontSize="11" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" Margin="0,0,8,0"
+                                           FontFamily="{StaticResource Font.Sans}"/>
+                                <ComboBox x:Name="LodCombo" Width="72" Height="26" FontSize="14"
+                                          Foreground="#0F1A33" Background="White" BorderThickness="0"
+                                          FontWeight="Bold"
+                                          VerticalContentAlignment="Center"
+                                          Padding="8,0,4,0"
+                                          FontFamily="{StaticResource Font.Mono}"/>
+                            </StackPanel>
+                        </Border>
+                        <!-- Discipline selector -->
+                        <Border Background="#26FFFFFF" CornerRadius="6" Padding="8,4,4,4" Margin="8,0,0,0"
+                                VerticalAlignment="Center" ToolTip="Discipline to scope this scan to">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Discipline" Foreground="White" FontSize="11" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" Margin="0,0,8,0"
+                                           FontFamily="{StaticResource Font.Sans}"/>
+                                <ComboBox x:Name="DisciplineCombo" Width="124" Height="26" FontSize="13"
+                                          Foreground="#0F1A33" Background="White" BorderThickness="0"
+                                          FontWeight="Bold"
+                                          VerticalContentAlignment="Center"
+                                          Padding="8,0,4,0"
+                                          FontFamily="{StaticResource Font.Sans}"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
 
                     <!-- Re-scan button -->
                     <Button Grid.Column="2" x:Name="RescanBtn" Style="{StaticResource Btn.Ghost}"

@@ -46,6 +46,11 @@ namespace RevitWebAppSync.UI
         // Default is 300; user can change to 100/200/300/400/500 before scanning.
         private int SelectedLodLevel => _vm.SelectedLodLevel;
 
+        // Discipline scope: auto-detected from the model on first scan, overridable
+        // by the user via DisciplineCombo. Once the user picks, stop auto-syncing.
+        private bool _disciplineUserSet;
+        private bool _syncingDiscipline;
+
         public JkrComplianceDashboardPanel()
         {
             JkrTheme.EnsureLoaded();
@@ -63,6 +68,19 @@ namespace RevitWebAppSync.UI
             LodCombo.SelectionChanged += (_, __) =>
             {
                 if (LodCombo.SelectedItem is int v) _vm.SelectedLodLevel = v;
+            };
+
+            DisciplineCombo.ItemsSource = _vm.Disciplines;
+            DisciplineCombo.SelectedItem =
+                _vm.Disciplines.FirstOrDefault(d => d.Code == _vm.SelectedDiscipline) ?? _vm.Disciplines[0];
+            DisciplineCombo.SelectionChanged += (_, __) =>
+            {
+                if (_syncingDiscipline) return;
+                if (DisciplineCombo.SelectedItem is DisciplineOption d)
+                {
+                    _vm.SelectedDiscipline = d.Code;
+                    _disciplineUserSet = true;  // stop auto-following the model's detected discipline
+                }
             };
 
             // Start empty — the panel is created at startup before a Revit doc is available.
@@ -554,7 +572,20 @@ namespace RevitWebAppSync.UI
 
             var extraction = JkrBuildingInfoExtractor.Extract(doc);
             _vm.Filename = string.IsNullOrEmpty(extraction.FileName) ? "(unsaved model)" : extraction.FileName;
+
+            // Until the user picks a discipline, follow the model's detected one
+            // (mapped onto the 5 selectable codes; LD/unknown fall back to AR).
+            if (!_disciplineUserSet)
+            {
+                var detected = _vm.Disciplines.FirstOrDefault(d => d.Code == extraction.Discipline) ?? _vm.Disciplines[0];
+                _vm.SelectedDiscipline = detected.Code;
+                _syncingDiscipline = true;
+                DisciplineCombo.SelectedItem = detected;
+                _syncingDiscipline = false;
+            }
+
             var request = extraction.ToV2Request(lodLevel: SelectedLodLevel);
+            request.Project.Discipline = _vm.SelectedDiscipline;  // scope the scan to the chosen discipline
 
             var response = isRecheck
                 ? await _jkrService.RecheckJkrComplianceAsync(request)

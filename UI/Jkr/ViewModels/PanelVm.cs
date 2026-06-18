@@ -23,6 +23,15 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
     public enum TabKind { Open, Accepted, Resolved, Manual }
 
+    /// <summary>A selectable discipline for the compliance scan: backend code + UI label.</summary>
+    public sealed class DisciplineOption
+    {
+        public DisciplineOption(string code, string label) { Code = code; Label = label; }
+        public string Code { get; }
+        public string Label { get; }
+        public override string ToString() => Label;  // shown in the ComboBox
+    }
+
     public class PanelVm : INotifyPropertyChanged
     {
         public ObservableCollection<IssueVm> Issues { get; } = new ObservableCollection<IssueVm>();
@@ -96,6 +105,26 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         /// <summary>Available LOD levels for the dropdown.</summary>
         public int[] LodLevels { get; } = { 100, 200, 300, 400, 500 };
+
+        private string _selectedDiscipline = "AR";
+        /// <summary>Discipline code (AR/CD/EL/ME/ST) the scan is scoped to.
+        /// Sent to the backend as project.discipline.</summary>
+        public string SelectedDiscipline
+        {
+            get => _selectedDiscipline;
+            set { if (_selectedDiscipline != value) { _selectedDiscipline = value; Raise(); } }
+        }
+
+        /// <summary>Disciplines the user can scope a scan to (code + display label).
+        /// Landscape (LD) is intentionally not offered.</summary>
+        public DisciplineOption[] Disciplines { get; } =
+        {
+            new DisciplineOption("AR", "Architecture"),
+            new DisciplineOption("CD", "Civil"),
+            new DisciplineOption("EL", "Electrical"),
+            new DisciplineOption("ME", "Mechanical"),
+            new DisciplineOption("ST", "Structure"),
+        };
 
         private bool _scanning;
         public bool Scanning
