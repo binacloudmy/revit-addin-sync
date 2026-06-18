@@ -59,6 +59,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Env links embedded so they travel inside the DLL (survive OTA zip +
+         versions\ copy). BinaConfig picks .env.local on Debug, .env.production
+         on Release via #if DEBUG. LogicalName keeps the leading-dot filename
+         from mangling the manifest resource name. -->
+    <EmbeddedResource Include=".env.local" LogicalName="env.local" />
+    <EmbeddedResource Include=".env.production" LogicalName="env.production" />
+
     <EmbeddedResource Include="Resources\revitSync.png" />
     <EmbeddedResource Include="Resources\revitSave.png" />
     <EmbeddedResource Include="Resources\microchip.png" />

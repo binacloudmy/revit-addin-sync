@@ -32,7 +32,7 @@ namespace RevitWebAppSync.Services
         // AI Agent backend (ngrok tunnel to Mac running bina-ai FastAPI).
         // Override via BinaConfig.AIBaseUrl so the addin doesn't need a rebuild
         // when ngrok tunnels rotate.
-        public const string DEFAULT_BASE_URL = BinaConfig.DEFAULT_AI_BASE_URL;
+        public static string DEFAULT_BASE_URL => BinaConfig.DEFAULT_AI_BASE_URL;
 
         public AIService(string baseUrl = null)
         {
