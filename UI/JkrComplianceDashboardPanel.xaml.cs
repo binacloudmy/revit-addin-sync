@@ -100,7 +100,13 @@ namespace RevitWebAppSync.UI
 
         public void SetRevitApp(UIApplication uiApp) => _uiApp = uiApp;
 
-        private string ActiveDocPath => _uiApp?.ActiveUIDocument?.Document?.PathName ?? "";
+        // Live UIApplication: prefer the one injected by the ribbon command, but fall
+        // back to App.UiApp (captured on Idling) so the pane still works when Revit
+        // auto-restores it on startup without the command ever running. Mirrors the
+        // Copilot panel's `_uiApp ?? App.UiApp` pattern.
+        private UIApplication UiAppLive => _uiApp ?? App.UiApp;
+
+        private string ActiveDocPath => UiAppLive?.ActiveUIDocument?.Document?.PathName ?? "";
 
         // ────────────────────────────────────────────────
         // Event plumbing
@@ -400,7 +406,7 @@ namespace RevitWebAppSync.UI
 
                     // Persist Fixed (with snapshot) and ManualFixNeeded (status only) so
                     // both survive a cold Re-scan — JkrAuditStore.Save handles the routing.
-                    var docPath = _uiApp?.ActiveUIDocument?.Document?.PathName ?? "";
+                    var docPath = UiAppLive?.ActiveUIDocument?.Document?.PathName ?? "";
                     foreach (var i in preservedAfterFix)
                     {
                         if (i.Status != IssueStatus.Fixed && i.Status != IssueStatus.ManualFixNeeded)
@@ -518,7 +524,7 @@ namespace RevitWebAppSync.UI
                 _vm.ApplyAction(issue, IssueStatus.Accepted, advance: false);
 
             // Persist all accepted decisions to audit file
-            var doc = _uiApp?.ActiveUIDocument?.Document;
+            var doc = UiAppLive?.ActiveUIDocument?.Document;
             var docPath = doc?.PathName ?? "";
             foreach (var issue in acceptable)
                 JkrAuditStore.Save(docPath, issue);
@@ -530,7 +536,7 @@ namespace RevitWebAppSync.UI
         {
             if (_vm.Scanning) return;
 
-            var doc = _uiApp?.ActiveUIDocument?.Document;
+            var doc = UiAppLive?.ActiveUIDocument?.Document;
             if (doc == null)
             {
                 TaskDialog.Show("BINA JKR Compliance", "No active Revit document. Open a model first.");
@@ -560,7 +566,7 @@ namespace RevitWebAppSync.UI
         /// the rescan so neither group silently vanishes when the recheck omits them.</param>
         private async Task RunScanInner(bool clearAudit = false, bool isRecheck = false, List<IssueVm> preservedAfterFix = null)
         {
-            var doc = _uiApp?.ActiveUIDocument?.Document;
+            var doc = UiAppLive?.ActiveUIDocument?.Document;
             if (doc == null) return;
 
             // Optionally clear the audit file so everything starts fresh
@@ -732,7 +738,7 @@ namespace RevitWebAppSync.UI
         internal void LocateInRevit(IssueVm issue)
         {
             if (issue == null || issue.RevitElementId <= 0) return;
-            var uiDoc = _uiApp?.ActiveUIDocument;
+            var uiDoc = UiAppLive?.ActiveUIDocument;
             if (uiDoc == null) return;
             try
             {
@@ -1031,9 +1037,10 @@ namespace RevitWebAppSync.UI
         {
             try
             {
-                if (_uiApp != null)
+                var uiApp = UiAppLive;
+                if (uiApp != null)
                 {
-                    var pane = _uiApp.GetDockablePane(JkrComplianceDashboardHost.PaneId);
+                    var pane = uiApp.GetDockablePane(JkrComplianceDashboardHost.PaneId);
                     pane?.Hide();
                 }
             }
