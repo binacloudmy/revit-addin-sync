@@ -25,6 +25,12 @@ namespace RevitWebAppSync
         public string AIBaseUrl { get; set; }
         public string ApiBaseUrl { get; set; }
 
+        // Dev opt-in: by default a ngrok AIBaseUrl is ignored (see ResolvedAIBaseUrl)
+        // because stale tunnels left in config.json 502. Set this true in config.json
+        // to deliberately point the AI calls at a live ngrok tunnel (e.g. a local
+        // bina-ai backend during development). Default false = unchanged behavior.
+        public bool AllowNgrokAIBaseUrl { get; set; }
+
         // OTA update feed (version.json). Empty default = updater disabled
         // until a host is chosen; overridable via config.json like the URLs
         // above, so enabling updates later needs no rebuild.
@@ -35,14 +41,21 @@ namespace RevitWebAppSync
         public const string DEFAULT_UPDATE_FEED_URL = "";
 
         [JsonIgnore]
-        public string ResolvedAIBaseUrl =>
+        public string ResolvedAIBaseUrl
+        {
             // Ignore stale ngrok overrides left in config.json — the addin now
             // targets the cloud (DEFAULT_AI_BASE_URL = staging). A leftover ngrok
-            // AIBaseUrl points at a dead local tunnel (HTTP 502 / ERR_NGROK_8012).
-            // Honor only a real, non-ngrok custom override.
-            (!string.IsNullOrWhiteSpace(AIBaseUrl) &&
-             AIBaseUrl.IndexOf("ngrok", StringComparison.OrdinalIgnoreCase) < 0)
-                ? AIBaseUrl : DEFAULT_AI_BASE_URL;
+            // AIBaseUrl points at a dead local tunnel (HTTP 502 / ERR_NGROK_8012),
+            // so by default we honor only a real, non-ngrok custom override.
+            // Devs can opt in to a live ngrok tunnel via AllowNgrokAIBaseUrl=true.
+            get
+            {
+                if (string.IsNullOrWhiteSpace(AIBaseUrl)) return DEFAULT_AI_BASE_URL;
+                bool isNgrok = AIBaseUrl.IndexOf("ngrok", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (isNgrok && !AllowNgrokAIBaseUrl) return DEFAULT_AI_BASE_URL;
+                return AIBaseUrl;
+            }
+        }
 
         [JsonIgnore]
         public string ResolvedApiBaseUrl =>
