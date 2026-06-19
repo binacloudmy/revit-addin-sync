@@ -83,7 +83,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         public static readonly DependencyProperty PlaceholderTextProperty = DependencyProperty.Register(
             nameof(PlaceholderText), typeof(string), typeof(MentionInput),
-            new PropertyMetadata("Ask Copilot — type @ to reference a level, category, or view", OnPlaceholderChanged));
+            new PropertyMetadata("Ask Copilot...", OnPlaceholderChanged));
         public string PlaceholderText { get => (string)GetValue(PlaceholderTextProperty); set => SetValue(PlaceholderTextProperty, value); }
 
         private static void OnPlaceholderChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)

@@ -16,7 +16,7 @@
                     </Border>
                     <!-- attach file button (pink) -->
                     <Button x:Name="AttachBtn" DockPanel.Dock="Right" Width="26" Height="26" Cursor="Hand"
-                            Background="#ec4899" BorderThickness="0" VerticalAlignment="Center"
+                            Background="{DynamicResource Cp.BotGradient}" BorderThickness="0" VerticalAlignment="Center"
                             Margin="0,0,4,0" ToolTip="Attach a file (.txt, .csv, .md, .log, .json, .xml)">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
@@ -31,7 +31,7 @@
                     <!-- send / stop (icon swaps to a stop square while a reply streams) -->
                     <Button x:Name="SendBtn" DockPanel.Dock="Right" Width="26" Height="26" Cursor="Hand"
                             Background="{DynamicResource Cp.Ink}" BorderThickness="0" VerticalAlignment="Center"
-                            ToolTip="Send">
+                            ToolTip="Send" Margin="0,0,4,0">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" CornerRadius="6">
