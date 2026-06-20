@@ -40,7 +40,7 @@
       requires Revit SDK assemblies to compile. Build succeeds on Windows
       with Revit installed; expected to fail on macOS (no Revit DLLs).
     -->
-    <Compile Include="..\BinaVibe\Indexer\DocumentChangedIndexer.cs" Link="DocumentChangedIndexer.cs" />
+    <Compile Include="..\BinaVibe\Indexer\DEPRECATED_DocumentChangedIndexer.cs" Link="DocumentChangedIndexer.cs" />
   </ItemGroup>
 
 </Project>
