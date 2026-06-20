@@ -1,16 +1,17 @@
-# Revit Copilot — MSI build script (run on Windows with .NET 8 SDK).
+# Revit Copilot — installer build script (run on Windows with .NET 8 SDK).
 #
-#   powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -Version 0.0.1
+#   powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -Version 0.0.8
 #
-# Builds the OTA layout: BinaLoader (goes into Revit Addins folders) plus the
-# seed plugin build (goes into %LocalAppData%\Bina\RevitSync\versions\<ver>).
-# CI does the same thing in .github/workflows/release.yml.
+# Builds the OTA layout with Inno Setup: BinaLoader (goes into Revit Addins
+# folders) plus the seed plugin build (goes into
+# %LocalAppData%\Bina\RevitSync\versions\<ver>). CI does the same thing in
+# .github/workflows/release.yml.
 #
-# Optional: pass -Sign to code-sign the MSI (needs an EV/OV cert in the
+# Optional: pass -Sign to code-sign the EXE (needs an EV/OV cert in the
 # machine store; without signing, SmartScreen shows an "unknown publisher"
 # warning but the install still works).
 #
-#   installer\build-installer.ps1 -Version 0.0.1 -Sign -Thumbprint <cert-thumbprint>
+#   installer\build-installer.ps1 -Version 0.0.8 -Sign -Thumbprint <cert-thumbprint>
 
 param(
     [string]$Version = "0.0.1",
@@ -30,8 +31,8 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
 
 $pluginDir = Join-Path $repo "artifacts\plugin"
 $loaderDir = Join-Path $repo "artifacts\loader"
-$wxs       = Join-Path $repo "installer\RevitCopilot.wxs"
-$msi       = Join-Path $repo "RevitCopilot-$Version.msi"
+$iss       = Join-Path $repo "installer\RevitCopilot.iss"
+$exe       = Join-Path $repo "RevitCopilot-$Version-setup.exe"
 
 Remove-Item -Recurse -Force (Join-Path $repo "artifacts") -ErrorAction SilentlyContinue
 
@@ -48,28 +49,22 @@ Copy-Item -Force (Join-Path $repo "BinaLoader\BinaSync.addin") $loaderDir
     ConvertTo-Json | Set-Content (Join-Path $pluginDir "manifest.json")
 Set-Content (Join-Path $pluginDir ".complete") $Version
 
-# Ensure the WiX toolset + UI extension are available.
-if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
-    Write-Host "==> Installing WiX global tool..." -ForegroundColor Cyan
-    dotnet tool install --global wix
-    $env:Path += ";$env:USERPROFILE\.dotnet\tools"
+# Inno Setup compiler.
+$iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+if (-not (Test-Path $iscc)) {
+    throw "Inno Setup 6 not found ($iscc). Install: winget install JRSoftware.InnoSetup"
 }
-wix extension add -g WixToolset.UI.wixext 2>$null | Out-Null
 
-Write-Host "==> Building MSI..." -ForegroundColor Cyan
-wix build $wxs -ext WixToolset.UI.wixext `
-    -d "LoaderDir=$loaderDir" `
-    -d "PluginDir=$pluginDir" `
-    -d "SeedVersion=$Version" `
-    -d "ProductVersion=$Version" `
-    -o $msi
+Write-Host "==> Building installer EXE..." -ForegroundColor Cyan
+& $iscc $iss /DAppVersion=$Version "/DLoaderDir=$loaderDir" "/DPluginDir=$pluginDir" "/O$repo"
+if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 
 if ($Sign) {
     if (-not $Thumbprint) { throw "-Sign requires -Thumbprint <cert-thumbprint>" }
-    Write-Host "==> Signing MSI..." -ForegroundColor Cyan
-    signtool sign /sha1 $Thumbprint /tr $TimestampUrl /td sha256 /fd sha256 $msi
+    Write-Host "==> Signing EXE..." -ForegroundColor Cyan
+    signtool sign /sha1 $Thumbprint /tr $TimestampUrl /td sha256 /fd sha256 $exe
 }
 
-Write-Host "==> Done: $msi" -ForegroundColor Green
-Write-Host "Install (per-user, no admin):  msiexec /i $(Split-Path -Leaf $msi)" -ForegroundColor Green
-Write-Host "Silent (IT push):              msiexec /i $(Split-Path -Leaf $msi) /qn" -ForegroundColor Green
+Write-Host "==> Done: $exe" -ForegroundColor Green
+Write-Host "Install (per-user, no admin):  double-click $(Split-Path -Leaf $exe)" -ForegroundColor Green
+Write-Host "Silent (IT push):              $(Split-Path -Leaf $exe) /VERYSILENT" -ForegroundColor Green

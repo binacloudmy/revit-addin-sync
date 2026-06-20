@@ -79,7 +79,7 @@
                         <TextBlock Text="Chat"/>
                     </StackPanel>
                 </ToggleButton>
-                <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Library"
+                <!-- <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Library"
                               IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Library}">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="Library"/>
@@ -87,7 +87,7 @@
                             <TextBlock Text="{Binding LibraryCount, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="#374151"/>
                         </Border>
                     </StackPanel>
-                </ToggleButton>
+                </ToggleButton> -->
                 <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="History"
                               IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=History}">
                     <StackPanel Orientation="Horizontal">
@@ -97,7 +97,7 @@
                         </Border>
                     </StackPanel>
                 </ToggleButton>
-                <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Saved"
+                <!-- <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Saved"
                               IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Saved}">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="Saved"/>
@@ -105,7 +105,7 @@
                             <TextBlock Text="{Binding SavedCount, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="#374151"/>
                         </Border>
                     </StackPanel>
-                </ToggleButton>
+                </ToggleButton> -->
             </StackPanel>
         </Border>
 
