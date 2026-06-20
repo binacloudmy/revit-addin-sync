@@ -33,6 +33,11 @@ namespace RevitWebAppSync.UI.Copilot
         private readonly ToolLoopRunner _toolLoop;
         private readonly string _sessionId = Guid.NewGuid().ToString();
 
+        /// <summary>The session id stamped on every backend call this router makes
+        /// (route/generate/tool-loop). Exposed so feedback (👍/👎) can carry the
+        /// same session the rated response was produced under.</summary>
+        public string SessionId => _sessionId;
+
         // Shared HttpClient for the tool-loop (long timeout — a tool's Revit
         // execution can run minutes on a cold/large model).
         private static readonly System.Net.Http.HttpClient _toolHttp =

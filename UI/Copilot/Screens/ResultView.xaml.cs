@@ -49,7 +49,81 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             Badge.Tier = tool.Tier;
 
             ResultHost.Content = BuildBody(result);
+            BuildFeedback();
             BuildNextSteps();
+        }
+
+        // ─── Feedback (👍/👎) ────────────────────────────────────────────────
+        // The only signal that catches "compiled but wrong". One row under the
+        // result; clicking a thumb fires the VM's fire-and-forget POST, highlights
+        // the chosen thumb, and disables both so a rating is sent once.
+        private void BuildFeedback()
+        {
+            if (FeedbackHost == null) return;
+            FeedbackHost.Children.Clear();
+
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 10, 0, 0),
+            };
+            row.Children.Add(new TextBlock
+            {
+                Text = "Was this helpful?",
+                FontSize = 11.5,
+                Foreground = CopilotColors.From("#9ca3af"),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
+            });
+
+            Button up = null, down = null;
+            up = ThumbButton("thumbUp", () => SendFeedback("up", up, down));
+            down = ThumbButton("thumbDown", () => SendFeedback("down", up, down));
+            row.Children.Add(up);
+            row.Children.Add(down);
+
+            FeedbackHost.Children.Add(row);
+        }
+
+        private Button ThumbButton(string glyph, System.Action onClick)
+        {
+            var path = new Path
+            {
+                Width = 16,
+                Height = 16,
+                Stretch = Stretch.Uniform,
+                Stroke = CopilotColors.From("#9ca3af"),
+                StrokeThickness = 1.6,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round,
+                Data = CopilotIcons.Get(glyph),
+            };
+            var btn = new Button
+            {
+                Content = path,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(6, 4, 6, 4),
+                Margin = new Thickness(2, 0, 0, 0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+            };
+            btn.Click += (_, __) => { try { onClick(); } catch { /* best-effort */ } };
+            return btn;
+        }
+
+        private void SendFeedback(string rating, Button up, Button down)
+        {
+            Vm?.SubmitFeedback(rating);
+
+            // Light visual confirmation: tint the chosen thumb, disable both so the
+            // rating is sent once. Green for 👍, red for 👎.
+            var chosen = rating == "up" ? up : down;
+            var chosenColor = CopilotColors.From(rating == "up" ? "#16a34a" : "#b91c1c");
+            if (chosen?.Content is Path p) p.Stroke = chosenColor;
+            if (up != null) up.IsEnabled = false;
+            if (down != null) down.IsEnabled = false;
         }
 
         // ─── Next steps ──────────────────────────────────────────────────────
