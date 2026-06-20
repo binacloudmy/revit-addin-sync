@@ -39,6 +39,11 @@
          "RevitAPI.dll not found" error rather than empty CS0246s. -->
     <RevitPath Condition="'$(RevitPath)' == ''">C:\Program Files\Autodesk\Revit 2027</RevitPath>
     <RevitVersion Condition="'$(RevitVersion)' == ''">2027</RevitVersion>
+    
+    <!--Suppress auto-generation since generation is declared manually -->
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+
   </PropertyGroup>
 
   <ItemGroup>

@@ -35,6 +35,21 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 // Enter while a reply streams must not queue another prompt.
                 if (Busy) return;
+                // Prepend attached file contents as labelled blocks before the user text.
+                if (_files.Count > 0)
+                {
+                    var sb = new System.Text.StringBuilder();
+                    foreach (var (fname, fcontent) in _files)
+                    {
+                        sb.Append("[Attached: ").Append(fname).AppendLine("]");
+                        sb.AppendLine(fcontent);
+                        sb.AppendLine("---");
+                    }
+                    sb.Append(text);
+                    text = sb.ToString();
+                    _files.Clear();
+                    RebuildThumbStrip();
+                }
                 // With screenshots attached, submit a composed payload (text +
                 // base64 PNGs) and clear the strip; plain text otherwise so the
                 // other PromptBar hosts (Result/Library follow-ups) see no change.
@@ -56,6 +71,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     SubmitCommand.Execute(payload);
             };
             Input.ImagePasted += AddImage;
+            Input.FileDropped += AddFiles;
+            AttachBtn.Click += (_, __) =>
+            {
+                var dlg = new Microsoft.Win32.OpenFileDialog
+                {
+                    Multiselect = true,
+                    Filter = "Text files|*.txt;*.csv;*.md;*.log;*.json;*.xml",
+                    Title = "Attach file(s)",
+                };
+                if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
+            };
         }
 
         // ─── Pasted screenshots (pending, sent with the next prompt) ─────────
@@ -65,6 +91,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private const int MaxImageDim = 1568;
         private readonly System.Collections.Generic.List<System.Windows.Media.Imaging.BitmapSource> _images
             = new System.Collections.Generic.List<System.Windows.Media.Imaging.BitmapSource>();
+
+        // ─── File attachments (pending, content injected into prompt text) ────
+        private static readonly System.Collections.Generic.HashSet<string> SupportedExtensions
+            = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
+              { ".txt", ".csv", ".md", ".log", ".json", ".xml" };
+        private const long MaxFileBytes = 32 * 1024;
+        private readonly System.Collections.Generic.List<(string Name, string Content)> _files
+            = new System.Collections.Generic.List<(string, string)>();
 
         private void AddImage(System.Windows.Media.Imaging.BitmapSource img)
         {
@@ -79,10 +113,26 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             RebuildThumbStrip();
         }
 
+        private void AddFiles(string[] paths)
+        {
+            foreach (var path in paths)
+            {
+                var ext = System.IO.Path.GetExtension(path);
+                if (!SupportedExtensions.Contains(ext)) continue;
+                var info = new System.IO.FileInfo(path);
+                if (!info.Exists || info.Length > MaxFileBytes) continue;
+                var content = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8);
+                _files.Add((System.IO.Path.GetFileName(path), content));
+            }
+            RebuildThumbStrip();
+        }
+
         private void RebuildThumbStrip()
         {
             ThumbStrip.Children.Clear();
-            ThumbStrip.Visibility = _images.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+            ThumbStrip.Visibility = (_images.Count > 0 || _files.Count > 0) ? Visibility.Visible : Visibility.Collapsed;
+
+            // image thumbnail chips
             foreach (var img in _images)
             {
                 var chip = new Grid { Margin = new Thickness(0, 0, 6, 0) };
@@ -108,6 +158,43 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var captured = img;
                 close.Click += (_, __) => RemoveImage(captured);
                 chip.Children.Add(close);
+                ThumbStrip.Children.Add(chip);
+            }
+
+            // file name chips
+            foreach (var (name, _) in _files)
+            {
+                var chip = new Border
+                {
+                    CornerRadius = new CornerRadius(8), Padding = new Thickness(8, 4, 4, 4),
+                    BorderThickness = new Thickness(1), BorderBrush = (Brush)FindResource("Cp.Line"),
+                    Background = Brushes.White, Margin = new Thickness(0, 0, 6, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+                row.Children.Add(new TextBlock { Text = "📄", FontSize = 13, Margin = new Thickness(0, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center });
+                row.Children.Add(new TextBlock
+                {
+                    Text = name, FontSize = 11, MaxWidth = 100,
+                    TextTrimming = TextTrimming.CharacterEllipsis,
+                    VerticalAlignment = VerticalAlignment.Center,
+                });
+                var closeFile = new Button
+                {
+                    Content = "✕", FontSize = 8, Width = 16, Height = 16, Cursor = Cursors.Hand,
+                    Padding = new Thickness(0), Background = Brushes.Transparent,
+                    BorderThickness = new Thickness(0), IsTabStop = false,
+                    Margin = new Thickness(4, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+                    ToolTip = "Remove file",
+                };
+                var capturedName = name;
+                closeFile.Click += (_, __) =>
+                {
+                    _files.RemoveAll(f => f.Name == capturedName);
+                    RebuildThumbStrip();
+                };
+                row.Children.Add(closeFile);
+                chip.Child = row;
                 ThumbStrip.Children.Add(chip);
             }
         }
