@@ -151,11 +151,11 @@
 
                 <!-- Row C: action buttons -->
                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0" HorizontalAlignment="Right">
-                    <Button x:Name="AcceptAllBtn" Style="{StaticResource Btn.Ghost}"
-                            Click="AcceptAll_Click" Margin="0,0,6,0" ToolTip="Accept all Medium + Low issues">
+                    <Button x:Name="IgnoreAllBtn" Style="{StaticResource Btn.Ghost}"
+                            Click="IgnoreAll_Click" Margin="0,0,6,0" ToolTip="Ignore all Medium + Low issues">
                         <StackPanel Orientation="Horizontal">
                             <jkr:IconGlyph Glyph="check" Size="11" Foreground="{StaticResource NavySubtle}" Margin="0,0,5,0"/>
-                            <TextBlock Text="Accept All" FontSize="10.5"/>
+                            <TextBlock Text="Ignore All" FontSize="10.5"/>
                         </StackPanel>
                     </Button>
                     <Button x:Name="FixAllBtn" Style="{StaticResource Btn.Ghost}"
@@ -283,12 +283,12 @@
                         </Border>
                     </StackPanel>
                 </ToggleButton>
-                <ToggleButton x:Name="TabAccepted" Grid.Column="1" Style="{StaticResource Btn.Tab}"
-                              IsChecked="False" Click="TabAccepted_Click" Margin="2,0,0,0">
+                <ToggleButton x:Name="TabIgnore" Grid.Column="1" Style="{StaticResource Btn.Tab}"
+                              IsChecked="False" Click="TabIgnore_Click" Margin="2,0,0,0">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Accepted" Margin="0,0,5,0"/>
-                        <Border x:Name="TabAcceptedPill" Background="{StaticResource Surface.Line2}" CornerRadius="8" Padding="6,1,6,1">
-                            <TextBlock x:Name="TabAcceptedCount" Text="0" FontSize="10" FontWeight="Bold"
+                        <TextBlock Text="Ignore" Margin="0,0,5,0"/>
+                        <Border x:Name="TabIgnorePill" Background="{StaticResource Surface.Line2}" CornerRadius="8" Padding="6,1,6,1">
+                            <TextBlock x:Name="TabIgnoreCount" Text="0" FontSize="10" FontWeight="Bold"
                                        Foreground="{StaticResource Ink3}"/>
                         </Border>
                     </StackPanel>
@@ -355,7 +355,7 @@
                     <ctl:KbdHint Key="↵" Label="open" Margin="0,0,10,0"/>
                     <ctl:KbdHint Key="J/K" Label="nav" Margin="0,0,10,0"/>
                     <ctl:KbdHint Key="F" Label="fix" Margin="0,0,10,0"/>
-                    <ctl:KbdHint Key="A" Label="accept"/>
+                    <ctl:KbdHint Key="A" Label="ignore"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button x:Name="ResetBtn" Style="{StaticResource Btn.Sec}" Click="Reset_Click" Margin="0,0,6,0"

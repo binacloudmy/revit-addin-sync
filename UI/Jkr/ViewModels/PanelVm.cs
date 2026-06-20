@@ -21,7 +21,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public IssueStatus PreviousStatus;
     }
 
-    public enum TabKind { Open, Accepted, Resolved, Manual }
+    public enum TabKind { Open, Ignored, Resolved, Manual }
 
     public class PanelVm : INotifyPropertyChanged
     {
@@ -71,12 +71,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 if (_tab == value) return;
                 _tab = value;
                 Refresh();
-                // Single null-name notification covers Tab + IsOpenTab + IsAcceptedTab + IsResolvedTab.
+                // Single null-name notification covers Tab + IsOpenTab + IsIgnoredTab + IsResolvedTab.
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
             }
         }
         public bool IsOpenTab => _tab == TabKind.Open;
-        public bool IsAcceptedTab => _tab == TabKind.Accepted;
+        public bool IsIgnoredTab => _tab == TabKind.Ignored;
         public bool IsResolvedTab => _tab == TabKind.Resolved;
         public bool IsManualTab => _tab == TabKind.Manual;
 
@@ -119,20 +119,20 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string Filename { get; set; } = "";
         public int Total => Issues.Count;
         public int OpenCount => Issues.Count(i => i.Status == IssueStatus.Open);
-        public int AcceptedCount => Issues.Count(i => i.Status == IssueStatus.Accepted);
+        public int IgnoredCount => Issues.Count(i => i.Status == IssueStatus.Ignored);
         public int ResolvedCount => Issues.Count(i => i.Status == IssueStatus.Fixed || i.Status == IssueStatus.Approved);
         public int ManualFixCount => Issues.Count(i => i.Status == IssueStatus.ManualFixNeeded);
         // Compliance progress — Manual is deliberately excluded. The user has
         // triaged it but the model is still non-compliant, so it shouldn't
         // inflate the "% resolved" indicator.
-        public int NonOpenCount => AcceptedCount + ResolvedCount;
+        public int NonOpenCount => IgnoredCount + ResolvedCount;
         public int Percent => Total == 0 ? 0 : (int)Math.Round(NonOpenCount * 100.0 / Total);
 
         public int HighOpen => Issues.Count(i => i.IsOpen && i.Priority == IssuePriority.High);
         public int MedOpen  => Issues.Count(i => i.IsOpen && i.Priority == IssuePriority.Medium);
         public int LowOpen  => Issues.Count(i => i.IsOpen && i.Priority == IssuePriority.Low);
 
-        /// <summary>Count of auto-fixable issues (Open + Accepted with a fix_action).</summary>
+        /// <summary>Count of auto-fixable issues (Open + Ignored with a fix_action).</summary>
         public int FixableCount => Issues.Count(i => i.IsActionable && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction));
 
         public string SessionLine
@@ -227,7 +227,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             {
                 if (ActiveCategory != null && i.Category != ActiveCategory) continue;
                 if (Tab == TabKind.Open && i.Status != IssueStatus.Open) continue;
-                if (Tab == TabKind.Accepted && i.Status != IssueStatus.Accepted) continue;
+                if (Tab == TabKind.Ignored && i.Status != IssueStatus.Ignored) continue;
                 if (Tab == TabKind.Resolved && i.Status != IssueStatus.Fixed && i.Status != IssueStatus.Approved) continue;
                 if (Tab == TabKind.Manual && i.Status != IssueStatus.ManualFixNeeded) continue;
                 if (!string.IsNullOrEmpty(q)
@@ -330,7 +330,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             switch (s)
             {
                 case IssueStatus.Fixed: return "Fixed";
-                case IssueStatus.Accepted: return "Accepted";
+                case IssueStatus.Ignored: return "Ignored";
                 case IssueStatus.Approved: return "Approved";
                 case IssueStatus.ManualFixNeeded: return "Manual fix needed";
                 default: return s.ToString();
@@ -339,7 +339,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         private void RaiseCounts()
         {
-            Raise(nameof(OpenCount)); Raise(nameof(AcceptedCount)); Raise(nameof(ResolvedCount)); Raise(nameof(ManualFixCount)); Raise(nameof(NonOpenCount)); Raise(nameof(Total));
+            Raise(nameof(OpenCount)); Raise(nameof(IgnoredCount)); Raise(nameof(ResolvedCount)); Raise(nameof(ManualFixCount)); Raise(nameof(NonOpenCount)); Raise(nameof(Total));
             Raise(nameof(Percent)); Raise(nameof(HighOpen)); Raise(nameof(MedOpen)); Raise(nameof(LowOpen));
             Raise(nameof(FixableCount)); Raise(nameof(SessionLine));
             foreach (var c in Categories)
