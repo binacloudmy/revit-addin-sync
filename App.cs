@@ -446,26 +446,17 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
             };
 
+            // Login opens the BINA Cloud web page (login OR register) in the
+            // browser; identity is bina-ai (OAuth + PKCE). Tokens land in the
+            // Windows Credential Manager. No password is typed into Revit.
             PushButtonData loginButtonData = new PushButtonData(
                 "Login",
                 "Login",
                 Assembly.GetExecutingAssembly().Location,
-                "RevitWebAppSync.LoginCommand")
-            {
-                ToolTip = "Login to BINA Cloud",
-                LongDescription = "Opens BINA Cloud in your default browser to login.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
-            };
-
-            PushButtonData browserLoginButtonData = new PushButtonData(
-                "BrowserLogin",
-                "Sign in\n(Browser)",
-                Assembly.GetExecutingAssembly().Location,
                 "RevitWebAppSync.BrowserLoginCommand")
             {
-                ToolTip = "Sign in to BINA Cloud via your browser (no password in Revit)",
-                LongDescription = "Opens your system browser to sign in to BINA Cloud (OAuth + PKCE). Tokens are stored in the Windows Credential Manager.",
+                ToolTip = "Login or register for BINA Cloud",
+                LongDescription = "Opens the BINA Cloud sign-in page in your browser to log in or create an account.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
@@ -570,7 +561,6 @@ namespace RevitWebAppSync
             // BINA Cloud: sync, account, downloads
             cloudPanel.AddItem(buttonData);
             cloudPanel.AddItem(loginButtonData);
-            cloudPanel.AddItem(browserLoginButtonData);
             cloudPanel.AddItem(bimDisciplineButtonData);
 
             // AI: copilot

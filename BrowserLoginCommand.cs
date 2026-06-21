@@ -46,7 +46,8 @@ namespace RevitWebAppSync
                 // Run the loopback + PKCE browser flow. .GetAwaiter().GetResult()
                 // blocks the Revit UI thread until the browser round-trip returns —
                 // acceptable for an explicit, user-initiated login click.
-                var client = new BinaOAuthClient(config.ResolvedLoginWebUrl, config.ResolvedApiBaseUrl);
+                // 2nd arg is the bina-ai base (it issues the tokens), not bina-be.
+                var client = new BinaOAuthClient(config.ResolvedLoginWebUrl, config.ResolvedAIBaseUrl);
                 BinaTokenSet tokens;
                 try
                 {
@@ -74,10 +75,14 @@ namespace RevitWebAppSync
                 config.TokenExpiry = tokens.AccessTokenExpiry > 0
                     ? DateTimeOffset.FromUnixTimeSeconds(tokens.AccessTokenExpiry).LocalDateTime
                     : DateTime.Now.AddYears(1);
-                // Best-effort real name from /session; fall back to the id placeholder.
-                string displayName = null;
-                try { displayName = client.GetDisplayNameAsync(tokens.AccessToken).GetAwaiter().GetResult(); }
-                catch { /* non-fatal */ }
+                // Real name comes back in the token response; fall back to /auth/me,
+                // then to the id placeholder.
+                string displayName = tokens.UserName;
+                if (string.IsNullOrWhiteSpace(displayName))
+                {
+                    try { displayName = client.GetDisplayNameAsync(tokens.AccessToken).GetAwaiter().GetResult(); }
+                    catch { /* non-fatal */ }
+                }
                 config.UserName = !string.IsNullOrWhiteSpace(displayName)
                     ? displayName
                     : $"BINA User #{tokens.UserId}";

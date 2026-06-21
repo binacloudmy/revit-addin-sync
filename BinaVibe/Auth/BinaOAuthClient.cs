@@ -1,17 +1,16 @@
-// Desktop OAuth (authorization-code + PKCE, loopback redirect) for BINA Cloud.
+// Desktop OAuth (authorization-code + PKCE, loopback redirect) against BINA Cloud.
 //
-// Flow (PRD §5 — AI Usage Credits & Auth Gating):
+// Identity is bina-ai (the plugin's IdP). Flow:
 //   1. addin starts a loopback listener on http://127.0.0.1:<random>/callback/
 //   2. addin generates a PKCE verifier/challenge + random state
-//   3. addin opens the system browser at the BINA web login:
+//   3. addin opens the system browser at the landing page:
 //        {webBaseUrl}/login?redirect_uri=<loopback>&code_challenge=<c>
-//                          &code_challenge_method=S256&state=<s>
-//   4. user signs in on the web; the page calls bina-be
-//        POST /api/auth/user/oauth/authorize and redirects back to the loopback
-//        with ?code=<code>&state=<state>
-//   5. addin verifies state, then exchanges the code at bina-be
-//        POST /api/auth/user/oauth/token { code, codeVerifier, redirectUri }
-//        -> { accessToken, refreshToken, accessTokenExpiry, userId }
+//                          &code_challenge_method=S256&state=<s>&api=<bina-ai>
+//   4. the page logs in/registers against bina-ai, gets a one-time `code`, and
+//      redirects to the loopback with ?code=<code>&state=<state>
+//   5. addin verifies state, then exchanges the code at bina-ai
+//        POST {aiBaseUrl}/auth/token { code, code_verifier }
+//        -> { access_token, refresh_token, access_token_expiry, user:{id,name} }
 //
 // No password is ever typed into the plugin (public client + PKCE).
 
@@ -33,20 +32,21 @@ namespace BinaVibe.Auth
     {
         public string AccessToken { get; set; } = "";
         public string RefreshToken { get; set; } = "";
-        public long AccessTokenExpiry { get; set; }   // unix epoch SECONDS (bina-be `exp`)
+        public long AccessTokenExpiry { get; set; }   // unix epoch SECONDS
         public int UserId { get; set; }
+        public string UserName { get; set; }
     }
 
     public sealed class BinaOAuthClient
     {
-        private readonly string _webBaseUrl;   // BINA web app (login page), e.g. https://app.bina.cloud
-        private readonly string _apiBaseUrl;   // bina-be API, e.g. https://api.bina.cloud
+        private readonly string _webBaseUrl;   // landing page, e.g. https://revit.bina.cloud
+        private readonly string _aiBaseUrl;    // bina-ai API (issues tokens), e.g. ngrok/staging
         private readonly HttpClient _http;
 
-        public BinaOAuthClient(string webBaseUrl, string apiBaseUrl, HttpClient http = null)
+        public BinaOAuthClient(string webBaseUrl, string aiBaseUrl, HttpClient http = null)
         {
             _webBaseUrl = (webBaseUrl ?? "").TrimEnd('/');
-            _apiBaseUrl = (apiBaseUrl ?? "").TrimEnd('/');
+            _aiBaseUrl = (aiBaseUrl ?? "").TrimEnd('/');
             _http = http ?? new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         }
 
@@ -62,11 +62,14 @@ namespace BinaVibe.Auth
             listener.Start();
 
             string state = Guid.NewGuid().ToString("N");
+            // Pass &api so the (static) landing page knows which bina-ai to call —
+            // handy when bina-ai is a local ngrok tunnel during testing.
             string loginUrl = $"{_webBaseUrl}/login"
                 + $"?redirect_uri={Uri.EscapeDataString(redirect)}"
                 + $"&code_challenge={challenge}"
                 + "&code_challenge_method=S256"
-                + $"&state={Uri.EscapeDataString(state)}";
+                + $"&state={Uri.EscapeDataString(state)}"
+                + $"&api={Uri.EscapeDataString(_aiBaseUrl)}";
 
             Process.Start(new ProcessStartInfo { FileName = loginUrl, UseShellExecute = true });
 
@@ -86,14 +89,14 @@ namespace BinaVibe.Auth
             if (rxState != state) throw new InvalidOperationException("OAuth state mismatch — login aborted.");
             if (string.IsNullOrEmpty(code)) throw new InvalidOperationException("OAuth code missing from redirect.");
 
-            return await ExchangeCodeAsync(code, verifier, redirect, ct).ConfigureAwait(false);
+            return await ExchangeCodeAsync(code, verifier, ct).ConfigureAwait(false);
         }
 
-        private async Task<BinaTokenSet> ExchangeCodeAsync(string code, string verifier, string redirect, CancellationToken ct)
+        private async Task<BinaTokenSet> ExchangeCodeAsync(string code, string verifier, CancellationToken ct)
         {
-            string payload = JsonConvert.SerializeObject(new { code, codeVerifier = verifier, redirectUri = redirect });
+            string payload = JsonConvert.SerializeObject(new { code, code_verifier = verifier });
             using var content = new StringContent(payload, Encoding.UTF8, "application/json");
-            using var resp = await _http.PostAsync($"{_apiBaseUrl}/api/auth/user/oauth/token", content, ct).ConfigureAwait(false);
+            using var resp = await _http.PostAsync($"{_aiBaseUrl}/auth/token", content, ct).ConfigureAwait(false);
             string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
                 throw new InvalidOperationException($"Token exchange failed (HTTP {(int)resp.StatusCode}): {body}");
@@ -102,22 +105,22 @@ namespace BinaVibe.Auth
 
         public async Task<BinaTokenSet> RefreshAsync(string refreshToken, CancellationToken ct = default)
         {
-            string payload = JsonConvert.SerializeObject(new { refreshToken });
+            string payload = JsonConvert.SerializeObject(new { refresh_token = refreshToken });
             using var content = new StringContent(payload, Encoding.UTF8, "application/json");
-            using var resp = await _http.PostAsync($"{_apiBaseUrl}/api/auth/user/oauth/refresh", content, ct).ConfigureAwait(false);
+            using var resp = await _http.PostAsync($"{_aiBaseUrl}/auth/refresh", content, ct).ConfigureAwait(false);
             string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
                 throw new InvalidOperationException($"Token refresh failed (HTTP {(int)resp.StatusCode}): {body}");
             return Parse(body);
         }
 
-        // Fetch the signed-in user's display name (best-effort) so the UI can show
-        // a real name instead of the numeric id. Returns name, else email, else null.
+        // GET /auth/me — real display name (already included in the token response
+        // too, but exposed for callers that only hold an access token).
         public async Task<string> GetDisplayNameAsync(string accessToken, CancellationToken ct = default)
         {
             try
             {
-                using var req = new HttpRequestMessage(HttpMethod.Get, $"{_apiBaseUrl}/api/auth/user/session");
+                using var req = new HttpRequestMessage(HttpMethod.Get, $"{_aiBaseUrl}/auth/me");
                 req.Headers.TryAddWithoutValidation("Authorization", $"Bearer {accessToken}");
                 using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
                 if (!resp.IsSuccessStatusCode) return null;
@@ -137,12 +140,14 @@ namespace BinaVibe.Auth
         private static BinaTokenSet Parse(string json)
         {
             var o = JObject.Parse(json);
+            var user = o["user"] as JObject;
             return new BinaTokenSet
             {
-                AccessToken = (string)o["accessToken"] ?? "",
-                RefreshToken = (string)o["refreshToken"] ?? "",
-                AccessTokenExpiry = (long?)o["accessTokenExpiry"] ?? 0,
-                UserId = (int?)o["userId"] ?? 0,
+                AccessToken = (string)o["access_token"] ?? "",
+                RefreshToken = (string)o["refresh_token"] ?? "",
+                AccessTokenExpiry = (long?)o["access_token_expiry"] ?? 0,
+                UserId = user != null ? ((int?)user["id"] ?? 0) : 0,
+                UserName = user != null ? (string)user["name"] : null,
             };
         }
 
