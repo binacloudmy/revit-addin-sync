@@ -12,6 +12,7 @@ namespace RevitWebAppSync
     {
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl = BinaConfig.Load().ResolvedApiBaseUrl;
+        private readonly string _loginUrl = BinaConfig.Load().ResolvedLoginUrl;
         private readonly string _email;
         private readonly string _password;
 
@@ -61,9 +62,9 @@ namespace RevitWebAppSync
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine($"[BINA] Attempting login to {_baseUrl}/api/auth/user/sign-in");
+                System.Diagnostics.Debug.WriteLine($"[BINA] Attempting login to {_loginUrl}");
                 System.Diagnostics.Debug.WriteLine($"[BINA] Using email: {_email}");
-                LogToFile($"GetAccessTokenAsync: Attempting login to {_baseUrl}/api/auth/user/sign-in with email: {_email}");
+                LogToFile($"GetAccessTokenAsync: Attempting login to {_loginUrl} with email: {_email}");
 
                 var loginData = new
                 {
@@ -77,7 +78,7 @@ namespace RevitWebAppSync
 
                 System.Diagnostics.Debug.WriteLine("[BINA] Sending HTTP POST request...");
                 LogToFile("GetAccessTokenAsync: Sending HTTP POST request...");
-                var response = await _httpClient.PostAsync($"{_baseUrl}/api/auth/user/sign-in", content);
+                var response = await _httpClient.PostAsync(_loginUrl, content);
                 System.Diagnostics.Debug.WriteLine($"[BINA] Login response status: {response.StatusCode}");
                 LogToFile($"GetAccessTokenAsync: Login response status: {response.StatusCode}");
 
@@ -126,7 +127,7 @@ namespace RevitWebAppSync
                 string jsonContent = JsonConvert.SerializeObject(loginData);
                 var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
 
-                var response = await httpClient.PostAsync($"{BinaConfig.Load().ResolvedApiBaseUrl}/api/auth/user/sign-in", content);
+                var response = await httpClient.PostAsync(BinaConfig.Load().ResolvedLoginUrl, content);
 
                 if (!response.IsSuccessStatusCode)
                 {

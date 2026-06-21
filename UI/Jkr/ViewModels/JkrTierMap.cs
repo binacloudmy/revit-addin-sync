@@ -5,9 +5,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     /// <summary>
     /// Compliance hierarchy — maps a category label to its severity tier.
     /// Tier determines which user actions are allowed on an issue:
-    ///   High   (Must Fix):          Auto-fix only.             No Accept, no Approve, no MarkManual.
-    ///   Medium (Fix During Project): Auto-fix + Accept + MarkManual.   No Approve.
-    ///   Low    (Fix Later):         Auto-fix + Accept + Approve + MarkManual.
+    ///   High   (Must Fix):          Auto-fix only.             No Ignore, no Approve, no MarkManual.
+    ///   Medium (Fix During Project): Auto-fix + Ignore + MarkManual.   No Approve.
+    ///   Low    (Fix Later):         Auto-fix + Ignore + Approve + MarkManual.
     /// "MarkManual" is voluntary deferral; the auto-fix-failure path still routes
     /// failed fixes (including High) to the Manual tab unconditionally so a hard
     /// block doesn't strand the user with no action.
@@ -55,7 +55,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         }
 
         public static bool CanAutoFix(IssuePriority tier) => true;  // all tiers
-        public static bool CanAccept(IssuePriority tier)  => tier != IssuePriority.High;
+        public static bool CanIgnore(IssuePriority tier)  => tier != IssuePriority.High;
         public static bool CanApprove(IssuePriority tier) => tier == IssuePriority.Low;
         public static bool CanMarkManual(IssuePriority tier) => tier != IssuePriority.High;
     }

@@ -7,12 +7,15 @@ using System.IO;
 namespace RevitWebAppSync.Services
 {
     /// <summary>
-    /// Per-project audit trail for Accept/Approve/Fix decisions.
+    /// Per-project audit trail for Ignore/Approve/Fix decisions.
     /// Persists to "&lt;rvt-dir&gt;/.jkr_audit.json" next to the Revit file so the
     /// record travels with the project and survives re-scans.
     ///
-    /// Accepted/Approved persist as a status only; the next scan's fresh issue is
+    /// Ignored/Approved persist as a status only; the next scan's fresh issue is
     /// matched by Id and its Status is rewritten via MergeInto.
+    ///
+    /// Back-compat: the "Accepted" disposition was renamed to "Ignored". Legacy
+    /// audit files still carry "Accepted"; TryParseStatus maps it to Ignored on read.
     ///
     /// Fix is different — once applied, the rule no longer flags the issue, so the
     /// fresh check doesn't return it at all and there's nothing to MergeInto. To keep
@@ -55,7 +58,20 @@ namespace RevitWebAppSync.Services
             return Path.Combine(fallback, FILENAME);
         }
 
-        /// <summary>Read the Accept/Approve decisions. Fixed entries are returned
+        /// <summary>Parse a persisted status string into an IssueStatus, mapping the
+        /// legacy "Accepted" value to its renamed equivalent Ignored so older
+        /// .jkr_audit.json files keep loading.</summary>
+        private static bool TryParseStatus(string raw, out IssueStatus status)
+        {
+            if (!string.IsNullOrEmpty(raw) && raw.Equals("Accepted", StringComparison.OrdinalIgnoreCase))
+            {
+                status = IssueStatus.Ignored;
+                return true;
+            }
+            return Enum.TryParse<IssueStatus>(raw ?? "", ignoreCase: true, out status);
+        }
+
+        /// <summary>Read the Ignore/Approve decisions. Fixed entries are returned
         /// separately via LoadFixedFor since they need full reconstruction, not a
         /// simple status overlay on an existing fresh-check item.</summary>
         public static Dictionary<string, IssueStatus> LoadFor(string rvtPath)
@@ -70,12 +86,12 @@ namespace RevitWebAppSync.Services
                           ?? new Dictionary<string, AuditRecord>();
                 foreach (var kv in map)
                 {
-                    if (Enum.TryParse<IssueStatus>(kv.Value?.Status ?? "", ignoreCase: true, out var s))
+                    if (TryParseStatus(kv.Value?.Status, out var s))
                     {
-                        // Accepted/Approved/ManualFixNeeded all overlay onto a fresh check
+                        // Ignored/Approved/ManualFixNeeded all overlay onto a fresh check
                         // (the rule still fires, we just remember the user-facing state).
                         // Fixed is handled separately by LoadFixedFor.
-                        if (s == IssueStatus.Accepted || s == IssueStatus.Approved || s == IssueStatus.ManualFixNeeded)
+                        if (s == IssueStatus.Ignored || s == IssueStatus.Approved || s == IssueStatus.ManualFixNeeded)
                             result[kv.Key] = s;
                     }
                 }
@@ -116,7 +132,7 @@ namespace RevitWebAppSync.Services
                           ?? new Dictionary<string, AuditRecord>();
                 foreach (var kv in map)
                 {
-                    if (!Enum.TryParse<IssueStatus>(kv.Value?.Status ?? "", ignoreCase: true, out var s)) continue;
+                    if (!TryParseStatus(kv.Value?.Status, out var s)) continue;
                     if (s != wanted) continue;
                     if (kv.Value?.Snapshot == null) continue; // legacy entry — nothing to reconstruct
                     var vm = kv.Value.Snapshot.ToIssueVm(kv.Key);
@@ -173,7 +189,7 @@ namespace RevitWebAppSync.Services
             var path = AuditPath(rvtPath);
             var map = _ReadRaw(path);
 
-            if (issue.Status == IssueStatus.Accepted || issue.Status == IssueStatus.Approved)
+            if (issue.Status == IssueStatus.Ignored || issue.Status == IssueStatus.Approved)
             {
                 // Status-only — these statuses always overlay onto a fresh-check row
                 // since the rule keeps firing. No reconstruction ever needed.

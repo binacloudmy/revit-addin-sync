@@ -154,7 +154,7 @@ namespace RevitWebAppSync.Services
         /// <summary>
         /// Stable per-check id used by audit persistence and UI undo keying.
         /// Same (category, rule, elementId) tuple always produces the same 12-hex string,
-        /// so a re-scan re-uses persisted Accept/Approve decisions.
+        /// so a re-scan re-uses persisted Ignore/Approve decisions.
         /// </summary>
         private static string ComputeIssueId(string category, string rule, int elementId)
         {

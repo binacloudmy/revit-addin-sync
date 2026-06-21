@@ -92,6 +92,12 @@ namespace RevitWebAppSync.UI.Copilot
         private ResultModel _runResult;
         public ResultModel RunResult { get => _runResult; set { _runResult = value; Raise(); } }
 
+        /// <summary>The user prompt that produced the response currently on screen.
+        /// Set on every send (chat + tool-form run) so the 👍/👎 control can key
+        /// feedback to the prompt it refers to (the backend retrieves recipes by
+        /// prompt similarity, so feedback without it is unattributable).</summary>
+        public string LastPrompt { get; private set; }
+
         private System.Diagnostics.Stopwatch _runClock;
         private string _lastRunElapsed = "";
         public string LastRunElapsed { get => _lastRunElapsed; private set { _lastRunElapsed = value; Raise(); } }
@@ -485,6 +491,9 @@ namespace RevitWebAppSync.UI.Copilot
         {
             var tool = CurrentTool;
             if (tool == null) return;
+            // Tool-form path has no free-text prompt — the tool title is what the
+            // response answers, so feedback keys to that.
+            LastPrompt = tool.Title;
             Prev = Screen;
             Screen = CpScreen.Running;
             _runClock = System.Diagnostics.Stopwatch.StartNew();
@@ -579,6 +588,7 @@ namespace RevitWebAppSync.UI.Copilot
         {
             text = (text ?? "").Trim();
             if (text.Length == 0) return;
+            LastPrompt = text;   // key for 👍/👎 feedback on the resulting response
             if (IsIndexing)
             {
                 Thread.Add(new ChatMessage
@@ -593,16 +603,20 @@ namespace RevitWebAppSync.UI.Copilot
             ToolId = null;
             Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images });
 
-            var interp = QueryInterpreter.Interpret(text);
-            if (interp.IsClarify)
-            {
-                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Clarify, Question = interp.Question, Options = interp.Options });
-                AppendToCurrentSession(text, interp.Question ?? "Needs clarification");
-                return;
-            }
+            // Local vetted-tool clarify intercept — DISABLED (vetted tools removed).
+            // It answered vague prompts with canned tool chips BEFORE the backend was
+            // ever reached. All messages now route to bina-ai; when the agent needs
+            // detail it pauses with its own clarifying question (HITL card below).
+            // var interp = QueryInterpreter.Interpret(text);
+            // if (interp.IsClarify)
+            // {
+            //     Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Clarify, Question = interp.Question, Options = interp.Options });
+            //     AppendToCurrentSession(text, interp.Question ?? "Needs clarification");
+            //     return;
+            // }
 
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Drafting a command for that…" });
-            _ = ResolveProposalAsync(text, interp.ToolId, images);
+            _ = ResolveProposalAsync(text, QueryInterpreter.PickResponseTool(text).Id, images);
         }
 
         private async System.Threading.Tasks.Task ResolveProposalAsync(string text, string fallbackToolId, List<string> images = null)
@@ -768,6 +782,33 @@ namespace RevitWebAppSync.UI.Copilot
 
             if (Executor != null) Executor.Run(tool, new Dictionary<string, object>(), code, Done);
             else Done(new ExecOutcome { Success = true });
+        }
+
+        // ─── Feedback (👍/👎) ───────────────────────────────────────────────────
+        // The only signal that catches "compiled but wrong". Fire-and-forget to the
+        // backend, keyed to the prompt the rated response answered. Best-effort: a
+        // failed POST must never break the pane (FeedbackService swallows).
+        private readonly FeedbackService _feedback = new FeedbackService();
+
+        /// <summary>Submit thumbs feedback for the response currently on screen.
+        /// <paramref name="rating"/> is "up" or "down". Best-effort; never throws.</summary>
+        public void SubmitFeedback(string rating) => SubmitFeedback(rating, LastPrompt);
+
+        /// <summary>Submit thumbs feedback attributed to a SPECIFIC prompt.
+        /// Chat reply bubbles pass their own source prompt so rating an older
+        /// bubble isn't mis-attributed to whatever prompt is newest (LastPrompt).
+        /// Best-effort; never throws.</summary>
+        public void SubmitFeedback(string rating, string prompt)
+        {
+            if (string.IsNullOrWhiteSpace(prompt)) return;
+
+            var cfg = BinaConfig.Load();
+            int? userId = (cfg?.UserId ?? 0) > 0 ? (int?)cfg.UserId : null;
+            string sessionId = (Router as RevitChatRouter)?.SessionId;
+            string token = cfg?.AccessToken ?? "";
+
+            // Detached — never await on the UI thread; failures are swallowed inside.
+            _ = _feedback.SubmitFeedbackAsync(prompt, rating, prompt, sessionId, userId, token);
         }
 
         /// <summary>Reformulate the structured result as one conversational line for the
