@@ -72,16 +72,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             };
             Input.ImagePasted += AddImage;
             Input.FileDropped += AddFiles;
-            AttachBtn.Click += (_, __) =>
-            {
-                var dlg = new Microsoft.Win32.OpenFileDialog
-                {
-                    Multiselect = true,
-                    Filter = "Text files|*.txt;*.csv;*.md;*.log;*.json;*.xml",
-                    Title = "Attach file(s)",
-                };
-                if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
-            };
+            // attach file button temporarily disabled — drag-drop still adds files via Input.FileDropped
+            // AttachBtn.Click += (_, __) =>
+            // {
+            //     var dlg = new Microsoft.Win32.OpenFileDialog
+            //     {
+            //         Multiselect = true,
+            //         Filter = "Text files|*.txt;*.csv;*.md;*.log;*.json;*.xml",
+            //         Title = "Attach file(s)",
+            //     };
+            //     if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
+            // };
         }
 
         // ─── Pasted screenshots (pending, sent with the next prompt) ─────────
