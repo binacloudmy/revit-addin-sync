@@ -382,6 +382,11 @@ namespace RevitWebAppSync
 
                 CreateRibbonTab(application);
 
+                // Delete manifests of old parallel installs (pre-loader
+                // direct-load .addin in APPDATA/ProgramData) so the next
+                // start runs a single copy. See LegacyInstallCleaner.
+                try { Services.LegacyInstallCleaner.Purge(application); } catch { }
+
                 // OTA: stage any newer build in the background; BinaLoader
                 // applies it on the next Revit start. No-op if no feed is
                 // configured (see BinaConfig.UpdateFeedUrl).
@@ -413,7 +418,16 @@ namespace RevitWebAppSync
         private void CreateRibbonTab(UIControlledApplication application)
         {
             string tabName = "Bina"; // Renamed from "Sync" as requested
-            application.CreateRibbonTab(tabName);
+            try
+            {
+                application.CreateRibbonTab(tabName);
+            }
+            catch (Autodesk.Revit.Exceptions.ArgumentException)
+            {
+                // Tab already exists — a stale parallel install created it
+                // first. Panels attach to the existing tab; without this the
+                // whole OnStartup died and the addin vanished from the ribbon.
+            }
 
             // Labeled panel groups instead of one flat "Sync Tools" strip
             RibbonPanel cloudPanel = application.CreateRibbonPanel(tabName, "BINA Cloud");

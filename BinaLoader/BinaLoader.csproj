@@ -10,6 +10,10 @@
     <!-- Lets the loader build on macOS/Linux CI and dev machines. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
+
+	<!--Suppress auto-generation since generation is declared manually -->
+	<GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+	<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
   <ItemGroup>

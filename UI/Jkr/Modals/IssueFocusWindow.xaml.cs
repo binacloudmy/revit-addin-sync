@@ -165,7 +165,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                     StepsBody.Visibility = _stepsOpen ? Visibility.Visible : Visibility.Collapsed;
                     StepsCaret.Glyph = _stepsOpen ? "caretDn" : "caretR";
                 }
-                AcceptBtn.Visibility = i.ShowAcceptButton ? Visibility.Visible : Visibility.Collapsed;
+                IgnoreBtn.Visibility = i.ShowIgnoreButton ? Visibility.Visible : Visibility.Collapsed;
                 ManualBtn.Visibility = i.ShowMarkManualButton ? Visibility.Visible : Visibility.Collapsed;
             }
 
@@ -246,7 +246,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         private void Prev_Click(object s, RoutedEventArgs e) { if (_vm?.ActiveIndexDisplay > 1) _vm.ActiveIssue = _vm.Filtered[_vm.ActiveIndexDisplay - 2]; }
         private void Next_Click(object s, RoutedEventArgs e) { if (_vm?.ActiveIndexDisplay < _vm.Filtered.Count) _vm.ActiveIssue = _vm.Filtered[_vm.ActiveIndexDisplay]; }
         private void ApplyFix_Click(object s, RoutedEventArgs e) => _Act(IssueStatus.Fixed,    advance: true);
-        private void Accept_Click(object s, RoutedEventArgs e)   => _Act(IssueStatus.Accepted, advance: true);
+        private void Ignore_Click(object s, RoutedEventArgs e)   => _Act(IssueStatus.Ignored, advance: true);
         private void Approve_Click(object s, RoutedEventArgs e)  => _Act(IssueStatus.Approved, advance: true);
         private void MarkManual_Click(object s, RoutedEventArgs e) => _Act(IssueStatus.ManualFixNeeded, advance: true);
         private void Reopen_Click(object s, RoutedEventArgs e)   => _Act(IssueStatus.Open,     advance: false);
@@ -270,7 +270,7 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             var issue = _vm?.ActiveIssue;
             if (issue == null) return;
             if (newStatus == IssueStatus.Approved && !issue.CanApprove) return;
-            if (newStatus == IssueStatus.Accepted && !issue.CanAccept) return;
+            if (newStatus == IssueStatus.Ignored && !issue.CanIgnore) return;
             if (newStatus == IssueStatus.ManualFixNeeded && !issue.CanMarkManual) return;
 
             // Route through the panel so backend auto-fix + audit persistence fire.
@@ -299,8 +299,8 @@ namespace RevitWebAppSync.UI.Jkr.Modals
                 case Key.F:
                     if (_vm.ActiveIssue?.AutoFixable == true && _vm.ActiveIssue.IsActionable) ApplyFix_Click(s, null); break;
                 case Key.A:
-                    if (_vm.ActiveIssue?.IsOpen == true && _vm.ActiveIssue.CanAccept) Accept_Click(s, null); break;
-                // Key.X (approve) removed — merged with Accept.
+                    if (_vm.ActiveIssue?.IsOpen == true && _vm.ActiveIssue.CanIgnore) Ignore_Click(s, null); break;
+                // Key.X (approve) removed — merged with Ignore.
             }
         }
 

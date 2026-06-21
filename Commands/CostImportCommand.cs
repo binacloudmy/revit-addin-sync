@@ -13,6 +13,9 @@ namespace RevitWebAppSync.Commands
     {
         public Result Execute(ExternalCommandData commandData, ref string message, ElementSet elements)
         {
+            // OTA gate: a mandatory update blocks the plugin until installed.
+            if (!Services.UpdateService.EnsureUpToDate()) return Result.Cancelled;
+
             try
             {
                 Document doc = commandData.Application.ActiveUIDocument?.Document;

@@ -255,7 +255,7 @@ namespace RevitWebAppSync.Services
     {
         // Stable ID — sha1(category + "|" + rule + "|" + elementId)[0..12].
         // Populated by JkrComplianceService when converting V2 → DTO. Used by
-        // the audit store to persist Accept/Approve across re-scans and by
+        // the audit store to persist Ignore/Approve across re-scans and by
         // the UI to key Undo snapshots.
         [JsonProperty("issue_id")]
         public string IssueId { get; set; } = "";

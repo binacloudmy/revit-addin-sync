@@ -81,8 +81,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (noQuery && vm.Category == "all" && vm.RecentEntry != null)
             {
                 ListHost.Children.Add(SectionHeader("Recent", null, null));
-                var recentTool = CopilotCatalog.Find(vm.RecentEntry.ToolId);
-                if (recentTool != null) ListHost.Children.Add(RecentRow(vm.RecentEntry, recentTool));
+                // RecentEntry is now a session (no single ToolId); show a summary row if present
+                if (vm.RecentEntry != null)
+                {
+                    var firstToolId = vm.RecentEntry.History?.SelectMany(m => m.Tools ?? new System.Collections.Generic.List<string>()).FirstOrDefault();
+                    var recentTool = firstToolId != null ? CopilotCatalog.Find(firstToolId) : null;
+                    if (recentTool != null) ListHost.Children.Add(RecentRow(vm.RecentEntry, recentTool));
+                }
             }
 
             var vetted = vm.VettedFiltered.ToList();

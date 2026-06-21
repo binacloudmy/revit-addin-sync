@@ -53,6 +53,9 @@
 
                 <ContentControl x:Name="ResultHost"/>
 
+                <!-- 👍/👎 feedback on this response (built in code-behind) -->
+                <StackPanel x:Name="FeedbackHost"/>
+
                 <TextBlock Text="NEXT STEPS" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Faint}"
                            Margin="2,14,0,6"/>
                 <StackPanel x:Name="NextHost"/>
