@@ -51,12 +51,16 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         // Tunnel-free tool-calling: the agent calls vetted MUTATE tools the addin
-        // runs in real Revit; when no tool fits it falls back to codegen (the done
-        // turn carries the C#, run via the normal executor). ON BY DEFAULT — set
-        // BINA_VIBE_TOOL_HTTP=0 to force codegen-only. Separate from the DEAD
-        // BINA_VIBE_TOOLPATH (WSS tunnel, stays off).
-        private static bool ToolHttpEnabled =>
-            (Environment.GetEnvironmentVariable("BINA_VIBE_TOOL_HTTP") ?? "1") != "0";
+        // runs in real Revit; when no tool fits it emits codegen on the SAME tool
+        // turn (the done frame carries the C#, run via the normal executor).
+        //
+        // TOOL PATH IS NOW THE ONLY ROUTE. The legacy codegen-fallback endpoints
+        // (/generate, /generate/stream, /retry, /record-fix) were removed from the
+        // backend (drop-legacy-codegen-fallback), so the BINA_VIBE_TOOL_HTTP=0
+        // escape hatch would 404. Forced true; the /generate fall-through below is
+        // now DEAD CODE — remove GenerateCodeAsync / AIServiceStream / the
+        // post-tool block in a Windows session where the build can be verified.
+        private static bool ToolHttpEnabled => true;
 
         /// <summary>Optional callback invoked on every streamed code chunk
         /// from /generate/stream so the chat can render code as it arrives.
