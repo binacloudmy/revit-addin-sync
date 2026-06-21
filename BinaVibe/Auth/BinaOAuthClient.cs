@@ -111,6 +111,28 @@ namespace BinaVibe.Auth
             return Parse(body);
         }
 
+        // Fetch the signed-in user's display name (best-effort) so the UI can show
+        // a real name instead of the numeric id. Returns name, else email, else null.
+        public async Task<string> GetDisplayNameAsync(string accessToken, CancellationToken ct = default)
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, $"{_apiBaseUrl}/api/auth/user/session");
+                req.Headers.TryAddWithoutValidation("Authorization", $"Bearer {accessToken}");
+                using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode) return null;
+                var o = JObject.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                var name = (string)o["name"];
+                var email = (string)o["email"];
+                if (!string.IsNullOrWhiteSpace(name)) return name;
+                return string.IsNullOrWhiteSpace(email) ? null : email;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         // ── Helpers ─────────────────────────────────────────────────────
         private static BinaTokenSet Parse(string json)
         {

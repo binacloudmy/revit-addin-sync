@@ -74,9 +74,13 @@ namespace RevitWebAppSync
                 config.TokenExpiry = tokens.AccessTokenExpiry > 0
                     ? DateTimeOffset.FromUnixTimeSeconds(tokens.AccessTokenExpiry).LocalDateTime
                     : DateTime.Now.AddYears(1);
-                // The OAuth response carries no display name; show the user id until a
-                // /session lookup is wired. IsLoggedIn() only needs this non-empty.
-                config.UserName = $"BINA User #{tokens.UserId}";
+                // Best-effort real name from /session; fall back to the id placeholder.
+                string displayName = null;
+                try { displayName = client.GetDisplayNameAsync(tokens.AccessToken).GetAwaiter().GetResult(); }
+                catch { /* non-fatal */ }
+                config.UserName = !string.IsNullOrWhiteSpace(displayName)
+                    ? displayName
+                    : $"BINA User #{tokens.UserId}";
 
                 var projectPicker = new ProjectPickerWindow(tokens.AccessToken);
                 if (projectPicker.ShowDialog() == true)
