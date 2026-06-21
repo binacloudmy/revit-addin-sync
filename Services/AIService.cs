@@ -138,6 +138,26 @@ namespace RevitWebAppSync.Services
                     };
                 }
 
+                // 402 — monthly AI quota reached (PRD §10). Resets on the 1st.
+                if (response.StatusCode == HttpStatusCode.PaymentRequired)
+                {
+                    return new AIResponse
+                    {
+                        Success = false,
+                        Error = "You've used all your AI requests for this month. Your quota resets on the 1st."
+                    };
+                }
+
+                // 429 — burst limit; the addin should back off and retry shortly.
+                if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    return new AIResponse
+                    {
+                        Success = false,
+                        Error = "Too many requests in a short time. Please wait a moment and try again."
+                    };
+                }
+
                 try
                 {
                     return JsonConvert.DeserializeObject<AIResponse>(responseBody);

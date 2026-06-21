@@ -458,6 +458,18 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
 
+            PushButtonData browserLoginButtonData = new PushButtonData(
+                "BrowserLogin",
+                "Sign in\n(Browser)",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.BrowserLoginCommand")
+            {
+                ToolTip = "Sign in to BINA Cloud via your browser (no password in Revit)",
+                LongDescription = "Opens your system browser to sign in to BINA Cloud (OAuth + PKCE). Tokens are stored in the Windows Credential Manager.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            };
+
             PushButtonData bimDisciplineButtonData = new PushButtonData(
                 "BimDiscipline",
                 "Download BIM\nDisciplines",
@@ -558,6 +570,7 @@ namespace RevitWebAppSync
             // BINA Cloud: sync, account, downloads
             cloudPanel.AddItem(buttonData);
             cloudPanel.AddItem(loginButtonData);
+            cloudPanel.AddItem(browserLoginButtonData);
             cloudPanel.AddItem(bimDisciplineButtonData);
 
             // AI: copilot
