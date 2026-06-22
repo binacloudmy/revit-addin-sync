@@ -138,6 +138,26 @@ namespace RevitWebAppSync.Services
                     };
                 }
 
+                // 402 — monthly AI quota reached (PRD §10). Resets on the 1st.
+                if (response.StatusCode == HttpStatusCode.PaymentRequired)
+                {
+                    return new AIResponse
+                    {
+                        Success = false,
+                        Error = "You've used all your AI requests for this month. Your quota resets on the 1st."
+                    };
+                }
+
+                // 429 — burst limit; the addin should back off and retry shortly.
+                if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    return new AIResponse
+                    {
+                        Success = false,
+                        Error = "Too many requests in a short time. Please wait a moment and try again."
+                    };
+                }
+
                 try
                 {
                     return JsonConvert.DeserializeObject<AIResponse>(responseBody);
@@ -389,6 +409,40 @@ namespace RevitWebAppSync.Services
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// GET /credits/balance — the signed-in user's monthly AI quota. Returns null on ANY
+        /// failure (network, 401 "login required") so callers degrade gracefully.
+        /// </summary>
+        public async Task<CreditInfo> GetCreditsAsync(
+            string accessToken, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/credits/balance");
+                if (!string.IsNullOrEmpty(accessToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                var resp = await _httpClient.SendAsync(req, cancellationToken);
+                if (!resp.IsSuccessStatusCode) return null;
+                var body = await resp.Content.ReadAsStringAsync();
+                return JsonConvert.DeserializeObject<CreditInfo>(body);
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Wire shape of GET /credits/balance.
+        /// <see cref="Remaining"/> is null when <see cref="Unlimited"/> is true.
+        /// </summary>
+        public class CreditInfo
+        {
+            [JsonProperty("period")] public string Period { get; set; }
+            [JsonProperty("used")] public int Used { get; set; }
+            [JsonProperty("monthly_limit")] public int Limit { get; set; }
+            [JsonProperty("unlimited")] public bool Unlimited { get; set; }
+            [JsonProperty("remaining")] public int? Remaining { get; set; }
+            [JsonProperty("resets_at")] public string ResetsAt { get; set; }
         }
 
         /// <summary>

@@ -27,6 +27,10 @@ namespace RevitWebAppSync
         public string AIBaseUrl { get; set; }
         public string ApiBaseUrl { get; set; }
 
+        // BINA web app base (the browser login page for the desktop OAuth/PKCE
+        // flow). Overridable via config.json; falls back to DEFAULT_LOGIN_WEB_URL.
+        public string LoginWebUrl { get; set; }
+
         // Dev opt-in: by default a ngrok AIBaseUrl is ignored (see ResolvedAIBaseUrl)
         // because stale tunnels left in config.json 502. Set this true in config.json
         // to deliberately point the AI calls at a live ngrok tunnel (e.g. a local
@@ -50,6 +54,10 @@ namespace RevitWebAppSync
         public static string DEFAULT_AI_BASE_URL =>
             Env("BASE_URL") ?? "https://bina-ai-staging.azurewebsites.net";
         public static string DEFAULT_API_BASE_URL => DEFAULT_AI_BASE_URL;
+        // BINA web login origin for the desktop OAuth browser flow. Override via
+        // the LOGIN_WEB_URL env key or config.json once the real origin is known.
+        public static string DEFAULT_LOGIN_WEB_URL =>
+            Env("LOGIN_WEB_URL") ?? "https://plugins.jkrbinaxone.com";
         public static string DEFAULT_UPDATE_FEED_URL =>
             Env("UPDATE_FEED_URL")
             ?? "https://github.com/binacloudmy/revit-addin-sync/releases/latest/download/version.json";
@@ -119,6 +127,10 @@ namespace RevitWebAppSync
         [JsonIgnore]
         public string ResolvedApiBaseUrl =>
             !string.IsNullOrWhiteSpace(ApiBaseUrl) ? ApiBaseUrl : DEFAULT_API_BASE_URL;
+
+        [JsonIgnore]
+        public string ResolvedLoginWebUrl =>
+            !string.IsNullOrWhiteSpace(LoginWebUrl) ? LoginWebUrl : DEFAULT_LOGIN_WEB_URL;
 
         [JsonIgnore]
         public string ResolvedUpdateFeedUrl =>
