@@ -87,19 +87,21 @@ namespace RevitWebAppSync
                     ? displayName
                     : $"BINA User #{tokens.UserId}";
 
-                var projectPicker = new ProjectPickerWindow(tokens.AccessToken);
-                if (projectPicker.ShowDialog() == true)
-                {
-                    config.ProjectId = projectPicker.SelectedProjectId;
-                    config.ProjectName = projectPicker.SelectedProjectName;
-                    config.Save();
-                    TaskDialog.Show("Login Successful",
-                        $"Signed in.\nProject: {config.ProjectName}");
-                }
-                else
-                {
-                    TaskDialog.Show("Login Cancelled", "Signed in, but no project was selected.");
-                }
+                // Demo: "projects" are a legacy bina-be concept — bina-ai keys off the
+                // signed-in user, not the project. Skip the (empty on bina-ai) picker and
+                // default to a Demo project. This ALSO guarantees config.Save() runs, so the
+                // session actually persists (the picker path previously skipped the save).
+                config.ProjectId = 1;
+                config.ProjectName = "Demo";
+                config.Save();
+
+                // Open the Copilot pane right after login and push the live Revit context.
+                OpenCopilotPane(commandData.Application);
+
+                // Show the user's monthly AI credit balance in the pane. Best-effort —
+                // no-ops cleanly if the backend credits endpoint isn't available yet.
+                var copilotVm = App.CopilotPaneHost?.Panel?.ViewModel;
+                if (copilotVm != null) _ = copilotVm.ShowCreditsAsync();
 
                 return Result.Succeeded;
             }
@@ -121,6 +123,20 @@ namespace RevitWebAppSync
                 config.Save();
                 TaskDialog.Show("Project Changed", $"Switched to project: {config.ProjectName}");
             }
+        }
+
+        /// <summary>Show the right-docked Copilot pane and push live Revit context — same
+        /// path as OpenCopilotCommand. Best-effort; safe if the pane isn't registered.</summary>
+        private static void OpenCopilotPane(UIApplication uiApp)
+        {
+            try
+            {
+                var pane = uiApp.GetDockablePane(UI.Copilot.CopilotPaneHost.PaneId);
+                if (pane == null) return;
+                if (!pane.IsShown()) pane.Show();
+                App.CopilotPaneHost?.Panel?.SetRevitContext(uiApp);
+            }
+            catch { /* non-fatal: pane may not be registered yet */ }
         }
     }
 }

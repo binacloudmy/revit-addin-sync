@@ -603,6 +603,19 @@ namespace RevitWebAppSync.UI.Copilot
             ToolId = null;
             Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images });
 
+            // Auth gate: BINA Copilot needs a signed-in BINA Cloud session. Show a friendly
+            // prompt instead of letting the request 401 at the backend.
+            var authCfg = BinaConfig.Load();
+            if (authCfg == null || !authCfg.IsLoggedIn())
+            {
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = "Please sign in to use BINA Copilot — click BINA Cloud → Login in the ribbon, then try again.",
+                });
+                return;
+            }
+
             // Local vetted-tool clarify intercept — DISABLED (vetted tools removed).
             // It answered vague prompts with canned tool chips BEFORE the backend was
             // ever reached. All messages now route to bina-ai; when the agent needs
@@ -617,6 +630,39 @@ namespace RevitWebAppSync.UI.Copilot
 
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Drafting a command for that…" });
             _ = ResolveProposalAsync(text, QueryInterpreter.PickResponseTool(text).Id, images);
+        }
+
+        /// <summary>
+        /// Fetch and show the signed-in user's monthly AI credit balance as a chat message.
+        /// Called right after login. Best-effort: silently no-ops when not signed in or when
+        /// the backend has no credits endpoint yet.
+        /// </summary>
+        public async System.Threading.Tasks.Task ShowCreditsAsync()
+        {
+            try
+            {
+                var cfg = BinaConfig.Load();
+                if (cfg == null || !cfg.IsLoggedIn()) return;
+
+                var credits = await new AIService().GetCreditsAsync(cfg.AccessToken);
+                if (credits == null) return;
+
+                string text;
+                if (credits.Unlimited)
+                {
+                    text = "You have unlimited AI requests.";
+                }
+                else
+                {
+                    if (credits.Limit <= 0) return;
+                    int remaining = credits.Remaining ?? System.Math.Max(0, credits.Limit - credits.Used);
+                    string resets = string.IsNullOrWhiteSpace(credits.ResetsAt) ? "" : $" Resets {credits.ResetsAt}.";
+                    text = $"You have {remaining} of {credits.Limit} AI requests left this month.{resets}";
+                }
+
+                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = text });
+            }
+            catch { /* best-effort — never block login on the credits read */ }
         }
 
         private async System.Threading.Tasks.Task ResolveProposalAsync(string text, string fallbackToolId, List<string> images = null)

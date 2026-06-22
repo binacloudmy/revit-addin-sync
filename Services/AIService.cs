@@ -412,6 +412,40 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// GET /credits/balance — the signed-in user's monthly AI quota. Returns null on ANY
+        /// failure (network, 401 "login required") so callers degrade gracefully.
+        /// </summary>
+        public async Task<CreditInfo> GetCreditsAsync(
+            string accessToken, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/credits/balance");
+                if (!string.IsNullOrEmpty(accessToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                var resp = await _httpClient.SendAsync(req, cancellationToken);
+                if (!resp.IsSuccessStatusCode) return null;
+                var body = await resp.Content.ReadAsStringAsync();
+                return JsonConvert.DeserializeObject<CreditInfo>(body);
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Wire shape of GET /credits/balance.
+        /// <see cref="Remaining"/> is null when <see cref="Unlimited"/> is true.
+        /// </summary>
+        public class CreditInfo
+        {
+            [JsonProperty("period")] public string Period { get; set; }
+            [JsonProperty("used")] public int Used { get; set; }
+            [JsonProperty("monthly_limit")] public int Limit { get; set; }
+            [JsonProperty("unlimited")] public bool Unlimited { get; set; }
+            [JsonProperty("remaining")] public int? Remaining { get; set; }
+            [JsonProperty("resets_at")] public string ResetsAt { get; set; }
+        }
+
+        /// <summary>
         /// List saved Copilot commands visible to this user (public + own + org's).
         /// Returns an empty list on any failure.
         /// </summary>
