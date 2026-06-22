@@ -64,14 +64,15 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             foreach (var msg in h.History)
             {
                 MessagesHost.Children.Add(MessageBubble(msg));
-                if (msg.Sender == "bot" && msg.Tools != null)
-                {
-                    foreach (var tid in msg.Tools)
-                    {
-                        var card = ToolReviewCard(tid);
-                        if (card != null) MessagesHost.Children.Add(card);
-                    }
-                }
+                // Disable tools view
+                // if (msg.Sender == "bot" && msg.Tools != null)
+                // {
+                //     foreach (var tid in msg.Tools)
+                //     {
+                //         var card = ToolReviewCard(tid);
+                //         if (card != null) MessagesHost.Children.Add(card);
+                //     }
+                // }
             }
         }
 
@@ -102,6 +103,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             var titleBlock = new TextBlock
             {
+                // History session label
                 Text = h.Label ?? h.Summary ?? "Run",
                 FontSize = 12.5,
                 FontWeight = FontWeights.Medium,
@@ -168,6 +170,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var col = new StackPanel { Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
             col.Children.Add(titleBlock);
             col.Children.Add(editBox);
+            // Add history session block
             col.Children.Add(new TextBlock
             {
                 Text = h.Time + (msgCount > 0 ? $" · {msgCount / 2} message{(msgCount / 2 == 1 ? "" : "s")}" : ""),
@@ -256,13 +259,35 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 CornerRadius = new CornerRadius(isUser ? 12 : 4, isUser ? 4 : 12, 12, 12),
                 Padding = new Thickness(10, 7, 10, 7),
             };
-            inner.Child = new TextBlock
+
+            var text = new TextBlock
             {
                 Text = msg.Text,
                 FontSize = 12,
                 Foreground = isUser ? Brushes.White : CopilotColors.From("#111827"),
                 TextWrapping = TextWrapping.Wrap,
             };
+
+            // Attached files redraw as chips above the text (content isn't persisted,
+            // so the chip is built from the stored name + line count).
+            if (msg.Files != null && msg.Files.Count > 0)
+            {
+                var stack = new StackPanel();
+                var fileStrip = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
+                foreach (var f in msg.Files)
+                {
+                    var chip = AttachmentChip.ForFile(f.Name, f.Lines);
+                    chip.Margin = new Thickness(0, 0, 6, 0);
+                    fileStrip.Children.Add(chip);
+                }
+                stack.Children.Add(fileStrip);
+                stack.Children.Add(text);
+                inner.Child = stack;
+            }
+            else
+            {
+                inner.Child = text;
+            }
             outer.Child = inner;
             return outer;
         }

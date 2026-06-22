@@ -110,13 +110,23 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     {
                         var src = ImageFromBase64(b64);
                         if (src == null) continue;
-                        bubbleStack.Children.Add(new Border
-                        {
-                            CornerRadius = new CornerRadius(6), ClipToBounds = true,
-                            MaxWidth = 220, Margin = new Thickness(0, 0, 0, 6),
-                            Child = new Image { Source = src, Stretch = Stretch.Uniform, MaxHeight = 140 },
-                        });
+                        var chip = AttachmentChip.ForImage(src);
+                        chip.Margin = new Thickness(0, 0, 0, 4);
+                        bubbleStack.Children.Add(chip);
                     }
+                // Attached files render as chips (their contents go to the backend,
+                // never as raw text in the bubble).
+                if (m.Files != null && m.Files.Count > 0)
+                {
+                    var fileStrip = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
+                    foreach (var f in m.Files)
+                    {
+                        var chip = AttachmentChip.ForFile(f.Name, f.Content);
+                        chip.Margin = new Thickness(0, 0, 6, 0);
+                        fileStrip.Children.Add(chip);
+                    }
+                    bubbleStack.Children.Add(fileStrip);
+                }
                 // Selectable read-only TextBox (a WPF TextBlock cannot be selected/
                 // copied) — styled to look identical to the old TextBlock.
                 bubbleStack.Children.Add(new TextBox
