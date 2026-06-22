@@ -57,7 +57,7 @@ namespace RevitWebAppSync
         // BINA web login origin for the desktop OAuth browser flow. Override via
         // the LOGIN_WEB_URL env key or config.json once the real origin is known.
         public static string DEFAULT_LOGIN_WEB_URL =>
-            Env("LOGIN_WEB_URL") ?? "https://revit.bina.cloud";
+            Env("LOGIN_WEB_URL") ?? "https://plugins.jkrbinaxone.com";
         public static string DEFAULT_UPDATE_FEED_URL =>
             Env("UPDATE_FEED_URL")
             ?? "https://github.com/binacloudmy/revit-addin-sync/releases/latest/download/version.json";
