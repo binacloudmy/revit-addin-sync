@@ -4,7 +4,7 @@
     Builds the BINA Platform Connector and assembles the Autodesk App Store bundle.
 
 .DESCRIPTION
-    1. Builds BinaConnector.csproj for net8.0-windows (Revit 2025/2026).
+    1. Builds BinaConnector.csproj for net8.0-windows (Revit 2025/2026/2027).
     2. Assembles BinaConnector.bundle/ from build outputs + bundle-templates/.
     3. Validates the bundle structure.
     4. Zips the result as BinaConnector.bundle.zip ready for submission.
@@ -56,7 +56,7 @@ if (-not $SkipBuild) {
     Step "Cleaning previous build outputs"
     & dotnet clean $csproj -c $Configuration | Out-Null
 
-    Step "Building net8.0-windows (Revit 2025/2026)"
+    Step "Building net8.0-windows (Revit 2025/2026/2027)"
     & dotnet build $csproj -c $Configuration -f net8.0-windows
     if ($LASTEXITCODE -ne 0) { Fail "net8.0-windows build failed" }
 }
@@ -71,23 +71,27 @@ if (Test-Path $bundleRoot) { Remove-Item $bundleRoot -Recurse -Force }
 $contents = Join-Path $bundleRoot 'Contents'
 New-Item -ItemType Directory -Path (Join-Path $contents '2025')         | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $contents '2026')         | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $contents '2027')         | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $contents 'Resources/icons') | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $contents 'Resources/help')  | Out-Null
 
-# DLL (and optionally PDB) — same net8 binary into both 2025 and 2026 folders
+# DLL (and optionally PDB) — same net8 binary into the 2025, 2026 and 2027 folders
 Copy-Item $dllNet8 (Join-Path $contents '2025/BinaConnector.dll')
 Copy-Item $dllNet8 (Join-Path $contents '2026/BinaConnector.dll')
+Copy-Item $dllNet8 (Join-Path $contents '2027/BinaConnector.dll')
 if ($IncludePdb) {
     $pdbNet8 = Join-Path $net8Out 'BinaConnector.pdb'
     if (Test-Path $pdbNet8) {
         Copy-Item $pdbNet8 (Join-Path $contents '2025/BinaConnector.pdb')
         Copy-Item $pdbNet8 (Join-Path $contents '2026/BinaConnector.pdb')
+        Copy-Item $pdbNet8 (Join-Path $contents '2027/BinaConnector.pdb')
     }
 }
 
 # Per-version .addin manifests (pinned GUIDs)
 Copy-Item (Join-Path $templates '2025.addin') (Join-Path $contents '2025/BinaConnector.addin')
 Copy-Item (Join-Path $templates '2026.addin') (Join-Path $contents '2026/BinaConnector.addin')
+Copy-Item (Join-Path $templates '2027.addin') (Join-Path $contents '2027/BinaConnector.addin')
 
 # Top-level package manifest
 Copy-Item (Join-Path $templates 'PackageContents.xml') (Join-Path $bundleRoot 'PackageContents.xml')
@@ -105,6 +109,7 @@ $required = @(
     'PackageContents.xml',
     'Contents/2025/BinaConnector.addin', 'Contents/2025/BinaConnector.dll',
     'Contents/2026/BinaConnector.addin', 'Contents/2026/BinaConnector.dll',
+    'Contents/2027/BinaConnector.addin', 'Contents/2027/BinaConnector.dll',
     'Contents/Resources/EULA.html',
     'Contents/Resources/help/index.html',
     'Contents/Resources/icons/upload_16.png',
@@ -129,6 +134,7 @@ try {
 $placeholders = Select-String -Path (Join-Path $bundleRoot 'PackageContents.xml'),
                                     (Join-Path $bundleRoot 'Contents/2025/BinaConnector.addin'),
                                     (Join-Path $bundleRoot 'Contents/2026/BinaConnector.addin'),
+                                    (Join-Path $bundleRoot 'Contents/2027/BinaConnector.addin'),
                                     (Join-Path $bundleRoot 'Contents/Resources/EULA.html'),
                                     (Join-Path $bundleRoot 'Contents/Resources/help/index.html') `
                                 -Pattern '\[(SUPPORT_URL|SUPPORT_EMAIL|BINA_API_BASE_URL_PLACEHOLDER|BINA_WEB_APP_URL_PLACEHOLDER)\]' `

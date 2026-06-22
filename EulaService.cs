@@ -12,7 +12,7 @@ namespace BinaConnector
         // Source of truth: kept here in code; bundle-templates/EULA.html must be kept in
         // sync (the build copies it into the bundle as Resources/EULA.html).
         public const string EulaText =
-@"BINA Platform Connector — End User License Agreement
+@"BINA — End User License Agreement
 Version 1.0 — Last updated 2026-05-07
 
 Publisher: BINA CLOUDTECH SDN BHD (Malaysia)
@@ -22,7 +22,7 @@ IF YOU DO NOT AGREE, DO NOT INSTALL OR USE THIS SOFTWARE.
 
 1. License Grant
    BINA CLOUDTECH SDN BHD grants you a non-exclusive, non-transferable, royalty-free
-   license to install and use the BINA Platform Connector (""Software"") solely with
+   license to install and use BINA (""Software"") solely with
    Autodesk Revit, for the purpose of uploading project files to BINA Cloud services.
 
 2. Account

@@ -11,7 +11,7 @@
     <Nullable>disable</Nullable>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
-    <Product>BINA Platform Connector</Product>
+    <Product>BINA</Product>
     <Company>BINA CLOUDTECH SDN BHD</Company>
     <Version>1.0.0</Version>
   </PropertyGroup>

@@ -4,7 +4,7 @@
     <Name>BINA</Name>
     <Assembly>BinaConnector.dll</Assembly>
     <FullClassName>BinaConnector.App</FullClassName>
-    <AddInId>971f9c67-7aba-4682-b3f4-7bc56be35bd4</AddInId>
+    <AddInId>66e4df47-463c-4b65-9a9c-8981f8c4e9d5</AddInId>
     <VendorId>BINA</VendorId>
     <VendorDescription>BINA CLOUDTECH SDN BHD, https://bina.cloud</VendorDescription>
     <VisibilityMode>NotVisibleInFamily</VisibilityMode>
