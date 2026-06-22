@@ -129,8 +129,23 @@ namespace RevitWebAppSync
             !string.IsNullOrWhiteSpace(ApiBaseUrl) ? ApiBaseUrl : DEFAULT_API_BASE_URL;
 
         [JsonIgnore]
-        public string ResolvedLoginWebUrl =>
-            !string.IsNullOrWhiteSpace(LoginWebUrl) ? LoginWebUrl : DEFAULT_LOGIN_WEB_URL;
+        public string ResolvedLoginWebUrl
+        {
+            // Ignore stale localhost/loopback overrides left in config.json from dev
+            // testing — login must open the real web origin (plugins.jkrbinaxone.com),
+            // never a dead local page. A leftover "http://localhost:..." LoginWebUrl
+            // would otherwise hijack the browser sign-in. Honor only a real,
+            // non-loopback custom override.
+            get
+            {
+                if (string.IsNullOrWhiteSpace(LoginWebUrl)) return DEFAULT_LOGIN_WEB_URL;
+                bool isLoopback =
+                    LoginWebUrl.IndexOf("localhost", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    LoginWebUrl.IndexOf("127.0.0.1", StringComparison.OrdinalIgnoreCase) >= 0;
+                if (isLoopback) return DEFAULT_LOGIN_WEB_URL;
+                return LoginWebUrl;
+            }
+        }
 
         [JsonIgnore]
         public string ResolvedUpdateFeedUrl =>
