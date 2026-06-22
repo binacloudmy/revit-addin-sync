@@ -193,14 +193,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var dotsBtn = new Button
             {
                 Content = dotsPath,
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                Cursor = Cursors.Hand,
-                Padding = new Thickness(4, 0, 4, 0),
+                Style = (Style)TryFindResource("Cp.IconButton"),
                 VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 4, 0, 0),
             };
-            dotsBtn.Template = TransparentButtonTemplate();
 
             var menu = new ContextMenu();
             var renameItem = new MenuItem { Header = "Rename" };
@@ -224,16 +219,21 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 Stroke = CopilotColors.From("#9ca3af"),
                 StrokeThickness = 1.6,
                 Data = CopilotIcons.Get("chevronRight"),
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(8, 4, 0, 0),
             };
-            Grid.SetColumn(chev, 4);
+            var chevBtn = new Button
+            {
+                Content = chev,
+                Style = (Style)TryFindResource("Cp.IconButton"),
+                VerticalAlignment = VerticalAlignment.Top,
+            };
+            chevBtn.Click += (_, e2) => { e2.Handled = true; ShowDetail(h); };
+            Grid.SetColumn(chevBtn, 4);
 
             g.Children.Add(dot);
             g.Children.Add(tile);
             g.Children.Add(col);
             g.Children.Add(dotsBtn);
-            g.Children.Add(chev);
+            g.Children.Add(chevBtn);
 
             btn.Content = g;
             btn.Click += (_, e2) =>
@@ -244,52 +244,28 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return btn;
         }
 
+        // Render history messages with the same bubbles as the live chat: user
+        // messages as a plain bubble (with file chips), bot replies as markdown.
         private FrameworkElement MessageBubble(Model.History msg)
         {
-            bool isUser = msg.Sender == "user";
-            var outer = new Border
-            {
-                Margin = new Thickness(12, 4, 12, 4),
-                HorizontalAlignment = isUser ? HorizontalAlignment.Right : HorizontalAlignment.Left,
-                MaxWidth = 280,
-            };
-            var inner = new Border
-            {
-                Background = isUser ? CopilotColors.From("#6d28d9") : CopilotColors.From("#f3f4f6"),
-                CornerRadius = new CornerRadius(isUser ? 12 : 4, isUser ? 4 : 12, 12, 12),
-                Padding = new Thickness(10, 7, 10, 7),
-            };
-
-            var text = new TextBlock
-            {
-                Text = msg.Text,
-                FontSize = 12,
-                Foreground = isUser ? Brushes.White : CopilotColors.From("#111827"),
-                TextWrapping = TextWrapping.Wrap,
-            };
-
-            // Attached files redraw as chips above the text (content isn't persisted,
-            // so the chip is built from the stored name + line count).
-            if (msg.Files != null && msg.Files.Count > 0)
-            {
-                var stack = new StackPanel();
-                var fileStrip = new WrapPanel { Margin = new Thickness(0, 0, 0, 6) };
-                foreach (var f in msg.Files)
-                {
-                    var chip = AttachmentChip.ForFile(f.Name, f.Lines);
-                    chip.Margin = new Thickness(0, 0, 6, 0);
-                    fileStrip.Children.Add(chip);
-                }
-                stack.Children.Add(fileStrip);
-                stack.Children.Add(text);
-                inner.Child = stack;
-            }
+            var wrap = new StackPanel { Margin = new Thickness(14, 0, 14, 0) };
+            if (msg.Sender == "user")
+                wrap.Children.Add(CopilotMessageBubble.User(
+                    msg.Text, Vm?.UserFirstName, null,
+                    msg.Files?.Select(f => (f.Name, f.Lines)), DetailMaxWidth()));
             else
-            {
-                inner.Child = text;
-            }
-            outer.Child = inner;
-            return outer;
+                wrap.Children.Add(CopilotMessageBubble.Ai(msg.Text, DetailMaxWidth()));
+            return wrap;
+        }
+
+        /// <summary>Message column width for the detail view — mirrors
+        /// ChatView.BubbleMaxWidth so bubbles track the panel. Narrow default
+        /// pre-layout.</summary>
+        private double DetailMaxWidth()
+        {
+            double w = MessagesHost != null ? MessagesHost.ActualWidth : 0;
+            if (w <= 0) return 360;
+            return System.Math.Max(320, w * 0.85 - 44);
         }
 
         private FrameworkElement ToolReviewCard(string toolId)
@@ -389,25 +365,19 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             if (_rowTemplate != null) return _rowTemplate;
             var border = new FrameworkElementFactory(typeof(Border));
+            border.Name = "bd";
             border.SetValue(Border.BorderBrushProperty, CopilotColors.From("#f1f3f5"));
             border.SetValue(Border.BorderThicknessProperty, new Thickness(0, 0, 0, 1));
             border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
             var cp = new FrameworkElementFactory(typeof(ContentPresenter));
             border.AppendChild(cp);
             _rowTemplate = new ControlTemplate(typeof(Button)) { VisualTree = border };
+            // Hover darken — same surface-hover value as Cp.Card (#fafafa). The
+            // row buttons (Cp.IconButton, #f3f4f6) darken further so they stand out.
+            var hover = new Trigger { Property = Button.IsMouseOverProperty, Value = true };
+            hover.Setters.Add(new Setter(Border.BackgroundProperty, CopilotColors.From("#fafafa"), "bd"));
+            _rowTemplate.Triggers.Add(hover);
             return _rowTemplate;
-        }
-
-        private static ControlTemplate _transparentBtnTemplate;
-        private static ControlTemplate TransparentButtonTemplate()
-        {
-            if (_transparentBtnTemplate != null) return _transparentBtnTemplate;
-            var border = new FrameworkElementFactory(typeof(Border));
-            border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
-            var cp = new FrameworkElementFactory(typeof(ContentPresenter));
-            border.AppendChild(cp);
-            _transparentBtnTemplate = new ControlTemplate(typeof(Button)) { VisualTree = border };
-            return _transparentBtnTemplate;
         }
 
         private static ControlTemplate _codeToggleTemplate;

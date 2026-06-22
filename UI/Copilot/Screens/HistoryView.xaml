@@ -17,8 +17,8 @@
                 </Grid.ColumnDefinitions>
                 <Button x:Name="BackBtn" Grid.Column="0" Visibility="Collapsed"
                         Click="BackBtn_Click"
-                        Background="Transparent" BorderThickness="0"
-                        Cursor="Hand" Padding="0,0,8,0" VerticalAlignment="Center">
+                        Style="{DynamicResource Cp.IconButton}"
+                        VerticalAlignment="Center" Margin="0,0,4,0">
                     <Path Width="8" Height="13" Stretch="Uniform"
                           Stroke="#6b7280" StrokeThickness="1.8"
                           Data="M8,2 L2,7 L8,12"/>

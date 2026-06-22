@@ -24,6 +24,13 @@
                         <ContentPresenter VerticalAlignment="Center"/>
                     </Border>
                     <ControlTemplate.Triggers>
+                        <!-- Hover darken + a faint underline (the active tab's ink
+                             line, less saturated) so inactive tabs feel responsive. -->
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="bd" Property="Background" Value="{StaticResource Cp.Hover}"/>
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Cp.Faint}"/>
+                            <Setter Property="Foreground" Value="{StaticResource Cp.Ink}"/>
+                        </Trigger>
                         <Trigger Property="IsChecked" Value="True">
                             <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Cp.Ink}"/>
                             <Setter Property="Foreground" Value="{StaticResource Cp.Ink}"/>

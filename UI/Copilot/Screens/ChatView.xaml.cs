@@ -95,58 +95,15 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private FrameworkElement Message(ChatMessage m)
         {
-            // User bubble (AI proposal/clarify/result templates land in Tasks 12-13).
+            // User bubble — shared with the History detail view.
             if (m.Role == "user")
-            {
-                var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
-                var av = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = CopilotColors.From("#e5e7eb"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 0, 10, 0) };
-                string initial = !string.IsNullOrEmpty(Vm?.UserFirstName) ? Vm.UserFirstName.Substring(0, 1).ToUpperInvariant() : "?";
-                av.Child = new TextBlock { Text = initial, FontSize = 9, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#374151"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                var bubble = new Border { Background = CopilotColors.From("#f1f3f5"), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 8, 12, 8), MaxWidth = BubbleMaxWidth() };
-                var bubbleStack = new StackPanel();
-                // Screenshots pasted with this prompt render above the text.
-                if (m.ImagesBase64 != null)
-                    foreach (var b64 in m.ImagesBase64)
-                    {
-                        var src = ImageFromBase64(b64);
-                        if (src == null) continue;
-                        var chip = AttachmentChip.ForImage(src);
-                        chip.Margin = new Thickness(0, 0, 0, 4);
-                        bubbleStack.Children.Add(chip);
-                    }
-                // Attached files render as chips (their contents go to the backend,
-                // never as raw text in the bubble).
-                if (m.Files != null && m.Files.Count > 0)
-                {
-                    var fileStrip = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
-                    foreach (var f in m.Files)
-                    {
-                        var chip = AttachmentChip.ForFile(f.Name, f.Content);
-                        chip.Margin = new Thickness(0, 0, 6, 0);
-                        fileStrip.Children.Add(chip);
-                    }
-                    bubbleStack.Children.Add(fileStrip);
-                }
-                // Selectable read-only TextBox (a WPF TextBlock cannot be selected/
-                // copied) — styled to look identical to the old TextBlock.
-                bubbleStack.Children.Add(new TextBox
-                {
-                    Text = m.Text, FontSize = 13, Foreground = CopilotColors.From("#0b0d12"),
-                    TextWrapping = TextWrapping.Wrap, IsReadOnly = true,
-                    BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent,
-                    Padding = new Thickness(0), IsTabStop = false,
-                });
-                bubble.Child = bubbleStack;
-                AttachCopyMenu(bubble, m.Text);
-                row.Children.Add(av); row.Children.Add(bubble);
-                if (!string.IsNullOrEmpty(m.Text))
-                    row.Children.Add(HoverReveal(row, CopyButton(m.Text)));
-                return row;
-            }
+                return CopilotMessageBubble.User(
+                    m.Text, Vm?.UserFirstName, m.ImagesBase64,
+                    m.Files?.Select(f => (f.Name, LineCount(f.Content))), BubbleMaxWidth());
 
             // AI row: bot avatar + content column (header text + kind-specific body).
             var aiRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
-            aiRow.Children.Add(BotAvatar());
+            aiRow.Children.Add(CopilotMessageBubble.BotAvatar());
             var col = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
             col.MaxWidth = BubbleMaxWidth();
 
@@ -163,15 +120,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 // AI replies are markdown (headers, **bold**, tables, lists) —
                 // render formatted, not as raw text. User bubbles stay plain.
-                var md = RevitWebAppSync.Helpers.MarkdownRenderer.Render(m.Text, col.MaxWidth);
-                md.Margin = new Thickness(0, 0, 0, 8);
-                col.Children.Add(md);
+                col.Children.Add(CopilotMessageBubble.MarkdownText(m.Text, col.MaxWidth));
                 // Copyable: right-click → Copy message, plus a hover ⧉ button.
                 // Thinking bubbles are excluded (their text is the live trail).
                 if (m.Kind != CpMsgKind.Thinking)
                 {
-                    AttachCopyMenu(col, m.Text);
-                    col.Children.Add(HoverReveal(aiRow, CopyButton(m.Text)));
+                    CopilotMessageBubble.AttachCopyMenu(col, m.Text);
+                    col.Children.Add(CopilotMessageBubble.HoverReveal(aiRow, CopilotMessageBubble.CopyButton(m.Text)));
                 }
             }
 
@@ -630,87 +585,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return outer;
         }
 
-        // ─── Copy-to-clipboard affordances ─────────────────────────────────
-        // WPF TextBlocks are not selectable, so chat text could be pasted INTO
-        // the input but never copied OUT. Every bubble now gets a right-click
-        // "Copy message" menu + a hover ⧉ button; user bubbles are additionally
-        // text-selectable (read-only TextBox).
+        // Copy-to-clipboard affordances, the bot avatar, and base64 image decoding
+        // live in CopilotMessageBubble (shared with the History detail view).
 
-        private static void CopyText(string text)
-        {
-            if (string.IsNullOrEmpty(text)) return;
-            // Revit add-ins share the clipboard with the host; SetDataObject can
-            // throw CLIPBRD_E_CANT_OPEN when another app holds it — retry once.
-            try { Clipboard.SetDataObject(text, true); }
-            catch { try { Clipboard.SetDataObject(text, false); } catch { /* clipboard busy */ } }
-        }
-
-        private static void AttachCopyMenu(FrameworkElement el, string text)
-        {
-            if (el == null || string.IsNullOrEmpty(text)) return;
-            var menu = new ContextMenu();
-            var item = new MenuItem { Header = "Copy message" };
-            item.Click += (_, __) => CopyText(text);
-            menu.Items.Add(item);
-            el.ContextMenu = menu;
-        }
-
-        // Small ⧉ button that copies the message and flashes ✓ as feedback.
-        private static Button CopyButton(string text)
-        {
-            var label = new TextBlock { Text = "⧉", FontSize = 12, Foreground = CopilotColors.From("#9ca3af") };
-            var btn = new Button
-            {
-                Content = label, Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "Copy",
-                Background = System.Windows.Media.Brushes.Transparent, BorderThickness = new Thickness(0),
-                Padding = new Thickness(4, 0, 4, 0), VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(4, 2, 0, 0), IsTabStop = false,
-            };
-            btn.Click += (_, __) =>
-            {
-                CopyText(text);
-                label.Text = "✓"; label.Foreground = CopilotColors.From("#16a34a");
-                var t = new System.Windows.Threading.DispatcherTimer { Interval = System.TimeSpan.FromSeconds(1.2) };
-                t.Tick += (s, e2) =>
-                {
-                    label.Text = "⧉"; label.Foreground = CopilotColors.From("#9ca3af");
-                    ((System.Windows.Threading.DispatcherTimer)s).Stop();
-                };
-                t.Start();
-            };
-            return btn;
-        }
-
-        /// <summary>Decode a base64 PNG (a pasted screenshot) into a frozen
-        /// BitmapImage for the chat thumbnail. Null on bad input.</summary>
-        private static System.Windows.Media.Imaging.BitmapImage ImageFromBase64(string b64)
-        {
-            try
-            {
-                var bytes = System.Convert.FromBase64String(b64);
-                var img = new System.Windows.Media.Imaging.BitmapImage();
-                using (var ms = new System.IO.MemoryStream(bytes))
-                {
-                    img.BeginInit();
-                    img.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-                    img.StreamSource = ms;
-                    img.EndInit();
-                }
-                img.Freeze();
-                return img;
-            }
-            catch { return null; }
-        }
-
-        // Keeps the chat quiet: the affordance only appears while the pointer is
-        // over its message row.
-        private static FrameworkElement HoverReveal(FrameworkElement row, FrameworkElement affordance)
-        {
-            affordance.Visibility = Visibility.Hidden;
-            row.MouseEnter += (_, __) => affordance.Visibility = Visibility.Visible;
-            row.MouseLeave += (_, __) => affordance.Visibility = Visibility.Hidden;
-            return affordance;
-        }
+        /// <summary>Line count matching AttachmentChip's "N ln" display, for the
+        /// shared user-bubble file chips.</summary>
+        private static int LineCount(string content) =>
+            string.IsNullOrEmpty(content) ? 0 : content.Count(c => c == '\n') + 1;
 
         // Raw tool name → friendly step label. Polished labels for the common
         // tools; everything else falls back to a clean snake_case → sentence
@@ -788,17 +669,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return char.ToUpperInvariant(s[0]) + s.Substring(1);
         }
 
-        private static FrameworkElement BotAvatar(double size = 22)
-        {
-            var b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(6), VerticalAlignment = VerticalAlignment.Top };
-            var g = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
-            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#2563eb"), 0));
-            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#7c3aed"), 1));
-            b.Background = g;
-            b.Child = new Path { Width = size * 0.55, Height = size * 0.55, Stretch = Stretch.Uniform, Fill = Brushes.White, Data = CopilotIcons.Get("sparkleSolid"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            return b;
-        }
-
         // ─── Empty state ─────────────────────────────────────────────────────
         private FrameworkElement EmptyState()
         {
@@ -806,7 +676,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             // Greeting
             var greet = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 22) };
-            greet.Children.Add(BotAvatar(32));
+            greet.Children.Add(CopilotMessageBubble.BotAvatar(32));
             var gcol = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
             gcol.Children.Add(new TextBlock { Text = $"Hi {Vm.UserFirstName} 👋", FontSize = 16, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#0b0d12") });
             gcol.Children.Add(new TextBlock { Text = "I can run Revit commands for you. Describe what you need, or pick from the suggestions below.", FontSize = 13.5, Foreground = CopilotColors.From("#374151"), TextWrapping = TextWrapping.Wrap, LineHeight = 20, Margin = new Thickness(0, 4, 0, 0), MaxWidth = 340 });
