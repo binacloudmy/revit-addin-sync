@@ -632,37 +632,74 @@ namespace RevitWebAppSync.UI.Copilot
             _ = ResolveProposalAsync(text, QueryInterpreter.PickResponseTool(text).Id, images);
         }
 
+        // Persistent header badge: "27 / 30 credits" or "Unlimited". Empty string hides the pill.
+        private string _creditBadge = "";
+        public string CreditBadge
+        {
+            get => _creditBadge;
+            private set { if (_creditBadge == value) return; _creditBadge = value; Raise(); }
+        }
+
         /// <summary>
-        /// Fetch and show the signed-in user's monthly AI credit balance as a chat message.
-        /// Called right after login. Best-effort: silently no-ops when not signed in or when
-        /// the backend has no credits endpoint yet.
+        /// Fetch the signed-in user's monthly AI credit balance, post it as a chat message
+        /// (the login greeting) AND set the persistent header badge. Called right after login.
+        /// Best-effort: silently no-ops when not signed in or the backend is unavailable.
         /// </summary>
         public async System.Threading.Tasks.Task ShowCreditsAsync()
         {
             try
             {
-                var cfg = BinaConfig.Load();
-                if (cfg == null || !cfg.IsLoggedIn()) return;
-
-                var credits = await new AIService().GetCreditsAsync(cfg.AccessToken);
+                var credits = await FetchCreditsAsync();
                 if (credits == null) return;
-
-                string text;
-                if (credits.Unlimited)
-                {
-                    text = "You have unlimited AI requests.";
-                }
-                else
-                {
-                    if (credits.Limit <= 0) return;
-                    int remaining = credits.Remaining ?? System.Math.Max(0, credits.Limit - credits.Used);
-                    string resets = string.IsNullOrWhiteSpace(credits.ResetsAt) ? "" : $" Resets {credits.ResetsAt}.";
-                    text = $"You have {remaining} of {credits.Limit} AI requests left this month.{resets}";
-                }
-
-                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = text });
+                SetCreditBadge(BadgeText(credits));
+                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = MessageText(credits) });
             }
             catch { /* best-effort — never block login on the credits read */ }
+        }
+
+        /// <summary>Re-fetch the balance and update ONLY the header badge (no chat message).
+        /// Called after each prompt so the badge ticks down live.</summary>
+        public async System.Threading.Tasks.Task RefreshCreditBadgeAsync()
+        {
+            try
+            {
+                var cfg = BinaConfig.Load();
+                if (cfg == null || !cfg.IsLoggedIn()) { SetCreditBadge(""); return; }   // signed out → hide
+                var credits = await new AIService().GetCreditsAsync(cfg.AccessToken);
+                if (credits != null) SetCreditBadge(BadgeText(credits));                // keep last value on transient failure
+            }
+            catch { /* best-effort */ }
+        }
+
+        private static async System.Threading.Tasks.Task<AIService.CreditInfo> FetchCreditsAsync()
+        {
+            var cfg = BinaConfig.Load();
+            if (cfg == null || !cfg.IsLoggedIn()) return null;
+            return await new AIService().GetCreditsAsync(cfg.AccessToken);
+        }
+
+        private static string BadgeText(AIService.CreditInfo c)
+        {
+            if (c.Unlimited) return "Unlimited";
+            if (c.Limit <= 0) return "";
+            int remaining = c.Remaining ?? System.Math.Max(0, c.Limit - c.Used);
+            return $"{remaining} / {c.Limit} credits";
+        }
+
+        private static string MessageText(AIService.CreditInfo c)
+        {
+            if (c.Unlimited) return "You have unlimited AI requests.";
+            int remaining = c.Remaining ?? System.Math.Max(0, c.Limit - c.Used);
+            string resets = string.IsNullOrWhiteSpace(c.ResetsAt) ? "" : $" Resets {c.ResetsAt}.";
+            return $"You have {remaining} of {c.Limit} AI requests left this month.{resets}";
+        }
+
+        // UI-thread-safe badge setter (RefreshCreditBadgeAsync may resume off the UI thread).
+        private void SetCreditBadge(string text)
+        {
+            var disp = System.Windows.Application.Current?.Dispatcher;
+            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => CreditBadge = text);
+            else CreditBadge = text;
         }
 
         private async System.Threading.Tasks.Task ResolveProposalAsync(string text, string fallbackToolId, List<string> images = null)
@@ -724,6 +761,9 @@ namespace RevitWebAppSync.UI.Copilot
                 }
             }
 
+            // The credit was consumed by the backend during RouteAsync — refresh the
+            // header badge so the balance ticks down live (best-effort, badge only).
+            _ = RefreshCreditBadgeAsync();
 
             // HITL clarify pause: the agent needs an answer before acting. Render
             // the question as a Clarify card; the user's NEXT message is routed
