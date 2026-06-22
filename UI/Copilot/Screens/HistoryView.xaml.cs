@@ -56,7 +56,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             if (MessagesHost == null) return;
             MessagesHost.Children.Clear();
-            HeaderTitle.Text = h.Label ?? h.Summary ?? "Run";
+            HeaderTitle.Text = RowTitle(h);
             ListPanel.Visibility = Visibility.Collapsed;
             DetailPanel.Visibility = Visibility.Visible;
             BackBtn.Visibility = Visibility.Visible;
@@ -76,6 +76,42 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
         }
 
+        /// <summary>The text shown as a history row's title: the user-set label if
+        /// any, otherwise the first user message of the session (not the auto
+        /// "N messages" summary). Newlines from Shift+Enter are collapsed so the
+        /// title stays on one line.</summary>
+        private static string RowTitle(HistoryEntry h)
+        {
+            string raw = !string.IsNullOrWhiteSpace(h.Label)
+                ? h.Label
+                : FirstUserMessage(h) ?? h.Summary;
+            string clean = CleanTitle(raw);
+            return string.IsNullOrEmpty(clean) ? "Run" : clean;
+        }
+
+        private static string FirstUserMessage(HistoryEntry h)
+        {
+            var first = h.History?.FirstOrDefault(m => m.Sender == "user");
+            return first?.Text;
+        }
+
+        /// <summary>Collapse any run of whitespace (including the \r\n that
+        /// Shift+Enter inserts) into a single space, then trim.</summary>
+        private static string CleanTitle(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            s = s.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
+            while (s.Contains("  ")) s = s.Replace("  ", " ");
+            return s.Trim();
+        }
+
+        /// <summary>Tooltip showing the full (untruncated) title, wrapped to a
+        /// sane width so long first-messages stay readable.</summary>
+        private static ToolTip MakeTitleTooltip(string text) => new ToolTip
+        {
+            Content = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, MaxWidth = 320 },
+        };
+
         private FrameworkElement Row(HistoryEntry h)
         {
             var btn = new Button
@@ -90,7 +126,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             var editBox = new TextBox
             {
-                Text = h.Label ?? h.Summary ?? "",
+                Text = RowTitle(h),
                 FontSize = 12.5,
                 Visibility = Visibility.Collapsed,
                 Margin = new Thickness(0, 0, 6, 0),
@@ -101,19 +137,24 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 Padding = new Thickness(4, 2, 4, 2),
             };
 
+            string rowTitle = RowTitle(h);
             var titleBlock = new TextBlock
             {
-                // History session label
-                Text = h.Label ?? h.Summary ?? "Run",
+                // History session label — the first user message (or a user-set
+                // label), forced to a single line with an ellipsis so it trims to
+                // the row width; full text is shown on hover via the tooltip.
+                Text = rowTitle,
                 FontSize = 12.5,
                 FontWeight = FontWeights.Medium,
                 Foreground = CopilotColors.From("#0b0d12"),
                 TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.NoWrap,
+                ToolTip = MakeTitleTooltip(rowTitle),
             };
 
             Action BeginRename = () =>
             {
-                editBox.Text = h.Label ?? h.Summary ?? "";
+                editBox.Text = RowTitle(h);
                 titleBlock.Visibility = Visibility.Collapsed;
                 editBox.Visibility = Visibility.Visible;
                 editBox.Focus();
@@ -123,7 +164,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             CommitRename = () =>
             {
                 Vm.RenameHistoryEntry(h, editBox.Text);
-                titleBlock.Text = h.Label ?? h.Summary ?? "Run";
+                string t = RowTitle(h);
+                titleBlock.Text = t;
+                titleBlock.ToolTip = MakeTitleTooltip(t);
                 editBox.Visibility = Visibility.Collapsed;
                 titleBlock.Visibility = Visibility.Visible;
             };

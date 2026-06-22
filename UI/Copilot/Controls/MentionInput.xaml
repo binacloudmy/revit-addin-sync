@@ -4,10 +4,11 @@
              FontFamily="{DynamicResource Cp.Font}">
     <Grid>
         <TextBox x:Name="Editor" BorderThickness="0" Background="Transparent" FontSize="13"
-                 Foreground="{DynamicResource Cp.Ink}" VerticalContentAlignment="Center"
-                 TextWrapping="Wrap" MaxHeight="80" AcceptsReturn="False" AllowDrop="True"/>
+                 Foreground="{DynamicResource Cp.Ink}" VerticalContentAlignment="Top"
+                 TextWrapping="Wrap" MaxHeight="80" AcceptsReturn="True" AllowDrop="True"
+                 VerticalScrollBarVisibility="Auto"/>
         <TextBlock x:Name="Placeholder" IsHitTestVisible="False" Foreground="{DynamicResource Cp.Faint}"
-                   FontSize="13" VerticalAlignment="Center" Margin="2,0,0,0"/>
+                   FontSize="13" VerticalAlignment="Top" Margin="2,0,0,0"/>
         <Popup x:Name="Picker" PlacementTarget="{Binding ElementName=Editor}" Placement="Top"
                StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
             <Border Background="White" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"

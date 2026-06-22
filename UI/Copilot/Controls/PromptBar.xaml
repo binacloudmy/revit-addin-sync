@@ -11,12 +11,12 @@
                 <DockPanel LastChildFill="True">
                     <!-- AI pill -->
                     <Border DockPanel.Dock="Right" CornerRadius="999" Background="{DynamicResource Cp.PurpleSoft}"
-                            Padding="6,2" Margin="6,0,6,0" VerticalAlignment="Center">
+                            Padding="6,2" Margin="6,0,6,0" VerticalAlignment="Bottom">
                         <TextBlock Text="AI" FontSize="10" Foreground="{DynamicResource Cp.Purple}"/>
                     </Border>
                     <!-- attach file button (pink) -->
                     <Button x:Name="AttachBtn" DockPanel.Dock="Right" Width="26" Height="26" Cursor="Hand"
-                            Background="{DynamicResource Cp.BotGradient}" BorderThickness="0" VerticalAlignment="Center"
+                            Background="{DynamicResource Cp.BotGradient}" BorderThickness="0" VerticalAlignment="Bottom"
                             Margin="0,0,4,0" ToolTip="Attach a file (.txt, .csv, .md, .log, .json, .xml)">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
@@ -30,7 +30,7 @@
                     </Button>
                     <!-- send / stop (icon swaps to a stop square while a reply streams) -->
                     <Button x:Name="SendBtn" DockPanel.Dock="Right" Width="26" Height="26" Cursor="Hand"
-                            Background="{DynamicResource Cp.Ink}" BorderThickness="0" VerticalAlignment="Center"
+                            Background="{DynamicResource Cp.Ink}" BorderThickness="0" VerticalAlignment="Bottom"
                             ToolTip="Send" Margin="0,0,4,0">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
@@ -47,7 +47,7 @@
             </Border>
             <TextBlock x:Name="PlaceholderHint" HorizontalAlignment="Center" Margin="0,6,0,0"
                        FontSize="10.5" Foreground="{DynamicResource Cp.Faint}"
-                       Text="Type @ to reference a level, category, view, or selection"/>
+                       Text="Type @ to reference a level, category, view, or selection · Shift+Enter for a new line"/>
         </StackPanel>
     </Border>
 </UserControl>
