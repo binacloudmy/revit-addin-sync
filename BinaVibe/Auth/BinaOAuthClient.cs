@@ -50,8 +50,19 @@ namespace BinaVibe.Auth
             _http = http ?? new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
         }
 
+        // Hard cap on how long the loopback wait may block. The caller runs this on
+        // Revit's UI thread via .GetResult(), so without a timeout a browser that
+        // never redirects back (wrong/undeployed login page, connection refused)
+        // would freeze Revit FOREVER with no recovery. 120s is enough to finish a
+        // real sign-in; on expiry we stop the listener and throw so the command
+        // shows a friendly error and Revit becomes responsive again.
+        private static readonly TimeSpan LoginTimeout = TimeSpan.FromSeconds(120);
+
         // ── Loopback browser flow ───────────────────────────────────────
-        public async Task<BinaTokenSet> InteractiveLoginAsync(CancellationToken ct = default)
+        public Task<BinaTokenSet> InteractiveLoginAsync(CancellationToken ct = default)
+            => InteractiveLoginAsync(LoginTimeout, ct);
+
+        public async Task<BinaTokenSet> InteractiveLoginAsync(TimeSpan timeout, CancellationToken ct = default)
         {
             var (verifier, challenge) = PkcePair();
             int port = FindFreePort();
@@ -76,7 +87,22 @@ namespace BinaVibe.Auth
             HttpListenerContext ctx;
             using (ct.Register(() => { try { listener.Stop(); } catch { } }))
             {
-                ctx = await listener.GetContextAsync().ConfigureAwait(false);
+                // Race the callback against a timeout so the UI thread can never hang
+                // indefinitely. WhenAny returns whichever finishes first.
+                var contextTask = listener.GetContextAsync();
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var delayTask = Task.Delay(timeout, timeoutCts.Token);
+                var winner = await Task.WhenAny(contextTask, delayTask).ConfigureAwait(false);
+                if (winner != contextTask)
+                {
+                    try { listener.Stop(); } catch { }
+                    throw new TimeoutException(
+                        $"Browser sign-in timed out after {timeout.TotalSeconds:F0}s. " +
+                        "Finish the login in your browser, then click Login again. " +
+                        "If the sign-in page didn't load, the site may be unreachable.");
+                }
+                timeoutCts.Cancel();          // cancel the pending delay
+                ctx = contextTask.Result;     // already completed
             }
 
             string query = ctx.Request.Url?.Query ?? "";
