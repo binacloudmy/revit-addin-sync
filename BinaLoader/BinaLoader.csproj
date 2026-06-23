@@ -6,7 +6,7 @@
     <PlatformTarget>x64</PlatformTarget>
     <OutputType>Library</OutputType>
     <AssemblyName>BinaLoader</AssemblyName>
-    <Version Condition="'$(Version)' == ''">0.0.13</Version>
+    <Version Condition="'$(Version)' == ''">0.0.14</Version>
     <!-- Lets the loader build on macOS/Linux CI and dev machines. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
