@@ -412,6 +412,11 @@ namespace RevitWebAppSync
 
                 CreateRibbonTab(application);
 
+                // Delete manifests of old parallel installs (pre-loader
+                // direct-load .addin in APPDATA/ProgramData) so the next
+                // start runs a single copy. See LegacyInstallCleaner.
+                try { Services.LegacyInstallCleaner.Purge(application); } catch { }
+
                 // OTA: stage any newer build in the background; BinaLoader
                 // applies it on the next Revit start. No-op if no feed is
                 // configured (see BinaConfig.UpdateFeedUrl).
@@ -443,7 +448,16 @@ namespace RevitWebAppSync
         private void CreateRibbonTab(UIControlledApplication application)
         {
             string tabName = "Bina"; // Renamed from "Sync" as requested
-            application.CreateRibbonTab(tabName);
+            try
+            {
+                application.CreateRibbonTab(tabName);
+            }
+            catch (Autodesk.Revit.Exceptions.ArgumentException)
+            {
+                // Tab already exists — a stale parallel install created it
+                // first. Panels attach to the existing tab; without this the
+                // whole OnStartup died and the addin vanished from the ribbon.
+            }
 
             // Labeled panel groups instead of one flat "Sync Tools" strip
             RibbonPanel cloudPanel = application.CreateRibbonPanel(tabName, "BINA Cloud");
@@ -462,14 +476,17 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
             };
 
+            // Login opens the BINA Cloud web page (login OR register) in the
+            // browser; identity is bina-ai (OAuth + PKCE). Tokens land in the
+            // Windows Credential Manager. No password is typed into Revit.
             PushButtonData loginButtonData = new PushButtonData(
                 "Login",
                 "Login",
                 Assembly.GetExecutingAssembly().Location,
-                "RevitWebAppSync.LoginCommand")
+                "RevitWebAppSync.BrowserLoginCommand")
             {
-                ToolTip = "Login to BINA Cloud",
-                LongDescription = "Opens BINA Cloud in your default browser to login.",
+                ToolTip = "Login or register for BINA Cloud",
+                LongDescription = "Opens the BINA Cloud sign-in page in your browser to log in or create an account.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };

@@ -11,7 +11,7 @@
     <UseWPF>true</UseWPF>
     <!-- OTA versioning: CI overrides with -p:Version=<git tag>. The updater
          compares this against the update feed. -->
-    <Version Condition="'$(Version)' == ''">0.0.1</Version>
+    <Version Condition="'$(Version)' == ''">0.0.13</Version>
     <!-- Build net8.0-windows + WPF on macOS/Linux (CI and non-Windows dev). -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <!-- Ensure all NuGet dependencies are copied to output -->
@@ -39,6 +39,11 @@
          "RevitAPI.dll not found" error rather than empty CS0246s. -->
     <RevitPath Condition="'$(RevitPath)' == ''">C:\Program Files\Autodesk\Revit 2027</RevitPath>
     <RevitVersion Condition="'$(RevitVersion)' == ''">2027</RevitVersion>
+    
+    <!--Suppress auto-generation since generation is declared manually -->
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+
   </PropertyGroup>
 
   <ItemGroup>
@@ -56,9 +61,18 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <!-- Excel support for import/export -->
     <PackageReference Include="ClosedXML" Version="0.102.2" />
+    <!-- PDF generation for Copilot session report export -->
+    <PackageReference Include="QuestPDF" Version="2024.*" />
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Env links embedded so they travel inside the DLL (survive OTA zip +
+         versions\ copy). BinaConfig picks .env.local on Debug, .env.production
+         on Release via #if DEBUG. LogicalName keeps the leading-dot filename
+         from mangling the manifest resource name. -->
+    <EmbeddedResource Include=".env.local" LogicalName="env.local" />
+    <EmbeddedResource Include=".env.production" LogicalName="env.production" />
+
     <EmbeddedResource Include="Resources\revitSync.png" />
     <EmbeddedResource Include="Resources\revitSave.png" />
     <EmbeddedResource Include="Resources\microchip.png" />

@@ -91,21 +91,39 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <!-- LOD level selector -->
-                    <Border Grid.Column="0" Background="#26FFFFFF" CornerRadius="6" Padding="8,4,4,4"
-                            VerticalAlignment="Center" ToolTip="Level of Development target">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="LOD" Foreground="White" FontSize="11" FontWeight="SemiBold"
-                                       VerticalAlignment="Center" Margin="0,0,8,0"
-                                       FontFamily="{StaticResource Font.Sans}"/>
-                            <ComboBox x:Name="LodCombo" Width="72" Height="26" FontSize="14"
-                                      Foreground="#0F1A33" Background="White" BorderThickness="0"
-                                      FontWeight="Bold"
-                                      VerticalContentAlignment="Center"
-                                      Padding="8,0,4,0"
-                                      FontFamily="{StaticResource Font.Mono}"/>
-                        </StackPanel>
-                    </Border>
+                    <!-- LOD + Discipline selectors -->
+                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                        <!-- LOD level selector -->
+                        <Border Background="#26FFFFFF" CornerRadius="6" Padding="8,4,4,4"
+                                VerticalAlignment="Center" ToolTip="Level of Development target">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="LOD" Foreground="White" FontSize="11" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" Margin="0,0,8,0"
+                                           FontFamily="{StaticResource Font.Sans}"/>
+                                <ComboBox x:Name="LodCombo" Width="72" Height="26" FontSize="14"
+                                          Foreground="#0F1A33" Background="White" BorderThickness="0"
+                                          FontWeight="Bold"
+                                          VerticalContentAlignment="Center"
+                                          Padding="8,0,4,0"
+                                          FontFamily="{StaticResource Font.Mono}"/>
+                            </StackPanel>
+                        </Border>
+                        <!-- Discipline selector -->
+                        <Border Background="#26FFFFFF" CornerRadius="6" Padding="8,4,4,4" Margin="8,0,0,0"
+                                VerticalAlignment="Center" ToolTip="Discipline to scope this scan to">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="Discipline" Foreground="White" FontSize="11" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" Margin="0,0,8,0"
+                                           FontFamily="{StaticResource Font.Sans}"/>
+                                <ComboBox x:Name="DisciplineCombo" Width="124" Height="26" FontSize="13"
+                                          Foreground="#0F1A33" Background="White" BorderThickness="0"
+                                          FontWeight="Bold"
+                                          VerticalContentAlignment="Center"
+                                          Padding="8,0,4,0"
+                                          FontFamily="{StaticResource Font.Sans}"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
 
                     <!-- Re-scan button -->
                     <Button Grid.Column="2" x:Name="RescanBtn" Style="{StaticResource Btn.Ghost}"
@@ -151,11 +169,11 @@
 
                 <!-- Row C: action buttons -->
                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0" HorizontalAlignment="Right">
-                    <Button x:Name="AcceptAllBtn" Style="{StaticResource Btn.Ghost}"
-                            Click="AcceptAll_Click" Margin="0,0,6,0" ToolTip="Accept all Medium + Low issues">
+                    <Button x:Name="IgnoreAllBtn" Style="{StaticResource Btn.Ghost}"
+                            Click="IgnoreAll_Click" Margin="0,0,6,0" ToolTip="Ignore all Medium + Low issues">
                         <StackPanel Orientation="Horizontal">
                             <jkr:IconGlyph Glyph="check" Size="11" Foreground="{StaticResource NavySubtle}" Margin="0,0,5,0"/>
-                            <TextBlock Text="Accept All" FontSize="10.5"/>
+                            <TextBlock Text="Ignore All" FontSize="10.5"/>
                         </StackPanel>
                     </Button>
                     <Button x:Name="FixAllBtn" Style="{StaticResource Btn.Ghost}"
@@ -283,12 +301,12 @@
                         </Border>
                     </StackPanel>
                 </ToggleButton>
-                <ToggleButton x:Name="TabAccepted" Grid.Column="1" Style="{StaticResource Btn.Tab}"
-                              IsChecked="False" Click="TabAccepted_Click" Margin="2,0,0,0">
+                <ToggleButton x:Name="TabIgnore" Grid.Column="1" Style="{StaticResource Btn.Tab}"
+                              IsChecked="False" Click="TabIgnore_Click" Margin="2,0,0,0">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Accepted" Margin="0,0,5,0"/>
-                        <Border x:Name="TabAcceptedPill" Background="{StaticResource Surface.Line2}" CornerRadius="8" Padding="6,1,6,1">
-                            <TextBlock x:Name="TabAcceptedCount" Text="0" FontSize="10" FontWeight="Bold"
+                        <TextBlock Text="Ignore" Margin="0,0,5,0"/>
+                        <Border x:Name="TabIgnorePill" Background="{StaticResource Surface.Line2}" CornerRadius="8" Padding="6,1,6,1">
+                            <TextBlock x:Name="TabIgnoreCount" Text="0" FontSize="10" FontWeight="Bold"
                                        Foreground="{StaticResource Ink3}"/>
                         </Border>
                     </StackPanel>
@@ -355,7 +373,7 @@
                     <ctl:KbdHint Key="↵" Label="open" Margin="0,0,10,0"/>
                     <ctl:KbdHint Key="J/K" Label="nav" Margin="0,0,10,0"/>
                     <ctl:KbdHint Key="F" Label="fix" Margin="0,0,10,0"/>
-                    <ctl:KbdHint Key="A" Label="accept"/>
+                    <ctl:KbdHint Key="A" Label="ignore"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button x:Name="ResetBtn" Style="{StaticResource Btn.Sec}" Click="Reset_Click" Margin="0,0,6,0"

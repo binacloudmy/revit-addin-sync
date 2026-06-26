@@ -26,6 +26,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>  <!-- credit badge -->
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
@@ -56,11 +57,20 @@
                     </StackPanel>
                 </StackPanel>
 
-                <Button Grid.Column="2" Style="{DynamicResource Cp.IconButton}" Command="{Binding BackHomeCommand}" ToolTip="New">
+                <!-- Live AI credit balance (hidden until known / when signed out). -->
+                <Border Grid.Column="2" CornerRadius="999" Background="{DynamicResource Cp.TabBadgeBg}"
+                        Padding="9,3" Margin="0,0,8,0" VerticalAlignment="Center"
+                        ToolTip="AI requests left this month"
+                        Visibility="{Binding CreditBadge, Converter={StaticResource NotEmptyVis}}">
+                    <TextBlock Text="{Binding CreditBadge, Mode=OneWay}" FontSize="11" FontWeight="SemiBold"
+                               Foreground="#374151"/>
+                </Border>
+
+                <Button Grid.Column="3" Style="{DynamicResource Cp.IconButton}" Command="{Binding BackHomeCommand}" ToolTip="New">
                     <Path Width="16" Height="16" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M12,5 v14 M5,12 h14"/>
                 </Button>
-                <Button Grid.Column="3" Style="{DynamicResource Cp.IconButton}" ToolTip="Menu">
+                <Button Grid.Column="4" Style="{DynamicResource Cp.IconButton}" ToolTip="Menu">
                     <Path Width="16" Height="16" Stretch="Uniform" Fill="{DynamicResource Cp.Muted}"
                           Data="M11,5 A1,1 0 1 0 13,5 A1,1 0 1 0 11,5 Z M11,12 A1,1 0 1 0 13,12 A1,1 0 1 0 11,12 Z M11,19 A1,1 0 1 0 13,19 A1,1 0 1 0 11,19 Z"/>
                 </Button>
@@ -79,7 +89,7 @@
                         <TextBlock Text="Chat"/>
                     </StackPanel>
                 </ToggleButton>
-                <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Library"
+                <!-- <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Library"
                               IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Library}">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="Library"/>
@@ -87,7 +97,7 @@
                             <TextBlock Text="{Binding LibraryCount, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="#374151"/>
                         </Border>
                     </StackPanel>
-                </ToggleButton>
+                </ToggleButton> -->
                 <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="History"
                               IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=History}">
                     <StackPanel Orientation="Horizontal">
@@ -97,7 +107,7 @@
                         </Border>
                     </StackPanel>
                 </ToggleButton>
-                <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Saved"
+                <!-- <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Saved"
                               IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Saved}">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="Saved"/>
@@ -105,7 +115,7 @@
                             <TextBlock Text="{Binding SavedCount, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="#374151"/>
                         </Border>
                     </StackPanel>
-                </ToggleButton>
+                </ToggleButton> -->
             </StackPanel>
         </Border>
 

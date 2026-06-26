@@ -205,8 +205,102 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 });
             }
 
+            // Feedback (👍/👎) — only on final AI replies (not thinking/clarify/
+            // proposal/running/result frames). Mirrors ResultView.BuildFeedback:
+            // right-aligned row, tint-on-click, disable-after-one-send. The chat
+            // is the higher-traffic path, so this is where most signal comes from.
+            if (m.Kind == CpMsgKind.AiReply)
+                col.Children.Add(BuildFeedback(SourcePromptFor(m)));
+
             aiRow.Children.Add(col);
             return aiRow;
+        }
+
+        // ─── Feedback (👍/👎) ────────────────────────────────────────────────
+        // Same control as ResultView's result screen, ported to chat bubbles.
+        // Clicking a thumb fires the VM's fire-and-forget POST, tints the chosen
+        // thumb (green up / red down) and disables both so one rating is sent.
+        //
+        // sourcePrompt is the user message this reply answered — captured here so
+        // the rating is attributed to the right prompt. See the LastPrompt note
+        // in SendFeedback below.
+        private FrameworkElement BuildFeedback(string sourcePrompt)
+        {
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 6, 0, 0),
+            };
+            row.Children.Add(new TextBlock
+            {
+                Text = "Was this helpful?",
+                FontSize = 11.5,
+                Foreground = CopilotColors.From("#9ca3af"),
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
+            });
+
+            Button up = null, down = null;
+            up = ThumbButton("thumbUp", () => SendFeedback("up", up, down, sourcePrompt));
+            down = ThumbButton("thumbDown", () => SendFeedback("down", up, down, sourcePrompt));
+            row.Children.Add(up);
+            row.Children.Add(down);
+            return row;
+        }
+
+        private Button ThumbButton(string glyph, System.Action onClick)
+        {
+            var path = new Path
+            {
+                Width = 16,
+                Height = 16,
+                Stretch = Stretch.Uniform,
+                Stroke = CopilotColors.From("#9ca3af"),
+                StrokeThickness = 1.6,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round,
+                Data = CopilotIcons.Get(glyph),
+            };
+            var btn = new Button
+            {
+                Content = path,
+                Background = Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(6, 4, 6, 4),
+                Margin = new Thickness(2, 0, 0, 0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+            };
+            btn.Click += (_, __) => { try { onClick(); } catch { /* best-effort */ } };
+            return btn;
+        }
+
+        private void SendFeedback(string rating, Button up, Button down, string sourcePrompt)
+        {
+            // Attribute the rating to THIS bubble's source prompt (not LastPrompt),
+            // so rating an older reply after newer turns isn't mis-attributed.
+            Vm?.SubmitFeedback(rating, sourcePrompt);
+
+            var chosen = rating == "up" ? up : down;
+            var chosenColor = CopilotColors.From(rating == "up" ? "#16a34a" : "#b91c1c");
+            if (chosen?.Content is Path p) p.Stroke = chosenColor;
+            if (up != null) up.IsEnabled = false;
+            if (down != null) down.IsEnabled = false;
+        }
+
+        // The user message that this AI reply answered: the nearest preceding
+        // "user" message in the thread. Captured at build time for correct
+        // per-bubble attribution (see SendFeedback). Null when none precedes it.
+        private string SourcePromptFor(ChatMessage reply)
+        {
+            if (Vm == null) return null;
+            int idx = Vm.Thread.IndexOf(reply);
+            if (idx < 0) idx = Vm.Thread.Count;
+            for (int i = idx - 1; i >= 0; i--)
+                if (Vm.Thread[i].Role == "user" && !string.IsNullOrEmpty(Vm.Thread[i].Text))
+                    return Vm.Thread[i].Text;
+            return null;
         }
 
         private FrameworkElement ThinkingDots()
@@ -799,33 +893,33 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             greet.Children.Add(BotAvatar(32));
             var gcol = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
             gcol.Children.Add(new TextBlock { Text = $"Hi {Vm.UserFirstName} 👋", FontSize = 16, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#0b0d12") });
-            gcol.Children.Add(new TextBlock { Text = "I can run Revit commands for you. Describe what you need, or pick from the suggestions below.", FontSize = 13.5, Foreground = CopilotColors.From("#374151"), TextWrapping = TextWrapping.Wrap, LineHeight = 20, Margin = new Thickness(0, 4, 0, 0), MaxWidth = 340 });
+            gcol.Children.Add(new TextBlock { Text = "I can run Revit commands for you. Describe what you need in your own words.", FontSize = 13.5, Foreground = CopilotColors.From("#374151"), TextWrapping = TextWrapping.Wrap, LineHeight = 20, Margin = new Thickness(0, 4, 0, 0), MaxWidth = 340 });
             greet.Children.Add(gcol);
             root.Children.Add(greet);
 
-            // Suggested prompts
-            root.Children.Add(Label("TRY ONE OF THESE"));
-            foreach (var p in Prompts)
-                root.Children.Add(PromptCard(p));
+            // // Suggested prompts
+            // root.Children.Add(Label("TRY ONE OF THESE"));
+            // foreach (var p in Prompts)
+            //     root.Children.Add(PromptCard(p));
 
-            // Topic chips
-            root.Children.Add(Label("NOT SURE? TYPE A TOPIC — I'LL ASK"));
-            var chips = new WrapPanel { Margin = new Thickness(0, 0, 0, 18) };
-            foreach (var t in Topics)
-            {
-                var chip = new Button { Content = t, Cursor = System.Windows.Input.Cursors.Hand, FontSize = 11.5, Foreground = CopilotColors.From("#374151"), Margin = new Thickness(0, 0, 5, 5), Padding = new Thickness(10, 4, 10, 4) };
-                chip.Template = PillTemplate();
-                var topic = t;
-                chip.Click += (_, __) => Vm.ChatSendCommand.Execute(topic);
-                chips.Children.Add(chip);
-            }
-            root.Children.Add(chips);
+            // // Topic chips
+            // root.Children.Add(Label("NOT SURE? TYPE A TOPIC — I'LL ASK"));
+            // var chips = new WrapPanel { Margin = new Thickness(0, 0, 0, 18) };
+            // foreach (var t in Topics)
+            // {
+            //     var chip = new Button { Content = t, Cursor = System.Windows.Input.Cursors.Hand, FontSize = 11.5, Foreground = CopilotColors.From("#374151"), Margin = new Thickness(0, 0, 5, 5), Padding = new Thickness(10, 4, 10, 4) };
+            //     chip.Template = PillTemplate();
+            //     var topic = t;
+            //     chip.Click += (_, __) => Vm.ChatSendCommand.Execute(topic);
+            //     chips.Children.Add(chip);
+            // }
+            // root.Children.Add(chips);
 
-            // Library CTA
-            root.Children.Add(LibraryCta());
+            // // Library CTA
+            // root.Children.Add(LibraryCta());
 
-            // How runs work
-            root.Children.Add(HowRuns());
+            // // How runs work
+            // root.Children.Add(HowRuns());
             return root;
         }
 

@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.IO.Compression;
-using System.Linq;
 using System.Net.Http;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -14,15 +13,18 @@ namespace RevitWebAppSync.Services
     /// <summary>
     /// OTA update pipeline (download side — BinaLoader is the apply side).
     ///
-    /// After startup, checks the update feed in the background. A newer build
-    /// is downloaded to staging, SHA256-verified, extracted, and atomically
-    /// moved to %LocalAppData%\Bina\RevitSync\versions\&lt;ver&gt;\ with a
-    /// .complete marker. BinaLoader picks it up on the next Revit start —
-    /// nothing running is ever touched, so no reinstall and no admin rights.
+    /// Startup check hits the feed (bina-ai /addin/version.json). When a newer
+    /// build exists and the feed marks it mandatory (default), the plugin is
+    /// GATED: every ribbon command calls <see cref="EnsureUpToDate"/> first and
+    /// bails until the user downloads the update (UpdateWindow) and restarts
+    /// Revit. Non-mandatory updates stage silently and toast once.
+    ///
+    /// Staged builds land in %LocalAppData%\Bina\RevitSync\versions\&lt;ver&gt;\
+    /// with a .complete marker; nothing running is ever touched, so no
+    /// reinstall and no admin rights.
     ///
     /// Feed JSON: { "version": "0.0.2", "url": "https://.../x.zip",
-    ///              "sha256": "...", "notes": "..." }
-    /// Feed URL comes from BinaConfig.ResolvedUpdateFeedUrl; empty = disabled.
+    ///              "sha256": "...", "notes": "...", "mandatory": true }
     /// </summary>
     public static class UpdateService
     {
@@ -36,11 +38,18 @@ namespace RevitWebAppSync.Services
         private static readonly string StagingDir = Path.Combine(Root, "staging");
         private static readonly string LogPath = Path.Combine(Root, "updater.log");
 
-        /// <summary>Set when a new build has been fully staged; the one-shot
-        /// Idling handler turns it into a TaskDialog on the UI thread.</summary>
-        private static volatile string _stagedVersion;
-        private static bool _notified;
         private static UIControlledApplication _app;
+        private static volatile UpdateFeed _pending;   // newer build available
+        private static volatile bool _staged;          // it is on disk, restart applies it
+        private static bool _notified;
+
+        /// <summary>Newer build waiting (for UI: version, notes…). Null = up to date.</summary>
+        public static UpdateFeed Pending => _pending;
+
+        /// <summary>True once the pending build is fully staged on disk.</summary>
+        public static bool IsStaged => _staged;
+
+        public static Version CurrentVersion => GetCurrentVersion();
 
         public static void Start(UIControlledApplication application)
         {
@@ -52,14 +61,19 @@ namespace RevitWebAppSync.Services
                 return;
             }
 
-            // TaskDialog must run on the UI thread; Idling is the cheap way in.
-            application.Idling += OnIdlingNotify;
+            application.Idling += OnIdling;
 
             Task.Run(async () =>
             {
                 try
                 {
-                    await CheckAndStageAsync(feedUrl);
+                    await CheckAsync(feedUrl);
+
+                    // Non-mandatory updates keep the old silent behavior; the
+                    // Idling hook only toasts. Mandatory ones wait for the
+                    // Idling hook to raise the blocking UpdateWindow.
+                    if (_pending != null && !_pending.Mandatory)
+                        await StageAsync(null);
                 }
                 catch (Exception ex)
                 {
@@ -68,24 +82,64 @@ namespace RevitWebAppSync.Services
             });
         }
 
-        private static void OnIdlingNotify(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
+        /// <summary>
+        /// Command gate. Call first in every IExternalCommand.Execute:
+        /// returns true when the running build is usable; otherwise shows the
+        /// update UI (or the restart nag once staged) and returns false.
+        /// </summary>
+        public static bool EnsureUpToDate()
         {
-            if (_stagedVersion == null || _notified)
+            var pending = _pending;
+            if (pending == null || !pending.Mandatory)
+                return true;
+
+            if (_staged)
+            {
+                TaskDialog.Show("BINA Sync",
+                    $"Update {pending.Version} is installed.\n\nPlease restart Revit to continue using BINA Sync.");
+                return false;
+            }
+
+            ShowUpdateWindow();
+            return false;
+        }
+
+        /// <summary>Download + verify + stage the pending build, reporting
+        /// (0..1, status) progress. Used by UpdateWindow's Update button.</summary>
+        public static Task StageAsync(IProgress<(double Fraction, string Status)> progress) =>
+            StageCoreAsync(_pending ?? throw new InvalidOperationException("no pending update"), progress);
+
+        private static void OnIdling(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
+        {
+            if (_pending == null || _notified)
                 return;
 
             _notified = true;
-            try { _app.Idling -= OnIdlingNotify; } catch { }
+            try { _app.Idling -= OnIdling; } catch { }
 
-            TaskDialog.Show("BINA Sync",
-                $"Update {_stagedVersion} downloaded.\n\nIt will take effect the next time you start Revit.");
+            if (_pending.Mandatory)
+                ShowUpdateWindow();
+            else if (_staged)
+                TaskDialog.Show("BINA Sync",
+                    $"Update {_pending.Version} downloaded.\n\nIt will take effect the next time you start Revit.");
         }
 
-        private static async Task CheckAndStageAsync(string feedUrl)
+        private static void ShowUpdateWindow()
         {
-            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+            try
+            {
+                new UI.UpdateWindow().ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                Log($"update window failed: {ex}");
+            }
+        }
 
-            var feedJson = await http.GetStringAsync(feedUrl);
-            var feed = JsonConvert.DeserializeObject<UpdateFeed>(feedJson);
+        private static async Task CheckAsync(string feedUrl)
+        {
+            using var http = NewHttp();
+            var feed = JsonConvert.DeserializeObject<UpdateFeed>(await http.GetStringAsync(feedUrl));
             if (feed?.Version == null || feed.Url == null)
             {
                 Log($"malformed feed at {feedUrl}");
@@ -98,43 +152,73 @@ namespace RevitWebAppSync.Services
                 return;
             }
 
-            var current = CurrentVersion();
+            var current = GetCurrentVersion();
             if (remote <= current)
             {
                 Log($"up to date (current {current}, feed {remote})");
                 return;
             }
 
+            if (File.Exists(Path.Combine(VersionsDir, remote.ToString(), CompleteMarker)))
+            {
+                Log($"{remote} already staged");
+                _staged = true;
+            }
+
+            Log($"update available: {remote} (current {current}, mandatory {feed.Mandatory})");
+            _pending = feed;
+        }
+
+        private static async Task StageCoreAsync(UpdateFeed feed,
+            IProgress<(double, string)> progress)
+        {
+            var remote = Version.Parse(feed.Version);
             var targetDir = Path.Combine(VersionsDir, remote.ToString());
             if (File.Exists(Path.Combine(targetDir, CompleteMarker)))
             {
-                Log($"{remote} already staged");
-                _stagedVersion = remote.ToString();
+                _staged = true;
                 return;
             }
 
-            Log($"staging {remote} (current {current}) from {feed.Url}");
+            Log($"staging {remote} from {feed.Url}");
             Directory.CreateDirectory(StagingDir);
             var zipPath = Path.Combine(StagingDir, $"{remote}.zip");
             var extractDir = Path.Combine(StagingDir, remote.ToString());
 
             try
             {
-                using (var zipStream = File.Create(zipPath))
-                await using (var download = await http.GetStreamAsync(feed.Url))
-                    await download.CopyToAsync(zipStream);
+                using var http = NewHttp();
+                using (var response = await http.GetAsync(feed.Url, HttpCompletionOption.ResponseHeadersRead))
+                {
+                    response.EnsureSuccessStatusCode();
+                    var total = response.Content.Headers.ContentLength ?? -1L;
+                    await using var download = await response.Content.ReadAsStreamAsync();
+                    await using var zipStream = File.Create(zipPath);
 
+                    var buffer = new byte[81920];
+                    long done = 0;
+                    int read;
+                    while ((read = await download.ReadAsync(buffer)) > 0)
+                    {
+                        await zipStream.WriteAsync(buffer.AsMemory(0, read));
+                        done += read;
+                        if (total > 0)
+                            progress?.Report(((double)done / total * 0.9,
+                                $"Downloading… {done / 1048576.0:F1} / {total / 1048576.0:F1} MB"));
+                    }
+                }
+
+                progress?.Report((0.92, "Verifying…"));
                 if (!string.IsNullOrWhiteSpace(feed.Sha256))
                 {
                     using var file = File.OpenRead(zipPath);
                     var actual = Convert.ToHexString(await SHA256.HashDataAsync(file));
                     if (!actual.Equals(feed.Sha256, StringComparison.OrdinalIgnoreCase))
-                    {
-                        Log($"SHA256 mismatch for {remote}: expected {feed.Sha256}, got {actual}");
-                        return;
-                    }
+                        throw new InvalidOperationException(
+                            $"download corrupted (SHA256 mismatch) — try again");
                 }
 
+                progress?.Report((0.95, "Installing…"));
                 if (Directory.Exists(extractDir))
                     Directory.Delete(extractDir, recursive: true);
                 ZipFile.ExtractToDirectory(zipPath, extractDir);
@@ -150,7 +234,8 @@ namespace RevitWebAppSync.Services
                 Directory.Move(extractDir, targetDir);
 
                 Log($"staged {remote} → {targetDir}");
-                _stagedVersion = remote.ToString();
+                _staged = true;
+                progress?.Report((1.0, "Done"));
             }
             finally
             {
@@ -159,10 +244,13 @@ namespace RevitWebAppSync.Services
             }
         }
 
+        private static HttpClient NewHttp() =>
+            new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
+
         /// <summary>Effective running version. Prefer the versions\&lt;ver&gt;\ folder
         /// name we were loaded from (survives builds that forget to bump
         /// AssemblyVersion); fall back to the assembly version.</summary>
-        private static Version CurrentVersion()
+        private static Version GetCurrentVersion()
         {
             var dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
             var parent = Path.GetDirectoryName(dir);
@@ -184,12 +272,16 @@ namespace RevitWebAppSync.Services
             catch { }
         }
 
-        private sealed class UpdateFeed
+        public sealed class UpdateFeed
         {
             [JsonProperty("version")] public string Version { get; set; }
             [JsonProperty("url")] public string Url { get; set; }
             [JsonProperty("sha256")] public string Sha256 { get; set; }
             [JsonProperty("notes")] public string Notes { get; set; }
+
+            // Missing flag = mandatory: the backend and addin move together,
+            // so a stale client is broken by default unless the feed opts out.
+            [JsonProperty("mandatory")] public bool Mandatory { get; set; } = true;
         }
     }
 }

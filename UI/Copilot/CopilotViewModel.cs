@@ -92,6 +92,12 @@ namespace RevitWebAppSync.UI.Copilot
         private ResultModel _runResult;
         public ResultModel RunResult { get => _runResult; set { _runResult = value; Raise(); } }
 
+        /// <summary>The user prompt that produced the response currently on screen.
+        /// Set on every send (chat + tool-form run) so the 👍/👎 control can key
+        /// feedback to the prompt it refers to (the backend retrieves recipes by
+        /// prompt similarity, so feedback without it is unattributable).</summary>
+        public string LastPrompt { get; private set; }
+
         private System.Diagnostics.Stopwatch _runClock;
         private string _lastRunElapsed = "";
         public string LastRunElapsed { get => _lastRunElapsed; private set { _lastRunElapsed = value; Raise(); } }
@@ -292,6 +298,47 @@ namespace RevitWebAppSync.UI.Copilot
         private readonly HashSet<string> _pinned;
         public IReadOnlyCollection<string> Pinned => _pinned;
 
+        private HistoryEntry _currentSession = null;
+
+        private void AppendToCurrentSession(string userText, string botText,
+            string status = "ok", List<string> toolIds = null)
+        {
+            string time = DateTime.Now.ToString("h:mm tt");
+            if (_currentSession == null)
+            {
+                _currentSession = new HistoryEntry(
+                    DateTime.Now.ToString("MMM d, h:mm tt"), status, userText,
+                    new List<History>());
+                History.Insert(0, _currentSession);
+            }
+            _currentSession.History.Add(new History("user", userText, time));
+            _currentSession.History.Add(new History("bot", botText, time, toolIds));
+            if (status == "warn") _currentSession.Status = "warn";
+            int exchanges = _currentSession.History.Count(m => m.Sender == "user");
+            _currentSession.Summary = exchanges == 1 ? userText : $"{exchanges} messages";
+            int idx = History.IndexOf(_currentSession);
+            if (idx >= 0) History[idx] = _currentSession;
+            CopilotStateStore.Save(_pinned, History);
+            Raise(nameof(RecentEntry));
+        }
+
+        public void RenameHistoryEntry(HistoryEntry entry, string newLabel)
+        {
+            if (entry == null) return;
+            entry.Label = string.IsNullOrWhiteSpace(newLabel) ? null : newLabel.Trim();
+            CopilotStateStore.Save(_pinned, History);
+        }
+
+        public void DeleteHistoryEntry(HistoryEntry entry)
+        {
+            if (entry == null) return;
+            if (History.Remove(entry))
+            {
+                CopilotStateStore.Save(_pinned, History);
+                Raise(nameof(RecentEntry));
+            }
+        }
+
         private CpScreen _prev = CpScreen.Home;
         public CpScreen Prev { get => _prev; set { _prev = value; Raise(); } }
 
@@ -444,6 +491,9 @@ namespace RevitWebAppSync.UI.Copilot
         {
             var tool = CurrentTool;
             if (tool == null) return;
+            // Tool-form path has no free-text prompt — the tool title is what the
+            // response answers, so feedback keys to that.
+            LastPrompt = tool.Title;
             Prev = Screen;
             Screen = CpScreen.Running;
             _runClock = System.Diagnostics.Stopwatch.StartNew();
@@ -477,9 +527,7 @@ namespace RevitWebAppSync.UI.Copilot
 
             string status = result.Kind == CpResultKind.Issues ? "warn" : (outcome != null && !outcome.Success ? "warn" : "ok");
             string summary = SummaryOf(result);
-            History.Insert(0, new HistoryEntry("just now", tool.Id, status, summary));
-            CopilotStateStore.Save(_pinned, History);
-            Raise(nameof(RecentEntry));
+            AppendToCurrentSession(tool.Title, summary, status, new List<string> { tool.Id });
 
             PopulateHighlights(tool.Id);
         }
@@ -540,6 +588,7 @@ namespace RevitWebAppSync.UI.Copilot
         {
             text = (text ?? "").Trim();
             if (text.Length == 0) return;
+            LastPrompt = text;   // key for 👍/👎 feedback on the resulting response
             if (IsIndexing)
             {
                 Thread.Add(new ChatMessage
@@ -554,15 +603,103 @@ namespace RevitWebAppSync.UI.Copilot
             ToolId = null;
             Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images });
 
-            var interp = QueryInterpreter.Interpret(text);
-            if (interp.IsClarify)
+            // Auth gate: BINA Copilot needs a signed-in BINA Cloud session. Show a friendly
+            // prompt instead of letting the request 401 at the backend.
+            var authCfg = BinaConfig.Load();
+            if (authCfg == null || !authCfg.IsLoggedIn())
             {
-                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Clarify, Question = interp.Question, Options = interp.Options });
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = "Please sign in to use BINA Copilot — click BINA Cloud → Login in the ribbon, then try again.",
+                });
                 return;
             }
 
+            // Local vetted-tool clarify intercept — DISABLED (vetted tools removed).
+            // It answered vague prompts with canned tool chips BEFORE the backend was
+            // ever reached. All messages now route to bina-ai; when the agent needs
+            // detail it pauses with its own clarifying question (HITL card below).
+            // var interp = QueryInterpreter.Interpret(text);
+            // if (interp.IsClarify)
+            // {
+            //     Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Clarify, Question = interp.Question, Options = interp.Options });
+            //     AppendToCurrentSession(text, interp.Question ?? "Needs clarification");
+            //     return;
+            // }
+
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Drafting a command for that…" });
-            _ = ResolveProposalAsync(text, interp.ToolId, images);
+            _ = ResolveProposalAsync(text, QueryInterpreter.PickResponseTool(text).Id, images);
+        }
+
+        // Persistent header badge: "27 / 30 credits" or "Unlimited". Empty string hides the pill.
+        private string _creditBadge = "";
+        public string CreditBadge
+        {
+            get => _creditBadge;
+            private set { if (_creditBadge == value) return; _creditBadge = value; Raise(); }
+        }
+
+        /// <summary>
+        /// Fetch the signed-in user's monthly AI credit balance, post it as a chat message
+        /// (the login greeting) AND set the persistent header badge. Called right after login.
+        /// Best-effort: silently no-ops when not signed in or the backend is unavailable.
+        /// </summary>
+        public async System.Threading.Tasks.Task ShowCreditsAsync()
+        {
+            try
+            {
+                var credits = await FetchCreditsAsync();
+                if (credits == null) return;
+                SetCreditBadge(BadgeText(credits));
+                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = MessageText(credits) });
+            }
+            catch { /* best-effort — never block login on the credits read */ }
+        }
+
+        /// <summary>Re-fetch the balance and update ONLY the header badge (no chat message).
+        /// Called after each prompt so the badge ticks down live.</summary>
+        public async System.Threading.Tasks.Task RefreshCreditBadgeAsync()
+        {
+            try
+            {
+                var cfg = BinaConfig.Load();
+                if (cfg == null || !cfg.IsLoggedIn()) { SetCreditBadge(""); return; }   // signed out → hide
+                var credits = await new AIService().GetCreditsAsync(cfg.AccessToken);
+                if (credits != null) SetCreditBadge(BadgeText(credits));                // keep last value on transient failure
+            }
+            catch { /* best-effort */ }
+        }
+
+        private static async System.Threading.Tasks.Task<AIService.CreditInfo> FetchCreditsAsync()
+        {
+            var cfg = BinaConfig.Load();
+            if (cfg == null || !cfg.IsLoggedIn()) return null;
+            return await new AIService().GetCreditsAsync(cfg.AccessToken);
+        }
+
+        private static string BadgeText(AIService.CreditInfo c)
+        {
+            if (c.Unlimited) return "Unlimited";
+            if (c.Limit <= 0) return "";
+            int remaining = c.Remaining ?? System.Math.Max(0, c.Limit - c.Used);
+            return $"{remaining} / {c.Limit} credits";
+        }
+
+        private static string MessageText(AIService.CreditInfo c)
+        {
+            if (c.Unlimited) return "You have unlimited AI requests.";
+            int remaining = c.Remaining ?? System.Math.Max(0, c.Limit - c.Used);
+            string resets = string.IsNullOrWhiteSpace(c.ResetsAt) ? "" : $" Resets {c.ResetsAt}.";
+            return $"You have {remaining} of {c.Limit} AI requests left this month.{resets}";
+        }
+
+        // UI-thread-safe badge setter (RefreshCreditBadgeAsync may resume off the UI thread).
+        private void SetCreditBadge(string text)
+        {
+            var disp = System.Windows.Application.Current?.Dispatcher;
+            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => CreditBadge = text);
+            else CreditBadge = text;
         }
 
         private async System.Threading.Tasks.Task ResolveProposalAsync(string text, string fallbackToolId, List<string> images = null)
@@ -624,6 +761,9 @@ namespace RevitWebAppSync.UI.Copilot
                 }
             }
 
+            // The credit was consumed by the backend during RouteAsync — refresh the
+            // header badge so the balance ticks down live (best-effort, badge only).
+            _ = RefreshCreditBadgeAsync();
 
             // HITL clarify pause: the agent needs an answer before acting. Render
             // the question as a Clarify card; the user's NEXT message is routed
@@ -665,13 +805,8 @@ namespace RevitWebAppSync.UI.Copilot
                     Steps = rr.Steps,
                     Verdict = rr.Verdict,
                 });
-                if (rr.ToolCallTrace != null && rr.ToolCallTrace.Count > 0)
-                    History.Insert(0, new HistoryEntry("just now", tool.Id, "ok",
-                        $"{rr.Reply} (used: {string.Join(" → ", rr.ToolCallTrace)})"));
-                else
-                    History.Insert(0, new HistoryEntry("just now", tool.Id, "ok", rr.Reply ?? "Done"));
-                CopilotStateStore.Save(_pinned, History);
-                Raise(nameof(RecentEntry));
+                var replyToolIds = (rr.ToolCallTrace != null && rr.ToolCallTrace.Count > 0) ? rr.ToolCallTrace : new List<string> { tool.Id };
+                AppendToCurrentSession(text, rr.Reply ?? "Done", "ok", replyToolIds);
                 return;
             }
 
@@ -696,6 +831,7 @@ namespace RevitWebAppSync.UI.Copilot
                 Role = "ai", Kind = CpMsgKind.Proposal, ToolId = tool.Id,
                 Text = text2, PlanSteps = new List<string>(plan ?? new List<string>()), Code = code,
             });
+            AppendToCurrentSession(text, text2, "ok", new List<string> { tool.Id });
         }
 
         private void ExecuteAsChatReply(ToolDef tool, string code, string prompt = null)
@@ -726,14 +862,39 @@ namespace RevitWebAppSync.UI.Copilot
                     Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
                     Text = reply,
                 });
-                History.Insert(0, new HistoryEntry("just now", tool.Id, "ok", reply));
-                CopilotStateStore.Save(_pinned, History);
-                Raise(nameof(RecentEntry));
+                AppendToCurrentSession(prompt ?? tool.Title, reply, "ok", new List<string> { tool.Id });
                 PopulateHighlights(tool.Id);
             }
 
             if (Executor != null) Executor.Run(tool, new Dictionary<string, object>(), code, Done);
             else Done(new ExecOutcome { Success = true });
+        }
+
+        // ─── Feedback (👍/👎) ───────────────────────────────────────────────────
+        // The only signal that catches "compiled but wrong". Fire-and-forget to the
+        // backend, keyed to the prompt the rated response answered. Best-effort: a
+        // failed POST must never break the pane (FeedbackService swallows).
+        private readonly FeedbackService _feedback = new FeedbackService();
+
+        /// <summary>Submit thumbs feedback for the response currently on screen.
+        /// <paramref name="rating"/> is "up" or "down". Best-effort; never throws.</summary>
+        public void SubmitFeedback(string rating) => SubmitFeedback(rating, LastPrompt);
+
+        /// <summary>Submit thumbs feedback attributed to a SPECIFIC prompt.
+        /// Chat reply bubbles pass their own source prompt so rating an older
+        /// bubble isn't mis-attributed to whatever prompt is newest (LastPrompt).
+        /// Best-effort; never throws.</summary>
+        public void SubmitFeedback(string rating, string prompt)
+        {
+            if (string.IsNullOrWhiteSpace(prompt)) return;
+
+            var cfg = BinaConfig.Load();
+            int? userId = (cfg?.UserId ?? 0) > 0 ? (int?)cfg.UserId : null;
+            string sessionId = (Router as RevitChatRouter)?.SessionId;
+            string token = cfg?.AccessToken ?? "";
+
+            // Detached — never await on the UI thread; failures are swallowed inside.
+            _ = _feedback.SubmitFeedbackAsync(prompt, rating, prompt, sessionId, userId, token);
         }
 
         /// <summary>Reformulate the structured result as one conversational line for the
@@ -792,9 +953,8 @@ namespace RevitWebAppSync.UI.Copilot
                 for (int i = 0; i < Thread.Count; i++) if (Thread[i].Kind == CpMsgKind.Running && Thread[i].ToolId == tool.Id) j = i;
                 if (j >= 0) Thread[j] = new ChatMessage { Role = "ai", Kind = CpMsgKind.Result, ToolId = tool.Id, Result = result };
 
-                History.Insert(0, new HistoryEntry("just now", tool.Id, result.Kind == CpResultKind.Issues ? "warn" : "ok", SummaryOf(result)));
-                CopilotStateStore.Save(_pinned, History);
-                Raise(nameof(RecentEntry));
+                string chatRunSummary = SummaryOf(result);
+                AppendToCurrentSession(tool.Title, chatRunSummary, result.Kind == CpResultKind.Issues ? "warn" : "ok", new List<string> { tool.Id });
                 PopulateHighlights(tool.Id);
             }
 

@@ -46,6 +46,11 @@ namespace RevitWebAppSync.UI
         // Default is 300; user can change to 100/200/300/400/500 before scanning.
         private int SelectedLodLevel => _vm.SelectedLodLevel;
 
+        // Discipline scope: auto-detected from the model on first scan, overridable
+        // by the user via DisciplineCombo. Once the user picks, stop auto-syncing.
+        private bool _disciplineUserSet;
+        private bool _syncingDiscipline;
+
         public JkrComplianceDashboardPanel()
         {
             JkrTheme.EnsureLoaded();
@@ -65,6 +70,19 @@ namespace RevitWebAppSync.UI
                 if (LodCombo.SelectedItem is int v) _vm.SelectedLodLevel = v;
             };
 
+            DisciplineCombo.ItemsSource = _vm.Disciplines;
+            DisciplineCombo.SelectedItem =
+                _vm.Disciplines.FirstOrDefault(d => d.Code == _vm.SelectedDiscipline) ?? _vm.Disciplines[0];
+            DisciplineCombo.SelectionChanged += (_, __) =>
+            {
+                if (_syncingDiscipline) return;
+                if (DisciplineCombo.SelectedItem is DisciplineOption d)
+                {
+                    _vm.SelectedDiscipline = d.Code;
+                    _disciplineUserSet = true;  // stop auto-following the model's detected discipline
+                }
+            };
+
             // Start empty — the panel is created at startup before a Revit doc is available.
             // First Re-scan triggers the real pipeline once SetRevitApp() has wired _uiApp.
             _vm.Filename = "(click Re-scan to analyse the active model)";
@@ -82,7 +100,13 @@ namespace RevitWebAppSync.UI
 
         public void SetRevitApp(UIApplication uiApp) => _uiApp = uiApp;
 
-        private string ActiveDocPath => _uiApp?.ActiveUIDocument?.Document?.PathName ?? "";
+        // Live UIApplication: prefer the one injected by the ribbon command, but fall
+        // back to App.UiApp (captured on Idling) so the pane still works when Revit
+        // auto-restores it on startup without the command ever running. Mirrors the
+        // Copilot panel's `_uiApp ?? App.UiApp` pattern.
+        private UIApplication UiAppLive => _uiApp ?? App.UiApp;
+
+        private string ActiveDocPath => UiAppLive?.ActiveUIDocument?.Document?.PathName ?? "";
 
         // ────────────────────────────────────────────────
         // Event plumbing
@@ -120,13 +144,13 @@ namespace RevitWebAppSync.UI
             FixCountBadge.Visibility = fc > 0 ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
 
             TabOpenCount.Text = _vm.OpenCount.ToString();
-            TabAcceptedCount.Text = _vm.AcceptedCount.ToString();
+            TabIgnoreCount.Text = _vm.IgnoredCount.ToString();
             TabResolvedCount.Text = _vm.ResolvedCount.ToString();
             TabManualCount.Text = _vm.ManualFixCount.ToString();
             FilteredCountText.Text = $"{_vm.FilteredCount} shown";
 
             TabOpen.IsChecked = _vm.IsOpenTab;
-            TabAccepted.IsChecked = _vm.IsAcceptedTab;
+            TabIgnore.IsChecked = _vm.IsIgnoredTab;
             TabResolved.IsChecked = _vm.IsResolvedTab;
             TabManual.IsChecked = _vm.IsManualTab;
 
@@ -138,8 +162,8 @@ namespace RevitWebAppSync.UI
 
             TabOpenPill.Background = _vm.IsOpenTab ? activeBg : inactiveBg;
             TabOpenCount.Foreground = _vm.IsOpenTab ? activeFg : inactiveFg;
-            TabAcceptedPill.Background = _vm.IsAcceptedTab ? activeBg : inactiveBg;
-            TabAcceptedCount.Foreground = _vm.IsAcceptedTab ? activeFg : inactiveFg;
+            TabIgnorePill.Background = _vm.IsIgnoredTab ? activeBg : inactiveBg;
+            TabIgnoreCount.Foreground = _vm.IsIgnoredTab ? activeFg : inactiveFg;
             TabResolvedPill.Background = _vm.IsResolvedTab ? activeBg : inactiveBg;
             TabResolvedCount.Foreground = _vm.IsResolvedTab ? activeFg : inactiveFg;
             TabManualPill.Background = _vm.IsManualTab ? activeBg : inactiveBg;
@@ -382,7 +406,7 @@ namespace RevitWebAppSync.UI
 
                     // Persist Fixed (with snapshot) and ManualFixNeeded (status only) so
                     // both survive a cold Re-scan — JkrAuditStore.Save handles the routing.
-                    var docPath = _uiApp?.ActiveUIDocument?.Document?.PathName ?? "";
+                    var docPath = UiAppLive?.ActiveUIDocument?.Document?.PathName ?? "";
                     foreach (var i in preservedAfterFix)
                     {
                         if (i.Status != IssueStatus.Fixed && i.Status != IssueStatus.ManualFixNeeded)
@@ -484,35 +508,35 @@ namespace RevitWebAppSync.UI
             }
         }
 
-        private void AcceptAll_Click(object sender, RoutedEventArgs e)
+        private void IgnoreAll_Click(object sender, RoutedEventArgs e)
         {
-            var acceptable = _vm.Issues
-                .Where(i => i.Status == IssueStatus.Open && i.CanAccept)
+            var ignorable = _vm.Issues
+                .Where(i => i.Status == IssueStatus.Open && i.CanIgnore)
                 .ToList();
 
-            if (acceptable.Count == 0)
+            if (ignorable.Count == 0)
             {
-                _vm.ShowToast("No Medium/Low issues to accept.");
+                _vm.ShowToast("No Medium/Low issues to ignore.");
                 return;
             }
 
-            foreach (var issue in acceptable)
-                _vm.ApplyAction(issue, IssueStatus.Accepted, advance: false);
+            foreach (var issue in ignorable)
+                _vm.ApplyAction(issue, IssueStatus.Ignored, advance: false);
 
             // Persist all accepted decisions to audit file
-            var doc = _uiApp?.ActiveUIDocument?.Document;
+            var doc = UiAppLive?.ActiveUIDocument?.Document;
             var docPath = doc?.PathName ?? "";
-            foreach (var issue in acceptable)
+            foreach (var issue in ignorable)
                 JkrAuditStore.Save(docPath, issue);
 
-            _vm.ShowToast($"Accepted {acceptable.Count} Medium/Low issues.");
+            _vm.ShowToast($"Ignored {ignorable.Count} Medium/Low issues.");
         }
 
         private async Task RunScanAsync()
         {
             if (_vm.Scanning) return;
 
-            var doc = _uiApp?.ActiveUIDocument?.Document;
+            var doc = UiAppLive?.ActiveUIDocument?.Document;
             if (doc == null)
             {
                 TaskDialog.Show("BINA JKR Compliance", "No active Revit document. Open a model first.");
@@ -535,14 +559,14 @@ namespace RevitWebAppSync.UI
         }
 
         /// <summary>Core scan logic — shared by RunScanAsync and RunScanAfterFix.</summary>
-        /// <param name="clearAudit">If true, wipe persisted Accept/Approve decisions before loading results.</param>
+        /// <param name="clearAudit">If true, wipe persisted Ignore/Approve decisions before loading results.</param>
         /// <param name="isRecheck">If true, hit /jkr-recheck (post-fix verification) instead of /jkr-check-v2.</param>
         /// <param name="preservedAfterFix">Issues just attempted in an auto-fix batch — both successes
         /// (Status=Fixed, land in Resolved) and failures (Status=Open, stay visible). Re-injected after
         /// the rescan so neither group silently vanishes when the recheck omits them.</param>
         private async Task RunScanInner(bool clearAudit = false, bool isRecheck = false, List<IssueVm> preservedAfterFix = null)
         {
-            var doc = _uiApp?.ActiveUIDocument?.Document;
+            var doc = UiAppLive?.ActiveUIDocument?.Document;
             if (doc == null) return;
 
             // Optionally clear the audit file so everything starts fresh
@@ -554,7 +578,20 @@ namespace RevitWebAppSync.UI
 
             var extraction = JkrBuildingInfoExtractor.Extract(doc);
             _vm.Filename = string.IsNullOrEmpty(extraction.FileName) ? "(unsaved model)" : extraction.FileName;
+
+            // Until the user picks a discipline, follow the model's detected one
+            // (mapped onto the 5 selectable codes; LD/unknown fall back to AR).
+            if (!_disciplineUserSet)
+            {
+                var detected = _vm.Disciplines.FirstOrDefault(d => d.Code == extraction.Discipline) ?? _vm.Disciplines[0];
+                _vm.SelectedDiscipline = detected.Code;
+                _syncingDiscipline = true;
+                DisciplineCombo.SelectedItem = detected;
+                _syncingDiscipline = false;
+            }
+
             var request = extraction.ToV2Request(lodLevel: SelectedLodLevel);
+            request.Project.Discipline = _vm.SelectedDiscipline;  // scope the scan to the chosen discipline
 
             var response = isRecheck
                 ? await _jkrService.RecheckJkrComplianceAsync(request)
@@ -663,7 +700,7 @@ namespace RevitWebAppSync.UI
         }
 
         private void TabOpen_Click(object s, RoutedEventArgs e) => SetTab(TabKind.Open);
-        private void TabAccepted_Click(object s, RoutedEventArgs e) => SetTab(TabKind.Accepted);
+        private void TabIgnore_Click(object s, RoutedEventArgs e) => SetTab(TabKind.Ignored);
         private void TabResolved_Click(object s, RoutedEventArgs e) => SetTab(TabKind.Resolved);
         private void TabManual_Click(object s, RoutedEventArgs e) => SetTab(TabKind.Manual);
 
@@ -671,7 +708,7 @@ namespace RevitWebAppSync.UI
         {
             _vm.Tab = tab;
             TabOpen.IsChecked = tab == TabKind.Open;
-            TabAccepted.IsChecked = tab == TabKind.Accepted;
+            TabIgnore.IsChecked = tab == TabKind.Ignored;
             TabResolved.IsChecked = tab == TabKind.Resolved;
             TabManual.IsChecked = tab == TabKind.Manual;
         }
@@ -691,7 +728,7 @@ namespace RevitWebAppSync.UI
         }
 
         /// <summary>
-        /// Public entry point for the Focus modal (ApplyFix/Accept/Approve/Reopen/Locate).
+        /// Public entry point for the Focus modal (ApplyFix/Ignore/Approve/Reopen/Locate).
         /// Keeps all side-effect routing (backend fix, audit persistence) in one place.
         /// </summary>
         internal void InvokeAction(IssueVm issue, IssueStatus newStatus, bool advance)
@@ -701,7 +738,7 @@ namespace RevitWebAppSync.UI
         internal void LocateInRevit(IssueVm issue)
         {
             if (issue == null || issue.RevitElementId <= 0) return;
-            var uiDoc = _uiApp?.ActiveUIDocument;
+            var uiDoc = UiAppLive?.ActiveUIDocument;
             if (uiDoc == null) return;
             try
             {
@@ -718,7 +755,7 @@ namespace RevitWebAppSync.UI
         /// <summary>
         /// Route a status transition to the correct side-effect:
         ///   Fixed        → queue into App.JkrRenameHandler + fire ExternalEvent; flip VM on success only.
-        ///   Accepted/Approved → in-memory flip + persist to .jkr_audit.json.
+        ///   Ignored/Approved → in-memory flip + persist to .jkr_audit.json.
         ///   Open (reopen)     → in-memory flip + remove from audit file.
         /// </summary>
         private void DispatchAction(IssueVm issue, IssueStatus newStatus, bool advance)
@@ -731,7 +768,7 @@ namespace RevitWebAppSync.UI
                 return;
             }
 
-            // Accept / Approve / Reopen are in-memory plus audit persistence.
+            // Ignore / Approve / Reopen are in-memory plus audit persistence.
             _vm.ApplyAction(issue, newStatus, advance);
             try
             {
@@ -1000,9 +1037,10 @@ namespace RevitWebAppSync.UI
         {
             try
             {
-                if (_uiApp != null)
+                var uiApp = UiAppLive;
+                if (uiApp != null)
                 {
-                    var pane = _uiApp.GetDockablePane(JkrComplianceDashboardHost.PaneId);
+                    var pane = uiApp.GetDockablePane(JkrComplianceDashboardHost.PaneId);
                     pane?.Hide();
                 }
             }
@@ -1055,13 +1093,13 @@ namespace RevitWebAppSync.UI
                     }
                     break;
                 case Key.A:
-                    if (active != null && active.IsOpen && active.CanAccept)
+                    if (active != null && active.IsOpen && active.CanIgnore)
                     {
-                        DispatchAction(active, IssueStatus.Accepted, _vm.FocusOpen);
+                        DispatchAction(active, IssueStatus.Ignored, _vm.FocusOpen);
                         e.Handled = true;
                     }
                     break;
-                // Key.X (approve) removed — Accept and Approve are merged per user feedback.
+                // Key.X (approve) removed — Ignore and Approve are merged per user feedback.
                 case Key.OemQuestion: // '/' key
                     if ((Keyboard.Modifiers & ModifierKeys.Shift) == 0)
                     {
