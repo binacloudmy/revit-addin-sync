@@ -65,6 +65,10 @@ namespace RevitWebAppSync
                             config.ProjectName = projectPicker.SelectedProjectName;
                             config.Save();
 
+                            // Reconnect the WSS tunnel with the real JWT so the
+                            // backend can attribute AI usage to this user.
+                            App.RestartVibeTunnel(config.AccessToken);
+
                             TaskDialog.Show("Login Successful",
                                 $"Logged in as: {config.UserName}\nProject: {config.ProjectName}");
                         }

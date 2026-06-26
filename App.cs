@@ -95,6 +95,36 @@ namespace RevitWebAppSync
         private static Autodesk.Revit.DB.Document _pendingWarmDoc;
         private static long _warmOpenedTs;
 
+        /// <summary>
+        /// Reconnects the WSS tunnel with a freshly-acquired access token.
+        /// Called by LoginCommand after a successful login so the backend can
+        /// bind the tunnel to the authenticated user (and allocate AI credits
+        /// correctly). No-op when the WSS transport is not active.
+        /// </summary>
+        public static void RestartVibeTunnel(string newToken)
+        {
+            if (VibeMcpTunnel == null) return;
+            try
+            {
+                VibeMcpTunnel.Dispose();
+                var cfg = BinaConfig.Load();
+                var flags = BinaVibe.Policy.VibeFlags.Load();
+                var sessionId = Guid.NewGuid().ToString();
+                VibeMcpTunnel = new BinaVibe.Mcp.McpTunnelClient(
+                    cfg.ResolvedAIBaseUrl,
+                    flags.TenantId,
+                    sessionId,
+                    newToken,
+                    flags.UserId);
+                VibeMcpTunnel.Start();
+                System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel restarted with authenticated token (tenant={flags.TenantId})");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel restart failed: {ex.Message}");
+            }
+        }
+
         public Result OnStartup(UIControlledApplication application)
         {
             try

@@ -46,7 +46,13 @@ namespace RevitWebAppSync
 
         [JsonIgnore]
         public string ResolvedApiBaseUrl =>
-            !string.IsNullOrWhiteSpace(ApiBaseUrl) ? ApiBaseUrl : DEFAULT_API_BASE_URL;
+            // Filter out localhost/loopback values left in config.json from dev
+            // sessions — they resolve to a dead local port on user machines and
+            // silently break login + credit allocation.
+            (!string.IsNullOrWhiteSpace(ApiBaseUrl) &&
+             ApiBaseUrl.IndexOf("localhost", StringComparison.OrdinalIgnoreCase) < 0 &&
+             ApiBaseUrl.IndexOf("127.0.0.1", StringComparison.OrdinalIgnoreCase) < 0)
+                ? ApiBaseUrl : DEFAULT_API_BASE_URL;
 
         [JsonIgnore]
         public string ResolvedUpdateFeedUrl =>
