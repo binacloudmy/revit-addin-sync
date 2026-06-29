@@ -55,7 +55,7 @@ namespace RevitWebAppSync
 
         // BinaVibe v2 outbound WSS tunnel client (PRD §6.5 / production
         // transport). When BINA_VIBE_MCP_TRANSPORT is "wss" or "both",
-        // the addin dials out to bina-ai at /vibe/mcp/tunnel and the
+        // the addin dials out to bina-ai at /revit-copilot/mcp/tunnel and the
         // cloud orchestrator pushes tool-call frames down the socket.
         // No inbound port on the customer machine. Firewall-friendly.
         public static BinaVibe.Mcp.McpTunnelClient VibeMcpTunnel { get; private set; }
@@ -322,7 +322,7 @@ namespace RevitWebAppSync
                             token,
                             flags.UserId);
                         VibeMcpTunnel.Start();
-                        System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel dialing out to {cfg.ResolvedAIBaseUrl}/vibe/mcp/tunnel (tenant={flags.TenantId})");
+                        System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel dialing out to {cfg.ResolvedAIBaseUrl}/revit-copilot/mcp/tunnel (tenant={flags.TenantId})");
 
                         // Wire the DocumentChanged indexer so delta changes
                         // are shipped on every edit. The DocumentOpened event

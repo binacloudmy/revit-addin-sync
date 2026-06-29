@@ -2,7 +2,7 @@
 // BinaVibe.Bridge — HTTP + SSE client for the v2 orchestrator.
 //
 // Per PRD v2 §6.5: the addin POSTs a message + ambient context to
-// `/vibe/conversation/{id}/message`, then consumes a stream of SSE events
+// `/revit-copilot/conversation/{id}/message`, then consumes a stream of SSE events
 // (plan, step_start, step_end, gate, review, done, error) and renders
 // them into the Copilot pane.
 //
@@ -74,7 +74,7 @@ namespace BinaVibe.Bridge
         {
             using var req = new HttpRequestMessage(
                 HttpMethod.Post,
-                $"{_baseUrl}/vibe/conversation/{conversationId}/message");
+                $"{_baseUrl}/revit-copilot/conversation/{conversationId}/message");
             req.Content = new StringContent(
                 JsonSerializer.Serialize(body),
                 Encoding.UTF8,
@@ -131,7 +131,7 @@ namespace BinaVibe.Bridge
         {
             using var req = new HttpRequestMessage(
                 HttpMethod.Post,
-                $"{_baseUrl}/vibe/conversation/{conversationId}/approve");
+                $"{_baseUrl}/revit-copilot/conversation/{conversationId}/approve");
             req.Content = new StringContent(
                 JsonSerializer.Serialize(new { step_id = stepId, approved }),
                 Encoding.UTF8,

@@ -2,7 +2,7 @@
 //
 // Instead of the addin opening an inbound HTTP listener (firewall-hostile,
 // requires per-customer ngrok), the addin dials OUT over WSS to bina-ai
-// at wss://.../vibe/mcp/tunnel?tenant_id=...&session_id=...&token=....
+// at wss://.../revit-copilot/mcp/tunnel?tenant_id=...&session_id=...&token=....
 //
 // bina-ai keeps the socket open per tenant+session and sends tool-call
 // frames down. The client reads frames, queues each as an McpJob to the
@@ -13,7 +13,7 @@
 // `BINA_VIBE_MCP_TRANSPORT` env (`http`, `wss`, `both`, default `http`).
 // Default stays `http` until WSS hardening is complete.
 //
-// Wire format mirrors `app/agents/vibe/tunnel_manager.py` in bina-ai:
+// Wire format mirrors `app/agents/revit/copilot/tunnel_manager.py` in bina-ai:
 //   Server → Client:  {"id":"...","method":"tool_call","params":{"tool":"...","args":{...}}}
 //   Client → Server:  {"id":"...","result":{...}} OR {"id":"...","error":{"message":"..."}}
 //   Heartbeat:        {"method":"heartbeat","params":{"ts":...}}
@@ -74,7 +74,7 @@ namespace BinaVibe.Mcp
                    + $"&session_id={Uri.EscapeDataString(sessionId)}"
                    + (userId != null ? $"&user_id={Uri.EscapeDataString(userId)}" : "")
                    + $"&token={Uri.EscapeDataString(token)}";
-            _serverUri = new Uri($"{scheme}{rest}/vibe/mcp/tunnel{qs}");
+            _serverUri = new Uri($"{scheme}{rest}/revit-copilot/mcp/tunnel{qs}");
             _tenantId = tenantId;
             _sessionId = sessionId;
             _token = token;
