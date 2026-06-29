@@ -614,7 +614,7 @@ namespace RevitWebAppSync.UI.Copilot
             };
 
             // Set the project id that matches the snapshot namespace the
-            // DocumentChangedIndexer uses for /vibe/snapshot/{tenant}/{project}.
+            // DocumentChangedIndexer uses for /revit-copilot/snapshot/{tenant}/{project}.
             // BinaConfig.ProjectId is the integer project id from bina-be,
             // stored in the same config that the indexer reads at startup.
             try

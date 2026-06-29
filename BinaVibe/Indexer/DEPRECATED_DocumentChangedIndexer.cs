@@ -27,7 +27,7 @@ using Autodesk.Revit.DB.Events;
 namespace BinaVibe.Indexer
 {
     /// <summary>
-    /// Wire format sent to POST /vibe/snapshot/{tenant}/{project}.
+    /// Wire format sent to POST /revit-copilot/snapshot/{tenant}/{project}.
     /// Matches the backend SnapshotPayload schema:
     ///   { mode, docs, deleted_ids, version }
     /// </summary>
@@ -190,7 +190,7 @@ namespace BinaVibe.Indexer
             var body = new { mode = "delta", docs, deleted_ids = deleted };
             using var req = new HttpRequestMessage(
                 HttpMethod.Post,
-                $"{_baseUrl}/vibe/snapshot/{_tenantId}/{_projectId}");
+                $"{_baseUrl}/revit-copilot/snapshot/{_tenantId}/{_projectId}");
             req.Content = new StringContent(
                 JsonSerializer.Serialize(body), Encoding.UTF8, "application/json");
             using var resp = await _http.SendAsync(req).ConfigureAwait(false);
@@ -493,7 +493,7 @@ namespace BinaVibe.Indexer
             };
             using var req = new HttpRequestMessage(
                 HttpMethod.Post,
-                $"{_baseUrl}/vibe/snapshot/{_tenantId}/{_projectId}");
+                $"{_baseUrl}/revit-copilot/snapshot/{_tenantId}/{_projectId}");
             req.Content = new StringContent(
                 JsonSerializer.Serialize(payload, serializerOptions),
                 Encoding.UTF8,
@@ -501,7 +501,7 @@ namespace BinaVibe.Indexer
 
             System.Diagnostics.Debug.WriteLine(
                 $"[BinaVibe] BulkIndex: posting {docs.Count} docs to " +
-                $"/vibe/snapshot/{_tenantId}/{_projectId}");
+                $"/revit-copilot/snapshot/{_tenantId}/{_projectId}");
 
             try
             {

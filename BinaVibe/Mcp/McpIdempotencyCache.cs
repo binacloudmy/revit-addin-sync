@@ -2,7 +2,7 @@
 // McpJob that first handled it.
 //
 // Why: the backend already stamps every MUTATE with a stable key
-// (tool+args+session, see app/agents/vibe/tools.py:_mutate) so a RETRY of the
+// (tool+args+session, see app/agents/revit/copilot/tools.py:_mutate) so a RETRY of the
 // same logical mutation can be deduped. Until now the addin threw the key away
 // → a retry after a false-timeout re-ran the write and created a DUPLICATE
 // element. This cache closes that hole: a repeated key returns the original
