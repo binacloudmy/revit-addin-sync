@@ -245,7 +245,7 @@ namespace RevitWebAppSync
                     CopilotPaneHost = new CopilotPaneHost();
                     application.RegisterDockablePane(
                         CopilotPaneHost.PaneId,
-                        "BINA Revit Copilot",
+                        "BINA AI Copilot",
                         CopilotPaneHost);
                 }
                 catch (Exception copilotEx)
@@ -521,8 +521,8 @@ namespace RevitWebAppSync
                 Assembly.GetExecutingAssembly().Location,
                 "RevitWebAppSync.Commands.OpenCopilotCommand")
             {
-                ToolTip = "Open Revit Copilot",
-                LongDescription = "Open the Revit Copilot side panel to run vetted tools or AI commands with natural language. Examples: Count doors by level, Rename levels, Find walls missing fire rating.",
+                ToolTip = "Open BINA AI Copilot",
+                LongDescription = "Open the BINA AI Copilot side panel to run vetted tools or AI commands with natural language. Examples: Count doors by level, Rename levels, Find walls missing fire rating.",
                 Image = LoadImage("RevitWebAppSync.Resources.aiAssistant.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.aiAssistant.png", 32)
             };

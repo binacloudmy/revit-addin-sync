@@ -33,7 +33,7 @@ namespace RevitWebAppSync.UI.Copilot
                 System.Diagnostics.Debug.WriteLine($"[BINA] CopilotPaneHost init error: {ex.Message}");
                 this.Content = new TextBlock
                 {
-                    Text = $"Revit Copilot failed to load: {ex.Message}",
+                    Text = $"BINA AI Copilot failed to load: {ex.Message}",
                     Foreground = System.Windows.Media.Brushes.Red,
                     Margin = new System.Windows.Thickness(10)
                 };

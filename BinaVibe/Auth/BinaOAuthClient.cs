@@ -109,7 +109,7 @@ namespace BinaVibe.Auth
             string code = GetQueryValue(query, "code");
             string rxState = GetQueryValue(query, "state");
 
-            WriteBrowserResponse(ctx, "Revit Copilot — signed in. You can return to Revit and close this tab.");
+            WriteBrowserResponse(ctx, "BINA AI Copilot — signed in. You can return to Revit and close this tab.");
             listener.Stop();
 
             if (rxState != state) throw new InvalidOperationException("OAuth state mismatch — login aborted.");

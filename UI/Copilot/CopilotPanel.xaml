@@ -39,7 +39,7 @@
                 </Border>
 
                 <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
-                    <TextBlock Text="Revit Copilot" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
+                    <TextBlock Text="BINA AI Copilot" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
                     <StackPanel Orientation="Horizontal" Margin="0,1,0,0">
                         <Ellipse Width="6" Height="6" Fill="{DynamicResource Cp.Green}" VerticalAlignment="Center" Margin="0,0,4,0"/>
                         <TextBlock FontSize="11" Foreground="{DynamicResource Cp.Muted}">

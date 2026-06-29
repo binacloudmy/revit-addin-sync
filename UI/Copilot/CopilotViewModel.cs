@@ -55,7 +55,12 @@ namespace RevitWebAppSync.UI.Copilot
             UnpinCommand = new RelayCommand(p => Unpin(p as string));
             RunCommand = new RelayCommand(_ => Run());
             CancelRunCommand = new RelayCommand(_ => CancelRun());
-            ClearChatCommand = new RelayCommand(_ => Thread.Clear());
+            ClearChatCommand = new RelayCommand(_ =>
+            {
+                Thread.Clear();
+                _currentSession = null;
+                (Router as RevitChatRouter)?.ResetSession();
+            });
             ClearHighlightsCommand = new RelayCommand(_ => Highlights.Clear());
             ChatSendCommand = new RelayCommand(ChatSendAny);
             FollowUpCommand = new RelayCommand(ChatSendAny);

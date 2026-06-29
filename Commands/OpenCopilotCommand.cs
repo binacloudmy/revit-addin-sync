@@ -25,14 +25,14 @@ namespace RevitWebAppSync.Commands
 
                 if (uiApp.ActiveUIDocument == null)
                 {
-                    TaskDialog.Show("Revit Copilot", "Please open a Revit project first.");
+                    TaskDialog.Show("BINA AI Copilot", "Please open a Revit project first.");
                     return Result.Cancelled;
                 }
 
                 DockablePane pane = uiApp.GetDockablePane(CopilotPaneHost.PaneId);
                 if (pane == null)
                 {
-                    TaskDialog.Show("Revit Copilot", "Copilot panel not found. Please restart Revit.");
+                    TaskDialog.Show("BINA AI Copilot", "Copilot panel not found. Please restart Revit.");
                     return Result.Failed;
                 }
 
@@ -47,7 +47,7 @@ namespace RevitWebAppSync.Commands
             }
             catch (Exception ex)
             {
-                TaskDialog.Show("Revit Copilot — Error", $"Failed to open Copilot: {ex.Message}");
+                TaskDialog.Show("BINA AI Copilot — Error", $"Failed to open Copilot: {ex.Message}");
                 return Result.Failed;
             }
         }
