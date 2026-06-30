@@ -185,12 +185,19 @@ namespace RevitWebAppSync
 
                 // Tool-calling execution handler — ALWAYS created (independent of
                 // the gated tunnel/MCP transport). The HTTP tool-loop (ToolLoopRunner)
-                // enqueues an McpJob here, raises the event, and waits; the handler
-                // runs the tool via ToolRegistry.Invoke on the Revit UI thread. This
-                // is the addin half of Step 4 (/tool/generate ↔ /tool/resume) — no
-                // tunnel needed, the backend just hands us pending tool calls.
+                // enqueues an McpJob via McpJobPump, which drains it on the Revit UI
+                // thread from the Idling event (forcing continuous idling so it runs
+                // promptly even from the modeless pane), and fast-fails if Revit is
+                // busy / has a modal dialog open. This is the addin half of Step 4
+                // (/tool/generate ↔ /tool/resume) — no tunnel needed.
                 McpToolHandler = new BinaVibe.Mcp.McpExternalEventHandler();
                 McpToolEvent = ExternalEvent.Create(McpToolHandler);
+                // Idling-driven pump (kills the "Revit not idle → 600s freeze" bug,
+                // see docs/superpowers/specs/2026-06-30-revit-tool-execution-reliability-design.md).
+                BinaVibe.Mcp.McpJobPump.Init(application, McpToolHandler, McpToolEvent);
+                // A Revit modal dialog blocks idling entirely — note it so a
+                // fast-fail tells the user to close the dialog.
+                application.DialogBoxShowing += (s, e) => BinaVibe.Mcp.McpJobPump.NoteDialogShown();
 
                 // Warm-up: pays the one-time first-regen at doc-open so the
                 // user's first build doesn't freeze (see WarmupHandler).

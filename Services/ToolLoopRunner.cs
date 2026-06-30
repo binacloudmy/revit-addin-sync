@@ -2,8 +2,9 @@
 //
 //   1. POST /tool/generate.
 //   2. While the backend says "awaiting_revit": run each pending tool in real
-//      Revit (enqueue an McpJob on App.McpToolHandler, raise the ExternalEvent,
-//      wait for the UI thread to finish), collect results, POST /tool/resume.
+//      Revit (enqueue an McpJob via McpJobPump, which drains it from the Idling
+//      event and fast-fails if Revit is busy / has a dialog open), await the
+//      result, collect, POST /tool/resume.
 //   3. Stop when the backend says "done" (or the round cap is hit) and return
 //      the final reply.
 //
@@ -52,9 +53,11 @@ namespace RevitWebAppSync.Services
         // Cap addin↔backend ping-pong so a model that keeps emitting tools can't
         // loop forever. Each round = one external batch we execute.
         private const int MaxRounds = 8;
-        // A single tool's Revit execution can be slow on a cold/large model
-        // (open + first regen). Match the tunnel's generous ceiling.
-        private static readonly TimeSpan JobMaxWait = TimeSpan.FromSeconds(600);
+        // EXECUTION ceiling for a tool that actually started running in Revit
+        // (commit + regen on a cold/large model). The old 600s was really an
+        // "idle never came" wait — that hazard is now handled fast by the
+        // McpJobPump idle-watchdog, so this can be a sane execution bound.
+        private static readonly TimeSpan JobMaxWait = TimeSpan.FromSeconds(45);
 
         public ToolLoopRunner(ToolLoopService svc) => _svc = svc;
 
@@ -217,56 +220,48 @@ namespace RevitWebAppSync.Services
             };
         }
 
-        /// <summary>Run ONE pending tool on Revit's UI thread via the always-on
-        /// McpExternalEventHandler, and map the outcome to the wire result shape.</summary>
+        /// <summary>Run ONE pending tool on Revit's UI thread via the Idling-driven
+        /// McpJobPump, and map the outcome to the wire result shape.
+        ///
+        /// TAP, not block-wait: we enqueue and AWAIT the job's TaskCompletionSource.
+        /// The pump drains it on a Revit idle (forcing continuous idling via
+        /// SetRaiseWithoutDelay), and its idle-watchdog fast-fails the job within
+        /// seconds if Revit can't service the queue (busy / modal dialog) — so this
+        /// never hangs. JobMaxWait is the EXECUTION ceiling for a tool that did
+        /// start, not the old 600s "hope an idle comes" wait.</summary>
         private static async Task<ToolResultDto> ExecuteOneAsync(PendingToolCall call, CancellationToken ct)
         {
-            var handler = RevitWebAppSync.App.McpToolHandler;
-            var evt = RevitWebAppSync.App.McpToolEvent;
-            if (handler == null || evt == null)
-            {
-                return new ToolResultDto
-                {
-                    ToolCallId = call.ToolCallId, Ok = false,
-                    Error = "tool execution handler not initialised",
-                };
-            }
-
             var job = new McpJob
             {
                 Tool = call.Tool,
                 Args = call.Args,                 // JsonElement straight through to ToolRegistry
                 IdempotencyKey = call.IdempotencyKey ?? "",
             };
-            job.TEnqueued = System.Diagnostics.Stopwatch.GetTimestamp();
-            handler.Pending.Enqueue(job);
-            evt.Raise();
+            McpJobPump.Enqueue(job);   // sets TEnqueued, queues, kicks, arms the watchdog
 
-            // Block on a threadpool thread so we don't pin the caller; the handler
-            // signals Completed from the Revit UI thread.
-            bool completed;
-            try
+            // Await completion with a bounded execution timeout. Task.WhenAny +
+            // Task.Delay (not Task.WaitAsync) so this compiles on .NET Framework
+            // Revit targets too.
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var delay = Task.Delay(JobMaxWait, timeoutCts.Token);
+            var winner = await Task.WhenAny(job.Done.Task, delay).ConfigureAwait(false);
+            timeoutCts.Cancel();                       // stop the delay if the job won
+            try { await delay.ConfigureAwait(false); } catch { /* observe the cancelled delay */ }
+
+            if (winner != job.Done.Task)
             {
-                completed = await Task.Run(() => job.Completed.Wait(JobMaxWait), ct).ConfigureAwait(false);
-            }
-            catch (System.OperationCanceledException)
-            {
-                // User hit Stop. Revit can't abort a job mid-execution, but
-                // marking it abandoned makes the handler skip it if it's still
-                // queued — so cancelled work can't jam the turns that follow.
+                // Timed out or the user hit Stop. Mark abandoned so a late drain
+                // skips it and can't jam later turns.
                 job.Abandoned = true;
-                throw;
-            }
-
-            if (!completed)
-            {
-                job.Abandoned = true;   // same drain rule on timeout
+                if (ct.IsCancellationRequested)
+                    throw new System.OperationCanceledException(ct);
                 return new ToolResultDto
                 {
                     ToolCallId = call.ToolCallId, Ok = false,
-                    Error = $"Revit did not finish {call.Tool} within {JobMaxWait.TotalSeconds:F0}s",
+                    Error = $"Revit did not finish {call.Tool} within {JobMaxWait.TotalSeconds:F0}s — it may be busy or have a dialog open.",
                 };
             }
+
             if (job.Error != null)
                 return new ToolResultDto { ToolCallId = call.ToolCallId, Ok = false, Error = job.Error };
 
