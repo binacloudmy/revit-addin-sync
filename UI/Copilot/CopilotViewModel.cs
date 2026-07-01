@@ -875,7 +875,7 @@ namespace RevitWebAppSync.UI.Copilot
             // and runs automatically — no Run button.
             if (rr != null && !string.IsNullOrWhiteSpace(rr.Code))
             {
-                ExecuteAsChatReply(tool, rr.Code, routeText, displayText, historyFiles);
+                ExecuteAsChatReply(tool, rr.Code, routeText, displayText, historyFiles, rr.Reply);
                 return;
             }
 
@@ -893,7 +893,7 @@ namespace RevitWebAppSync.UI.Copilot
             AppendToCurrentSession(displayText, text2, "ok", new List<string> { tool.Id }, historyFiles);
         }
 
-        private void ExecuteAsChatReply(ToolDef tool, string code, string routePrompt = null, string displayPrompt = null, List<HistoryFile> historyFiles = null)
+        private void ExecuteAsChatReply(ToolDef tool, string code, string routePrompt = null, string displayPrompt = null, List<HistoryFile> historyFiles = null, string streamedReply = null)
         {
             ToolId = tool.Id;
             _runClock = System.Diagnostics.Stopwatch.StartNew();
@@ -915,7 +915,14 @@ namespace RevitWebAppSync.UI.Copilot
             void Done(ExecOutcome outcome)
             {
                 var result = BuildResult(tool, outcome);
-                var reply = FormatResultAsText(result, outcome);
+                var resultText = FormatResultAsText(result, outcome);
+                // ONE growing bubble: keep the model's streamed narration ("Tingkap
+                // diasingkan… Sekarang warnakan…") and APPEND the code's result under
+                // it, instead of REPLACING the narration with the result.
+                var reply = (!string.IsNullOrWhiteSpace(streamedReply)
+                             && streamedReply.Trim() != resultText.Trim())
+                    ? streamedReply.Trim() + "\n\n" + resultText
+                    : resultText;
                 ReplaceLastThinking(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
