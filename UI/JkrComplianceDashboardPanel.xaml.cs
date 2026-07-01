@@ -18,7 +18,7 @@ using RevitWebAppSync.UI.Jkr.ViewModels;
 
 namespace RevitWebAppSync.UI
 {
-    public partial class JkrComplianceDashboardPanel : Page
+    public partial class JkrComplianceDashboardPanel : UserControl
     {
         private UIApplication _uiApp;
         private readonly PanelVm _vm = new PanelVm();
@@ -137,6 +137,11 @@ namespace RevitWebAppSync.UI
             HiPill.Count = _vm.HighOpen;
             MdPill.Count = _vm.MedOpen;
             LoPill.Count = _vm.LowOpen;
+            // Dim the non-selected severity pills when a severity filter is active.
+            var sev = _vm.ActiveSeverity;
+            HiPill.Opacity = (sev == null || sev == IssuePriority.High) ? 1.0 : 0.4;
+            MdPill.Opacity = (sev == null || sev == IssuePriority.Medium) ? 1.0 : 0.4;
+            LoPill.Opacity = (sev == null || sev == IssuePriority.Low) ? 1.0 : 0.4;
 
             // Fix All badge count
             var fc = _vm.FixableCount;
@@ -268,6 +273,12 @@ namespace RevitWebAppSync.UI
         // ────────────────────────────────────────────────
 
         private void Rescan_Click(object sender, RoutedEventArgs e) => _ = RunScanAsync();
+
+        // Severity filter — clicking a High/Med/Low pill toggles that severity on the
+        // issue list (composes with category chip, status tab, and search).
+        private void HiPill_Click(object s, MouseButtonEventArgs e) => _vm.ToggleSeverity(IssuePriority.High);
+        private void MdPill_Click(object s, MouseButtonEventArgs e) => _vm.ToggleSeverity(IssuePriority.Medium);
+        private void LoPill_Click(object s, MouseButtonEventArgs e) => _vm.ToggleSeverity(IssuePriority.Low);
 
         private void FixAll_Click(object sender, RoutedEventArgs e)
         {
