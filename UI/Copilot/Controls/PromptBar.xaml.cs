@@ -151,7 +151,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     Content = "✕", FontSize = 8, Width = 16, Height = 16, Cursor = Cursors.Hand,
                     HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
                     Margin = new Thickness(0, -4, -4, 0), Padding = new Thickness(0),
-                    Background = Brushes.White, BorderThickness = new Thickness(1),
+                    Background = CopilotColors.From("#ffffff"), BorderThickness = new Thickness(1),
                     BorderBrush = (Brush)FindResource("Cp.Line"), IsTabStop = false,
                     ToolTip = "Remove screenshot",
                 };
@@ -168,7 +168,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 {
                     CornerRadius = new CornerRadius(8), Padding = new Thickness(8, 4, 4, 4),
                     BorderThickness = new Thickness(1), BorderBrush = (Brush)FindResource("Cp.Line"),
-                    Background = Brushes.White, Margin = new Thickness(0, 0, 6, 0),
+                    Background = CopilotColors.From("#ffffff"), Margin = new Thickness(0, 0, 6, 0),
                     VerticalAlignment = VerticalAlignment.Center,
                 };
                 var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };

@@ -19,6 +19,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             InitializeComponent();
             DataContextChanged += (_, __) => Hook();
             Loaded += (_, __) => Rebuild();
+            System.Action onTheme = () => Rebuild();   // recolor on light/dark swap
+            Loaded += (_, __) => CopilotTheme.ThemeChanged += onTheme;
+            Unloaded += (_, __) => CopilotTheme.ThemeChanged -= onTheme;
         }
 
         private CopilotViewModel _hooked;
@@ -157,7 +160,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private static void StyleSeg(Button b, bool active)
         {
-            b.Background = active ? Brushes.White : Brushes.Transparent;
+            b.Background = active ? CopilotColors.From("#ffffff") : Brushes.Transparent;
             b.Foreground = active ? CopilotColors.From("#0b0d12") : CopilotColors.From("#6b7280");
             b.FontWeight = active ? FontWeights.SemiBold : FontWeights.Medium;
             b.Padding = new Thickness(6);

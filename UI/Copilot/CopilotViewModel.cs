@@ -65,6 +65,7 @@ namespace RevitWebAppSync.UI.Copilot
             ChatSendCommand = new RelayCommand(ChatSendAny);
             FollowUpCommand = new RelayCommand(ChatSendAny);
             CancelSendCommand = new RelayCommand(_ => CancelSend());
+            ToggleThemeCommand = new RelayCommand(_ => IsDark = !IsDark);
             ChatRunCommand = new RelayCommand(p => ChatRun(p as ChatMessage));
             ChatRegenerateCommand = new RelayCommand(p => ChatRegenerate(p as ChatMessage));
             ChatOpenEditorCommand = new RelayCommand(p => OpenTool((p as ChatMessage)?.ToolId));
@@ -397,6 +398,16 @@ namespace RevitWebAppSync.UI.Copilot
         public RelayCommand ChatSendCommand { get; }
         public RelayCommand FollowUpCommand { get; }
         public RelayCommand CancelSendCommand { get; }
+        public RelayCommand ToggleThemeCommand { get; }
+
+        // Light/dark theme of the Slate panel. Swaps the live token dictionary
+        // (CopilotTheme.SetTheme); IsDark also flips the header toggle glyph.
+        private bool _isDark = CopilotTheme.IsDark;
+        public bool IsDark
+        {
+            get => _isDark;
+            set { if (_isDark == value) return; _isDark = value; CopilotTheme.SetTheme(value); Raise(); }
+        }
 
         // True while a reply is in flight (the RouteAsync window). Bound to the
         // PromptBar so the send button becomes a Stop button the user can click

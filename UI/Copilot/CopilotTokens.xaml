@@ -2,38 +2,45 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
 
-    <!-- ═══════════ CORE PALETTE (shared.jsx COPILOT_TOKENS) ═══════════ -->
+    <!-- ═══════════════════════════════════════════════════════════════════
+         SHARED tokens — theme-INVARIANT values only.
+         Theme-dependent surface/text/line tokens live in
+         CopilotTokens.Light.xaml / CopilotTokens.Dark.xaml (same keys),
+         swapped at runtime by CopilotTheme.SetTheme(). Everything here is
+         the same in light and dark (brand accent, status colors, fonts,
+         dimensions, gradients).  ("Slate" design system.)
+         ═══════════════════════════════════════════════════════════════════ -->
+
+    <!-- ─────────── BRAND ACCENT (Slate default = blue) ─────────── -->
     <SolidColorBrush x:Key="Cp.Blue"      Color="#2563eb"/>
     <SolidColorBrush x:Key="Cp.BlueHover" Color="#1d4ed8"/>
     <SolidColorBrush x:Key="Cp.BlueSoft"  Color="#eff6ff"/>
     <SolidColorBrush x:Key="Cp.BlueText"  Color="#1e40af"/>
-    <SolidColorBrush x:Key="Cp.Ink"       Color="#0b0d12"/>
-    <SolidColorBrush x:Key="Cp.Ink2"      Color="#1f2430"/>
-    <SolidColorBrush x:Key="Cp.Text"      Color="#374151"/>
-    <SolidColorBrush x:Key="Cp.Muted"     Color="#6b7280"/>
-    <SolidColorBrush x:Key="Cp.Faint"     Color="#9ca3af"/>
-    <SolidColorBrush x:Key="Cp.Line"      Color="#e5e7eb"/>
-    <SolidColorBrush x:Key="Cp.LineSoft"  Color="#f1f3f5"/>
-    <SolidColorBrush x:Key="Cp.Bg"        Color="#ffffff"/>
-    <SolidColorBrush x:Key="Cp.PanelBg"   Color="#fafafa"/>
-    <SolidColorBrush x:Key="Cp.Hover"     Color="#f3f4f6"/>
-    <SolidColorBrush x:Key="Cp.Green"     Color="#16a34a"/>
-    <SolidColorBrush x:Key="Cp.Amber"     Color="#d97706"/>
-    <SolidColorBrush x:Key="Cp.Red"       Color="#dc2626"/>
 
-    <!-- ═══════════ PURPLE / AI ACCENT ═══════════ -->
+    <!-- Accent gradient (header logo / primary buttons) -->
+    <LinearGradientBrush x:Key="Cp.AccentGrad" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0"   Color="#3b8ef7"/>
+        <GradientStop Offset="1"   Color="#1d5fe0"/>
+    </LinearGradientBrush>
+
+    <!-- ─────────── PURPLE / AI ACCENT-2 ─────────── -->
     <SolidColorBrush x:Key="Cp.Purple"     Color="#7c3aed"/>
     <SolidColorBrush x:Key="Cp.PurpleSoft" Color="#f5f3ff"/>
     <SolidColorBrush x:Key="Cp.PurpleLine" Color="#ddd6fe"/>
     <SolidColorBrush x:Key="Cp.PurpleDeep" Color="#3b1d75"/>
 
-    <!-- ═══════════ TIER BADGES ═══════════ -->
+    <!-- ─────────── STATUS ─────────── -->
+    <SolidColorBrush x:Key="Cp.Green"     Color="#10b981"/>
+    <SolidColorBrush x:Key="Cp.Amber"     Color="#d97706"/>
+    <SolidColorBrush x:Key="Cp.Red"       Color="#dc2626"/>
+
+    <!-- ─────────── TIER BADGES ─────────── -->
     <SolidColorBrush x:Key="Cp.Tier1Bg" Color="#dcfce7"/>
     <SolidColorBrush x:Key="Cp.Tier1Fg" Color="#15803d"/>
     <SolidColorBrush x:Key="Cp.Tier2Bg" Color="#f5f3ff"/>
     <SolidColorBrush x:Key="Cp.Tier2Fg" Color="#7c3aed"/>
 
-    <!-- ═══════════ STATUS / RESULT ═══════════ -->
+    <!-- ─────────── STATUS / RESULT SURFACES ─────────── -->
     <SolidColorBrush x:Key="Cp.OkBg"      Color="#dcfce7"/>
     <SolidColorBrush x:Key="Cp.SuccessLn" Color="#bbf7d0"/>
     <SolidColorBrush x:Key="Cp.IssueBg"   Color="#fef2f2"/>
@@ -43,9 +50,8 @@
     <SolidColorBrush x:Key="Cp.AmberBg"   Color="#fffbeb"/>
     <SolidColorBrush x:Key="Cp.AmberLn"   Color="#fde68a"/>
     <SolidColorBrush x:Key="Cp.AmberFg"   Color="#92400e"/>
-    <SolidColorBrush x:Key="Cp.CodeBg"    Color="#0b0d12"/>
-    <SolidColorBrush x:Key="Cp.CodeFg"    Color="#e5e7eb"/>
-    <SolidColorBrush x:Key="Cp.TabBadgeBg" Color="#eef0f3"/>
+    <SolidColorBrush x:Key="Cp.CodeBg"    Color="#0c1420"/>
+    <SolidColorBrush x:Key="Cp.CodeFg"    Color="#e8eef6"/>
 
     <!-- Bot avatar gradient (blue → purple) -->
     <LinearGradientBrush x:Key="Cp.BotGradient" StartPoint="0,0" EndPoint="1,1">
@@ -53,7 +59,7 @@
         <GradientStop Offset="1" Color="#7c3aed"/>
     </LinearGradientBrush>
 
-    <!-- ═══════════ TOOL ICON-TILE PALETTES (README "Tool icon palettes") ═══════════ -->
+    <!-- ─────────── TOOL ICON-TILE PALETTES ─────────── -->
     <SolidColorBrush x:Key="Cp.Tile.BlueBg"   Color="#dbeafe"/>
     <SolidColorBrush x:Key="Cp.Tile.BlueFg"   Color="#1d4ed8"/>
     <SolidColorBrush x:Key="Cp.Tile.AmberBg"  Color="#fef3c7"/>
@@ -71,12 +77,13 @@
     <SolidColorBrush x:Key="Cp.Tile.SlateBg"  Color="#f1f5f9"/>
     <SolidColorBrush x:Key="Cp.Tile.SlateFg"  Color="#475569"/>
 
-    <!-- ═══════════ TYPOGRAPHY ═══════════ -->
-    <!-- Geist preferred; falls back to Segoe UI until woff2/ttf is embedded (Task 17). -->
+    <!-- ─────────── TYPOGRAPHY ─────────── -->
+    <!-- Geist preferred; falls back to Segoe UI until woff2/ttf is embedded (Phase B). -->
     <FontFamily x:Key="Cp.Font">Geist, Segoe UI, system-ui, sans-serif</FontFamily>
     <FontFamily x:Key="Cp.FontMono">Geist Mono, Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
 
-    <!-- ═══════════ DIMENSIONS ═══════════ -->
-    <sys:Double x:Key="Cp.PanelWidth">440</sys:Double>
+    <!-- ─────────── DIMENSIONS ─────────── -->
+    <!-- Slate panel = 360px (was 440). -->
+    <sys:Double x:Key="Cp.PanelWidth">360</sys:Double>
 
 </ResourceDictionary>

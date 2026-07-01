@@ -21,6 +21,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             InitializeComponent();
             DataContextChanged += (_, __) => Hook();
             Loaded += (_, __) => RebuildAll();
+            System.Action onTheme = () => RebuildAll();   // recolor on light/dark swap
+            Loaded += (_, __) => CopilotTheme.ThemeChanged += onTheme;
+            Unloaded += (_, __) => CopilotTheme.ThemeChanged -= onTheme;
         }
 
         private void Hook()
@@ -167,7 +170,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var g = new Grid();
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var tile = new Border { Width = 30, Height = 30, CornerRadius = new CornerRadius(7), Background = Brushes.White, VerticalAlignment = VerticalAlignment.Center };
+            var tile = new Border { Width = 30, Height = 30, CornerRadius = new CornerRadius(7), Background = CopilotColors.From("#ffffff"), VerticalAlignment = VerticalAlignment.Center };
             tile.Child = new Path { Width = 14, Height = 14, Stretch = Stretch.Uniform, Fill = CopilotColors.From("#7c3aed"), Data = CopilotIcons.Get("sparkleSolid"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             Grid.SetColumn(tile, 0);
             var col = new StackPanel { Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };

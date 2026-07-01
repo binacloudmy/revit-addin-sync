@@ -28,6 +28,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             InitializeComponent();
             DataContextChanged += (_, __) => Hook();
             Loaded += (_, __) => Rebuild();
+            System.Action onTheme = () => Rebuild();   // recolor on light/dark swap
+            Loaded += (_, __) => CopilotTheme.ThemeChanged += onTheme;
+            Unloaded += (_, __) => CopilotTheme.ThemeChanged -= onTheme;
         }
 
         private void Hook()
@@ -114,7 +117,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 Visibility = Visibility.Collapsed,
                 Margin = new Thickness(0, 0, 6, 0),
                 VerticalAlignment = VerticalAlignment.Center,
-                Background = Brushes.White,
+                Background = CopilotColors.From("#ffffff"),
                 BorderBrush = CopilotColors.From("#6d28d9"),
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(4, 2, 4, 2),

@@ -9,8 +9,8 @@
     <!-- Active = ink text + 2px ink bottom border; inactive = muted, no border. -->
     <Style x:Key="Cp.TabButton" TargetType="ToggleButton">
         <Setter Property="Background" Value="Transparent"/>
-        <Setter Property="Foreground" Value="{StaticResource Cp.Muted}"/>
-        <Setter Property="FontFamily" Value="{StaticResource Cp.Font}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Cp.Muted}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource Cp.Font}"/>
         <Setter Property="FontSize" Value="13"/>
         <Setter Property="FontWeight" Value="Medium"/>
         <Setter Property="Cursor" Value="Hand"/>
@@ -25,8 +25,8 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Cp.Ink}"/>
-                            <Setter Property="Foreground" Value="{StaticResource Cp.Ink}"/>
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Cp.Ink}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Cp.Ink}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -36,10 +36,10 @@
 
     <!-- ══════════ CATEGORY CHIP ══════════ -->
     <Style x:Key="Cp.Chip" TargetType="ToggleButton">
-        <Setter Property="Background" Value="{StaticResource Cp.Bg}"/>
-        <Setter Property="Foreground" Value="{StaticResource Cp.Text}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource Cp.Line}"/>
-        <Setter Property="FontFamily" Value="{StaticResource Cp.Font}"/>
+        <Setter Property="Background" Value="{DynamicResource Cp.Bg}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Cp.Text}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Cp.Line}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource Cp.Font}"/>
         <Setter Property="FontSize" Value="12.5"/>
         <Setter Property="FontWeight" Value="Medium"/>
         <Setter Property="Cursor" Value="Hand"/>
@@ -54,9 +54,9 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsChecked" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="{StaticResource Cp.Ink}"/>
-                            <Setter TargetName="bd" Property="BorderBrush" Value="{StaticResource Cp.Ink}"/>
-                            <Setter Property="Foreground" Value="White"/>
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Blue}"/>
+                            <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Cp.Blue}"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Cp.AccentContrast}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -66,9 +66,9 @@
 
     <!-- ══════════ RUN BUTTON — green (vetted forms) ══════════ -->
     <Style x:Key="Cp.RunButton" TargetType="Button">
-        <Setter Property="Background" Value="{StaticResource Cp.Green}"/>
+        <Setter Property="Background" Value="{DynamicResource Cp.Green}"/>
         <Setter Property="Foreground" Value="White"/>
-        <Setter Property="FontFamily" Value="{StaticResource Cp.Font}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource Cp.Font}"/>
         <Setter Property="FontSize" Value="13"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="Cursor" Value="Hand"/>
@@ -85,7 +85,7 @@
                             <Setter TargetName="bd" Property="Background" Value="#15803d"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
-                            <Setter TargetName="bd" Property="Background" Value="{StaticResource Cp.Faint}"/>
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Faint}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -95,7 +95,7 @@
 
     <!-- ══════════ RUN BUTTON — dark ink (tier-2 review / chat proposal) ══════════ -->
     <Style x:Key="Cp.RunDark" TargetType="Button" BasedOn="{StaticResource Cp.RunButton}">
-        <Setter Property="Background" Value="{StaticResource Cp.Ink}"/>
+        <Setter Property="Background" Value="{DynamicResource Cp.Blue}"/>
         <Setter Property="FontSize" Value="12.5"/>
         <Setter Property="Padding" Value="16,8,16,8"/>
         <Setter Property="Template">
@@ -107,7 +107,7 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="{StaticResource Cp.Ink2}"/>
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.BlueHover}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -118,9 +118,9 @@
     <!-- ══════════ GHOST BUTTON (Cancel / Regenerate / Edit code) ══════════ -->
     <Style x:Key="Cp.Ghost" TargetType="Button">
         <Setter Property="Background" Value="Transparent"/>
-        <Setter Property="Foreground" Value="{StaticResource Cp.Text}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource Cp.Line}"/>
-        <Setter Property="FontFamily" Value="{StaticResource Cp.Font}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Cp.Text}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Cp.Line}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource Cp.Font}"/>
         <Setter Property="FontSize" Value="11.5"/>
         <Setter Property="FontWeight" Value="Medium"/>
         <Setter Property="Cursor" Value="Hand"/>
@@ -135,7 +135,7 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="{StaticResource Cp.PanelBg}"/>
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.PanelBg}"/>
                             <Setter TargetName="bd" Property="BorderBrush" Value="#d1d5db"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -147,7 +147,7 @@
     <!-- ══════════ ICON BUTTON (header +, ⋯) ══════════ -->
     <Style x:Key="Cp.IconButton" TargetType="Button">
         <Setter Property="Background" Value="Transparent"/>
-        <Setter Property="Foreground" Value="{StaticResource Cp.Muted}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Cp.Muted}"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="Width" Value="28"/>
         <Setter Property="Height" Value="28"/>
@@ -159,7 +159,7 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="{StaticResource Cp.Hover}"/>
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
@@ -169,9 +169,9 @@
 
     <!-- ══════════ CARD (tool card / generic surface row) ══════════ -->
     <Style x:Key="Cp.Card" TargetType="Button">
-        <Setter Property="Background" Value="{StaticResource Cp.Bg}"/>
-        <Setter Property="BorderBrush" Value="{StaticResource Cp.Line}"/>
-        <Setter Property="FontFamily" Value="{StaticResource Cp.Font}"/>
+        <Setter Property="Background" Value="{DynamicResource Cp.Bg}"/>
+        <Setter Property="BorderBrush" Value="{DynamicResource Cp.Line}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource Cp.Font}"/>
         <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
         <Setter Property="Padding" Value="11,11,12,11"/>
@@ -186,7 +186,7 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="{StaticResource Cp.PanelBg}"/>
+                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.PanelBg}"/>
                             <Setter TargetName="bd" Property="BorderBrush" Value="#d1d5db"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -197,9 +197,9 @@
 
     <!-- ══════════ CODE BLOCK (tier-2 disclosure) ══════════ -->
     <Style x:Key="Cp.CodeBlock" TargetType="TextBox">
-        <Setter Property="Background" Value="{StaticResource Cp.CodeBg}"/>
-        <Setter Property="Foreground" Value="{StaticResource Cp.CodeFg}"/>
-        <Setter Property="FontFamily" Value="{StaticResource Cp.FontMono}"/>
+        <Setter Property="Background" Value="{DynamicResource Cp.CodeBg}"/>
+        <Setter Property="Foreground" Value="{DynamicResource Cp.CodeFg}"/>
+        <Setter Property="FontFamily" Value="{DynamicResource Cp.FontMono}"/>
         <Setter Property="FontSize" Value="11"/>
         <Setter Property="IsReadOnly" Value="True"/>
         <Setter Property="BorderThickness" Value="0"/>

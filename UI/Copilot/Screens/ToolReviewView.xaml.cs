@@ -20,6 +20,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             Loaded += (_, __) => Rebuild();
             CodeToggle.Checked += (_, __) => UpdateCaret();
             CodeToggle.Unchecked += (_, __) => UpdateCaret();
+            System.Action onTheme = () => Rebuild();   // recolor on light/dark swap
+            Loaded += (_, __) => CopilotTheme.ThemeChanged += onTheme;
+            Unloaded += (_, __) => CopilotTheme.ThemeChanged -= onTheme;
         }
 
         private void Hook()

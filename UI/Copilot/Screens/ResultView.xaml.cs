@@ -22,6 +22,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             InitializeComponent();
             DataContextChanged += (_, __) => Hook();
             Loaded += (_, __) => Rebuild();
+            System.Action onTheme = () => Rebuild();   // recolor on light/dark swap
+            Loaded += (_, __) => CopilotTheme.ThemeChanged += onTheme;
+            Unloaded += (_, __) => CopilotTheme.ThemeChanged -= onTheme;
         }
 
         private void Hook()
@@ -264,7 +267,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             foreach (var it in r.Items)
             {
-                var row = new Border { Background = Brushes.White, BorderBrush = CopilotColors.From("#fecaca"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(14, 9, 14, 9) };
+                var row = new Border { Background = CopilotColors.From("#ffffff"), BorderBrush = CopilotColors.From("#fecaca"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(14, 9, 14, 9) };
                 var g = new Grid();
                 g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -360,7 +363,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 Padding = new Thickness(11, 5, 11, 5),
                 FontSize = 11.5,
                 Cursor = System.Windows.Input.Cursors.Hand,
-                Background = Brushes.White,
+                Background = CopilotColors.From("#ffffff"),
                 BorderBrush = CopilotColors.From("#86efac"),
                 BorderThickness = new Thickness(1),
                 Foreground = CopilotColors.From("#15803d"),

@@ -38,6 +38,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             InitializeComponent();
             DataContextChanged += (_, __) => Hook();
             Loaded += (_, __) => Rebuild();
+            System.Action onTheme = () => Rebuild();   // recolor on light/dark swap
+            Loaded += (_, __) => CopilotTheme.ThemeChanged += onTheme;
+            Unloaded += (_, __) => CopilotTheme.ThemeChanged -= onTheme;
             // Re-flow bubbles when the PANE is resized (docked narrow ↔ pulled
             // wide) so message width tracks the panel instead of staying at the
             // narrow default. Delta-guarded: rebuilding on every pixel would
@@ -326,7 +329,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private FrameworkElement ClarifyCard(ChatMessage m)
         {
-            var outer = new Border { CornerRadius = new CornerRadius(12), BorderBrush = CopilotColors.From("#e5e7eb"), BorderThickness = new Thickness(1), Background = Brushes.White };
+            var outer = new Border { CornerRadius = new CornerRadius(12), BorderBrush = CopilotColors.From("#e5e7eb"), BorderThickness = new Thickness(1), Background = CopilotColors.From("#ffffff") };
             var sp = new StackPanel();
 
             var head = new Border { Padding = new Thickness(12, 10, 12, 10), BorderBrush = CopilotColors.From("#ddd6fe"), BorderThickness = new Thickness(0, 0, 0, 1), CornerRadius = new CornerRadius(12, 12, 0, 0) };
@@ -347,7 +350,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             foreach (var o in m.Options)
             {
                 var tool = CopilotCatalog.Find(o.ToolId);
-                var btn = new Button { Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(0, 0, 0, 5), BorderBrush = CopilotColors.From("#e5e7eb"), Background = Brushes.White, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+                var btn = new Button { Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(0, 0, 0, 5), BorderBrush = CopilotColors.From("#e5e7eb"), Background = CopilotColors.From("#ffffff"), HorizontalContentAlignment = HorizontalAlignment.Stretch };
                 btn.Template = OutlineCardTemplate();
                 var g = new Grid();
                 g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -380,7 +383,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private FrameworkElement ProposalCard(ChatMessage m)
         {
             var tool = CopilotCatalog.Find(m.ToolId);
-            var outer = new Border { CornerRadius = new CornerRadius(12), BorderBrush = CopilotColors.From("#e5e7eb"), BorderThickness = new Thickness(1), Background = Brushes.White };
+            var outer = new Border { CornerRadius = new CornerRadius(12), BorderBrush = CopilotColors.From("#e5e7eb"), BorderThickness = new Thickness(1), Background = CopilotColors.From("#ffffff") };
             var sp = new StackPanel();
 
             // header
@@ -474,7 +477,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             var tool = CopilotCatalog.Find(m.ToolId);
             var r = m.Result;
-            var outer = new Border { CornerRadius = new CornerRadius(12), BorderBrush = CopilotColors.From("#e5e7eb"), BorderThickness = new Thickness(1), Background = Brushes.White };
+            var outer = new Border { CornerRadius = new CornerRadius(12), BorderBrush = CopilotColors.From("#e5e7eb"), BorderThickness = new Thickness(1), Background = CopilotColors.From("#ffffff") };
             var sp = new StackPanel();
 
             var head = new Border { Background = CopilotColors.From("#fafafa"), BorderBrush = CopilotColors.From("#f1f3f5"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(12, 8, 12, 8), CornerRadius = new CornerRadius(12, 12, 0, 0) };
@@ -928,7 +931,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private FrameworkElement PromptCard((string glyph, string fg, string bg, string text) p)
         {
-            var btn = new Button { Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(0, 0, 0, 6), BorderBrush = CopilotColors.From("#e5e7eb"), Background = Brushes.White, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+            var btn = new Button { Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(0, 0, 0, 6), BorderBrush = CopilotColors.From("#e5e7eb"), Background = CopilotColors.From("#ffffff"), HorizontalContentAlignment = HorizontalAlignment.Stretch };
             btn.Template = OutlineCardTemplate();
             var g = new Grid();
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -958,7 +961,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var g = new Grid();
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            var tile = new Border { Width = 30, Height = 30, CornerRadius = new CornerRadius(7), Background = Brushes.White, BorderBrush = CopilotColors.From("#e5e7eb"), BorderThickness = new Thickness(1), VerticalAlignment = VerticalAlignment.Center };
+            var tile = new Border { Width = 30, Height = 30, CornerRadius = new CornerRadius(7), Background = CopilotColors.From("#ffffff"), BorderBrush = CopilotColors.From("#e5e7eb"), BorderThickness = new Thickness(1), VerticalAlignment = VerticalAlignment.Center };
             tile.Child = new Path { Width = 14, Height = 14, Stretch = Stretch.Uniform, Stroke = CopilotColors.From("#374151"), StrokeThickness = 1.8, Data = CopilotIcons.Get("layers"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             Grid.SetColumn(tile, 0);
             var col = new StackPanel { Margin = new Thickness(11, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };

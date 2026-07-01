@@ -28,6 +28,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             DataContextChanged += (_, __) => Hook();
             Loaded += (_, __) => StartIfRunning();
             Unloaded += (_, __) => StopTimer();
+            System.Action onTheme = () => RenderSteps();   // recolor on light/dark swap
+            Loaded += (_, __) => CopilotTheme.ThemeChanged += onTheme;
+            Unloaded += (_, __) => CopilotTheme.ThemeChanged -= onTheme;
         }
 
         private void Hook()
