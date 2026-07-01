@@ -37,7 +37,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string Description { get; set; } = "";
 
         public ElementRef Element { get; set; } = new ElementRef();
-        public int RevitElementId { get; set; }
+        public long RevitElementId { get; set; }
         public string Required { get; set; } = "";
         public string Actual { get; set; } = "";
         public string Example { get; set; } = "";
