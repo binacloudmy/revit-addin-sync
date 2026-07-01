@@ -4,7 +4,7 @@
 //   1. addin starts a loopback listener on http://127.0.0.1:<random>/callback/
 //   2. addin generates a PKCE verifier/challenge + random state
 //   3. addin opens the system browser at the landing page:
-//        {webBaseUrl}/signup/?redirect_uri=<loopback>&code_challenge=<c>
+//        {webBaseUrl}/login/?redirect_uri=<loopback>&code_challenge=<c>
 //                          &code_challenge_method=S256&state=<s>&api=<bina-ai>
 //   4. the page logs in/registers against bina-ai, gets a one-time `code`, and
 //      redirects to the loopback with ?code=<code>&state=<state>
@@ -75,7 +75,7 @@ namespace BinaVibe.Auth
             string state = Guid.NewGuid().ToString("N");
             // Pass &api so the (static) landing page knows which bina-ai to call —
             // handy when bina-ai is a local ngrok tunnel during testing.
-            string loginUrl = $"{_webBaseUrl}/signup/"
+            string loginUrl = $"{_webBaseUrl}/login/"
                 + $"?redirect_uri={Uri.EscapeDataString(redirect)}"
                 + $"&code_challenge={challenge}"
                 + "&code_challenge_method=S256"
