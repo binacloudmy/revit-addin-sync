@@ -518,15 +518,39 @@ namespace RevitWebAppSync.Services
         {
             var references = new List<MetadataReference>();
 
-            // Add references from all currently loaded assemblies that have a location
+            // De-dup by SIMPLE assembly name. Roslyn throws CS1703 ("an assembly with
+            // the same simple name has already been imported") and aborts the ENTIRE
+            // compile if two references share a simple name. Revit 2027 loads several
+            // stock Autodesk add-ins that each ship their own copy of
+            // Autodesk.Http.JsonApi.dll / Autodesk.Http.DevPortal.dll, so the raw
+            // GetAssemblies() list contains same-simple-name duplicates. Keep exactly
+            // one reference per simple name (newest version wins, first-seen tie-break).
+            var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var newestByName = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 try
                 {
-                    if (!assembly.IsDynamic && !string.IsNullOrEmpty(assembly.Location))
-                    {
-                        references.Add(MetadataReference.CreateFromFile(assembly.Location));
-                    }
+                    if (assembly.IsDynamic || string.IsNullOrEmpty(assembly.Location)) continue;
+                    var name = assembly.GetName().Name;
+                    if (string.IsNullOrEmpty(name)) continue;
+                    if (newestByName.TryGetValue(name, out var existing)
+                        && (existing.GetName().Version ?? new Version(0, 0)) >= (assembly.GetName().Version ?? new Version(0, 0)))
+                        continue;
+                    newestByName[name] = assembly;
+                }
+                catch
+                {
+                    // Skip assemblies whose name/version can't be read
+                }
+            }
+            foreach (var kv in newestByName)
+            {
+                try
+                {
+                    references.Add(MetadataReference.CreateFromFile(kv.Value.Location));
+                    seenNames.Add(kv.Key);
                 }
                 catch
                 {
@@ -534,13 +558,16 @@ namespace RevitWebAppSync.Services
                 }
             }
 
-            // Helper: make sure a specific assembly is in the reference set.
+            // Helper: make sure a specific assembly is in the reference set — de-dup by
+            // simple name (same rule as the bulk loop) so an explicit add can't
+            // re-introduce a CS1703 duplicate.
             void EnsureRef(Assembly asm, string nameHint)
             {
                 try
                 {
                     if (asm == null || string.IsNullOrEmpty(asm.Location)) return;
-                    if (references.Any(r => r.Display != null && r.Display.IndexOf(nameHint, StringComparison.OrdinalIgnoreCase) >= 0)) return;
+                    var name = asm.GetName().Name ?? nameHint;
+                    if (!seenNames.Add(name)) return;   // already referenced
                     references.Add(MetadataReference.CreateFromFile(asm.Location));
                 }
                 catch { }
