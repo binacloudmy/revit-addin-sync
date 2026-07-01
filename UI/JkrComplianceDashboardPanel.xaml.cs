@@ -342,16 +342,14 @@ namespace RevitWebAppSync.UI
             // Update progress to "applying"
             Dispatcher.InvokeAsync(() =>
             {
-                FixProgressLabel.Text = $"Applying {totalToFix} fixes — Revit may briefly stop responding…";
+                FixProgressLabel.Text = $"Applying {totalToFix} fixes…";
                 FixProgressCount.Text = $"0/{totalToFix}";
-                System.Windows.Input.Mouse.OverrideCursor = System.Windows.Input.Cursors.Wait;
             });
 
             handler.OnCompleted = (result) =>
             {
                 Dispatcher.Invoke(() =>
                 {
-                    System.Windows.Input.Mouse.OverrideCursor = null;
                     FixAllBtn.IsEnabled = true;
                     _fixInFlight = false;
 
@@ -471,6 +469,23 @@ namespace RevitWebAppSync.UI
 
                     // Re-scan to verify — the re-scan will show fewer issues now.
                     _ = RunScanAfterFix(summary, result.Failed, preservedAfterFix, openBeforeFix);
+                });
+            };
+
+            // Live progress: the chunked handler fires this once per Idling slice, so
+            // the bar animates 0→N while Revit stays responsive (no "Not Responding").
+            handler.OnProgress = (done, total) =>
+            {
+                Dispatcher.InvokeAsync(() =>
+                {
+                    FixProgressCount.Text = $"{done}/{total}";
+                    try
+                    {
+                        var bp = FixProgressBar.Parent as FrameworkElement;
+                        if (bp != null && bp.ActualWidth > 0 && total > 0)
+                            FixProgressBar.Width = bp.ActualWidth * ((double)done / total);
+                    }
+                    catch { }
                 });
             };
 
