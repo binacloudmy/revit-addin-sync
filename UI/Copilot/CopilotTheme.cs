@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
 
@@ -36,13 +37,31 @@ namespace RevitWebAppSync.UI.Copilot
             return $"pack://application:,,,/{asm};component/UI/Copilot/{file}";
         }
 
+        // ── Diagnostics ──────────────────────────────────────────────────────
+        // Appends to %TEMP%\RevitWebAppSync\logs\theme.log (per README log dir).
+        private static readonly string _logPath =
+            Path.Combine(Path.GetTempPath(), "RevitWebAppSync", "logs", "theme.log");
+
+        private static void Log(string msg)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_logPath));
+                File.AppendAllText(_logPath, $"{DateTime.Now:HH:mm:ss.fff}  {msg}{Environment.NewLine}");
+            }
+            catch { /* logging must never throw */ }
+            System.Diagnostics.Debug.WriteLine("[BINA-theme] " + msg);
+        }
+
         public static void EnsureLoaded()
         {
             if (_loaded) return;
             lock (_lock)
             {
                 if (_loaded) return;
-                if (Application.Current == null) return;
+                if (Application.Current == null) { Log("EnsureLoaded: Application.Current == null"); return; }
+
+                Log($"EnsureLoaded start (thread {Environment.CurrentManagedThreadId}, dark={_isDark})");
 
                 // Shared (theme-invariant) tokens first.
                 Merge(Pack("CopilotTokens.xaml"));
@@ -55,17 +74,19 @@ namespace RevitWebAppSync.UI.Copilot
                 Merge(Pack("CopilotStyles.xaml"));
 
                 _loaded = true;
+                Log("EnsureLoaded done");
             }
         }
 
         /// <summary>Swap the live light/dark token dictionary. Safe to call repeatedly.</summary>
         public static void SetTheme(bool dark)
         {
+            Log($"SetTheme requested dark={dark} (thread {Environment.CurrentManagedThreadId})");
             EnsureLoaded();
-            if (Application.Current == null) return;
+            if (Application.Current == null) { Log("SetTheme: no Application.Current"); return; }
             lock (_lock)
             {
-                if (_isDark == dark && _themeDict != null) return;
+                if (_isDark == dark && _themeDict != null) { Log("SetTheme: already in requested theme, no-op"); return; }
                 _isDark = dark;
 
                 var next = new ResourceDictionary { Source = new Uri(Pack(ThemeFile(dark)), UriKind.Absolute) };
@@ -88,9 +109,10 @@ namespace RevitWebAppSync.UI.Copilot
                 }
                 _themeDict = next;
             }
+            Log("SetTheme: dictionary swapped");
 
-            try { ThemeChanged?.Invoke(); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] ThemeChanged handler threw: {ex.Message}"); }
+            try { ThemeChanged?.Invoke(); Log("SetTheme: ThemeChanged done"); }
+            catch (Exception ex) { Log("ThemeChanged handler threw: " + ex); }
         }
 
         public static void ToggleTheme() => SetTheme(!_isDark);
@@ -109,7 +131,7 @@ namespace RevitWebAppSync.UI.Copilot
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[BINA] CopilotTheme merge failed: {uri} — {ex.Message}");
+                Log($"merge failed {uri}: {ex.Message}");
             }
         }
 
