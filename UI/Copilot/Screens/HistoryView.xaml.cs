@@ -447,7 +447,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             if (_rowTemplate != null) return _rowTemplate;
             var border = new FrameworkElementFactory(typeof(Border));
-            border.SetValue(Border.BorderBrushProperty, CopilotColors.From("#f1f3f5"));
+            // DynamicResource (not a baked From() brush): this template is static-cached
+            // and built once, so a concrete brush would freeze the first theme. Cp.Line
+            // is the hairline token; SetResourceReference re-resolves it on every swap.
+            border.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
             border.SetValue(Border.BorderThicknessProperty, new Thickness(0, 0, 0, 1));
             border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
             var cp = new FrameworkElementFactory(typeof(ContentPresenter));

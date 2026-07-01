@@ -1015,8 +1015,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (_pill != null) return _pill;
             var b = new FrameworkElementFactory(typeof(Border));
             b.SetValue(Border.CornerRadiusProperty, new CornerRadius(999));
-            b.SetValue(Border.BackgroundProperty, Brushes.White);
-            b.SetValue(Border.BorderBrushProperty, CopilotColors.From("#e5e7eb"));
+            // DynamicResource (not baked): this template is static-cached and built
+            // once, so concrete brushes would freeze the first theme. SetResourceReference
+            // re-resolves on every light/dark swap.
+            b.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
+            b.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
             b.SetValue(Border.BorderThicknessProperty, new Thickness(1));
             b.SetValue(Border.PaddingProperty, new Thickness(10, 4, 10, 4));
             var cp = new FrameworkElementFactory(typeof(ContentPresenter));
@@ -1031,7 +1034,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var b = new FrameworkElementFactory(typeof(Border));
             b.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
             b.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
-            b.SetValue(Border.BorderBrushProperty, CopilotColors.From("#e5e7eb"));
+            b.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
             b.SetValue(Border.BorderThicknessProperty, new Thickness(1));
             b.SetValue(Border.PaddingProperty, new Thickness(14, 12, 14, 12));
             var cp = new FrameworkElementFactory(typeof(ContentPresenter));
@@ -1062,7 +1065,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var b = new FrameworkElementFactory(typeof(Border));
             b.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
             b.SetValue(Border.BackgroundProperty, Brushes.Transparent);
-            b.SetValue(Border.BorderBrushProperty, CopilotColors.From("#e5e7eb"));
+            b.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
             b.SetValue(Border.BorderThicknessProperty, new Thickness(1));
             b.SetValue(Border.PaddingProperty, new Thickness(9, 5, 9, 5));
             var cp = new FrameworkElementFactory(typeof(ContentPresenter));
