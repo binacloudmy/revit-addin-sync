@@ -158,7 +158,7 @@
              Covers the whole pane (all rows) while the model mirror is being
              seeded. The opaque background is hit-test visible, so it disables
              every control underneath until indexing completes. -->
-        <Border Grid.Row="0" Grid.RowSpan="4" Background="#F7FFFFFF"
+        <Border Grid.Row="0" Grid.RowSpan="4" Background="{DynamicResource Cp.Veil}"
                 Visibility="{Binding IsIndexing, Converter={StaticResource BoolVis}}">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                 <TextBlock Text="{Binding IndexTitle, Mode=OneWay}" HorizontalAlignment="Center"
@@ -166,7 +166,7 @@
                 <!-- Progress bar built from plain Borders — NO Storyboard / animation
                      (WPF storyboards inside a Revit dockable pane crash Revit). The
                      fill width is driven directly by IndexProgressBarWidth (0–220). -->
-                <Border Width="220" Height="8" CornerRadius="4" Background="#E5E7EB"
+                <Border Width="220" Height="8" CornerRadius="4" Background="{DynamicResource Cp.Track}"
                         Margin="0,14,0,0" HorizontalAlignment="Center" ClipToBounds="True">
                     <Border HorizontalAlignment="Left" CornerRadius="4"
                             Background="{DynamicResource Cp.Purple}"

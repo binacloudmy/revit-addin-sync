@@ -27,6 +27,8 @@
     <SolidColorBrush x:Key="Cp.Hair2"    Color="#24FFFFFF"/>
 
     <!-- Misc surfaces -->
+    <SolidColorBrush x:Key="Cp.Veil"           Color="#F2131D2B"/>  <!-- indexing overlay veil -->
+    <SolidColorBrush x:Key="Cp.Track"          Color="#2A3647"/>    <!-- progress-bar track -->
     <SolidColorBrush x:Key="Cp.TabBadgeBg"     Color="#222e40"/>
     <SolidColorBrush x:Key="Cp.UserText"       Color="#e8eef6"/>
     <SolidColorBrush x:Key="Cp.AccentContrast" Color="#ffffff"/>

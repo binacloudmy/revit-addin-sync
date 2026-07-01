@@ -259,7 +259,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             b.SetValue(Border.PaddingProperty, new Thickness(8, 6, 8, 6));
             b.Name = "bd";
             var trigger = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-            trigger.Setters.Add(new Setter(Border.BackgroundProperty, CopilotColors.From("#f1f3f5"), "bd"));
+            // DynamicResource (not baked): static-cached template must re-resolve the
+            // hover fill on light/dark swap, so use Cp.Hover via a resource reference.
+            trigger.Setters.Add(new Setter(Border.BackgroundProperty, new System.Windows.DynamicResourceExtension("Cp.Hover"), "bd"));
             var cp = new System.Windows.FrameworkElementFactory(typeof(ContentPresenter));
             b.AppendChild(cp);
             var t = new ControlTemplate(typeof(Button)) { VisualTree = b };
