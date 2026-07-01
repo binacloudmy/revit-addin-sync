@@ -200,7 +200,7 @@ namespace RevitWebAppSync.Services
     public class ModelCheckElement
     {
         [JsonProperty("element_id")]
-        public int ElementId { get; set; }
+        public long ElementId { get; set; }
 
         [JsonProperty("category")]
         public string Category { get; set; }
@@ -261,7 +261,7 @@ namespace RevitWebAppSync.Services
         public string IssueId { get; set; } = "";
 
         [JsonProperty("element_id")]
-        public int ElementId { get; set; }
+        public long ElementId { get; set; }
 
         [JsonProperty("category")]
         public string Category { get; set; }
@@ -329,7 +329,7 @@ namespace RevitWebAppSync.Services
     public class AIRecommendationDto
     {
         [JsonProperty("element_id")]
-        public int ElementId { get; set; }
+        public long ElementId { get; set; }
 
         [JsonProperty("fix_suggestion")]
         public string FixSuggestion { get; set; }

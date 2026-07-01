@@ -257,7 +257,7 @@ namespace RevitWebAppSync.Services
         [JsonProperty("description")] public string Description { get; set; } = "";
         [JsonProperty("element_name")] public string ElementName { get; set; } = "";
         [JsonProperty("element_id_label")] public string ElementIdLabel { get; set; } = "—";
-        [JsonProperty("revit_element_id")] public int RevitElementId { get; set; }
+        [JsonProperty("revit_element_id")] public long RevitElementId { get; set; }
         [JsonProperty("required")] public string Required { get; set; } = "";
         [JsonProperty("actual")] public string Actual { get; set; } = "";
         [JsonProperty("example")] public string Example { get; set; } = "";

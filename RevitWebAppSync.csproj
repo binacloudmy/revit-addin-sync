@@ -100,6 +100,9 @@
     <ItemGroup>
       <DeployVersion Include="$(DeployVersions)" />
       <OutputFiles Include="$(TargetDir)**\*" />
+      <!-- Everything in SUBdirectories (runtimes\, cs\, de\, LatoFont\, …).
+           Exclude top-level files (handled by OutputDlls + the .addin copy). -->
+      <OutputSubFiles Include="$(TargetDir)**\*" Exclude="$(TargetDir)*" />
       <DeployItem Include="@(OutputFiles)">
         <Version>%(DeployVersion.Identity)</Version>
       </DeployItem>
@@ -113,7 +116,13 @@
           DestinationFiles="@(DeployItem->'$(APPDATA)\Autodesk\Revit\Addins\%(Version)\%(RecursiveDir)%(Filename)%(Extension)')"
           Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\%(Version)\')" />
 
-    <Message Text="Deployed $(TargetFramework) build to Revit Addins folder(s): $(DeployVersions)" Importance="high" />
+    <!-- Preserve the nested folder structure via %(RecursiveDir) so native
+         libs land at runtimes\win-x64\native\… exactly as QuestPDF expects. -->
+    <Copy SourceFiles="@(OutputSubFiles)"
+          DestinationFiles="@(OutputSubFiles->'$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\%(RecursiveDir)%(Filename)%(Extension)')"
+          Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\')" />
+
+    <Message Text="Copied $(TargetDir)*.dll + subfolders (runtimes\, locales, fonts) to Revit Addins folder (version $(RevitVersion))" Importance="high" />
   </Target>
 
 </Project>
