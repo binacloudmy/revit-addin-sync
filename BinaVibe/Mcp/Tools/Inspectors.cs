@@ -1062,7 +1062,9 @@ namespace BinaVibe.Mcp.Tools
 
         // Robust category resolver — friendly name, OST_ enum, or live
         // Category.Name lookup (handles "Plumbing Fixtures" etc.).
-        private static BuiltInCategory? ResolveCategoryRobust(Document doc, string category)
+        // internal (was private) so Mutators.SetCategoryVisibility reuses the same
+        // friendly-name -> BuiltInCategory resolution the INSPECT tools use.
+        internal static BuiltInCategory? ResolveCategoryRobust(Document doc, string category)
         {
             var simple = ResolveBuiltInCategory(category);
             if (simple != null) return simple;

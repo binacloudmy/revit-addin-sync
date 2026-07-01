@@ -276,9 +276,9 @@ namespace RevitWebAppSync.UI
 
         // Severity filter — clicking a High/Med/Low pill toggles that severity on the
         // issue list (composes with category chip, status tab, and search).
-        private void HiPill_Click(object s, RoutedEventArgs e) => _vm.ToggleSeverity(IssuePriority.High);
-        private void MdPill_Click(object s, RoutedEventArgs e) => _vm.ToggleSeverity(IssuePriority.Medium);
-        private void LoPill_Click(object s, RoutedEventArgs e) => _vm.ToggleSeverity(IssuePriority.Low);
+        private void HiPill_Click(object s, MouseButtonEventArgs e) => _vm.ToggleSeverity(IssuePriority.High);
+        private void MdPill_Click(object s, MouseButtonEventArgs e) => _vm.ToggleSeverity(IssuePriority.Medium);
+        private void LoPill_Click(object s, MouseButtonEventArgs e) => _vm.ToggleSeverity(IssuePriority.Low);
 
         private void FixAll_Click(object sender, RoutedEventArgs e)
         {
@@ -353,7 +353,7 @@ namespace RevitWebAppSync.UI
             // Update progress to "applying"
             Dispatcher.InvokeAsync(() =>
             {
-                FixProgressLabel.Text = "Applying fixes in Revit...";
+                FixProgressLabel.Text = $"Applying {totalToFix} fixes…";
                 FixProgressCount.Text = $"0/{totalToFix}";
             });
 
@@ -480,6 +480,23 @@ namespace RevitWebAppSync.UI
 
                     // Re-scan to verify — the re-scan will show fewer issues now.
                     _ = RunScanAfterFix(summary, result.Failed, preservedAfterFix, openBeforeFix);
+                });
+            };
+
+            // Live progress: the chunked handler fires this once per Idling slice, so
+            // the bar animates 0→N while Revit stays responsive (no "Not Responding").
+            handler.OnProgress = (done, total) =>
+            {
+                Dispatcher.InvokeAsync(() =>
+                {
+                    FixProgressCount.Text = $"{done}/{total}";
+                    try
+                    {
+                        var bp = FixProgressBar.Parent as FrameworkElement;
+                        if (bp != null && bp.ActualWidth > 0 && total > 0)
+                            FixProgressBar.Width = bp.ActualWidth * ((double)done / total);
+                    }
+                    catch { }
                 });
             };
 
@@ -952,10 +969,14 @@ namespace RevitWebAppSync.UI
                 }
                 _appliedFixes.Clear();
 
-                await RunScanInner(clearAudit: true);
+                // No auto re-scan: the reverse already put the model back to its pre-fix
+                // state, so restore the UI locally (clear the audit + flip everything to
+                // Open) and let the user press Re-scan for fresh backend verification.
+                // Avoids a full model extraction + backend round-trip on every Reset.
+                RestoreToOpenLocally();
                 _vm.ShowToast(fixCount > 0
-                    ? $"Reset complete — reverted {fixCount} fix{(fixCount == 1 ? "" : "es")} and cleared all decisions."
-                    : "Reset complete — all decisions cleared.");
+                    ? $"Reset complete — reverted {fixCount} fix{(fixCount == 1 ? "" : "es")}. Click Re-scan to refresh."
+                    : "Reset complete — decisions cleared. Click Re-scan to refresh.");
             }
             catch (Exception ex)
             {
@@ -965,6 +986,24 @@ namespace RevitWebAppSync.UI
             {
                 _vm.Scanning = false;
             }
+        }
+
+        /// <summary>Restore the panel to a clean "all Open" state after a Reset without
+        /// hitting the backend: drop the persisted audit and flip every issue back to
+        /// Open (Reset clears all decisions and reverts all fixes). The user clicks
+        /// Re-scan when they want the model re-verified against the backend.</summary>
+        private void RestoreToOpenLocally()
+        {
+            var doc = UiAppLive?.ActiveUIDocument?.Document;
+            if (doc != null)
+            {
+                var auditPath = JkrAuditStore.AuditPath(doc.PathName ?? "");
+                try { if (System.IO.File.Exists(auditPath)) System.IO.File.Delete(auditPath); } catch { }
+            }
+
+            var restored = _vm.Issues.ToList();
+            foreach (var i in restored) i.Status = IssueStatus.Open;
+            _vm.ReplaceIssues(restored);
         }
 
         /// <summary>
@@ -1025,6 +1064,7 @@ namespace RevitWebAppSync.UI
                 Dispatcher.Invoke(() =>
                 {
                     _fixInFlight = false;
+                    FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
                     if (!string.IsNullOrEmpty(result.Error))
                     {
                         System.Diagnostics.Debug.WriteLine(
@@ -1035,6 +1075,30 @@ namespace RevitWebAppSync.UI
                         $"reverted {result.Renamed + result.ParamFixed} of {_appliedFixes.Count}, " +
                         $"failed={result.Failed}, skipped={result.Skipped}");
                     tcs.TrySetResult(true);
+                });
+            };
+
+            // B: live progress bar during the reverse (same chunked handler as Fix All).
+            var totalToRevert = handler.RenameQueue.Count + handler.ParamFixQueue.Count;
+            Dispatcher.InvokeAsync(() =>
+            {
+                FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
+                FixProgressLabel.Text = $"Reverting {totalToRevert} fixes…";
+                FixProgressCount.Text = $"0/{totalToRevert}";
+                FixProgressBar.Width = 0;
+            });
+            handler.OnProgress = (done, total) =>
+            {
+                Dispatcher.InvokeAsync(() =>
+                {
+                    FixProgressCount.Text = $"{done}/{total}";
+                    try
+                    {
+                        var bp = FixProgressBar.Parent as FrameworkElement;
+                        if (bp != null && bp.ActualWidth > 0 && total > 0)
+                            FixProgressBar.Width = bp.ActualWidth * ((double)done / total);
+                    }
+                    catch { }
                 });
             };
 
