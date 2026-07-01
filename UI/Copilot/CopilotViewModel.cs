@@ -632,6 +632,9 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Clarify, Question = interp.Question, Options = interp.Options });
                 AppendToCurrentSession(text, interp.Question ?? "Needs clarification", userFiles: historyFiles);
+                return;
+            }
+
             // Auth gate: BINA Copilot needs a signed-in BINA Cloud session. Show a friendly
             // prompt instead of letting the request 401 at the backend.
             var authCfg = BinaConfig.Load();
@@ -682,7 +685,6 @@ namespace RevitWebAppSync.UI.Copilot
             }
             sb.Append(text);
             return sb.ToString();
-            _ = ResolveProposalAsync(text, QueryInterpreter.PickResponseTool(text).Id, images);
         }
 
         // Persistent header badge: "27 / 30 credits" or "Unlimited". Empty string hides the pill.
