@@ -10,7 +10,7 @@
             <Border BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1" CornerRadius="12" Padding="12,8,10,8">
                 <DockPanel LastChildFill="True">
                     <!-- AI pill -->
-                    <Border DockPanel.Dock="Right" CornerRadius="999" Background="{DynamicResource Cp.PurpleSoft}"
+                    <Border DockPanel.Dock="Right" CornerRadius="999" Background="{DynamicResource Cp.Tier2Bg}"
                             Padding="6,2" Margin="6,0,6,0" VerticalAlignment="Center">
                         <TextBlock Text="AI" FontSize="10" Foreground="{DynamicResource Cp.Purple}"/>
                     </Border>

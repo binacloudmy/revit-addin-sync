@@ -36,4 +36,37 @@
     <!-- User chat bubble (dark = solid slate) -->
     <SolidColorBrush x:Key="Cp.UserBubble" Color="#222e40"/>
 
+    <!-- ═══════════ STATUS + ICON-TILE TINTS (dark: darker desaturated fill,
+         lighter fg for contrast on #131d2b / #0c1420 surfaces) ═══════════ -->
+    <!-- Green / success -->
+    <SolidColorBrush x:Key="Cp.GreenBg"     Color="#14331f"/>
+    <SolidColorBrush x:Key="Cp.GreenBgSoft" Color="#0f271a"/>
+    <SolidColorBrush x:Key="Cp.GreenLn"     Color="#205138"/>
+    <SolidColorBrush x:Key="Cp.GreenFg"     Color="#4ade80"/>
+    <SolidColorBrush x:Key="Cp.GreenFg2"    Color="#6ee7b7"/>
+    <!-- Amber / warning -->
+    <SolidColorBrush x:Key="Cp.AmberBg"     Color="#3a2e12"/>
+    <SolidColorBrush x:Key="Cp.AmberBgSoft" Color="#2a2410"/>
+    <SolidColorBrush x:Key="Cp.AmberLn"     Color="#5c4a1a"/>
+    <SolidColorBrush x:Key="Cp.AmberFg"     Color="#fbbf24"/>
+    <SolidColorBrush x:Key="Cp.AmberFg2"    Color="#f59e0b"/>
+    <!-- Red / issues -->
+    <SolidColorBrush x:Key="Cp.RedBg"       Color="#3a1a1a"/>
+    <SolidColorBrush x:Key="Cp.RedBg2"      Color="#4a2020"/>
+    <SolidColorBrush x:Key="Cp.RedLn"       Color="#5e2828"/>
+    <SolidColorBrush x:Key="Cp.RedFg"       Color="#f87171"/>
+    <SolidColorBrush x:Key="Cp.RedFg2"      Color="#fca5a5"/>
+    <!-- Icon-tile families (bg + fg) -->
+    <SolidColorBrush x:Key="Cp.VioletBg"    Color="#2a2150"/>
+    <SolidColorBrush x:Key="Cp.VioletFg"    Color="#c4b5fd"/>
+    <SolidColorBrush x:Key="Cp.BlueTileBg"  Color="#172a4a"/>
+    <SolidColorBrush x:Key="Cp.BlueTileFg"  Color="#93c5fd"/>
+    <SolidColorBrush x:Key="Cp.SlateTileBg" Color="#1e293b"/>
+    <SolidColorBrush x:Key="Cp.SlateTileFg" Color="#cbd5e1"/>
+    <SolidColorBrush x:Key="Cp.SkyTileBg"   Color="#16304a"/>
+    <SolidColorBrush x:Key="Cp.SkyTileFg"   Color="#7dd3fc"/>
+    <SolidColorBrush x:Key="Cp.IndigoTileBg" Color="#21254e"/>
+    <SolidColorBrush x:Key="Cp.IndigoTileFg" Color="#a5b4fc"/>
+    <SolidColorBrush x:Key="Cp.Tier2Bg"     Color="#241a3a"/>
+
 </ResourceDictionary>

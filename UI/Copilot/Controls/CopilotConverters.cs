@@ -17,7 +17,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // token brush, so the SAME From("#…") call returns the right color in
         // light or dark. Builders re-run on CopilotTheme.ThemeChanged, so a
         // toggle re-resolves every neutral. Brand/status hex (blue, purple,
-        // green, amber, red, tile fills) are theme-invariant → returned literal.
+        // pure-invariant accents (brand blue/purple) are returned literal.
         private static readonly Dictionary<string, string> _neutralToken =
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
         {
@@ -31,6 +31,23 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             { "#fafafa", "Cp.PanelBg" }, { "#f6f8fa", "Cp.Sunken" },
             { "#eef0f3", "Cp.TabBadgeBg" }, { "#eef1f5", "Cp.TabBadgeBg" },
             { "#ffffff", "Cp.Bg"    },
+
+            // ── Status tints (green/amber/red) — dark-adjusted so pale fills stop
+            //    glaring on the dark surfaces; fg goes lighter for contrast. ──
+            { "#dcfce7", "Cp.GreenBg" }, { "#f0fdf4", "Cp.GreenBgSoft" }, { "#bbf7d0", "Cp.GreenLn" },
+            { "#15803d", "Cp.GreenFg" }, { "#16a34a", "Cp.GreenFg" }, { "#047857", "Cp.GreenFg2" }, { "#065f46", "Cp.GreenFg2" },
+            { "#fef3c7", "Cp.AmberBg" }, { "#fffbeb", "Cp.AmberBgSoft" }, { "#fde68a", "Cp.AmberLn" },
+            { "#a16207", "Cp.AmberFg" }, { "#b45309", "Cp.AmberFg" }, { "#92400e", "Cp.AmberFg2" },
+            { "#fef2f2", "Cp.RedBg" }, { "#fee2e2", "Cp.RedBg2" }, { "#fecaca", "Cp.RedLn" },
+            { "#b91c1c", "Cp.RedFg" }, { "#7f1d1d", "Cp.RedFg2" }, { "#991b1b", "Cp.RedFg2" },
+
+            // ── Icon-tile families (bg + fg) ──
+            { "#ede9fe", "Cp.VioletBg" }, { "#6d28d9", "Cp.VioletFg" }, { "#7c3aed", "Cp.VioletFg" },
+            { "#dbeafe", "Cp.BlueTileBg" }, { "#1d4ed8", "Cp.BlueTileFg" },
+            { "#f1f5f9", "Cp.SlateTileBg" }, { "#475569", "Cp.SlateTileFg" },
+            { "#e0f2fe", "Cp.SkyTileBg" }, { "#0369a1", "Cp.SkyTileFg" },
+            { "#e0e7ff", "Cp.IndigoTileBg" }, { "#4338ca", "Cp.IndigoTileFg" },
+            { "#f5f3ff", "Cp.Tier2Bg" }, { "#faf5ff", "Cp.Tier2Bg" },
         };
 
         public static Brush From(string hex)

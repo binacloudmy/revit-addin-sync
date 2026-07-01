@@ -42,4 +42,36 @@
         <GradientStop Offset="1"    Color="#7a78f3"/>
     </LinearGradientBrush>
 
+    <!-- ═══════════ STATUS + ICON-TILE TINTS (theme-aware) ═══════════ -->
+    <!-- Green / success -->
+    <SolidColorBrush x:Key="Cp.GreenBg"     Color="#dcfce7"/>
+    <SolidColorBrush x:Key="Cp.GreenBgSoft" Color="#f0fdf4"/>
+    <SolidColorBrush x:Key="Cp.GreenLn"     Color="#bbf7d0"/>
+    <SolidColorBrush x:Key="Cp.GreenFg"     Color="#15803d"/>
+    <SolidColorBrush x:Key="Cp.GreenFg2"    Color="#047857"/>
+    <!-- Amber / warning -->
+    <SolidColorBrush x:Key="Cp.AmberBg"     Color="#fef3c7"/>
+    <SolidColorBrush x:Key="Cp.AmberBgSoft" Color="#fffbeb"/>
+    <SolidColorBrush x:Key="Cp.AmberLn"     Color="#fde68a"/>
+    <SolidColorBrush x:Key="Cp.AmberFg"     Color="#a16207"/>
+    <SolidColorBrush x:Key="Cp.AmberFg2"    Color="#92400e"/>
+    <!-- Red / issues -->
+    <SolidColorBrush x:Key="Cp.RedBg"       Color="#fef2f2"/>
+    <SolidColorBrush x:Key="Cp.RedBg2"      Color="#fee2e2"/>
+    <SolidColorBrush x:Key="Cp.RedLn"       Color="#fecaca"/>
+    <SolidColorBrush x:Key="Cp.RedFg"       Color="#b91c1c"/>
+    <SolidColorBrush x:Key="Cp.RedFg2"      Color="#7f1d1d"/>
+    <!-- Icon-tile families (bg + fg) -->
+    <SolidColorBrush x:Key="Cp.VioletBg"    Color="#ede9fe"/>
+    <SolidColorBrush x:Key="Cp.VioletFg"    Color="#6d28d9"/>
+    <SolidColorBrush x:Key="Cp.BlueTileBg"  Color="#dbeafe"/>
+    <SolidColorBrush x:Key="Cp.BlueTileFg"  Color="#1d4ed8"/>
+    <SolidColorBrush x:Key="Cp.SlateTileBg" Color="#f1f5f9"/>
+    <SolidColorBrush x:Key="Cp.SlateTileFg" Color="#475569"/>
+    <SolidColorBrush x:Key="Cp.SkyTileBg"   Color="#e0f2fe"/>
+    <SolidColorBrush x:Key="Cp.SkyTileFg"   Color="#0369a1"/>
+    <SolidColorBrush x:Key="Cp.IndigoTileBg" Color="#e0e7ff"/>
+    <SolidColorBrush x:Key="Cp.IndigoTileFg" Color="#4338ca"/>
+    <SolidColorBrush x:Key="Cp.Tier2Bg"     Color="#f5f3ff"/>
+
 </ResourceDictionary>
