@@ -1,22 +1,24 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace RevitWebAppSync.UI.Copilot
 {
     /// <summary>
-    /// Copilot "Slate" theming. Loads the shared (theme-invariant) tokens + styles,
-    /// and registers one PERSISTENT, MUTABLE brush per theme-dependent token into
+    /// Copilot "Slate" theming. Loads shared (theme-invariant) tokens + styles, and
+    /// registers one PERSISTENT, MUTABLE brush per theme-dependent token into
     /// Application resources. Switching light/dark mutates each brush's Color/stops
-    /// in place — because it is the same brush instance every consumer already holds
-    /// (XAML {DynamicResource} and code-built elements alike), the whole UI repaints
-    /// with no resource-dictionary swap and no DynamicResource invalidation.
+    /// in place, so every consumer (XAML {DynamicResource} and code-built alike)
+    /// repaints without a dictionary swap.
     ///
-    /// This matters inside a Revit dockable pane: swapping a MergedDictionaries entry
-    /// updates TryFindResource values but does NOT reliably re-invalidate already
-    /// realized DynamicResource bindings in that host, so backgrounds would stay on
-    /// the old theme. Mutating a shared brush sidesteps that entirely.
+    /// The actual switch is marshalled onto the UI dispatcher and deferred with
+    /// BeginInvoke so it runs AFTER the triggering click event unwinds — mutating
+    /// brushes synchronously inside the event was crashing Revit's hosted message
+    /// pump. Every step is guarded + logged so a failure degrades instead of taking
+    /// Revit down, and the log pinpoints where.
     /// </summary>
     public static class CopilotTheme
     {
@@ -26,13 +28,8 @@ namespace RevitWebAppSync.UI.Copilot
 
         public static bool IsDark => _isDark;
 
-        /// <summary>Raised after a theme switch. Optional: colors already update in
-        /// place via the shared brushes; screens may still rebuild for anything that
-        /// depends on theme beyond a brush color.</summary>
         public static event Action ThemeChanged;
 
-        // ── Theme-dependent tokens: (key, lightHex, darkHex). Hex may carry alpha
-        //    (#AARRGGBB). Registered as mutable SolidColorBrush in App resources. ──
         private static readonly (string Key, string Light, string Dark)[] _palette =
         {
             ("Cp.Bg",        "#ffffff",   "#131d2b"),
@@ -54,8 +51,6 @@ namespace RevitWebAppSync.UI.Copilot
             ("Cp.AccentContrast","#ffffff","#ffffff"),
         };
 
-        // User chat bubble: gradient in light, near-solid slate in dark. Three stops
-        // mutated per theme so the same brush instance recolors in place.
         private static LinearGradientBrush _userBubble;
         private static readonly (string Light, string Dark)[] _userStops =
         {
@@ -75,56 +70,106 @@ namespace RevitWebAppSync.UI.Copilot
             return $"pack://application:,,,/{asm};component/UI/Copilot/{file}";
         }
 
+        // ── Diagnostics ──────────────────────────────────────────────────────
+        private static readonly string _logPath =
+            Path.Combine(Path.GetTempPath(), "RevitWebAppSync", "logs", "theme.log");
+
+        private static void Log(string msg)
+        {
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(_logPath));
+                File.AppendAllText(_logPath, $"{DateTime.Now:HH:mm:ss.fff}  {msg}{Environment.NewLine}");
+            }
+            catch { /* logging must never throw */ }
+            System.Diagnostics.Debug.WriteLine("[BINA-theme] " + msg);
+        }
+
         public static void EnsureLoaded()
         {
             if (_loaded) return;
             lock (_lock)
             {
                 if (_loaded) return;
-                if (Application.Current == null) return;
-
-                // Shared (theme-invariant) tokens + styles.
-                Merge(Pack("CopilotTokens.xaml"));
-                Merge(Pack("CopilotStyles.xaml"));
-
-                // Register the mutable theme brushes, seeded to the current mode.
-                var res = Application.Current.Resources;
-                foreach (var (key, light, dark) in _palette)
+                if (Application.Current == null) { Log("EnsureLoaded: Application.Current == null"); return; }
+                try
                 {
-                    var b = new SolidColorBrush(Parse(_isDark ? dark : light));  // NOT frozen
-                    _brushes[key] = b;
-                    res[key] = b;   // direct app resource — wins over merged dicts
+                    Log($"EnsureLoaded start (thread {Environment.CurrentManagedThreadId}, dark={_isDark})");
+                    Merge(Pack("CopilotTokens.xaml"));
+                    Merge(Pack("CopilotStyles.xaml"));
+
+                    var res = Application.Current.Resources;
+                    foreach (var (key, light, dark) in _palette)
+                    {
+                        var b = new SolidColorBrush(Parse(_isDark ? dark : light));  // NOT frozen
+                        _brushes[key] = b;
+                        res[key] = b;
+                    }
+
+                    _userBubble = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+                    _userBubble.GradientStops.Add(new GradientStop(Parse(_isDark ? _userStops[0].Dark : _userStops[0].Light), 0.0));
+                    _userBubble.GradientStops.Add(new GradientStop(Parse(_isDark ? _userStops[1].Dark : _userStops[1].Light), 0.52));
+                    _userBubble.GradientStops.Add(new GradientStop(Parse(_isDark ? _userStops[2].Dark : _userStops[2].Light), 1.0));
+                    res["Cp.UserBubble"] = _userBubble;
+
+                    _loaded = true;
+                    Log("EnsureLoaded done");
                 }
-
-                _userBubble = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
-                _userBubble.GradientStops.Add(new GradientStop(Parse(_isDark ? _userStops[0].Dark : _userStops[0].Light), 0.0));
-                _userBubble.GradientStops.Add(new GradientStop(Parse(_isDark ? _userStops[1].Dark : _userStops[1].Light), 0.52));
-                _userBubble.GradientStops.Add(new GradientStop(Parse(_isDark ? _userStops[2].Dark : _userStops[2].Light), 1.0));
-                res["Cp.UserBubble"] = _userBubble;
-
-                _loaded = true;
+                catch (Exception ex)
+                {
+                    Log("EnsureLoaded FAILED: " + ex);
+                }
             }
         }
 
-        /// <summary>Switch light/dark. Mutates the shared brushes in place.</summary>
+        /// <summary>Switch light/dark. Marshalled to the UI thread and deferred so
+        /// it runs after the triggering event unwinds.</summary>
         public static void SetTheme(bool dark)
         {
-            EnsureLoaded();
-            if (Application.Current == null) return;
-            lock (_lock)
+            var app = Application.Current;
+            if (app == null) { Log("SetTheme: no Application.Current"); return; }
+            var disp = app.Dispatcher;
+            if (!disp.CheckAccess())
             {
-                _isDark = dark;
-                foreach (var (key, light, darkHex) in _palette)
-                    if (_brushes.TryGetValue(key, out var b))
-                        b.Color = Parse(dark ? darkHex : light);
-
-                if (_userBubble != null && _userBubble.GradientStops.Count == 3)
-                    for (int i = 0; i < 3; i++)
-                        _userBubble.GradientStops[i].Color = Parse(dark ? _userStops[i].Dark : _userStops[i].Light);
+                Log("SetTheme: marshalling to UI thread");
+                disp.BeginInvoke((Action)(() => SetTheme(dark)));
+                return;
             }
+            Log($"SetTheme requested dark={dark}; deferring apply");
+            disp.BeginInvoke((Action)(() => ApplyTheme(dark)), DispatcherPriority.Background);
+        }
 
-            try { ThemeChanged?.Invoke(); }
-            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"[BINA] ThemeChanged handler threw: {ex.Message}"); }
+        private static void ApplyTheme(bool dark)
+        {
+            try
+            {
+                Log($"ApplyTheme start dark={dark} (thread {Environment.CurrentManagedThreadId})");
+                EnsureLoaded();
+
+                lock (_lock)
+                {
+                    _isDark = dark;
+                    foreach (var (key, light, darkHex) in _palette)
+                    {
+                        if (!_brushes.TryGetValue(key, out var b)) continue;
+                        if (b.IsFrozen) { Log($"  {key} brush is FROZEN — skipped"); continue; }
+                        b.Color = Parse(dark ? darkHex : light);
+                    }
+                    if (_userBubble != null && !_userBubble.IsFrozen && _userBubble.GradientStops.Count == 3)
+                        for (int i = 0; i < 3; i++)
+                            _userBubble.GradientStops[i].Color = Parse(dark ? _userStops[i].Dark : _userStops[i].Light);
+                }
+                Log("ApplyTheme: brushes mutated");
+
+                try { ThemeChanged?.Invoke(); Log("ApplyTheme: ThemeChanged done"); }
+                catch (Exception ex) { Log("ThemeChanged handler threw: " + ex); }
+
+                Log("ApplyTheme done");
+            }
+            catch (Exception ex)
+            {
+                Log("ApplyTheme FAILED: " + ex);
+            }
         }
 
         public static void ToggleTheme() => SetTheme(!_isDark);
@@ -141,7 +186,7 @@ namespace RevitWebAppSync.UI.Copilot
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[BINA] CopilotTheme merge failed: {uri} — {ex.Message}");
+                Log($"merge failed {uri}: {ex.Message}");
             }
         }
 
