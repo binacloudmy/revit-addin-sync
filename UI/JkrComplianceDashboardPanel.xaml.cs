@@ -276,9 +276,9 @@ namespace RevitWebAppSync.UI
 
         // Severity filter — clicking a High/Med/Low pill toggles that severity on the
         // issue list (composes with category chip, status tab, and search).
-        private void HiPill_Click(object s, MouseButtonEventArgs e) => _vm.ToggleSeverity(IssuePriority.High);
-        private void MdPill_Click(object s, MouseButtonEventArgs e) => _vm.ToggleSeverity(IssuePriority.Medium);
-        private void LoPill_Click(object s, MouseButtonEventArgs e) => _vm.ToggleSeverity(IssuePriority.Low);
+        private void HiPill_Click(object s, RoutedEventArgs e) => _vm.ToggleSeverity(IssuePriority.High);
+        private void MdPill_Click(object s, RoutedEventArgs e) => _vm.ToggleSeverity(IssuePriority.Medium);
+        private void LoPill_Click(object s, RoutedEventArgs e) => _vm.ToggleSeverity(IssuePriority.Low);
 
         private void FixAll_Click(object sender, RoutedEventArgs e)
         {
