@@ -28,7 +28,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         private static readonly HashSet<string> _FixBlocklist = new HashSet<string>();
 
         /// <summary>Mark an element+fix combo as unfixable so future scans exclude it.</summary>
-        public static void BlockFix(int elementId, string fixAction, string parameterName)
+        public static void BlockFix(long elementId, string fixAction, string parameterName)
         {
             var key = fixAction == "rename_type"
                 ? $"{elementId}:rename_type"
@@ -39,7 +39,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>Clear the blocklist (e.g. on Reset).</summary>
         public static void ClearBlocklist() => _FixBlocklist.Clear();
 
-        private static bool IsBlocked(int elementId, string fixAction, string parameterName)
+        private static bool IsBlocked(long elementId, string fixAction, string parameterName)
         {
             var key = fixAction == "rename_type"
                 ? $"{elementId}:rename_type"

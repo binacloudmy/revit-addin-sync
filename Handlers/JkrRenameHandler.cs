@@ -17,7 +17,7 @@ namespace RevitWebAppSync.Handlers
         /// <summary>
         /// List of (ElementId, newName) pairs to rename.
         /// </summary>
-        public List<(int ElementId, string NewName)> RenameQueue { get; set; } = new List<(int, string)>();
+        public List<(long ElementId, string NewName)> RenameQueue { get; set; } = new List<(long, string)>();
 
         /// <summary>
         /// List of parameter fixes to apply after renames.
@@ -191,7 +191,7 @@ namespace RevitWebAppSync.Handlers
             }
         }
 
-        private static void ApplyRename(Document doc, int elemId, string newName,
+        private static void ApplyRename(Document doc, long elemId, string newName,
                                         RenameResult result, List<string> failReasons)
         {
             try
@@ -331,7 +331,7 @@ namespace RevitWebAppSync.Handlers
         /// element-level granularity. Don't use this when an element can have multiple
         /// fixes (rename + several param fixes) and you need to distinguish which
         /// specific fix failed; use FailedFixKeys instead.</summary>
-        public HashSet<int> FailedElementIds { get; set; } = new HashSet<int>();
+        public HashSet<long> FailedElementIds { get; set; } = new HashSet<long>();
 
         /// <summary>Per-fix failure keys — distinguishes "this rename failed" from
         /// "this Sistem param fix failed" on the same element. Format:
@@ -344,7 +344,7 @@ namespace RevitWebAppSync.Handlers
         public HashSet<string> FailedFixKeys { get; set; } = new HashSet<string>();
 
         /// <summary>Compute a fix key matching the format used by FailedFixKeys.</summary>
-        public static string MakeFixKey(string action, int elementId, string parameterName)
+        public static string MakeFixKey(string action, long elementId, string parameterName)
         {
             if (string.Equals(action, "rename_type", System.StringComparison.OrdinalIgnoreCase))
                 return $"r:{elementId}";

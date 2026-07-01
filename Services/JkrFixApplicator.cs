@@ -575,7 +575,7 @@ namespace RevitWebAppSync.Services
         public string Action { get; set; }
 
         [JsonProperty("element_id")]
-        public int ElementId { get; set; }
+        public long ElementId { get; set; }
 
         [JsonProperty("parameter_name")]
         public string ParameterName { get; set; } = "";
@@ -605,8 +605,8 @@ namespace RevitWebAppSync.Services
         public bool Success { get; set; }
         public string Message { get; set; } = "";
         public string Action { get; set; } = "";
-        public int ElementId { get; set; }
-        public int CheckElementId { get; set; }
+        public long ElementId { get; set; }
+        public long CheckElementId { get; set; }
         public string ParameterName { get; set; } = "";
         public string Rule { get; set; } = "";
     }
