@@ -315,8 +315,14 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
             catch (Exception ex)
             {
+                // Show the whole inner-exception chain — the outer message often
+                // hides the real cause (e.g. a native-load failure behind a
+                // TypeInitializationException).
+                var detail = ex.Message;
+                for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)
+                    detail += "\n→ " + inner.Message;
                 MessageBox.Show(
-                    $"Could not save the report:\n\n{ex.Message}",
+                    $"Could not save the report:\n\n{detail}",
                     "Export failed", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
