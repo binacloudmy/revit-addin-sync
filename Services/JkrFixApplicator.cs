@@ -80,6 +80,31 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// True when applying this fix might bind a shared parameter that isn't yet
+        /// present on the element — the only case that needs per-fix SubTransaction
+        /// isolation (so a read-only write failure after a binding leaves no residue).
+        /// Renames and writes to already-present parameters return false and can run
+        /// directly in the caller's transaction, letting Revit regenerate ONCE at
+        /// commit instead of once per fix.
+        /// </summary>
+        public bool FixNeedsIsolation(JkrFixAction fix)
+        {
+            if (fix == null) return false;
+            if (fix.Action == "rename_type") return false;
+            try
+            {
+                var elem = _doc.GetElement(new ElementId(fix.ElementId));
+                if (elem == null) return false;
+                // Param already resolvable → SetParameterInTx won't attempt a binding.
+                return ResolveParameter(elem, fix.ParameterName, fix.Target) == null;
+            }
+            catch
+            {
+                return true; // uncertain → isolate to be safe
+            }
+        }
+
+        /// <summary>
         /// Apply multiple fixes. Returns results for each.
         /// </summary>
         public List<FixResult> ApplyFixes(List<JkrFixAction> fixes)

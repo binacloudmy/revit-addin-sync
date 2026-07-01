@@ -342,14 +342,16 @@ namespace RevitWebAppSync.UI
             // Update progress to "applying"
             Dispatcher.InvokeAsync(() =>
             {
-                FixProgressLabel.Text = "Applying fixes in Revit...";
+                FixProgressLabel.Text = $"Applying {totalToFix} fixes — Revit may briefly stop responding…";
                 FixProgressCount.Text = $"0/{totalToFix}";
+                System.Windows.Input.Mouse.OverrideCursor = System.Windows.Input.Cursors.Wait;
             });
 
             handler.OnCompleted = (result) =>
             {
                 Dispatcher.Invoke(() =>
                 {
+                    System.Windows.Input.Mouse.OverrideCursor = null;
                     FixAllBtn.IsEnabled = true;
                     _fixInFlight = false;
 

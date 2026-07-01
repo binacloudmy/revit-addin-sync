@@ -35,15 +35,36 @@ namespace RevitWebAppSync.Handlers
         {
             var result = new RenameResult();
             var failReasons = new List<string>();
+            UIDocument uidoc = null;
+            View restoreView = null;
             try
             {
-                var doc = app.ActiveUIDocument?.Document;
+                uidoc = app.ActiveUIDocument;
+                var doc = uidoc?.Document;
                 if (doc == null)
                 {
                     result.Error = "No active document.";
                     OnCompleted?.Invoke(result);
                     return;
                 }
+
+                // Perf guard: a Fix All batch regenerates the model many times. If a
+                // 3D / rendered / perspective view is active, every regen forces an
+                // expensive re-render and Revit hangs ("Not Responding"). Switch to a
+                // lightweight drafting/plan view for the duration; restored in finally.
+                try
+                {
+                    if (uidoc.ActiveView is View3D)
+                    {
+                        var light = FindLightweightView(doc);
+                        if (light != null)
+                        {
+                            restoreView = uidoc.ActiveView;
+                            uidoc.ActiveView = light;
+                        }
+                    }
+                }
+                catch { restoreView = null; }
 
                 if (!RenameQueue.Any() && !ParamFixQueue.Any())
                 {
@@ -101,47 +122,59 @@ namespace RevitWebAppSync.Handlers
                                 tx.Start();
                                 foreach (var fix in ParamFixQueue.OrderBy(f => f.Priority))
                                 {
-                                    // Each fix runs inside its own SubTransaction so a failure
-                                    // (e.g. the param turned out read-only after JkrFixApplicator
-                                    // bound a fresh shared-parameter to the element's category)
-                                    // can be cleanly rolled back. Without this, the binding
-                                    // side-effect persisted, the next scan saw a now-empty
-                                    // parameter instead of a missing one, which downgraded the
-                                    // rule from "value invalid" (fixable) to "empty parameter"
-                                    // (often unfixable on Grids/Levels) — silently dropping
-                                    // affected elements out of FixableCount post-Reset.
-                                    using (var subTx = new SubTransaction(doc))
+                                    // Only fixes that may bind a fresh shared parameter need
+                                    // per-fix SubTransaction isolation — so a read-only write
+                                    // failure AFTER a binding leaves no residue (which would
+                                    // otherwise downgrade the next scan's rule from "value
+                                    // invalid" to "empty parameter" and silently drop the
+                                    // element from FixableCount post-Reset). Plain writes on
+                                    // already-present params commit with the outer Transaction,
+                                    // so Revit regenerates ONCE at tx.Commit instead of once per
+                                    // fix — the main Fix All speed-up. Bonus: the first fix that
+                                    // binds a (param, category) makes it present, so every later
+                                    // fix for that param takes the fast direct-write path.
+                                    FixResult fixResult;
+                                    if (applicator.FixNeedsIsolation(fix))
                                     {
-                                        subTx.Start();
-                                        FixResult fixResult;
-                                        try
+                                        using (var subTx = new SubTransaction(doc))
                                         {
-                                            fixResult = applicator.ApplyFixInExistingTx(fix);
+                                            subTx.Start();
+                                            try
+                                            {
+                                                fixResult = applicator.ApplyFixInExistingTx(fix);
+                                            }
+                                            catch
+                                            {
+                                                subTx.RollBack();
+                                                throw;
+                                            }
+                                            if (fixResult.Success) subTx.Commit();
+                                            else subTx.RollBack();
                                         }
-                                        catch
-                                        {
-                                            subTx.RollBack();
-                                            throw;
-                                        }
-                                        if (fixResult.Success)
-                                        {
-                                            subTx.Commit();
-                                            result.ParamFixed++;
-                                            System.Diagnostics.Debug.WriteLine(
-                                                $"[BINA ParamFix] OK elem={fix.ElementId} param='{fix.ParameterName}' " +
-                                                $"value='{fix.Value}' (was '{fix.OldValue}') target={fix.Target}");
-                                        }
-                                        else
-                                        {
-                                            subTx.RollBack();
-                                            result.Failed++;
-                                            result.FailedElementIds.Add(fix.ElementId);
-                                            result.FailedFixKeys.Add(RenameResult.MakeFixKey("set_parameter", fix.ElementId, fix.ParameterName));
-                                            failReasons.Add($"{fix.ParameterName} on {fix.ElementId}: {fixResult.Message}");
-                                            System.Diagnostics.Debug.WriteLine(
-                                                $"[BINA ParamFix] FAIL elem={fix.ElementId} param='{fix.ParameterName}' " +
-                                                $"reason='{fixResult.Message}'");
-                                        }
+                                    }
+                                    else
+                                    {
+                                        // No binding possible → nothing to unwind on failure →
+                                        // no SubTransaction. Runs in the outer Transaction.
+                                        fixResult = applicator.ApplyFixInExistingTx(fix);
+                                    }
+
+                                    if (fixResult.Success)
+                                    {
+                                        result.ParamFixed++;
+                                        System.Diagnostics.Debug.WriteLine(
+                                            $"[BINA ParamFix] OK elem={fix.ElementId} param='{fix.ParameterName}' " +
+                                            $"value='{fix.Value}' (was '{fix.OldValue}') target={fix.Target}");
+                                    }
+                                    else
+                                    {
+                                        result.Failed++;
+                                        result.FailedElementIds.Add(fix.ElementId);
+                                        result.FailedFixKeys.Add(RenameResult.MakeFixKey("set_parameter", fix.ElementId, fix.ParameterName));
+                                        failReasons.Add($"{fix.ParameterName} on {fix.ElementId}: {fixResult.Message}");
+                                        System.Diagnostics.Debug.WriteLine(
+                                            $"[BINA ParamFix] FAIL elem={fix.ElementId} param='{fix.ParameterName}' " +
+                                            $"reason='{fixResult.Message}'");
                                     }
                                 }
                                 tx.Commit();
@@ -182,6 +215,11 @@ namespace RevitWebAppSync.Handlers
             }
             finally
             {
+                // Restore the user's original view (re-renders once, not per-fix).
+                if (restoreView != null && uidoc != null)
+                {
+                    try { uidoc.ActiveView = restoreView; } catch { }
+                }
                 OnCompleted?.Invoke(result);
                 RenameQueue.Clear();
                 ParamFixQueue.Clear();
@@ -189,6 +227,19 @@ namespace RevitWebAppSync.Handlers
                 // next Fix All if the caller forgets to set it.
                 TransactionGroupName = "JKR Quick Fix All";
             }
+        }
+
+        /// <summary>Find a cheap-to-activate view (empty drafting view, else a plan)
+        /// to host a Fix All batch so model regenerations don't re-render a 3D view.</summary>
+        private static View FindLightweightView(Document doc)
+        {
+            var drafting = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewDrafting)).Cast<View>()
+                .FirstOrDefault(v => v != null && !v.IsTemplate);
+            if (drafting != null) return drafting;
+            return new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewPlan)).Cast<View>()
+                .FirstOrDefault(v => v != null && !v.IsTemplate);
         }
 
         private static void ApplyRename(Document doc, long elemId, string newName,
