@@ -70,11 +70,17 @@ namespace RevitWebAppSync.UI.Copilot
 
                 var next = new ResourceDictionary { Source = new Uri(Pack(ThemeFile(dark)), UriKind.Absolute) };
                 var dicts = Application.Current.Resources.MergedDictionaries;
-                if (_themeDict != null)
+                // Remove + Insert (NOT indexer replace): replacing a MergedDictionaries
+                // entry by index mutates the resolved VALUES but does not reliably
+                // invalidate live {DynamicResource} bindings — so code-built content
+                // (which re-reads values on rebuild) would recolor while XAML
+                // DynamicResource backgrounds stayed on the old theme. Remove then
+                // Insert raises the collection-changed notifications WPF listens to.
+                var i = _themeDict != null ? dicts.IndexOf(_themeDict) : -1;
+                if (i >= 0)
                 {
-                    var i = dicts.IndexOf(_themeDict);
-                    if (i >= 0) dicts[i] = next;   // in-place swap keeps load order
-                    else dicts.Add(next);
+                    dicts.RemoveAt(i);
+                    dicts.Insert(i, next);
                 }
                 else
                 {
