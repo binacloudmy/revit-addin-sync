@@ -1015,6 +1015,96 @@ namespace BinaVibe.Mcp.Tools
             };
         }
 
+        // ─── set_category_visibility ─────────────────────────────────────
+        /// <summary>Hide / show / isolate whole CATEGORIES in a view (one
+        /// SetCategoryHidden op per category — no element enumeration).
+        /// mode: hide | show | isolate (isolate = show ONLY the listed cats,
+        /// hide every other hideable model category in the view).</summary>
+        public static Dictionary<string, object?> SetCategoryVisibility(Document doc, JsonElement args)
+        {
+            var catNames = ArgsHelp.GetStringList(args, "categories");
+            var mode = (ArgsHelp.GetString(args, "mode") ?? "hide").ToLowerInvariant();
+            var viewName = ArgsHelp.GetString(args, "view_name");
+
+            if (catNames == null || catNames.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no categories supplied" };
+
+            // Resolve target view — named or active (same rule as HideIsolateElements).
+            View view;
+            if (!string.IsNullOrEmpty(viewName))
+            {
+                view = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                    .FirstOrDefault(v => !v.IsTemplate && string.Equals(v.Name, viewName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"view '{viewName}' not found");
+            }
+            else
+            {
+                view = doc.ActiveView ?? throw new InvalidOperationException("no active view and no view_name supplied");
+            }
+
+            // Resolve the requested category names -> BuiltInCategory (reuses the
+            // robust resolver the INSPECT tools use). Collect misses to report.
+            var targetIds = new HashSet<ElementId>();
+            var resolved = new List<string>();
+            var unknown = new List<string>();
+            foreach (var name in catNames)
+            {
+                var bic = Inspectors.ResolveCategoryRobust(doc, name);
+                if (bic == null) { unknown.Add(name); continue; }
+                var cat = Category.GetCategory(doc, bic.Value);
+                if (cat == null) { unknown.Add(name); continue; }
+                targetIds.Add(cat.Id);
+                resolved.Add(cat.Name);
+            }
+            if (targetIds.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"no known categories in [{string.Join(", ", catNames)}]" };
+
+            int changed = 0;
+            using var tx = new Transaction(doc, $"BinaVibe: set_category_visibility ({mode}, {resolved.Count})");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                if (mode == "isolate")
+                {
+                    // Show ONLY the listed categories: walk every hideable model
+                    // category in the doc, hide those not requested, show those that are.
+                    foreach (Category c in doc.Settings.Categories)
+                    {
+                        if (c == null || c.CategoryType != CategoryType.Model) continue;
+                        if (!view.CanCategoryBeHidden(c.Id)) continue;
+                        bool keep = targetIds.Contains(c.Id);
+                        if (view.GetCategoryHidden(c.Id) == keep)   // needs to flip
+                        {
+                            view.SetCategoryHidden(c.Id, !keep);
+                            changed++;
+                        }
+                    }
+                }
+                else
+                {
+                    bool hidden = mode != "show";   // hide (default) => true; show => false
+                    foreach (var id in targetIds)
+                    {
+                        if (!view.CanCategoryBeHidden(id)) continue;
+                        view.SetCategoryHidden(id, hidden);
+                        changed++;
+                    }
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["mode"] = mode,
+                ["categories"] = resolved,
+                ["unknown"] = unknown,
+                ["changed"] = changed,
+                ["view"] = view.Name,
+            };
+        }
+
         // ─── rotate_elements ────────────────────────────────────────────
         /// <summary>
         /// args: { element_ids:[long], angle_deg:double, axis_x?:double, axis_y?:double }
