@@ -64,6 +64,26 @@ namespace RevitWebAppSync.Services
         private static string Prettify(string tool) =>
             string.IsNullOrWhiteSpace(tool) ? "a step" : tool.Replace('_', ' ').Trim();
 
+        // ONE-BUBBLE accumulation helpers. `narration` holds the text of COMPLETED
+        // rounds; `Wrap` prepends it to the live round's streamed text so onReply
+        // always carries the full running answer.
+        private static Action<string> Wrap(Action<string> onReply, System.Text.StringBuilder narration)
+        {
+            if (onReply == null) return null;
+            return t =>
+            {
+                var prefix = narration.Length > 0 ? narration.ToString() + "\n\n" : "";
+                onReply(prefix + (t ?? ""));
+            };
+        }
+
+        private static void AppendRound(System.Text.StringBuilder narration, string reply)
+        {
+            if (string.IsNullOrWhiteSpace(reply)) return;
+            if (narration.Length > 0) narration.Append("\n\n");
+            narration.Append(reply.Trim());
+        }
+
         // onProgress receives a READY-TO-SHOW label ("Generating…", "Running list
         // levels…") — the streaming first turn pushes the agent's live steps
         // through it, and each pending Revit execution pushes its own.
@@ -79,19 +99,26 @@ namespace RevitWebAppSync.Services
             // tool_call_id) tick to ✓ when Revit finishes them.
             var trail = new ObservableCollection<ProgressStep>();
 
+            // ONE growing bubble (Claude-style): accumulate every round's reply so the
+            // pane streams a single continuous answer instead of a fresh reply per
+            // round. `narration` holds the COMPLETED rounds; `Wrap` prepends it to the
+            // live round's text on every onReply tick.
+            var narration = new System.Text.StringBuilder();
+            var wrapped = Wrap(onReply, narration);
+
             ToolTurn turn;
             try
             {
                 // Stream the first turn so the agent's steps appear live instead
                 // of a static "Thinking…". Returns the same ToolTurn (done OR
                 // awaiting_revit) the non-streaming path did.
-                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct, onReply).ConfigureAwait(false);
+                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct, wrapped).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 return new ToolLoopOutcome { Success = false, Error = $"tool/generate failed: {ex.Message}" };
             }
-            return await DriveAsync(turn, request?.SessionId, accessToken, onProgress, onReply, trail, ct).ConfigureAwait(false);
+            return await DriveAsync(turn, request?.SessionId, accessToken, onProgress, onReply, narration, trail, ct).ConfigureAwait(false);
         }
 
         /// <summary>Re-enter the loop after a clarify pause: POST the user's
@@ -103,6 +130,7 @@ namespace RevitWebAppSync.Services
             CancellationToken ct = default, Action<string> onReply = null)
         {
             var trail = new ObservableCollection<ProgressStep>();
+            var narration = new System.Text.StringBuilder();
             ToolTurn turn;
             try
             {
@@ -112,7 +140,7 @@ namespace RevitWebAppSync.Services
             {
                 return new ToolLoopOutcome { Success = false, Error = $"tool/resume-input failed: {ex.Message}" };
             }
-            return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply, trail, ct).ConfigureAwait(false);
+            return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply, narration, trail, ct).ConfigureAwait(false);
         }
 
         // Shared execute/resume driver: takes the latest turn and loops until
@@ -120,8 +148,10 @@ namespace RevitWebAppSync.Services
         private async Task<ToolLoopOutcome> DriveAsync(
             ToolTurn turn, string sessionFallback, string accessToken,
             Action<string> onProgress, Action<string> onReply,
+            System.Text.StringBuilder narration,
             ObservableCollection<ProgressStep> trail, CancellationToken ct)
         {
+            var wrapped = Wrap(onReply, narration);
             var outcome = new ToolLoopOutcome();
 
             for (int round = 0; round < MaxRounds; round++)
@@ -148,7 +178,10 @@ namespace RevitWebAppSync.Services
                 {
                     // "done" — the agent finished (answered, ran tools, OR fell
                     // back to codegen). Carry any code so the addin runs it.
-                    outcome.Reply = turn.Reply ?? "";
+                    // The final reply is the WHOLE accumulated narration (all rounds),
+                    // so the committed message keeps the full one-bubble answer.
+                    AppendRound(narration, turn.Reply);
+                    outcome.Reply = narration.Length > 0 ? narration.ToString() : (turn.Reply ?? "");
                     outcome.Code = turn.Code ?? "";
                     outcome.IsQuery = turn.IsQuery;
                     // Fold in the server-side tools the agent ran this turn
@@ -171,6 +204,11 @@ namespace RevitWebAppSync.Services
                     outcome.Steps = new List<ProgressStep>(trail);
                     return outcome;
                 }
+
+                // Fold this round's reply into the running narration BEFORE the next
+                // resume, so the next round streams as ONE growing bubble (this round's
+                // completed line + the next round's live text).
+                AppendRound(narration, turn.Reply);
 
                 // Execute each pending tool in Revit, collect results. Each ticks
                 // the SAME trail: a ▶ row on start (keyed by tool_call_id, which
@@ -203,7 +241,7 @@ namespace RevitWebAppSync.Services
                     // reply text live instead of a blocking 7-15s POST. Falls back
                     // to the blocking endpoint on older backends (404) internally.
                     turn = await _svc.ResumeStreamAsync(turn.RunId, turn.SessionId ?? sessionFallback, results,
-                                                        accessToken, onProgress, trail, onReply, ct)
+                                                        accessToken, onProgress, trail, wrapped, ct)
                                      .ConfigureAwait(false);
                 }
                 catch (Exception ex)

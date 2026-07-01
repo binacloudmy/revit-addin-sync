@@ -778,14 +778,10 @@ namespace RevitWebAppSync.UI.Copilot
                     // takes over the bubble — late trail re-renders (review ticks,
                     // resume rounds) must not stomp the text the user is reading.
                     bool replyStreaming = false;
-                    // Per-round narration: the backend streams a fresh reply each
-                    // tool-loop round ("let me find the types…" → "here's the table").
-                    // KEEP each completed line as its own message instead of
-                    // overwriting one bubble. A new round's text does NOT continue the
-                    // line we're showing (it resets), so when that happens we SEAL the
-                    // current line as a committed reply; the ReplaceLastThinking below
-                    // then adds a fresh bubble underneath it.
-                    string lastReplyLine = "";
+                    // ONE growing bubble (Claude-style). The backend streams a fresh
+                    // reply per tool-loop round, but ToolLoopRunner ACCUMULATES them
+                    // (round1 \n\n round2 \n\n …) so `cumulative` here is always the
+                    // full running answer — we just render it into the single bubble.
                     revitRouter.OnProgress = (trail) =>
                     {
                         if (replyStreaming) return;
@@ -799,10 +795,6 @@ namespace RevitWebAppSync.UI.Copilot
                     {
                         if (string.IsNullOrWhiteSpace(cumulative)) return;
                         replyStreaming = true;
-                        if (lastReplyLine.Length > 0 &&
-                            !cumulative.StartsWith(lastReplyLine, StringComparison.Ordinal))
-                            SealLastThinkingAsReply();   // new round → freeze the prior line, append below
-                        lastReplyLine = cumulative;
                         ReplaceLastThinking(new ChatMessage
                         {
                             Role = "ai", Kind = CpMsgKind.Thinking,
@@ -995,28 +987,6 @@ namespace RevitWebAppSync.UI.Copilot
                     if (Thread[i].Kind == CpMsgKind.Thinking) { Thread[i] = replacement; return; }
                 }
                 Thread.Add(replacement);
-            }
-            var disp = System.Windows.Application.Current?.Dispatcher;
-            if (disp != null && !disp.CheckAccess()) disp.Invoke(Apply); else Apply();
-        }
-
-        /// <summary>Freeze the live streaming bubble as a committed reply so the NEXT
-        /// tool-loop round's narration appends below it instead of overwriting it.
-        /// Converts the last Thinking message in place to a persisted AiReply.</summary>
-        private void SealLastThinkingAsReply()
-        {
-            void Apply()
-            {
-                for (int i = Thread.Count - 1; i >= 0; i--)
-                {
-                    if (Thread[i].Kind == CpMsgKind.Thinking)
-                    {
-                        var t = Thread[i].Text;
-                        if (!string.IsNullOrWhiteSpace(t))
-                            Thread[i] = new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = t };
-                        return;
-                    }
-                }
             }
             var disp = System.Windows.Application.Current?.Dispatcher;
             if (disp != null && !disp.CheckAccess()) disp.Invoke(Apply); else Apply();
