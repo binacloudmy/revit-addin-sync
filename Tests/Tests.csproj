@@ -33,6 +33,8 @@
     <Compile Include="..\UI\Copilot\Model\CopilotCatalog.cs" Link="CopilotCatalog.cs" />
     <Compile Include="..\UI\Copilot\Model\ProgressStep.cs" Link="ProgressStep.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\BatchRefResolver.cs" Link="BatchRefResolver.cs" />
+    <!-- Pure reference-dedup logic (no Revit/Roslyn dep); see CodeExecutor. -->
+    <Compile Include="..\Services\ReferenceDedup.cs" Link="ReferenceDedup.cs" />
     <!--
       DocumentChangedIndexer: included for BuildBulkPayload / SnapshotDoc /
       SnapshotPayload (pure logic, no Revit refs). BulkIndexAsync and the

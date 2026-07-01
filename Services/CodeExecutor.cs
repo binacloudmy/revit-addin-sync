@@ -514,48 +514,80 @@ namespace RevitWebAppSync.Services
             }
         }
 
+        // The name Roslyn uses to detect duplicate references is the one baked into the
+        // file manifest (what CreateFromFile reads), NOT the runtime Assembly.GetName().
+        // Co-installed add-ins (e.g. IssuesManagement) ship a same-manifest-name copy of
+        // Autodesk.Http.JsonApi/DevPortal, so we must de-dup on the manifest name — keying
+        // on the runtime name lets both through and Roslyn throws "already been imported".
+        private static string ManifestSimpleName(Assembly assembly)
+        {
+            try { return AssemblyName.GetAssemblyName(assembly.Location).Name; }
+            catch { return assembly.GetName().Name; }
+        }
+
         private static List<MetadataReference> BuildReferencesUncached()
         {
-            var references = new List<MetadataReference>();
+            // Collect candidate (manifest simple name, location) pairs in load order.
+            // We key on the manifest name — the identity Roslyn de-dups on (see
+            // ManifestSimpleName) — NOT the runtime Assembly.GetName(), before turning
+            // any of them into a MetadataReference.
+            var candidates = new List<(string simpleName, string location)>();
 
-            // Add references from all currently loaded assemblies that have a location
+            // All currently loaded assemblies that have a location.
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 try
                 {
                     if (!assembly.IsDynamic && !string.IsNullOrEmpty(assembly.Location))
-                    {
-                        references.Add(MetadataReference.CreateFromFile(assembly.Location));
-                    }
+                        candidates.Add((ManifestSimpleName(assembly), assembly.Location));
                 }
                 catch
                 {
-                    // Skip assemblies that can't be referenced
+                    // Skip assemblies that can't be inspected
                 }
             }
 
-            // Helper: make sure a specific assembly is in the reference set.
-            void EnsureRef(Assembly asm, string nameHint)
+            // Guarantee a specific assembly is a candidate. Appended AFTER the enumerated
+            // set so first-wins keeps the already-present copy; if it somehow wasn't
+            // enumerated, this adds it.
+            void EnsureCandidate(Assembly asm)
             {
                 try
                 {
-                    if (asm == null || string.IsNullOrEmpty(asm.Location)) return;
-                    if (references.Any(r => r.Display != null && r.Display.IndexOf(nameHint, StringComparison.OrdinalIgnoreCase) >= 0)) return;
-                    references.Add(MetadataReference.CreateFromFile(asm.Location));
+                    if (asm != null && !string.IsNullOrEmpty(asm.Location))
+                        candidates.Add((ManifestSimpleName(asm), asm.Location));
                 }
                 catch { }
             }
 
-            // Ensure Revit API is included — the LOADED (running version's) assemblies,
-            // so the compiler catches version-specific hallucinations (a 2024 member
-            // used against 2026 references fails to compile).
-            EnsureRef(typeof(Document).Assembly, "RevitAPI");
-            EnsureRef(typeof(UIDocument).Assembly, "RevitAPIUI");
+            // Ensure the Revit API is included — the LOADED (running version's) assemblies,
+            // so the compiler catches version-specific hallucinations (a 2024 member used
+            // against 2026 references fails to compile).
+            EnsureCandidate(typeof(Document).Assembly);      // RevitAPI
+            EnsureCandidate(typeof(UIDocument).Assembly);    // RevitAPIUI
 
-            // Ensure ClosedXML is included — the wrapper may `using ClosedXML.Excel;`
-            // and use the WriteExcel/ReadExcel* helpers. typeof(...) also forces a load.
-            try { EnsureRef(typeof(ClosedXML.Excel.XLWorkbook).Assembly, "ClosedXML"); } catch { }
+            // Ensure ClosedXML is included — the wrapper may `using ClosedXML.Excel;` and
+            // use the WriteExcel/ReadExcel* helpers. typeof(...) also forces a load.
+            try { EnsureCandidate(typeof(ClosedXML.Excel.XLWorkbook).Assembly); } catch { }
 
+            // De-dup on manifest simple name (first wins). Two different DLLs sharing a
+            // manifest name — a co-installed add-in (e.g. IssuesManagement) shadowing
+            // Revit's copy of Autodesk.Http.JsonApi/DevPortal — would otherwise both reach
+            // Roslyn and trigger "an assembly with the same simple name ... already imported".
+            var kept = ReferenceDedup.DedupBySimpleName(candidates, out var skipped);
+            foreach (var dup in skipped)
+            {
+                // Log so the collision is visible on the affected machine.
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BinaVibe] CodeExecutor: skipped duplicate reference '{dup.simpleName}' at {dup.location}");
+            }
+
+            var references = new List<MetadataReference>(kept.Count);
+            foreach (var entry in kept)
+            {
+                try { references.Add(MetadataReference.CreateFromFile(entry.location)); }
+                catch { /* Skip files that can't be referenced */ }
+            }
             return references;
         }
 
