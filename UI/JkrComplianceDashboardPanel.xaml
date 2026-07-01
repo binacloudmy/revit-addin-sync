@@ -15,6 +15,24 @@
             <jkr:BoolToVisibilityConverter x:Key="B2V"/>
             <jkr:NonEmptyStringToVisibilityConverter x:Key="StrVis"/>
             <jkr:CountGtZeroConverter x:Key="GtZero"/>
+
+            <!-- Chromeless button so the severity pills are reliably clickable
+                 (MouseLeftButtonUp on the nested PillStat UserControl was unreliable). -->
+            <Style x:Key="SevPillBtn" TargetType="Button">
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding" Value="0"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent">
+                                <ContentPresenter/>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </UserControl.Resources>
 
@@ -151,12 +169,18 @@
                                    FontSize="10.5" Margin="0,3,0,0"
                                    FontFamily="{StaticResource Font.Sans}"/>
                         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                            <ctl:PillStat x:Name="HiPill" Label="High" Fg="{StaticResource PillHi}" Bg="{StaticResource PillHiBg}" Margin="0,0,5,0"
-                                          Cursor="Hand" MouseLeftButtonUp="HiPill_Click" ToolTip="Filter to High severity (click again to clear)"/>
-                            <ctl:PillStat x:Name="MdPill" Label="Med"  Fg="{StaticResource PillMd}" Bg="{StaticResource PillMdBg}" Margin="0,0,5,0"
-                                          Cursor="Hand" MouseLeftButtonUp="MdPill_Click" ToolTip="Filter to Medium severity (click again to clear)"/>
-                            <ctl:PillStat x:Name="LoPill" Label="Low"  Fg="{StaticResource PillLo}" Bg="{StaticResource PillLoBg}"
-                                          Cursor="Hand" MouseLeftButtonUp="LoPill_Click" ToolTip="Filter to Low severity (click again to clear)"/>
+                            <Button Style="{StaticResource SevPillBtn}" Click="HiPill_Click" Margin="0,0,5,0"
+                                    ToolTip="Filter to High severity (click again to clear)">
+                                <ctl:PillStat x:Name="HiPill" Label="High" Fg="{StaticResource PillHi}" Bg="{StaticResource PillHiBg}"/>
+                            </Button>
+                            <Button Style="{StaticResource SevPillBtn}" Click="MdPill_Click" Margin="0,0,5,0"
+                                    ToolTip="Filter to Medium severity (click again to clear)">
+                                <ctl:PillStat x:Name="MdPill" Label="Med"  Fg="{StaticResource PillMd}" Bg="{StaticResource PillMdBg}"/>
+                            </Button>
+                            <Button Style="{StaticResource SevPillBtn}" Click="LoPill_Click"
+                                    ToolTip="Filter to Low severity (click again to clear)">
+                                <ctl:PillStat x:Name="LoPill" Label="Low"  Fg="{StaticResource PillLo}" Bg="{StaticResource PillLoBg}"/>
+                            </Button>
                         </StackPanel>
                     </StackPanel>
                 </Grid>
