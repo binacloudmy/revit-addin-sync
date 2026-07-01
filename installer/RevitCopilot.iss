@@ -30,7 +30,7 @@
 [Setup]
 ; AppId is permanent — same rule as an MSI UpgradeCode, never regenerate.
 AppId={{9C4D7E12-3A86-4B5F-8D29-6E1F0B7A5C43}
-AppName=Revit Copilot
+AppName=BINA AI Copilot
 AppPublisher=Bina Cloudtech Sdn Bhd
 AppPublisherURL=https://app.bina.cloud
 AppVersion={#AppVersion}
@@ -47,7 +47,7 @@ DisableProgramGroupPage=yes
 DisableReadyPage=yes
 DisableFinishedPage=yes
 Uninstallable=yes
-UninstallDisplayName=Revit Copilot
+UninstallDisplayName=BINA AI Copilot
 
 [Files]
 ; Loader shim into every supported Revit year (only net8 hosts: 2025-2027).

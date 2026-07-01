@@ -1,11 +1,11 @@
-<Page x:Class="RevitWebAppSync.UI.JkrComplianceDashboardPanel"
+<UserControl x:Class="RevitWebAppSync.UI.JkrComplianceDashboardPanel"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:jkr="clr-namespace:RevitWebAppSync.UI.Jkr"
       xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Jkr.Controls"
       Background="#F7F6F3" FontFamily="Segoe UI" Focusable="True">
 
-    <Page.Resources>
+    <UserControl.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Jkr/Tokens.xaml"/>
@@ -15,8 +15,26 @@
             <jkr:BoolToVisibilityConverter x:Key="B2V"/>
             <jkr:NonEmptyStringToVisibilityConverter x:Key="StrVis"/>
             <jkr:CountGtZeroConverter x:Key="GtZero"/>
+
+            <!-- Chromeless button so the severity pills are reliably clickable
+                 (MouseLeftButtonUp on the nested PillStat UserControl was unreliable). -->
+            <Style x:Key="SevPillBtn" TargetType="Button">
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Padding" Value="0"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <Border Background="Transparent">
+                                <ContentPresenter/>
+                            </Border>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
-    </Page.Resources>
+    </UserControl.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
@@ -83,16 +101,11 @@
                     </StackPanel>
                 </Grid>
 
-                <!-- Row A2: LOD + Re-scan on their own line -->
-                <Grid Margin="0,8,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-
+                <!-- Row A2: LOD + Discipline + Re-scan. WrapPanel so Re-scan wraps to a
+                     second line at narrow dock widths instead of clipping off-screen. -->
+                <WrapPanel Margin="0,8,0,0" Orientation="Horizontal">
                     <!-- LOD level selector -->
-                    <Border Grid.Column="0" Background="#26FFFFFF" CornerRadius="6" Padding="8,4,4,4"
+                    <Border Background="#26FFFFFF" CornerRadius="6" Padding="8,4,4,4" Margin="0,0,8,8"
                             VerticalAlignment="Center" ToolTip="Level of Development target">
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="LOD" Foreground="White" FontSize="11" FontWeight="SemiBold"
@@ -106,9 +119,23 @@
                                       FontFamily="{StaticResource Font.Mono}"/>
                         </StackPanel>
                     </Border>
-
-                    <!-- Re-scan button -->
-                    <Button Grid.Column="2" x:Name="RescanBtn" Style="{StaticResource Btn.Ghost}"
+                    <!-- Discipline selector -->
+                    <Border Background="#26FFFFFF" CornerRadius="6" Padding="8,4,4,4" Margin="0,0,8,8"
+                            VerticalAlignment="Center" ToolTip="Discipline to scope this scan to">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Discipline" Foreground="White" FontSize="11" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" Margin="0,0,8,0"
+                                       FontFamily="{StaticResource Font.Sans}"/>
+                            <ComboBox x:Name="DisciplineCombo" Width="124" Height="26" FontSize="13"
+                                      Foreground="#0F1A33" Background="White" BorderThickness="0"
+                                      FontWeight="Bold"
+                                      VerticalContentAlignment="Center"
+                                      Padding="8,0,4,0"
+                                      FontFamily="{StaticResource Font.Sans}"/>
+                        </StackPanel>
+                    </Border>
+                    <!-- Re-scan button — always visible; wraps below when space is tight -->
+                    <Button x:Name="RescanBtn" Style="{StaticResource Btn.Ghost}" Margin="0,0,0,8"
                             Click="Rescan_Click" VerticalAlignment="Center" ToolTip="Re-scan (R)">
                         <StackPanel Orientation="Horizontal">
                             <Grid x:Name="RescanIconRoot" Margin="0,0,5,0">
@@ -117,7 +144,7 @@
                             <TextBlock x:Name="RescanLabel" Text="Re-scan" FontSize="11"/>
                         </StackPanel>
                     </Button>
-                </Grid>
+                </WrapPanel>
 
                 <!-- Row B: progress ring + session stats + pill stats -->
                 <Grid Margin="0,14,0,0">
@@ -142,20 +169,29 @@
                                    FontSize="10.5" Margin="0,3,0,0"
                                    FontFamily="{StaticResource Font.Sans}"/>
                         <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                            <ctl:PillStat x:Name="HiPill" Label="High" Fg="{StaticResource PillHi}" Bg="{StaticResource PillHiBg}" Margin="0,0,5,0"/>
-                            <ctl:PillStat x:Name="MdPill" Label="Med"  Fg="{StaticResource PillMd}" Bg="{StaticResource PillMdBg}" Margin="0,0,5,0"/>
-                            <ctl:PillStat x:Name="LoPill" Label="Low"  Fg="{StaticResource PillLo}" Bg="{StaticResource PillLoBg}"/>
+                            <Button Style="{StaticResource SevPillBtn}" Click="HiPill_Click" Margin="0,0,5,0"
+                                    ToolTip="Filter to High severity (click again to clear)">
+                                <ctl:PillStat x:Name="HiPill" Label="High" Fg="{StaticResource PillHi}" Bg="{StaticResource PillHiBg}"/>
+                            </Button>
+                            <Button Style="{StaticResource SevPillBtn}" Click="MdPill_Click" Margin="0,0,5,0"
+                                    ToolTip="Filter to Medium severity (click again to clear)">
+                                <ctl:PillStat x:Name="MdPill" Label="Med"  Fg="{StaticResource PillMd}" Bg="{StaticResource PillMdBg}"/>
+                            </Button>
+                            <Button Style="{StaticResource SevPillBtn}" Click="LoPill_Click"
+                                    ToolTip="Filter to Low severity (click again to clear)">
+                                <ctl:PillStat x:Name="LoPill" Label="Low"  Fg="{StaticResource PillLo}" Bg="{StaticResource PillLoBg}"/>
+                            </Button>
                         </StackPanel>
                     </StackPanel>
                 </Grid>
 
                 <!-- Row C: action buttons -->
                 <StackPanel Orientation="Horizontal" Margin="0,10,0,0" HorizontalAlignment="Right">
-                    <Button x:Name="AcceptAllBtn" Style="{StaticResource Btn.Ghost}"
-                            Click="AcceptAll_Click" Margin="0,0,6,0" ToolTip="Accept all Medium + Low issues">
+                    <Button x:Name="IgnoreAllBtn" Style="{StaticResource Btn.Ghost}"
+                            Click="IgnoreAll_Click" Margin="0,0,6,0" ToolTip="Ignore all Medium + Low issues">
                         <StackPanel Orientation="Horizontal">
                             <jkr:IconGlyph Glyph="check" Size="11" Foreground="{StaticResource NavySubtle}" Margin="0,0,5,0"/>
-                            <TextBlock Text="Accept All" FontSize="10.5"/>
+                            <TextBlock Text="Ignore All" FontSize="10.5"/>
                         </StackPanel>
                     </Button>
                     <Button x:Name="FixAllBtn" Style="{StaticResource Btn.Ghost}"
@@ -283,12 +319,12 @@
                         </Border>
                     </StackPanel>
                 </ToggleButton>
-                <ToggleButton x:Name="TabAccepted" Grid.Column="1" Style="{StaticResource Btn.Tab}"
-                              IsChecked="False" Click="TabAccepted_Click" Margin="2,0,0,0">
+                <ToggleButton x:Name="TabIgnore" Grid.Column="1" Style="{StaticResource Btn.Tab}"
+                              IsChecked="False" Click="TabIgnore_Click" Margin="2,0,0,0">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Accepted" Margin="0,0,5,0"/>
-                        <Border x:Name="TabAcceptedPill" Background="{StaticResource Surface.Line2}" CornerRadius="8" Padding="6,1,6,1">
-                            <TextBlock x:Name="TabAcceptedCount" Text="0" FontSize="10" FontWeight="Bold"
+                        <TextBlock Text="Ignore" Margin="0,0,5,0"/>
+                        <Border x:Name="TabIgnorePill" Background="{StaticResource Surface.Line2}" CornerRadius="8" Padding="6,1,6,1">
+                            <TextBlock x:Name="TabIgnoreCount" Text="0" FontSize="10" FontWeight="Bold"
                                        Foreground="{StaticResource Ink3}"/>
                         </Border>
                     </StackPanel>
@@ -355,7 +391,7 @@
                     <ctl:KbdHint Key="↵" Label="open" Margin="0,0,10,0"/>
                     <ctl:KbdHint Key="J/K" Label="nav" Margin="0,0,10,0"/>
                     <ctl:KbdHint Key="F" Label="fix" Margin="0,0,10,0"/>
-                    <ctl:KbdHint Key="A" Label="accept"/>
+                    <ctl:KbdHint Key="A" Label="ignore"/>
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                     <Button x:Name="ResetBtn" Style="{StaticResource Btn.Sec}" Click="Reset_Click" Margin="0,0,6,0"
@@ -402,4 +438,4 @@
             </Grid>
         </Border>
     </Grid>
-</Page>
+</UserControl>

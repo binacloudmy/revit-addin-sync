@@ -11,7 +11,7 @@
     <UseWPF>true</UseWPF>
     <!-- OTA versioning: CI overrides with -p:Version=<git tag>. The updater
          compares this against the update feed. -->
-    <Version Condition="'$(Version)' == ''">0.0.1</Version>
+    <Version Condition="'$(Version)' == ''">0.0.13</Version>
     <!-- Build net8.0-windows + WPF on macOS/Linux (CI and non-Windows dev). -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <!-- Ensure all NuGet dependencies are copied to output -->
@@ -61,9 +61,18 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <!-- Excel support for import/export -->
     <PackageReference Include="ClosedXML" Version="0.102.2" />
+    <!-- PDF generation for Copilot session report export -->
+    <PackageReference Include="QuestPDF" Version="2024.*" />
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Env links embedded so they travel inside the DLL (survive OTA zip +
+         versions\ copy). BinaConfig picks .env.local on Debug, .env.production
+         on Release via #if DEBUG. LogicalName keeps the leading-dot filename
+         from mangling the manifest resource name. -->
+    <EmbeddedResource Include=".env.local" LogicalName="env.local" />
+    <EmbeddedResource Include=".env.production" LogicalName="env.production" />
+
     <EmbeddedResource Include="Resources\revitSync.png" />
     <EmbeddedResource Include="Resources\revitSave.png" />
     <EmbeddedResource Include="Resources\microchip.png" />
@@ -85,10 +94,17 @@
     </None>
   </ItemGroup>
 
-  <!-- Post-build: Copy addin manifest and ALL DLLs to Revit folder -->
+  <!-- Post-build: Copy addin manifest, top-level DLLs, AND all subfolder
+       payload (runtimes\ native libs for QuestPDF, satellite locales, fonts)
+       to the Revit Addins folder. The subfolder copy is REQUIRED — without it
+       runtimes\win-x64\native\QuestPdfSkia.dll is missing and PDF export fails
+       at runtime ("The PDF engine's native library is missing from this build"). -->
   <Target Name="PostBuild" AfterTargets="Build">
     <ItemGroup>
       <OutputDlls Include="$(TargetDir)*.dll" />
+      <!-- Everything in SUBdirectories (runtimes\, cs\, de\, LatoFont\, …).
+           Exclude top-level files (handled by OutputDlls + the .addin copy). -->
+      <OutputSubFiles Include="$(TargetDir)**\*" Exclude="$(TargetDir)*" />
     </ItemGroup>
 
     <Copy SourceFiles="$(ProjectDir)RevitWebAppSync.addin"
@@ -99,7 +115,13 @@
           DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\"
           Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\')" />
 
-    <Message Text="Copied $(TargetDir)*.dll to Revit Addins folder (version $(RevitVersion))" Importance="high" />
+    <!-- Preserve the nested folder structure via %(RecursiveDir) so native
+         libs land at runtimes\win-x64\native\… exactly as QuestPDF expects. -->
+    <Copy SourceFiles="@(OutputSubFiles)"
+          DestinationFiles="@(OutputSubFiles->'$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\%(RecursiveDir)%(Filename)%(Extension)')"
+          Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\')" />
+
+    <Message Text="Copied $(TargetDir)*.dll + subfolders (runtimes\, locales, fonts) to Revit Addins folder (version $(RevitVersion))" Importance="high" />
   </Target>
 
 </Project>

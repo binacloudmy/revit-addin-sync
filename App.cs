@@ -55,7 +55,7 @@ namespace RevitWebAppSync
 
         // BinaVibe v2 outbound WSS tunnel client (PRD §6.5 / production
         // transport). When BINA_VIBE_MCP_TRANSPORT is "wss" or "both",
-        // the addin dials out to bina-ai at /vibe/mcp/tunnel and the
+        // the addin dials out to bina-ai at /revit-copilot/mcp/tunnel and the
         // cloud orchestrator pushes tool-call frames down the socket.
         // No inbound port on the customer machine. Firewall-friendly.
         public static BinaVibe.Mcp.McpTunnelClient VibeMcpTunnel { get; private set; }
@@ -94,6 +94,36 @@ namespace RevitWebAppSync
         // build later paid ~32-70s. Set on DocumentOpened, consumed in Idling.
         private static Autodesk.Revit.DB.Document _pendingWarmDoc;
         private static long _warmOpenedTs;
+
+        /// <summary>
+        /// Reconnects the WSS tunnel with a freshly-acquired access token.
+        /// Called by LoginCommand after a successful login so the backend can
+        /// bind the tunnel to the authenticated user (and allocate AI credits
+        /// correctly). No-op when the WSS transport is not active.
+        /// </summary>
+        public static void RestartVibeTunnel(string newToken)
+        {
+            if (VibeMcpTunnel == null) return;
+            try
+            {
+                VibeMcpTunnel.Dispose();
+                var cfg = BinaConfig.Load();
+                var flags = BinaVibe.Policy.VibeFlags.Load();
+                var sessionId = Guid.NewGuid().ToString();
+                VibeMcpTunnel = new BinaVibe.Mcp.McpTunnelClient(
+                    cfg.ResolvedAIBaseUrl,
+                    flags.TenantId,
+                    sessionId,
+                    newToken,
+                    flags.UserId);
+                VibeMcpTunnel.Start();
+                System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel restarted with authenticated token (tenant={flags.TenantId})");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel restart failed: {ex.Message}");
+            }
+        }
 
         public Result OnStartup(UIControlledApplication application)
         {
@@ -155,12 +185,19 @@ namespace RevitWebAppSync
 
                 // Tool-calling execution handler — ALWAYS created (independent of
                 // the gated tunnel/MCP transport). The HTTP tool-loop (ToolLoopRunner)
-                // enqueues an McpJob here, raises the event, and waits; the handler
-                // runs the tool via ToolRegistry.Invoke on the Revit UI thread. This
-                // is the addin half of Step 4 (/tool/generate ↔ /tool/resume) — no
-                // tunnel needed, the backend just hands us pending tool calls.
+                // enqueues an McpJob via McpJobPump, which drains it on the Revit UI
+                // thread from the Idling event (forcing continuous idling so it runs
+                // promptly even from the modeless pane), and fast-fails if Revit is
+                // busy / has a modal dialog open. This is the addin half of Step 4
+                // (/tool/generate ↔ /tool/resume) — no tunnel needed.
                 McpToolHandler = new BinaVibe.Mcp.McpExternalEventHandler();
                 McpToolEvent = ExternalEvent.Create(McpToolHandler);
+                // Idling-driven pump (kills the "Revit not idle → 600s freeze" bug,
+                // see docs/superpowers/specs/2026-06-30-revit-tool-execution-reliability-design.md).
+                BinaVibe.Mcp.McpJobPump.Init(application, McpToolHandler, McpToolEvent);
+                // A Revit modal dialog blocks idling entirely — note it so a
+                // fast-fail tells the user to close the dialog.
+                application.DialogBoxShowing += (s, e) => BinaVibe.Mcp.McpJobPump.NoteDialogShown();
 
                 // Warm-up: pays the one-time first-regen at doc-open so the
                 // user's first build doesn't freeze (see WarmupHandler).
@@ -215,7 +252,7 @@ namespace RevitWebAppSync
                     CopilotPaneHost = new CopilotPaneHost();
                     application.RegisterDockablePane(
                         CopilotPaneHost.PaneId,
-                        "BINA Revit Copilot",
+                        "BINA AI Copilot",
                         CopilotPaneHost);
                 }
                 catch (Exception copilotEx)
@@ -292,7 +329,7 @@ namespace RevitWebAppSync
                             token,
                             flags.UserId);
                         VibeMcpTunnel.Start();
-                        System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel dialing out to {cfg.ResolvedAIBaseUrl}/vibe/mcp/tunnel (tenant={flags.TenantId})");
+                        System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP tunnel dialing out to {cfg.ResolvedAIBaseUrl}/revit-copilot/mcp/tunnel (tenant={flags.TenantId})");
 
                         // Wire the DocumentChanged indexer so delta changes
                         // are shipped on every edit. The DocumentOpened event
@@ -446,14 +483,17 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
             };
 
+            // Login opens the BINA Cloud web page (login OR register) in the
+            // browser; identity is bina-ai (OAuth + PKCE). Tokens land in the
+            // Windows Credential Manager. No password is typed into Revit.
             PushButtonData loginButtonData = new PushButtonData(
                 "Login",
                 "Login",
                 Assembly.GetExecutingAssembly().Location,
-                "RevitWebAppSync.LoginCommand")
+                "RevitWebAppSync.BrowserLoginCommand")
             {
-                ToolTip = "Login to BINA Cloud",
-                LongDescription = "Opens BINA Cloud in your default browser to login.",
+                ToolTip = "Login or register for BINA Cloud",
+                LongDescription = "Opens the BINA Cloud sign-in page in your browser to log in or create an account.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
@@ -488,8 +528,8 @@ namespace RevitWebAppSync
                 Assembly.GetExecutingAssembly().Location,
                 "RevitWebAppSync.Commands.OpenCopilotCommand")
             {
-                ToolTip = "Open Revit Copilot",
-                LongDescription = "Open the Revit Copilot side panel to run vetted tools or AI commands with natural language. Examples: Count doors by level, Rename levels, Find walls missing fire rating.",
+                ToolTip = "Open BINA AI Copilot",
+                LongDescription = "Open the BINA AI Copilot side panel to run vetted tools or AI commands with natural language. Examples: Count doors by level, Rename levels, Find walls missing fire rating.",
                 Image = LoadImage("RevitWebAppSync.Resources.aiAssistant.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.aiAssistant.png", 32)
             };

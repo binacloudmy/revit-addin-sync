@@ -118,7 +118,7 @@ namespace RevitWebAppSync.Services
 
                 result.Elements.Add(new JkrElementData
                 {
-                    ElementId = (int)elem.Id.Value,
+                    ElementId = elem.Id.Value,
                     Category = category,
                     TypeName = typeName,
                     ElementName = elementName,

@@ -200,7 +200,7 @@ namespace RevitWebAppSync.Services
     public class ModelCheckElement
     {
         [JsonProperty("element_id")]
-        public int ElementId { get; set; }
+        public long ElementId { get; set; }
 
         [JsonProperty("category")]
         public string Category { get; set; }
@@ -255,13 +255,13 @@ namespace RevitWebAppSync.Services
     {
         // Stable ID — sha1(category + "|" + rule + "|" + elementId)[0..12].
         // Populated by JkrComplianceService when converting V2 → DTO. Used by
-        // the audit store to persist Accept/Approve across re-scans and by
+        // the audit store to persist Ignore/Approve across re-scans and by
         // the UI to key Undo snapshots.
         [JsonProperty("issue_id")]
         public string IssueId { get; set; } = "";
 
         [JsonProperty("element_id")]
-        public int ElementId { get; set; }
+        public long ElementId { get; set; }
 
         [JsonProperty("category")]
         public string Category { get; set; }
@@ -329,7 +329,7 @@ namespace RevitWebAppSync.Services
     public class AIRecommendationDto
     {
         [JsonProperty("element_id")]
-        public int ElementId { get; set; }
+        public long ElementId { get; set; }
 
         [JsonProperty("fix_suggestion")]
         public string FixSuggestion { get; set; }

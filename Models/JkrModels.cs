@@ -3,26 +3,6 @@ using System.Collections.Generic;
 
 namespace RevitWebAppSync.Models
 {
-    // ── Agent run (POST /agents/jkr_specialist/runs) ──
-
-    public class JkrAgentRequest
-    {
-        [JsonProperty("message")]
-        public string Message { get; set; }
-
-        [JsonProperty("stream")]
-        public bool Stream { get; set; } = false;
-    }
-
-    public class JkrAgentResponse
-    {
-        [JsonProperty("content")]
-        public string Content { get; set; }
-
-        [JsonProperty("content_type")]
-        public string ContentType { get; set; }
-    }
-
     // ── Raw search (POST /v1/jkr/search) ──
 
     public class JkrSearchRequest

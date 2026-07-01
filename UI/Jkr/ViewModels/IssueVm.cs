@@ -8,12 +8,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     public enum IssuePriority { High, Medium, Low }
     /// <summary>
     /// ManualFixNeeded: an auto-fix attempt failed (typically read-only param,
-    /// not-found element, or category mismatch). Behaves like Accepted/Approved
+    /// not-found element, or category mismatch). Behaves like Ignored/Approved
     /// for filtering — out of Open, hidden Fix button — but lives in its own tab
     /// so users can review what the addin couldn't apply for them and resolve
     /// manually. Persisted via audit so it doesn't relapse to Open on rescan.
     /// </summary>
-    public enum IssueStatus { Open, Fixed, Accepted, Approved, ManualFixNeeded }
+    public enum IssueStatus { Open, Fixed, Ignored, Approved, ManualFixNeeded }
 
     public class ElementRef
     {
@@ -37,7 +37,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public string Description { get; set; } = "";
 
         public ElementRef Element { get; set; } = new ElementRef();
-        public int RevitElementId { get; set; }
+        public long RevitElementId { get; set; }
         public string Required { get; set; } = "";
         public string Actual { get; set; } = "";
         public string Example { get; set; } = "";
@@ -90,17 +90,17 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         // ─── Derived (bindable) ───
         // Action gating flows from the tier hierarchy in JkrTierMap:
         //   High   → auto-fix only.
-        //   Medium → auto-fix + accept.
-        //   Low    → auto-fix + accept + approve.
+        //   Medium → auto-fix + ignore.
+        //   Low    → auto-fix + ignore + approve.
         public bool IsOpen => Status == IssueStatus.Open;
-        public bool IsAccepted => Status == IssueStatus.Accepted;
-        public bool IsActionable => Status == IssueStatus.Open || Status == IssueStatus.Accepted;
+        public bool IsIgnored => Status == IssueStatus.Ignored;
+        public bool IsActionable => Status == IssueStatus.Open || Status == IssueStatus.Ignored;
         public bool IsResolved => Status == IssueStatus.Fixed || Status == IssueStatus.Approved;
-        public bool CanAccept  => JkrTierMap.CanAccept(Priority);
+        public bool CanIgnore  => JkrTierMap.CanIgnore(Priority);
         public bool CanApprove => JkrTierMap.CanApprove(Priority);
         public bool CanMarkManual => JkrTierMap.CanMarkManual(Priority);
         public bool ShowAutoFixButton => IsActionable && AutoFixable;
-        public bool ShowAcceptButton  => IsOpen && CanAccept;  // only from Open → Accepted
+        public bool ShowIgnoreButton  => IsOpen && CanIgnore;  // only from Open → Ignored
         public bool ShowApproveButton => IsActionable && CanApprove;
         /// <summary>"Mark as Manual" — user signals they'll handle this in Revit by hand,
         /// stop the addin from re-prompting. Hidden on High-tier ("Must Fix") issues:
@@ -151,7 +151,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 switch (Status)
                 {
                     case IssueStatus.Fixed: return "Fixed";
-                    case IssueStatus.Accepted: return "Accepted";
+                    case IssueStatus.Ignored: return "Ignored";
                     case IssueStatus.Approved: return "Approved";
                     case IssueStatus.ManualFixNeeded: return "Manual fix";
                     default: return "Open";
@@ -167,7 +167,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 {
                     case IssueStatus.Approved: return "approve";
                     case IssueStatus.Fixed:
-                    case IssueStatus.Accepted: return "check";
+                    case IssueStatus.Ignored: return "check";
                     case IssueStatus.ManualFixNeeded: return "warning";
                     default: return "dot";
                 }

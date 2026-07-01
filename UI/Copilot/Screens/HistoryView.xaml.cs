@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.Linq;
 using System.Windows;
@@ -9,6 +10,7 @@ using System.Windows.Media;
 using System.Windows.Shapes;
 using RevitWebAppSync.UI.Copilot.Controls;
 using RevitWebAppSync.UI.Copilot.Model;
+using RevitWebAppSync.Services;
 
 namespace RevitWebAppSync.UI.Copilot.Screens
 {
@@ -16,6 +18,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
     {
         private CopilotViewModel Vm => DataContext as CopilotViewModel;
         private CopilotViewModel _hooked;
+
+        // The session currently shown in the detail pane — the target of the
+        // header Download button. Null while the list is showing.
+        private HistoryEntry _detailEntry;
 
         public HistoryView()
         {
@@ -39,8 +45,20 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             ListPanel.Visibility = Visibility.Visible;
             DetailPanel.Visibility = Visibility.Collapsed;
             BackBtn.Visibility = Visibility.Collapsed;
+            DownloadBtn.Visibility = Visibility.Collapsed;
+            _detailEntry = null;
             HeaderTitle.Text = "History";
             Rebuild();
+        }
+
+        // Header Download button → format menu for the session being viewed.
+        private void DownloadBtn_Click(object s, RoutedEventArgs e)
+        {
+            if (_detailEntry == null) return;
+            var menu = BuildFormatMenu(_detailEntry);
+            menu.PlacementTarget = DownloadBtn;
+            menu.Placement = PlacementMode.Bottom;
+            menu.IsOpen = true;
         }
 
         private void Rebuild()
@@ -55,11 +73,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private void ShowDetail(HistoryEntry h)
         {
             if (MessagesHost == null) return;
+            _detailEntry = h;
             MessagesHost.Children.Clear();
             HeaderTitle.Text = RowTitle(h);
             ListPanel.Visibility = Visibility.Collapsed;
             DetailPanel.Visibility = Visibility.Visible;
             BackBtn.Visibility = Visibility.Visible;
+            DownloadBtn.Visibility = Visibility.Visible;
 
             foreach (var msg in h.History)
             {
@@ -242,10 +262,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             var menu = new ContextMenu();
             var renameItem = new MenuItem { Header = "Rename" };
+            var downloadItem = new MenuItem { Header = "Download report" };
+            foreach (var item in FormatMenuItems(h)) downloadItem.Items.Add(item);
             var deleteItem = new MenuItem { Header = "Delete" };
             renameItem.Click += (_, __) => BeginRename();
             deleteItem.Click += (_, __) => Vm.DeleteHistoryEntry(h);
             menu.Items.Add(renameItem);
+            menu.Items.Add(downloadItem);
             menu.Items.Add(deleteItem);
             dotsBtn.Click += (_, e2) =>
             {
@@ -289,6 +312,69 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         // Render history messages with the same bubbles as the live chat: user
         // messages as a plain bubble (with file chips), bot replies as markdown.
+        // ─── Report export ───────────────────────────────────────────────────
+
+        private static readonly (string label, ReportFormat fmt)[] FormatChoices =
+        {
+            ("Excel (.xlsx)", ReportFormat.Excel),
+            ("PDF (.pdf)",    ReportFormat.Pdf),
+            ("Markdown (.md)", ReportFormat.Markdown),
+            ("Plain text (.txt)", ReportFormat.Text),
+        };
+
+        /// <summary>MenuItems for each export format, each wired to ExportSession.</summary>
+        private IEnumerable<MenuItem> FormatMenuItems(HistoryEntry h)
+        {
+            foreach (var (label, fmt) in FormatChoices)
+            {
+                var mi = new MenuItem { Header = label };
+                var entry = h; var f = fmt;
+                mi.Click += (_, __) => ExportSession(entry, f);
+                yield return mi;
+            }
+        }
+
+        /// <summary>Standalone ContextMenu of the format choices (header Download button).</summary>
+        private ContextMenu BuildFormatMenu(HistoryEntry h)
+        {
+            var menu = new ContextMenu();
+            foreach (var item in FormatMenuItems(h)) menu.Items.Add(item);
+            return menu;
+        }
+
+        /// <summary>Prompt for a save location, then write the session report.</summary>
+        private void ExportSession(HistoryEntry h, ReportFormat fmt)
+        {
+            if (h == null) return;
+            var (filter, ext) = ReportExporter.DialogInfo(fmt);
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = "Save Copilot report",
+                Filter = filter,
+                FileName = ReportExporter.SuggestedFileName(h) + ext,
+                AddExtension = true,
+                DefaultExt = ext,
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            try
+            {
+                ReportExporter.Export(h, Vm?.ModelName, fmt, dlg.FileName);
+            }
+            catch (Exception ex)
+            {
+                // Show the whole inner-exception chain — the outer message often
+                // hides the real cause (e.g. a native-load failure behind a
+                // TypeInitializationException).
+                var detail = ex.Message;
+                for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)
+                    detail += "\n→ " + inner.Message;
+                MessageBox.Show(
+                    $"Could not save the report:\n\n{detail}",
+                    "Export failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+        }
+
         private FrameworkElement MessageBubble(Model.History msg)
         {
             var wrap = new StackPanel { Margin = new Thickness(14, 0, 14, 0) };

@@ -154,9 +154,9 @@ namespace RevitWebAppSync.Services
         /// <summary>
         /// Stable per-check id used by audit persistence and UI undo keying.
         /// Same (category, rule, elementId) tuple always produces the same 12-hex string,
-        /// so a re-scan re-uses persisted Accept/Approve decisions.
+        /// so a re-scan re-uses persisted Ignore/Approve decisions.
         /// </summary>
-        private static string ComputeIssueId(string category, string rule, int elementId)
+        private static string ComputeIssueId(string category, string rule, long elementId)
         {
             var key = $"{category ?? ""}|{rule ?? ""}|{elementId}";
             using (var sha = SHA1.Create())
@@ -269,7 +269,7 @@ namespace RevitWebAppSync.Services
     public class JkrElementData
     {
         [JsonProperty("element_id")]
-        public int ElementId { get; set; }
+        public long ElementId { get; set; }
 
         [JsonProperty("category")]
         public string Category { get; set; }
@@ -441,7 +441,7 @@ namespace RevitWebAppSync.Services
     public class JkrComplianceCheckV2
     {
         [JsonProperty("element_id")]
-        public int ElementId { get; set; }
+        public long ElementId { get; set; }
 
         [JsonProperty("category")]
         public string Category { get; set; }
@@ -496,7 +496,7 @@ namespace RevitWebAppSync.Services
         public string Action { get; set; }
 
         [JsonProperty("element_id")]
-        public int ElementId { get; set; }
+        public long ElementId { get; set; }
 
         [JsonProperty("parameter_name")]
         public string ParameterName { get; set; } = "";

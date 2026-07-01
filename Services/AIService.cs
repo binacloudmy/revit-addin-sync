@@ -32,7 +32,7 @@ namespace RevitWebAppSync.Services
         // AI Agent backend (ngrok tunnel to Mac running bina-ai FastAPI).
         // Override via BinaConfig.AIBaseUrl so the addin doesn't need a rebuild
         // when ngrok tunnels rotate.
-        public const string DEFAULT_BASE_URL = BinaConfig.DEFAULT_AI_BASE_URL;
+        public static string DEFAULT_BASE_URL => BinaConfig.DEFAULT_AI_BASE_URL;
 
         public AIService(string baseUrl = null)
         {
@@ -40,11 +40,11 @@ namespace RevitWebAppSync.Services
         }
 
         // ─── Cloud model-mirror seeding (Copilot "Indexing model…" flow) ──────
-        // These hit /vibe/* (not /agents/revit-ai), so they build the URL
+        // These hit /revit-copilot/* (not /agents/revit-ai), so they build the URL
         // directly instead of via AiUrl. Best-effort: any failure returns
         // null / swallows — reads just fall back to the tunnel.
 
-        /// <summary>GET /vibe/seed/status — is the cloud model mirror warm for
+        /// <summary>GET /revit-copilot/seed/status — is the cloud model mirror warm for
         /// this project? Drives the pane's "Indexing model…" indicator.</summary>
         public async Task<SeedStatus> GetSeedStatusAsync(
             int projectId, string accessToken, CancellationToken cancellationToken = default)
@@ -52,7 +52,7 @@ namespace RevitWebAppSync.Services
             try
             {
                 using var req = new HttpRequestMessage(
-                    HttpMethod.Get, $"{_baseUrl}/vibe/seed/status?project_id={projectId}");
+                    HttpMethod.Get, $"{_baseUrl}/revit-copilot/seed/status?project_id={projectId}");
                 if (!string.IsNullOrEmpty(accessToken))
                     req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
                 var resp = await _httpClient.SendAsync(req, cancellationToken);
@@ -63,7 +63,7 @@ namespace RevitWebAppSync.Services
             catch { return null; }
         }
 
-        /// <summary>POST /vibe/seed — kick off a background mirror seed. Idempotent
+        /// <summary>POST /revit-copilot/seed — kick off a background mirror seed. Idempotent
         /// server-side; returns immediately (the caller polls GetSeedStatusAsync).</summary>
         public async Task StartSeedAsync(
             int projectId, int userId, string accessToken, CancellationToken cancellationToken = default)
@@ -75,7 +75,7 @@ namespace RevitWebAppSync.Services
                     project_id = projectId.ToString(),
                     user_id = userId > 0 ? userId.ToString() : null,
                 });
-                using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/vibe/seed")
+                using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/revit-copilot/seed")
                 {
                     Content = new StringContent(payload, Encoding.UTF8, "application/json"),
                 };
@@ -86,7 +86,7 @@ namespace RevitWebAppSync.Services
             catch { /* best-effort; 409 = no tunnel / already seeding */ }
         }
 
-        /// <summary>Wire shape of GET /vibe/seed/status.</summary>
+        /// <summary>Wire shape of GET /revit-copilot/seed/status.</summary>
         public class SeedStatus
         {
             [JsonProperty("warm")] public bool Warm { get; set; }
@@ -135,6 +135,26 @@ namespace RevitWebAppSync.Services
                     {
                         Success = false,
                         Error = "Session expired. Please log in again."
+                    };
+                }
+
+                // 402 — monthly AI quota reached (PRD §10). Resets on the 1st.
+                if (response.StatusCode == HttpStatusCode.PaymentRequired)
+                {
+                    return new AIResponse
+                    {
+                        Success = false,
+                        Error = "You've used all your AI requests for this month. Your quota resets on the 1st."
+                    };
+                }
+
+                // 429 — burst limit; the addin should back off and retry shortly.
+                if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                {
+                    return new AIResponse
+                    {
+                        Success = false,
+                        Error = "Too many requests in a short time. Please wait a moment and try again."
                     };
                 }
 
@@ -389,6 +409,40 @@ namespace RevitWebAppSync.Services
             {
                 return false;
             }
+        }
+
+        /// <summary>
+        /// GET /credits/balance — the signed-in user's monthly AI quota. Returns null on ANY
+        /// failure (network, 401 "login required") so callers degrade gracefully.
+        /// </summary>
+        public async Task<CreditInfo> GetCreditsAsync(
+            string accessToken, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                using var req = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/credits/balance");
+                if (!string.IsNullOrEmpty(accessToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                var resp = await _httpClient.SendAsync(req, cancellationToken);
+                if (!resp.IsSuccessStatusCode) return null;
+                var body = await resp.Content.ReadAsStringAsync();
+                return JsonConvert.DeserializeObject<CreditInfo>(body);
+            }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Wire shape of GET /credits/balance.
+        /// <see cref="Remaining"/> is null when <see cref="Unlimited"/> is true.
+        /// </summary>
+        public class CreditInfo
+        {
+            [JsonProperty("period")] public string Period { get; set; }
+            [JsonProperty("used")] public int Used { get; set; }
+            [JsonProperty("monthly_limit")] public int Limit { get; set; }
+            [JsonProperty("unlimited")] public bool Unlimited { get; set; }
+            [JsonProperty("remaining")] public int? Remaining { get; set; }
+            [JsonProperty("resets_at")] public string ResetsAt { get; set; }
         }
 
         /// <summary>
