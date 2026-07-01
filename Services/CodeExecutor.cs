@@ -95,7 +95,13 @@ namespace RevitWebAppSync.Services
                 }
                 else
                 {
-                    message = "Executed successfully";
+                    // A null return means the snippet ended without reporting a
+                    // structured result (e.g. a guard did `return null;` on an
+                    // empty match). Do NOT claim success — that's the confusing
+                    // "Executed successfully but nothing happened" case. Mutations
+                    // are contracted to SetResult({matched, changed, nothing,
+                    // headline}) instead of returning silently (spec 2026-07-01).
+                    message = "Ran, but no result was reported — nothing may have changed.";
                 }
 
                 return new ExecutionResult

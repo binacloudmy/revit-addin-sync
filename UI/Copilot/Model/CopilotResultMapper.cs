@@ -49,6 +49,17 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 case "file": r.Kind = CpResultKind.File; break;
                 default: r.Kind = CpResultKind.Plain; break;
             }
+            // Truthful mutation result (spec 2026-07-01): surface real counts and
+            // an explicit "nothing changed" state so the pane never implies success
+            // on a no-op. `nothing=true` + honest headline come from the codegen
+            // contract; here we just render them.
+            bool nothing = o["nothing"] != null && o["nothing"].Type == JTokenType.Boolean && o["nothing"].Value<bool>();
+            int? matched = (o["matched"] != null && o["matched"].Type == JTokenType.Integer) ? o["matched"].Value<int>() : (int?)null;
+            int? changed = (o["changed"] != null && o["changed"].Type == JTokenType.Integer) ? o["changed"].Value<int>() : (int?)null;
+            if (nothing && string.IsNullOrEmpty(r.Headline)) r.Headline = "Nothing changed";
+            if (string.IsNullOrEmpty(r.Sub) && (matched.HasValue || changed.HasValue))
+                r.Sub = $"matched {matched ?? 0} · changed {changed ?? 0}";
+
             if (string.IsNullOrEmpty(r.Headline)) r.Headline = message ?? "Done";
 
             if (o["bars"] is JArray bars)
