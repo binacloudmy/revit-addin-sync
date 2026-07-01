@@ -119,6 +119,17 @@ namespace RevitWebAppSync.UI.Copilot
 
         private static string ThemeFile(bool dark) => dark ? "CopilotTokens.Dark.xaml" : "CopilotTokens.Light.xaml";
 
+        /// <summary>A fresh ResourceDictionary for the CURRENT theme. Mount this in a
+        /// FrameworkElement's own Resources and swap it there (Remove+Insert) on
+        /// ThemeChanged: a local-scope resource change reliably re-invalidates that
+        /// subtree's {DynamicResource} bindings, which an App.Resources swap does NOT
+        /// do inside Revit's hosted dockable pane.</summary>
+        public static ResourceDictionary NewThemeDictionary()
+        {
+            EnsureLoaded();
+            return new ResourceDictionary { Source = new Uri(Pack(ThemeFile(_isDark)), UriKind.Absolute) };
+        }
+
         private static void Merge(string uri)
         {
             try

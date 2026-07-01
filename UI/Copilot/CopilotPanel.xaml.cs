@@ -55,7 +55,31 @@ namespace RevitWebAppSync.UI.Copilot
             DataContext = _vm;
             _vm.PropertyChanged += OnVmChanged;
             _vm.Highlights.CollectionChanged += OnHighlightsChanged;
+
+            // Mount the active theme dictionary on the PANEL's own resources and
+            // swap it here on ThemeChanged. Swapping at App scope does not
+            // re-invalidate this pane's {DynamicResource} chrome bindings inside
+            // Revit's host (background stayed light); a local-scope Remove+Insert
+            // does. The code-built screens recolor via their own ThemeChanged
+            // rebuild, so between the two the whole panel re-themes.
+            _localTheme = CopilotTheme.NewThemeDictionary();
+            Resources.MergedDictionaries.Add(_localTheme);
+            CopilotTheme.ThemeChanged += OnThemeChanged;
+            Unloaded += (_, __) => CopilotTheme.ThemeChanged -= OnThemeChanged;
+
             UpdateBody();
+        }
+
+        private System.Windows.ResourceDictionary _localTheme;
+
+        private void OnThemeChanged()
+        {
+            var dicts = Resources.MergedDictionaries;
+            var next = CopilotTheme.NewThemeDictionary();
+            var i = _localTheme != null ? dicts.IndexOf(_localTheme) : -1;
+            if (i >= 0) { dicts.RemoveAt(i); dicts.Insert(i, next); }
+            else dicts.Add(next);
+            _localTheme = next;
         }
 
         /// <summary>Pushed in by OpenCopilotCommand each time the pane is shown.</summary>
