@@ -28,7 +28,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             { "#9ca3af", "Cp.Faint" }, { "#99a3b3", "Cp.Faint" },
             { "#e5e7eb", "Cp.Line"  }, { "#d1d5db", "Cp.Hair2" },
             { "#f1f3f5", "Cp.Sunken"}, { "#f3f4f6", "Cp.Hover" }, { "#f9fafb", "Cp.PanelBg" },
-            { "#fafafa", "Cp.PanelBg" },
+            { "#fafafa", "Cp.PanelBg" }, { "#f6f8fa", "Cp.Sunken" },
             { "#eef0f3", "Cp.TabBadgeBg" }, { "#eef1f5", "Cp.TabBadgeBg" },
             { "#ffffff", "Cp.Bg"    },
         };
