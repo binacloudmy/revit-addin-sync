@@ -38,7 +38,7 @@
                 <!-- Code disclosure -->
                 <Border BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1" CornerRadius="10" Margin="0,0,0,12">
                     <StackPanel>
-                        <ToggleButton x:Name="CodeToggle" Cursor="Hand" Background="#fafafa" BorderThickness="0" Padding="12,9">
+                        <ToggleButton x:Name="CodeToggle" Cursor="Hand" Background="{DynamicResource Cp.Sunken}" BorderThickness="0" Padding="12,9">
                             <ToggleButton.Template>
                                 <ControlTemplate TargetType="ToggleButton">
                                     <Border Background="{TemplateBinding Background}" CornerRadius="10,10,0,0" Padding="{TemplateBinding Padding}">

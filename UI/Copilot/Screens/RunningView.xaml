@@ -15,7 +15,7 @@
 
         <Grid Grid.Row="1" Margin="14">
             <StackPanel x:Name="StepsHost" VerticalAlignment="Top"/>
-            <Border VerticalAlignment="Bottom" Background="#f9fafb" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
+            <Border VerticalAlignment="Bottom" Background="{DynamicResource Cp.Sunken}" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
                     CornerRadius="9" Padding="12,10">
                 <StackPanel Orientation="Horizontal">
                     <Path Width="13" Height="13" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"

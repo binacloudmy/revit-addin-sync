@@ -30,7 +30,7 @@
             </StackPanel>
         </ScrollViewer>
 
-        <Border Grid.Row="2" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,1,0,0" Background="White" Padding="12">
+        <Border Grid.Row="2" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,1,0,0" Background="{DynamicResource Cp.Bg}" Padding="12">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
