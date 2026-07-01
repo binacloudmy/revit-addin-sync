@@ -59,6 +59,20 @@
         <GradientStop Offset="1" Color="#7c3aed"/>
     </LinearGradientBrush>
 
+    <!-- ═══════════ BINA LOGO STAR (4-point gradient sparkle) ═══════════ -->
+    <!-- SVG userSpaceOnUse gradient (3.5,2.5)→(20.5,21.5) over a 24×24 box,
+         normalized to relative coords for WPF. Sheen is a radial highlight. -->
+    <LinearGradientBrush x:Key="Cp.StarGrad" StartPoint="0.146,0.104" EndPoint="0.854,0.896">
+        <GradientStop Offset="0"    Color="#7dd6ff"/>
+        <GradientStop Offset="0.45" Color="#3b8ef7"/>
+        <GradientStop Offset="1"    Color="#1d5fe0"/>
+    </LinearGradientBrush>
+    <RadialGradientBrush x:Key="Cp.StarSheen" GradientOrigin="0.36,0.3" Center="0.36,0.3" RadiusX="0.55" RadiusY="0.55">
+        <GradientStop Offset="0"    Color="#E6FFFFFF"/>
+        <GradientStop Offset="0.55" Color="#0FFFFFFF"/>
+        <GradientStop Offset="1"    Color="#00FFFFFF"/>
+    </RadialGradientBrush>
+
     <!-- ─────────── TOOL ICON-TILE PALETTES ─────────── -->
     <SolidColorBrush x:Key="Cp.Tile.BlueBg"   Color="#dbeafe"/>
     <SolidColorBrush x:Key="Cp.Tile.BlueFg"   Color="#1d4ed8"/>

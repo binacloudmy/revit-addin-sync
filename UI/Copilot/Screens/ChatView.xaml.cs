@@ -875,15 +875,39 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return char.ToUpperInvariant(s[0]) + s.Substring(1);
         }
 
-        private static FrameworkElement BotAvatar(double size = 22)
+        private static FrameworkElement BotAvatar(double size = 22) => BinaStar(size, glow: false);
+
+        // BINA logo: gradient 4-point sparkle + radial sheen (+ optional blue glow).
+        // Matches the header star in CopilotPanel.xaml / CopilotTokens.xaml.
+        private const string StarPath =
+            "M12,1.1 C12.45,7.05 16.95,11.55 22.9,12 C16.95,12.45 12.45,16.95 12,22.9 C11.55,16.95 7.05,12.45 1.1,12 C7.05,11.55 11.55,7.05 12,1.1 Z";
+
+        private static FrameworkElement BinaStar(double size, bool glow)
         {
-            var b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(6), VerticalAlignment = VerticalAlignment.Top };
-            var g = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
-            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#2563eb"), 0));
-            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#7c3aed"), 1));
-            b.Background = g;
-            b.Child = new Path { Width = size * 0.55, Height = size * 0.55, Stretch = Stretch.Uniform, Fill = Brushes.White, Data = CopilotIcons.Get("sparkleSolid"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            return b;
+            var grid = new Grid { Width = size, Height = size, VerticalAlignment = VerticalAlignment.Top };
+            var geo = Geometry.Parse(StarPath);
+
+            var grad = new LinearGradientBrush { StartPoint = new Point(0.146, 0.104), EndPoint = new Point(0.854, 0.896) };
+            grad.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#7dd6ff"), 0));
+            grad.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#3b8ef7"), 0.45));
+            grad.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#1d5fe0"), 1));
+            grid.Children.Add(new Path { Data = geo, Fill = grad, Stretch = Stretch.Uniform });
+
+            var sheen = new RadialGradientBrush { GradientOrigin = new Point(0.36, 0.3), Center = new Point(0.36, 0.3), RadiusX = 0.55, RadiusY = 0.55 };
+            sheen.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#E6FFFFFF"), 0));
+            sheen.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#0FFFFFFF"), 0.55));
+            sheen.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#00FFFFFF"), 1));
+            grid.Children.Add(new Path { Data = geo, Fill = sheen, Opacity = 0.7, Stretch = Stretch.Uniform });
+
+            if (glow)
+                grid.Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    BlurRadius = 12,
+                    ShadowDepth = 0,
+                    Color = (Color)ColorConverter.ConvertFromString("#3b8ef7"),
+                    Opacity = 0.55,
+                };
+            return grid;
         }
 
         // ─── Empty state ─────────────────────────────────────────────────────
@@ -893,7 +917,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             // Greeting
             var greet = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 22) };
-            greet.Children.Add(BotAvatar(32));
+            greet.Children.Add(BinaStar(34, glow: true));
             var gcol = new StackPanel { Margin = new Thickness(12, 0, 0, 0) };
             gcol.Children.Add(new TextBlock { Text = $"Hi {Vm.UserFirstName} 👋", FontSize = 16, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#0b0d12") });
             gcol.Children.Add(new TextBlock { Text = "I can run Revit commands for you. Describe what you need in your own words.", FontSize = 13.5, Foreground = CopilotColors.From("#374151"), TextWrapping = TextWrapping.Wrap, LineHeight = 20, Margin = new Thickness(0, 4, 0, 0), MaxWidth = 340 });

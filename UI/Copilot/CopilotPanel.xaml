@@ -32,12 +32,16 @@
                     <ColumnDefinition Width="Auto"/>  <!-- menu -->
                 </Grid.ColumnDefinitions>
 
-                <!-- bot avatar -->
-                <Border Grid.Column="0" Width="28" Height="28" CornerRadius="6"
-                        Background="{DynamicResource Cp.BotGradient}" VerticalAlignment="Center">
-                    <Path Width="15" Height="15" Stretch="Uniform" Fill="White"
-                          Data="M12,2 l2.09,6.26 L20,9.27 l-5,4.87 L16.18,22 12,18.27 7.82,22 9,14.14 4,9.27 l5.91,-1.01 L12,2 z"/>
-                </Border>
+                <!-- BINA logo star (gradient 4-point sparkle + sheen + blue glow) -->
+                <Grid Grid.Column="0" Width="24" Height="24" VerticalAlignment="Center">
+                    <Grid.Effect>
+                        <DropShadowEffect BlurRadius="5" ShadowDepth="2" Direction="270" Color="#2563eb" Opacity="0.5"/>
+                    </Grid.Effect>
+                    <Path Stretch="Uniform" Fill="{DynamicResource Cp.StarGrad}"
+                          Data="M12,1.1 C12.45,7.05 16.95,11.55 22.9,12 C16.95,12.45 12.45,16.95 12,22.9 C11.55,16.95 7.05,12.45 1.1,12 C7.05,11.55 11.55,7.05 12,1.1 Z"/>
+                    <Path Stretch="Uniform" Fill="{DynamicResource Cp.StarSheen}" Opacity="0.7"
+                          Data="M12,1.1 C12.45,7.05 16.95,11.55 22.9,12 C16.95,12.45 12.45,16.95 12,22.9 C11.55,16.95 7.05,12.45 1.1,12 C7.05,11.55 11.55,7.05 12,1.1 Z"/>
+                </Grid>
 
                 <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
                     <TextBlock Text="BINA AI Copilot" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
