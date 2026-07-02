@@ -972,7 +972,7 @@ namespace RevitWebAppSync.UI
             return card;
         }
 
-        private void SelectElementInRevit(int elementId)
+        private void SelectElementInRevit(long elementId)
         {
             try
             {
@@ -1158,7 +1158,7 @@ namespace RevitWebAppSync.UI
         public string Issue { get; set; }
         public string Bylaws { get; set; }
         public double Similarity { get; set; }
-        public int ElementId { get; set; }
+        public long ElementId { get; set; }
         public string TableSource { get; set; } // Actual UKBS table data
         public string RequiredValue { get; set; }
         public string ActualValue { get; set; }

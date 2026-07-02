@@ -90,6 +90,7 @@ namespace BinaVibe.Mcp.Tools
                 "create_grid"            => Mutators.CreateGrid(doc, args),
                 "color_elements"         => Mutators.ColorElements(doc, args),
                 "hide_isolate_elements"  => Mutators.HideIsolateElements(doc, args),
+                "set_category_visibility" => Mutators.SetCategoryVisibility(doc, args),
                 "place_family_instance"  => Mutators.PlaceFamilyInstance(doc, args),
                 "move_elements"          => Mutators.MoveElements(doc, args),
                 "create_sheet"           => Mutators.CreateSheet(doc, args),

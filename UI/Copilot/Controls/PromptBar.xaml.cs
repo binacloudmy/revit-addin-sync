@@ -35,36 +35,37 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 // Enter while a reply streams must not queue another prompt.
                 if (Busy) return;
-                // Prepend attached file contents as labelled blocks before the user text.
-                if (_files.Count > 0)
-                {
-                    var sb = new System.Text.StringBuilder();
-                    foreach (var (fname, fcontent) in _files)
-                    {
-                        sb.Append("[Attached: ").Append(fname).AppendLine("]");
-                        sb.AppendLine(fcontent);
-                        sb.AppendLine("---");
-                    }
-                    sb.Append(text);
-                    text = sb.ToString();
-                    _files.Clear();
-                    RebuildThumbStrip();
-                }
-                // With screenshots attached, submit a composed payload (text +
-                // base64 PNGs) and clear the strip; plain text otherwise so the
-                // other PromptBar hosts (Result/Library follow-ups) see no change.
+                // With screenshots and/or files attached, submit a composed payload
+                // (text + base64 PNGs + file attachments) and clear the strip; plain
+                // text otherwise so the other PromptBar hosts (Result/Library
+                // follow-ups) see no change. File CONTENTS are carried separately —
+                // not concatenated into the text — so the chat bubble and history
+                // show the user's message, not the file dump (the backend route text
+                // re-embeds them in CopilotViewModel.BuildRouteText).
                 object payload = text;
-                if (_images.Count > 0)
+                if (_images.Count > 0 || _files.Count > 0)
                 {
-                    var encoded = new System.Collections.Generic.List<string>();
-                    foreach (var img in _images)
+                    var pp = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text };
+                    if (_images.Count > 0)
                     {
-                        var b64 = EncodePng(img);
-                        if (!string.IsNullOrEmpty(b64)) encoded.Add(b64);
+                        var encoded = new System.Collections.Generic.List<string>();
+                        foreach (var img in _images)
+                        {
+                            var b64 = EncodePng(img);
+                            if (!string.IsNullOrEmpty(b64)) encoded.Add(b64);
+                        }
+                        if (encoded.Count > 0) pp.ImagesBase64 = encoded;
+                        _images.Clear();
                     }
-                    if (encoded.Count > 0)
-                        payload = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, ImagesBase64 = encoded };
-                    _images.Clear();
+                    if (_files.Count > 0)
+                    {
+                        var files = new System.Collections.Generic.List<RevitWebAppSync.UI.Copilot.Model.FileAttachment>();
+                        foreach (var (fname, fcontent) in _files)
+                            files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment(fname, fcontent));
+                        pp.Files = files;
+                        _files.Clear();
+                    }
+                    payload = pp;
                     RebuildThumbStrip();
                 }
                 if (SubmitCommand != null && SubmitCommand.CanExecute(payload))
@@ -130,71 +131,26 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private void RebuildThumbStrip()
         {
             ThumbStrip.Children.Clear();
-            ThumbStrip.Visibility = (_images.Count > 0 || _files.Count > 0) ? Visibility.Visible : Visibility.Collapsed;
+            ThumbStrip.Visibility = (_images.Count > 0 || _files.Count > 0)
+                ? Visibility.Visible : Visibility.Collapsed;
 
-            // image thumbnail chips
             foreach (var img in _images)
             {
-                var chip = new Grid { Margin = new Thickness(0, 0, 6, 0) };
-                var frame = new Border
-                {
-                    Width = 56, Height = 56, CornerRadius = new CornerRadius(8),
-                    BorderThickness = new Thickness(1),
-                    BorderBrush = (Brush)FindResource("Cp.Line"),
-                    ClipToBounds = true,
-                };
-                frame.Child = new Image { Source = img, Stretch = Stretch.UniformToFill };
-                chip.Children.Add(frame);
-
-                var close = new Button
-                {
-                    Content = "✕", FontSize = 8, Width = 16, Height = 16, Cursor = Cursors.Hand,
-                    HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(0, -4, -4, 0), Padding = new Thickness(0),
-                    Background = CopilotColors.From("#ffffff"), BorderThickness = new Thickness(1),
-                    BorderBrush = (Brush)FindResource("Cp.Line"), IsTabStop = false,
-                    ToolTip = "Remove screenshot",
-                };
                 var captured = img;
-                close.Click += (_, __) => RemoveImage(captured);
-                chip.Children.Add(close);
+                var chip = AttachmentChip.ForImage(img, () => RemoveImage(captured));
+                chip.Margin = new Thickness(0, 0, 6, 0);
                 ThumbStrip.Children.Add(chip);
             }
 
-            // file name chips
-            foreach (var (name, _) in _files)
+            foreach (var (name, content) in _files)
             {
-                var chip = new Border
-                {
-                    CornerRadius = new CornerRadius(8), Padding = new Thickness(8, 4, 4, 4),
-                    BorderThickness = new Thickness(1), BorderBrush = (Brush)FindResource("Cp.Line"),
-                    Background = CopilotColors.From("#ffffff"), Margin = new Thickness(0, 0, 6, 0),
-                    VerticalAlignment = VerticalAlignment.Center,
-                };
-                var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-                row.Children.Add(new TextBlock { Text = "📄", FontSize = 13, Margin = new Thickness(0, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center });
-                row.Children.Add(new TextBlock
-                {
-                    Text = name, FontSize = 11, MaxWidth = 100,
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                    VerticalAlignment = VerticalAlignment.Center,
-                });
-                var closeFile = new Button
-                {
-                    Content = "✕", FontSize = 8, Width = 16, Height = 16, Cursor = Cursors.Hand,
-                    Padding = new Thickness(0), Background = Brushes.Transparent,
-                    BorderThickness = new Thickness(0), IsTabStop = false,
-                    Margin = new Thickness(4, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
-                    ToolTip = "Remove file",
-                };
                 var capturedName = name;
-                closeFile.Click += (_, __) =>
+                var chip = AttachmentChip.ForFile(name, content, () =>
                 {
                     _files.RemoveAll(f => f.Name == capturedName);
                     RebuildThumbStrip();
-                };
-                row.Children.Add(closeFile);
-                chip.Child = row;
+                });
+                chip.Margin = new Thickness(0, 0, 6, 0);
                 ThumbStrip.Children.Add(chip);
             }
         }

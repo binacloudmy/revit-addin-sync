@@ -101,9 +101,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Text;
         public string Time;
         public List<string> Tools;  // bot messages only — tool IDs used in the reply
+        public List<HistoryFile> Files;  // user messages only — files attached to the prompt (name + line count, content not persisted)
         public History() { }
         public History(string sender, string text, string time, List<string> tools = null)
         { Sender = sender; Text = text; Time = time; Tools = tools; }
+    }
+
+    /// <summary>A file attachment as persisted in run history — just the name and
+    /// line count (enough to redraw the chip). The contents are deliberately not
+    /// stored, to keep copilot-state.json small.</summary>
+    public class HistoryFile
+    {
+        public string Name;
+        public int Lines;
+        public HistoryFile() { }
+        public HistoryFile(string name, int lines) { Name = name; Lines = lines; }
     }
 
     public class HistoryEntry
@@ -151,16 +163,29 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<string> ToolCallTrace; // tool-calling agent: ordered tool names called
         public IReadOnlyList<ProgressStep> Steps; // full phased trail; ChatView prefers this over ToolCallTrace
         public List<string> ImagesBase64;  // screenshots pasted with this prompt (base64 PNG) — rendered as thumbnails
+        public List<FileAttachment> Files;  // text files attached with this prompt — rendered as chips (content lives only in the backend route text)
         public RevitWebAppSync.Models.ReviewerVerdict Verdict; // attached to AiReply messages
     }
 
+    /// <summary>A text file attached to a prompt. Content is sent to the backend
+    /// (embedded in the route text) but never shown as raw text in the chat bubble.</summary>
+    public class FileAttachment
+    {
+        public string Name;
+        public string Content;
+        public FileAttachment() { }
+        public FileAttachment(string name, string content) { Name = name; Content = content; }
+    }
+
     /// <summary>Composed prompt-bar submission: text plus any screenshots the user
-    /// pasted (base64 PNG). The PromptBar sends this object through ChatSendCommand
-    /// when images are attached; plain string when not (chips, follow-ups).</summary>
+    /// pasted (base64 PNG) and any text files attached. The PromptBar sends this
+    /// object through ChatSendCommand when images or files are attached; plain
+    /// string when not (chips, follow-ups).</summary>
     public class PromptPayload
     {
         public string Text;
         public List<string> ImagesBase64;
+        public List<FileAttachment> Files;
     }
 
     /// <summary>Floating viewport marker (Task 15). Coordinates are % of the active view rect.</summary>

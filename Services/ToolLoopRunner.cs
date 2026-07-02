@@ -2,8 +2,9 @@
 //
 //   1. POST /tool/generate.
 //   2. While the backend says "awaiting_revit": run each pending tool in real
-//      Revit (enqueue an McpJob on App.McpToolHandler, raise the ExternalEvent,
-//      wait for the UI thread to finish), collect results, POST /tool/resume.
+//      Revit (enqueue an McpJob via McpJobPump, which drains it from the Idling
+//      event and fast-fails if Revit is busy / has a dialog open), await the
+//      result, collect, POST /tool/resume.
 //   3. Stop when the backend says "done" (or the round cap is hit) and return
 //      the final reply.
 //
@@ -52,14 +53,36 @@ namespace RevitWebAppSync.Services
         // Cap addin↔backend ping-pong so a model that keeps emitting tools can't
         // loop forever. Each round = one external batch we execute.
         private const int MaxRounds = 8;
-        // A single tool's Revit execution can be slow on a cold/large model
-        // (open + first regen). Match the tunnel's generous ceiling.
-        private static readonly TimeSpan JobMaxWait = TimeSpan.FromSeconds(600);
+        // EXECUTION ceiling for a tool that actually started running in Revit
+        // (commit + regen on a cold/large model). The old 600s was really an
+        // "idle never came" wait — that hazard is now handled fast by the
+        // McpJobPump idle-watchdog, so this can be a sane execution bound.
+        private static readonly TimeSpan JobMaxWait = TimeSpan.FromSeconds(45);
 
         public ToolLoopRunner(ToolLoopService svc) => _svc = svc;
 
         private static string Prettify(string tool) =>
             string.IsNullOrWhiteSpace(tool) ? "a step" : tool.Replace('_', ' ').Trim();
+
+        // ONE-BUBBLE accumulation helpers. `narration` holds the text of COMPLETED
+        // rounds; `Wrap` prepends it to the live round's streamed text so onReply
+        // always carries the full running answer.
+        private static Action<string> Wrap(Action<string> onReply, System.Text.StringBuilder narration)
+        {
+            if (onReply == null) return null;
+            return t =>
+            {
+                var prefix = narration.Length > 0 ? narration.ToString() + "\n\n" : "";
+                onReply(prefix + (t ?? ""));
+            };
+        }
+
+        private static void AppendRound(System.Text.StringBuilder narration, string reply)
+        {
+            if (string.IsNullOrWhiteSpace(reply)) return;
+            if (narration.Length > 0) narration.Append("\n\n");
+            narration.Append(reply.Trim());
+        }
 
         // onProgress receives a READY-TO-SHOW label ("Generating…", "Running list
         // levels…") — the streaming first turn pushes the agent's live steps
@@ -76,19 +99,26 @@ namespace RevitWebAppSync.Services
             // tool_call_id) tick to ✓ when Revit finishes them.
             var trail = new ObservableCollection<ProgressStep>();
 
+            // ONE growing bubble (Claude-style): accumulate every round's reply so the
+            // pane streams a single continuous answer instead of a fresh reply per
+            // round. `narration` holds the COMPLETED rounds; `Wrap` prepends it to the
+            // live round's text on every onReply tick.
+            var narration = new System.Text.StringBuilder();
+            var wrapped = Wrap(onReply, narration);
+
             ToolTurn turn;
             try
             {
                 // Stream the first turn so the agent's steps appear live instead
                 // of a static "Thinking…". Returns the same ToolTurn (done OR
                 // awaiting_revit) the non-streaming path did.
-                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct, onReply).ConfigureAwait(false);
+                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct, wrapped).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 return new ToolLoopOutcome { Success = false, Error = $"tool/generate failed: {ex.Message}" };
             }
-            return await DriveAsync(turn, request?.SessionId, accessToken, onProgress, onReply, trail, ct).ConfigureAwait(false);
+            return await DriveAsync(turn, request?.SessionId, accessToken, onProgress, onReply, narration, trail, ct).ConfigureAwait(false);
         }
 
         /// <summary>Re-enter the loop after a clarify pause: POST the user's
@@ -100,6 +130,7 @@ namespace RevitWebAppSync.Services
             CancellationToken ct = default, Action<string> onReply = null)
         {
             var trail = new ObservableCollection<ProgressStep>();
+            var narration = new System.Text.StringBuilder();
             ToolTurn turn;
             try
             {
@@ -109,7 +140,7 @@ namespace RevitWebAppSync.Services
             {
                 return new ToolLoopOutcome { Success = false, Error = $"tool/resume-input failed: {ex.Message}" };
             }
-            return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply, trail, ct).ConfigureAwait(false);
+            return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply, narration, trail, ct).ConfigureAwait(false);
         }
 
         // Shared execute/resume driver: takes the latest turn and loops until
@@ -117,8 +148,10 @@ namespace RevitWebAppSync.Services
         private async Task<ToolLoopOutcome> DriveAsync(
             ToolTurn turn, string sessionFallback, string accessToken,
             Action<string> onProgress, Action<string> onReply,
+            System.Text.StringBuilder narration,
             ObservableCollection<ProgressStep> trail, CancellationToken ct)
         {
+            var wrapped = Wrap(onReply, narration);
             var outcome = new ToolLoopOutcome();
 
             for (int round = 0; round < MaxRounds; round++)
@@ -145,7 +178,10 @@ namespace RevitWebAppSync.Services
                 {
                     // "done" — the agent finished (answered, ran tools, OR fell
                     // back to codegen). Carry any code so the addin runs it.
-                    outcome.Reply = turn.Reply ?? "";
+                    // The final reply is the WHOLE accumulated narration (all rounds),
+                    // so the committed message keeps the full one-bubble answer.
+                    AppendRound(narration, turn.Reply);
+                    outcome.Reply = narration.Length > 0 ? narration.ToString() : (turn.Reply ?? "");
                     outcome.Code = turn.Code ?? "";
                     outcome.IsQuery = turn.IsQuery;
                     // Fold in the server-side tools the agent ran this turn
@@ -168,6 +204,11 @@ namespace RevitWebAppSync.Services
                     outcome.Steps = new List<ProgressStep>(trail);
                     return outcome;
                 }
+
+                // Fold this round's reply into the running narration BEFORE the next
+                // resume, so the next round streams as ONE growing bubble (this round's
+                // completed line + the next round's live text).
+                AppendRound(narration, turn.Reply);
 
                 // Execute each pending tool in Revit, collect results. Each ticks
                 // the SAME trail: a ▶ row on start (keyed by tool_call_id, which
@@ -200,7 +241,7 @@ namespace RevitWebAppSync.Services
                     // reply text live instead of a blocking 7-15s POST. Falls back
                     // to the blocking endpoint on older backends (404) internally.
                     turn = await _svc.ResumeStreamAsync(turn.RunId, turn.SessionId ?? sessionFallback, results,
-                                                        accessToken, onProgress, trail, onReply, ct)
+                                                        accessToken, onProgress, trail, wrapped, ct)
                                      .ConfigureAwait(false);
                 }
                 catch (Exception ex)
@@ -217,56 +258,48 @@ namespace RevitWebAppSync.Services
             };
         }
 
-        /// <summary>Run ONE pending tool on Revit's UI thread via the always-on
-        /// McpExternalEventHandler, and map the outcome to the wire result shape.</summary>
+        /// <summary>Run ONE pending tool on Revit's UI thread via the Idling-driven
+        /// McpJobPump, and map the outcome to the wire result shape.
+        ///
+        /// TAP, not block-wait: we enqueue and AWAIT the job's TaskCompletionSource.
+        /// The pump drains it on a Revit idle (forcing continuous idling via
+        /// SetRaiseWithoutDelay), and its idle-watchdog fast-fails the job within
+        /// seconds if Revit can't service the queue (busy / modal dialog) — so this
+        /// never hangs. JobMaxWait is the EXECUTION ceiling for a tool that did
+        /// start, not the old 600s "hope an idle comes" wait.</summary>
         private static async Task<ToolResultDto> ExecuteOneAsync(PendingToolCall call, CancellationToken ct)
         {
-            var handler = RevitWebAppSync.App.McpToolHandler;
-            var evt = RevitWebAppSync.App.McpToolEvent;
-            if (handler == null || evt == null)
-            {
-                return new ToolResultDto
-                {
-                    ToolCallId = call.ToolCallId, Ok = false,
-                    Error = "tool execution handler not initialised",
-                };
-            }
-
             var job = new McpJob
             {
                 Tool = call.Tool,
                 Args = call.Args,                 // JsonElement straight through to ToolRegistry
                 IdempotencyKey = call.IdempotencyKey ?? "",
             };
-            job.TEnqueued = System.Diagnostics.Stopwatch.GetTimestamp();
-            handler.Pending.Enqueue(job);
-            evt.Raise();
+            McpJobPump.Enqueue(job);   // sets TEnqueued, queues, kicks, arms the watchdog
 
-            // Block on a threadpool thread so we don't pin the caller; the handler
-            // signals Completed from the Revit UI thread.
-            bool completed;
-            try
+            // Await completion with a bounded execution timeout. Task.WhenAny +
+            // Task.Delay (not Task.WaitAsync) so this compiles on .NET Framework
+            // Revit targets too.
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var delay = Task.Delay(JobMaxWait, timeoutCts.Token);
+            var winner = await Task.WhenAny(job.Done.Task, delay).ConfigureAwait(false);
+            timeoutCts.Cancel();                       // stop the delay if the job won
+            try { await delay.ConfigureAwait(false); } catch { /* observe the cancelled delay */ }
+
+            if (winner != job.Done.Task)
             {
-                completed = await Task.Run(() => job.Completed.Wait(JobMaxWait), ct).ConfigureAwait(false);
-            }
-            catch (System.OperationCanceledException)
-            {
-                // User hit Stop. Revit can't abort a job mid-execution, but
-                // marking it abandoned makes the handler skip it if it's still
-                // queued — so cancelled work can't jam the turns that follow.
+                // Timed out or the user hit Stop. Mark abandoned so a late drain
+                // skips it and can't jam later turns.
                 job.Abandoned = true;
-                throw;
-            }
-
-            if (!completed)
-            {
-                job.Abandoned = true;   // same drain rule on timeout
+                if (ct.IsCancellationRequested)
+                    throw new System.OperationCanceledException(ct);
                 return new ToolResultDto
                 {
                     ToolCallId = call.ToolCallId, Ok = false,
-                    Error = $"Revit did not finish {call.Tool} within {JobMaxWait.TotalSeconds:F0}s",
+                    Error = $"Revit did not finish {call.Tool} within {JobMaxWait.TotalSeconds:F0}s — it may be busy or have a dialog open.",
                 };
             }
+
             if (job.Error != null)
                 return new ToolResultDto { ToolCallId = call.ToolCallId, Ok = false, Error = job.Error };
 

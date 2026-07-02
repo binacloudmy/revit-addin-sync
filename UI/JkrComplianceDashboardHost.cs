@@ -4,7 +4,7 @@ using Autodesk.Revit.UI;
 
 namespace RevitWebAppSync.UI
 {
-    public class JkrComplianceDashboardHost : Page, IDockablePaneProvider
+    public class JkrComplianceDashboardHost : UserControl, IDockablePaneProvider
     {
         private JkrComplianceDashboardPanel _panel;
 
@@ -16,11 +16,11 @@ namespace RevitWebAppSync.UI
             try
             {
                 _panel = new JkrComplianceDashboardPanel();
-                this.Content = new Frame
-                {
-                    Content = _panel,
-                    NavigationUIVisibility = System.Windows.Navigation.NavigationUIVisibility.Hidden
-                };
+                // Host the panel directly (no Frame): a Frame let the panel size to
+                // content, so the issue-list ScrollViewer got unbounded height and
+                // never scrolled. A UserControl stretches to fill the dockable pane,
+                // giving the '*' issue-list row a bounded height that scrolls.
+                this.Content = _panel;
             }
             catch (Exception ex)
             {

@@ -307,7 +307,7 @@ namespace RevitWebAppSync.UI.Copilot
         private HistoryEntry _currentSession = null;
 
         private void AppendToCurrentSession(string userText, string botText,
-            string status = "ok", List<string> toolIds = null)
+            string status = "ok", List<string> toolIds = null, List<HistoryFile> userFiles = null)
         {
             string time = DateTime.Now.ToString("h:mm tt");
             if (_currentSession == null)
@@ -317,7 +317,7 @@ namespace RevitWebAppSync.UI.Copilot
                     new List<History>());
                 History.Insert(0, _currentSession);
             }
-            _currentSession.History.Add(new History("user", userText, time));
+            _currentSession.History.Add(new History("user", userText, time) { Files = userFiles });
             _currentSession.History.Add(new History("bot", botText, time, toolIds));
             if (status == "warn") _currentSession.Status = "warn";
             int exchanges = _currentSession.History.Count(m => m.Sender == "user");
@@ -326,6 +326,12 @@ namespace RevitWebAppSync.UI.Copilot
             if (idx >= 0) History[idx] = _currentSession;
             CopilotStateStore.Save(_pinned, History);
             Raise(nameof(RecentEntry));
+        }
+
+        private void StartNewChat()
+        {
+            Thread.Clear();
+            _currentSession = null; // next exchange begins a fresh HistoryEntry
         }
 
         public void RenameHistoryEntry(HistoryEntry entry, string newLabel)
@@ -596,11 +602,11 @@ namespace RevitWebAppSync.UI.Copilot
         /// screenshots are attached; chips/follow-ups still send a plain string.</summary>
         private void ChatSendAny(object p)
         {
-            if (p is PromptPayload pp) ChatSend(pp.Text, pp.ImagesBase64);
+            if (p is PromptPayload pp) ChatSend(pp.Text, pp.ImagesBase64, pp.Files);
             else ChatSend(p as string);
         }
 
-        public void ChatSend(string text, List<string> images = null)
+        public void ChatSend(string text, List<string> images = null, List<FileAttachment> files = null)
         {
             text = (text ?? "").Trim();
             if (text.Length == 0) return;
@@ -617,7 +623,28 @@ namespace RevitWebAppSync.UI.Copilot
             Tab = CpTab.Chat;
             Screen = CpScreen.Home;
             ToolId = null;
-            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images });
+            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images, Files = files });
+
+            // The chat bubble + history use `text` (what the user typed). The
+            // backend route text re-embeds any attached file contents — there's no
+            // separate file channel, so files ride along inside the prompt string.
+            string routeText = BuildRouteText(text, files);
+
+            // Lightweight projection persisted with the run history so the chip can
+            // be redrawn in the History tab (name + line count; contents not stored).
+            List<HistoryFile> historyFiles = files == null || files.Count == 0
+                ? null
+                : files.Select(f => new HistoryFile(f.Name, LineCount(f.Content))).ToList();
+
+            // Intent detection runs on the user's text only, so file contents can't
+            // falsely match tool keywords in PickResponseTool.
+            var interp = QueryInterpreter.Interpret(text);
+            if (interp.IsClarify)
+            {
+                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Clarify, Question = interp.Question, Options = interp.Options });
+                AppendToCurrentSession(text, interp.Question ?? "Needs clarification", userFiles: historyFiles);
+                return;
+            }
 
             // Auth gate: BINA Copilot needs a signed-in BINA Cloud session. Show a friendly
             // prompt instead of letting the request 401 at the backend.
@@ -645,7 +672,30 @@ namespace RevitWebAppSync.UI.Copilot
             // }
 
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Drafting a command for that…" });
-            _ = ResolveProposalAsync(text, QueryInterpreter.PickResponseTool(text).Id, images);
+            _ = ResolveProposalAsync(routeText, text, interp.ToolId, images, historyFiles);
+        }
+
+        /// <summary>Line count matching AttachmentChip's "N ln" display.</summary>
+        private static int LineCount(string content) =>
+            string.IsNullOrEmpty(content) ? 0 : content.Count(c => c == '\n') + 1;
+
+        /// <summary>Compose the prompt string sent to the backend: each attached
+        /// file's contents prepended as a labelled block, then the user's text.
+        /// Returns `text` unchanged when nothing is attached. Format is kept
+        /// byte-for-byte identical to the legacy PromptBar concatenation so the
+        /// backend sees exactly the same input.</summary>
+        private static string BuildRouteText(string text, List<FileAttachment> files)
+        {
+            if (files == null || files.Count == 0) return text;
+            var sb = new System.Text.StringBuilder();
+            foreach (var f in files)
+            {
+                sb.Append("[Attached: ").Append(f.Name).AppendLine("]");
+                sb.AppendLine(f.Content);
+                sb.AppendLine("---");
+            }
+            sb.Append(text);
+            return sb.ToString();
         }
 
         // Persistent header badge: "27 / 30 credits" or "Unlimited". Empty string hides the pill.
@@ -718,7 +768,7 @@ namespace RevitWebAppSync.UI.Copilot
             else CreditBadge = text;
         }
 
-        private async System.Threading.Tasks.Task ResolveProposalAsync(string text, string fallbackToolId, List<string> images = null)
+        private async System.Threading.Tasks.Task ResolveProposalAsync(string routeText, string displayText, string fallbackToolId, List<string> images = null, List<HistoryFile> historyFiles = null)
         {
             RouteResult rr = null;
             if (Router != null)
@@ -739,6 +789,10 @@ namespace RevitWebAppSync.UI.Copilot
                     // takes over the bubble — late trail re-renders (review ticks,
                     // resume rounds) must not stomp the text the user is reading.
                     bool replyStreaming = false;
+                    // ONE growing bubble (Claude-style). The backend streams a fresh
+                    // reply per tool-loop round, but ToolLoopRunner ACCUMULATES them
+                    // (round1 \n\n round2 \n\n …) so `cumulative` here is always the
+                    // full running answer — we just render it into the single bubble.
                     revitRouter.OnProgress = (trail) =>
                     {
                         if (replyStreaming) return;
@@ -764,7 +818,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // per-call pattern as OnProgress).
                 if (revitRouter != null) revitRouter.PendingImages = images;
                 IsSending = true;   // send button shows Stop until the reply resolves
-                try { rr = await Router.RouteAsync(text, fallbackToolId); }
+                try { rr = await Router.RouteAsync(routeText, fallbackToolId); }
                 catch { rr = null; }
                 finally
                 {
@@ -822,7 +876,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Verdict = rr.Verdict,
                 });
                 var replyToolIds = (rr.ToolCallTrace != null && rr.ToolCallTrace.Count > 0) ? rr.ToolCallTrace : new List<string> { tool.Id };
-                AppendToCurrentSession(text, rr.Reply ?? "Done", "ok", replyToolIds);
+                AppendToCurrentSession(displayText, rr.Reply ?? "Done", "ok", replyToolIds, historyFiles);
                 return;
             }
 
@@ -832,7 +886,7 @@ namespace RevitWebAppSync.UI.Copilot
             // and runs automatically — no Run button.
             if (rr != null && !string.IsNullOrWhiteSpace(rr.Code))
             {
-                ExecuteAsChatReply(tool, rr.Code, text);
+                ExecuteAsChatReply(tool, rr.Code, routeText, displayText, historyFiles, rr.Reply);
                 return;
             }
 
@@ -847,10 +901,10 @@ namespace RevitWebAppSync.UI.Copilot
                 Role = "ai", Kind = CpMsgKind.Proposal, ToolId = tool.Id,
                 Text = text2, PlanSteps = new List<string>(plan ?? new List<string>()), Code = code,
             });
-            AppendToCurrentSession(text, text2, "ok", new List<string> { tool.Id });
+            AppendToCurrentSession(displayText, text2, "ok", new List<string> { tool.Id }, historyFiles);
         }
 
-        private void ExecuteAsChatReply(ToolDef tool, string code, string prompt = null)
+        private void ExecuteAsChatReply(ToolDef tool, string code, string routePrompt = null, string displayPrompt = null, List<HistoryFile> historyFiles = null, string streamedReply = null)
         {
             ToolId = tool.Id;
             _runClock = System.Diagnostics.Stopwatch.StartNew();
@@ -861,7 +915,7 @@ namespace RevitWebAppSync.UI.Copilot
             // the catalog tool title and the fix loses context.
             if (Executor != null)
             {
-                Executor.PromptProvider = () => prompt ?? tool?.Title ?? "";
+                Executor.PromptProvider = () => routePrompt ?? tool?.Title ?? "";
                 Executor.OnRetryProgress = attempt => ReplaceLastThinking(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.Thinking,
@@ -872,13 +926,20 @@ namespace RevitWebAppSync.UI.Copilot
             void Done(ExecOutcome outcome)
             {
                 var result = BuildResult(tool, outcome);
-                var reply = FormatResultAsText(result, outcome);
+                var resultText = FormatResultAsText(result, outcome);
+                // ONE growing bubble: keep the model's streamed narration ("Tingkap
+                // diasingkan… Sekarang warnakan…") and APPEND the code's result under
+                // it, instead of REPLACING the narration with the result.
+                var reply = (!string.IsNullOrWhiteSpace(streamedReply)
+                             && streamedReply.Trim() != resultText.Trim())
+                    ? streamedReply.Trim() + "\n\n" + resultText
+                    : resultText;
                 ReplaceLastThinking(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
                     Text = reply,
                 });
-                AppendToCurrentSession(prompt ?? tool.Title, reply, "ok", new List<string> { tool.Id });
+                AppendToCurrentSession(displayPrompt ?? tool.Title, reply, "ok", new List<string> { tool.Id }, historyFiles);
                 PopulateHighlights(tool.Id);
             }
 
