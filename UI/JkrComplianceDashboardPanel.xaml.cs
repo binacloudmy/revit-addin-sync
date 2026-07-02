@@ -282,6 +282,7 @@ namespace RevitWebAppSync.UI
 
         private void FixAll_Click(object sender, RoutedEventArgs e)
         {
+            if (!EnsureLoggedIn()) return;
             if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
             {
                 TaskDialog.Show("BINA JKR Compliance", "Auto-fix unavailable — JkrRenameHandler not initialised.");
@@ -560,9 +561,23 @@ namespace RevitWebAppSync.UI
             _vm.ShowToast($"Ignored {ignorable.Count} Medium/Low issues.");
         }
 
+        /// <summary>Auth gate: JKR Compliance requires a signed-in BINA Cloud session,
+        /// same as the Copilot. Guards the panel's own actions too because Revit can
+        /// auto-restore the pane on startup without JkrComplianceDashboardCommand (and
+        /// its login gate) ever running.</summary>
+        private bool EnsureLoggedIn()
+        {
+            var cfg = BinaConfig.Load();
+            if (cfg != null && cfg.IsLoggedIn()) return true;
+            TaskDialog.Show("BINA JKR Compliance",
+                "Please sign in to use JKR Compliance — click BINA Cloud → Login in the ribbon, then try again.");
+            return false;
+        }
+
         private async Task RunScanAsync()
         {
             if (_vm.Scanning) return;
+            if (!EnsureLoggedIn()) return;
 
             var doc = UiAppLive?.ActiveUIDocument?.Document;
             if (doc == null)

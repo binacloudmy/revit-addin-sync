@@ -15,6 +15,16 @@ namespace RevitWebAppSync.Commands
             // OTA gate: a mandatory update blocks the plugin until installed.
             if (!Services.UpdateService.EnsureUpToDate()) return Result.Cancelled;
 
+            // Auth gate: JKR Compliance needs a signed-in BINA Cloud session — same
+            // policy as the Copilot. Prompt for login instead of opening the pane.
+            var config = BinaConfig.Load();
+            if (config == null || !config.IsLoggedIn())
+            {
+                TaskDialog.Show("BINA JKR Compliance",
+                    "Please sign in to use JKR Compliance — click BINA Cloud → Login in the ribbon, then try again.");
+                return Result.Cancelled;
+            }
+
             try
             {
                 UIApplication uiApp = commandData.Application;
