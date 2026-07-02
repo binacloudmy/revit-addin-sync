@@ -29,6 +29,24 @@ namespace RevitWebAppSync.Services
             _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(180) };
         }
 
+        /// <summary>POST JSON with the signed-in user's Bearer token — the same
+        /// per-request pattern as AIService (Copilot), so the shared HttpClient stays
+        /// thread-safe and every call picks up the freshest token after a re-login.
+        /// The backend doesn't enforce auth on /v1/compliance/* yet, but sending the
+        /// token gives JKR the same wire-level auth as the Copilot when it does.</summary>
+        private async Task<HttpResponseMessage> PostJsonAsync(string url, string json)
+        {
+            using (var req = new HttpRequestMessage(HttpMethod.Post, url))
+            {
+                req.Content = new StringContent(json, Encoding.UTF8, "application/json");
+                var accessToken = BinaConfig.Load()?.AccessToken;
+                if (!string.IsNullOrEmpty(accessToken))
+                    req.Headers.Authorization =
+                        new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+                return await _httpClient.SendAsync(req);
+            }
+        }
+
         public async Task<bool> IsAvailableAsync()
         {
             try
@@ -47,8 +65,7 @@ namespace RevitWebAppSync.Services
             try
             {
                 var json = JsonConvert.SerializeObject(request);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var resp = await _httpClient.PostAsync($"{_baseUrl}/v1/compliance/jkr-check", content);
+                var resp = await PostJsonAsync($"{_baseUrl}/v1/compliance/jkr-check", json);
                 var body = await resp.Content.ReadAsStringAsync();
 
                 if (resp.IsSuccessStatusCode)
@@ -77,8 +94,7 @@ namespace RevitWebAppSync.Services
                 LastResponseJson = "";
                 LastCallUtc = DateTime.UtcNow;
 
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var resp = await _httpClient.PostAsync($"{_baseUrl}/v1/compliance/jkr-recheck", content);
+                var resp = await PostJsonAsync($"{_baseUrl}/v1/compliance/jkr-recheck", json);
                 var body = await resp.Content.ReadAsStringAsync();
                 LastResponseJson = body;
 
@@ -113,11 +129,9 @@ namespace RevitWebAppSync.Services
                 LastResponseJson = "";
                 LastCallUtc = DateTime.UtcNow;
 
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-
                 // Try V2 endpoint first
                 var skipParam = skipAi ? "?skip_ai=true" : "";
-                var resp = await _httpClient.PostAsync($"{_baseUrl}/v1/compliance/jkr-check-v2{skipParam}", content);
+                var resp = await PostJsonAsync($"{_baseUrl}/v1/compliance/jkr-check-v2{skipParam}", json);
                 var body = await resp.Content.ReadAsStringAsync();
                 LastResponseJson = body;
 
