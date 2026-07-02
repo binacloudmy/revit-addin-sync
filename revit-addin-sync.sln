@@ -8,6 +8,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Tests", "Tests\Tests.csproj
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BinaLoader", "BinaLoader\BinaLoader.csproj", "{D4E8A2F1-6C3B-4A7E-9B5D-2E8F1C4A7B9E}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "UiHarness", "UiHarness\UiHarness.csproj", "{7F2A9C41-5D8E-4B36-A1C7-9E4D2B6F8A53}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -26,6 +28,10 @@ Global
 		{D4E8A2F1-6C3B-4A7E-9B5D-2E8F1C4A7B9E}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{D4E8A2F1-6C3B-4A7E-9B5D-2E8F1C4A7B9E}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{D4E8A2F1-6C3B-4A7E-9B5D-2E8F1C4A7B9E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7F2A9C41-5D8E-4B36-A1C7-9E4D2B6F8A53}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{7F2A9C41-5D8E-4B36-A1C7-9E4D2B6F8A53}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{7F2A9C41-5D8E-4B36-A1C7-9E4D2B6F8A53}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{7F2A9C41-5D8E-4B36-A1C7-9E4D2B6F8A53}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

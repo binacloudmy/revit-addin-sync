@@ -1,0 +1,17 @@
+<Window x:Class="UiHarness.LauncherWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Bina UI Harness" Width="280" SizeToContent="Height"
+        WindowStartupLocation="CenterScreen">
+    <StackPanel Margin="16">
+        <TextBlock Text="Open a window with mock data:" Margin="0,0,0,8"/>
+        <Button Content="Login" Click="OpenLogin" Margin="0,4" Padding="8,6"/>
+        <Button Content="Project Picker" Click="OpenProjectPicker" Margin="0,4" Padding="8,6"/>
+        <Button Content="Sync Results" Click="OpenSyncResults" Margin="0,4" Padding="8,6"/>
+        <Button Content="Download Results" Click="OpenDownloadResults" Margin="0,4" Padding="8,6"/>
+        <Button Content="User Info" Click="OpenUserInfo" Margin="0,4" Padding="8,6"/>
+        <Button Content="Update" Click="OpenUpdate" Margin="0,4" Padding="8,6"/>
+        <Button Content="Command Run" Click="OpenCommandRun" Margin="0,4" Padding="8,6"/>
+        <Button Content="Copilot Panel" Click="OpenCopilot" Margin="0,4" Padding="8,6"/>
+    </StackPanel>
+</Window>
