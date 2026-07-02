@@ -4,7 +4,8 @@
       "mcp__filesystem__create_directory",
       "mcp__filesystem__write_file",
       "Bash(dotnet build:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(git *)"
     ],
     "deny": []
   }
