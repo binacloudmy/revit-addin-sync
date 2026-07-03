@@ -120,7 +120,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 CornerRadius    = new CornerRadius(8),
                 BorderThickness = new Thickness(1),
-                Background      = Brushes.White,
+                Background      = CopilotColors.From("#ffffff"),
                 Padding         = new Thickness(4, 6, 4, 6),
             };
             border.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
@@ -154,7 +154,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             stack.Children.Add(badge);
 
             // Filename (extension stripped, truncated)
-            stack.Children.Add(new TextBlock
+            var fileNameText = new TextBlock
             {
                 Text                = FileName,
                 FontSize            = 8,
@@ -163,7 +163,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 TextAlignment       = TextAlignment.Center,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 Margin              = new Thickness(0, 0, 0, 2),
-            });
+            };
+            fileNameText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
+            stack.Children.Add(fileNameText);
 
             // Line count
             var lineInfo = new TextBlock
@@ -195,9 +197,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 VerticalAlignment   = VerticalAlignment.Top,
                 Margin              = new Thickness(0, -3, -3, 0),
                 Padding             = new Thickness(0),
-                Background          = Brushes.White,
+                Background          = CopilotColors.From("#ffffff"),
+                Foreground          = CopilotColors.From("#586273"),
                 BorderThickness     = new Thickness(1),
-                BorderBrush         = CopilotColors.From("#e5e7eb"),
+                BorderBrush         = CopilotColors.From("#290F1B2D"),
                 IsTabStop           = false,
             };
             btn.Click += (_, __) => OnRemove?.Invoke();

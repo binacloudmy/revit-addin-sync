@@ -12,8 +12,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     /// </summary>
     public partial class PromptBar : UserControl
     {
-        // Play triangle (send) vs. square (stop), drawn in the 24×24 icon viewbox.
-        private static readonly Geometry SendGeom = Geometry.Parse("M6,4 l14,8 -14,8 V4 z");
+        // Up arrow (send) vs. square (stop), drawn in the 24×24 icon viewbox.
+        private static readonly Geometry SendGeom = Geometry.Parse("M12,4 L19,11.5 L14.4,11.5 L14.4,19 L9.6,19 L9.6,11.5 L5,11.5 Z");
         private static readonly Geometry StopGeom = Geometry.Parse("M6,6 H18 V18 H6 Z");
 
         public PromptBar()
@@ -73,6 +73,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             };
             Input.ImagePasted += AddImage;
             Input.FileDropped += AddFiles;
+            // Send button visual state: gray circle while empty, accent gradient
+            // once there's text (or while a reply streams and it acts as Stop).
+            Input.Editor.TextChanged += (_, __) => UpdateSendVisual();
+            UpdateSendVisual();
+            // @ button: append an @ (with a leading space when needed) and focus
+            // the editor — the mention picker opens from the editor's own logic.
+            AtBtn.Click += (_, __) =>
+            {
+                var t = Input.Editor.Text ?? "";
+                Input.Editor.Text = t.Length > 0 && !char.IsWhiteSpace(t[t.Length - 1]) ? t + " @" : t + "@";
+                Input.Editor.CaretIndex = Input.Editor.Text.Length;
+                Input.Editor.Focus();
+            };
             AttachBtn.Click += (_, __) =>
             {
                 var dlg = new Microsoft.Win32.OpenFileDialog
@@ -201,11 +214,30 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             bool busy = (bool)e.NewValue;
             if (pb.SendIcon != null) pb.SendIcon.Data = busy ? StopGeom : SendGeom;
             if (pb.SendBtn != null) pb.SendBtn.ToolTip = busy ? "Stop" : "Send";
+            pb.UpdateSendVisual();
+        }
+
+        // Idle (no text): transparent circle + faint arrow. Armed (text present)
+        // or Busy (stop): accent-gradient circle + white glyph.
+        private void UpdateSendVisual()
+        {
+            if (SendBtn == null || SendIcon == null || Input?.Editor == null) return;
+            bool armed = Busy || !string.IsNullOrWhiteSpace(Input.Editor.Text);
+            if (armed)
+            {
+                SendBtn.Background = TryFindResource("Cp.AccentGrad") as System.Windows.Media.Brush ?? Brushes.RoyalBlue;
+                SendIcon.Fill = TryFindResource("Cp.AccentContrast") as System.Windows.Media.Brush ?? Brushes.White;
+            }
+            else
+            {
+                SendBtn.Background = Brushes.Transparent;
+                SendIcon.Fill = TryFindResource("Cp.Faint") as System.Windows.Media.Brush ?? Brushes.Gray;
+            }
         }
 
         public static readonly DependencyProperty PlaceholderProperty = DependencyProperty.Register(
             nameof(Placeholder), typeof(string), typeof(PromptBar),
-            new PropertyMetadata("Describe a task or ask anything…", OnPlaceholderChanged));
+            new PropertyMetadata("Ask Copilot…", OnPlaceholderChanged));
         public string Placeholder { get => (string)GetValue(PlaceholderProperty); set => SetValue(PlaceholderProperty, value); }
 
         private static void OnPlaceholderChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)

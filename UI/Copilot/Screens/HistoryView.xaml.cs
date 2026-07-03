@@ -151,8 +151,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 Visibility = Visibility.Collapsed,
                 Margin = new Thickness(0, 0, 6, 0),
                 VerticalAlignment = VerticalAlignment.Center,
-                Background = Brushes.White,
-                BorderBrush = CopilotColors.From("#6d28d9"),
+                Background = CopilotColors.From("#ffffff"),
+                Foreground = CopilotColors.From("#131c2b"),
+                CaretBrush = CopilotColors.From("#131c2b"),
+                BorderBrush = CopilotColors.From("#1d4ed8"),
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(4, 2, 4, 2),
             };
@@ -165,8 +167,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // the row width; full text is shown on hover via the tooltip.
                 Text = rowTitle,
                 FontSize = 12.5,
-                FontWeight = FontWeights.Medium,
-                Foreground = CopilotColors.From("#0b0d12"),
+                FontWeight = FontWeights.SemiBold,
+                Foreground = CopilotColors.From("#131c2b"),
                 TextTrimming = TextTrimming.CharacterEllipsis,
                 TextWrapping = TextWrapping.NoWrap,
                 ToolTip = MakeTitleTooltip(rowTitle),
@@ -210,7 +212,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            string statusColor = h.Status == "ok" ? "#16a34a" : h.Status == "warn" ? "#d97706" : "#9ca3af";
+            string statusColor = h.Status == "ok" ? "#10b981" : h.Status == "warn" ? "#d97706" : "#99a3b3";
             var dot = new Ellipse
             {
                 Width = 6, Height = 6,
@@ -223,7 +225,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var tile = new IconTile
             {
                 Glyph = "sparkles",
-                TileBg = "#ede9fe", TileFg = "#6d28d9",
+                TileBg = "#dbeafe", TileFg = "#1d4ed8",
                 TileSize = 22, GlyphSize = 11, Corner = 5,
                 VerticalAlignment = VerticalAlignment.Top,
             };
@@ -238,7 +240,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 Text = h.Time + (msgCount > 0 ? $" · {msgCount / 2} message{(msgCount / 2 == 1 ? "" : "s")}" : ""),
                 FontSize = 11,
-                Foreground = CopilotColors.From("#6b7280"),
+                Foreground = CopilotColors.From("#99a3b3"),
                 Margin = new Thickness(0, 2, 0, 0),
                 TextWrapping = TextWrapping.Wrap,
             });
@@ -247,7 +249,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var dotsPath = new Path
             {
                 Width = 13, Height = 13, Stretch = Stretch.Uniform,
-                Fill = CopilotColors.From("#9ca3af"),
+                Fill = CopilotColors.From("#99a3b3"),
                 Data = Geometry.Parse(
                     "M12,5 m-1.5,0 a1.5,1.5,0,1,0,3,0 a1.5,1.5,0,1,0,-3,0 " +
                     "M12,12 m-1.5,0 a1.5,1.5,0,1,0,3,0 a1.5,1.5,0,1,0,-3,0 " +
@@ -282,7 +284,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var chev = new Path
             {
                 Width = 13, Height = 13, Stretch = Stretch.Uniform,
-                Stroke = CopilotColors.From("#9ca3af"),
+                Stroke = CopilotColors.From("#99a3b3"),
                 StrokeThickness = 1.6,
                 Data = CopilotIcons.Get("chevronRight"),
             };
@@ -405,10 +407,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var outer = new Border
             {
                 Margin = new Thickness(12, 2, 12, 8),
-                BorderBrush = CopilotColors.From("#ddd6fe"),
+                BorderBrush = CopilotColors.From("#bfdbfe"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
-                Background = CopilotColors.From("#faf5ff"),
+                Background = CopilotColors.From("#eff6ff"),
                 Padding = new Thickness(10, 8, 10, 8),
             };
 
@@ -418,7 +420,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             header.Children.Add(new Path
             {
                 Width = 11, Height = 11, Stretch = Stretch.Uniform,
-                Fill = CopilotColors.From("#7c3aed"),
+                Fill = CopilotColors.From("#1d4ed8"),
                 Data = CopilotIcons.Get("sparkleSolid"),
                 Margin = new Thickness(0, 0, 5, 0),
                 VerticalAlignment = VerticalAlignment.Center,
@@ -428,7 +430,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 Text = tool.Title,
                 FontSize = 11.5,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = CopilotColors.From("#5b21b6"),
+                Foreground = CopilotColors.From("#1e40af"),
             });
             sp.Children.Add(header);
 
@@ -439,7 +441,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 {
                     Text = $"{i++}. {step}",
                     FontSize = 11,
-                    Foreground = CopilotColors.From("#374151"),
+                    Foreground = CopilotColors.From("#3d4a5f"),
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 0, 0, 2),
                 });
@@ -453,7 +455,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     FontSize = 11,
                     Background = Brushes.Transparent,
                     BorderThickness = new Thickness(0),
-                    Foreground = CopilotColors.From("#7c3aed"),
+                    Foreground = CopilotColors.From("#1d4ed8"),
                     Cursor = Cursors.Hand,
                     Margin = new Thickness(0, 4, 0, 0),
                     HorizontalAlignment = HorizontalAlignment.Left,
@@ -462,7 +464,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 var codeBorder = new Border
                 {
                     Visibility = Visibility.Collapsed,
-                    Background = CopilotColors.From("#1e1b4b"),
+                    Background = CopilotColors.From("#f3f6f9"),
                     CornerRadius = new CornerRadius(6),
                     Padding = new Thickness(10, 8, 10, 8),
                     Margin = new Thickness(0, 4, 0, 0),
@@ -472,7 +474,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     Text = tool.Code,
                     FontFamily = new FontFamily("Consolas, Courier New"),
                     FontSize = 10.5,
-                    Foreground = CopilotColors.From("#c4b5fd"),
+                    Foreground = CopilotColors.From("#1e40af"),
                     Background = Brushes.Transparent,
                     BorderThickness = new Thickness(0),
                     IsReadOnly = true,
@@ -495,16 +497,15 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (_rowTemplate != null) return _rowTemplate;
             var border = new FrameworkElementFactory(typeof(Border));
             border.Name = "bd";
-            border.SetValue(Border.BorderBrushProperty, CopilotColors.From("#f1f3f5"));
+            border.SetValue(Border.BorderBrushProperty, CopilotColors.From("#0D0F1B2D"));
             border.SetValue(Border.BorderThicknessProperty, new Thickness(0, 0, 0, 1));
             border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
             var cp = new FrameworkElementFactory(typeof(ContentPresenter));
             border.AppendChild(cp);
             _rowTemplate = new ControlTemplate(typeof(Button)) { VisualTree = border };
-            // Hover darken — same surface-hover value as Cp.Card (#fafafa). The
-            // row buttons (Cp.IconButton, #f3f4f6) darken further so they stand out.
+            // Hover wash — the design's --hover surface.
             var hover = new Trigger { Property = Button.IsMouseOverProperty, Value = true };
-            hover.Setters.Add(new Setter(Border.BackgroundProperty, CopilotColors.From("#fafafa"), "bd"));
+            hover.Setters.Add(new Setter(Border.BackgroundProperty, CopilotColors.From("#f3f6f9"), "bd"));
             _rowTemplate.Triggers.Add(hover);
             return _rowTemplate;
         }

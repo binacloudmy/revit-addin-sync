@@ -2,7 +2,7 @@
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
-      Background="#FFFFFF"
+      Background="{DynamicResource Cp.Bg}"
       FontFamily="{DynamicResource Cp.Font}">
 
     <Page.Resources>
@@ -20,28 +20,33 @@
             <RowDefinition Height="*"/>     <!-- body -->
         </Grid.RowDefinitions>
 
-        <!-- ═══ Header ═══ -->
-        <Border Grid.Row="0" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1" Padding="14,12">
+        <!-- ═══ Header (Slate: star logo · title + status dot · icon actions) ═══ -->
+        <Border Grid.Row="0" Padding="14,15,14,13">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>  <!-- credit badge -->
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>  <!-- theme -->
+                    <ColumnDefinition Width="Auto"/>  <!-- new chat -->
+                    <ColumnDefinition Width="Auto"/>  <!-- menu -->
                 </Grid.ColumnDefinitions>
 
-                <!-- bot avatar -->
-                <Border Grid.Column="0" Width="28" Height="28" CornerRadius="6"
-                        Background="{DynamicResource Cp.BotGradient}" VerticalAlignment="Center">
-                    <Path Width="15" Height="15" Stretch="Uniform" Fill="White"
-                          Data="M12,2 l2.09,6.26 L20,9.27 l-5,4.87 L16.18,22 12,18.27 7.82,22 9,14.14 4,9.27 l5.91,-1.01 L12,2 z"/>
-                </Border>
+                <!-- BINA star logo (gradient four-point star with a soft glow) -->
+                <Grid Grid.Column="0" Width="30" Height="30" VerticalAlignment="Center">
+                    <Path Width="24" Height="24" Stretch="Uniform"
+                          Fill="{DynamicResource Cp.BotGradient}"
+                          Data="{DynamicResource Cp.StarPath}">
+                        <Path.Effect>
+                            <DropShadowEffect Color="#2563eb" BlurRadius="10" ShadowDepth="1" Direction="270" Opacity="0.55"/>
+                        </Path.Effect>
+                    </Path>
+                </Grid>
 
-                <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                <StackPanel Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center">
                     <TextBlock Text="BINA AI Copilot" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,1,0,0">
-                        <Ellipse Width="6" Height="6" Fill="{DynamicResource Cp.Green}" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                        <Ellipse Width="6" Height="6" Fill="{DynamicResource Cp.Accent}" VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <TextBlock FontSize="11" Foreground="{DynamicResource Cp.Muted}">
                             <Run Text="Connected · "/><Run Text="{Binding ModelName, Mode=OneWay}"/>
                         </TextBlock>
@@ -51,82 +56,96 @@
                          honest progress, not a frozen wait). -->
                     <StackPanel Orientation="Horizontal" Margin="0,2,0,0"
                                 Visibility="{Binding ToolActivity, Converter={StaticResource NotEmptyVis}}">
-                        <Ellipse Width="6" Height="6" Fill="{DynamicResource Cp.BotGradient}" VerticalAlignment="Center" Margin="0,0,4,0"/>
-                        <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"
+                        <Ellipse Width="6" Height="6" Fill="{DynamicResource Cp.Accent}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Cp.BlueText}"
                                    Text="{Binding ToolActivity, Mode=OneWay}"/>
                     </StackPanel>
                 </StackPanel>
 
                 <!-- Live AI credit balance (hidden until known / when signed out). -->
-                <Border Grid.Column="2" CornerRadius="999" Background="{DynamicResource Cp.TabBadgeBg}"
+                <Border Grid.Column="2" CornerRadius="13" Background="{DynamicResource Cp.Sunken}"
+                        BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
                         Padding="9,3" Margin="0,0,8,0" VerticalAlignment="Center"
                         ToolTip="AI requests left this month"
                         Visibility="{Binding CreditBadge, Converter={StaticResource NotEmptyVis}}">
                     <TextBlock Text="{Binding CreditBadge, Mode=OneWay}" FontSize="11" FontWeight="SemiBold"
-                               Foreground="#374151"/>
+                               Foreground="{DynamicResource Cp.Ink}"/>
                 </Border>
 
-                <Button Grid.Column="3" Style="{DynamicResource Cp.IconButton}" Command="{Binding BackHomeCommand}" ToolTip="New">
-                    <Path Width="16" Height="16" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"
+                <Button x:Name="ThemeBtn" Grid.Column="3" Style="{DynamicResource Cp.IconButton}" Click="OnToggleTheme" ToolTip="Toggle theme">
+                    <Path x:Name="ThemeIcon" Width="15" Height="15" Stretch="Uniform" Fill="Transparent"
+                          Stroke="{DynamicResource Cp.Faint}" StrokeThickness="2"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                          Data="M21,12.8 A9,9 0 1 1 11.2,3 A7,7 0 0 0 21,12.8 Z"/>
+                </Button>
+                <Button Grid.Column="4" Style="{DynamicResource Cp.IconButton}" Click="OnNewChat" ToolTip="New chat">
+                    <Path Width="16" Height="16" Stretch="Uniform" Stroke="{DynamicResource Cp.Faint}" StrokeThickness="1.9"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M12,5 v14 M5,12 h14"/>
                 </Button>
-                <Button Grid.Column="4" Style="{DynamicResource Cp.IconButton}" ToolTip="Menu">
-                    <Path Width="16" Height="16" Stretch="Uniform" Fill="{DynamicResource Cp.Muted}"
+                <Button x:Name="MenuBtn" Grid.Column="5" Style="{DynamicResource Cp.IconButton}" Click="OnOpenMenu" ToolTip="Menu">
+                    <Path Width="16" Height="16" Stretch="Uniform" Fill="{DynamicResource Cp.Faint}"
                           Data="M11,5 A1,1 0 1 0 13,5 A1,1 0 1 0 11,5 Z M11,12 A1,1 0 1 0 13,12 A1,1 0 1 0 11,12 Z M11,19 A1,1 0 1 0 13,19 A1,1 0 1 0 11,19 Z"/>
                 </Button>
+
+                <!-- Kebab dropdown: Rate Copilot / Report a bug -->
+                <Popup x:Name="MenuPopup" PlacementTarget="{Binding ElementName=MenuBtn}" Placement="Bottom"
+                       HorizontalOffset="-150" VerticalOffset="4" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                    <Border Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
+                            CornerRadius="12" Padding="5" MinWidth="188">
+                        <Border.Effect>
+                            <DropShadowEffect BlurRadius="24" ShadowDepth="6" Opacity="0.28" Color="#000000"/>
+                        </Border.Effect>
+                        <StackPanel>
+                            <Button Style="{DynamicResource Cp.MenuItem}" Click="OnRate">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Width="15" Height="15" Stretch="Uniform" Margin="0,0,10,0" VerticalAlignment="Center"
+                                          Fill="Transparent" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.8"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                          Data="M12,2 l3.1,6.3 6.9,1 -5,4.9 1.2,6.8 L12,17.8 5.8,21 7,14.2 2,9.3 l6.9,-1 Z"/>
+                                    <TextBlock Text="Rate Copilot" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                            <Button Style="{DynamicResource Cp.MenuItem}" Click="OnReportBug">
+                                <StackPanel Orientation="Horizontal">
+                                    <Path Width="15" Height="15" Stretch="Uniform" Margin="0,0,10,0" VerticalAlignment="Center"
+                                          Fill="Transparent" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.8"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                          Data="M8,2.5 9.5,5 M16,2.5 14.5,5 M6,6 h12 v7 a6,6 0 0 1 -12,0 Z M3,11 h3 M18,11 h3 M3,16 h3.2 M17.8,16 H21 M12,6 v13"/>
+                                    <TextBlock Text="Report a bug" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+                </Popup>
             </Grid>
         </Border>
 
         <!-- ═══ Tabs (hidden on sub-screens) ═══ -->
-        <Border Grid.Row="1" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1" Padding="8,0,8,0"
+        <Border Grid.Row="1" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1" Padding="16,0,16,0"
                 Visibility="{Binding IsSubScreen, Converter={StaticResource BoolVis}, ConverterParameter=Invert}">
             <StackPanel Orientation="Horizontal">
                 <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Chat"
-                              IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Chat}">
-                    <StackPanel Orientation="Horizontal">
-                        <Path Width="11" Height="11" Stretch="Uniform" Margin="0,0,4,0" Fill="{DynamicResource Cp.Purple}"
-                              Data="M12,2 l2.09,6.26 L20,9.27 l-5,4.87 L16.18,22 12,18.27 7.82,22 9,14.14 4,9.27 l5.91,-1.01 L12,2 z"/>
-                        <TextBlock Text="Chat"/>
-                    </StackPanel>
-                </ToggleButton>
-                <!-- <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Library"
-                              IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Library}">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Library"/>
-                        <Border CornerRadius="999" Background="{DynamicResource Cp.TabBadgeBg}" Padding="6,1" Margin="5,0,0,0">
-                            <TextBlock Text="{Binding LibraryCount, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="#374151"/>
-                        </Border>
-                    </StackPanel>
-                </ToggleButton> -->
+                              IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Chat}"
+                              Content="Chat"/>
                 <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="History"
                               IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=History}">
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="History"/>
-                        <Border CornerRadius="999" Background="{DynamicResource Cp.TabBadgeBg}" Padding="6,1" Margin="5,0,0,0">
-                            <TextBlock Text="{Binding History.Count, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="#374151"/>
-                        </Border>
+                        <TextBlock Text="{Binding History.Count, Mode=OneWay}" FontSize="10.5" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Cp.Faint}" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </ToggleButton>
-                <!-- <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Saved"
-                              IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Saved}">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Saved"/>
-                        <Border CornerRadius="999" Background="{DynamicResource Cp.TabBadgeBg}" Padding="6,1" Margin="5,0,0,0">
-                            <TextBlock Text="{Binding SavedCount, Mode=OneWay}" FontSize="10" FontWeight="SemiBold" Foreground="#374151"/>
-                        </Border>
-                    </StackPanel>
-                </ToggleButton> -->
             </StackPanel>
         </Border>
 
         <!-- ═══ Breadcrumb (tool-form / tool-review) ═══ -->
-        <Border Grid.Row="2" BorderBrush="{DynamicResource Cp.LineSoft}" BorderThickness="0,0,0,1" Padding="14,7"
+        <Border Grid.Row="2" BorderBrush="{DynamicResource Cp.LineSoft}" BorderThickness="0,0,0,1" Padding="16,7"
                 Visibility="{Binding ShowBreadcrumb, Converter={StaticResource BoolVis}}">
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                 <Button Command="{Binding BackCommand}" Background="Transparent" BorderThickness="0" Cursor="Hand"
-                        Padding="0" Foreground="{DynamicResource Cp.Muted}" FontSize="11.5"
+                        Padding="0" Foreground="{DynamicResource Cp.Faint}" FontSize="11.5"
                         Content="{Binding BreadcrumbRoot, Mode=OneWay}"/>
-                <Path Width="11" Height="11" Margin="5,0,5,0" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"
+                <Path Width="11" Height="11" Margin="5,0,5,0" Stretch="Uniform" Stroke="{DynamicResource Cp.Faint}" StrokeThickness="1.6"
                       VerticalAlignment="Center" Data="M9,6 l6,6 -6,6"/>
                 <TextBlock Text="{Binding CurrentTool.Title, Mode=OneWay}" FontSize="11.5" Foreground="{DynamicResource Cp.Text}" VerticalAlignment="Center"/>
             </StackPanel>
@@ -147,19 +166,28 @@
                 <!-- Progress bar built from plain Borders — NO Storyboard / animation
                      (WPF storyboards inside a Revit dockable pane crash Revit). The
                      fill width is driven directly by IndexProgressBarWidth (0–220). -->
-                <Border Width="220" Height="8" CornerRadius="4" Background="#E5E7EB"
+                <Border Width="220" Height="8" CornerRadius="4" Background="{DynamicResource Cp.Line}"
                         Margin="0,14,0,0" HorizontalAlignment="Center" ClipToBounds="True">
                     <Border HorizontalAlignment="Left" CornerRadius="4"
-                            Background="{DynamicResource Cp.Purple}"
+                            Background="{DynamicResource Cp.AccentGrad}"
                             Width="{Binding IndexProgressBarWidth}"/>
                 </Border>
                 <TextBlock Margin="0,8,0,0" HorizontalAlignment="Center" FontSize="12"
-                           FontWeight="SemiBold" Foreground="{DynamicResource Cp.Purple}"
+                           FontWeight="SemiBold" Foreground="{DynamicResource Cp.Accent}"
                            Text="{Binding IndexProgress, StringFormat={}{0}%}"/>
                 <TextBlock Text="{Binding IndexSubtitle, Mode=OneWay}"
                            Margin="0,8,0,0" HorizontalAlignment="Center" TextAlignment="Center" MaxWidth="240"
                            FontSize="11" Foreground="{DynamicResource Cp.Muted}" TextWrapping="Wrap"/>
             </StackPanel>
         </Border>
+
+        <!-- ═══ Bottom-sheet overlay (Rate / Report) ═══
+             Covers all rows. A tap on the scrim dismisses. The sheet itself is
+             built + slid up from code-behind (SheetHost), so no XAML Storyboard
+             runs inside the Revit dockable pane. Collapsed until a sheet opens. -->
+        <Grid x:Name="SheetLayer" Grid.Row="0" Grid.RowSpan="4" Visibility="Collapsed">
+            <Border x:Name="SheetScrim" Background="#66000000" MouseLeftButtonDown="OnScrimClick"/>
+            <ContentControl x:Name="SheetHost" VerticalAlignment="Bottom"/>
+        </Grid>
     </Grid>
 </Page>

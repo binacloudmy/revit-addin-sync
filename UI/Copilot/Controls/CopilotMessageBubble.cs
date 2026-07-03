@@ -17,17 +17,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     /// </summary>
     public static class CopilotMessageBubble
     {
-        /// <summary>User message row: initial avatar + grey bubble (image chips,
-        /// file chips, selectable plain text) + hover copy button.</summary>
+        /// <summary>User message row — Slate design: right-aligned dark bubble
+        /// (no avatar), 14/14/4/14 radius, image/file chips + selectable text,
+        /// hover copy button on the left.</summary>
         public static FrameworkElement User(string text, string userInitial,
             IEnumerable<string> imagesBase64, IEnumerable<(string Name, int Lines)> files,
             double maxWidth)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
-            var av = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = CopilotColors.From("#e5e7eb"), VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 0, 10, 0) };
-            string initial = !string.IsNullOrEmpty(userInitial) ? userInitial.Substring(0, 1).ToUpperInvariant() : "?";
-            av.Child = new TextBlock { Text = initial, FontSize = 9, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#374151"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            var bubble = new Border { Background = CopilotColors.From("#f1f3f5"), CornerRadius = new CornerRadius(10), Padding = new Thickness(12, 8, 12, 8), MaxWidth = maxWidth };
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 15), HorizontalAlignment = HorizontalAlignment.Right };
+            var bubble = new Border { Background = CopilotColors.From("#eef1f5"), CornerRadius = new CornerRadius(14, 14, 4, 14), Padding = new Thickness(13, 9, 13, 9), MaxWidth = maxWidth * 0.84 };
             var bubbleStack = new StackPanel();
 
             // Screenshots pasted with this prompt render above the text.
@@ -60,27 +58,29 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // stays plain (no markdown).
             bubbleStack.Children.Add(new TextBox
             {
-                Text = text, FontSize = 13, Foreground = CopilotColors.From("#0b0d12"),
+                Text = text, FontSize = 13, Foreground = CopilotColors.From("#131c2b"),
+                CaretBrush = CopilotColors.From("#131c2b"),
                 TextWrapping = TextWrapping.Wrap, IsReadOnly = true,
                 BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent,
                 Padding = new Thickness(0), IsTabStop = false,
             });
             bubble.Child = bubbleStack;
             AttachCopyMenu(bubble, text);
-            row.Children.Add(av); row.Children.Add(bubble);
+            // Copy affordance sits on the LEFT of the right-aligned bubble.
             if (!string.IsNullOrEmpty(text))
                 row.Children.Add(HoverReveal(row, CopyButton(text)));
+            row.Children.Add(bubble);
             return row;
         }
 
-        /// <summary>AI message row: bot avatar + markdown-rendered text with
-        /// right-click/hover copy. Used directly where no cards are needed.</summary>
+        /// <summary>AI message row — Slate design: full-width plain text (no
+        /// avatar, no bubble surface) with right-click/hover copy.</summary>
         public static FrameworkElement Ai(string markdown, double maxWidth)
         {
-            var aiRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
-            aiRow.Children.Add(BotAvatar());
-            var col = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
+            var aiRow = new StackPanel { Margin = new Thickness(0, 0, 0, 15) };
+            var col = new StackPanel();
             col.MaxWidth = maxWidth;
+            col.HorizontalAlignment = HorizontalAlignment.Left;
             if (!string.IsNullOrEmpty(markdown))
             {
                 col.Children.Add(MarkdownText(markdown, maxWidth));
@@ -101,15 +101,33 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return md;
         }
 
+        // Design gstarLogo path: four-point star, 24×24 viewbox.
+        private static readonly Geometry StarGeom = Geometry.Parse(
+            "M12,1.1 C12.45,7.05 16.95,11.55 22.9,12 C16.95,12.45 12.45,16.95 12,22.9 C11.55,16.95 7.05,12.45 1.1,12 C7.05,11.55 11.55,7.05 12,1.1 Z");
+
+        /// <summary>Gradient four-point BINA star (transparent tile) — the Slate
+        /// design's logo mark, shared by header, greeting and thinking line.</summary>
         public static FrameworkElement BotAvatar(double size = 22)
         {
-            var b = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(6), VerticalAlignment = VerticalAlignment.Top };
-            var g = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
-            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#2563eb"), 0));
-            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#7c3aed"), 1));
-            b.Background = g;
-            b.Child = new System.Windows.Shapes.Path { Width = size * 0.55, Height = size * 0.55, Stretch = Stretch.Uniform, Fill = Brushes.White, Data = CopilotIcons.Get("sparkleSolid"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+            var b = new Border { Width = size, Height = size, Background = Brushes.Transparent, VerticalAlignment = VerticalAlignment.Top };
+            b.Child = new System.Windows.Shapes.Path
+            {
+                Width = size * 0.82, Height = size * 0.82, Stretch = Stretch.Uniform,
+                Fill = StarGradient(), Data = StarGeom,
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            };
             return b;
+        }
+
+        /// <summary>The design's gstarLogo gradient (#7dd6ff → #3b8ef7 → #1d5fe0).</summary>
+        public static LinearGradientBrush StarGradient()
+        {
+            var g = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#7dd6ff"), 0));
+            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#3b8ef7"), 0.45));
+            g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#1d5fe0"), 1));
+            g.Freeze();
+            return g;
         }
 
         // ─── Copy-to-clipboard affordances ─────────────────────────────────
@@ -140,7 +158,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // Small ⧉ button that copies the message and flashes ✓ as feedback.
         public static Button CopyButton(string text)
         {
-            var label = new TextBlock { Text = "⧉", FontSize = 12, Foreground = CopilotColors.From("#9ca3af") };
+            var label = new TextBlock { Text = "⧉", FontSize = 12, Foreground = CopilotColors.From("#99a3b3") };
             var btn = new Button
             {
                 Content = label, Cursor = System.Windows.Input.Cursors.Hand, ToolTip = "Copy",
@@ -151,11 +169,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             btn.Click += (_, __) =>
             {
                 CopyText(text);
-                label.Text = "✓"; label.Foreground = CopilotColors.From("#16a34a");
+                label.Text = "✓"; label.Foreground = CopilotColors.From("#10b981");
                 var t = new System.Windows.Threading.DispatcherTimer { Interval = System.TimeSpan.FromSeconds(1.2) };
                 t.Tick += (s, e2) =>
                 {
-                    label.Text = "⧉"; label.Foreground = CopilotColors.From("#9ca3af");
+                    label.Text = "⧉"; label.Foreground = CopilotColors.From("#99a3b3");
                     ((System.Windows.Threading.DispatcherTimer)s).Stop();
                 };
                 t.Start();

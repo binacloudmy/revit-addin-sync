@@ -2,36 +2,63 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=mscorlib">
 
-    <!-- ═══════════ CORE PALETTE (shared.jsx COPILOT_TOKENS) ═══════════ -->
-    <SolidColorBrush x:Key="Cp.Blue"      Color="#2563eb"/>
-    <SolidColorBrush x:Key="Cp.BlueHover" Color="#1d4ed8"/>
-    <SolidColorBrush x:Key="Cp.BlueSoft"  Color="#eff6ff"/>
-    <SolidColorBrush x:Key="Cp.BlueText"  Color="#1e40af"/>
-    <SolidColorBrush x:Key="Cp.Ink"       Color="#0b0d12"/>
-    <SolidColorBrush x:Key="Cp.Ink2"      Color="#1f2430"/>
-    <SolidColorBrush x:Key="Cp.Text"      Color="#374151"/>
-    <SolidColorBrush x:Key="Cp.Muted"     Color="#6b7280"/>
-    <SolidColorBrush x:Key="Cp.Faint"     Color="#9ca3af"/>
-    <SolidColorBrush x:Key="Cp.Line"      Color="#e5e7eb"/>
-    <SolidColorBrush x:Key="Cp.LineSoft"  Color="#f1f3f5"/>
+    <!-- ═══════════ LIGHT PALETTE (docs/design/copilot-panel-slate.dc.html, light theme) ═══════════
+         The design's CSS variables resolved to hex, mapped onto the existing
+         Cp.* keys so every screen picks the theme up without renaming:
+           - -bg #ffffff → Cp.Bg              - -text  #131c2b → Cp.Ink
+           - -sunken #f3f6f9 → Cp.Sunken       - -text2 #586273 → Cp.Muted
+           - -menu #ffffff → Cp.Menu           - -text3 #99a3b3 → Cp.Faint
+           - -hair rgba(15,27,45,.08) → Cp.Line
+           - -hair2 rgba(15,27,45,.16) → Cp.Hair2
+           - -accent #1d4ed8 → Cp.Blue/Cp.Accent
+           - -user #eef1f5 → Cp.UserBubble  -->
     <SolidColorBrush x:Key="Cp.Bg"        Color="#ffffff"/>
-    <SolidColorBrush x:Key="Cp.PanelBg"   Color="#fafafa"/>
-    <SolidColorBrush x:Key="Cp.Hover"     Color="#f3f4f6"/>
-    <SolidColorBrush x:Key="Cp.Green"     Color="#16a34a"/>
+    <SolidColorBrush x:Key="Cp.Sunken"    Color="#f3f6f9"/>
+    <SolidColorBrush x:Key="Cp.Menu"      Color="#ffffff"/>
+    <SolidColorBrush x:Key="Cp.PanelBg"   Color="#f7f9fb"/>
+    <SolidColorBrush x:Key="Cp.Ink"       Color="#131c2b"/>
+    <SolidColorBrush x:Key="Cp.Ink2"      Color="#0b1220"/>
+    <SolidColorBrush x:Key="Cp.Text"      Color="#3d4a5f"/>
+    <SolidColorBrush x:Key="Cp.Muted"     Color="#586273"/>
+    <SolidColorBrush x:Key="Cp.Faint"     Color="#99a3b3"/>
+    <SolidColorBrush x:Key="Cp.Line"      Color="#140F1B2D"/>
+    <SolidColorBrush x:Key="Cp.Hair2"     Color="#290F1B2D"/>
+    <SolidColorBrush x:Key="Cp.LineSoft"  Color="#0D0F1B2D"/>
+    <SolidColorBrush x:Key="Cp.Hover"     Color="#f3f6f9"/>
+    <SolidColorBrush x:Key="Cp.UserBubble" Color="#eef1f5"/>
+
+    <SolidColorBrush x:Key="Cp.Blue"      Color="#1d4ed8"/>
+    <SolidColorBrush x:Key="Cp.Accent"    Color="#1d4ed8"/>
+    <SolidColorBrush x:Key="Cp.BlueHover" Color="#1a44be"/>
+    <SolidColorBrush x:Key="Cp.BlueSoft"  Color="#1A1D4ED8"/>
+    <SolidColorBrush x:Key="Cp.BlueText"  Color="#1e40af"/>
+    <SolidColorBrush x:Key="Cp.AccentContrast" Color="#ffffff"/>
+    <SolidColorBrush x:Key="Cp.Green"     Color="#10b981"/>
     <SolidColorBrush x:Key="Cp.Amber"     Color="#d97706"/>
     <SolidColorBrush x:Key="Cp.Red"       Color="#dc2626"/>
+    <SolidColorBrush x:Key="Cp.Meter"     Color="#f59e0b"/>
 
-    <!-- ═══════════ PURPLE / AI ACCENT ═══════════ -->
-    <SolidColorBrush x:Key="Cp.Purple"     Color="#7c3aed"/>
-    <SolidColorBrush x:Key="Cp.PurpleSoft" Color="#f5f3ff"/>
-    <SolidColorBrush x:Key="Cp.PurpleLine" Color="#ddd6fe"/>
-    <SolidColorBrush x:Key="Cp.PurpleDeep" Color="#3b1d75"/>
+    <!-- -accent-grad: 135deg, 60% accent mixed toward white → accent -->
+    <LinearGradientBrush x:Key="Cp.AccentGrad" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#7795e8"/>
+        <GradientStop Offset="1" Color="#1d4ed8"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Cp.AccentGradHover" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#8aa4ec"/>
+        <GradientStop Offset="1" Color="#2c5ce0"/>
+    </LinearGradientBrush>
+
+    <!-- ═══════════ AI ACCENT (was purple — the design uses the blue accent) ═══════════ -->
+    <SolidColorBrush x:Key="Cp.Purple"     Color="#1d4ed8"/>
+    <SolidColorBrush x:Key="Cp.PurpleSoft" Color="#eff6ff"/>
+    <SolidColorBrush x:Key="Cp.PurpleLine" Color="#bfdbfe"/>
+    <SolidColorBrush x:Key="Cp.PurpleDeep" Color="#1e3a8a"/>
 
     <!-- ═══════════ TIER BADGES ═══════════ -->
     <SolidColorBrush x:Key="Cp.Tier1Bg" Color="#dcfce7"/>
     <SolidColorBrush x:Key="Cp.Tier1Fg" Color="#15803d"/>
-    <SolidColorBrush x:Key="Cp.Tier2Bg" Color="#f5f3ff"/>
-    <SolidColorBrush x:Key="Cp.Tier2Fg" Color="#7c3aed"/>
+    <SolidColorBrush x:Key="Cp.Tier2Bg" Color="#dbeafe"/>
+    <SolidColorBrush x:Key="Cp.Tier2Fg" Color="#1d4ed8"/>
 
     <!-- ═══════════ STATUS / RESULT ═══════════ -->
     <SolidColorBrush x:Key="Cp.OkBg"      Color="#dcfce7"/>
@@ -43,17 +70,21 @@
     <SolidColorBrush x:Key="Cp.AmberBg"   Color="#fffbeb"/>
     <SolidColorBrush x:Key="Cp.AmberLn"   Color="#fde68a"/>
     <SolidColorBrush x:Key="Cp.AmberFg"   Color="#92400e"/>
-    <SolidColorBrush x:Key="Cp.CodeBg"    Color="#0b0d12"/>
-    <SolidColorBrush x:Key="Cp.CodeFg"    Color="#e5e7eb"/>
+    <SolidColorBrush x:Key="Cp.CodeBg"    Color="#f3f6f9"/>
+    <SolidColorBrush x:Key="Cp.CodeFg"    Color="#1e40af"/>
     <SolidColorBrush x:Key="Cp.TabBadgeBg" Color="#eef0f3"/>
 
-    <!-- Bot avatar gradient (blue → purple) -->
+    <!-- Logo / bot star gradient (design gstarLogo: #7dd6ff → #3b8ef7 → #1d5fe0) -->
     <LinearGradientBrush x:Key="Cp.BotGradient" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#2563eb"/>
-        <GradientStop Offset="1" Color="#7c3aed"/>
+        <GradientStop Offset="0"    Color="#7dd6ff"/>
+        <GradientStop Offset="0.45" Color="#3b8ef7"/>
+        <GradientStop Offset="1"    Color="#1d5fe0"/>
     </LinearGradientBrush>
 
-    <!-- ═══════════ TOOL ICON-TILE PALETTES (README "Tool icon palettes") ═══════════ -->
+    <!-- Four-point BINA star (design logo path, 24×24 viewbox) -->
+    <Geometry x:Key="Cp.StarPath">M12,1.1 C12.45,7.05 16.95,11.55 22.9,12 C16.95,12.45 12.45,16.95 12,22.9 C11.55,16.95 7.05,12.45 1.1,12 C7.05,11.55 11.55,7.05 12,1.1 Z</Geometry>
+
+    <!-- ═══════════ TOOL ICON-TILE PALETTES ═══════════ -->
     <SolidColorBrush x:Key="Cp.Tile.BlueBg"   Color="#dbeafe"/>
     <SolidColorBrush x:Key="Cp.Tile.BlueFg"   Color="#1d4ed8"/>
     <SolidColorBrush x:Key="Cp.Tile.AmberBg"  Color="#fef3c7"/>

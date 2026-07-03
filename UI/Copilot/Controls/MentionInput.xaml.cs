@@ -133,7 +133,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 PickerHost.Children.Add(new TextBlock
                 {
                     Text = g.Label.ToUpperInvariant(), FontSize = 10, FontWeight = FontWeights.SemiBold,
-                    Foreground = CopilotColors.From("#9ca3af"), Margin = new Thickness(8, 6, 8, 3),
+                    Foreground = CopilotColors.From("#99a3b3"), Margin = new Thickness(8, 6, 8, 3),
                 });
 
                 foreach (var item in matches)
@@ -145,7 +145,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     var badge = new Border { Width = 18, Height = 18, CornerRadius = new CornerRadius(4), Background = CopilotColors.From(bg), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
                     badge.Child = new TextBlock { Text = g.Label.Substring(0, 1), FontSize = 10, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From(fg), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
                     sp.Children.Add(badge);
-                    sp.Children.Add(new TextBlock { Text = item, FontSize = 12.5, Foreground = CopilotColors.From("#0b0d12"), VerticalAlignment = VerticalAlignment.Center });
+                    sp.Children.Add(new TextBlock { Text = item, FontSize = 12.5, FontWeight = FontWeights.Medium, Foreground = CopilotColors.From("#131c2b"), VerticalAlignment = VerticalAlignment.Center });
                     row.Content = sp;
                     var picked = item;
                     row.Click += (_, __) => InsertMention(picked);
@@ -259,7 +259,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             b.SetValue(Border.PaddingProperty, new Thickness(8, 6, 8, 6));
             b.Name = "bd";
             var trigger = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-            trigger.Setters.Add(new Setter(Border.BackgroundProperty, CopilotColors.From("#f1f3f5"), "bd"));
+            trigger.Setters.Add(new Setter(Border.BackgroundProperty, CopilotColors.From("#f3f6f9"), "bd"));
             var cp = new System.Windows.FrameworkElementFactory(typeof(ContentPresenter));
             b.AppendChild(cp);
             var t = new ControlTemplate(typeof(Button)) { VisualTree = b };

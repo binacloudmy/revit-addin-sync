@@ -24,14 +24,14 @@ namespace RevitWebAppSync.Helpers
     /// </summary>
     public static class MarkdownRenderer
     {
-        // Light-theme palette (matches CopilotTokens).
-        private static readonly SolidColorBrush Ink     = Brush("#0b0d12"); // headers
-        private static readonly SolidColorBrush Text    = Brush("#374151"); // body
-        private static readonly SolidColorBrush Muted   = Brush("#6b7280"); // quotes/citations
-        private static readonly SolidColorBrush Accent  = Brush("#2563eb"); // bullets/links
-        private static readonly SolidColorBrush Line    = Brush("#e5e7eb"); // table borders
-        private static readonly SolidColorBrush CodeBg  = Brush("#f3f4f6");
-        private static readonly SolidColorBrush CodeFg  = Brush("#9333ea");
+        // Light palette (matches CopilotTokens / the .dc.html light theme).
+        private static readonly SolidColorBrush Ink     = Brush("#131c2b"); // headers
+        private static readonly SolidColorBrush Text    = Brush("#131c2b"); // body (design --text)
+        private static readonly SolidColorBrush Muted   = Brush("#586273"); // quotes/citations
+        private static readonly SolidColorBrush Accent  = Brush("#1d4ed8"); // bullets/links
+        private static readonly SolidColorBrush Line    = Brush("#290F1B2D"); // table borders
+        private static readonly SolidColorBrush CodeBg  = Brush("#f3f6f9");
+        private static readonly SolidColorBrush CodeFg  = Brush("#1e40af");
         private static readonly SolidColorBrush BlockBg = Brush("#f6f8fa");
         private static readonly FontFamily CodeFont = new FontFamily("Cascadia Mono, Consolas, monospace");
 

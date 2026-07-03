@@ -76,6 +76,13 @@ namespace RevitWebAppSync.UI.Copilot
         public string UserFirstName { get; set; } = "there";
         public string ModelName { get; set; } = "Main Model";
 
+        /// <summary>Raised when the user taps the inline "rate" nudge under a
+        /// reply. The panel listens and slides up the Rate sheet (which owns the
+        /// star UI + persistence). Kept as an event so screens don't reach up
+        /// into the panel's chrome directly.</summary>
+        public event Action RateRequested;
+        public void RequestRate() => RateRequested?.Invoke();
+
         // ─── State ───────────────────────────────────────────────────────────
         private CpScreen _screen = CpScreen.Home;
         public CpScreen Screen
@@ -795,10 +802,14 @@ namespace RevitWebAppSync.UI.Copilot
                     {
                         if (string.IsNullOrWhiteSpace(cumulative)) return;
                         replyStreaming = true;
+                        // StreamingReply: still Kind=Thinking so ReplaceLastThinking
+                        // keeps growing THIS bubble, but flagged so ChatView renders
+                        // the prose as the reply (markdown) — not the steps trail.
                         ReplaceLastThinking(new ChatMessage
                         {
                             Role = "ai", Kind = CpMsgKind.Thinking,
                             Text = cumulative,
+                            StreamingReply = true,
                         });
                     };
                 }

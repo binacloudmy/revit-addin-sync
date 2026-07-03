@@ -162,6 +162,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English
         public List<string> ToolCallTrace; // tool-calling agent: ordered tool names called
         public IReadOnlyList<ProgressStep> Steps; // full phased trail; ChatView prefers this over ToolCallTrace
+        // A Thinking-kind message whose Text is the ACCUMULATING reply prose
+        // (not a step trail). The VM reuses Kind=Thinking during reply streaming
+        // so ReplaceLastThinking keeps targeting the same growing bubble; this
+        // flag tells ChatView to render it as the reply (markdown) instead of the
+        // thinking-steps trail, so the trail collapses the moment prose arrives.
+        public bool StreamingReply;
         public List<string> ImagesBase64;  // screenshots pasted with this prompt (base64 PNG) — rendered as thumbnails
         public List<FileAttachment> Files;  // text files attached with this prompt — rendered as chips (content lives only in the backend route text)
         public RevitWebAppSync.Models.ReviewerVerdict Verdict; // attached to AiReply messages
