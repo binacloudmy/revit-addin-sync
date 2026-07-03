@@ -20,7 +20,7 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <!-- Ensure all NuGet dependencies are copied to output -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-    <DefaultItemExcludes>$(DefaultItemExcludes);Tests\**;BinaLoader\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Tests\**;BinaLoader\**;UiHarness\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <PropertyGroup>

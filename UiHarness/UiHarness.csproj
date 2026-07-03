@@ -14,4 +14,16 @@
     <ProjectReference Include="..\RevitWebAppSync.csproj" />
   </ItemGroup>
 
+  <!-- Window ctors reference Revit types (UIApplication in lambdas etc.), so
+       the loader must resolve RevitAPI/RevitAPIUI at runtime even though no
+       Revit method is ever called in the harness. The Nice3point packages ship
+       the REAL mixed-mode Revit DLLs (native imports, unloadable without a
+       Revit install), so we copy sanitized metadata-only stubs instead.
+       See RevitApiStubs\README.md for how to regenerate them (refasmer alone
+       is NOT enough for these mixed-mode assemblies). App.xaml.cs has the
+       matching load hook (loose DLLs are not in deps.json). -->
+  <ItemGroup>
+    <None Include="RevitApiStubs\*.dll" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
 </Project>

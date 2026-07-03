@@ -1,0 +1,13 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "UiHarness",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build-harness",
+      "program": "${workspaceFolder}/UiHarness/bin/Debug/net8.0-windows/UiHarness.exe",
+      "cwd": "${workspaceFolder}/UiHarness"
+    }
+  ]
+}

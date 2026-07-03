@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build-harness",
+      "command": "dotnet",
+      "type": "process",
+      "args": ["build", "${workspaceFolder}/UiHarness/UiHarness.csproj"],
+      "problemMatcher": "$msCompile"
+    }
+  ]
+}
