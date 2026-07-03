@@ -12,6 +12,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<string> PlanSteps;        // plan steps (English)
         public string Code;              // runnable C# (backend action or catalog sample)
         public string Reply;             // optional natural-language reply
+        public string AnswerId;          // backend answer id — echoed on /outcome (learning loop)
         public bool IsQuery;             // pure read+report — auto-run, render as chat text not card
         public List<string> ToolCallTrace;  // tool names called by the agent (in order). Renders as a faint trace under the reply.
         public IReadOnlyList<ProgressStep> Steps;  // full phased trail (phases + tools); preferred over ToolCallTrace when present

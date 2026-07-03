@@ -32,6 +32,9 @@ namespace RevitWebAppSync.Services
         public string Code { get; set; } = "";
         public bool IsQuery { get; set; } = true;
         public string Error { get; set; }
+        // Backend answer id — echoed on /outcome (learning loop). Empty when
+        // the turn errored before the backend minted one.
+        public string AnswerId { get; set; } = "";
         public List<string> ToolsUsed { get; } = new();
         // The full phased step trail (backend phases + per-tool rows) accumulated
         // this turn, snapshotted at completion. Null on early-error returns.
@@ -183,6 +186,7 @@ namespace RevitWebAppSync.Services
                     AppendRound(narration, turn.Reply);
                     outcome.Reply = narration.Length > 0 ? narration.ToString() : (turn.Reply ?? "");
                     outcome.Code = turn.Code ?? "";
+                    outcome.AnswerId = turn.AnswerId ?? "";
                     outcome.IsQuery = turn.IsQuery;
                     // Fold in the server-side tools the agent ran this turn
                     // (read/inspect tools that never executed in Revit) so the

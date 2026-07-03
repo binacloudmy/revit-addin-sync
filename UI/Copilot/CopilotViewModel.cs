@@ -886,7 +886,7 @@ namespace RevitWebAppSync.UI.Copilot
             // and runs automatically — no Run button.
             if (rr != null && !string.IsNullOrWhiteSpace(rr.Code))
             {
-                ExecuteAsChatReply(tool, rr.Code, routeText, displayText, historyFiles, rr.Reply);
+                ExecuteAsChatReply(tool, rr.Code, routeText, displayText, historyFiles, rr.Reply, rr.AnswerId);
                 return;
             }
 
@@ -904,7 +904,7 @@ namespace RevitWebAppSync.UI.Copilot
             AppendToCurrentSession(displayText, text2, "ok", new List<string> { tool.Id }, historyFiles);
         }
 
-        private void ExecuteAsChatReply(ToolDef tool, string code, string routePrompt = null, string displayPrompt = null, List<HistoryFile> historyFiles = null, string streamedReply = null)
+        private void ExecuteAsChatReply(ToolDef tool, string code, string routePrompt = null, string displayPrompt = null, List<HistoryFile> historyFiles = null, string streamedReply = null, string answerId = null)
         {
             ToolId = tool.Id;
             _runClock = System.Diagnostics.Stopwatch.StartNew();
@@ -941,6 +941,24 @@ namespace RevitWebAppSync.UI.Copilot
                 });
                 AppendToCurrentSession(displayPrompt ?? tool.Title, reply, "ok", new List<string> { tool.Id }, historyFiles);
                 PopulateHighlights(tool.Id);
+
+                // Learning-loop signal (Step 0): report what actually happened to
+                // this answer's code. ran_as_is on success; errored after the
+                // self-heal retries were exhausted. Detached fire-and-forget —
+                // OutcomeService swallows every failure.
+                if (!string.IsNullOrWhiteSpace(answerId))
+                {
+                    var ocfg = BinaConfig.Load();
+                    int? oUserId = (ocfg?.UserId ?? 0) > 0 ? (int?)ocfg.UserId : null;
+                    string oSession = (Router as RevitChatRouter)?.SessionId;
+                    string oToken = ocfg?.AccessToken ?? "";
+                    _ = _outcome.SubmitOutcomeAsync(
+                        answerId,
+                        outcome != null && outcome.Success ? "ran_as_is" : "errored",
+                        null,
+                        outcome?.Error,
+                        oSession, oUserId, oToken);
+                }
             }
 
             if (Executor != null) Executor.Run(tool, new Dictionary<string, object>(), code, Done);
@@ -952,6 +970,10 @@ namespace RevitWebAppSync.UI.Copilot
         // backend, keyed to the prompt the rated response answered. Best-effort: a
         // failed POST must never break the pane (FeedbackService swallows).
         private readonly FeedbackService _feedback = new FeedbackService();
+
+        // Outcome telemetry (learning loop Step 0): what the drafter's machine
+        // actually did with an answer's code. Same fire-and-forget contract.
+        private readonly OutcomeService _outcome = new OutcomeService();
 
         /// <summary>Submit thumbs feedback for the response currently on screen.
         /// <paramref name="rating"/> is "up" or "down". Best-effort; never throws.</summary>

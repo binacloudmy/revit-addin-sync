@@ -43,6 +43,10 @@ namespace RevitWebAppSync.Services
         [JsonPropertyName("is_query")] public bool IsQuery { get; set; } = true;
         [JsonPropertyName("error")] public string Error { get; set; }
         [JsonPropertyName("success")] public bool Success { get; set; } = true;
+        // Answer id minted by the backend (signal_log + decision log). The pane
+        // echoes it on /outcome so the learning loop can credit/blame exactly
+        // what grounded this answer.
+        [JsonPropertyName("answer_id")] public string AnswerId { get; set; } = "";
         [JsonPropertyName("pending_tool_calls")] public List<PendingToolCall> Pending { get; set; } = new();
         // Tools the agent ran SERVER-SIDE this turn (list_views, find_elements_by_filter,
         // …). These never come back as pending (they don't execute in Revit), so without
