@@ -739,7 +739,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             sp.Children.Add(head);
 
             var body = new StackPanel { Margin = new Thickness(12, 10, 12, 12) };
-            body.Children.Add(new TextBlock { Text = m.Question, FontSize = 12.5, Foreground = CopilotColors.From("#3d4a5f"), TextWrapping = TextWrapping.Wrap, LineHeight = 18, Margin = new Thickness(0, 0, 0, 10) });
+            body.Children.Add(new TextBlock { Text = m.Question, FontSize = 12.5, Foreground = CopilotColors.From("#131c2b"), TextWrapping = TextWrapping.Wrap, LineHeight = 18, Margin = new Thickness(0, 0, 0, 10) });
             foreach (var o in m.Options)
             {
                 var tool = CopilotCatalog.Find(o.ToolId);
@@ -999,7 +999,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                     var dot = new Ellipse { Width = 6, Height = 6, Fill = CopilotColors.From(b.Color), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
                     Grid.SetColumn(dot, 0);
-                    var lbl = new TextBlock { Text = b.Label, FontSize = 11.5, Foreground = CopilotColors.From("#3d4a5f"), VerticalAlignment = VerticalAlignment.Center };
+                    var lbl = new TextBlock { Text = b.Label, FontSize = 11.5, Foreground = CopilotColors.From("#586273"), VerticalAlignment = VerticalAlignment.Center };
                     Grid.SetColumn(lbl, 1);
                     var val = new TextBlock { Text = b.Value.ToString(), FontSize = 11.5, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#131c2b"), VerticalAlignment = VerticalAlignment.Center };
                     Grid.SetColumn(val, 2);

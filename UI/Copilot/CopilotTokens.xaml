@@ -18,7 +18,7 @@
     <SolidColorBrush x:Key="Cp.PanelBg"   Color="#f7f9fb"/>
     <SolidColorBrush x:Key="Cp.Ink"       Color="#131c2b"/>
     <SolidColorBrush x:Key="Cp.Ink2"      Color="#0b1220"/>
-    <SolidColorBrush x:Key="Cp.Text"      Color="#3d4a5f"/>
+    <SolidColorBrush x:Key="Cp.Text"      Color="#131c2b"/>
     <SolidColorBrush x:Key="Cp.Muted"     Color="#586273"/>
     <SolidColorBrush x:Key="Cp.Faint"     Color="#99a3b3"/>
     <SolidColorBrush x:Key="Cp.Line"      Color="#140F1B2D"/>
