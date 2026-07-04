@@ -39,7 +39,9 @@
       "Bash(git commit -q -m 'feat\\(copilot\\): rate + report sheets to design \\(gold stars, reactions, type chips, context rows\\) *)",
       "Bash(git commit -q -m 'feat\\(copilot\\): mention popover, history header, composer radii to design *)",
       "Bash(git commit -q -m 'fix\\(copilot\\): align text tokens with design, tokenize remaining XAML hexes *)",
-      "Bash(git commit -q -m 'test\\(copilot\\): harness screenshot states for redesigned surfaces *)"
+      "Bash(git commit -q -m 'test\\(copilot\\): harness screenshot states for redesigned surfaces *)",
+      "Bash(git push *)",
+      "Bash(git commit -q -m 'fix\\(copilot\\): dark-mode message rendering + user bubble mapping; drop header + button *)"
     ],
     "deny": []
   }

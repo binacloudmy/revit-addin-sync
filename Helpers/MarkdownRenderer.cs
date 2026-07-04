@@ -24,19 +24,19 @@ namespace RevitWebAppSync.Helpers
     /// </summary>
     public static class MarkdownRenderer
     {
-        // Light palette (matches CopilotTokens / the .dc.html light theme).
-        private static readonly SolidColorBrush Ink     = Brush("#131c2b"); // headers
-        private static readonly SolidColorBrush Text    = Brush("#131c2b"); // body (design --text)
-        private static readonly SolidColorBrush Muted   = Brush("#586273"); // quotes/citations
-        private static readonly SolidColorBrush Accent  = Brush("#1d4ed8"); // bullets/links
-        private static readonly SolidColorBrush Line    = Brush("#290F1B2D"); // table borders
-        private static readonly SolidColorBrush CodeBg  = Brush("#f3f6f9");
-        private static readonly SolidColorBrush CodeFg  = Brush("#1e40af");
-        private static readonly SolidColorBrush BlockBg = Brush("#f6f8fa");
+        // Palette resolved through CopilotColors so DARK MODE maps each light hex
+        // to its Slate equivalent AT RENDER TIME (ChatView re-renders replies on
+        // ThemeChanged). These were `static readonly` light-only brushes before,
+        // which left AI prose near-invisible (#131c2b on #131d2b) in dark mode.
+        private static Brush Ink     => UI.Copilot.Controls.CopilotColors.From("#131c2b"); // headers
+        private static Brush Text    => UI.Copilot.Controls.CopilotColors.From("#131c2b"); // body (design --text)
+        private static Brush Muted   => UI.Copilot.Controls.CopilotColors.From("#586273"); // quotes/citations
+        private static Brush Accent  => UI.Copilot.Controls.CopilotColors.From("#1d4ed8"); // bullets/links
+        private static Brush Line    => UI.Copilot.Controls.CopilotColors.From("#290F1B2D"); // table borders
+        private static Brush CodeBg  => UI.Copilot.Controls.CopilotColors.From("#f3f6f9");
+        private static Brush CodeFg  => UI.Copilot.Controls.CopilotColors.From("#1e40af");
+        private static Brush BlockBg => UI.Copilot.Controls.CopilotColors.From("#f6f8fa");
         private static readonly FontFamily CodeFont = new FontFamily("Cascadia Mono, Consolas, monospace");
-
-        private static SolidColorBrush Brush(string hex) =>
-            new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
 
         public static FrameworkElement Render(string markdown, double maxWidth = 350)
         {

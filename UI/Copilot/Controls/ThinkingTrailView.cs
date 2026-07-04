@@ -78,7 +78,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     Text = friendly, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center,
                     FontWeight = state == State.Working ? FontWeights.SemiBold : FontWeights.Medium,
                     Foreground = state == State.Working ? Shimmer()
-                               : Brush(state == State.Error ? "#b91c1c" : "#586273"),
+                               : CopilotColors.From(state == State.Error ? "#b91c1c" : "#586273"),
                     TextTrimming = TextTrimming.CharacterEllipsis,
                 };
                 _labelSlot.Children.Add(tb);
@@ -169,7 +169,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private static TextBlock ErrorMark() => new TextBlock
         {
             Text = "✗", FontSize = 12, FontWeight = FontWeights.Bold,
-            Foreground = Brush("#dc2626"),
+            Foreground = CopilotColors.From("#dc2626"),
             HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
         };
 
@@ -181,9 +181,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 StartPoint = new Point(0, 0), EndPoint = new Point(1, 0),
                 MappingMode = BrushMappingMode.RelativeToBoundingBox,
             };
-            b.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#586273"), 0.38));
-            b.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#1d4ed8"), 0.5));
-            b.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#586273"), 0.62));
+            b.GradientStops.Add(new GradientStop(ThemeColor("#586273"), 0.38));
+            b.GradientStops.Add(new GradientStop(ThemeColor("#1d4ed8"), 0.5));
+            b.GradientStops.Add(new GradientStop(ThemeColor("#586273"), 0.62));
             var sweep = new TranslateTransform(1.4, 0);
             b.RelativeTransform = sweep;
             sweep.BeginAnimation(TranslateTransform.XProperty,
@@ -191,7 +191,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return b;
         }
 
-        private static SolidColorBrush Brush(string hex) =>
-            new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+        // Theme-mapped color for animated gradients (shimmer) — CopilotColors
+        // returns frozen brushes, so extract the Color instead.
+        private static Color ThemeColor(string hex) =>
+            CopilotColors.From(hex) is SolidColorBrush s ? s.Color
+                : (Color)ColorConverter.ConvertFromString(hex);
     }
 }

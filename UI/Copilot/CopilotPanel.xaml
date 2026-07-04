@@ -70,10 +70,8 @@
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
                           Data="M21,12.8 A9,9 0 1 1 11.2,3 A7,7 0 0 0 21,12.8 Z"/>
                 </Button>
-                <Button Grid.Column="4" Style="{DynamicResource Cp.IconButton}" Click="OnNewChat" ToolTip="New chat">
-                    <Path Width="16" Height="16" Stretch="Uniform" Stroke="{DynamicResource Cp.Faint}" StrokeThickness="1.9"
-                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M12,5 v14 M5,12 h14"/>
-                </Button>
+                <!-- Header "+" removed (user request) — new chat lives in the
+                     conversation subheader's "+ New chat". -->
                 <Button x:Name="MenuBtn" Grid.Column="5" Style="{DynamicResource Cp.IconButton}" Click="OnOpenMenu" ToolTip="Menu">
                     <Path Width="16" Height="16" Stretch="Uniform" Fill="{DynamicResource Cp.Faint}"
                           Data="M11,5 A1,1 0 1 0 13,5 A1,1 0 1 0 11,5 Z M11,12 A1,1 0 1 0 13,12 A1,1 0 1 0 11,12 Z M11,19 A1,1 0 1 0 13,19 A1,1 0 1 0 11,19 Z"/>

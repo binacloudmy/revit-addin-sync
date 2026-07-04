@@ -40,6 +40,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 ["#290f1b2d"] = "#24ffffff", ["#0d0f1b2d"] = "#0dffffff",
                 ["#f1f3f5"] = "#0dffffff", ["#eef0f3"] = "#12ffffff",
                 ["#ffffff"] = "#1a2433", ["#fafafa"] = "#16202e",
+                ["#eef1f5"] = "#222e40",   // user bubble (design --user)
                 ["#f7f9fb"] = "#16202e", ["#f3f6f9"] = "#0c1420",
                 ["#f6f8fa"] = "#0c1420", ["#f5f3ff"] = "#1d2c42",
                 ["#eff6ff"] = "#182434", ["#faf5ff"] = "#1a60a5fa",
