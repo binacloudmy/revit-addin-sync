@@ -372,27 +372,77 @@ namespace RevitWebAppSync.UI.Copilot
             return box;
         }
 
+        // ── Rate sheet — design lines 448-495: gold-gradient stars with hover
+        // scale + pick pop, a reaction label, note, auto-attached context row,
+        // and a submit that stays disabled until a star is picked.
+        private static readonly Geometry StarGeom =
+            Geometry.Parse("M12,2 l3.1,6.3 6.9,1 -5,4.9 1.2,6.8 L12,17.8 5.8,21 7,14.2 2,9.3 l6.9,-1 Z");
+
+        private static Brush GoldStarBrush() => new LinearGradientBrush(new GradientStopCollection
+        {
+            new GradientStop((Color)ColorConverter.ConvertFromString("#FFE07A"), 0),
+            new GradientStop((Color)ColorConverter.ConvertFromString("#FBB72B"), 0.5),
+            new GradientStop((Color)ColorConverter.ConvertFromString("#E8941A"), 1),
+        }, 45);
+
         private FrameworkElement BuildRateSheet()
         {
-            int rating = 0;
+            int rating = 0, hover = 0;
             var stars = new Path[5];
+            var scales = new ScaleTransform[5];
             Button submit = null;
+
+            var reaction = new TextBlock
+            {
+                FontSize = 13, FontWeight = FontWeights.SemiBold, Height = 18,
+                Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E0941A")),
+                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 11, 0, 0),
+            };
+            string[] reactions = { "", "Not great", "Could be better", "It's okay", "Pretty good", "Love it!" };
 
             void Paint()
             {
+                int level = hover > 0 ? hover : rating;
                 for (int i = 0; i < 5; i++)
                 {
-                    bool on = i < rating;
-                    if (on) stars[i].SetResourceReference(Shape.FillProperty, "Cp.Meter");
-                    else stars[i].Fill = Brushes.Transparent;
-                    stars[i].SetResourceReference(Shape.StrokeProperty, on ? "Cp.Meter" : "Cp.Faint");
+                    bool on = i < level;
+                    if (on)
+                    {
+                        stars[i].Fill = GoldStarBrush();
+                        stars[i].Stroke = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#E8941A"));
+                    }
+                    else
+                    {
+                        stars[i].Fill = Brushes.Transparent;
+                        stars[i].SetResourceReference(Shape.StrokeProperty, "Cp.Hair2");
+                    }
                 }
+                reaction.Text = reactions[System.Math.Max(0, System.Math.Min(5, level))];
+                if (submit != null)
+                {
+                    submit.IsEnabled = rating > 0;
+                    submit.Opacity = rating > 0 ? 1.0 : 0.55;
+                }
+            }
+
+            // Design starPop: 1 → 1.32 → 0.92 → 1 over ~360ms (BeginAnimation with
+            // keyframe-ish chained easing — no Storyboard).
+            void Pop(int idx)
+            {
+                var s = scales[idx];
+                var anim = new DoubleAnimationUsingKeyFrames { Duration = new Duration(TimeSpan.FromMilliseconds(360)) };
+                anim.KeyFrames.Add(new LinearDoubleKeyFrame(1.0, KeyTime.FromPercent(0)));
+                anim.KeyFrames.Add(new EasingDoubleKeyFrame(1.32, KeyTime.FromPercent(0.4), new CubicEase { EasingMode = EasingMode.EaseOut }));
+                anim.KeyFrames.Add(new EasingDoubleKeyFrame(0.92, KeyTime.FromPercent(0.7), new CubicEase { EasingMode = EasingMode.EaseInOut }));
+                anim.KeyFrames.Add(new EasingDoubleKeyFrame(1.0, KeyTime.FromPercent(1), new CubicEase { EasingMode = EasingMode.EaseOut }));
+                s.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
+                s.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
             }
 
             var starRow = new StackPanel
             {
                 Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center,
-                Margin = new Thickness(0, 2, 0, 2)
+                Margin = new Thickness(0, 4, 0, 0)
             };
             for (int i = 0; i < 5; i++)
             {
@@ -400,55 +450,167 @@ namespace RevitWebAppSync.UI.Copilot
                 var star = new Path
                 {
                     Width = 32, Height = 32, Stretch = Stretch.Uniform, StrokeThickness = 1.5,
-                    StrokeLineJoin = PenLineJoin.Round, Fill = Brushes.Transparent,
-                    Data = Geometry.Parse("M12,2 l3.1,6.3 6.9,1 -5,4.9 1.2,6.8 L12,17.8 5.8,21 7,14.2 2,9.3 l6.9,-1 Z")
+                    StrokeLineJoin = PenLineJoin.Round, Fill = Brushes.Transparent, Data = StarGeom,
+                    RenderTransformOrigin = new Point(0.5, 0.5),
                 };
+                scales[i] = new ScaleTransform(1, 1);
+                star.RenderTransform = scales[i];
                 stars[i] = star;
                 var wrap = new Border { Background = Brushes.Transparent, Padding = new Thickness(3), Cursor = Cursors.Hand, Child = star };
-                wrap.MouseLeftButtonDown += (_, __) => { rating = idx + 1; Paint(); if (submit != null) submit.IsEnabled = true; };
+                wrap.MouseEnter += (_, __) => { hover = idx + 1; Paint(); };
+                wrap.MouseLeave += (_, __) => { hover = 0; Paint(); };
+                wrap.MouseLeftButtonDown += (_, __) => { rating = idx + 1; Paint(); Pop(idx); };
                 starRow.Children.Add(wrap);
             }
-            Paint();
 
-            var commentLabel = new TextBlock { Text = "Anything you'd like to add? (optional)", FontSize = 11.5, Margin = new Thickness(0, 16, 0, 6) };
-            commentLabel.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
             var comment = MultilineBox(70);
+            comment.Margin = new Thickness(0, 14, 0, 0);
+
+            var context = ContextRow("M12,2 a7,7 0 0 0 -4,12.7 V17 h8 v-2.3 A7,7 0 0 0 12,2 Z M9,21 h6 M10,17 v4 M14,17 v4",
+                Model.CopilotContext.ShortLabel);
 
             submit = PrimaryButton("Submit rating");
-            submit.IsEnabled = false;
             submit.Click += (_, __) =>
             {
-                _feedback.SubmitRating(rating, comment.Text?.Trim());
+                _feedback.SubmitRating(rating, Placeholderless(comment));
                 var p = CopilotPrefs.Load();
                 p.RatingSubmitted = true;
                 p.Save();
-                ShowThanksThenClose("Thanks for the feedback!");
+                ShowThanksThenClose("Thanks for the feedback");
             };
 
             var body = new StackPanel();
             body.Children.Add(starRow);
-            body.Children.Add(commentLabel);
+            body.Children.Add(reaction);
             body.Children.Add(comment);
+            body.Children.Add(context);
             body.Children.Add(submit);
-            return SheetChrome("Rate BINA Copilot", "How's your experience so far?", body);
+            Paint();
+            return SheetChrome("How's Copilot working for you?", "Your rating helps us improve.", body);
         }
 
+        // ── Report sheet — design lines 411-446: TYPE chips (Bug / Suggestion /
+        // Other), details box, auto-attached context row, gradient Submit.
         private FrameworkElement BuildReportSheet()
         {
-            var box = MultilineBox(120);
-            var submit = PrimaryButton("Send report");
+            var body = new StackPanel();
+
+            var typeLabel = new TextBlock
+            {
+                Text = "TYPE", FontSize = 10.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 8)
+            };
+            typeLabel.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+            body.Children.Add(typeLabel);
+
+            string type = "bug";
+            var chipRow = new System.Windows.Controls.Primitives.UniformGrid { Rows = 1, Columns = 3 };
+            var chips = new System.Collections.Generic.List<(Border chip, TextBlock label, string value)>();
+            void PaintChips()
+            {
+                foreach (var (chip, label, value) in chips)
+                {
+                    bool on = value == type;
+                    if (on)
+                    {
+                        chip.SetResourceReference(Border.BackgroundProperty, "Cp.BlueSoft");
+                        chip.BorderBrush = Brushes.Transparent;
+                        label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Accent");
+                    }
+                    else
+                    {
+                        chip.Background = Brushes.Transparent;
+                        chip.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
+                        label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+                    }
+                }
+            }
+            foreach (var (value, text) in new[] { ("bug", "Bug"), ("suggestion", "Suggestion"), ("other", "Other") })
+            {
+                var label = new TextBlock
+                {
+                    Text = text, FontSize = 12, FontWeight = FontWeights.SemiBold,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                };
+                var chip = new Border
+                {
+                    CornerRadius = new CornerRadius(9), BorderThickness = new Thickness(1),
+                    Padding = new Thickness(6, 9, 6, 9), Margin = new Thickness(0, 0, 6, 0),
+                    Cursor = Cursors.Hand, Child = label,
+                };
+                var captured = value;
+                chip.MouseLeftButtonDown += (_, __) => { type = captured; PaintChips(); };
+                chips.Add((chip, label, value));
+                chipRow.Children.Add(chip);
+            }
+            PaintChips();
+            body.Children.Add(chipRow);
+
+            var detailsLabel = new TextBlock
+            {
+                Text = "DETAILS", FontSize = 10.5, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 14, 0, 8)
+            };
+            detailsLabel.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+            body.Children.Add(detailsLabel);
+
+            var box = MultilineBox(110);
+            body.Children.Add(box);
+
+            body.Children.Add(ContextRow("M3,3 h18 v18 H3 Z M8.5,7 a1.6,1.6 0 1 1 0,3.2 a1.6,1.6 0 1 1 0,-3.2 M21,15 l-5,-5 L5,21",
+                Model.CopilotContext.ContextLabel() + " · current view"));
+
+            var submit = PrimaryButton("Submit");
             submit.IsEnabled = false;
-            box.TextChanged += (_, __) => submit.IsEnabled = box.Text.Trim().Length > 0;
+            submit.Opacity = 0.55;
+            box.TextChanged += (_, __) =>
+            {
+                bool ok = box.Text.Trim().Length > 0;
+                submit.IsEnabled = ok;
+                submit.Opacity = ok ? 1.0 : 0.55;
+            };
             submit.Click += (_, __) =>
             {
-                _feedback.ReportBug(box.Text.Trim());
-                ShowThanksThenClose("Thanks — we'll take a look.");
+                _feedback.ReportBug("[" + type + "] " + box.Text.Trim());
+                ShowThanksThenClose("Thanks for letting us know");
             };
-
-            var body = new StackPanel();
-            body.Children.Add(box);
             body.Children.Add(submit);
+
             return SheetChrome("Report a bug", "What went wrong? Steps to reproduce help most.", body);
+        }
+
+        // Sunken "Auto-attached · …" row shared by both sheets.
+        private FrameworkElement ContextRow(string iconPathData, string text)
+        {
+            var row = new Border
+            {
+                CornerRadius = new CornerRadius(10), Padding = new Thickness(11, 9, 11, 9),
+                Margin = new Thickness(0, 11, 0, 0),
+            };
+            row.SetResourceReference(Border.BackgroundProperty, "Cp.Sunken");
+            var sp = new StackPanel { Orientation = Orientation.Horizontal };
+            var icon = new Path
+            {
+                Width = 13, Height = 13, Stretch = Stretch.Uniform, StrokeThickness = 1.8,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+                Data = Geometry.Parse(iconPathData), Margin = new Thickness(0, 0, 7, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            icon.SetResourceReference(Shape.StrokeProperty, "Cp.Faint");
+            sp.Children.Add(icon);
+            var t = new TextBlock
+            {
+                Text = text, FontSize = 10.5, VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+            t.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+            sp.Children.Add(t);
+            row.Child = sp;
+            return row;
+        }
+
+        private static string Placeholderless(System.Windows.Controls.TextBox box)
+        {
+            var t = box.Text?.Trim();
+            return string.IsNullOrEmpty(t) ? null : t;
         }
     }
 }
