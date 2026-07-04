@@ -4,7 +4,16 @@
       "mcp__filesystem__create_directory",
       "mcp__filesystem__write_file",
       "Bash(dotnet build:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "mcp__plugin_playwright_playwright__browser_navigate",
+      "Bash(npx playwright *)",
+      "Bash(git -C /Users/ashraf/development/bina/revit-addin-sync log --oneline -15)",
+      "Bash(python3 -)",
+      "Bash(git checkout *)",
+      "Bash(mkdir -p docs/superpowers/specs)",
+      "Bash(git add *)",
+      "Bash(git commit -m 'docs\\(copilot\\): design spec for 1:1 Copilot redesign from Claude Design *)",
+      "Bash(git commit -m 'docs\\(copilot\\): warnings out of scope — unused flags in design *)"
     ],
     "deny": []
   }
