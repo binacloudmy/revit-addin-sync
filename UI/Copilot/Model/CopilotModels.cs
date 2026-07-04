@@ -171,6 +171,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // Cancelled generation: rendered as the design's italic faint
         // "Interrupted." line (stop icon, no bubble, no feedback row).
         public bool Interrupted;
+        // Proposal card status ("proposed" default / "dismissed") — the design's
+        // "· Proposed / · Applied / · Dismissed" header suffix. Applied state is
+        // carried by the Result message, so only dismissal is stored here.
+        public bool Dismissed;
         // Send timestamp ("2:25 PM") shown under user bubbles / in AI feedback rows.
         public string Time;
         public List<string> ImagesBase64;  // screenshots pasted with this prompt (base64 PNG) — rendered as thumbnails
