@@ -16,6 +16,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<string> ToolCallTrace;  // tool names called by the agent (in order). Renders as a faint trace under the reply.
         public IReadOnlyList<ProgressStep> Steps;  // full phased trail (phases + tools); preferred over ToolCallTrace when present
         public RevitWebAppSync.Models.ReviewerVerdict Verdict;
+        public bool Interrupted;         // user hit Stop — renders as the italic "Interrupted." line
     }
 
     /// <summary>

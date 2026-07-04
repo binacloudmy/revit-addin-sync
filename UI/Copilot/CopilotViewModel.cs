@@ -619,7 +619,7 @@ namespace RevitWebAppSync.UI.Copilot
             Tab = CpTab.Chat;
             Screen = CpScreen.Home;
             ToolId = null;
-            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images, Files = files });
+            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images, Files = files, Time = System.DateTime.Now.ToString("h:mm tt") });
 
             // The chat bubble + history use `text` (what the user typed). The
             // backend route text re-embeds any attached file contents — there's no
@@ -908,6 +908,8 @@ namespace RevitWebAppSync.UI.Copilot
                     ToolCallTrace = rr.ToolCallTrace,
                     Steps = rr.Steps,
                     Verdict = rr.Verdict,
+                    Interrupted = rr.Interrupted,
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
                 });
                 var replyToolIds = (rr.ToolCallTrace != null && rr.ToolCallTrace.Count > 0) ? rr.ToolCallTrace : new List<string> { tool.Id };
                 AppendToCurrentSession(displayText, rr.Reply ?? "Done", "ok", replyToolIds, historyFiles);

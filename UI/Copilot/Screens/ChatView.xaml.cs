@@ -167,6 +167,31 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             BodyHost.Children.Add(thread);
         }
 
+        // Italic faint "Interrupted." row (design lines 175-180).
+        private FrameworkElement InterruptedLine(string text)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 1, 0, 15) };
+            var icon = new System.Windows.Shapes.Path
+            {
+                Width = 13, Height = 13, Stretch = Stretch.Uniform, StrokeThickness = 2.2,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                // circle + filled square (stop-in-circle)
+                Data = Geometry.Parse("M12,3 A9,9 0 1 1 11.99,3 Z M9,9 H15 V15 H9 Z"),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
+            };
+            icon.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "Cp.Faint");
+            row.Children.Add(icon);
+            var tb = new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(text) ? "Interrupted." : text,
+                FontSize = 13, FontStyle = FontStyles.Italic, VerticalAlignment = VerticalAlignment.Center,
+            };
+            tb.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+            row.Children.Add(tb);
+            MsgRise(row);
+            return row;
+        }
+
         // Design "msgRise": opacity 0→1 + translateY 7→0, .34s ease-out. Direct
         // BeginAnimation on the element (same pattern as the spinner below) —
         // no XAML Storyboard, which crashes inside a Revit dockable pane.
@@ -189,6 +214,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 return CopilotMessageBubble.User(
                     m.Text, Vm?.UserFirstName, m.ImagesBase64,
                     m.Files?.Select(f => (f.Name, LineCount(f.Content))), BubbleMaxWidth());
+
+            // Cancelled generation — the design's italic faint "Interrupted."
+            // line: stop-in-circle icon + italic text, no bubble, no feedback.
+            if (m.Interrupted)
+                return InterruptedLine(m.Text);
 
             // AI row — Slate design: full-width plain text column, no avatar.
             var aiRow = new StackPanel { Margin = new Thickness(0, 0, 0, 15) };
