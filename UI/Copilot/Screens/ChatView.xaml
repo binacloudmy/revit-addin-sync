@@ -27,5 +27,9 @@
 
         <ctl:PromptBar x:Name="Prompt" Grid.Row="2" SubmitCommand="{Binding ChatSendCommand}"
                        Busy="{Binding IsSending}" CancelCommand="{Binding CancelSendCommand}"/>
+
+        <!-- Usage-limit blocked state; replaces the composer at 100% usage
+             (centered over the body when the thread is empty). -->
+        <ContentControl x:Name="BlockedHost" Grid.Row="2" Visibility="Collapsed"/>
     </Grid>
 </UserControl>

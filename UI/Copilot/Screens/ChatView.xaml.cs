@@ -70,17 +70,64 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private void OnThemeChanged() => Rebuild();
 
+        /// <summary>Raised by the blocked state's "Upgrade plan" CTA (the panel opens the sheet).</summary>
+        public event System.Action UpgradeRequested;
+
         private void Hook()
         {
-            if (_hooked != null) _hooked.Thread.CollectionChanged -= OnThread;
+            if (_hooked != null)
+            {
+                _hooked.Thread.CollectionChanged -= OnThread;
+                _hooked.UsageChanged -= UpdateBlocked;
+                _hooked.PropertyChanged -= OnVmProp;
+            }
             _hooked = Vm;
             if (_hooked != null)
             {
                 _hooked.Thread.CollectionChanged += OnThread;
+                _hooked.UsageChanged += UpdateBlocked;
+                _hooked.PropertyChanged += OnVmProp;
                 Prompt.BindUsage(_hooked);
                 _ = _hooked.RefreshUsageAsync();
             }
             Rebuild();
+            UpdateBlocked();
+        }
+
+        private void OnVmProp(object s, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(CopilotViewModel.IsSending)) UpdateBlocked();
+        }
+
+        /// <summary>At 100% usage the composer is replaced by the blocked state —
+        /// centered over the empty body, or a bottom section under a thread.</summary>
+        private void UpdateBlocked()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke((System.Action)UpdateBlocked);
+                return;
+            }
+            var vm = Vm;
+            bool blocked = vm != null && vm.Usage != null && vm.Usage.AtLimit && !vm.IsSending;
+            if (!blocked)
+            {
+                BlockedHost.Visibility = Visibility.Collapsed;
+                BlockedHost.Content = null;
+                Prompt.Visibility = Visibility.Visible;
+                Grid.SetRow(BlockedHost, 2);
+                return;
+            }
+            bool centered = vm.Thread.Count == 0;
+            Grid.SetRow(BlockedHost, centered ? 1 : 2);
+            BlockedHost.VerticalAlignment = centered ? VerticalAlignment.Center : VerticalAlignment.Bottom;
+            BlockedHost.Content = Controls.BlockedView.Build(
+                vm.Usage,
+                () => UpgradeRequested?.Invoke(),
+                () => vm.UsageService != null ? vm.UsageService.NotifyAdminAsync() : System.Threading.Tasks.Task.CompletedTask,
+                centered);
+            BlockedHost.Visibility = Visibility.Visible;
+            Prompt.Visibility = Visibility.Collapsed;
         }
 
         private void OnThread(object s, NotifyCollectionChangedEventArgs e)
