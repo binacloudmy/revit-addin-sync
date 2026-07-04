@@ -32,7 +32,9 @@
       "Bash(git commit -q -m 'feat\\(copilot\\): friendly progress-step label mapping *)",
       "Bash(git commit -q -m 'feat\\(copilot\\): single-line swapping thinking indicator *)",
       "Bash(git commit -q -m 'feat\\(copilot\\): italic Interrupted line on cancel + message timestamps *)",
-      "Bash(git commit -q -m 'feat\\(copilot\\): user bubble timestamp + Show more clamp with fade *)"
+      "Bash(git commit -q -m 'feat\\(copilot\\): user bubble timestamp + Show more clamp with fade *)",
+      "Bash(awk '/SubmitFeedbackAsync/{f=1} f{print NR\": \"$0; c++} c>22{exit}' UI/Copilot/FeedbackService.cs)",
+      "Bash(git commit -q -m 'feat\\(copilot\\): design micro-feedback row with downvote reasons + context *)"
     ],
     "deny": []
   }

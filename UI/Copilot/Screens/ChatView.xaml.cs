@@ -312,7 +312,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // is the higher-traffic path, so this is where most signal comes from.
             if (m.Kind == CpMsgKind.AiReply)
             {
-                col.Children.Add(BuildFeedback(SourcePromptFor(m)));
+                col.Children.Add(BuildFeedback(m, SourcePromptFor(m)));
                 var nudge = BuildRatingNudge(m);
                 if (nudge != null) col.Children.Add(nudge);
             }
@@ -407,69 +407,278 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         // sourcePrompt is the user message this reply answered — captured here so
         // the rating is attributed to the right prompt. See the LastPrompt note
         // in SendFeedback below.
-        private FrameworkElement BuildFeedback(string sourcePrompt)
+        // Design micro-feedback block (lines 221-262): time · "Was this helpful?"
+        // · 👍 👎 ⧉ — a silent up-vote toggle, a down-vote reason panel with chips
+        // + note + auto-attached context, a copied-check copy button, and a
+        // "Thanks" line once submitted.
+        private FrameworkElement BuildFeedback(ChatMessage m, string sourcePrompt)
         {
-            var row = new StackPanel
+            var host = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            host.Children.Add(row);
+
+            if (!string.IsNullOrWhiteSpace(m.Time))
             {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(0, 6, 0, 0),
-            };
-            row.Children.Add(new TextBlock
+                var time = new TextBlock
+                {
+                    Text = m.Time, FontSize = 10, Foreground = CopilotColors.From("#99a3b3"),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                row.Children.Add(time);
+            }
+
+            var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(right, 2);
+            row.Children.Add(right);
+
+            var promptLabel = new TextBlock
             {
-                Text = "Was this helpful?",
-                FontSize = 10.5,
+                Text = "Was this helpful?", FontSize = 10.5,
                 Foreground = CopilotColors.From("#99a3b3"),
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 8, 0),
-            });
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0),
+            };
+            right.Children.Add(promptLabel);
+
+            string vote = null;
+            var panelHost = new ContentControl();
+            var thanksHost = new ContentControl();
+            host.Children.Add(panelHost);
+            host.Children.Add(thanksHost);
 
             Button up = null, down = null;
-            up = ThumbButton("thumbUp", () => SendFeedback("up", up, down, sourcePrompt));
-            down = ThumbButton("thumbDown", () => SendFeedback("down", up, down, sourcePrompt));
-            row.Children.Add(up);
-            row.Children.Add(down);
-            return row;
+            Path upIcon = null, downIcon = null;
+
+            void PaintVotes()
+            {
+                var accent = CopilotColors.From("#1d4ed8");
+                var idle = CopilotColors.From("#99a3b3");
+                if (upIcon != null) upIcon.Stroke = vote == "up" ? accent : idle;
+                if (downIcon != null) downIcon.Stroke = vote == "down" ? accent : idle;
+                promptLabel.Visibility = vote == null && thanksHost.Content == null
+                    ? Visibility.Visible : Visibility.Collapsed;
+            }
+
+            up = FeedbackIconButton("thumbUp", out upIcon, () =>
+            {
+                // Silent toggle (design voteUp): highlight only, close any panel.
+                vote = vote == "up" ? null : "up";
+                panelHost.Content = null;
+                if (vote == "up") Vm?.SubmitFeedback("up", sourcePrompt);
+                PaintVotes();
+            });
+            down = FeedbackIconButton("thumbDown", out downIcon, () =>
+            {
+                if (vote == "down") { vote = null; panelHost.Content = null; PaintVotes(); return; }
+                vote = "down";
+                panelHost.Content = BuildDownvotePanel(m, sourcePrompt,
+                    close: () => { panelHost.Content = null; },
+                    submitted: () =>
+                    {
+                        panelHost.Content = null;
+                        thanksHost.Content = ThanksLine();
+                        PaintVotes();
+                    });
+                PaintVotes();
+            });
+            right.Children.Add(up);
+            right.Children.Add(down);
+
+            Path copyIcon = null;
+            Button copy = null;
+            copy = FeedbackIconButton("copy", out copyIcon, () =>
+            {
+                try { Clipboard.SetText(m.Text ?? ""); } catch { /* clipboard can be locked */ }
+                copyIcon.Data = Geometry.Parse("M20,6 L9,17 L4,12");
+                copyIcon.Stroke = CopilotColors.From("#10b981");
+                var t = new System.Windows.Threading.DispatcherTimer { Interval = System.TimeSpan.FromMilliseconds(1600) };
+                t.Tick += (_, __) =>
+                {
+                    t.Stop();
+                    copyIcon.Data = CopilotIcons.Get("copy");
+                    copyIcon.Stroke = CopilotColors.From("#99a3b3");
+                };
+                t.Start();
+            });
+            right.Children.Add(copy);
+
+            PaintVotes();
+            return host;
         }
 
-        private Button ThumbButton(string glyph, System.Action onClick)
+        private Button FeedbackIconButton(string glyph, out Path icon, System.Action onClick)
         {
-            var path = new Path
+            icon = new Path
             {
-                Width = 14,
-                Height = 14,
-                Stretch = Stretch.Uniform,
-                Stroke = CopilotColors.From("#99a3b3"),
-                StrokeThickness = 1.6,
-                StrokeStartLineCap = PenLineCap.Round,
-                StrokeEndLineCap = PenLineCap.Round,
-                StrokeLineJoin = PenLineJoin.Round,
-                Data = CopilotIcons.Get(glyph),
+                Width = 14, Height = 14, Stretch = Stretch.Uniform,
+                Stroke = CopilotColors.From("#99a3b3"), StrokeThickness = 1.9,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round, Data = CopilotIcons.Get(glyph),
             };
             var btn = new Button
             {
-                Content = path,
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                Padding = new Thickness(6, 4, 6, 4),
-                Margin = new Thickness(2, 0, 0, 0),
-                Cursor = System.Windows.Input.Cursors.Hand,
+                Content = icon, Width = 27, Height = 27,
+                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                Margin = new Thickness(3, 0, 0, 0), Cursor = System.Windows.Input.Cursors.Hand,
             };
             btn.Click += (_, __) => { try { onClick(); } catch { /* best-effort */ } };
             return btn;
         }
 
-        private void SendFeedback(string rating, Button up, Button down, string sourcePrompt)
+        // "What was off?" — reason chips + optional note + Send/Cancel + the
+        // auto-attached context row (design lines 240-258).
+        private FrameworkElement BuildDownvotePanel(ChatMessage m, string sourcePrompt,
+            System.Action close, System.Action submitted)
         {
-            // Attribute the rating to THIS bubble's source prompt (not LastPrompt),
-            // so rating an older reply after newer turns isn't mis-attributed.
-            Vm?.SubmitFeedback(rating, sourcePrompt);
+            var card = new Border
+            {
+                Background = CopilotColors.From("#f7f9fb"),
+                BorderBrush = CopilotColors.From("#140F1B2D"),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(11),
+                Padding = new Thickness(11, 11, 11, 10), Margin = new Thickness(0, 9, 0, 0),
+            };
+            MsgRise(card);
+            var sp = new StackPanel();
+            card.Child = sp;
 
-            var chosen = rating == "up" ? up : down;
-            var chosenColor = CopilotColors.From("#1d4ed8");
-            if (chosen?.Content is Path p) p.Stroke = chosenColor;
-            if (up != null) up.IsEnabled = false;
-            if (down != null) down.IsEnabled = false;
+            sp.Children.Add(new TextBlock
+            {
+                Text = "What was off?", FontSize = 11, FontWeight = FontWeights.SemiBold,
+                Foreground = CopilotColors.From("#586273"), Margin = new Thickness(0, 0, 0, 8),
+            });
+
+            string reason = null;
+            var chipsWrap = new WrapPanel();
+            var chips = new System.Collections.Generic.List<(Border chip, TextBlock label, string value)>();
+            foreach (var r in new[] { "Not accurate", "Wrong elements", "Too slow", "Other" })
+            {
+                var label = new TextBlock { Text = r, FontSize = 11, FontWeight = FontWeights.Medium };
+                var chip = new Border
+                {
+                    CornerRadius = new CornerRadius(7), BorderThickness = new Thickness(1),
+                    Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 6, 6),
+                    Cursor = System.Windows.Input.Cursors.Hand, Child = label,
+                };
+                chips.Add((chip, label, r));
+                chipsWrap.Children.Add(chip);
+            }
+            void PaintChips()
+            {
+                foreach (var (chip, label, value) in chips)
+                {
+                    bool on = value == reason;
+                    chip.Background = on ? CopilotColors.From("#1A1D4ED8") : Brushes.Transparent;
+                    chip.BorderBrush = on ? Brushes.Transparent : CopilotColors.From("#140F1B2D");
+                    label.Foreground = CopilotColors.From(on ? "#1d4ed8" : "#586273");
+                }
+            }
+            foreach (var (chip, _, value) in chips)
+                chip.MouseLeftButtonDown += (_, __) => { reason = reason == value ? null : value; PaintChips(); };
+            PaintChips();
+            sp.Children.Add(chipsWrap);
+
+            var note = new TextBox
+            {
+                FontSize = 11.5, MinHeight = 40, TextWrapping = TextWrapping.Wrap, AcceptsReturn = true,
+                BorderThickness = new Thickness(1), Padding = new Thickness(8, 6, 8, 6),
+                Margin = new Thickness(0, 3, 0, 0),
+                Background = CopilotColors.From("#ffffff"), Foreground = CopilotColors.From("#131c2b"),
+                BorderBrush = CopilotColors.From("#140F1B2D"), CaretBrush = CopilotColors.From("#131c2b"),
+            };
+            // Placeholder: faint hint that clears on focus (WPF TextBox has none).
+            var hint = "Add details (optional)";
+            note.Text = hint; note.Foreground = CopilotColors.From("#99a3b3");
+            note.GotFocus += (_, __) => { if (note.Text == hint) { note.Text = ""; note.Foreground = CopilotColors.From("#131c2b"); } };
+            note.LostFocus += (_, __) => { if (note.Text.Length == 0) { note.Text = hint; note.Foreground = CopilotColors.From("#99a3b3"); } };
+            sp.Children.Add(note);
+
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 9, 0, 0) };
+            var send = new Button
+            {
+                Content = new TextBlock { Text = "Send feedback", FontSize = 11, FontWeight = FontWeights.SemiBold },
+                Padding = new Thickness(13, 7, 13, 7), BorderThickness = new Thickness(0),
+                Cursor = System.Windows.Input.Cursors.Hand, Foreground = CopilotColors.From("#ffffff"),
+            };
+            send.SetResourceReference(BackgroundProperty, "Cp.AccentGrad");
+            send.Resources.Add(typeof(Border), RoundedButtonBorderStyle(8));
+            send.Click += (_, __) =>
+            {
+                var noteText = note.Text == hint ? null : (string.IsNullOrWhiteSpace(note.Text) ? null : note.Text.Trim());
+                Vm?.SubmitFeedback("down", sourcePrompt, reason, noteText);
+                submitted();
+            };
+            actions.Children.Add(send);
+            var cancel = new Button
+            {
+                Content = "Cancel", FontSize = 11, FontWeight = FontWeights.Medium,
+                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                Foreground = CopilotColors.From("#99a3b3"), Padding = new Thickness(8, 7, 8, 7),
+                Cursor = System.Windows.Input.Cursors.Hand,
+            };
+            cancel.Click += (_, __) => close();
+            actions.Children.Add(cancel);
+            sp.Children.Add(actions);
+
+            // Auto-attached context row under a hairline.
+            var ctx = new Border
+            {
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                BorderBrush = CopilotColors.From("#140F1B2D"),
+                Padding = new Thickness(0, 9, 0, 0), Margin = new Thickness(0, 10, 0, 0),
+            };
+            var ctxRow = new StackPanel { Orientation = Orientation.Horizontal };
+            var clipIcon = new Path
+            {
+                Width = 11, Height = 11, Stretch = Stretch.Uniform, StrokeThickness = 2,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                Stroke = CopilotColors.From("#99a3b3"), Margin = new Thickness(0, 0, 5, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Data = Geometry.Parse("M21.44,11.05 L12.25,20.24 A6,6 0 0 1 3.76,11.75 L12.33,3.18 A4,4 0 0 1 18,8.84 L9.41,17.41 A2,2 0 0 1 6.58,14.58 L15.07,6.1"),
+            };
+            ctxRow.Children.Add(clipIcon);
+            string cmd = m.ToolId != null && m.ToolId != "ai-generated" ? m.ToolId : null;
+            ctxRow.Children.Add(new TextBlock
+            {
+                Text = Model.CopilotContext.ContextLabel(cmd),
+                FontSize = 9.5, Foreground = CopilotColors.From("#99a3b3"),
+                VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            ctx.Child = ctxRow;
+            sp.Children.Add(ctx);
+
+            return card;
+        }
+
+        private FrameworkElement ThanksLine()
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 9, 0, 0) };
+            var check = new Path
+            {
+                Width = 13, Height = 13, Stretch = Stretch.Uniform, StrokeThickness = 2.4,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+                Data = Geometry.Parse("M20,6 L9,17 L4,12"), Stroke = CopilotColors.From("#1d4ed8"),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
+            };
+            row.Children.Add(check);
+            row.Children.Add(new TextBlock
+            {
+                Text = "Thanks — your feedback helps improve BINA.",
+                FontSize = 11, FontWeight = FontWeights.Medium,
+                Foreground = CopilotColors.From("#1d4ed8"), VerticalAlignment = VerticalAlignment.Center,
+            });
+            MsgRise(row);
+            return row;
+        }
+
+        // Rounded-corner style for coded buttons (WPF's default template squares them).
+        private static Style RoundedButtonBorderStyle(double radius)
+        {
+            var s = new Style(typeof(Border));
+            s.Setters.Add(new Setter(Border.CornerRadiusProperty, new CornerRadius(radius)));
+            return s;
         }
 
         // The user message that this AI reply answered: the nearest preceding

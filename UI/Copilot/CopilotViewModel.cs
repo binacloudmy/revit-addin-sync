@@ -997,7 +997,12 @@ namespace RevitWebAppSync.UI.Copilot
         /// Chat reply bubbles pass their own source prompt so rating an older
         /// bubble isn't mis-attributed to whatever prompt is newest (LastPrompt).
         /// Best-effort; never throws.</summary>
-        public void SubmitFeedback(string rating, string prompt)
+        public void SubmitFeedback(string rating, string prompt) =>
+            SubmitFeedback(rating, prompt, null, null);
+
+        /// <summary>Thumbs feedback with the downvote panel's optional reason/note
+        /// and the auto-attached version context. Best-effort; never throws.</summary>
+        public void SubmitFeedback(string rating, string prompt, string reason, string note)
         {
             if (string.IsNullOrWhiteSpace(prompt)) return;
 
@@ -1007,7 +1012,8 @@ namespace RevitWebAppSync.UI.Copilot
             string token = cfg?.AccessToken ?? "";
 
             // Detached — never await on the UI thread; failures are swallowed inside.
-            _ = _feedback.SubmitFeedbackAsync(prompt, rating, prompt, sessionId, userId, token);
+            _ = _feedback.SubmitFeedbackAsync(prompt, rating, prompt, sessionId, userId, token,
+                reason: reason, note: note, context: CopilotContext.ShortLabel);
         }
 
         /// <summary>Reformulate the structured result as one conversational line for the
