@@ -26,7 +26,8 @@
       "Bash(/Users/ashraf/.dotnet/dotnet build *)",
       "Bash(git commit -q -m 'feat\\(copilot\\): CopilotContext version strings for feedback context rows *)",
       "Bash(git commit -q -m 'feat\\(copilot\\): usage state + service abstraction with credits adapter and stub *)",
-      "Bash(git commit -q -m 'feat\\(copilot\\): live footer usage meter + popover, drop header credit pill *)"
+      "Bash(git commit -q -m 'feat\\(copilot\\): live footer usage meter + popover, drop header credit pill *)",
+      "Bash(git commit -q -m 'feat\\(copilot\\): upgrade plan sheet with peek carousel \\(Free/Basic/Pro\\) *)"
     ],
     "deny": []
   }

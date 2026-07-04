@@ -150,6 +150,9 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 cache = new T();
                 cache.DataContext = _vm;
+                // The chat composer's usage popover escalates to the upgrade sheet.
+                if (cache is Screens.ChatView chat)
+                    chat.Prompt.UpgradeRequested += ShowUpgradeSheet;
             }
             return cache;
         }
@@ -269,6 +272,10 @@ namespace RevitWebAppSync.UI.Copilot
             timer.Tick += (_, __) => { timer.Stop(); HideSheet(); };
             timer.Start();
         }
+
+        /// <summary>Open the "Choose your plan" sheet (usage popover, blocked state, harness).</summary>
+        public void ShowUpgradeSheet() =>
+            ShowSheet(SheetChrome("Choose your plan", "Swipe to compare", Controls.UpgradeSheet.Build()));
 
         // ══════════ Sheet content builders ══════════
 
