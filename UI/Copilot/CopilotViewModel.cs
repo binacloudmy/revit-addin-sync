@@ -713,7 +713,7 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 var credits = await FetchCreditsAsync();
                 if (credits == null) return;
-                SetCreditBadge(BadgeText(credits));
+                SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit));
                 Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = MessageText(credits) });
             }
             catch { /* best-effort — never block login on the credits read */ }
@@ -762,6 +762,40 @@ namespace RevitWebAppSync.UI.Copilot
             var disp = System.Windows.Application.Current?.Dispatcher;
             if (disp != null && !disp.CheckAccess()) disp.Invoke(() => CreditBadge = text);
             else CreditBadge = text;
+        }
+
+        // ── Usage / plan (footer meter, popover, upgrade, blocked state) ─────
+        /// <summary>Override for the credits-backed default — harness/tests inject a
+        /// StubUsageService; a real billing adapter can replace it later.</summary>
+        public Services.IUsageService UsageService { get; set; }
+
+        private UsageState _usage = new UsageState();
+        public UsageState Usage
+        {
+            get => _usage;
+            private set { _usage = value ?? new UsageState(); Raise(); UsageChanged?.Invoke(); }
+        }
+        public event System.Action UsageChanged;
+
+        /// <summary>Refresh the usage snapshot — from UsageService when injected,
+        /// else from the credits balance. Best-effort; the meter never blocks chat.</summary>
+        public async System.Threading.Tasks.Task RefreshUsageAsync()
+        {
+            try
+            {
+                if (UsageService != null) { SetUsage(await UsageService.GetAsync()); return; }
+                var credits = await FetchCreditsAsync();
+                if (credits != null)
+                    SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit));
+            }
+            catch { /* best-effort */ }
+        }
+
+        private void SetUsage(UsageState u)
+        {
+            var disp = System.Windows.Application.Current?.Dispatcher;
+            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => Usage = u);
+            else Usage = u;
         }
 
         private async System.Threading.Tasks.Task ResolveProposalAsync(string routeText, string displayText, string fallbackToolId, List<string> images = null, List<HistoryFile> historyFiles = null)
@@ -832,8 +866,8 @@ namespace RevitWebAppSync.UI.Copilot
             }
 
             // The credit was consumed by the backend during RouteAsync — refresh the
-            // header badge so the balance ticks down live (best-effort, badge only).
-            _ = RefreshCreditBadgeAsync();
+            // footer meter so usage ticks up live (best-effort).
+            _ = RefreshUsageAsync();
 
             // HITL clarify pause: the agent needs an answer before acting. Render
             // the question as a Clarify card; the user's NEXT message is routed

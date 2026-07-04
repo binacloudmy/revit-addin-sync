@@ -24,7 +24,8 @@
       "Bash(/Users/ashraf/.dotnet/dotnet --version)",
       "Bash(/Users/ashraf/.dotnet/dotnet test *)",
       "Bash(/Users/ashraf/.dotnet/dotnet build *)",
-      "Bash(git commit -q -m 'feat\\(copilot\\): CopilotContext version strings for feedback context rows *)"
+      "Bash(git commit -q -m 'feat\\(copilot\\): CopilotContext version strings for feedback context rows *)",
+      "Bash(git commit -q -m 'feat\\(copilot\\): usage state + service abstraction with credits adapter and stub *)"
     ],
     "deny": []
   }
