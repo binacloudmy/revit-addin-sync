@@ -118,11 +118,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             BuildPicker(query);
         }
 
+        // Design popover (lines 502-512): ONE "REFERENCE" caps header, then flat
+        // rows — sunken @-tile, label, right-aligned type — no per-group headers.
         private void BuildPicker(string query)
         {
             PickerHost.Children.Clear();
             var groups = Provider?.GetGroups() ?? new List<MentionGroup>();
             bool any = false;
+
+            PickerHost.Children.Add(new TextBlock
+            {
+                Text = "REFERENCE", FontSize = 10, FontWeight = FontWeights.SemiBold,
+                Foreground = CopilotColors.From("#99a3b3"), Margin = new Thickness(8, 5, 8, 6),
+            });
 
             foreach (var g in groups)
             {
@@ -130,23 +138,27 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (matches.Count == 0) continue;
                 any = true;
 
-                PickerHost.Children.Add(new TextBlock
-                {
-                    Text = g.Label.ToUpperInvariant(), FontSize = 10, FontWeight = FontWeights.SemiBold,
-                    Foreground = CopilotColors.From("#99a3b3"), Margin = new Thickness(8, 6, 8, 3),
-                });
+                // Singular type label ("Levels" → "Level") like the design rows.
+                var typeLabel = g.Label.EndsWith("s") ? g.Label.Substring(0, g.Label.Length - 1) : g.Label;
 
                 foreach (var item in matches)
                 {
-                    var row = new Button { Cursor = Cursors.Hand, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(8, 6, 8, 6) };
+                    var row = new Button { Cursor = Cursors.Hand, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(9, 8, 9, 8) };
                     row.Template = RowTemplate();
-                    var sp = new StackPanel { Orientation = Orientation.Horizontal };
-                    var (bg, fg) = MentionStyle.For(g.Id);
-                    var badge = new Border { Width = 18, Height = 18, CornerRadius = new CornerRadius(4), Background = CopilotColors.From(bg), Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center };
-                    badge.Child = new TextBlock { Text = g.Label.Substring(0, 1), FontSize = 10, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From(fg), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                    sp.Children.Add(badge);
-                    sp.Children.Add(new TextBlock { Text = item, FontSize = 12.5, FontWeight = FontWeights.Medium, Foreground = CopilotColors.From("#131c2b"), VerticalAlignment = VerticalAlignment.Center });
-                    row.Content = sp;
+                    var grid = new Grid();
+                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                    var tile = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = CopilotColors.From("#f3f6f9"), Margin = new Thickness(0, 0, 9, 0), VerticalAlignment = VerticalAlignment.Center };
+                    tile.Child = new TextBlock { Text = "@", FontSize = 12, FontWeight = FontWeights.Bold, Foreground = CopilotColors.From("#1d4ed8"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                    grid.Children.Add(tile);
+                    var name = new TextBlock { Text = item, FontSize = 12.5, FontWeight = FontWeights.Medium, Foreground = CopilotColors.From("#131c2b"), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+                    Grid.SetColumn(name, 1);
+                    grid.Children.Add(name);
+                    var kind = new TextBlock { Text = typeLabel, FontSize = 10, Foreground = CopilotColors.From("#99a3b3"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+                    Grid.SetColumn(kind, 2);
+                    grid.Children.Add(kind);
+                    row.Content = grid;
                     var picked = item;
                     row.Click += (_, __) => InsertMention(picked);
                     PickerHost.Children.Add(row);

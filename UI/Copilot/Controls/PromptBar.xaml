@@ -10,7 +10,7 @@
             <StackPanel x:Name="ThumbStrip" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,8"/>
             <!-- Slate composer: sunken rounded container, borderless input,
                  ghost attach button, accent-gradient send/stop button. -->
-            <Border Background="{DynamicResource Cp.Sunken}" CornerRadius="14" Padding="13,8,8,8">
+            <Border Background="{DynamicResource Cp.Sunken}" CornerRadius="13" Padding="13,8,8,8">
                 <DockPanel LastChildFill="True">
                     <!-- send / stop: circular; gray while idle, accent gradient once
                          there is text; stop square while a reply streams -->
@@ -19,7 +19,7 @@
                             ToolTip="Send">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}" CornerRadius="16">
+                                <Border Background="{TemplateBinding Background}" CornerRadius="9">
                                     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                             </ControlTemplate>

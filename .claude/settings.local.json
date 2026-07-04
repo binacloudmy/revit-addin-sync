@@ -36,7 +36,8 @@
       "Bash(awk '/SubmitFeedbackAsync/{f=1} f{print NR\": \"$0; c++} c>22{exit}' UI/Copilot/FeedbackService.cs)",
       "Bash(git commit -q -m 'feat\\(copilot\\): design micro-feedback row with downvote reasons + context *)",
       "Bash(git commit -q -m 'feat\\(copilot\\): command card Apply/Dismiss restyle + applied state + nudge copy *)",
-      "Bash(git commit -q -m 'feat\\(copilot\\): rate + report sheets to design \\(gold stars, reactions, type chips, context rows\\) *)"
+      "Bash(git commit -q -m 'feat\\(copilot\\): rate + report sheets to design \\(gold stars, reactions, type chips, context rows\\) *)",
+      "Bash(git commit -q -m 'feat\\(copilot\\): mention popover, history header, composer radii to design *)"
     ],
     "deny": []
   }
