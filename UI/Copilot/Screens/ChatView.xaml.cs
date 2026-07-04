@@ -213,7 +213,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (m.Role == "user")
                 return CopilotMessageBubble.User(
                     m.Text, Vm?.UserFirstName, m.ImagesBase64,
-                    m.Files?.Select(f => (f.Name, LineCount(f.Content))), BubbleMaxWidth());
+                    m.Files?.Select(f => (f.Name, LineCount(f.Content))), BubbleMaxWidth(), m.Time);
 
             // Cancelled generation — the design's italic faint "Interrupted."
             // line: stop-in-circle icon + italic text, no bubble, no feedback.
