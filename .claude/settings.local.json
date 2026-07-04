@@ -29,7 +29,8 @@
       "Bash(git commit -q -m 'feat\\(copilot\\): live footer usage meter + popover, drop header credit pill *)",
       "Bash(git commit -q -m 'feat\\(copilot\\): upgrade plan sheet with peek carousel \\(Free/Basic/Pro\\) *)",
       "Bash(git commit -q -m 'feat\\(copilot\\): usage-limit blocked state \\(admin upgrade / member notify\\) *)",
-      "Bash(git commit -q -m 'feat\\(copilot\\): friendly progress-step label mapping *)"
+      "Bash(git commit -q -m 'feat\\(copilot\\): friendly progress-step label mapping *)",
+      "Bash(git commit -q -m 'feat\\(copilot\\): single-line swapping thinking indicator *)"
     ],
     "deny": []
   }

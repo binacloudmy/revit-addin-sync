@@ -216,14 +216,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 return aiRow;
             }
 
-            // Claude-style: show the tools the agent ran FIRST (a compact steps
-            // panel with check glyphs), then the final answer below it.
-            // Prefer the full persisted phased trail (phases + tools). Legacy
-            // messages (no Steps) fall back to the tool-name-only summary card.
-            if (m.Steps != null && m.Steps.Count > 0)
-                col.Children.Add(ProgressTracePanel(m.Steps));
-            else if (m.ToolCallTrace != null && m.ToolCallTrace.Count > 0)
-                col.Children.Add(ToolTracePanel(m.ToolCallTrace));
+            // Design: a completed reply shows ONLY the answer — the live single-line
+            // thinking indicator fades out and no step trail is persisted.
+            // (ProgressTracePanel/ToolTracePanel remain for old serialized history.)
 
             if (!string.IsNullOrEmpty(m.Text))
             {
