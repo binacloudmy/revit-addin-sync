@@ -74,7 +74,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             if (_hooked != null) _hooked.Thread.CollectionChanged -= OnThread;
             _hooked = Vm;
-            if (_hooked != null) _hooked.Thread.CollectionChanged += OnThread;
+            if (_hooked != null)
+            {
+                _hooked.Thread.CollectionChanged += OnThread;
+                Prompt.BindUsage(_hooked);
+                _ = _hooked.RefreshUsageAsync();
+            }
             Rebuild();
         }
 
