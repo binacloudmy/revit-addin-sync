@@ -83,6 +83,11 @@ namespace RevitWebAppSync.UI.Copilot
         {
             _uiApp = uiApp;
 
+            // Feedback context rows show "Copilot x.y.z · Revit NNNN".
+            var rv = uiApp?.Application?.VersionNumber;
+            if (!string.IsNullOrWhiteSpace(rv))
+                Model.CopilotContext.RevitVersion = "Revit " + rv;
+
             // First name for the chat greeting; fall back to "there".
             var user = uiApp?.Application?.Username;
             _vm.UserFirstName = string.IsNullOrWhiteSpace(user) ? "there" : user.Split(' ', '.', '@')[0];

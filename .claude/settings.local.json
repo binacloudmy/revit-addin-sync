@@ -13,7 +13,18 @@
       "Bash(mkdir -p docs/superpowers/specs)",
       "Bash(git add *)",
       "Bash(git commit -m 'docs\\(copilot\\): design spec for 1:1 Copilot redesign from Claude Design *)",
-      "Bash(git commit -m 'docs\\(copilot\\): warnings out of scope — unused flags in design *)"
+      "Bash(git commit -m 'docs\\(copilot\\): warnings out of scope — unused flags in design *)",
+      "Bash(git commit -q -m 'docs\\(copilot\\): implementation plan for 1:1 redesign *)",
+      "Bash(dotnet test *)",
+      "Read(//usr/local/share/dotnet/**)",
+      "Read(//Users/ashraf/.dotnet/sdk/**)",
+      "Bash(/usr/local/share/dotnet/dotnet --version)",
+      "Bash(/usr/local/share/dotnet/dotnet test *)",
+      "Bash(export DOTNET_ROOT=\"$HOME/.dotnet\")",
+      "Bash(/Users/ashraf/.dotnet/dotnet --version)",
+      "Bash(/Users/ashraf/.dotnet/dotnet test *)",
+      "Bash(/Users/ashraf/.dotnet/dotnet build *)",
+      "Bash(git commit -q -m 'feat\\(copilot\\): CopilotContext version strings for feedback context rows *)"
     ],
     "deny": []
   }
