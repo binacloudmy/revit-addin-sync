@@ -21,7 +21,11 @@
             </Grid>
         </Border>
 
-        <ScrollViewer x:Name="Scroller" Grid.Row="1" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer x:Name="Scroller" Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled" ScrollChanged="OnScroll">
+            <ScrollViewer.Resources>
+                <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource Cp.SlimScrollBar}"/>
+            </ScrollViewer.Resources>
             <StackPanel x:Name="BodyHost"/>
         </ScrollViewer>
 
