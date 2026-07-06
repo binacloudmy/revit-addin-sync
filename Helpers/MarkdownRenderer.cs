@@ -36,6 +36,7 @@ namespace RevitWebAppSync.Helpers
         private static Brush CodeBg  => UI.Copilot.Controls.CopilotColors.From("#f3f6f9");
         private static Brush CodeFg  => UI.Copilot.Controls.CopilotColors.From("#1e40af");
         private static Brush BlockBg => UI.Copilot.Controls.CopilotColors.From("#f6f8fa");
+        private static Brush CellBg  => UI.Copilot.Controls.CopilotColors.From("#ffffff"); // table data-cell surface (dark → #1a2433)
         private static readonly FontFamily CodeFont = new FontFamily("Cascadia Mono, Consolas, monospace");
 
         public static FrameworkElement Render(string markdown, double maxWidth = 350)
@@ -230,7 +231,7 @@ namespace RevitWebAppSync.Helpers
                     {
                         BorderBrush = Line,
                         BorderThickness = new Thickness(0.5),
-                        Background = header ? CodeBg : Brushes.White,
+                        Background = header ? CodeBg : CellBg,
                         Padding = new Thickness(7, 4, 7, 4),
                     };
                     var tb = new TextBlock
