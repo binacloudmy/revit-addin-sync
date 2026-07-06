@@ -47,72 +47,69 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var ctas = new Button[Plans.Length];
             var dots = new Border[Plans.Length];
 
-            // ── viewport + track ─────────────────────────────────────────────
-            var track = new StackPanel { Orientation = Orientation.Horizontal };
-            var trackShift = new TranslateTransform();
-            track.RenderTransform = trackShift;
-
-            var viewport = new Border
+            // ── viewport (cards overlaid + centred; neighbours offset by translate) ──
+            // Deterministic centring: the active card is centred by HorizontalAlignment,
+            // so it does NOT depend on viewport.ActualWidth (flaky mid slide-up). Only the
+            // card WIDTH tracks the viewport, re-applied on resize.
+            var viewport = new Grid
             {
                 ClipToBounds = true,
                 Margin = new Thickness(-5, 9, -5, 11),
                 Background = Brushes.Transparent,
                 Cursor = Cursors.Hand,
             };
-            viewport.Child = track;
 
             double CardW() => Math.Max(180, Math.Round(viewport.ActualWidth * 0.82));
+            double dragDx = 0;
 
             for (int i = 0; i < Plans.Length; i++)
             {
                 var card = BuildCard(Plans[i], out var cta);
+                card.HorizontalAlignment = HorizontalAlignment.Center;
+                card.VerticalAlignment = VerticalAlignment.Top;
+                card.RenderTransformOrigin = new Point(0.5, 0.5);
+                card.RenderTransform = new TransformGroup { Children = { new ScaleTransform(1, 1), new TranslateTransform(0, 0) } };
                 cards[i] = card;
                 ctas[i] = cta;
-                track.Children.Add(card);
+                viewport.Children.Add(card);
             }
 
             // ── motion ───────────────────────────────────────────────────────
             void Relayout(bool animate)
             {
-                double w = CardW();
                 if (viewport.ActualWidth <= 0) return;
+                double w = CardW();
+                double step = w * 0.95 + Gap;   // centre-to-centre: active half + neighbour(0.9) half + gap
                 for (int i = 0; i < cards.Length; i++)
                 {
                     cards[i].Width = w;
-                    cards[i].Margin = new Thickness(i == 0 ? 0 : Gap, 0, 0, 0);
-                }
-                double target = viewport.ActualWidth / 2 - w / 2 - active * (w + Gap);
-                if (animate)
-                    trackShift.BeginAnimation(TranslateTransform.XProperty,
-                        new DoubleAnimation(target, new Duration(TimeSpan.FromMilliseconds(320)))
-                        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
-                else
-                {
-                    trackShift.BeginAnimation(TranslateTransform.XProperty, null);
-                    trackShift.X = target;
-                }
-
-                for (int i = 0; i < cards.Length; i++)
-                {
-                    bool on = i == active;
-                    var scale = (ScaleTransform)cards[i].LayoutTransform;
-                    var sTo = on ? 1.0 : 0.9;
+                    int delta = i - active;
+                    bool on = delta == 0;
+                    var tg = (TransformGroup)cards[i].RenderTransform;
+                    var scale = (ScaleTransform)tg.Children[0];
+                    var tr = (TranslateTransform)tg.Children[1];
+                    double tx = delta * step + dragDx;
+                    double sTo = on ? 1.0 : 0.9;
+                    double oTo = on ? 1.0 : (Math.Abs(delta) == 1 ? 0.45 : 0.0);
+                    Panel.SetZIndex(cards[i], on ? 2 : 1);
+                    cards[i].IsHitTestVisible = on;
                     if (animate)
                     {
-                        var anim = new DoubleAnimation(sTo, new Duration(TimeSpan.FromMilliseconds(320)))
-                        { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
-                        scale.BeginAnimation(ScaleTransform.ScaleXProperty, anim);
-                        scale.BeginAnimation(ScaleTransform.ScaleYProperty, anim);
-                        cards[i].BeginAnimation(UIElement.OpacityProperty,
-                            new DoubleAnimation(on ? 1.0 : 0.45, new Duration(TimeSpan.FromMilliseconds(320))));
+                        var dur = new Duration(TimeSpan.FromMilliseconds(320));
+                        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+                        tr.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(tx, dur) { EasingFunction = ease });
+                        var sa = new DoubleAnimation(sTo, dur) { EasingFunction = ease };
+                        scale.BeginAnimation(ScaleTransform.ScaleXProperty, sa);
+                        scale.BeginAnimation(ScaleTransform.ScaleYProperty, sa);
+                        cards[i].BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(oTo, dur) { EasingFunction = ease });
                     }
                     else
                     {
+                        tr.BeginAnimation(TranslateTransform.XProperty, null); tr.X = tx;
                         scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
                         scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
                         scale.ScaleX = scale.ScaleY = sTo;
-                        cards[i].BeginAnimation(UIElement.OpacityProperty, null);
-                        cards[i].Opacity = on ? 1.0 : 0.45;
+                        cards[i].BeginAnimation(UIElement.OpacityProperty, null); cards[i].Opacity = oTo;
                     }
                     StyleCta(ctas[i], Plans[i], on);
                     if (dots[i] != null) StyleDot(dots[i], on);
@@ -122,6 +119,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             void Go(int idx, bool animate = true)
             {
                 active = Math.Max(0, Math.Min(Plans.Length - 1, idx));
+                dragDx = 0;
                 Relayout(animate);
             }
 
@@ -137,10 +135,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             viewport.MouseMove += (s, e) =>
             {
                 if (!dragging) return;
-                double dx = e.GetPosition(viewport).X - dragX0;
-                double w = CardW();
-                trackShift.BeginAnimation(TranslateTransform.XProperty, null);
-                trackShift.X = viewport.ActualWidth / 2 - w / 2 - active * (w + Gap) + dx;
+                dragDx = e.GetPosition(viewport).X - dragX0;
+                Relayout(false);
             };
             void EndDrag(MouseEventArgs e)
             {
@@ -148,7 +144,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 dragging = false;
                 viewport.ReleaseMouseCapture();
                 double dx = e.GetPosition(viewport).X - dragX0;
-                double thresh = viewport.ActualWidth * 0.16;
+                double thresh = Math.Max(40, viewport.ActualWidth * 0.16);
                 if (dx <= -thresh) Go(active + 1);
                 else if (dx >= thresh) Go(active - 1);
                 else Go(active);
@@ -196,7 +192,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             seeAll.MouseLeftButtonDown += (_, __) => OpenUrl(PricingUrl);
             root.Children.Add(seeAll);
 
-            root.Loaded += (_, __) => Go(active, animate: false);
+            root.Loaded += (_, __) =>
+            {
+                Go(active, animate: false);
+                // Re-centre after layout fully settles: viewport.ActualWidth can still
+                // be 0/transient at Loaded (esp. during the sheet's slide-up), so a
+                // single pass lands off-centre and clips the active card. A deferred
+                // pass at Loaded priority guarantees a correct measurement.
+                root.Dispatcher.BeginInvoke(new Action(() => Relayout(false)),
+                    System.Windows.Threading.DispatcherPriority.Loaded);
+            };
             return root;
         }
 
@@ -274,7 +279,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 CornerRadius = new CornerRadius(15),
                 Padding = new Thickness(15),
                 BorderThickness = new Thickness(p.Recommended ? 1.5 : 1),
-                LayoutTransform = new ScaleTransform(1, 1),
+                // RenderTransform (not LayoutTransform): the peek-scale must NOT shrink
+                // the card's LAYOUT size, otherwise scaled neighbours occupy 0.9·w and
+                // the centering maths (which assume full w) drift, pushing the active
+                // card off-centre and clipping it.
+                RenderTransform = new ScaleTransform(1, 1),
+                RenderTransformOrigin = new Point(0.5, 0.5),
                 VerticalAlignment = VerticalAlignment.Stretch,
                 Child = body,
             };
