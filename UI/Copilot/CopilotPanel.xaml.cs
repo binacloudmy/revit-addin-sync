@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using Autodesk.Revit.UI;
 // Shapes.Path collides with System.IO.Path (used once, fully-qualified below).
@@ -71,6 +72,8 @@ namespace RevitWebAppSync.UI.Copilot
             _vm.PropertyChanged += OnVmChanged;
             _vm.Highlights.CollectionChanged += OnHighlightsChanged;
             _vm.RateRequested += () => ShowSheet(BuildRateSheet());
+            _vm.UpgradeRequested += () => ShowSheet(BuildPlanSheet());
+            _vm.NotifyAdminRequested += () => ShowSheet(BuildNotifiedSheet());
             // Local sink for ratings / bug reports (JSONL under %APPDATA%). Model
             // name + user id are captured lazily so they reflect the live context.
             _feedback = new LocalFeedbackService(() => _vm.ModelName, () => cfg?.UserId.ToString());
@@ -433,6 +436,322 @@ namespace RevitWebAppSync.UI.Copilot
             body.Children.Add(box);
             body.Children.Add(submit);
             return SheetChrome("Report a bug", "What went wrong? Steps to reproduce help most.", body);
+        }
+
+        // ══════════ Choose-your-plan carousel (Upgrade) ══════════
+        // Payment never happens in-panel — CTAs open the BINAXONE web billing page
+        // in the default browser.
+        private const string BillingUrl = "https://plugins.jkrbinaxone.com/billing"; // TODO: real BINAXONE billing URL
+
+        private sealed class PlanInfo
+        {
+            public string Name, Price, FeatHeader, Cta;
+            public string[] Features;
+            public bool Recommended, OutlineCta;
+        }
+
+        private static PlanInfo[] PlanData() => new[]
+        {
+            new PlanInfo { Name = "Free", Price = "$0", FeatHeader = "WHAT'S INCLUDED",
+                Features = new[] { "Limited usage", "Core Revit commands", "Chat history" },
+                Cta = "Get started", Recommended = false, OutlineCta = true },
+            new PlanInfo { Name = "Basic", Price = "$20", FeatHeader = "WHAT'S INCLUDED",
+                Features = new[] { "10× higher usage limit", "Faster responses", "Full Revit command library", "Chat history & exports", "Email support" },
+                Cta = "Upgrade to Basic", Recommended = true, OutlineCta = false },
+            new PlanInfo { Name = "Pro", Price = "$40", FeatHeader = "EVERYTHING IN BASIC, PLUS",
+                Features = new[] { "Everything in Basic", "5× higher usage limit", "Priority responses", "Batch commands & automation", "Priority support" },
+                Cta = "Upgrade to Pro", Recommended = false, OutlineCta = false },
+        };
+
+        private const double PlanCardW = 310;    // ~78% of the sheet; neighbours peek at the edges
+        private const double PlanPeekGap = 14;   // clear gap between the active card and its peeking neighbours
+        private int _planIndex;
+        private Border[] _planCards;
+        private Border[] _planDots;
+
+        private FrameworkElement BuildPlanSheet()
+        {
+            var plans = PlanData();
+            _planIndex = 1;   // default centered = Basic (Recommended)
+            _planCards = new Border[plans.Length];
+            _planDots = new Border[plans.Length];
+
+            // Clipped viewport so the neighbour cards peek at the edges without
+            // spilling outside the sheet.
+            var viewport = new Grid { Height = 386, ClipToBounds = true, Margin = new Thickness(0, 2, 0, 0) };
+            for (int i = 0; i < plans.Length; i++)
+            {
+                var card = PlanCard(plans[i]);
+                card.Width = PlanCardW;
+                card.HorizontalAlignment = HorizontalAlignment.Center;
+                card.VerticalAlignment = VerticalAlignment.Top;
+                card.RenderTransformOrigin = new Point(0.5, 0.5);
+                card.RenderTransform = new TransformGroup { Children = { new ScaleTransform(1, 1), new TranslateTransform(0, 0) } };
+                _planCards[i] = card;
+                viewport.Children.Add(card);
+            }
+
+            // controls: ‹ • • • ›
+            var controls = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 14, 0, 0) };
+            controls.Children.Add(PlanArrow(false));
+            var dots = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 8, 0) };
+            for (int i = 0; i < plans.Length; i++)
+            {
+                int idx = i;
+                var dot = new Border { Height = 7, CornerRadius = new CornerRadius(99), Margin = new Thickness(3, 0, 3, 0), Cursor = Cursors.Hand };
+                dot.MouseLeftButtonDown += (_, __) => SetPlanIndex(idx);
+                _planDots[i] = dot;
+                dots.Children.Add(dot);
+            }
+            controls.Children.Add(dots);
+            controls.Children.Add(PlanArrow(true));
+
+            var seeAll = new Button
+            {
+                Content = "See all plans", Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                Cursor = Cursors.Hand, FontSize = 12.5, FontWeight = FontWeights.Medium,
+                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 12, 0, 0)
+            };
+            seeAll.SetResourceReference(ForegroundProperty, "Cp.Muted");
+            seeAll.Click += (_, __) => OpenBilling();
+
+            var body = new StackPanel();
+            body.Children.Add(viewport);
+            body.Children.Add(controls);
+            body.Children.Add(seeAll);
+
+            LayoutPlanCards(false);
+            return SheetChrome("Choose your plan", "Swipe to compare", body);
+        }
+
+        private Button PlanArrow(bool right)
+        {
+            var b = new Button { Width = 30, Height = 30, Cursor = Cursors.Hand, FocusVisualStyle = null };
+            b.SetResourceReference(StyleProperty, "Cp.IconButton");
+            var p = new Path
+            {
+                Width = 12, Height = 12, Stretch = Stretch.Uniform, StrokeThickness = 2,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                Data = Geometry.Parse(right ? "M9,6 l6,6 -6,6" : "M15,6 l-6,6 6,6")
+            };
+            p.SetResourceReference(Shape.StrokeProperty, "Cp.Muted");
+            b.Content = p;
+            b.Click += (_, __) => SetPlanIndex(_planIndex + (right ? 1 : -1));
+            return b;
+        }
+
+        private void SetPlanIndex(int idx)
+        {
+            if (_planCards == null) return;
+            idx = Math.Max(0, Math.Min(_planCards.Length - 1, idx));
+            if (idx == _planIndex) return;
+            _planIndex = idx;
+            LayoutPlanCards(true);
+        }
+
+        // Active card centered + full-scale; neighbours scaled 0.9, half-faded,
+        // peeking at the edges; anything further out hidden.
+        private void LayoutPlanCards(bool animate)
+        {
+            for (int i = 0; i < _planCards.Length; i++)
+            {
+                int delta = i - _planIndex;
+                var card = _planCards[i];
+                var tg = (TransformGroup)card.RenderTransform;
+                var scale = (ScaleTransform)tg.Children[0];
+                var tr = (TranslateTransform)tg.Children[1];
+
+                // Center-to-center step = active half-width (full scale) + neighbour
+                // half-width (0.9 scale) + the desired edge gap, so peeking cards clear
+                // the active card by PlanPeekGap instead of overlapping it.
+                double step = PlanCardW * (1.0 + 0.9) / 2.0 + PlanPeekGap;
+                double targetX = delta * step;
+                double targetOp = delta == 0 ? 1.0 : (Math.Abs(delta) == 1 ? 0.5 : 0.0);
+                scale.ScaleX = scale.ScaleY = delta == 0 ? 1.0 : 0.9;
+                Panel.SetZIndex(card, delta == 0 ? 2 : 1);
+                card.IsHitTestVisible = delta == 0;
+                // Shadow marks the CENTERED card (full-scale + shadow), regardless of plan.
+                card.Effect = delta == 0
+                    ? new DropShadowEffect { BlurRadius = 26, ShadowDepth = 8, Opacity = 0.16, Color = Colors.Black }
+                    : null;
+
+                if (animate)
+                {
+                    var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+                    var dur = new Duration(TimeSpan.FromMilliseconds(220));
+                    tr.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation(tr.X, targetX, dur) { EasingFunction = ease });
+                    card.BeginAnimation(OpacityProperty, new DoubleAnimation(card.Opacity, targetOp, dur) { EasingFunction = ease });
+                }
+                else { tr.X = targetX; card.Opacity = targetOp; }
+            }
+            for (int i = 0; i < _planDots.Length; i++)
+            {
+                bool on = i == _planIndex;
+                _planDots[i].Width = on ? 18 : 7;
+                _planDots[i].SetResourceReference(Border.BackgroundProperty, on ? "Cp.Accent" : "Cp.Hair2");
+            }
+        }
+
+        private Border PlanCard(PlanInfo plan)
+        {
+            var card = new Border
+            {
+                CornerRadius = new CornerRadius(16), Padding = new Thickness(18, 16, 18, 16),
+                BorderThickness = new Thickness(plan.Recommended ? 1.5 : 1)
+            };
+            // Cp.CardBg (elevated) not Cp.Menu (the sheet's own surface) — in dark the
+            // card must lift off the sheet, not blend into it.
+            card.SetResourceReference(Border.BackgroundProperty, "Cp.CardBg");
+            // Border + badge are PLAN properties (Basic = accent + RECOMMENDED, always),
+            // never a selection indicator. The centered/active state is shown by scale +
+            // shadow only (see LayoutPlanCards) — not by the border colour. Non-accent
+            // cards use the stronger Cp.Hair2 hairline so their edge is visible on dark.
+            card.SetResourceReference(Border.BorderBrushProperty, plan.Recommended ? "Cp.Accent" : "Cp.Hair2");
+
+            var sp = new StackPanel();
+
+            // header: name + optional RECOMMENDED badge
+            var head = new Grid();
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            var name = new TextBlock { Text = plan.Name, FontSize = 14.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+            name.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
+            head.Children.Add(name);
+            if (plan.Recommended)
+            {
+                // Pill (stadium), NOT an ellipse: a Border that sizes to its text, with
+                // CornerRadius = half the ~20px height so the ends are fully rounded but
+                // the top/bottom stay flat. Brand-gradient fill (matches Upgrade buttons).
+                var badge = new Border
+                {
+                    CornerRadius = new CornerRadius(10),
+                    Padding = new Thickness(10, 3, 10, 3),
+                    VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                };
+                badge.SetResourceReference(Border.BackgroundProperty, "Cp.AccentGrad");
+                var bt = new TextBlock
+                {
+                    // Hair-space tracking gives the "slight letter-spacing" WPF TextBlock lacks natively.
+                    Text = string.Join(" ", "RECOMMENDED".ToCharArray()),
+                    FontSize = 10, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center,
+                };
+                bt.SetResourceReference(TextBlock.ForegroundProperty, "Cp.AccentContrast");
+                badge.Child = bt;
+                Grid.SetColumn(badge, 1);
+                head.Children.Add(badge);
+            }
+            sp.Children.Add(head);
+
+            // price
+            var priceRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
+            var big = new TextBlock { Text = plan.Price, FontSize = 26, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Bottom };
+            big.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
+            var per = new TextBlock { Text = " /month", FontSize = 12, Margin = new Thickness(3, 0, 0, 4), VerticalAlignment = VerticalAlignment.Bottom };
+            per.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            priceRow.Children.Add(big);
+            priceRow.Children.Add(per);
+            sp.Children.Add(priceRow);
+
+            // feature header
+            var fh = new TextBlock { Text = plan.FeatHeader, FontSize = 10, FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 14, 0, 9) };
+            fh.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+            sp.Children.Add(fh);
+
+            // features
+            foreach (var f in plan.Features)
+            {
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 8) };
+                var chk = new Path
+                {
+                    Width = 13, Height = 13, Stretch = Stretch.Uniform, StrokeThickness = 2, Margin = new Thickness(0, 1, 9, 0),
+                    StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+                    Data = Geometry.Parse("M4,12.5 L9.5,18 20,5"), VerticalAlignment = VerticalAlignment.Top
+                };
+                chk.SetResourceReference(Shape.StrokeProperty, plan.Recommended ? "Cp.Accent" : "Cp.Faint");
+                row.Children.Add(chk);
+                var ft = new TextBlock { Text = f, FontSize = 12.5, TextWrapping = TextWrapping.Wrap };
+                ft.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Text");
+                row.Children.Add(ft);
+                sp.Children.Add(row);
+            }
+
+            sp.Children.Add(PlanCtaButton(plan));
+            card.Child = sp;
+            return card;
+        }
+
+        private Button PlanCtaButton(PlanInfo plan)
+        {
+            var b = new Button { Height = 44, Cursor = Cursors.Hand, Margin = new Thickness(0, 16, 0, 2), HorizontalAlignment = HorizontalAlignment.Stretch };
+            var content = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center };
+            var t = new TextBlock { Text = plan.Cta, FontSize = 13.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+            content.Children.Add(t);
+
+            if (plan.OutlineCta)
+            {
+                // Free: accent outline + accent label, no arrow.
+                b.SetResourceReference(StyleProperty, "Cp.Ghost");
+                b.SetResourceReference(Control.BorderBrushProperty, "Cp.Accent");
+                t.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Accent");
+            }
+            else
+            {
+                // Basic/Pro: accent-gradient fill, white label + ↗ arrow.
+                b.SetResourceReference(StyleProperty, "Cp.RunDark");
+                t.SetResourceReference(TextBlock.ForegroundProperty, "Cp.AccentContrast");
+                var arr = new Path
+                {
+                    Width = 12, Height = 12, Margin = new Thickness(7, 0, 0, 0), Stretch = Stretch.Uniform, StrokeThickness = 2,
+                    VerticalAlignment = VerticalAlignment.Center, StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+                    Data = Geometry.Parse("M7,17 L17,7 M9,7 h8 v8")
+                };
+                arr.SetResourceReference(Shape.StrokeProperty, "Cp.AccentContrast");
+                content.Children.Add(arr);
+            }
+            b.Content = content;
+            b.Click += (_, __) => OpenBilling();
+            return b;
+        }
+
+        private FrameworkElement BuildNotifiedSheet()
+        {
+            var body = new StackPanel { Margin = new Thickness(0, 6, 0, 4) };
+            var check = new Path
+            {
+                Width = 30, Height = 30, Stretch = Stretch.Uniform, StrokeThickness = 2,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round, Data = Geometry.Parse("M4,12.5 L9.5,18 20,5")
+            };
+            check.SetResourceReference(Shape.StrokeProperty, "Cp.Green");
+            body.Children.Add(check);
+            var t = new TextBlock
+            {
+                Text = $"We'll let {_vm.AdminContact} know you'd like to upgrade.",
+                FontSize = 13, TextWrapping = TextWrapping.Wrap, HorizontalAlignment = HorizontalAlignment.Center,
+                TextAlignment = TextAlignment.Center, Margin = new Thickness(0, 12, 0, 0)
+            };
+            t.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Text");
+            body.Children.Add(t);
+            var done = PrimaryButton("Done");
+            done.Click += (_, __) => HideSheet();
+            body.Children.Add(done);
+            return SheetChrome("Request sent", null, body);
+        }
+
+        private void OpenBilling()
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = BillingUrl, UseShellExecute = true });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] open billing failed: {ex.Message}");
+            }
+            HideSheet();
         }
     }
 }

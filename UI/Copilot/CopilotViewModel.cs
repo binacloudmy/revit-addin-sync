@@ -68,6 +68,10 @@ namespace RevitWebAppSync.UI.Copilot
             ChatRunCommand = new RelayCommand(p => ChatRun(p as ChatMessage));
             ChatRegenerateCommand = new RelayCommand(p => ChatRegenerate(p as ChatMessage));
             ChatOpenEditorCommand = new RelayCommand(p => OpenTool((p as ChatMessage)?.ToolId));
+
+            // Usage/subscription signal. Mocked today (harness slider drives it);
+            // swap in a backend-backed IUsageService later without touching the UI.
+            Usage = new MockUsageService();
         }
 
         // ─── Injected context ────────────────────────────────────────────────
@@ -415,7 +419,13 @@ namespace RevitWebAppSync.UI.Copilot
         // PromptBar so the send button becomes a Stop button the user can click
         // to cancel the prompt mid-reply.
         private bool _isSending;
-        public bool IsSending { get => _isSending; set { _isSending = value; Raise(); } }
+        public bool IsSending
+        {
+            get => _isSending;
+            // IsBlocked depends on this: if the quota cap hits mid-stream we keep
+            // the composer alive until the reply resolves, THEN swap to blocked.
+            set { if (_isSending == value) return; _isSending = value; Raise(); Raise(nameof(IsBlocked)); }
+        }
 
         /// <summary>User clicked Stop — abort the streaming reply. The router's
         /// RouteAsync then returns a "Cancelled." result which resolves the bubble;
@@ -424,6 +434,83 @@ namespace RevitWebAppSync.UI.Copilot
         {
             try { (Router as RevitChatRouter)?.CancelStream(); } catch { /* already done */ }
         }
+
+        // ─── Subscription / usage state machine ──────────────────────────────
+        // Everything the panel shows about quota derives from one number,
+        // UsagePct (0–100), plus the role fields. See IUsageService.
+        private IUsageService _usage;
+        public IUsageService Usage
+        {
+            get => _usage;
+            set
+            {
+                if (_usage != null) _usage.PropertyChanged -= OnUsageChanged;
+                _usage = value;
+                if (_usage != null) _usage.PropertyChanged += OnUsageChanged;
+                RaiseUsageDerived();
+            }
+        }
+        private void OnUsageChanged(object s, PropertyChangedEventArgs e) => RaiseUsageDerived();
+
+        public int UsagePct => _usage?.UsagePct ?? 0;
+        public string PlanName => string.IsNullOrWhiteSpace(_usage?.PlanName) ? "Free" : _usage.PlanName;
+        public bool IsUsageAdmin => _usage?.IsAdmin ?? true;
+        public string AdminContact => string.IsNullOrWhiteSpace(_usage?.AdminContact) ? "your workspace admin" : _usage.AdminContact;
+
+        /// <summary>Meter colour band: "normal" (&lt;80, accent), "warn" (80–94,
+        /// amber), "critical" (≥95, red). Consumed by the footer meter.</summary>
+        public string MeterLevel => UsagePct >= 95 ? "critical" : (UsagePct >= 80 ? "warn" : "normal");
+
+        /// <summary>80–94%: a one-time dismissible note. Suppressed once dismissed
+        /// (persisted) so it never nags.</summary>
+        public bool ShowWarn80 => UsagePct >= 80 && UsagePct < 95 && !CopilotPrefs.Load().Warn80Dismissed;
+        public string Warn80Text => $"You've used {UsagePct}% of your monthly limit.";
+
+        /// <summary>95–99%: a slim, non-dismissible banner above the composer.</summary>
+        public bool ShowWarn95 => UsagePct >= 95 && UsagePct < 100;
+        public string Warn95Text => $"Running low — {System.Math.Max(0, 100 - UsagePct)}% left. Upgrade to keep going.";
+
+        /// <summary>100%: the hard cap has been reached.</summary>
+        public bool AtLimit => UsagePct >= 100;
+
+        /// <summary>Effective blocked state — at the cap AND not mid-stream, so an
+        /// in-flight reply is allowed to finish before the composer is replaced.</summary>
+        public bool IsBlocked => AtLimit && !IsSending;
+
+        public string UsagePctText => $"{UsagePct}%";
+        public string UsageUsedText => $"{UsagePct}% used";
+
+        private void RaiseUsageDerived()
+        {
+            Raise(nameof(UsagePct)); Raise(nameof(PlanName)); Raise(nameof(IsUsageAdmin));
+            Raise(nameof(AdminContact)); Raise(nameof(MeterLevel));
+            Raise(nameof(ShowWarn80)); Raise(nameof(Warn80Text));
+            Raise(nameof(ShowWarn95)); Raise(nameof(Warn95Text));
+            Raise(nameof(AtLimit)); Raise(nameof(IsBlocked));
+            Raise(nameof(UsagePctText)); Raise(nameof(UsageUsedText));
+        }
+
+        /// <summary>Dismiss the 80% note for good (persisted).</summary>
+        public void DismissWarn80()
+        {
+            var p = CopilotPrefs.Load();
+            p.Warn80Dismissed = true;
+            p.Save();
+            Raise(nameof(ShowWarn80));
+        }
+
+        /// <summary>Raised when the user taps an "Upgrade plan" CTA (admin flow).
+        /// The panel listens and slides up the Choose-your-plan sheet.</summary>
+        public event Action UpgradeRequested;
+        public void RequestUpgrade() => UpgradeRequested?.Invoke();
+
+        /// <summary>Raised when a member taps "Notify admin to upgrade".</summary>
+        public event Action NotifyAdminRequested;
+        public void NotifyAdmin() => NotifyAdminRequested?.Invoke();
+
+        public RelayCommand UpgradeCommand => new RelayCommand(_ => RequestUpgrade());
+        public RelayCommand NotifyAdminCommand => new RelayCommand(_ => NotifyAdmin());
+
         public RelayCommand ChatRunCommand { get; }
         public RelayCommand ChatRegenerateCommand { get; }
         public RelayCommand ChatOpenEditorCommand { get; }
@@ -606,6 +693,7 @@ namespace RevitWebAppSync.UI.Copilot
         {
             text = (text ?? "").Trim();
             if (text.Length == 0) return;
+            if (AtLimit) return;   // hard cap — the composer is replaced by the blocked state
             LastPrompt = text;   // key for 👍/👎 feedback on the resulting response
             if (IsIndexing)
             {

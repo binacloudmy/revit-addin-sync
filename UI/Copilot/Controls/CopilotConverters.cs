@@ -39,6 +39,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 ["#140f1b2d"] = "#12ffffff", ["#e5e7eb"] = "#12ffffff",
                 ["#290f1b2d"] = "#24ffffff", ["#0d0f1b2d"] = "#0dffffff",
                 ["#f1f3f5"] = "#0dffffff", ["#eef0f3"] = "#12ffffff",
+                ["#eef1f5"] = "#222e40", // user chat bubble (mirrors Cp.UserBubble)
                 ["#ffffff"] = "#1a2433", ["#fafafa"] = "#16202e",
                 ["#f7f9fb"] = "#16202e", ["#f3f6f9"] = "#0c1420",
                 ["#f6f8fa"] = "#0c1420", ["#f5f3ff"] = "#1d2c42",
@@ -114,6 +115,23 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             bool has = value is string s ? !string.IsNullOrEmpty(s) : value != null;
             return has ? Visibility.Visible : Visibility.Collapsed;
+        }
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => Binding.DoNothing;
+    }
+
+    /// <summary>Usage percent (0–100) → GridLength(pct, Star) for a meter fill
+    /// column. ConverterParameter "Rest" returns the remaining (100-pct) share.</summary>
+    public class PctToStarLengthConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            int pct = 0;
+            if (value is int i) pct = i;
+            else if (value != null) int.TryParse(value.ToString(), out pct);
+            if (pct < 0) pct = 0; else if (pct > 100) pct = 100;
+            bool rest = parameter is string s && s.Equals("Rest", StringComparison.OrdinalIgnoreCase);
+            return new GridLength(rest ? 100 - pct : pct, GridUnitType.Star);
         }
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
             => Binding.DoNothing;

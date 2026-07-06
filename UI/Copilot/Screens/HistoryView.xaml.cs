@@ -497,15 +497,19 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (_rowTemplate != null) return _rowTemplate;
             var border = new FrameworkElementFactory(typeof(Border));
             border.Name = "bd";
-            border.SetValue(Border.BorderBrushProperty, CopilotColors.From("#0D0F1B2D"));
+            // Live resource ref (cached template ⇒ a captured brush would freeze to the
+            // first-rendered theme). Cp.LineSoft = design --hair, swaps per theme.
+            border.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
             border.SetValue(Border.BorderThicknessProperty, new Thickness(0, 0, 0, 1));
             border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
             var cp = new FrameworkElementFactory(typeof(ContentPresenter));
             border.AppendChild(cp);
             _rowTemplate = new ControlTemplate(typeof(Button)) { VisualTree = border };
-            // Hover wash — the design's --hover surface.
+            // Hover wash — the design's --hover surface. Live DynamicResource (not a
+            // captured brush): this template is cached statically, so a fixed brush would
+            // freeze the hover to the first-rendered theme. Cp.Hover swaps per theme.
             var hover = new Trigger { Property = Button.IsMouseOverProperty, Value = true };
-            hover.Setters.Add(new Setter(Border.BackgroundProperty, CopilotColors.From("#f3f6f9"), "bd"));
+            hover.Setters.Add(new Setter(Border.BackgroundProperty, new DynamicResourceExtension("Cp.Hover"), "bd"));
             _rowTemplate.Triggers.Add(hover);
             return _rowTemplate;
         }

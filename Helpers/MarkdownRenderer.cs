@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using RevitWebAppSync.UI.Copilot.Controls;
 
 namespace RevitWebAppSync.Helpers
 {
@@ -24,19 +25,22 @@ namespace RevitWebAppSync.Helpers
     /// </summary>
     public static class MarkdownRenderer
     {
-        // Light palette (matches CopilotTokens / the .dc.html light theme).
-        private static readonly SolidColorBrush Ink     = Brush("#131c2b"); // headers
-        private static readonly SolidColorBrush Text    = Brush("#131c2b"); // body (design --text)
-        private static readonly SolidColorBrush Muted   = Brush("#586273"); // quotes/citations
-        private static readonly SolidColorBrush Accent  = Brush("#1d4ed8"); // bullets/links
-        private static readonly SolidColorBrush Line    = Brush("#290F1B2D"); // table borders
-        private static readonly SolidColorBrush CodeBg  = Brush("#f3f6f9");
-        private static readonly SolidColorBrush CodeFg  = Brush("#1e40af");
-        private static readonly SolidColorBrush BlockBg = Brush("#f6f8fa");
+        // Theme-aware palette. Written as LIGHT hex literals; CopilotColors maps each
+        // to its Slate-dark equivalent when the dark theme is active (the chat body is
+        // re-rendered on theme toggle, so these resolve against the current theme).
+        // These are computed getters, NOT static readonly fields — a field would bind
+        // the color once at type-init and freeze the AI text to the light palette,
+        // making replies invisible on the dark background.
+        private static Brush Ink     => CopilotColors.From("#131c2b"); // headers
+        private static Brush Text    => CopilotColors.From("#131c2b"); // body (design --text)
+        private static Brush Muted   => CopilotColors.From("#586273"); // quotes/citations
+        private static Brush Accent  => CopilotColors.From("#1d4ed8"); // bullets/links
+        private static Brush Line    => CopilotColors.From("#290F1B2D"); // table borders
+        private static Brush CodeBg  => CopilotColors.From("#f3f6f9");
+        private static Brush CodeFg  => CopilotColors.From("#1e40af");
+        private static Brush BlockBg => CopilotColors.From("#f6f8fa");
+        private static Brush CellBg  => CopilotColors.From("#ffffff"); // table data-cell surface
         private static readonly FontFamily CodeFont = new FontFamily("Cascadia Mono, Consolas, monospace");
-
-        private static SolidColorBrush Brush(string hex) =>
-            new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
 
         public static FrameworkElement Render(string markdown, double maxWidth = 350)
         {
@@ -230,7 +234,7 @@ namespace RevitWebAppSync.Helpers
                     {
                         BorderBrush = Line,
                         BorderThickness = new Thickness(0.5),
-                        Background = header ? CodeBg : Brushes.White,
+                        Background = header ? CodeBg : CellBg,
                         Padding = new Thickness(7, 4, 7, 4),
                     };
                     var tb = new TextBlock

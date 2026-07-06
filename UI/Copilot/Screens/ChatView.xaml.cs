@@ -80,8 +80,34 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private void OnThread(object s, NotifyCollectionChangedEventArgs e)
         {
+            // Rebuild only — the actual scroll is driven by OnScroll's stick logic
+            // (the new/taller content raises ExtentHeightChange). Unconditionally
+            // scrolling here would yank a user who has scrolled up to read.
             Rebuild();
-            Dispatcher.BeginInvoke(new System.Action(() => Scroller.ScrollToEnd()));
+        }
+
+        // True while the view is pinned to the newest message. Cleared when the user
+        // scrolls up; restored when they scroll back to the bottom.
+        private bool _stick = true;
+
+        private void OnScroll(object sender, ScrollChangedEventArgs e)
+        {
+            if (e.ExtentHeightChange == 0)
+            {
+                // A user (or layout) scroll with no content-size change: update intent.
+                // Within 4px of the bottom counts as "following".
+                _stick = e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - 4;
+            }
+            else if (_stick)
+            {
+                // Content grew (new message / a streaming answer getting taller): follow
+                // the bottom. Defer to Loaded priority so it runs AFTER layout settles —
+                // the WPF equivalent of the mockup's double requestAnimationFrame; a
+                // synchronous ScrollToEnd lands short of the bottom mid-stream.
+                Dispatcher.BeginInvoke(
+                    new System.Action(() => Scroller?.ScrollToEnd()),
+                    System.Windows.Threading.DispatcherPriority.Loaded);
+            }
         }
 
         private int _lastMsgCount;
@@ -1108,7 +1134,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             b.AppendChild(cp);
             var t = new ControlTemplate(typeof(Button)) { VisualTree = b };
             var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-            hover.Setters.Add(new Setter(Border.BackgroundProperty, CopilotColors.From("#f3f6f9"), "bd"));
+            // Live DynamicResource, not a captured brush: this template is cached
+            // statically, so a fixed brush would freeze the hover to the first-rendered
+            // theme (the white-in-dark / black-in-light bug). Cp.Hover swaps per theme.
+            hover.Setters.Add(new Setter(Border.BackgroundProperty, new DynamicResourceExtension("Cp.Hover"), "bd"));
             t.Triggers.Add(hover);
             _sugRow = t;
             return t;

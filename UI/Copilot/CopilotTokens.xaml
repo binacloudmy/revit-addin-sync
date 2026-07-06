@@ -15,6 +15,7 @@
     <SolidColorBrush x:Key="Cp.Bg"        Color="#ffffff"/>
     <SolidColorBrush x:Key="Cp.Sunken"    Color="#f3f6f9"/>
     <SolidColorBrush x:Key="Cp.Menu"      Color="#ffffff"/>
+    <SolidColorBrush x:Key="Cp.CardBg"    Color="#ffffff"/>
     <SolidColorBrush x:Key="Cp.PanelBg"   Color="#f7f9fb"/>
     <SolidColorBrush x:Key="Cp.Ink"       Color="#131c2b"/>
     <SolidColorBrush x:Key="Cp.Ink2"      Color="#0b1220"/>
@@ -34,6 +35,7 @@
     <SolidColorBrush x:Key="Cp.BlueText"  Color="#1e40af"/>
     <SolidColorBrush x:Key="Cp.AccentContrast" Color="#ffffff"/>
     <SolidColorBrush x:Key="Cp.Green"     Color="#10b981"/>
+    <SolidColorBrush x:Key="Cp.GreenHover" Color="#0da271"/>
     <SolidColorBrush x:Key="Cp.Amber"     Color="#d97706"/>
     <SolidColorBrush x:Key="Cp.Red"       Color="#dc2626"/>
     <SolidColorBrush x:Key="Cp.Meter"     Color="#f59e0b"/>
@@ -47,6 +49,28 @@
         <GradientStop Offset="0" Color="#8aa4ec"/>
         <GradientStop Offset="1" Color="#2c5ce0"/>
     </LinearGradientBrush>
+
+    <!-- ═══════════ BLOCKED-STATE LOCK (64×64 hand-drawn vector) ═══════════
+         Brand-blue metal lock shown when usage hits 100%. Shades tie back to the
+         accent (#1d4ed8) / bot-star blues; the exact hexes are the design spec. -->
+    <SolidColorBrush x:Key="Cp.Lock.ShackleBase" Color="#3f74d6"/>
+    <LinearGradientBrush x:Key="Cp.Lock.ShackleGrad" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#a9caff"/>
+        <GradientStop Offset="1" Color="#3f74d6"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Cp.Lock.BodyGrad" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#7cb4ff"/>
+        <GradientStop Offset="1" Color="#2766d6"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Cp.Lock.Sheen" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0"    Color="#59ffffff"/>
+        <GradientStop Offset="0.55" Color="#00ffffff"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="Cp.Lock.Keyhole" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#f2f7ff"/>
+        <GradientStop Offset="1" Color="#cfe0ff"/>
+    </LinearGradientBrush>
+    <Color x:Key="Cp.Lock.GlowColor">#3B82F6</Color>
 
     <!-- ═══════════ AI ACCENT (was purple — the design uses the blue accent) ═══════════ -->
     <SolidColorBrush x:Key="Cp.Purple"     Color="#1d4ed8"/>
