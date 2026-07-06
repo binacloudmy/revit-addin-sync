@@ -504,9 +504,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var cp = new FrameworkElementFactory(typeof(ContentPresenter));
             border.AppendChild(cp);
             _rowTemplate = new ControlTemplate(typeof(Button)) { VisualTree = border };
-            // Hover wash — the design's --hover surface.
+            // Hover wash — the design's --hover surface. Live DynamicResource (cached
+            // template) so it swaps with the theme instead of freezing to the first-
+            // rendered one (the black-hover-in-light bug after a dark toggle).
             var hover = new Trigger { Property = Button.IsMouseOverProperty, Value = true };
-            hover.Setters.Add(new Setter(Border.BackgroundProperty, CopilotColors.From("#f3f6f9"), "bd"));
+            hover.Setters.Add(new Setter(Border.BackgroundProperty, new System.Windows.DynamicResourceExtension("Cp.Hover"), "bd"));
             _rowTemplate.Triggers.Add(hover);
             return _rowTemplate;
         }
