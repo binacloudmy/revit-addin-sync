@@ -27,7 +27,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             InitializeComponent();
             DataContextChanged += (_, __) => Hook();
-            Loaded += (_, __) => Rebuild();
+            // Re-render on theme flip — rows are drawn from code-behind with colours
+            // snapshotted via CopilotColors, so (like ChatView) they don't repaint on
+            // their own. Without this the session titles keep the old theme's colour
+            // until the view is rebuilt (e.g. by switching to Chat and back).
+            Loaded += (_, __) => { CopilotTheme.ThemeChanged += OnThemeChanged; Rebuild(); };
+            Unloaded += (_, __) => { CopilotTheme.ThemeChanged -= OnThemeChanged; };
+        }
+
+        private void OnThemeChanged()
+        {
+            if (_detailEntry != null) ShowDetail(_detailEntry);
+            else Rebuild();
         }
 
         private void Hook()
@@ -504,9 +515,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var cp = new FrameworkElementFactory(typeof(ContentPresenter));
             border.AppendChild(cp);
             _rowTemplate = new ControlTemplate(typeof(Button)) { VisualTree = border };
-            // Hover wash — the design's --hover surface.
+            // Hover wash — the design's --hover surface. Live DynamicResource (cached
+            // template) so it swaps with the theme instead of freezing to the first-
+            // rendered one (the black-hover-in-light bug after a dark toggle).
             var hover = new Trigger { Property = Button.IsMouseOverProperty, Value = true };
-            hover.Setters.Add(new Setter(Border.BackgroundProperty, CopilotColors.From("#f3f6f9"), "bd"));
+            hover.Setters.Add(new Setter(Border.BackgroundProperty, new System.Windows.DynamicResourceExtension("Cp.Hover"), "bd"));
             _rowTemplate.Triggers.Add(hover);
             return _rowTemplate;
         }

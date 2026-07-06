@@ -119,7 +119,7 @@
                 <Border Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}"
                         BorderThickness="1" CornerRadius="13" Padding="15,15,15,14" MinWidth="228" Margin="8">
                     <Border.Effect>
-                        <DropShadowEffect BlurRadius="24" ShadowDepth="6" Opacity="0.28" Color="#000000"/>
+                        <DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.14" Color="#000000"/>
                     </Border.Effect>
                     <StackPanel>
                         <TextBlock x:Name="PopPlan" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource Cp.Ink}"/>

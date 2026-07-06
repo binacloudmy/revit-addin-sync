@@ -60,6 +60,7 @@ namespace RevitWebAppSync.UI.Copilot
                 Thread.Clear();
                 _currentSession = null;
                 (Router as RevitChatRouter)?.ResetSession();
+                Tab = CpTab.Chat;   // "+" from the History tab must land on the new empty chat
             });
             ClearHighlightsCommand = new RelayCommand(_ => Highlights.Clear());
             ChatSendCommand = new RelayCommand(ChatSendAny);

@@ -276,7 +276,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (armed)
             {
                 SendBtn.Background = TryFindResource("Cp.AccentGrad") as System.Windows.Media.Brush ?? Brushes.RoyalBlue;
-                SendIcon.Fill = TryFindResource("Cp.AccentContrast") as System.Windows.Media.Brush ?? Brushes.White;
+                // Always white — NOT Cp.AccentContrast (which is near-black in dark theme,
+                // giving a black glyph on the blue button). A send/stop glyph reads best
+                // white on the accent gradient in both themes.
+                SendIcon.Fill = Brushes.White;
             }
             else
             {

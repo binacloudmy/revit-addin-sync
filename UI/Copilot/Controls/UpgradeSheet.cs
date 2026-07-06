@@ -383,6 +383,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Width = 30, Height = 30, Cursor = Cursors.Hand,
                 Background = Brushes.Transparent, BorderThickness = new Thickness(0),
                 VerticalAlignment = VerticalAlignment.Center,
+                FocusVisualStyle = null,   // no dotted focus rectangle on click
             };
             var p = new Path
             {
