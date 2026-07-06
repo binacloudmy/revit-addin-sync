@@ -234,6 +234,55 @@
         </Setter>
     </Style>
 
+    <!-- ══════════ SLIM SCROLLBAR (chat thread + history list) ══════════
+         7px, no arrow buttons, transparent track, rounded pill thumb using the
+         theme-aware Cp.Hair2 token; the thumb gets more prominent on hover. Applied
+         implicitly inside the chat/history ScrollViewers (see their Resources). -->
+    <Style x:Key="Cp.SlimScrollThumb" TargetType="Thumb">
+        <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="IsTabStop" Value="False"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Thumb">
+                    <Border x:Name="tb" CornerRadius="3.5" Margin="1,0,1,0"
+                            Background="{DynamicResource Cp.Hair2}"/>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="tb" Property="Background" Value="{DynamicResource Cp.Faint}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="Cp.SlimScrollBar" TargetType="ScrollBar">
+        <Setter Property="Width" Value="7"/>
+        <Setter Property="MinWidth" Value="7"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ScrollBar">
+                    <Grid Background="Transparent">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageUpCommand" Opacity="0"
+                                              Focusable="False" IsTabStop="False" Background="Transparent" BorderThickness="0"/>
+                            </Track.DecreaseRepeatButton>
+                            <Track.Thumb>
+                                <Thumb Style="{StaticResource Cp.SlimScrollThumb}" MinHeight="28"/>
+                            </Track.Thumb>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="ScrollBar.PageDownCommand" Opacity="0"
+                                              Focusable="False" IsTabStop="False" Background="Transparent" BorderThickness="0"/>
+                            </Track.IncreaseRepeatButton>
+                        </Track>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ══════════ CODE BLOCK (tier-2 disclosure) ══════════ -->
     <Style x:Key="Cp.CodeBlock" TargetType="TextBox">
         <Setter Property="Background" Value="{DynamicResource Cp.CodeBg}"/>

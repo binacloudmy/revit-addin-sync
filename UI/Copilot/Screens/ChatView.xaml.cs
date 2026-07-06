@@ -132,8 +132,33 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private void OnThread(object s, NotifyCollectionChangedEventArgs e)
         {
+            // Rebuild only — the scroll is driven by OnScroll's stick logic (new/taller
+            // content raises ExtentHeightChange). Unconditionally scrolling here would
+            // yank a user who has scrolled up to read.
             Rebuild();
-            Dispatcher.BeginInvoke(new System.Action(() => Scroller.ScrollToEnd()));
+        }
+
+        // True while the view is pinned to the newest message. Cleared when the user
+        // scrolls up; restored when they scroll back to the bottom.
+        private bool _stick = true;
+
+        private void OnScroll(object sender, ScrollChangedEventArgs e)
+        {
+            if (e.ExtentHeightChange == 0)
+            {
+                // A user/layout scroll with no content-size change: update intent.
+                // Within 4px of the bottom counts as "following".
+                _stick = e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - 4;
+            }
+            else if (_stick)
+            {
+                // Content grew (new message / streaming answer getting taller): follow
+                // the bottom, deferred to Loaded priority so it runs after layout settles
+                // (the WPF equivalent of the mockup's double requestAnimationFrame).
+                Dispatcher.BeginInvoke(
+                    new System.Action(() => Scroller?.ScrollToEnd()),
+                    System.Windows.Threading.DispatcherPriority.Loaded);
+            }
         }
 
         private int _lastMsgCount;

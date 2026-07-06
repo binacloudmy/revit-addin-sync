@@ -99,14 +99,14 @@
                     </Grid.ColumnDefinitions>
                     <TextBlock x:Name="MeterPlan" Grid.Column="0" FontSize="10.5" FontWeight="SemiBold"
                                Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
-                    <Border Grid.Column="1" Height="4" CornerRadius="99" Margin="9,0,9,0"
+                    <Border Grid.Column="1" Height="4" CornerRadius="2" Margin="9,0,9,0"
                             Background="{DynamicResource Cp.Line}" VerticalAlignment="Center" ClipToBounds="True">
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition x:Name="MeterFillCol" Width="88*"/>
                                 <ColumnDefinition x:Name="MeterRestCol" Width="12*"/>
                             </Grid.ColumnDefinitions>
-                            <Border x:Name="MeterFill" Grid.Column="0" CornerRadius="99"/>
+                            <Border x:Name="MeterFill" Grid.Column="0" CornerRadius="2"/>
                         </Grid>
                     </Border>
                     <TextBlock x:Name="MeterPct" Grid.Column="2" FontSize="10.5" FontWeight="Bold"
@@ -128,13 +128,13 @@
                             <TextBlock Text="Usage" FontSize="11" Foreground="{DynamicResource Cp.Muted}" HorizontalAlignment="Left"/>
                             <TextBlock x:Name="PopPctUsed" FontSize="11.5" FontWeight="Bold" Foreground="{DynamicResource Cp.Ink}" HorizontalAlignment="Right"/>
                         </Grid>
-                        <Border Height="6" CornerRadius="99" Background="{DynamicResource Cp.Line}" ClipToBounds="True">
+                        <Border Height="6" CornerRadius="2" Background="{DynamicResource Cp.Line}" ClipToBounds="True">
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition x:Name="PopFillCol" Width="88*"/>
                                     <ColumnDefinition x:Name="PopRestCol" Width="12*"/>
                                 </Grid.ColumnDefinitions>
-                                <Border x:Name="PopFill" Grid.Column="0" CornerRadius="99"/>
+                                <Border x:Name="PopFill" Grid.Column="0" CornerRadius="2"/>
                             </Grid>
                         </Border>
                         <Button x:Name="PopUpgradeBtn" Height="32" Margin="0,13,0,0" Cursor="Hand"

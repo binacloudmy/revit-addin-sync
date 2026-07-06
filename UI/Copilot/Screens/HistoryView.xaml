@@ -7,6 +7,9 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
+        <Grid.Resources>
+            <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource Cp.SlimScrollBar}"/>
+        </Grid.Resources>
 
         <!-- Header -->
         <Border Grid.Row="0" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1" Padding="10,12,14,12">
@@ -46,12 +49,14 @@
         </Border>
 
         <!-- Session list -->
-        <ScrollViewer x:Name="ListPanel" Grid.Row="1" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer x:Name="ListPanel" Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
             <StackPanel x:Name="RowsHost"/>
         </ScrollViewer>
 
         <!-- Session detail -->
-        <ScrollViewer x:Name="DetailPanel" Grid.Row="1" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer x:Name="DetailPanel" Grid.Row="1" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
             <StackPanel x:Name="MessagesHost" Margin="0,8,0,16"/>
         </ScrollViewer>
     </Grid>

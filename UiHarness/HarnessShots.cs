@@ -28,6 +28,7 @@ namespace UiHarness
             // Base states
             Shot(dir, "copilot-light.png", dark: false);
             Shot(dir, "copilot-dark.png", dark: true);
+            Shot(dir, "copilot-history.png", dark: false, configure: p => { p.ViewModel.GoTab(CpTab.History); return 0; });
 
             // Sheets
             Shot(dir, "copilot-rate-sheet.png", dark: true, configure: p => { p.ViewModel.RequestRate(); return 450; });
