@@ -90,7 +90,7 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.GreenHover}"/>
+                            <Setter TargetName="bd" Property="Background" Value="#0da271"/>
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Sunken}"/>
@@ -225,7 +225,7 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                            <Setter TargetName="bd" Property="Background" Value="#f7f9fb"/>
                             <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Cp.Hair2}"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
@@ -263,8 +263,6 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ScrollBar">
-                    <!-- No line-up/line-down arrow buttons; just an invisible page
-                         track + the pill thumb. -->
                     <Grid Background="Transparent">
                         <Track x:Name="PART_Track" IsDirectionReversed="True">
                             <Track.DecreaseRepeatButton>

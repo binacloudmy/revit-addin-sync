@@ -3,78 +3,14 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
              FontFamily="{DynamicResource Cp.Font}">
-    <UserControl.Resources>
-        <ctl:BoolToVisibilityConverter x:Key="BoolVis"/>
-        <ctl:PctToStarLengthConverter x:Key="PctStar"/>
-        <!-- Meter fill colour follows the usage band: accent &lt;80, amber 80–94,
-             red ≥95. DynamicResource so it also tracks the light/dark theme. -->
-        <Style x:Key="Cp.MeterFill" TargetType="Border">
-            <!-- Small radius, not 99: a pill radius on a 4–6px bar makes the end-caps
-                 full semicircles that taper to points, so the middle looks bulged. -->
-            <Setter Property="CornerRadius" Value="2"/>
-            <Setter Property="Background" Value="{DynamicResource Cp.Accent}"/>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding MeterLevel}" Value="warn">
-                    <Setter Property="Background" Value="{DynamicResource Cp.Amber}"/>
-                </DataTrigger>
-                <DataTrigger Binding="{Binding MeterLevel}" Value="critical">
-                    <Setter Property="Background" Value="{DynamicResource Cp.Red}"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-    </UserControl.Resources>
     <Border BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,1,0,0"
             Background="{DynamicResource Cp.Bg}" Padding="14,12,14,11">
         <StackPanel>
             <!-- pending pasted screenshots (thumbnail chips with an × to remove) -->
             <StackPanel x:Name="ThumbStrip" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,8"/>
-
-            <!-- 80% one-time note (dismissible). Amber-tinted, sits above the input. -->
-            <Border Margin="0,0,0,8" CornerRadius="9" Padding="11,7,7,7"
-                    Background="{DynamicResource Cp.AmberBg}" BorderBrush="{DynamicResource Cp.AmberLn}" BorderThickness="1"
-                    Visibility="{Binding ShowWarn80, Converter={StaticResource BoolVis}}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="{Binding Warn80Text}" TextWrapping="Wrap"
-                               FontSize="11.5" Foreground="{DynamicResource Cp.AmberFg}" VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" Width="22" Height="22" Cursor="Hand" Click="OnDismissWarn80"
-                            Background="Transparent" BorderThickness="0" ToolTip="Dismiss">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border Background="Transparent" CornerRadius="6"><ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
-                            </ControlTemplate>
-                        </Button.Template>
-                        <Path Width="10" Height="10" Stretch="Uniform" StrokeThickness="1.7"
-                              Stroke="{DynamicResource Cp.AmberFg}" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                              Data="M5,5 L15,15 M15,5 L5,15"/>
-                    </Button>
-                </Grid>
-            </Border>
-
-            <!-- 95% banner (non-dismissible). Red-tinted, "Running low…", tap to upgrade. -->
-            <Border Margin="0,0,0,8" CornerRadius="9" Padding="11,7,11,7" Cursor="Hand"
-                    Background="{DynamicResource Cp.IssueBg}" BorderBrush="{DynamicResource Cp.IssueLn}" BorderThickness="1"
-                    MouseLeftButtonDown="OnBannerUpgrade"
-                    Visibility="{Binding ShowWarn95, Converter={StaticResource BoolVis}}">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="{Binding Warn95Text}" TextWrapping="Wrap"
-                               FontSize="11.5" FontWeight="Medium" Foreground="{DynamicResource Cp.IssueFg}" VerticalAlignment="Center"/>
-                    <Path Grid.Column="1" Width="12" Height="12" Margin="8,0,0,0" Stretch="Uniform" StrokeThickness="1.8"
-                          Stroke="{DynamicResource Cp.IssueFg}" VerticalAlignment="Center"
-                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M9,6 l6,6 -6,6"/>
-                </Grid>
-            </Border>
-
             <!-- Slate composer: sunken rounded container, borderless input,
                  ghost attach button, accent-gradient send/stop button. -->
-            <Border Background="{DynamicResource Cp.Sunken}" CornerRadius="14" Padding="13,8,8,8">
+            <Border Background="{DynamicResource Cp.Sunken}" CornerRadius="13" Padding="13,8,8,8">
                 <DockPanel LastChildFill="True">
                     <!-- send / stop: circular; gray while idle, accent gradient once
                          there is text; stop square while a reply streams -->
@@ -83,7 +19,7 @@
                             ToolTip="Send">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}" CornerRadius="16">
+                                <Border Background="{TemplateBinding Background}" CornerRadius="9">
                                     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                             </ControlTemplate>
@@ -103,7 +39,7 @@
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                        <Setter TargetName="bd" Property="Background" Value="#e7ecf2"/>
                                     </Trigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
@@ -124,7 +60,7 @@
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                        <Setter TargetName="bd" Property="Background" Value="#e7ecf2"/>
                                     </Trigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
@@ -137,78 +73,75 @@
                     <ctl:MentionInput x:Name="Input" VerticalAlignment="Center" Margin="0,0,8,0"/>
                 </DockPanel>
             </Border>
-            <!-- Footer usage meter (plan name · progress track · pct). Live from
-                 the VM; click toggles the usage popover. Chat view only. -->
-            <Border x:Name="MeterRow" Margin="0,9,0,0" Padding="4,3,4,3" CornerRadius="7" Cursor="Hand"
-                    Background="Transparent" MouseLeftButtonUp="OnMeterClick" ToolTip="Plan usage"
-                    Visibility="{Binding ShowUsageMeter, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource BoolVis}}">
-                <Grid>
+            <!-- Footer usage meter (design: plan name · progress track · pct).
+                 Bound to CopilotViewModel.Usage via BindUsage(); click opens the
+                 usage popover (UsageMeterClicked). -->
+            <Button x:Name="MeterBtn" Visibility="Collapsed" Cursor="Hand"
+                    Background="Transparent" BorderThickness="0" Padding="0"
+                    HorizontalContentAlignment="Stretch" ToolTip="Plan usage">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="Transparent">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.82"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Button.Template>
+                <Grid Margin="4,9,4,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="{Binding PlanName}" FontSize="10.5" FontWeight="SemiBold"
+                    <TextBlock x:Name="MeterPlan" Grid.Column="0" FontSize="10.5" FontWeight="SemiBold"
                                Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
                     <Border Grid.Column="1" Height="4" CornerRadius="2" Margin="9,0,9,0"
                             Background="{DynamicResource Cp.Line}" VerticalAlignment="Center" ClipToBounds="True">
                         <Grid>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="{Binding UsagePct, Converter={StaticResource PctStar}}"/>
-                                <ColumnDefinition Width="{Binding UsagePct, Converter={StaticResource PctStar}, ConverterParameter=Rest}"/>
+                                <ColumnDefinition x:Name="MeterFillCol" Width="88*"/>
+                                <ColumnDefinition x:Name="MeterRestCol" Width="12*"/>
                             </Grid.ColumnDefinitions>
-                            <Border Grid.Column="0" Style="{StaticResource Cp.MeterFill}"/>
+                            <Border x:Name="MeterFill" Grid.Column="0" CornerRadius="2"/>
                         </Grid>
                     </Border>
-                    <TextBlock Grid.Column="2" Text="{Binding UsagePctText}" FontSize="10.5" FontWeight="Bold"
+                    <TextBlock x:Name="MeterPct" Grid.Column="2" FontSize="10.5" FontWeight="Bold"
                                Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
                 </Grid>
-            </Border>
-
-            <!-- Usage popover: click-toggle, opaque card, grows upward from 8px above
-                 the footer, menuPop scale-in on open (see code-behind). -->
-            <Popup x:Name="UsagePopup" PlacementTarget="{Binding ElementName=MeterRow}" Placement="Top"
-                   VerticalOffset="-8" StaysOpen="False" AllowsTransparency="True" PopupAnimation="None"
-                   Opened="OnUsagePopupOpened" Closed="OnUsagePopupClosed">
-                <!-- Transparent outer padding leaves room for the drop shadow so it isn't clipped. -->
-                <Border Padding="10,10,10,12" Background="Transparent">
-                    <Border x:Name="UsageCard" Focusable="True" PreviewKeyDown="OnUsageCardKeyDown"
-                            Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
-                            CornerRadius="13" Padding="15,14,15,15" Width="272" RenderTransformOrigin="0.5,1">
-                        <Border.RenderTransform>
-                            <ScaleTransform ScaleX="1" ScaleY="1"/>
-                        </Border.RenderTransform>
-                        <Border.Effect>
-                            <DropShadowEffect BlurRadius="24" ShadowDepth="6" Opacity="0.22" Color="#000000"/>
-                        </Border.Effect>
-                        <StackPanel>
-                        <TextBlock Text="{Binding PlanName}" FontSize="14.5" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
-                        <TextBlock Text="Plan usage" FontSize="11" Foreground="{DynamicResource Cp.Muted}" Margin="0,1,0,0"/>
-                        <Grid Margin="0,13,0,6">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="Usage" FontSize="12" Foreground="{DynamicResource Cp.Text}"/>
-                            <TextBlock Grid.Column="1" Text="{Binding UsageUsedText}" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
+            </Button>
+            <!-- Usage popover: plan, bar, Upgrade plan (design lines 536-548) -->
+            <Popup x:Name="UsagePopup" PlacementTarget="{Binding ElementName=MeterBtn}" Placement="Top"
+                   VerticalOffset="-8" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                <Border Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}"
+                        BorderThickness="1" CornerRadius="13" Padding="15,15,15,14" MinWidth="228" Margin="8">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="24" ShadowDepth="6" Opacity="0.28" Color="#000000"/>
+                    </Border.Effect>
+                    <StackPanel>
+                        <TextBlock x:Name="PopPlan" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource Cp.Ink}"/>
+                        <TextBlock Text="Plan usage" FontSize="10.5" Foreground="{DynamicResource Cp.Faint}" Margin="0,2,0,0"/>
+                        <Grid Margin="0,13,0,7">
+                            <TextBlock Text="Usage" FontSize="11" Foreground="{DynamicResource Cp.Muted}" HorizontalAlignment="Left"/>
+                            <TextBlock x:Name="PopPctUsed" FontSize="11.5" FontWeight="Bold" Foreground="{DynamicResource Cp.Ink}" HorizontalAlignment="Right"/>
                         </Grid>
                         <Border Height="6" CornerRadius="2" Background="{DynamicResource Cp.Line}" ClipToBounds="True">
                             <Grid>
                                 <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="{Binding UsagePct, Converter={StaticResource PctStar}}"/>
-                                    <ColumnDefinition Width="{Binding UsagePct, Converter={StaticResource PctStar}, ConverterParameter=Rest}"/>
+                                    <ColumnDefinition x:Name="PopFillCol" Width="88*"/>
+                                    <ColumnDefinition x:Name="PopRestCol" Width="12*"/>
                                 </Grid.ColumnDefinitions>
-                                <Border Grid.Column="0" Style="{StaticResource Cp.MeterFill}"/>
+                                <Border x:Name="PopFill" Grid.Column="0" CornerRadius="2"/>
                             </Grid>
                         </Border>
-
-                        <!-- Admin: Upgrade CTA -->
-                        <Button x:Name="PopoverUpgradeBtn" Margin="0,15,0,0" Height="32" Cursor="Hand" Click="OnPopoverUpgrade"
-                                Foreground="{DynamicResource Cp.AccentContrast}" BorderThickness="0"
-                                Visibility="{Binding IsUsageAdmin, Converter={StaticResource BoolVis}}">
+                        <Button x:Name="PopUpgradeBtn" Height="32" Margin="0,13,0,0" Cursor="Hand"
+                                Background="{DynamicResource Cp.AccentGrad}" BorderThickness="0">
                             <Button.Template>
                                 <ControlTemplate TargetType="Button">
-                                    <Border x:Name="bd" Background="{DynamicResource Cp.AccentGrad}" CornerRadius="9">
+                                    <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="9">
                                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
                                     <ControlTemplate.Triggers>
@@ -219,36 +152,15 @@
                                 </ControlTemplate>
                             </Button.Template>
                             <StackPanel Orientation="Horizontal">
-                                <Path Width="12" Height="12" Margin="0,0,7,0" Stretch="Uniform" VerticalAlignment="Center"
-                                      Fill="{DynamicResource Cp.AccentContrast}" Data="M13,2 L4,14 h6 l-1,8 9,-12 h-6 Z"/>
-                                <TextBlock Text="Upgrade plan" FontSize="12.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                <Path Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center"
+                                      Fill="Transparent" Stroke="{DynamicResource Cp.AccentContrast}" StrokeThickness="2.1"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                      Data="M13,2 4.5,13.5 H11 l-1,8.5 8.5,-11.5 H12 Z"/>
+                                <TextBlock Text="Upgrade plan" FontSize="11.5" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource Cp.AccentContrast}" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
-
-                        <!-- Member: managed-by-admin note + notify -->
-                        <StackPanel Margin="0,14,0,0" Visibility="{Binding IsUsageAdmin, Converter={StaticResource BoolVis}, ConverterParameter=Invert}">
-                            <TextBlock TextWrapping="Wrap" FontSize="12" Foreground="{DynamicResource Cp.Muted}">
-                                <Run Text="Your plan is managed by "/><Run Text="{Binding AdminContact, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Text}"/><Run Text="."/>
-                            </TextBlock>
-                            <Button Margin="0,11,0,0" Height="40" Cursor="Hand" Click="OnNotifyAdmin"
-                                    Background="Transparent" Foreground="{DynamicResource Cp.Ink}">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border x:Name="bd" Background="Transparent" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1" CornerRadius="10">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Button.Template>
-                                <TextBlock Text="Notify admin to upgrade" FontSize="12.5" FontWeight="SemiBold"/>
-                            </Button>
-                        </StackPanel>
-                        </StackPanel>
-                    </Border>
+                    </StackPanel>
                 </Border>
             </Popup>
             <TextBlock x:Name="PlaceholderHint" HorizontalAlignment="Center" Margin="0,8,0,1"

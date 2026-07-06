@@ -1,9 +1,7 @@
-using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 
 namespace RevitWebAppSync.UI.Copilot.Controls
 {
@@ -21,11 +19,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public PromptBar()
         {
             InitializeComponent();
-            // Escape closes the usage popover even if focus is still in the composer.
-            PreviewKeyDown += (_, e) =>
-            {
-                if (e.Key == Key.Escape && UsagePopup.IsOpen) { UsagePopup.IsOpen = false; e.Handled = true; }
-            };
             SendBtn.Click += (_, __) =>
             {
                 // Busy → the button is a Stop: cancel the in-flight reply instead
@@ -103,6 +96,56 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 };
                 if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
             };
+            MeterBtn.Click += (_, __) =>
+            {
+                UsagePopup.IsOpen = !UsagePopup.IsOpen;
+                UsageMeterClicked?.Invoke();
+            };
+            PopUpgradeBtn.Click += (_, __) =>
+            {
+                UsagePopup.IsOpen = false;
+                UpgradeRequested?.Invoke();
+            };
+        }
+
+        // ─── Footer usage meter ───────────────────────────────────────────────
+        /// <summary>Raised when the meter row is clicked (popover opens itself).</summary>
+        public event System.Action UsageMeterClicked;
+
+        /// <summary>Raised by the popover's "Upgrade plan" button; host opens the upgrade sheet.</summary>
+        public event System.Action UpgradeRequested;
+
+        /// <summary>Bind the meter to the VM's usage snapshot; re-renders on UsageChanged.</summary>
+        public void BindUsage(CopilotViewModel vm)
+        {
+            if (vm == null) return;
+            void Render()
+            {
+                var u = vm.Usage;
+                // Pro/unlimited (0%) hides the meter — design shows it for limited plans.
+                bool show = u != null && (u.Pct > 0 || u.AtLimit || u.PlanName == "Free");
+                MeterBtn.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+                if (!show) return;
+                MeterPlan.Text = u.PlanName;
+                MeterPct.Text = u.Pct + "%";
+                var fill = CopilotTheme.Brush(Model.UsageState.MeterColorKey(u.Pct));
+                MeterFill.Background = fill;
+                // Proportional fill via star-sized columns (avoids manual measure).
+                MeterFillCol.Width = new GridLength(System.Math.Max(0, u.Pct), GridUnitType.Star);
+                MeterRestCol.Width = new GridLength(System.Math.Max(0, 100 - u.Pct), GridUnitType.Star);
+                // Popover mirrors the same snapshot.
+                PopPlan.Text = u.PlanName;
+                PopPctUsed.Text = u.Pct + "% used";
+                PopFill.Background = fill;
+                PopFillCol.Width = new GridLength(System.Math.Max(0, u.Pct), GridUnitType.Star);
+                PopRestCol.Width = new GridLength(System.Math.Max(0, 100 - u.Pct), GridUnitType.Star);
+            }
+            vm.UsageChanged += () =>
+            {
+                if (Dispatcher.CheckAccess()) Render();
+                else Dispatcher.BeginInvoke((System.Action)Render);
+            };
+            Render();
         }
 
         // ─── Pasted screenshots (pending, sent with the next prompt) ─────────
@@ -251,71 +294,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             var pb = (PromptBar)d;
             if (pb.Input != null) pb.Input.PlaceholderText = (string)e.NewValue;
-        }
-
-        // ─── Usage / subscription handlers ───────────────────────────────────
-        private CopilotViewModel Vm => DataContext as CopilotViewModel;
-
-        // Env-tick of the last popover close, for the meter toggle guard below.
-        private int _usagePopupClosedTick = -10000;
-
-        private void OnMeterClick(object sender, MouseButtonEventArgs e)
-        {
-            // Click-to-toggle. The handler runs on mouse-UP; a StaysOpen=False popup
-            // is dismissed by the earlier mouse-DOWN of this same click, so:
-            //  • if it's still open → close it;
-            //  • if it just closed (within a beat) → this click WAS the toggle-off,
-            //    so leave it closed instead of reopening;
-            //  • otherwise → open it.
-            e.Handled = true;
-            if (UsagePopup.IsOpen) { UsagePopup.IsOpen = false; return; }
-            if (Environment.TickCount - _usagePopupClosedTick < 250) return;
-            UsagePopup.IsOpen = true;
-        }
-
-        // menuPop: fade + scale-in from 0.98 over ~150ms. Code-driven because XAML
-        // Storyboards can crash inside a Revit dockable pane.
-        private void OnUsagePopupOpened(object sender, EventArgs e)
-        {
-            var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
-            var dur = new Duration(TimeSpan.FromMilliseconds(150));
-            if (UsageCard.RenderTransform is ScaleTransform st)
-            {
-                st.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation(0.98, 1.0, dur) { EasingFunction = ease });
-                st.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation(0.98, 1.0, dur) { EasingFunction = ease });
-            }
-            UsageCard.BeginAnimation(OpacityProperty, new DoubleAnimation(0.0, 1.0, dur) { EasingFunction = ease });
-            // Focus the card so Escape reaches OnUsageCardKeyDown.
-            UsageCard.Focus();
-        }
-
-        private void OnUsagePopupClosed(object sender, EventArgs e) => _usagePopupClosedTick = Environment.TickCount;
-
-        private void OnUsageCardKeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Key == Key.Escape) { UsagePopup.IsOpen = false; e.Handled = true; }
-        }
-
-        // Whether the footer usage meter (and its popover trigger) is shown. Off by
-        // default; turned on only for the Chat view's PromptBar.
-        public static readonly DependencyProperty ShowUsageMeterProperty = DependencyProperty.Register(
-            nameof(ShowUsageMeter), typeof(bool), typeof(PromptBar), new PropertyMetadata(false));
-        public bool ShowUsageMeter { get => (bool)GetValue(ShowUsageMeterProperty); set => SetValue(ShowUsageMeterProperty, value); }
-
-        private void OnDismissWarn80(object sender, RoutedEventArgs e) => Vm?.DismissWarn80();
-
-        private void OnBannerUpgrade(object sender, MouseButtonEventArgs e) => Vm?.RequestUpgrade();
-
-        private void OnPopoverUpgrade(object sender, RoutedEventArgs e)
-        {
-            UsagePopup.IsOpen = false;
-            Vm?.RequestUpgrade();
-        }
-
-        private void OnNotifyAdmin(object sender, RoutedEventArgs e)
-        {
-            UsagePopup.IsOpen = false;
-            Vm?.NotifyAdmin();
         }
     }
 }

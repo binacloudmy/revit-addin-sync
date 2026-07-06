@@ -1,22 +1,21 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
-using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using RevitWebAppSync.UI.Copilot;
-using RevitWebAppSync.UI.Copilot.Controls;
 using RevitWebAppSync.UI.Copilot.Model;
+using RevitWebAppSync.UI.Copilot.Services;
 
 namespace UiHarness
 {
     /// <summary>
     /// Renders the Copilot panel to PNG files off-screen — no Revit, no visible
     /// window — so UI changes can be reviewed as images. Invoked by
-    /// `UiHarness --shot &lt;dir&gt;`. A fresh panel is built per theme so the header
+    /// `UiHarness --shot &lt;dir&gt;`. A fresh panel is built per state so the header
     /// icon matches, and the user's real theme preference is restored afterward.
     /// </summary>
     internal static class HarnessShots
@@ -26,45 +25,89 @@ namespace UiHarness
             Directory.CreateDirectory(dir);
             bool userDark = CopilotPrefs.Load().Dark;   // restore this at the end
 
+            // Base states
             Shot(dir, "copilot-light.png", dark: false);
             Shot(dir, "copilot-dark.png", dark: true);
-            Shot(dir, "copilot-dark-answer.png", dark: true, seedChat: true);   // AI reply legible on dark
-            Shot(dir, "copilot-rate-sheet.png", dark: true, action: "rate");
+            Shot(dir, "copilot-history.png", dark: false, configure: p => { p.ViewModel.GoTab(CpTab.History); return 0; });
 
-            // Subscription/usage states.
-            Shot(dir, "copilot-usage-80.png", dark: false, usage: 88);   // amber meter + 80 note
-            Shot(dir, "copilot-usage-95.png", dark: false, usage: 96);   // red meter + 95 banner
-            Shot(dir, "copilot-blocked.png", dark: false, usage: 100);   // blocked composer
-            Shot(dir, "copilot-plans.png", dark: false, usage: 100, action: "upgrade"); // plan carousel (Basic centered)
-            Shot(dir, "copilot-plans-pro.png", dark: false, usage: 100, action: "upgrade", planIndex: 2); // Pro centered
-            Shot(dir, "copilot-plans-dark.png", dark: true, usage: 100, action: "upgrade"); // cards must lift off the dark sheet
-            Shot(dir, "copilot-history.png", dark: false, action: "history");  // slim scrollbar on the overflowing list
-            Shot(dir, "copilot-history-dark.png", dark: true, action: "history");
-            PopoverShot(dir, "copilot-popover.png", dark: false, usage: 88);  // usage popover card
+            // Sheets
+            Shot(dir, "copilot-rate-sheet.png", dark: true, configure: p => { p.ViewModel.RequestRate(); return 450; });
+            Shot(dir, "copilot-upgrade-sheet.png", dark: false, configure: p => { p.ShowUpgradeSheet(); return 500; });
+
+            // Thread: user msg + AI answer + Proposed command card
+            Shot(dir, "copilot-thread.png", dark: false, configure: p => { SeedThread(p, applied: false); return 500; });
+            // Applied command card (+ rating nudge)
+            Shot(dir, "copilot-applied.png", dark: false, configure: p => { SeedThread(p, applied: true); return 500; });
+
+            // Footer meter ramp
+            Shot(dir, "copilot-meter-22.png", dark: false, configure: p => SetUsage(p, 22));
+            Shot(dir, "copilot-meter-88.png", dark: false, configure: p => SetUsage(p, 88));
+            Shot(dir, "copilot-meter-97.png", dark: false, configure: p => SetUsage(p, 97));
+
+            // Usage-limit blocked states
+            Shot(dir, "copilot-blocked-admin.png", dark: false,
+                configure: p => SetUsage(p, 100, atLimit: true, isAdmin: true));
+            Shot(dir, "copilot-blocked-member.png", dark: false,
+                configure: p => SetUsage(p, 100, atLimit: true, isAdmin: false));
 
             // Undo the persistence side-effect of SetDark so we don't silently
             // flip the user's Copilot theme just by taking screenshots.
             CopilotTheme.SetDark(userDark);
         }
 
-        private static void Shot(string dir, string file, bool dark, int usage = -1, string action = null, bool seedChat = false, int planIndex = -1)
+        // Inject a stub usage snapshot and refresh; returns extra settle time.
+        private static int SetUsage(CopilotPanel panel, int pct, bool atLimit = false, bool isAdmin = true)
+        {
+            panel.ViewModel.UsageService = new StubUsageService("Free", pct, atLimit, isAdmin);
+            _ = panel.ViewModel.RefreshUsageAsync();
+            return 400;
+        }
+
+        private static int SeedThread(CopilotPanel panel, bool applied)
+        {
+            var vm = panel.ViewModel;
+            vm.Thread.Add(new ChatMessage
+            {
+                Role = "user", Kind = CpMsgKind.User, Time = "2:25 PM",
+                Text = "Create exterior walls on Level 2 along grid A–F",
+            });
+            vm.Thread.Add(new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.AiReply, Time = "2:25 PM",
+                Text = "I'll create the walls. Review the proposed action below and apply when ready.",
+            });
+            if (applied)
+            {
+                vm.Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.Result, ToolId = "create-walls", Time = "2:26 PM",
+                    Result = new ResultModel { Kind = CpResultKind.Plain, Headline = "6 walls created on Level 2." },
+                });
+            }
+            else
+            {
+                vm.Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.Proposal, ToolId = "create-walls", Time = "2:25 PM",
+                    PlanSteps = new List<string>
+                    {
+                        "Find grid lines A through F on Level 2",
+                        "Create Generic — 200 mm walls along each segment",
+                        "Set wall height to 3,200 mm",
+                    },
+                    Code = "// generated C#\nvar level = FindLevel(\"Level 2\");",
+                });
+            }
+            return 500;
+        }
+
+        private static void Shot(string dir, string file, bool dark, Func<CopilotPanel, int> configure = null)
         {
             // Set the theme BEFORE constructing the panel so its constructor picks
             // the matching header icon (moon in light / sun in dark).
             CopilotTheme.SetDark(dark);
 
             var panel = new CopilotPanel();
-            if (usage >= 0 && panel.ViewModel.Usage is MockUsageService m) m.UsagePct = usage;
-            if (seedChat)
-            {
-                panel.ViewModel.Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = "Create exterior walls on Level 2 along grid A–F" });
-                panel.ViewModel.Thread.Add(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.AiReply,
-                    Text = "Here's what I'll do:\n\n**Exterior walls** on Level 2, grid A → F.\n\n- Type: `Basic Wall — Exterior`\n- Height: Level 2 to Level 3\n\nSay the word and I'll generate the command.",
-                });
-            }
-
             var frame = new Frame { Content = panel };
             var win = new Window
             {
@@ -75,70 +118,15 @@ namespace UiHarness
             win.Show();
             Settle(200);
 
-            if (action == "history") { panel.ViewModel.GoTab(CpTab.History); Settle(350); }
-            else if (action == "rate") { panel.ViewModel.RequestRate(); Settle(450); }
-            else if (action == "upgrade")
+            if (configure != null)
             {
-                panel.ViewModel.RequestUpgrade(); Settle(500);
-                if (planIndex >= 0)
-                {
-                    panel.GetType().GetMethod("SetPlanIndex", BindingFlags.NonPublic | BindingFlags.Instance)
-                        ?.Invoke(panel, new object[] { planIndex });
-                    Settle(400);   // let the carousel animate to the new centre
-                }
+                int extra = 0;
+                try { extra = configure(panel); } catch { /* state seeding is best-effort */ }
+                Settle(Math.Max(200, extra));
             }
 
             Save(frame, Path.Combine(dir, file));
             win.Close();
-        }
-
-        // The usage popover is a WPF Popup (its own top-level window), so the normal
-        // Shot() capture of the panel can't see it. Open it via reflection and render
-        // just the card visual so the popover can still be verified as an image.
-        private static void PopoverShot(string dir, string file, bool dark, int usage)
-        {
-            CopilotTheme.SetDark(dark);
-            var panel = new CopilotPanel();
-            if (panel.ViewModel.Usage is MockUsageService m) m.UsagePct = usage;
-
-            var frame = new Frame { Content = panel };
-            var win = new Window
-            {
-                Width = 430, Height = 860, Content = frame,
-                WindowStyle = WindowStyle.None, ShowInTaskbar = false,
-                Left = -4000, Top = -4000, ResizeMode = ResizeMode.NoResize,
-            };
-            win.Show();
-            Settle(200);
-
-            var bar = FindVisual<PromptBar>(panel);
-            var popup = bar?.GetType()
-                .GetField("UsagePopup", BindingFlags.NonPublic | BindingFlags.Instance)
-                ?.GetValue(bar) as Popup;
-            if (popup != null)
-            {
-                popup.IsOpen = true;
-                Settle(350);   // let the popup window lay out + menuPop settle
-                if (popup.Child is FrameworkElement card)
-                {
-                    card.UpdateLayout();
-                    Save(card, Path.Combine(dir, file));
-                }
-                popup.IsOpen = false;
-            }
-            win.Close();
-        }
-
-        private static T FindVisual<T>(DependencyObject root) where T : DependencyObject
-        {
-            if (root is T hit) return hit;
-            int n = VisualTreeHelper.GetChildrenCount(root);
-            for (int i = 0; i < n; i++)
-            {
-                var found = FindVisual<T>(VisualTreeHelper.GetChild(root, i));
-                if (found != null) return found;
-            }
-            return null;
         }
 
         private static void Save(FrameworkElement el, string path)

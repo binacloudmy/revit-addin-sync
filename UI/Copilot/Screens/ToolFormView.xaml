@@ -17,12 +17,12 @@
                 <StackPanel x:Name="FieldsHost"/>
 
                 <!-- Preview card -->
-                <Border Background="#f0fdf4" BorderBrush="#bbf7d0" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,2,0,0">
+                <Border Background="{DynamicResource Cp.Tier1Bg}" BorderBrush="{DynamicResource Cp.SuccessLn}" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,2,0,0">
                     <StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-                            <Path Width="11" Height="11" Stretch="Uniform" Stroke="#15803d" StrokeThickness="2.2"
+                            <Path Width="11" Height="11" Stretch="Uniform" Stroke="{DynamicResource Cp.Tier1Fg}" StrokeThickness="2.2"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M5,12 l5,5 L20,7" Margin="0,0,5,0"/>
-                            <TextBlock Text="PREVIEW" FontSize="11" FontWeight="SemiBold" Foreground="#15803d"/>
+                            <TextBlock Text="PREVIEW" FontSize="11" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Tier1Fg}"/>
                         </StackPanel>
                         <TextBlock x:Name="PreviewText" FontSize="12.5" Foreground="{DynamicResource Cp.Text}" TextWrapping="Wrap"/>
                     </StackPanel>

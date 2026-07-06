@@ -66,6 +66,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (Vm == null || RowsHost == null) return;
             Sub.Text = $"{Vm.History.Count} session{(Vm.History.Count == 1 ? "" : "s")}";
             RowsHost.Children.Clear();
+            // Design list header (line 294): caps section label above the rows.
+            RowsHost.Children.Add(new TextBlock
+            {
+                Text = "RECENT CONVERSATIONS", FontSize = 10.5, FontWeight = FontWeights.SemiBold,
+                Foreground = CopilotColors.From("#99a3b3"),
+                Margin = new Thickness(16, 12, 16, 4),
+            });
             foreach (var h in Vm.History)
                 RowsHost.Children.Add(Row(h));
         }
@@ -212,23 +219,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            string statusColor = h.Status == "ok" ? "#10b981" : h.Status == "warn" ? "#d97706" : "#99a3b3";
-            var dot = new Ellipse
+            // Design row (lines 296-300): a plain 30×30 chat-bubble icon tile — no
+            // status dot, no colored background.
+            var tile = new Border { Width = 30, Height = 30, VerticalAlignment = VerticalAlignment.Top };
+            var chatIcon = new Path
             {
-                Width = 6, Height = 6,
-                Fill = CopilotColors.From(statusColor),
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 7, 10, 0),
+                Width = 16, Height = 16, Stretch = Stretch.Uniform, StrokeThickness = 1.8,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+                Stroke = CopilotColors.From("#99a3b3"),
+                Data = Geometry.Parse("M21,15 a2,2 0 0 1 -2,2 H8 l-4,4 V5 a2,2 0 0 1 2,-2 h13 a2,2 0 0 1 2,2 Z"),
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
             };
-            Grid.SetColumn(dot, 0);
-
-            var tile = new IconTile
-            {
-                Glyph = "sparkles",
-                TileBg = "#dbeafe", TileFg = "#1d4ed8",
-                TileSize = 22, GlyphSize = 11, Corner = 5,
-                VerticalAlignment = VerticalAlignment.Top,
-            };
+            tile.Child = chatIcon;
             Grid.SetColumn(tile, 1);
 
             int msgCount = h.History?.Count ?? 0;
@@ -297,7 +299,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             chevBtn.Click += (_, e2) => { e2.Handled = true; ShowDetail(h); };
             Grid.SetColumn(chevBtn, 4);
 
-            g.Children.Add(dot);
             g.Children.Add(tile);
             g.Children.Add(col);
             g.Children.Add(dotsBtn);
@@ -497,19 +498,15 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (_rowTemplate != null) return _rowTemplate;
             var border = new FrameworkElementFactory(typeof(Border));
             border.Name = "bd";
-            // Live resource ref (cached template ⇒ a captured brush would freeze to the
-            // first-rendered theme). Cp.LineSoft = design --hair, swaps per theme.
-            border.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
+            border.SetValue(Border.BorderBrushProperty, CopilotColors.From("#0D0F1B2D"));
             border.SetValue(Border.BorderThicknessProperty, new Thickness(0, 0, 0, 1));
             border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
             var cp = new FrameworkElementFactory(typeof(ContentPresenter));
             border.AppendChild(cp);
             _rowTemplate = new ControlTemplate(typeof(Button)) { VisualTree = border };
-            // Hover wash — the design's --hover surface. Live DynamicResource (not a
-            // captured brush): this template is cached statically, so a fixed brush would
-            // freeze the hover to the first-rendered theme. Cp.Hover swaps per theme.
+            // Hover wash — the design's --hover surface.
             var hover = new Trigger { Property = Button.IsMouseOverProperty, Value = true };
-            hover.Setters.Add(new Setter(Border.BackgroundProperty, new DynamicResourceExtension("Cp.Hover"), "bd"));
+            hover.Setters.Add(new Setter(Border.BackgroundProperty, CopilotColors.From("#f3f6f9"), "bd"));
             _rowTemplate.Triggers.Add(hover);
             return _rowTemplate;
         }

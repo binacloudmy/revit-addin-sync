@@ -70,19 +70,71 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private void OnThemeChanged() => Rebuild();
 
+        /// <summary>Raised by the blocked state's "Upgrade plan" CTA (the panel opens the sheet).</summary>
+        public event System.Action UpgradeRequested;
+
         private void Hook()
         {
-            if (_hooked != null) _hooked.Thread.CollectionChanged -= OnThread;
+            if (_hooked != null)
+            {
+                _hooked.Thread.CollectionChanged -= OnThread;
+                _hooked.UsageChanged -= UpdateBlocked;
+                _hooked.PropertyChanged -= OnVmProp;
+            }
             _hooked = Vm;
-            if (_hooked != null) _hooked.Thread.CollectionChanged += OnThread;
+            if (_hooked != null)
+            {
+                _hooked.Thread.CollectionChanged += OnThread;
+                _hooked.UsageChanged += UpdateBlocked;
+                _hooked.PropertyChanged += OnVmProp;
+                Prompt.BindUsage(_hooked);
+                _ = _hooked.RefreshUsageAsync();
+            }
             Rebuild();
+            UpdateBlocked();
+        }
+
+        private void OnVmProp(object s, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(CopilotViewModel.IsSending)) UpdateBlocked();
+        }
+
+        /// <summary>At 100% usage the composer is replaced by the blocked state —
+        /// centered over the empty body, or a bottom section under a thread.</summary>
+        private void UpdateBlocked()
+        {
+            if (!Dispatcher.CheckAccess())
+            {
+                Dispatcher.BeginInvoke((System.Action)UpdateBlocked);
+                return;
+            }
+            var vm = Vm;
+            bool blocked = vm != null && vm.Usage != null && vm.Usage.AtLimit && !vm.IsSending;
+            if (!blocked)
+            {
+                BlockedHost.Visibility = Visibility.Collapsed;
+                BlockedHost.Content = null;
+                Prompt.Visibility = Visibility.Visible;
+                Grid.SetRow(BlockedHost, 2);
+                return;
+            }
+            bool centered = vm.Thread.Count == 0;
+            Grid.SetRow(BlockedHost, centered ? 1 : 2);
+            BlockedHost.VerticalAlignment = centered ? VerticalAlignment.Center : VerticalAlignment.Bottom;
+            BlockedHost.Content = Controls.BlockedView.Build(
+                vm.Usage,
+                () => UpgradeRequested?.Invoke(),
+                () => vm.UsageService != null ? vm.UsageService.NotifyAdminAsync() : System.Threading.Tasks.Task.CompletedTask,
+                centered);
+            BlockedHost.Visibility = Visibility.Visible;
+            Prompt.Visibility = Visibility.Collapsed;
         }
 
         private void OnThread(object s, NotifyCollectionChangedEventArgs e)
         {
-            // Rebuild only — the actual scroll is driven by OnScroll's stick logic
-            // (the new/taller content raises ExtentHeightChange). Unconditionally
-            // scrolling here would yank a user who has scrolled up to read.
+            // Rebuild only — the scroll is driven by OnScroll's stick logic (new/taller
+            // content raises ExtentHeightChange). Unconditionally scrolling here would
+            // yank a user who has scrolled up to read.
             Rebuild();
         }
 
@@ -94,16 +146,15 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             if (e.ExtentHeightChange == 0)
             {
-                // A user (or layout) scroll with no content-size change: update intent.
+                // A user/layout scroll with no content-size change: update intent.
                 // Within 4px of the bottom counts as "following".
                 _stick = e.VerticalOffset + e.ViewportHeight >= e.ExtentHeight - 4;
             }
             else if (_stick)
             {
-                // Content grew (new message / a streaming answer getting taller): follow
-                // the bottom. Defer to Loaded priority so it runs AFTER layout settles —
-                // the WPF equivalent of the mockup's double requestAnimationFrame; a
-                // synchronous ScrollToEnd lands short of the bottom mid-stream.
+                // Content grew (new message / streaming answer getting taller): follow
+                // the bottom, deferred to Loaded priority so it runs after layout settles
+                // (the WPF equivalent of the mockup's double requestAnimationFrame).
                 Dispatcher.BeginInvoke(
                     new System.Action(() => Scroller?.ScrollToEnd()),
                     System.Windows.Threading.DispatcherPriority.Loaded);
@@ -141,6 +192,31 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             BodyHost.Children.Add(thread);
         }
 
+        // Italic faint "Interrupted." row (design lines 175-180).
+        private FrameworkElement InterruptedLine(string text)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 1, 0, 15) };
+            var icon = new System.Windows.Shapes.Path
+            {
+                Width = 13, Height = 13, Stretch = Stretch.Uniform, StrokeThickness = 2.2,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                // circle + filled square (stop-in-circle)
+                Data = Geometry.Parse("M12,3 A9,9 0 1 1 11.99,3 Z M9,9 H15 V15 H9 Z"),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
+            };
+            icon.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "Cp.Faint");
+            row.Children.Add(icon);
+            var tb = new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(text) ? "Interrupted." : text,
+                FontSize = 13, FontStyle = FontStyles.Italic, VerticalAlignment = VerticalAlignment.Center,
+            };
+            tb.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+            row.Children.Add(tb);
+            MsgRise(row);
+            return row;
+        }
+
         // Design "msgRise": opacity 0→1 + translateY 7→0, .34s ease-out. Direct
         // BeginAnimation on the element (same pattern as the spinner below) —
         // no XAML Storyboard, which crashes inside a Revit dockable pane.
@@ -162,7 +238,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (m.Role == "user")
                 return CopilotMessageBubble.User(
                     m.Text, Vm?.UserFirstName, m.ImagesBase64,
-                    m.Files?.Select(f => (f.Name, LineCount(f.Content))), BubbleMaxWidth());
+                    m.Files?.Select(f => (f.Name, LineCount(f.Content))), BubbleMaxWidth(), m.Time);
+
+            // Cancelled generation — the design's italic faint "Interrupted."
+            // line: stop-in-circle icon + italic text, no bubble, no feedback.
+            if (m.Interrupted)
+                return InterruptedLine(m.Text);
 
             // AI row — Slate design: full-width plain text column, no avatar.
             var aiRow = new StackPanel { Margin = new Thickness(0, 0, 0, 15) };
@@ -190,14 +271,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 return aiRow;
             }
 
-            // Claude-style: show the tools the agent ran FIRST (a compact steps
-            // panel with check glyphs), then the final answer below it.
-            // Prefer the full persisted phased trail (phases + tools). Legacy
-            // messages (no Steps) fall back to the tool-name-only summary card.
-            if (m.Steps != null && m.Steps.Count > 0)
-                col.Children.Add(ProgressTracePanel(m.Steps));
-            else if (m.ToolCallTrace != null && m.ToolCallTrace.Count > 0)
-                col.Children.Add(ToolTracePanel(m.ToolCallTrace));
+            // Design: a completed reply shows ONLY the answer — the live single-line
+            // thinking indicator fades out and no step trail is persisted.
+            // (ProgressTracePanel/ToolTracePanel remain for old serialized history.)
 
             if (!string.IsNullOrEmpty(m.Text))
             {
@@ -221,7 +297,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 case CpMsgKind.Clarify: col.Children.Add(ClarifyCard(m)); break;
                 case CpMsgKind.Proposal: col.Children.Add(ProposalCard(m)); break;
                 case CpMsgKind.Running: col.Children.Add(RunningBar(m)); break;
-                case CpMsgKind.Result: col.Children.Add(CompactResult(m)); break;
+                case CpMsgKind.Result:
+                    col.Children.Add(CompactResult(m));
+                    // Design: the rating nudge hangs under the latest APPLIED card.
+                    var resultNudge = BuildRatingNudge(m);
+                    if (resultNudge != null) col.Children.Add(resultNudge);
+                    break;
             }
 
             // Reviewer verdict badge (PRD §6.2 stage 7). Tiny line
@@ -261,7 +342,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // is the higher-traffic path, so this is where most signal comes from.
             if (m.Kind == CpMsgKind.AiReply)
             {
-                col.Children.Add(BuildFeedback(SourcePromptFor(m)));
+                col.Children.Add(BuildFeedback(m, SourcePromptFor(m)));
                 var nudge = BuildRatingNudge(m);
                 if (nudge != null) col.Children.Add(nudge);
             }
@@ -312,14 +393,14 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             });
             left.Children.Add(new TextBlock
             {
-                Text = "Enjoying Copilot?", FontSize = 12, FontWeight = FontWeights.Medium,
-                Foreground = CopilotColors.From("#3d4a5f"), VerticalAlignment = VerticalAlignment.Center
+                Text = "How's Copilot doing?", FontSize = 11.5, FontWeight = FontWeights.Medium,
+                Foreground = CopilotColors.From("#586273"), VerticalAlignment = VerticalAlignment.Center
             });
             inner.Children.Add(left);
 
             var rate = new Button
             {
-                Content = "Rate it", Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                Content = "Rate", Background = Brushes.Transparent, BorderThickness = new Thickness(0),
                 Foreground = CopilotColors.From("#1d4ed8"), FontSize = 12, FontWeight = FontWeights.SemiBold,
                 Cursor = System.Windows.Input.Cursors.Hand, Padding = new Thickness(8, 4, 8, 4),
                 VerticalAlignment = VerticalAlignment.Center
@@ -356,69 +437,278 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         // sourcePrompt is the user message this reply answered — captured here so
         // the rating is attributed to the right prompt. See the LastPrompt note
         // in SendFeedback below.
-        private FrameworkElement BuildFeedback(string sourcePrompt)
+        // Design micro-feedback block (lines 221-262): time · "Was this helpful?"
+        // · 👍 👎 ⧉ — a silent up-vote toggle, a down-vote reason panel with chips
+        // + note + auto-attached context, a copied-check copy button, and a
+        // "Thanks" line once submitted.
+        private FrameworkElement BuildFeedback(ChatMessage m, string sourcePrompt)
         {
-            var row = new StackPanel
+            var host = new StackPanel { Margin = new Thickness(0, 8, 0, 0) };
+
+            var row = new Grid();
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            host.Children.Add(row);
+
+            if (!string.IsNullOrWhiteSpace(m.Time))
             {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(0, 6, 0, 0),
-            };
-            row.Children.Add(new TextBlock
+                var time = new TextBlock
+                {
+                    Text = m.Time, FontSize = 10, Foreground = CopilotColors.From("#99a3b3"),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                row.Children.Add(time);
+            }
+
+            var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(right, 2);
+            row.Children.Add(right);
+
+            var promptLabel = new TextBlock
             {
-                Text = "Was this helpful?",
-                FontSize = 10.5,
+                Text = "Was this helpful?", FontSize = 10.5,
                 Foreground = CopilotColors.From("#99a3b3"),
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 8, 0),
-            });
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0),
+            };
+            right.Children.Add(promptLabel);
+
+            string vote = null;
+            var panelHost = new ContentControl();
+            var thanksHost = new ContentControl();
+            host.Children.Add(panelHost);
+            host.Children.Add(thanksHost);
 
             Button up = null, down = null;
-            up = ThumbButton("thumbUp", () => SendFeedback("up", up, down, sourcePrompt));
-            down = ThumbButton("thumbDown", () => SendFeedback("down", up, down, sourcePrompt));
-            row.Children.Add(up);
-            row.Children.Add(down);
-            return row;
+            Path upIcon = null, downIcon = null;
+
+            void PaintVotes()
+            {
+                var accent = CopilotColors.From("#1d4ed8");
+                var idle = CopilotColors.From("#99a3b3");
+                if (upIcon != null) upIcon.Stroke = vote == "up" ? accent : idle;
+                if (downIcon != null) downIcon.Stroke = vote == "down" ? accent : idle;
+                promptLabel.Visibility = vote == null && thanksHost.Content == null
+                    ? Visibility.Visible : Visibility.Collapsed;
+            }
+
+            up = FeedbackIconButton("thumbUp", out upIcon, () =>
+            {
+                // Silent toggle (design voteUp): highlight only, close any panel.
+                vote = vote == "up" ? null : "up";
+                panelHost.Content = null;
+                if (vote == "up") Vm?.SubmitFeedback("up", sourcePrompt);
+                PaintVotes();
+            });
+            down = FeedbackIconButton("thumbDown", out downIcon, () =>
+            {
+                if (vote == "down") { vote = null; panelHost.Content = null; PaintVotes(); return; }
+                vote = "down";
+                panelHost.Content = BuildDownvotePanel(m, sourcePrompt,
+                    close: () => { panelHost.Content = null; },
+                    submitted: () =>
+                    {
+                        panelHost.Content = null;
+                        thanksHost.Content = ThanksLine();
+                        PaintVotes();
+                    });
+                PaintVotes();
+            });
+            right.Children.Add(up);
+            right.Children.Add(down);
+
+            Path copyIcon = null;
+            Button copy = null;
+            copy = FeedbackIconButton("copy", out copyIcon, () =>
+            {
+                try { Clipboard.SetText(m.Text ?? ""); } catch { /* clipboard can be locked */ }
+                copyIcon.Data = Geometry.Parse("M20,6 L9,17 L4,12");
+                copyIcon.Stroke = CopilotColors.From("#10b981");
+                var t = new System.Windows.Threading.DispatcherTimer { Interval = System.TimeSpan.FromMilliseconds(1600) };
+                t.Tick += (_, __) =>
+                {
+                    t.Stop();
+                    copyIcon.Data = CopilotIcons.Get("copy");
+                    copyIcon.Stroke = CopilotColors.From("#99a3b3");
+                };
+                t.Start();
+            });
+            right.Children.Add(copy);
+
+            PaintVotes();
+            return host;
         }
 
-        private Button ThumbButton(string glyph, System.Action onClick)
+        private Button FeedbackIconButton(string glyph, out Path icon, System.Action onClick)
         {
-            var path = new Path
+            icon = new Path
             {
-                Width = 14,
-                Height = 14,
-                Stretch = Stretch.Uniform,
-                Stroke = CopilotColors.From("#99a3b3"),
-                StrokeThickness = 1.6,
-                StrokeStartLineCap = PenLineCap.Round,
-                StrokeEndLineCap = PenLineCap.Round,
-                StrokeLineJoin = PenLineJoin.Round,
-                Data = CopilotIcons.Get(glyph),
+                Width = 14, Height = 14, Stretch = Stretch.Uniform,
+                Stroke = CopilotColors.From("#99a3b3"), StrokeThickness = 1.9,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round, Data = CopilotIcons.Get(glyph),
             };
             var btn = new Button
             {
-                Content = path,
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                Padding = new Thickness(6, 4, 6, 4),
-                Margin = new Thickness(2, 0, 0, 0),
-                Cursor = System.Windows.Input.Cursors.Hand,
+                Content = icon, Width = 27, Height = 27,
+                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                Margin = new Thickness(3, 0, 0, 0), Cursor = System.Windows.Input.Cursors.Hand,
             };
             btn.Click += (_, __) => { try { onClick(); } catch { /* best-effort */ } };
             return btn;
         }
 
-        private void SendFeedback(string rating, Button up, Button down, string sourcePrompt)
+        // "What was off?" — reason chips + optional note + Send/Cancel + the
+        // auto-attached context row (design lines 240-258).
+        private FrameworkElement BuildDownvotePanel(ChatMessage m, string sourcePrompt,
+            System.Action close, System.Action submitted)
         {
-            // Attribute the rating to THIS bubble's source prompt (not LastPrompt),
-            // so rating an older reply after newer turns isn't mis-attributed.
-            Vm?.SubmitFeedback(rating, sourcePrompt);
+            var card = new Border
+            {
+                Background = CopilotColors.From("#f7f9fb"),
+                BorderBrush = CopilotColors.From("#140F1B2D"),
+                BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(11),
+                Padding = new Thickness(11, 11, 11, 10), Margin = new Thickness(0, 9, 0, 0),
+            };
+            MsgRise(card);
+            var sp = new StackPanel();
+            card.Child = sp;
 
-            var chosen = rating == "up" ? up : down;
-            var chosenColor = CopilotColors.From("#1d4ed8");
-            if (chosen?.Content is Path p) p.Stroke = chosenColor;
-            if (up != null) up.IsEnabled = false;
-            if (down != null) down.IsEnabled = false;
+            sp.Children.Add(new TextBlock
+            {
+                Text = "What was off?", FontSize = 11, FontWeight = FontWeights.SemiBold,
+                Foreground = CopilotColors.From("#586273"), Margin = new Thickness(0, 0, 0, 8),
+            });
+
+            string reason = null;
+            var chipsWrap = new WrapPanel();
+            var chips = new System.Collections.Generic.List<(Border chip, TextBlock label, string value)>();
+            foreach (var r in new[] { "Not accurate", "Wrong elements", "Too slow", "Other" })
+            {
+                var label = new TextBlock { Text = r, FontSize = 11, FontWeight = FontWeights.Medium };
+                var chip = new Border
+                {
+                    CornerRadius = new CornerRadius(7), BorderThickness = new Thickness(1),
+                    Padding = new Thickness(10, 5, 10, 5), Margin = new Thickness(0, 0, 6, 6),
+                    Cursor = System.Windows.Input.Cursors.Hand, Child = label,
+                };
+                chips.Add((chip, label, r));
+                chipsWrap.Children.Add(chip);
+            }
+            void PaintChips()
+            {
+                foreach (var (chip, label, value) in chips)
+                {
+                    bool on = value == reason;
+                    chip.Background = on ? CopilotColors.From("#1A1D4ED8") : Brushes.Transparent;
+                    chip.BorderBrush = on ? Brushes.Transparent : CopilotColors.From("#140F1B2D");
+                    label.Foreground = CopilotColors.From(on ? "#1d4ed8" : "#586273");
+                }
+            }
+            foreach (var (chip, _, value) in chips)
+                chip.MouseLeftButtonDown += (_, __) => { reason = reason == value ? null : value; PaintChips(); };
+            PaintChips();
+            sp.Children.Add(chipsWrap);
+
+            var note = new TextBox
+            {
+                FontSize = 11.5, MinHeight = 40, TextWrapping = TextWrapping.Wrap, AcceptsReturn = true,
+                BorderThickness = new Thickness(1), Padding = new Thickness(8, 6, 8, 6),
+                Margin = new Thickness(0, 3, 0, 0),
+                Background = CopilotColors.From("#ffffff"), Foreground = CopilotColors.From("#131c2b"),
+                BorderBrush = CopilotColors.From("#140F1B2D"), CaretBrush = CopilotColors.From("#131c2b"),
+            };
+            // Placeholder: faint hint that clears on focus (WPF TextBox has none).
+            var hint = "Add details (optional)";
+            note.Text = hint; note.Foreground = CopilotColors.From("#99a3b3");
+            note.GotFocus += (_, __) => { if (note.Text == hint) { note.Text = ""; note.Foreground = CopilotColors.From("#131c2b"); } };
+            note.LostFocus += (_, __) => { if (note.Text.Length == 0) { note.Text = hint; note.Foreground = CopilotColors.From("#99a3b3"); } };
+            sp.Children.Add(note);
+
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 9, 0, 0) };
+            var send = new Button
+            {
+                Content = new TextBlock { Text = "Send feedback", FontSize = 11, FontWeight = FontWeights.SemiBold },
+                Padding = new Thickness(13, 7, 13, 7), BorderThickness = new Thickness(0),
+                Cursor = System.Windows.Input.Cursors.Hand, Foreground = CopilotColors.From("#ffffff"),
+            };
+            send.SetResourceReference(BackgroundProperty, "Cp.AccentGrad");
+            send.Resources.Add(typeof(Border), RoundedButtonBorderStyle(8));
+            send.Click += (_, __) =>
+            {
+                var noteText = note.Text == hint ? null : (string.IsNullOrWhiteSpace(note.Text) ? null : note.Text.Trim());
+                Vm?.SubmitFeedback("down", sourcePrompt, reason, noteText);
+                submitted();
+            };
+            actions.Children.Add(send);
+            var cancel = new Button
+            {
+                Content = "Cancel", FontSize = 11, FontWeight = FontWeights.Medium,
+                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                Foreground = CopilotColors.From("#99a3b3"), Padding = new Thickness(8, 7, 8, 7),
+                Cursor = System.Windows.Input.Cursors.Hand,
+            };
+            cancel.Click += (_, __) => close();
+            actions.Children.Add(cancel);
+            sp.Children.Add(actions);
+
+            // Auto-attached context row under a hairline.
+            var ctx = new Border
+            {
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                BorderBrush = CopilotColors.From("#140F1B2D"),
+                Padding = new Thickness(0, 9, 0, 0), Margin = new Thickness(0, 10, 0, 0),
+            };
+            var ctxRow = new StackPanel { Orientation = Orientation.Horizontal };
+            var clipIcon = new Path
+            {
+                Width = 11, Height = 11, Stretch = Stretch.Uniform, StrokeThickness = 2,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                Stroke = CopilotColors.From("#99a3b3"), Margin = new Thickness(0, 0, 5, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Data = Geometry.Parse("M21.44,11.05 L12.25,20.24 A6,6 0 0 1 3.76,11.75 L12.33,3.18 A4,4 0 0 1 18,8.84 L9.41,17.41 A2,2 0 0 1 6.58,14.58 L15.07,6.1"),
+            };
+            ctxRow.Children.Add(clipIcon);
+            string cmd = m.ToolId != null && m.ToolId != "ai-generated" ? m.ToolId : null;
+            ctxRow.Children.Add(new TextBlock
+            {
+                Text = Model.CopilotContext.ContextLabel(cmd),
+                FontSize = 9.5, Foreground = CopilotColors.From("#99a3b3"),
+                VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            ctx.Child = ctxRow;
+            sp.Children.Add(ctx);
+
+            return card;
+        }
+
+        private FrameworkElement ThanksLine()
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 9, 0, 0) };
+            var check = new Path
+            {
+                Width = 13, Height = 13, Stretch = Stretch.Uniform, StrokeThickness = 2.4,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+                Data = Geometry.Parse("M20,6 L9,17 L4,12"), Stroke = CopilotColors.From("#1d4ed8"),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
+            };
+            row.Children.Add(check);
+            row.Children.Add(new TextBlock
+            {
+                Text = "Thanks — your feedback helps improve BINA.",
+                FontSize = 11, FontWeight = FontWeights.Medium,
+                Foreground = CopilotColors.From("#1d4ed8"), VerticalAlignment = VerticalAlignment.Center,
+            });
+            MsgRise(row);
+            return row;
+        }
+
+        // Rounded-corner style for coded buttons (WPF's default template squares them).
+        private static Style RoundedButtonBorderStyle(double radius)
+        {
+            var s = new Style(typeof(Border));
+            s.Setters.Add(new Setter(Border.CornerRadiusProperty, new CornerRadius(radius)));
+            return s;
         }
 
         // The user message that this AI reply answered: the nearest preceding
@@ -474,7 +764,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             sp.Children.Add(head);
 
             var body = new StackPanel { Margin = new Thickness(12, 10, 12, 12) };
-            body.Children.Add(new TextBlock { Text = m.Question, FontSize = 12.5, Foreground = CopilotColors.From("#3d4a5f"), TextWrapping = TextWrapping.Wrap, LineHeight = 18, Margin = new Thickness(0, 0, 0, 10) });
+            body.Children.Add(new TextBlock { Text = m.Question, FontSize = 12.5, Foreground = CopilotColors.From("#131c2b"), TextWrapping = TextWrapping.Wrap, LineHeight = 18, Margin = new Thickness(0, 0, 0, 10) });
             foreach (var o in m.Options)
             {
                 var tool = CopilotCatalog.Find(o.ToolId);
@@ -508,73 +798,131 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return outer;
         }
 
+        // Design command card (lines 186-218): a hairline-topped SECTION inside the
+        // AI column — command name + "· Proposed/Dismissed" header, the plan rows,
+        // then "✓ Apply to model" (gradient) + "Dismiss" (ghost). No boxed card,
+        // no tile, no tier badge. View-code / Regenerate / Open editor stay as
+        // ghost affordances (functional, styled to the design's Dismiss idiom).
         private FrameworkElement ProposalCard(ChatMessage m)
         {
             var tool = CopilotCatalog.Find(m.ToolId);
-            var outer = new Border { CornerRadius = new CornerRadius(12), BorderBrush = CopilotColors.From("#140F1B2D"), BorderThickness = new Thickness(1), Background = CopilotColors.From("#ffffff") };
-            var sp = new StackPanel();
-
-            // header
-            var head = new Border { Background = CopilotColors.From("#f7f9fb"), BorderBrush = CopilotColors.From("#f3f6f9"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(12, 10, 12, 10), CornerRadius = new CornerRadius(12, 12, 0, 0) };
-            var hg = new Grid();
-            hg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            hg.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            hg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            if (tool != null)
+            var outer = new Border
             {
-                var tile = new IconTile { Glyph = tool.Icon, TileBg = tool.TileBg, TileFg = tool.TileFg, TileSize = 26, GlyphSize = 13, Corner = 6, VerticalAlignment = VerticalAlignment.Center };
-                Grid.SetColumn(tile, 0); hg.Children.Add(tile);
-            }
-            var hc = new StackPanel { Margin = new Thickness(9, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-            hc.Children.Add(new TextBlock { Text = tool?.Title ?? "Command", FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#131c2b") });
-            hc.Children.Add(new TextBlock { Text = "Proposed command", FontSize = 11, Foreground = CopilotColors.From("#586273") });
-            Grid.SetColumn(hc, 1); hg.Children.Add(hc);
-            var badge = new TierBadge { Tier = 2, VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(badge, 2); hg.Children.Add(badge);
-            head.Child = hg;
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                BorderBrush = CopilotColors.From("#140F1B2D"),
+                Padding = new Thickness(0, 12, 0, 0), Margin = new Thickness(0, 11, 0, 0),
+            };
+            var sp = new StackPanel();
+            outer.Child = sp;
+
+            // Header: name + status word.
+            var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 9) };
+            head.Children.Add(new TextBlock
+            {
+                Text = tool?.Title ?? "Command", FontSize = 12.5, FontWeight = FontWeights.Bold,
+                Foreground = CopilotColors.From("#131c2b"), VerticalAlignment = VerticalAlignment.Center,
+            });
+            head.Children.Add(new TextBlock
+            {
+                Text = m.Dismissed ? "· Dismissed" : "· Proposed",
+                FontSize = 10, FontWeight = FontWeights.SemiBold, Margin = new Thickness(8, 0, 0, 0),
+                Foreground = CopilotColors.From(m.Dismissed ? "#99a3b3" : "#1d4ed8"),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
             sp.Children.Add(head);
 
-            // plan + code
-            var planBox = new StackPanel { Margin = new Thickness(12, 10, 12, 10) };
-            planBox.Children.Add(new TextBlock { Text = "PLAN", FontSize = 10.5, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#1d4ed8"), Margin = new Thickness(0, 0, 0, 6) });
+            // Plan rows (the card's parameter section — index faint, step right).
             int i = 1;
             foreach (var step in m.PlanSteps)
-                planBox.Children.Add(new TextBlock { Text = $"{i++}.  {step}", FontSize = 12, Foreground = CopilotColors.From("#3d4a5f"), TextWrapping = TextWrapping.Wrap, LineHeight = 18, Margin = new Thickness(0, 0, 0, 2) });
+            {
+                var g = new Grid { Margin = new Thickness(0, 0, 0, 0) };
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(22) });
+                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                var idx = new TextBlock { Text = (i++).ToString(), FontSize = 11.5, Foreground = CopilotColors.From("#99a3b3") };
+                g.Children.Add(idx);
+                var txt = new TextBlock
+                {
+                    Text = step, FontSize = 11.5, FontWeight = FontWeights.Medium,
+                    Foreground = CopilotColors.From("#586273"), TextWrapping = TextWrapping.Wrap,
+                };
+                Grid.SetColumn(txt, 1);
+                g.Children.Add(txt);
+                g.Margin = new Thickness(0, 2.5, 0, 2.5);
+                sp.Children.Add(g);
+            }
 
+            // View code toggle (kept; ghost idiom).
             int lines = string.IsNullOrEmpty(m.Code) ? 0 : m.Code.Split('\n').Length;
-            var toggle = new ToggleButton { Cursor = System.Windows.Input.Cursors.Hand, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Margin = new Thickness(0, 8, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, Foreground = CopilotColors.From("#586273") };
+            var toggle = new ToggleButton { Cursor = System.Windows.Input.Cursors.Hand, Background = Brushes.Transparent, BorderThickness = new Thickness(0), Margin = new Thickness(0, 6, 0, 0), HorizontalAlignment = HorizontalAlignment.Left, Foreground = CopilotColors.From("#99a3b3") };
             toggle.Template = LinkToggleTemplate();
             toggle.Content = $"View code ({lines} lines)";
             var codeBox = new TextBox { Text = m.Code ?? "", Style = (Style)TryFindResource("Cp.CodeBlock"), Visibility = Visibility.Collapsed, Margin = new Thickness(0, 6, 0, 0), MaxHeight = 180 };
             toggle.Checked += (_, __) => { codeBox.Visibility = Visibility.Visible; toggle.Content = "Hide code"; };
             toggle.Unchecked += (_, __) => { codeBox.Visibility = Visibility.Collapsed; toggle.Content = $"View code ({lines} lines)"; };
-            planBox.Children.Add(toggle);
-            planBox.Children.Add(codeBox);
-            sp.Children.Add(planBox);
+            sp.Children.Add(toggle);
+            sp.Children.Add(codeBox);
 
-            // actions
-            var actions = new Border { Background = CopilotColors.From("#f7f9fb"), BorderBrush = CopilotColors.From("#f3f6f9"), BorderThickness = new Thickness(0, 1, 0, 0), Padding = new Thickness(10, 8, 10, 8), CornerRadius = new CornerRadius(0, 0, 12, 12) };
-            var ag = new Grid();
+            if (m.Dismissed) return outer;
+
+            // Actions: ✓ Apply to model (gradient) · Dismiss · spacer · Regenerate · Open editor.
+            var ag = new Grid { Margin = new Thickness(0, 13, 0, 0) };
             ag.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             ag.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             ag.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             ag.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            var regen = SmallGhost("Regenerate"); Grid.SetColumn(regen, 0);
-            regen.Click += (_, __) => Vm.ChatRegenerateCommand.Execute(m);
-            var edit = SmallGhost("Open editor"); Grid.SetColumn(edit, 1); edit.Margin = new Thickness(5, 0, 0, 0);
-            edit.Click += (_, __) => Vm.ChatOpenEditorCommand.Execute(m);
-            var run = new Button { Style = (Style)TryFindResource("Cp.RunDark"), Padding = new Thickness(14, 6, 14, 6) };
-            var rsp = new StackPanel { Orientation = Orientation.Horizontal };
-            rsp.Children.Add(new Path { Width = 10, Height = 10, Stretch = Stretch.Uniform, Fill = Brushes.White, Data = CopilotIcons.Get("play"), Margin = new Thickness(0, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center });
-            rsp.Children.Add(new TextBlock { Text = "Run", Foreground = Brushes.White, FontWeight = FontWeights.SemiBold });
-            run.Content = rsp;
-            Grid.SetColumn(run, 3);
-            run.Click += (_, __) => Vm.ChatRunCommand.Execute(m);
-            ag.Children.Add(regen); ag.Children.Add(edit); ag.Children.Add(run);
-            actions.Child = ag;
-            sp.Children.Add(actions);
+            ag.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            outer.Child = sp;
+            var apply = new Button
+            {
+                Padding = new Thickness(14, 8, 14, 8), BorderThickness = new Thickness(0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+            };
+            apply.SetResourceReference(BackgroundProperty, "Cp.AccentGrad");
+            var aBorder = new FrameworkElementFactory(typeof(Border));
+            aBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
+            aBorder.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(BackgroundProperty));
+            aBorder.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+            var aCp = new FrameworkElementFactory(typeof(ContentPresenter));
+            aBorder.AppendChild(aCp);
+            apply.Template = new ControlTemplate(typeof(Button)) { VisualTree = aBorder };
+            var asp = new StackPanel { Orientation = Orientation.Horizontal };
+            var applyCheck = new Path
+            {
+                Width = 11, Height = 11, Stretch = Stretch.Uniform, StrokeThickness = 2.6,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+                Data = Geometry.Parse("M20,6 L9,17 L4,12"), Margin = new Thickness(0, 0, 5, 0), VerticalAlignment = VerticalAlignment.Center,
+            };
+            applyCheck.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "Cp.AccentContrast");
+            asp.Children.Add(applyCheck);
+            var applyLabel = new TextBlock { Text = "Apply to model", FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+            applyLabel.SetResourceReference(TextBlock.ForegroundProperty, "Cp.AccentContrast");
+            asp.Children.Add(applyLabel);
+            apply.Content = asp;
+            apply.Click += (_, __) => Vm.ChatRunCommand.Execute(m);
+            ag.Children.Add(apply);
+
+            var dismiss = new Button
+            {
+                Content = "Dismiss", FontSize = 11.5, FontWeight = FontWeights.Medium,
+                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                Foreground = CopilotColors.From("#99a3b3"), Padding = new Thickness(8, 8, 6, 8),
+                Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(3, 0, 0, 0),
+            };
+            dismiss.Click += (_, __) => { m.Dismissed = true; Rebuild(); };
+            Grid.SetColumn(dismiss, 1);
+            ag.Children.Add(dismiss);
+
+            var regen = SmallGhost("Regenerate");
+            regen.Click += (_, __) => Vm.ChatRegenerateCommand.Execute(m);
+            Grid.SetColumn(regen, 3);
+            ag.Children.Add(regen);
+            var edit = SmallGhost("Open editor");
+            edit.Click += (_, __) => Vm.ChatOpenEditorCommand.Execute(m);
+            edit.Margin = new Thickness(5, 0, 0, 0);
+            Grid.SetColumn(edit, 4);
+            ag.Children.Add(edit);
+
+            sp.Children.Add(ag);
             return outer;
         }
 
@@ -601,44 +949,58 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return bar;
         }
 
+        // Design applied card: hairline-topped section — name + "· Applied",
+        // result body, "✓ Applied to the model" green line, then ghost chips.
         private FrameworkElement CompactResult(ChatMessage m)
         {
             var tool = CopilotCatalog.Find(m.ToolId);
             var r = m.Result;
-            var outer = new Border { CornerRadius = new CornerRadius(12), BorderBrush = CopilotColors.From("#140F1B2D"), BorderThickness = new Thickness(1), Background = CopilotColors.From("#ffffff") };
-            var sp = new StackPanel();
-
-            var head = new Border { Background = CopilotColors.From("#f7f9fb"), BorderBrush = CopilotColors.From("#f3f6f9"), BorderThickness = new Thickness(0, 0, 0, 1), Padding = new Thickness(12, 8, 12, 8), CornerRadius = new CornerRadius(12, 12, 0, 0) };
-            var hg = new Grid();
-            hg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            hg.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            hg.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            if (tool != null)
+            var outer = new Border
             {
-                var tile = new IconTile { Glyph = tool.Icon, TileBg = tool.TileBg, TileFg = tool.TileFg, TileSize = 22, GlyphSize = 11, Corner = 5, VerticalAlignment = VerticalAlignment.Center };
-                Grid.SetColumn(tile, 0); hg.Children.Add(tile);
-            }
-            var title = new TextBlock { Text = tool?.Title, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#131c2b"), Margin = new Thickness(9, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(title, 1); hg.Children.Add(title);
-            var done = new Border { CornerRadius = new CornerRadius(999), Background = CopilotColors.From("#dcfce7"), Padding = new Thickness(8, 2, 8, 2) };
-            var dsp = new StackPanel { Orientation = Orientation.Horizontal };
-            dsp.Children.Add(new Ellipse { Width = 5, Height = 5, Fill = CopilotColors.From("#10b981"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 4, 0) });
-            dsp.Children.Add(new TextBlock { Text = "Done", FontSize = 11, Foreground = CopilotColors.From("#10b981") });
-            done.Child = dsp;
-            Grid.SetColumn(done, 2); hg.Children.Add(done);
-            head.Child = hg;
+                BorderThickness = new Thickness(0, 1, 0, 0),
+                BorderBrush = CopilotColors.From("#140F1B2D"),
+                Padding = new Thickness(0, 12, 0, 0), Margin = new Thickness(0, 11, 0, 0),
+            };
+            var sp = new StackPanel();
+            outer.Child = sp;
+
+            var head = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 9) };
+            head.Children.Add(new TextBlock
+            {
+                Text = tool?.Title ?? "Command", FontSize = 12.5, FontWeight = FontWeights.Bold,
+                Foreground = CopilotColors.From("#131c2b"), VerticalAlignment = VerticalAlignment.Center,
+            });
+            head.Children.Add(new TextBlock
+            {
+                Text = "· Applied", FontSize = 10, FontWeight = FontWeights.SemiBold,
+                Foreground = CopilotColors.From("#10b981"), Margin = new Thickness(8, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
             sp.Children.Add(head);
 
-            var body = new StackPanel { Margin = new Thickness(12) };
-            body.Children.Add(CompactBody(r));
+            sp.Children.Add(CompactBody(r));
+
+            var appliedLine = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 13, 0, 0) };
+            appliedLine.Children.Add(new Path
+            {
+                Width = 13, Height = 13, Stretch = Stretch.Uniform, StrokeThickness = 2.6,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+                Data = Geometry.Parse("M20,6 L9,17 L4,12"), Stroke = CopilotColors.From("#10b981"),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 7, 0),
+            });
+            appliedLine.Children.Add(new TextBlock
+            {
+                Text = "Applied to the model", FontSize = 12, FontWeight = FontWeights.SemiBold,
+                Foreground = CopilotColors.From("#10b981"), VerticalAlignment = VerticalAlignment.Center,
+            });
+            sp.Children.Add(appliedLine);
+
             var chips = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 10, 0, 0) };
             chips.Children.Add(ResultChip("bookmark", "Save", () => Vm.PinCommand.Execute(m.ToolId)));
             chips.Children.Add(ResultChip("copy", "Copy", null));
             chips.Children.Add(ResultChip("undo", "Undo", null));
-            body.Children.Add(chips);
-            sp.Children.Add(body);
+            sp.Children.Add(chips);
 
-            outer.Child = sp;
             return outer;
         }
 
@@ -662,7 +1024,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                     var dot = new Ellipse { Width = 6, Height = 6, Fill = CopilotColors.From(b.Color), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
                     Grid.SetColumn(dot, 0);
-                    var lbl = new TextBlock { Text = b.Label, FontSize = 11.5, Foreground = CopilotColors.From("#3d4a5f"), VerticalAlignment = VerticalAlignment.Center };
+                    var lbl = new TextBlock { Text = b.Label, FontSize = 11.5, Foreground = CopilotColors.From("#586273"), VerticalAlignment = VerticalAlignment.Center };
                     Grid.SetColumn(lbl, 1);
                     var val = new TextBlock { Text = b.Value.ToString(), FontSize = 11.5, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#131c2b"), VerticalAlignment = VerticalAlignment.Center };
                     Grid.SetColumn(val, 2);
@@ -1134,10 +1496,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             b.AppendChild(cp);
             var t = new ControlTemplate(typeof(Button)) { VisualTree = b };
             var hover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
-            // Live DynamicResource, not a captured brush: this template is cached
-            // statically, so a fixed brush would freeze the hover to the first-rendered
-            // theme (the white-in-dark / black-in-light bug). Cp.Hover swaps per theme.
-            hover.Setters.Add(new Setter(Border.BackgroundProperty, new DynamicResourceExtension("Cp.Hover"), "bd"));
+            hover.Setters.Add(new Setter(Border.BackgroundProperty, CopilotColors.From("#f3f6f9"), "bd"));
             t.Triggers.Add(hover);
             _sugRow = t;
             return t;

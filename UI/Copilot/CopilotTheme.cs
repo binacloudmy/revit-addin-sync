@@ -94,17 +94,10 @@ namespace RevitWebAppSync.UI.Copilot
                 ["Cp.Bg"]            = ("#ffffff", "#131d2b"),
                 ["Cp.Sunken"]        = ("#f3f6f9", "#0c1420"),
                 ["Cp.Menu"]          = ("#ffffff", "#1a2433"),
-                // Elevated card surface INSIDE a sheet — must contrast with the sheet
-                // (Cp.Menu). Light = white; dark = a step lighter than the sheet so cards
-                // lift off #1a2433 instead of blending in.
-                ["Cp.CardBg"]        = ("#ffffff", "#202d42"),
-                // Solid-green button hover (Run button). Theme-aware so it never flashes
-                // a light/dark mismatch.
-                ["Cp.GreenHover"]    = ("#0da271", "#2cc9a0"),
                 ["Cp.PanelBg"]       = ("#f7f9fb", "#0c1420"),
                 ["Cp.Ink"]           = ("#131c2b", "#e8eef6"),
                 ["Cp.Ink2"]          = ("#0b1220", "#f4f7fb"),
-                ["Cp.Text"]          = ("#3d4a5f", "#c3cdda"),
+                ["Cp.Text"]          = ("#131c2b", "#e8eef6"),
                 ["Cp.Muted"]         = ("#586273", "#8a94a6"),
                 ["Cp.Faint"]         = ("#99a3b3", "#6b768a"),
                 ["Cp.Line"]          = ("#140F1B2D", "#12FFFFFF"),

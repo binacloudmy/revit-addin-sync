@@ -3,9 +3,6 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
              FontFamily="{DynamicResource Cp.Font}">
-    <UserControl.Resources>
-        <ctl:BoolToVisibilityConverter x:Key="BoolVis"/>
-    </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -33,107 +30,10 @@
         </ScrollViewer>
 
         <ctl:PromptBar x:Name="Prompt" Grid.Row="2" SubmitCommand="{Binding ChatSendCommand}"
-                       Busy="{Binding IsSending}" CancelCommand="{Binding CancelSendCommand}" ShowUsageMeter="True"
-                       Visibility="{Binding IsBlocked, Converter={StaticResource BoolVis}, ConverterParameter=Invert}"/>
+                       Busy="{Binding IsSending}" CancelCommand="{Binding CancelSendCommand}"/>
 
-        <!-- Blocked state at 100% usage. Opaque overlay over the whole chat area
-             (composer replaced). History tab is a separate screen, never locked. -->
-        <Grid x:Name="BlockedOverlay" Grid.Row="0" Grid.RowSpan="3" Background="{DynamicResource Cp.Bg}"
-              Visibility="{Binding IsBlocked, Converter={StaticResource BoolVis}}">
-            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="300" Margin="24,0">
-                <!-- Blocked lock — hand-drawn 64×64 vector: a layered tubular shackle,
-                     a gradient body with sheen + corner glint, and a keyhole, wrapped in
-                     a downward brand-blue glow that hugs the silhouette. -->
-                <Viewbox Width="64" Height="64" HorizontalAlignment="Center" Margin="0,0,0,2">
-                    <Grid Width="64" Height="64">
-                        <Grid.Effect>
-                            <DropShadowEffect Color="{DynamicResource Cp.Lock.GlowColor}" Opacity="0.32"
-                                              Direction="270" ShadowDepth="12" BlurRadius="16"/>
-                        </Grid.Effect>
-                        <Canvas Width="64" Height="64">
-                            <!-- Shackle (inverted U): base metal, tubular gradient, specular highlight -->
-                            <Path Data="M21,31 V22 a11,11 0 0 1 22,0 V31" Stroke="{DynamicResource Cp.Lock.ShackleBase}"
-                                  StrokeThickness="7.5" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-                            <Path Data="M21,31 V22 a11,11 0 0 1 22,0 V31" Stroke="{DynamicResource Cp.Lock.ShackleGrad}"
-                                  StrokeThickness="6" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
-                            <Path Data="M21,31 V22 a11,11 0 0 1 22,0 V31" Stroke="#ffffff" StrokeThickness="1.6" Opacity="0.55"
-                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round">
-                                <Path.RenderTransform><TranslateTransform X="-1.7" Y="-0.4"/></Path.RenderTransform>
-                            </Path>
-
-                            <!-- Body: diagonal gradient rounded rect + top sheen + corner glint -->
-                            <Rectangle Canvas.Left="14" Canvas.Top="29" Width="36" Height="26" RadiusX="8.5" RadiusY="8.5"
-                                       Fill="{DynamicResource Cp.Lock.BodyGrad}"/>
-                            <Rectangle Canvas.Left="14" Canvas.Top="29" Width="36" Height="26" RadiusX="8.5" RadiusY="8.5"
-                                       Fill="{DynamicResource Cp.Lock.Sheen}"/>
-                            <Ellipse Canvas.Left="19" Canvas.Top="32.5" Width="12" Height="7">
-                                <Ellipse.Fill>
-                                    <RadialGradientBrush>
-                                        <GradientStop Offset="0" Color="#80ffffff"/>
-                                        <GradientStop Offset="1" Color="#00ffffff"/>
-                                    </RadialGradientBrush>
-                                </Ellipse.Fill>
-                            </Ellipse>
-
-                            <!-- Keyhole: circle + tapered stem -->
-                            <Ellipse Canvas.Left="28.7" Canvas.Top="37" Width="6.6" Height="6.6" Fill="{DynamicResource Cp.Lock.Keyhole}"/>
-                            <Polygon Points="30.4,41.5 33.6,41.5 35,49 29,49" Fill="{DynamicResource Cp.Lock.Keyhole}"/>
-                        </Canvas>
-                    </Grid>
-                </Viewbox>
-                <TextBlock Text="You've reached your usage limit" HorizontalAlignment="Center" TextAlignment="Center"
-                           FontSize="15" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}" Margin="0,10,0,0"/>
-                <TextBlock HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
-                           FontSize="12.5" Foreground="{DynamicResource Cp.Muted}" Margin="0,6,0,0">
-                    <Run Text="Upgrade your plan"/><Run Text=" to keep using Copilot."/>
-                </TextBlock>
-
-                <!-- Admin: Upgrade CTA -->
-                <Button Margin="0,18,0,0" Height="44" Cursor="Hand" Command="{Binding UpgradeCommand}"
-                        Foreground="{DynamicResource Cp.AccentContrast}" BorderThickness="0" MinWidth="220"
-                        Visibility="{Binding IsUsageAdmin, Converter={StaticResource BoolVis}}">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border x:Name="bd" Background="{DynamicResource Cp.AccentGrad}" CornerRadius="11">
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.AccentGradHover}"/>
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Button.Template>
-                    <StackPanel Orientation="Horizontal">
-                        <Path Width="14" Height="14" Margin="0,0,8,0" Stretch="Uniform" VerticalAlignment="Center"
-                              Fill="{DynamicResource Cp.AccentContrast}" Data="M13,2 L4,14 h6 l-1,8 9,-12 h-6 Z"/>
-                        <TextBlock Text="Upgrade plan" FontSize="13.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
-
-                <!-- Member: managed-by-admin note + notify -->
-                <StackPanel Margin="0,16,0,0" Visibility="{Binding IsUsageAdmin, Converter={StaticResource BoolVis}, ConverterParameter=Invert}">
-                    <TextBlock TextWrapping="Wrap" TextAlignment="Center" FontSize="12" Foreground="{DynamicResource Cp.Muted}">
-                        <Run Text="Your plan is managed by "/><Run Text="{Binding AdminContact, Mode=OneWay}" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Text}"/><Run Text="."/>
-                    </TextBlock>
-                    <Button Margin="0,12,0,0" Height="42" MinWidth="220" Cursor="Hand" Command="{Binding NotifyAdminCommand}"
-                            Background="Transparent" Foreground="{DynamicResource Cp.Ink}">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="bd" Background="Transparent" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1" CornerRadius="11">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                        <TextBlock Text="Notify admin to upgrade" FontSize="13" FontWeight="SemiBold"/>
-                    </Button>
-                </StackPanel>
-            </StackPanel>
-        </Grid>
+        <!-- Usage-limit blocked state; replaces the composer at 100% usage
+             (centered over the body when the thread is empty). -->
+        <ContentControl x:Name="BlockedHost" Grid.Row="2" Visibility="Collapsed"/>
     </Grid>
 </UserControl>

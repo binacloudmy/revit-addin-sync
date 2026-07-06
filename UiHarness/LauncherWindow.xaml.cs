@@ -94,46 +94,12 @@ namespace UiHarness
             }));
 
         private void OpenCopilot(object sender, RoutedEventArgs e) =>
-            Open(() =>
+            Open(() => new Window
             {
-                var panel = new RevitWebAppSync.UI.Copilot.CopilotPanel();
-                var mock = panel.ViewModel.Usage as RevitWebAppSync.UI.Copilot.MockUsageService;
-
-                // Debug bar: drag usagePct 0→100 to watch every subscription state
-                // transition live (meter colour, 80 note, 95 banner, blocked).
-                var bar = new StackPanel
-                {
-                    Orientation = Orientation.Horizontal, Background = System.Windows.Media.Brushes.Gainsboro,
-                    VerticalAlignment = VerticalAlignment.Center,
-                };
-                bar.Children.Add(new TextBlock { Text = "usage", Margin = new Thickness(10, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center });
-                var slider = new Slider { Minimum = 0, Maximum = 100, Value = mock?.UsagePct ?? 0, Width = 190, VerticalAlignment = VerticalAlignment.Center };
-                var pctLabel = new TextBlock { Text = $"{slider.Value:0}%", Width = 38, Margin = new Thickness(6, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
-                slider.ValueChanged += (_, ev) =>
-                {
-                    if (mock != null) mock.UsagePct = (int)ev.NewValue;
-                    pctLabel.Text = $"{(int)ev.NewValue}%";
-                };
-                bar.Children.Add(slider);
-                bar.Children.Add(pctLabel);
-                foreach (var v in new[] { 20, 80, 96, 100 })
-                {
-                    int val = v;
-                    var b = new Button { Content = val.ToString(), Width = 34, Margin = new Thickness(2, 4, 2, 4) };
-                    b.Click += (_, __) => slider.Value = val;
-                    bar.Children.Add(b);
-                }
-                var adminChk = new CheckBox { Content = "Admin", IsChecked = mock?.IsAdmin ?? true, Margin = new Thickness(10, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
-                adminChk.Checked += (_, __) => { if (mock != null) mock.IsAdmin = true; };
-                adminChk.Unchecked += (_, __) => { if (mock != null) mock.IsAdmin = false; };
-                bar.Children.Add(adminChk);
-
-                var root = new DockPanel();
-                DockPanel.SetDock(bar, Dock.Top);
-                root.Children.Add(bar);
-                root.Children.Add(new Frame { Content = panel });
-
-                return new Window { Title = "Copilot Panel", Width = 430, Height = 860, Content = root };
+                Title = "Copilot Panel",
+                Width = 420,
+                Height = 800,
+                Content = new Frame { Content = new RevitWebAppSync.UI.Copilot.CopilotPanel() },
             });
     }
 }

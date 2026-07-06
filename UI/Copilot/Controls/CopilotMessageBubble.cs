@@ -22,9 +22,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// hover copy button on the left.</summary>
         public static FrameworkElement User(string text, string userInitial,
             IEnumerable<string> imagesBase64, IEnumerable<(string Name, int Lines)> files,
-            double maxWidth)
+            double maxWidth, string time = null)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 15), HorizontalAlignment = HorizontalAlignment.Right };
+            var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             var bubble = new Border { Background = CopilotColors.From("#eef1f5"), CornerRadius = new CornerRadius(14, 14, 4, 14), Padding = new Thickness(13, 9, 13, 9), MaxWidth = maxWidth * 0.84 };
             var bubbleStack = new StackPanel();
 
@@ -56,21 +56,96 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // Selectable read-only TextBox (a WPF TextBlock cannot be selected/
             // copied) — styled to look identical to a plain TextBlock. User text
             // stays plain (no markdown).
-            bubbleStack.Children.Add(new TextBox
+            var textBox = new TextBox
             {
                 Text = text, FontSize = 13, Foreground = CopilotColors.From("#131c2b"),
                 CaretBrush = CopilotColors.From("#131c2b"),
                 TextWrapping = TextWrapping.Wrap, IsReadOnly = true,
                 BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent,
                 Padding = new Thickness(0), IsTabStop = false,
-            });
+            };
+            bubbleStack.Children.Add(ClampableText(textBox));
             bubble.Child = bubbleStack;
             AttachCopyMenu(bubble, text);
             // Copy affordance sits on the LEFT of the right-aligned bubble.
             if (!string.IsNullOrEmpty(text))
                 row.Children.Add(HoverReveal(row, CopyButton(text)));
             row.Children.Add(bubble);
-            return row;
+
+            // Column: bubble row + small right-aligned timestamp under it (design).
+            var colWrap = new StackPanel { Margin = new Thickness(0, 0, 0, 15), HorizontalAlignment = HorizontalAlignment.Right };
+            colWrap.Children.Add(row);
+            if (!string.IsNullOrWhiteSpace(time))
+            {
+                var t = new TextBlock
+                {
+                    Text = time, FontSize = 10, Foreground = CopilotColors.From("#99a3b3"),
+                    HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 4, 0, 0),
+                };
+                colWrap.Children.Add(t);
+            }
+            return colWrap;
+        }
+
+        // Long messages clamp to 80px with a bottom fade and a Show more/Show
+        // less toggle (design's textWrapStyle + needsToggle). Measured after
+        // layout; short messages render untouched.
+        private const double ClampPx = 80;
+
+        private static FrameworkElement ClampableText(TextBox textBox)
+        {
+            var host = new StackPanel();
+            var clip = new Border { Child = textBox, ClipToBounds = true };
+            host.Children.Add(clip);
+
+            var fade = new LinearGradientBrush
+            {
+                StartPoint = new Point(0, 0), EndPoint = new Point(0, 1),
+                GradientStops =
+                {
+                    new GradientStop(Color.FromArgb(0xFF, 0, 0, 0), 0.58),
+                    new GradientStop(Color.FromArgb(0x00, 0, 0, 0), 1.0),
+                },
+            };
+
+            textBox.Loaded += (_, __) =>
+            {
+                textBox.UpdateLayout();
+                if (textBox.ExtentHeight <= ClampPx + 8) return;
+                if (host.Children.Count > 1) return;   // already toggled
+
+                bool expanded = false;
+                clip.MaxHeight = ClampPx;
+                clip.OpacityMask = fade;
+
+                var label = new TextBlock { Text = "Show more", FontSize = 12, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+                label.Foreground = CopilotColors.From("#131c2b");
+                var chevron = new System.Windows.Shapes.Path
+                {
+                    Width = 11, Height = 11, Stretch = Stretch.Uniform, StrokeThickness = 2.2,
+                    StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+                    Data = Geometry.Parse("M6,9 L12,15 L18,9"), Margin = new Thickness(5, 1, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center, Stroke = CopilotColors.From("#131c2b"),
+                };
+                var toggle = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal, Margin = new Thickness(0, 5, 0, 0),
+                    Cursor = System.Windows.Input.Cursors.Hand, Background = System.Windows.Media.Brushes.Transparent,
+                };
+                toggle.Children.Add(label);
+                toggle.Children.Add(chevron);
+                toggle.MouseLeftButtonDown += (s, e) =>
+                {
+                    expanded = !expanded;
+                    clip.MaxHeight = expanded ? double.PositiveInfinity : ClampPx;
+                    clip.OpacityMask = expanded ? null : fade;
+                    label.Text = expanded ? "Show less" : "Show more";
+                    chevron.Data = Geometry.Parse(expanded ? "M6,15 L12,9 L18,15" : "M6,9 L12,15 L18,9");
+                    e.Handled = true;
+                };
+                host.Children.Add(toggle);
+            };
+            return host;
         }
 
         /// <summary>AI message row — Slate design: full-width plain text (no

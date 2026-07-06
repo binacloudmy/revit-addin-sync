@@ -19,10 +19,6 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// nudge never appears again after this.</summary>
         public bool RatingSubmitted { get; set; }
 
-        /// <summary>Set once the user dismisses the 80%-usage note — it never
-        /// reappears after that (the 95% banner is separate and non-dismissible).</summary>
-        public bool Warn80Dismissed { get; set; }
-
         private static string FilePath
         {
             get
