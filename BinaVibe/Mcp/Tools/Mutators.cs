@@ -1100,34 +1100,46 @@ namespace BinaVibe.Mcp.Tools
                         // point toward its nearest door? null when the room has
                         // no door (face_into_room rooms) — then facing_ok is
                         // true only if the rule that ran was face_into_room.
+                        // same_family (ChangeTypeId) preserves the drafter's own
+                        // transform — nothing rotated — so facing is unconditionally
+                        // ok: the drafter's placement IS ground truth, and applying
+                        // the faces_door check would false-flag fixtures they angled
+                        // away from a door on purpose. Short-circuit before any
+                        // room/door lookup (also cheaper).
                         bool? facesDoor = null;
                         bool facingOk = false;
-                        try
+                        if (orientationRule == "same_family")
                         {
-                            var nwRoom = nwEl?.Room;
-                            if (nwEl != null && nwRoom != null)
+                            facingOk = true;
+                            facesDoor = null;
+                        }
+                        else
+                        {
+                            try
                             {
-                                var doorPts = RoomSolver.RoomDoors(doc, nwRoom)
-                                    .Select(d => (d.Location as LocationPoint)?.Point)
-                                    .Where(p => p != null).ToList();
-                                var c = BBoxCenter(nwEl);
-                                if (doorPts.Count > 0)
+                                var nwRoom = nwEl?.Room;
+                                if (nwEl != null && nwRoom != null)
                                 {
-                                    var nearestDoor = doorPts.OrderBy(p =>
-                                        new XYZ(p.X - c.X, p.Y - c.Y, 0).GetLength()).First();
-                                    facesDoor = RoomSolver.FacesDoor(
-                                        nwEl.FacingOrientation, new XYZ(c.X, c.Y, 0), nearestDoor);
-                                    facingOk = facesDoor == true;
-                                }
-                                else
-                                {
-                                    facingOk = orientationRule == "face_into_room"
-                                               || orientationRule == "same_family";
+                                    var doorPts = RoomSolver.RoomDoors(doc, nwRoom)
+                                        .Select(d => (d.Location as LocationPoint)?.Point)
+                                        .Where(p => p != null).ToList();
+                                    var c = BBoxCenter(nwEl);
+                                    if (doorPts.Count > 0)
+                                    {
+                                        var nearestDoor = doorPts.OrderBy(p =>
+                                            new XYZ(p.X - c.X, p.Y - c.Y, 0).GetLength()).First();
+                                        facesDoor = RoomSolver.FacesDoor(
+                                            nwEl.FacingOrientation, new XYZ(c.X, c.Y, 0), nearestDoor);
+                                        facingOk = facesDoor == true;
+                                    }
+                                    else
+                                    {
+                                        facingOk = orientationRule == "face_into_room";
+                                    }
                                 }
                             }
-                            else facingOk = orientationRule == "same_family";
+                            catch { facingOk = false; }
                         }
-                        catch { facingOk = false; }
                         if (facingOk) facingOkCount++;
 
                         replaced.Add(new { old_id = id, new_id = newId, moved_mm = movedMm,
@@ -1159,10 +1171,10 @@ namespace BinaVibe.Mcp.Tools
                     ["clash_count"] = clashTotal,
                     ["unverified_count"] = unverified,
                     ["facing_ok_count"] = facingOkCount,
-                    ["facing_ok"] = facingOkCount == replaced.Count,
+                    ["facing_ok"] = replaced.Count > 0 && facingOkCount == replaced.Count,
                     // Legacy field, one release (wire-skew guard): old backend
                     // prompts still read it; derived, never independently set.
-                    ["facing_confidence"] = facingOkCount == replaced.Count ? "high" : "low",
+                    ["facing_confidence"] = replaced.Count > 0 && facingOkCount == replaced.Count ? "high" : "low",
                 },
             };
         }
