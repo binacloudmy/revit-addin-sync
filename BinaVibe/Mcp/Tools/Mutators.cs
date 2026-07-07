@@ -152,9 +152,9 @@ namespace BinaVibe.Mcp.Tools
         // Transaction. Returns the NEW instance id, or null if the source has
         // no usable location point.
         private static ElementId? ReplaceCrossFamily(Document doc, FamilyInstance src,
-                                                     FamilySymbol sym, out string facingSource)
+                                                     FamilySymbol sym, out string orientationRule)
         {
-            facingSource = "vector_fallback";
+            orientationRule = "none";
             if (!(src.Location is LocationPoint lp)) return null;
             if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
 
@@ -167,62 +167,26 @@ namespace BinaVibe.Mcp.Tools
             // the VISIBLE footprint instead: capture the source bbox centre now,
             // move the clone onto it after placement.
             XYZ srcCenter = BBoxCenter(src);
-            Room room = null;
-            try { room = src.Room ?? doc.GetRoomAtPoint(pt); } catch { /* best-effort */ }
 
             var nw = level != null
                 ? doc.Create.NewFamilyInstance(pt, sym, level, Autodesk.Revit.DB.Structure.StructuralType.NonStructural)
                 : doc.Create.NewFamilyInstance(pt, sym, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
             doc.Regenerate();
 
-            // Derive the visually-correct facing from GEOMETRY, not from the
-            // source's FacingOrientation vector: two families authored with
-            // different "front" conventions (squat vs seated WC) can share a
-            // FacingOrientation yet look 180 deg apart, so copying the vector
-            // flips the clone. Priority chain, each convention-independent:
-            //   1. sibling-anchor — copy how an existing instance of the TARGET
-            //      family sits relative to the wall IT backs onto;
-            //   2. back-wall — face straight into the room off this fixture's
-            //      own backing wall;
-            //   3. vector fallback — only if no room/wall resolves.
-            XYZ srcCenterXY = new XYZ(srcCenter.X, srcCenter.Y, 0);
-            XYZ targetFacing = null;
-            if (room != null)
-            {
-                var backing = RoomSolver.BackingWall(room, srcCenterXY);
-                if (backing != null)
-                {
-                    var example = RoomSolver.FindTypologyExample(doc, sym, room);
-                    if (example != null && example.Location is LocationPoint)
-                    {
-                        Room exRoom = null;
-                        try { exRoom = example.Room; } catch { }
-                        if (exRoom != null)
-                        {
-                            var exCenter = BBoxCenter(example);
-                            var exBacking = RoomSolver.BackingWall(
-                                exRoom, new XYZ(exCenter.X, exCenter.Y, 0));
-                            if (exBacking != null)
-                            {
-                                double rel = RoomSolver.FacingAngle(example.FacingOrientation)
-                                           - RoomSolver.FacingAngle(exBacking.InwardNormal);
-                                double a = RoomSolver.FacingAngle(backing.InwardNormal) + rel;
-                                targetFacing = new XYZ(Math.Cos(a), Math.Sin(a), 0);
-                                facingSource = "sibling:" + example.Id.Value;
-                            }
-                        }
-                    }
-                    if (targetFacing == null)
-                    {
-                        targetFacing = backing.InwardNormal;
-                        facingSource = "back_wall";
-                    }
-                }
-            }
+            Room room = null;
+            try { room = src.Room ?? doc.GetRoomAtPoint(pt); } catch { /* best-effort */ }
 
-            // Rotate the clone to the derived facing (or, last resort, align to
-            // the source vector) about the location's Z axis.
-            XYZ rotateTo = targetFacing ?? srcFacing;
+            // Drafter Sight v2 P1: orientation from the rule hierarchy —
+            // face the nearest door, else face into the room off the nearest
+            // wall. NEVER from the source's FacingOrientation vector (families
+            // disagree on "front": same vector can look 180 deg apart) and
+            // NEVER copied from a sibling instance (an earlier bad swap would
+            // poison every later one).
+            XYZ srcCenterXY = new XYZ(srcCenter.X, srcCenter.Y, 0);
+            var (targetFacing, rule) = RoomSolver.ResolveFacing(doc, room, srcCenterXY);
+            orientationRule = rule;
+
+            XYZ rotateTo = targetFacing ?? srcFacing;   // "none" → keep default, reported unverified
             double ang = nw.FacingOrientation.AngleTo(rotateTo);
             if (ang > 1e-9)
             {
@@ -1078,7 +1042,7 @@ namespace BinaVibe.Mcp.Tools
                         try { oldHadRoom = fi.Room != null; } catch { }
 
                         long newId;
-                        string facingSource = "same_family";
+                        string orientationRule = "same_family";
                         if (fi.Symbol.Family.Id == sym.Family.Id)
                         {
                             // Same family → cheap type change, id preserved.
@@ -1089,14 +1053,14 @@ namespace BinaVibe.Mcp.Tools
                         }
                         else
                         {
-                            var created = ReplaceCrossFamily(doc, fi, sym, out facingSource);
+                            var created = ReplaceCrossFamily(doc, fi, sym, out orientationRule);
                             if (created == null)
                             {
                                 skipped.Add(new { id, reason = "no usable location point (hosted differently?)" });
                                 continue;
                             }
                             newId = created.Value;
-                            if (facingSource == "vector_fallback") vectorFallbackCount++;
+                            if (orientationRule == "vector_fallback") vectorFallbackCount++;
                         }
                         doc.Regenerate();
 
@@ -1135,7 +1099,7 @@ namespace BinaVibe.Mcp.Tools
                         }
                         else unverified++;
 
-                        replaced.Add(new { old_id = id, new_id = newId, moved_mm = movedMm, facing_source = facingSource });
+                        replaced.Add(new { old_id = id, new_id = newId, moved_mm = movedMm, facing_source = orientationRule });
                     }
                     catch (Exception ex)
                     {
