@@ -1019,7 +1019,10 @@ namespace BinaVibe.Mcp.Tools
 
             var replaced = new List<object>();
             var skipped = new List<object>();
-            long? firstNewId = null;   // Phase 6: verify the first result
+            // Phase 6 fidelity: capture each source's footprint + facing +
+            // room BEFORE the swap, measure the clone after. Aggregated below.
+            int movedOver50 = 0, inRoomFail = 0, facingChanged = 0, unverified = 0, clashTotal = 0;
+            double maxMovedMm = 0;
 
             using var tx = new Transaction(doc, $"BinaVibe: replace_family_instances ({ids.Count})");
             TxGuard.StartSwallowing(tx);
@@ -1041,22 +1044,68 @@ namespace BinaVibe.Mcp.Tools
                             skipped.Add(new { id, reason = "already the target type" });
                             continue;
                         }
+
+                        var oldBb = fi.get_BoundingBox(null);
+                        XYZ oldCenter = BBoxCenter(fi);
+                        XYZ oldFacing = fi.FacingOrientation;
+                        bool oldHadRoom = false;
+                        try { oldHadRoom = fi.Room != null; } catch { }
+
+                        long newId;
                         if (fi.Symbol.Family.Id == sym.Family.Id)
                         {
                             // Same family → cheap type change, id preserved.
                             fi.ChangeTypeId(sym.Id);
-                            replaced.Add(new { old_id = id, new_id = id });
-                            firstNewId ??= id;
-                            continue;
-                        }
-                        var newId = ReplaceCrossFamily(doc, fi, sym);
-                        if (newId != null)
-                        {
-                            replaced.Add(new { old_id = id, new_id = newId.Value });
-                            firstNewId ??= newId.Value;
+                            newId = id;
                         }
                         else
-                            skipped.Add(new { id, reason = "no usable location point (hosted differently?)" });
+                        {
+                            var created = ReplaceCrossFamily(doc, fi, sym);
+                            if (created == null)
+                            {
+                                skipped.Add(new { id, reason = "no usable location point (hosted differently?)" });
+                                continue;
+                            }
+                            newId = created.Value;
+                        }
+                        doc.Regenerate();
+
+                        // Measure the clone against the source footprint.
+                        // Guard on REAL bboxes: BBoxCenter falls back to
+                        // XYZ.Zero when a bbox is missing, which would fake a
+                        // huge moved_mm — count those as unverified instead.
+                        var nwEl = doc.GetElement(new ElementId(newId)) as FamilyInstance;
+                        double? movedMm = null;
+                        if (nwEl != null && oldBb != null && nwEl.get_BoundingBox(null) != null)
+                        {
+                            var nc = BBoxCenter(nwEl);
+                            movedMm = System.Math.Round(new XYZ(
+                                nc.X - oldCenter.X, nc.Y - oldCenter.Y, 0).GetLength() * 304.8, 0);
+                            maxMovedMm = System.Math.Max(maxMovedMm, movedMm.Value);
+                            if (movedMm.Value > 50) movedOver50++;
+                            try
+                            {
+                                if (oldHadRoom && nwEl.Room == null) inRoomFail++;
+                                if (oldFacing != null
+                                    && nwEl.FacingOrientation.DotProduct(oldFacing) < 0.95)
+                                    facingChanged++;
+                            }
+                            catch { }
+                            var vbb = nwEl.get_BoundingBox(null);
+                            if (vbb != null)
+                            {
+                                var outline = new Outline(vbb.Min, vbb.Max);
+                                clashTotal += new FilteredElementCollector(doc)
+                                    .WhereElementIsNotElementType()
+                                    .WherePasses(new BoundingBoxIntersectsFilter(outline))
+                                    .OfType<FamilyInstance>()
+                                    .Count(x => x.Id != nwEl.Id
+                                        && x.Category?.Id == nwEl.Category?.Id);
+                            }
+                        }
+                        else unverified++;
+
+                        replaced.Add(new { old_id = id, new_id = newId, moved_mm = movedMm });
                     }
                     catch (Exception ex)
                     {
@@ -1067,20 +1116,21 @@ namespace BinaVibe.Mcp.Tools
             }
             catch { tx.RollBack(); throw; }
 
-            // Phase 6 glance-check: deterministic verify on the first swap.
-            Dictionary<string, object?>? verify = null;
-            if (firstNewId.HasValue)
-            {
-                var firstEl = doc.GetElement(new ElementId(firstNewId.Value)) as FamilyInstance;
-                verify = RoomSolver.Verify(doc, new ElementId(firstNewId.Value), firstEl?.Room);
-            }
             return new Dictionary<string, object?>
             {
                 ["ok"] = true,
                 ["new_type"] = $"{sym.FamilyName} - {sym.Name}",
                 ["replaced"] = replaced,
                 ["skipped"] = skipped,
-                ["verify"] = verify,
+                ["verify"] = new Dictionary<string, object?>
+                {
+                    ["max_moved_mm"] = maxMovedMm,
+                    ["moved_over_50mm_count"] = movedOver50,
+                    ["in_room_fail_count"] = inRoomFail,
+                    ["clash_count"] = clashTotal,
+                    ["facing_changed_count"] = facingChanged,
+                    ["unverified_count"] = unverified,
+                },
             };
         }
 
