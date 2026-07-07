@@ -428,6 +428,15 @@ namespace BinaVibe.Mcp.Tools
             }
             if (result != null)
             {
+                // Preferred: mutation handlers emit an explicit new_ids list
+                // (anonymous-type entries in replaced[] are NOT dictionaries —
+                // parsing them silently yielded zero ids and the sight crop
+                // fell back to the whole floor, which blinded the VLM judge).
+                if (result.TryGetValue("new_ids", out var nv)
+                    && nv is System.Collections.IEnumerable nEn && !(nv is string))
+                    foreach (var it in nEn)
+                        if (ToLong(it) is long nl) ids.Add(nl);
+                if (ids.Count > 0) return ids.ToList();
                 foreach (var key in new[] { "replaced", "placed", "created", "new_ids", "ids" })
                     if (result.TryGetValue(key, out var v)) AddFromList(v);
                 foreach (var key in new[] { "new_id", "id" })
