@@ -8,6 +8,8 @@
         <StackPanel>
             <!-- pending pasted screenshots (thumbnail chips with an × to remove) -->
             <StackPanel x:Name="ThumbStrip" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,8"/>
+            <!-- pending slash command (accent chip with an × to clear) -->
+            <StackPanel x:Name="CommandStrip" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,8"/>
             <!-- Slate composer: sunken rounded container, borderless input,
                  ghost attach button, accent-gradient send/stop button. -->
             <Border Background="{DynamicResource Cp.Sunken}" CornerRadius="13" Padding="13,8,8,8">
@@ -16,7 +18,7 @@
                          there is text; stop square while a reply streams -->
                     <Button x:Name="SendBtn" DockPanel.Dock="Right" Width="32" Height="32" Cursor="Hand"
                             Background="Transparent" BorderThickness="0" VerticalAlignment="Bottom"
-                            ToolTip="Send">
+                            FocusVisualStyle="{x:Null}" ToolTip="Send">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
                                 <Border Background="{TemplateBinding Background}" CornerRadius="9">
@@ -31,6 +33,7 @@
                     <!-- @ mention button -->
                     <Button x:Name="AtBtn" DockPanel.Dock="Right" Width="30" Height="30" Cursor="Hand"
                             Background="Transparent" BorderThickness="0" VerticalAlignment="Bottom"
+                            FocusVisualStyle="{x:Null}"
                             Margin="0,0,4,1" ToolTip="Reference a level, category, view, or selection">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
@@ -39,7 +42,7 @@
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="bd" Property="Background" Value="#e7ecf2"/>
+                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
                                     </Trigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
@@ -52,6 +55,7 @@
                     <!-- attach file button -->
                     <Button x:Name="AttachBtn" DockPanel.Dock="Right" Width="30" Height="30" Cursor="Hand"
                             Background="Transparent" BorderThickness="0" VerticalAlignment="Bottom"
+                            FocusVisualStyle="{x:Null}"
                             Margin="0,0,2,1" ToolTip="Attach a file (.txt, .csv, .md, .log, .json, .xml)">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
@@ -60,7 +64,7 @@
                                 </Border>
                                 <ControlTemplate.Triggers>
                                     <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="bd" Property="Background" Value="#e7ecf2"/>
+                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
                                     </Trigger>
                                 </ControlTemplate.Triggers>
                             </ControlTemplate>
@@ -78,6 +82,7 @@
                  usage popover (UsageMeterClicked). -->
             <Button x:Name="MeterBtn" Visibility="Collapsed" Cursor="Hand"
                     Background="Transparent" BorderThickness="0" Padding="0"
+                    FocusVisualStyle="{x:Null}"
                     HorizontalContentAlignment="Stretch" ToolTip="Plan usage">
                 <Button.Template>
                     <ControlTemplate TargetType="Button">
@@ -138,7 +143,8 @@
                             </Grid>
                         </Border>
                         <Button x:Name="PopUpgradeBtn" Height="32" Margin="0,13,0,0" Cursor="Hand"
-                                Background="{DynamicResource Cp.AccentGrad}" BorderThickness="0">
+                                Background="{DynamicResource Cp.AccentGrad}" BorderThickness="0"
+                                FocusVisualStyle="{x:Null}">
                             <Button.Template>
                                 <ControlTemplate TargetType="Button">
                                     <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="9">
@@ -165,7 +171,7 @@
             </Popup>
             <TextBlock x:Name="PlaceholderHint" HorizontalAlignment="Center" Margin="0,8,0,1"
                        FontSize="10" Foreground="{DynamicResource Cp.Faint}">
-                <Run Text="Type "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to reference a level, category, view, or selection"/>
+                <Run Text="Type "/><Run Text="/" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" for tools · "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to reference a level, view or selection"/>
             </TextBlock>
         </StackPanel>
     </Border>

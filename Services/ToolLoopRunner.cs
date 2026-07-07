@@ -61,9 +61,6 @@ namespace RevitWebAppSync.Services
 
         public ToolLoopRunner(ToolLoopService svc) => _svc = svc;
 
-        private static string Prettify(string tool) =>
-            string.IsNullOrWhiteSpace(tool) ? "a step" : tool.Replace('_', ' ').Trim();
-
         // ONE-BUBBLE accumulation helpers. `narration` holds the text of COMPLETED
         // rounds; `Wrap` prepends it to the live round's streamed text so onReply
         // always carries the full running answer.
@@ -222,7 +219,10 @@ namespace RevitWebAppSync.Services
                     // given this row a (richer) one — empty label preserves it.
                     bool known = false;
                     foreach (var s in trail) { if (s.StepId == call.ToolCallId) { known = true; break; } }
-                    string runLabel = known ? "" : "Running " + Prettify(call.Tool) + "…";
+                    // Human-friendly label from the single ToolLabels map (with a
+                    // key arg where useful). Empty when the backend already gave this
+                    // row a richer label (preserve it).
+                    string runLabel = known ? "" : ToolLabels.Label(call.Tool, call.Args) + "…";
                     ProgressReducer.Apply(trail, call.ToolCallId, "executing", runLabel, "", StepState.Running);
                     try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* best-effort UI */ }
 

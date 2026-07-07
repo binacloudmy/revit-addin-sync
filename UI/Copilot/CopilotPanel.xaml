@@ -12,7 +12,7 @@
         <ctl:EnumEqualsConverter x:Key="EnumEq"/>
     </Page.Resources>
 
-    <Grid>
+    <Grid UseLayoutRounding="True" TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>  <!-- header -->
             <RowDefinition Height="Auto"/>  <!-- tabs -->

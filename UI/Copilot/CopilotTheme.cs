@@ -115,6 +115,16 @@ namespace RevitWebAppSync.UI.Copilot
                 ["Cp.Amber"]         = ("#d97706", "#fbbf24"),
                 ["Cp.Red"]           = ("#dc2626", "#f87171"),
                 ["Cp.Meter"]         = ("#f59e0b", "#f59e0b"),
+                // Slash-command tool types — FIXED design hex, identical in both
+                // themes (badgeColor() is theme-independent; a white icon sits on the
+                // saturated tile and reads on light or dark). *Bg = exact 13% tint.
+                ["Cp.Tool.Det"]      = ("#0d9488", "#0d9488"),
+                ["Cp.Tool.Ai"]       = ("#7c3aed", "#7c3aed"),
+                ["Cp.Tool.Rep"]      = ("#d97706", "#d97706"),
+                ["Cp.Tool.DetBg"]    = ("#210d9488", "#210d9488"),
+                ["Cp.Tool.AiBg"]     = ("#217c3aed", "#217c3aed"),
+                ["Cp.Tool.RepBg"]    = ("#21d97706", "#21d97706"),
+                ["Cp.Pin"]           = ("#f5a623", "#f5a623"),
                 ["Cp.Purple"]        = ("#1d4ed8", "#60a5fa"),
                 ["Cp.PurpleSoft"]    = ("#eff6ff", "#2660A5FA"),
                 ["Cp.PurpleLine"]    = ("#bfdbfe", "#3360A5FA"),

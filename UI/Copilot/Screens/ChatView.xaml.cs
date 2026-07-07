@@ -36,6 +36,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         public ChatView()
         {
             InitializeComponent();
+            // Slash command sent from the composer → add the turn (chip bubble +
+            // placeholder reply). UI-only until tools run from chat.
+            Prompt.SlashToolSubmitted += (tool, args) => Vm?.ChatSendSlashCommand(tool, args);
+            // Host the "/" palette as an IN-PANEL overlay (SlashLayer) so it stays
+            // inside the pane and tracks resize — the editor shows/hides the layer.
+            Prompt.AttachSlashPalette(SlashPalette, v =>
+            {
+                if (v) UpdateSlashPaletteBounds();
+                SlashLayer.Visibility = v ? Visibility.Visible : Visibility.Collapsed;
+            });
+            SlashScrim.MouseLeftButtonDown += (_, __) => Prompt.CloseSlashPalette();
+            SizeChanged += (_, __) => { if (SlashLayer.Visibility == Visibility.Visible) UpdateSlashPaletteBounds(); };
             DataContextChanged += (_, __) => Hook();
             // Re-render the (code-behind-drawn) thread when the palette flips —
             // its bubbles snapshot colours via CopilotColors, so unlike the XAML
@@ -66,6 +78,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                      : (Scroller != null ? Scroller.ActualWidth : 0);
             if (w <= 0) return 360;
             return System.Math.Max(320, w * 0.85 - 44);
+        }
+
+        // Keep the "/" palette bounded by the pane: cap the whole card to ~64% of
+        // the panel height and the inner scrolling list to what's left after the
+        // header + footer, so it never covers the tabs or spills past the edges.
+        private void UpdateSlashPaletteBounds()
+        {
+            double h = ActualHeight;
+            if (h <= 0) return;
+            double cap = System.Math.Max(200, h * 0.64);
+            SlashPalette.MaxHeight = cap;
+            SlashPalette.SetListMaxHeight(cap - 96);   // ≈ header + footer + margins
         }
 
         private void OnThemeChanged() => Rebuild();
@@ -238,7 +262,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (m.Role == "user")
                 return CopilotMessageBubble.User(
                     m.Text, Vm?.UserFirstName, m.ImagesBase64,
-                    m.Files?.Select(f => (f.Name, LineCount(f.Content))), BubbleMaxWidth(), m.Time);
+                    m.Files?.Select(f => (f.Name, LineCount(f.Content))), BubbleMaxWidth(), m.Time,
+                    m.SlashCommand);
 
             // Cancelled generation — the design's italic faint "Interrupted."
             // line: stop-in-circle icon + italic text, no bubble, no feedback.
@@ -400,19 +425,19 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             var rate = new Button
             {
-                Content = "Rate", Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                Content = "Rate",
                 Foreground = CopilotColors.From("#1d4ed8"), FontSize = 12, FontWeight = FontWeights.SemiBold,
-                Cursor = System.Windows.Input.Cursors.Hand, Padding = new Thickness(8, 4, 8, 4),
+                Padding = new Thickness(8, 4, 8, 4),
                 VerticalAlignment = VerticalAlignment.Center
             };
+            Controls.FlatButton.Apply(rate, 6);
             rate.Click += (_, __) => { try { Vm.RequestRate(); } catch { /* best-effort */ } };
             Grid.SetColumn(rate, 1);
             inner.Children.Add(rate);
 
             var dismiss = new Button
             {
-                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
-                Padding = new Thickness(6, 4, 6, 4), Cursor = System.Windows.Input.Cursors.Hand,
+                Padding = new Thickness(6, 4, 6, 4),
                 VerticalAlignment = VerticalAlignment.Center,
                 Content = new Path
                 {
@@ -422,6 +447,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     Data = Geometry.Parse("M5,5 L15,15 M15,5 L5,15")
                 }
             };
+            Controls.FlatButton.Apply(dismiss, 6);
             dismiss.Click += (_, __) => { _nudgeDismissed = true; Rebuild(); };
             Grid.SetColumn(dismiss, 2);
             inner.Children.Add(dismiss);
@@ -551,9 +577,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var btn = new Button
             {
                 Content = icon, Width = 27, Height = 27,
-                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
-                Margin = new Thickness(3, 0, 0, 0), Cursor = System.Windows.Input.Cursors.Hand,
+                Margin = new Thickness(3, 0, 0, 0),
             };
+            // Flat chrome: no default WPF button box/focus rect (that light-blue
+            // highlight), just a theme-aware hover tint. Selected state is the icon
+            // colour (PaintVotes), never a background box — matches the design.
+            Controls.FlatButton.Apply(btn, 7);
             btn.Click += (_, __) => { try { onClick(); } catch { /* best-effort */ } };
             return btn;
         }
@@ -644,10 +673,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var cancel = new Button
             {
                 Content = "Cancel", FontSize = 11, FontWeight = FontWeights.Medium,
-                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
                 Foreground = CopilotColors.From("#99a3b3"), Padding = new Thickness(8, 7, 8, 7),
-                Cursor = System.Windows.Input.Cursors.Hand,
             };
+            Controls.FlatButton.Apply(cancel, 6);
             cancel.Click += (_, __) => close();
             actions.Children.Add(cancel);
             sp.Children.Add(actions);
@@ -904,10 +932,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var dismiss = new Button
             {
                 Content = "Dismiss", FontSize = 11.5, FontWeight = FontWeights.Medium,
-                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
                 Foreground = CopilotColors.From("#99a3b3"), Padding = new Thickness(8, 8, 6, 8),
-                Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(3, 0, 0, 0),
+                Margin = new Thickness(3, 0, 0, 0),
             };
+            Controls.FlatButton.Apply(dismiss, 6);
             dismiss.Click += (_, __) => { m.Dismissed = true; Rebuild(); };
             Grid.SetColumn(dismiss, 1);
             ag.Children.Add(dismiss);
@@ -1382,7 +1410,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 Grid.SetColumn(chev, 2); g.Children.Add(chev);
                 btn.Content = g;
                 var p = prompt;
-                btn.Click += (_, __) => Vm.ChatSendCommand.Execute(p);
+                // Behavior change: don't send — drop the starter prompt into the
+                // composer for the user to edit, then they press send themselves.
+                btn.Click += (_, __) => Prompt.InsertStarterPrompt(p);
                 sug.Children.Add(btn);
                 sug.Children.Add(new Border { Height = 1, Background = CopilotColors.From("#140F1B2D") });
             }

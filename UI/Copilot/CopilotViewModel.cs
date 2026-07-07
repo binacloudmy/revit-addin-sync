@@ -672,6 +672,29 @@ namespace RevitWebAppSync.UI.Copilot
             _ = ResolveProposalAsync(routeText, text, interp.ToolId, images, historyFiles);
         }
 
+        /// <summary>Slash command sent from the composer. UI-only for now: adds the
+        /// user's turn (a command chip, plus any typed args) and a placeholder reply
+        /// — running tools from chat is wired later.</summary>
+        public void ChatSendSlashCommand(SlashTool tool, string args)
+        {
+            if (tool == null) return;
+            Tab = CpTab.Chat;
+            Screen = CpScreen.Home;
+            ToolId = null;
+            string time = System.DateTime.Now.ToString("h:mm tt");
+            Thread.Add(new ChatMessage
+            {
+                Role = "user", Kind = CpMsgKind.User, SlashCommand = tool,
+                Text = (args ?? "").Trim(), Time = time,
+            });
+            Thread.Add(new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.AiReply, Time = time,
+                Text = $"**/{tool.Name}** is ready. Running tools directly from chat is coming soon — "
+                     + "for now this is a placeholder so you can preview the flow.",
+            });
+        }
+
         /// <summary>Line count matching AttachmentChip's "N ln" display.</summary>
         private static int LineCount(string content) =>
             string.IsNullOrEmpty(content) ? 0 : content.Count(c => c == '\n') + 1;

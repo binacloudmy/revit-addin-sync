@@ -35,5 +35,15 @@
         <!-- Usage-limit blocked state; replaces the composer at 100% usage
              (centered over the body when the thread is empty). -->
         <ContentControl x:Name="BlockedHost" Grid.Row="2" Visibility="Collapsed"/>
+
+        <!-- Slash-command palette overlay: an IN-PANEL layer (not a Popup, which
+             floats outside the pane and ignores its bounds). Lives in the body row
+             so it can never cover the header/tabs, stretches to the composer width,
+             and is anchored just above the composer. The scrim closes it on an
+             outside click; the tool list scrolls when content exceeds MaxHeight. -->
+        <Grid x:Name="SlashLayer" Grid.Row="1" Visibility="Collapsed">
+            <Border x:Name="SlashScrim" Background="Transparent"/>
+            <ctl:CommandPalette x:Name="SlashPalette" VerticalAlignment="Bottom" Margin="14,12,14,8"/>
+        </Grid>
     </Grid>
 </UserControl>

@@ -103,11 +103,16 @@ namespace RevitWebAppSync.Services
                             string richLabel = root.TryGetProperty("label", out var lb) ? (lb.GetString() ?? "") : "";
                             if (string.IsNullOrEmpty(stepId))
                                 stepId = string.IsNullOrEmpty(tool) ? Guid.NewGuid().ToString("N") : tool;
+                            // Prefer the backend's rich label. Otherwise map the raw
+                            // tool name through the single ToolLabels table so even an
+                            // un-upgraded backend reads "Reading grids…" not "list_grids…".
                             string label = !string.IsNullOrEmpty(richLabel)
                                 ? richLabel
                                 : (string.IsNullOrEmpty(tool)
                                     ? "Working…"
-                                    : (string.IsNullOrEmpty(tstatus) ? $"{tool}…" : $"{tool} ({tstatus})…"));
+                                    : (string.IsNullOrEmpty(tstatus)
+                                        ? ToolLabels.Label(tool) + "…"
+                                        : ToolLabels.Label(tool) + " (" + tstatus + ")…"));
                             return new StreamChunk
                             {
                                 Kind = StreamChunkKind.Tool,

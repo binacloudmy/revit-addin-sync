@@ -154,6 +154,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public CpMsgKind Kind;
         public string Text;
         public string ToolId;        // proposal/running/result target tool
+        public SlashTool SlashCommand;  // slash-command chip shown atop a user bubble (UI-only)
         public List<Mention> Mentions = new List<Mention>();
         public string Question;      // clarify
         public List<ClarifyOption> Options = new List<ClarifyOption>();  // clarify

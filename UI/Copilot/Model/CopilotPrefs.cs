@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Newtonsoft.Json;
 
 namespace RevitWebAppSync.UI.Copilot.Model
@@ -18,6 +20,34 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Set once the user submits a star rating — the inline rating
         /// nudge never appears again after this.</summary>
         public bool RatingSubmitted { get; set; }
+
+        /// <summary>Slash-command tool ids the user pinned (shown first in Quick access).</summary>
+        public List<string> PinnedTools { get; set; } = new List<string>();
+
+        /// <summary>Recently used tool ids (most-recent first, capped) — fills out Quick access.</summary>
+        public List<string> RecentTools { get; set; } = new List<string>();
+
+        public bool IsPinned(string id) => PinnedTools != null && PinnedTools.Contains(id);
+
+        /// <summary>Toggle a pin and persist. Returns the new pinned state.</summary>
+        public bool TogglePin(string id)
+        {
+            PinnedTools = PinnedTools ?? new List<string>();
+            bool now;
+            if (PinnedTools.Contains(id)) { PinnedTools.Remove(id); now = false; }
+            else { PinnedTools.Insert(0, id); now = true; }
+            Save();
+            return now;
+        }
+
+        /// <summary>Record a tool as used (most-recent first, max 4) and persist.</summary>
+        public void PushRecent(string id)
+        {
+            RecentTools = (RecentTools ?? new List<string>()).Where(x => x != id).ToList();
+            RecentTools.Insert(0, id);
+            if (RecentTools.Count > 4) RecentTools = RecentTools.Take(4).ToList();
+            Save();
+        }
 
         private static string FilePath
         {

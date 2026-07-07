@@ -1,6 +1,7 @@
 <UserControl x:Class="RevitWebAppSync.UI.Copilot.Controls.MentionInput"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
              FontFamily="{DynamicResource Cp.Font}">
     <Grid>
         <TextBox x:Name="Editor" BorderThickness="0" Background="Transparent" FontSize="13"
@@ -23,5 +24,9 @@
                 </ScrollViewer>
             </Border>
         </Popup>
+        <!-- The "/" command palette is NOT hosted here (a Popup floats outside the
+             panel and ignores its bounds). ChatView hosts it as an in-panel overlay
+             and attaches it via AttachSlashPalette so it stays glued inside the pane
+             and tracks resize. -->
     </Grid>
 </UserControl>
