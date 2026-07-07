@@ -149,10 +149,11 @@ namespace BinaVibe.Mcp.Tools
         // instance at the source's plan point + facing + level, take the TARGET
         // family's own vertical (matched from an existing sibling, never copied
         // from the source), then delete the source. Caller must wrap in a
-        // Transaction. Returns false if the source has no usable location point.
-        private static bool ReplaceCrossFamily(Document doc, FamilyInstance src, FamilySymbol sym)
+        // Transaction. Returns the NEW instance id, or null if the source has
+        // no usable location point.
+        private static ElementId? ReplaceCrossFamily(Document doc, FamilyInstance src, FamilySymbol sym)
         {
-            if (!(src.Location is LocationPoint lp)) return false;
+            if (!(src.Location is LocationPoint lp)) return null;
             if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
 
             XYZ pt = lp.Point;
@@ -190,7 +191,7 @@ namespace BinaVibe.Mcp.Tools
             }
 
             doc.Delete(src.Id);
-            return true;
+            return nw.Id;
         }
 
         private static XYZ BBoxCenter(Element e)
@@ -909,7 +910,7 @@ namespace BinaVibe.Mcp.Tools
                         if (el is FamilyInstance fiX && newType is FamilySymbol symX
                             && fiX.Symbol.Family.Id != symX.Family.Id)
                         {
-                            if (ReplaceCrossFamily(doc, fiX, symX)) swapped++;
+                            if (ReplaceCrossFamily(doc, fiX, symX) != null) swapped++;
                             else failures.Add(new { id, error = "cross-family replace failed (no location point)" });
                             continue;
                         }
@@ -931,6 +932,338 @@ namespace BinaVibe.Mcp.Tools
                 ["swapped"] = swapped,
                 ["new_type"] = newTypeName,
                 ["failures"] = failures,
+            };
+        }
+
+        // ─── replace_family_instances ───────────────────────────────────
+        /// <summary>
+        /// Swap each element to a different family/type IN PLACE — no
+        /// reference instance needed. Same family → ChangeTypeId (id kept);
+        /// different family → ReplaceCrossFamily (new instance at the same
+        /// point/rotation/hand, source deleted). One Transaction = one Ctrl+Z.
+        /// args: { element_ids:[...], new_type:"Type name" or "Family - Type" }
+        /// Returns { ok, replaced:[{old_id,new_id}], skipped:[{id,reason}] };
+        /// unresolvable new_type → { ok:false, error, candidates:[...] }.
+        /// </summary>
+        public static Dictionary<string, object?> ReplaceFamilyInstances(Document doc, JsonElement args)
+        {
+            var ids = ArgsHelp.GetLongList(args, "element_ids");
+            var newTypeName = ArgsHelp.GetString(args, "new_type")
+                ?? throw new ArgumentException("missing new_type");
+
+            var sym = ResolveSymbol(doc, newTypeName);
+            if (sym == null)
+            {
+                // Loud failure with candidates — never place a "closest" type
+                // silently (same rule as ListFamilyTypes unknown-category).
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"type '{newTypeName}' not loaded in document — load the family or pick a candidate",
+                    ["candidates"] = SymbolCandidates(doc, newTypeName),
+                };
+            }
+
+            if (!sym.IsActive)
+            {
+                using var txActivate = new Transaction(doc, "BinaVibe: activate_symbol");
+                TxGuard.StartSwallowing(txActivate);
+                sym.Activate();
+                doc.Regenerate();
+                txActivate.Commit();
+            }
+
+            var replaced = new List<object>();
+            var skipped = new List<object>();
+            long? firstNewId = null;   // Phase 6: verify the first result
+
+            using var tx = new Transaction(doc, $"BinaVibe: replace_family_instances ({ids.Count})");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var id in ids)
+                {
+                    try
+                    {
+                        var el = doc.GetElement(new ElementId(id));
+                        if (el == null) { skipped.Add(new { id, reason = "element not found" }); continue; }
+                        if (!(el is FamilyInstance fi))
+                        {
+                            skipped.Add(new { id, reason = "not a family instance" });
+                            continue;
+                        }
+                        if (fi.Symbol.Id == sym.Id)
+                        {
+                            skipped.Add(new { id, reason = "already the target type" });
+                            continue;
+                        }
+                        if (fi.Symbol.Family.Id == sym.Family.Id)
+                        {
+                            // Same family → cheap type change, id preserved.
+                            fi.ChangeTypeId(sym.Id);
+                            replaced.Add(new { old_id = id, new_id = id });
+                            firstNewId ??= id;
+                            continue;
+                        }
+                        var newId = ReplaceCrossFamily(doc, fi, sym);
+                        if (newId != null)
+                        {
+                            replaced.Add(new { old_id = id, new_id = newId.Value });
+                            firstNewId ??= newId.Value;
+                        }
+                        else
+                            skipped.Add(new { id, reason = "no usable location point (hosted differently?)" });
+                    }
+                    catch (Exception ex)
+                    {
+                        skipped.Add(new { id, reason = ex.Message });
+                    }
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            // Phase 6 glance-check: deterministic verify on the first swap.
+            Dictionary<string, object?>? verify = null;
+            if (firstNewId.HasValue)
+            {
+                var firstEl = doc.GetElement(new ElementId(firstNewId.Value)) as FamilyInstance;
+                verify = RoomSolver.Verify(doc, new ElementId(firstNewId.Value), firstEl?.Room);
+            }
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["new_type"] = $"{sym.FamilyName} - {sym.Name}",
+                ["replaced"] = replaced,
+                ["skipped"] = skipped,
+                ["verify"] = verify,
+            };
+        }
+
+        // ─── shared family-symbol resolver (swap + placement tools) ──────
+        // Exact type-name match first, then "Family - Type" / "Family : Type"
+        // composites (list_family_types shows name + family_name, the agent
+        // may echo either form).
+        private static FamilySymbol? ResolveSymbol(Document doc, string typeName)
+        {
+            var symbols = new FilteredElementCollector(doc)
+                .WhereElementIsElementType().OfClass(typeof(FamilySymbol))
+                .Cast<FamilySymbol>().ToList();
+            return symbols.FirstOrDefault(t =>
+                    string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
+                ?? symbols.FirstOrDefault(t =>
+                    string.Equals($"{t.FamilyName} - {t.Name}", typeName, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals($"{t.FamilyName} : {t.Name}", typeName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static List<string> SymbolCandidates(Document doc, string typeName) =>
+            new FilteredElementCollector(doc)
+                .WhereElementIsElementType().OfClass(typeof(FamilySymbol))
+                .Cast<FamilySymbol>()
+                .Where(t => t.Name.IndexOf(typeName, StringComparison.OrdinalIgnoreCase) >= 0
+                    || (t.FamilyName != null
+                        && t.FamilyName.IndexOf(typeName, StringComparison.OrdinalIgnoreCase) >= 0))
+                .Take(5)
+                .Select(t => $"{t.FamilyName} - {t.Name}")
+                .ToList();
+
+        // ─── place_in_room (Phase 5 solver) ──────────────────────────────
+        // LLM sends SEMANTIC intent; this computes the exact point + rotation
+        // from room boundary geometry. The LLM never emits coordinates.
+        public static Dictionary<string, object?> PlaceInRoom(Document doc, JsonElement args)
+        {
+            var typeName = ArgsHelp.GetString(args, "family_type")
+                ?? throw new ArgumentException("missing family_type");
+            var roomName = ArgsHelp.GetString(args, "room")
+                ?? throw new ArgumentException("missing room");
+            var anchor = (ArgsHelp.GetString(args, "anchor") ?? "wall").ToLowerInvariant();
+            var wallSel = ArgsHelp.GetString(args, "wall_selector");
+            double offsetFt = (ArgsHelp.GetLong(args, "offset_mm") ?? 400) / 304.8;
+            var facing = (ArgsHelp.GetString(args, "facing") ?? "into_room").ToLowerInvariant();
+            int count = (int)(ArgsHelp.GetLong(args, "count") ?? 1);
+            double spacingFt = (ArgsHelp.GetLong(args, "spacing_mm") ?? 900) / 304.8;
+
+            var sym = ResolveSymbol(doc, typeName);
+            if (sym == null)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"type '{typeName}' not loaded — load the family or pick a candidate",
+                    ["candidates"] = SymbolCandidates(doc, typeName),
+                };
+            var room = RoomSolver.FindRoom(doc, roomName);
+            if (room == null)
+                return new Dictionary<string, object?>
+                { ["ok"] = false, ["error"] = $"room '{roomName}' not found (placed rooms only)" };
+
+            var doors = RoomSolver.RoomDoors(doc, room);
+            var segs = RoomSolver.WallSegments(room);
+            RoomSolver.MarkDoorSegments(segs, doors);
+            var level = doc.GetElement(room.LevelId) as Level;
+
+            // Resolve anchor -> points + facing direction (solver, not LLM).
+            var points = new List<XYZ>();
+            XYZ faceToward = XYZ.BasisY;
+            if (anchor == "center")
+            {
+                var bbRoom = room.get_BoundingBox(null);
+                var c = bbRoom != null ? (bbRoom.Min + bbRoom.Max) * 0.5
+                    : (room.Location as LocationPoint)?.Point;
+                if (c == null)
+                    return new Dictionary<string, object?>
+                    { ["ok"] = false, ["error"] = "room has no computable center" };
+                points.Add(c);
+                var dl0 = doors.FirstOrDefault()?.Location as LocationPoint;
+                faceToward = dl0 != null ? (dl0.Point - c).Normalize() : XYZ.BasisY;
+            }
+            else // wall | corner
+            {
+                var seg = RoomSolver.PickWall(segs, wallSel, doors);
+                if (seg == null)
+                    return new Dictionary<string, object?>
+                    { ["ok"] = false, ["error"] = "room has no usable wall segments" };
+                if (anchor == "corner")
+                {
+                    var dir = (seg.End - seg.Start).Normalize();
+                    points.Add(seg.Start + dir * offsetFt + seg.InwardNormal * offsetFt);
+                }
+                else
+                {
+                    points = RoomSolver.AnchorPoints(seg, count, spacingFt, offsetFt);
+                }
+                faceToward = seg.InwardNormal;
+                if (facing == "door")
+                {
+                    var dl = doors.FirstOrDefault()?.Location as LocationPoint;
+                    if (dl != null) faceToward = (dl.Point - points[0]).Normalize();
+                }
+            }
+
+            var placed = new List<object>();
+            var skipped = new List<object>();
+            using var tx = new Transaction(doc, $"BinaVibe: place_in_room ({count})");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
+                foreach (var pt in points)
+                {
+                    try
+                    {
+                        var z = level?.Elevation ?? pt.Z;
+                        var inst = level != null
+                            ? doc.Create.NewFamilyInstance(new XYZ(pt.X, pt.Y, z), sym, level,
+                                Autodesk.Revit.DB.Structure.StructuralType.NonStructural)
+                            : doc.Create.NewFamilyInstance(pt, sym,
+                                Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                        doc.Regenerate();
+                        var origin = (inst.Location as LocationPoint)?.Point ?? pt;
+                        double ang = RoomSolver.FacingAngle(faceToward)
+                            - RoomSolver.FacingAngle(inst.FacingOrientation);
+                        if (System.Math.Abs(ang) > 1e-9)
+                            ElementTransformUtils.RotateElement(doc, inst.Id,
+                                Line.CreateBound(origin, origin + XYZ.BasisZ), ang);
+                        placed.Add(inst.Id.Value);
+                    }
+                    catch (Exception ex) { skipped.Add(new { reason = ex.Message }); }
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            var verifyBlock = placed.Count > 0
+                ? RoomSolver.Verify(doc, new ElementId((long)placed[0]), room)
+                : null;
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = placed.Count > 0,
+                ["placed"] = placed,
+                ["skipped"] = skipped,
+                ["verify"] = verifyBlock,
+            };
+        }
+
+        // ─── place_relative (Phase 5 solver) ─────────────────────────────
+        public static Dictionary<string, object?> PlaceRelative(Document doc, JsonElement args)
+        {
+            var typeName = ArgsHelp.GetString(args, "family_type")
+                ?? throw new ArgumentException("missing family_type");
+            var targetId = ArgsHelp.GetLong(args, "target_element_id")
+                ?? throw new ArgumentException("missing target_element_id");
+            var relation = (ArgsHelp.GetString(args, "relation") ?? "beside").ToLowerInvariant();
+            double offsetFt = (ArgsHelp.GetLong(args, "offset_mm") ?? 500) / 304.8;
+
+            var sym = ResolveSymbol(doc, typeName);
+            if (sym == null)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"type '{typeName}' not loaded",
+                    ["candidates"] = SymbolCandidates(doc, typeName),
+                };
+            var target = doc.GetElement(new ElementId(targetId)) as FamilyInstance;
+            if (target == null || !(target.Location is LocationPoint tl))
+                return new Dictionary<string, object?>
+                { ["ok"] = false, ["error"] = $"target {targetId} is not a point-placed family instance" };
+
+            var bb = target.get_BoundingBox(null);
+            double halfW = bb != null ? (bb.Max.X - bb.Min.X + bb.Max.Y - bb.Min.Y) / 4.0 : 1.0;
+            XYZ hand = target.HandOrientation.GetLength() > 1e-9
+                ? target.HandOrientation : XYZ.BasisX;
+            XYZ face = target.FacingOrientation.GetLength() > 1e-9
+                ? target.FacingOrientation : XYZ.BasisY;
+            double gap = halfW + offsetFt;
+
+            XYZ pt;
+            XYZ faceToward;
+            switch (relation)
+            {
+                case "opposite":
+                case "facing":
+                    pt = tl.Point + face * (gap * 2);
+                    faceToward = face.Negate();
+                    break;
+                case "above":
+                    pt = tl.Point + XYZ.BasisZ * gap;
+                    faceToward = face;
+                    break;
+                case "beside":
+                default:
+                    pt = tl.Point + hand * gap;
+                    faceToward = face;
+                    break;
+            }
+
+            long newInstanceId;
+            using var tx = new Transaction(doc, "BinaVibe: place_relative");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
+                var level = doc.GetElement(target.LevelId) as Level;
+                var inst = level != null
+                    ? doc.Create.NewFamilyInstance(pt, sym, level,
+                        Autodesk.Revit.DB.Structure.StructuralType.NonStructural)
+                    : doc.Create.NewFamilyInstance(pt, sym,
+                        Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                doc.Regenerate();
+                var origin = (inst.Location as LocationPoint)?.Point ?? pt;
+                double ang = RoomSolver.FacingAngle(faceToward)
+                    - RoomSolver.FacingAngle(inst.FacingOrientation);
+                if (System.Math.Abs(ang) > 1e-9)
+                    ElementTransformUtils.RotateElement(doc, inst.Id,
+                        Line.CreateBound(origin, origin + XYZ.BasisZ), ang);
+                newInstanceId = inst.Id.Value;
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            var relVerify = RoomSolver.Verify(doc, new ElementId(newInstanceId), target.Room);
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["placed"] = new[] { newInstanceId },
+                ["verify"] = relVerify,
             };
         }
 

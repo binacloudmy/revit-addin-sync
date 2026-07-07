@@ -55,6 +55,12 @@ namespace RevitWebAppSync.Models
         [JsonProperty("phases")]
         public List<string> Phases { get; set; }
 
+        /// <summary>Room inventory digest (Phase 3 model sight) — one row per
+        /// placed room: {name, number, level, centroid:[x,y] ft, area_m2,
+        /// doors}. The agent's per-turn mental map; backend trims to 60.</summary>
+        [JsonProperty("rooms")]
+        public List<Dictionary<string, object>> Rooms { get; set; }
+
         [JsonProperty("revitVersion")]
         public string RevitVersion { get; set; }
 

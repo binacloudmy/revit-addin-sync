@@ -173,7 +173,7 @@ namespace BinaVibe.Mcp.Tools
                 paramMap[p.Definition.Name] = SafeParamValue(p);
             }
 
-            return new Dictionary<string, object?>
+            var result = new Dictionary<string, object?>
             {
                 ["id"] = el.Id.Value,
                 ["name"] = el.Name,
@@ -181,6 +181,338 @@ namespace BinaVibe.Mcp.Tools
                 ["type_name"] = typeEl?.Name,
                 ["level_name"] = lvl?.Name,
                 ["parameters"] = paramMap,
+            };
+            foreach (var kv in PlacementFacts(doc, el)) result[kv.Key] = kv.Value;
+            return result;
+        }
+
+        // ─── look_at (Phase 7 sight) ─────────────────────────────────────
+        // Renders a CROPPED image around the target and returns it base64.
+        // The backend swaps the image for a VLM text verdict before the
+        // (text-only) main agent resumes — no image ever reaches DeepSeek.
+        public static Dictionary<string, object?> LookAt(UIDocument uidoc, JsonElement args)
+        {
+            var doc = uidoc.Document;
+            var target = TryGetString(args, "target") ?? "active";
+            var viewKind = (TryGetString(args, "view") ?? "plan").ToLowerInvariant();
+            var question = TryGetString(args, "question");
+
+            // Resolve target -> bbox (room, element id, or active view extent).
+            BoundingBoxXYZ? box = null;
+            string label = target;
+            if (long.TryParse(target, out var idNum))
+            {
+                var el = doc.GetElement(new ElementId(idNum));
+                box = el?.get_BoundingBox(null);
+                label = el?.Name ?? target;
+            }
+            else if (!string.Equals(target, "active", System.StringComparison.OrdinalIgnoreCase))
+            {
+                var room = RoomSolver.FindRoom(doc, target);
+                box = room?.get_BoundingBox(null);
+                label = room?.Name ?? target;
+            }
+
+            View? exportView = null;
+            var created = new List<ElementId>();
+            using (var tx = new Transaction(doc, "BinaVibe: look_at (temp view)"))
+            {
+                TxGuard.StartSwallowing(tx);
+                if (viewKind == "3d")
+                {
+                    var vft = new FilteredElementCollector(doc)
+                        .OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
+                        .FirstOrDefault(v => v.ViewFamily == ViewFamily.ThreeDimensional);
+                    if (vft != null)
+                    {
+                        var v3 = View3D.CreateIsometric(doc, vft.Id);
+                        if (box != null)
+                            v3.SetSectionBox(new BoundingBoxXYZ
+                            {
+                                Min = box.Min - new XYZ(6, 6, 1),
+                                Max = box.Max + new XYZ(6, 6, 3),
+                            });
+                        exportView = v3;
+                        created.Add(v3.Id);
+                    }
+                }
+                else
+                {
+                    var basePlan = doc.ActiveView as ViewPlan
+                        ?? new FilteredElementCollector(doc).OfClass(typeof(ViewPlan))
+                            .Cast<ViewPlan>().FirstOrDefault(v => !v.IsTemplate);
+                    if (basePlan != null)
+                    {
+                        var dup = doc.GetElement(
+                            basePlan.Duplicate(ViewDuplicateOption.Duplicate)) as ViewPlan;
+                        if (dup != null && box != null)
+                        {
+                            dup.CropBoxActive = true;
+                            dup.CropBox = new BoundingBoxXYZ
+                            {
+                                Min = new XYZ(box.Min.X - 6, box.Min.Y - 6, dup.CropBox.Min.Z),
+                                Max = new XYZ(box.Max.X + 6, box.Max.Y + 6, dup.CropBox.Max.Z),
+                            };
+                        }
+                        exportView = (View?)dup ?? basePlan;
+                        if (dup != null) created.Add(dup.Id);
+                    }
+                }
+                tx.Commit();
+            }
+            if (exportView == null)
+                return new Dictionary<string, object?>
+                { ["ok"] = false, ["error"] = "no exportable view (open a plan view first)" };
+
+            string? b64 = null;
+            try
+            {
+                var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                    $"bina_look_{System.Guid.NewGuid():N}");
+                var opts = new ImageExportOptions
+                {
+                    ExportRange = ExportRange.SetOfViews,
+                    FilePath = tmp,
+                    HLRandWFViewsFileType = ImageFileType.PNG,
+                    ImageResolution = ImageResolution.DPI_150,
+                    PixelSize = 1024,
+                    ZoomType = ZoomFitType.FitToPage,
+                };
+                opts.SetViewsAndSheets(new List<ElementId> { exportView.Id });
+                doc.ExportImage(opts);
+
+                // Revit appends the view name — find the produced file.
+                var dir = System.IO.Path.GetDirectoryName(tmp)!;
+                var stem = System.IO.Path.GetFileName(tmp);
+                var file = System.IO.Directory.GetFiles(dir, stem + "*.png").FirstOrDefault();
+                if (file != null)
+                {
+                    b64 = System.Convert.ToBase64String(System.IO.File.ReadAllBytes(file));
+                    try { System.IO.File.Delete(file); } catch { }
+                }
+            }
+            catch { /* export failure reported below */ }
+
+            // Elements visible in the crop — ids the VLM verdict can reference
+            // (text list beats burned-in marks per SeeAct; ids stay actionable).
+            var visible = new List<object>();
+            try
+            {
+                visible = new FilteredElementCollector(doc, exportView.Id)
+                    .WhereElementIsNotElementType()
+                    .OfClass(typeof(FamilyInstance))
+                    .Take(20)
+                    .Select(e => (object)new Dictionary<string, object?>
+                    {
+                        ["id"] = e.Id.Value,
+                        ["type_name"] = (e as FamilyInstance)?.Symbol?.Name,
+                        ["category"] = e.Category?.Name,
+                    })
+                    .ToList();
+            }
+            catch { }
+
+            if (created.Count > 0)
+            {
+                using var tx2 = new Transaction(doc, "BinaVibe: look_at cleanup");
+                TxGuard.StartSwallowing(tx2);
+                foreach (var id in created) { try { doc.Delete(id); } catch { } }
+                tx2.Commit();
+            }
+
+            if (b64 == null)
+                return new Dictionary<string, object?>
+                { ["ok"] = false, ["error"] = "image export produced no file" };
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["image_b64"] = b64,
+                ["view"] = viewKind,
+                ["target"] = label,
+                ["question"] = question,
+                ["elements_visible"] = visible,
+            };
+        }
+
+        // ─── get_room_geometry (Phase 4) ─────────────────────────────────
+        public static Dictionary<string, object?> GetRoomGeometry(Document doc, JsonElement args)
+        {
+            var roomName = TryGetString(args, "room")
+                ?? throw new System.ArgumentException("missing room");
+            var room = RoomSolver.FindRoom(doc, roomName);
+            if (room == null)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"room '{roomName}' not found (placed rooms only) — check the rooms digest",
+                };
+
+            var doors = RoomSolver.RoomDoors(doc, room);
+            var segs = RoomSolver.WallSegments(room);
+            RoomSolver.MarkDoorSegments(segs, doors);
+
+            string Side(WallSeg s) =>
+                System.Math.Abs(s.InwardNormal.Y) >= System.Math.Abs(s.InwardNormal.X)
+                    ? (s.InwardNormal.Y > 0 ? "south" : "north")   // inward points N -> wall is S
+                    : (s.InwardNormal.X > 0 ? "west" : "east");
+
+            var fixtures = new FilteredElementCollector(doc)
+                .WhereElementIsNotElementType()
+                .OfClass(typeof(FamilyInstance))
+                .Cast<FamilyInstance>()
+                .Where(fi => fi.Room?.Id == room.Id)
+                .Take(30)
+                .Select(fi =>
+                {
+                    var row = new Dictionary<string, object?>
+                    {
+                        ["id"] = fi.Id.Value,
+                        ["type_name"] = fi.Symbol?.Name,
+                        ["category"] = fi.Category?.Name,
+                    };
+                    foreach (var kv in PlacementFacts(doc, fi)) row[kv.Key] = kv.Value;
+                    return (object)row;
+                })
+                .ToList();
+
+            const double ft2ToM2 = 0.092903;
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["room"] = room.Name,
+                ["number"] = room.Number,
+                ["level"] = (doc.GetElement(room.LevelId) as Level)?.Name,
+                ["area_m2"] = System.Math.Round(room.Area * ft2ToM2, 2),
+                ["walls"] = segs.Select(s => (object)new Dictionary<string, object?>
+                {
+                    ["id"] = s.WallId,
+                    ["side"] = Side(s),
+                    ["length_ft"] = System.Math.Round(s.LengthFt, 2),
+                    ["has_door"] = s.HasDoor,
+                    ["normal"] = new[] { s.InwardNormal.X, s.InwardNormal.Y },
+                }).ToList(),
+                ["doors"] = doors.Select(d => (object)new Dictionary<string, object?>
+                {
+                    ["id"] = d.Id.Value,
+                    ["position"] = d.Location is LocationPoint dl
+                        ? new[] { dl.Point.X, dl.Point.Y } : null,
+                    ["width_ft"] = d.Symbol?.get_Parameter(BuiltInParameter.DOOR_WIDTH)?.AsDouble(),
+                    ["swing_into_room"] = d.FromRoom?.Id == room.Id,
+                }).ToList(),
+                ["fixtures"] = fixtures,
+            };
+        }
+
+        // ─── get_elements_near (Phase 4) ─────────────────────────────────
+        public static Dictionary<string, object?> GetElementsNear(Document doc, JsonElement args)
+        {
+            double radiusFt = (TryGetLong(args, "radius_mm") ?? 2000) / 304.8;
+            XYZ? center = null;
+            var eid = TryGetLong(args, "element_id");
+            if (eid.HasValue)
+            {
+                var el = doc.GetElement(new ElementId(eid.Value));
+                if (el == null)
+                    return new Dictionary<string, object?>
+                    { ["ok"] = false, ["error"] = $"element {eid} not found" };
+                center = (el.Location as LocationPoint)?.Point;
+                if (center == null)
+                {
+                    var bb0 = el.get_BoundingBox(null);
+                    if (bb0 != null) center = (bb0.Min + bb0.Max) * 0.5;
+                }
+            }
+            else if (args.ValueKind == JsonValueKind.Object
+                     && args.TryGetProperty("point", out var ptEl)
+                     && ptEl.ValueKind == JsonValueKind.Array && ptEl.GetArrayLength() >= 2)
+            {
+                var xs = ptEl.EnumerateArray().Select(v => v.GetDouble()).ToList();
+                center = new XYZ(xs[0], xs[1], xs.Count > 2 ? xs[2] : 0);
+            }
+            if (center == null)
+                return new Dictionary<string, object?>
+                { ["ok"] = false, ["error"] = "pass element_id or point [x,y,z] (ft)" };
+
+            var outline = new Outline(
+                new XYZ(center.X - radiusFt, center.Y - radiusFt, center.Z - radiusFt),
+                new XYZ(center.X + radiusFt, center.Y + radiusFt, center.Z + radiusFt));
+            var near = new FilteredElementCollector(doc)
+                .WhereElementIsNotElementType()
+                .WherePasses(new BoundingBoxIntersectsFilter(outline))
+                .OfClass(typeof(FamilyInstance))
+                .Cast<FamilyInstance>()
+                .Where(x => !eid.HasValue || x.Id.Value != eid.Value)
+                .Take(25)
+                .Select(x =>
+                {
+                    var row = new Dictionary<string, object?>
+                    {
+                        ["id"] = x.Id.Value,
+                        ["type_name"] = x.Symbol?.Name,
+                        ["category"] = x.Category?.Name,
+                    };
+                    foreach (var kv in PlacementFacts(doc, x)) row[kv.Key] = kv.Value;
+                    var xl = (x.Location as LocationPoint)?.Point;
+                    row["distance_mm"] = xl == null ? null
+                        : (object)System.Math.Round(xl.DistanceTo(center) * 304.8, 0);
+                    return (object)row;
+                })
+                .ToList();
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["center"] = new[] { center.X, center.Y, center.Z },
+                ["radius_mm"] = TryGetLong(args, "radius_mm") ?? 2000,
+                ["elements"] = near,
+            };
+        }
+
+        // ─── placement facts ────────────────────────────────────────────
+        // Shared WHERE-facts merged into every element row (contract:
+        // bina-ai docs/contracts/placement-facts.md). All keys ALWAYS
+        // present; null when inapplicable — never omitted, never guessed.
+        // Units: feet + degrees (matches the mutate tools).
+        internal static Dictionary<string, object?> PlacementFacts(Document doc, Element el)
+        {
+            XYZ? pt = null;
+            double rotDeg = 0.0;
+            if (el.Location is LocationPoint lp)
+            {
+                pt = lp.Point;
+                rotDeg = lp.Rotation * 180.0 / System.Math.PI;
+            }
+            else if (el.Location is LocationCurve lc && lc.Curve != null)
+            {
+                // Line-based elements (walls, beams): curve midpoint.
+                pt = lc.Curve.Evaluate(0.5, true);
+            }
+
+            var fi = el as FamilyInstance;
+            var bb = el.get_BoundingBox(null);
+
+            string? room = null;
+            try { room = fi?.Room?.Name; } catch { /* phase-less docs throw */ }
+
+            string? level = null;
+            if (el.LevelId != null && el.LevelId.Value != ElementId.InvalidElementId.Value)
+                level = doc.GetElement(el.LevelId)?.Name;
+
+            XYZ? facing = null;
+            try { facing = fi?.FacingOrientation; } catch { /* non-point instances */ }
+
+            return new Dictionary<string, object?>
+            {
+                ["xyz"] = pt == null ? null : new[] { pt.X, pt.Y, pt.Z },
+                ["rotation_deg"] = System.Math.Round(rotDeg, 3),
+                ["bbox"] = bb == null ? null : new[]
+                {
+                    new[] { bb.Min.X, bb.Min.Y, bb.Min.Z },
+                    new[] { bb.Max.X, bb.Max.Y, bb.Max.Z },
+                },
+                ["host_id"] = fi?.Host != null ? (object?)fi.Host.Id.Value : null,
+                ["room"] = room,
+                ["level"] = level,
+                ["facing"] = facing == null ? null : new[] { facing.X, facing.Y },
             };
         }
 
@@ -229,14 +561,16 @@ namespace BinaVibe.Mcp.Tools
                         paramsDict["Area"] = System.Math.Round(areaFt2 * ft2ToM2, 6);
                 }
 
-                matches.Add(new Dictionary<string, object?>
+                var row = new Dictionary<string, object?>
                 {
                     ["id"] = el.Id.Value,
                     ["name"] = el.Name,
                     ["type_name"] = typeEl?.Name,
                     ["level"] = lvl?.Name,
                     ["params"] = paramsDict,
-                });
+                };
+                foreach (var kv in PlacementFacts(doc, el)) row[kv.Key] = kv.Value;
+                matches.Add(row);
                 if (matches.Count >= 20) break;
             }
             return new Dictionary<string, object?>
@@ -639,13 +973,15 @@ namespace BinaVibe.Mcp.Tools
                     if (p != null) matchedParams[paramName] = SafeParamValue(p);
                 }
 
-                elements.Add(new Dictionary<string, object?>
+                var row = new Dictionary<string, object?>
                 {
                     ["id"] = el.Id.Value,
                     ["category"] = el.Category?.Name,
                     ["type_name"] = typeEl?.Name,
                     ["params"] = matchedParams,
-                });
+                };
+                foreach (var kv in PlacementFacts(doc, el)) row[kv.Key] = kv.Value;
+                elements.Add(row);
             }
 
             return new Dictionary<string, object?>

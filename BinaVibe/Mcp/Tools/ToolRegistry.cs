@@ -37,6 +37,9 @@ namespace BinaVibe.Mcp.Tools
                 "list_view_templates"           => Inspectors.ListViewTemplates(doc),
                 "list_worksets"                 => Inspectors.ListWorksets(doc),
                 "get_element_parameters"        => Inspectors.GetElementParameters(doc, args),
+                "get_room_geometry"             => Inspectors.GetRoomGeometry(doc, args),
+                "look_at"                       => Inspectors.LookAt(uidoc, args),
+                "get_elements_near"             => Inspectors.GetElementsNear(doc, args),
                 "find_elements_by_filter"       => Inspectors.FindElementsByFilter(doc, args),
                 "get_current_selection"         => Inspectors.GetCurrentSelection(uidoc),
                 "get_active_view"               => Inspectors.GetActiveView(doc),
@@ -69,6 +72,8 @@ namespace BinaVibe.Mcp.Tools
                 "purge_unused"                  => Mutators.PurgeUnused(doc, args),
                 "create_project_parameter"      => Mutators.CreateProjectParameter(app, args),
                 "place_in_each_room"            => Mutators.PlaceInEachRoom(doc, args),
+                "place_in_room"                 => Mutators.PlaceInRoom(doc, args),
+                "place_relative"                => Mutators.PlaceRelative(doc, args),
                 "set_parameter_where"           => Mutators.SetParameterWhere(doc, args),
 
                 // MUTATE — Step 3, all wrap in Transaction.
@@ -98,6 +103,7 @@ namespace BinaVibe.Mcp.Tools
                 "tag_elements"                  => Mutators.TagElements(doc, app, args),
                 "swap_element_type"             => Mutators.SwapElementType(doc, args),
                 "replace_with_reference"        => Mutators.ReplaceWithReference(doc, args),
+                "replace_family_instances"      => Mutators.ReplaceFamilyInstances(doc, args),
                 "place_text_note"               => Mutators.PlaceTextNote(doc, args),
                 "rotate_elements"               => Mutators.RotateElements(doc, args),
                 "copy_elements"                 => Mutators.CopyElements(doc, args),

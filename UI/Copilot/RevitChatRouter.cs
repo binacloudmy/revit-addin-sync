@@ -640,6 +640,49 @@ namespace RevitWebAppSync.UI.Copilot
                 ctx.SelectedElementIds = uidoc.Selection.GetElementIds().Select(id => (int)id.Value).ToList();
                 ctx.Phases = new FilteredElementCollector(doc).OfClass(typeof(Phase)).Cast<Phase>().Select(p => p.Name).ToList();
 
+                // Rooms digest (Phase 3 model sight): name/number/level/centroid/
+                // area_m2/doors per placed room, capped 120 (backend trims to 60).
+                try
+                {
+                    const double ft2ToM2 = 0.092903;
+                    var doorCounts = new Dictionary<long, int>();
+                    foreach (var d in new FilteredElementCollector(doc)
+                                 .OfCategory(BuiltInCategory.OST_Doors)
+                                 .WhereElementIsNotElementType()
+                                 .OfType<FamilyInstance>())
+                    {
+                        foreach (var r in new[] { d.FromRoom, d.ToRoom })
+                        {
+                            if (r == null) continue;
+                            var key = r.Id.Value;
+                            doorCounts[key] = doorCounts.TryGetValue(key, out var n) ? n + 1 : 1;
+                        }
+                    }
+                    ctx.Rooms = new FilteredElementCollector(doc)
+                        .OfCategory(BuiltInCategory.OST_Rooms)
+                        .WhereElementIsNotElementType()
+                        .OfType<Autodesk.Revit.DB.Architecture.Room>()
+                        .Where(r => r.Area > 0)
+                        .Take(120)
+                        .Select(r =>
+                        {
+                            var bb = r.get_BoundingBox(null);
+                            var c = bb != null ? (bb.Min + bb.Max) * 0.5
+                                : (r.Location as LocationPoint)?.Point;
+                            return new Dictionary<string, object>
+                            {
+                                ["name"] = r.Name,
+                                ["number"] = r.Number,
+                                ["level"] = (doc.GetElement(r.LevelId) as Level)?.Name,
+                                ["centroid"] = c == null ? null : new[] { c.X, c.Y },
+                                ["area_m2"] = System.Math.Round(r.Area * ft2ToM2, 2),
+                                ["doors"] = doorCounts.TryGetValue(r.Id.Value, out var dn) ? dn : 0,
+                            };
+                        })
+                        .ToList();
+                }
+                catch { /* rooms digest is best-effort — never block the turn */ }
+
                 // Real view list (id+name+type) — lets the agent resolve
                 // "open Aras 01" to the exact view instead of guessing. Bounded.
                 var __allViews = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
