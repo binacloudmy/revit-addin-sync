@@ -1096,14 +1096,22 @@ namespace BinaVibe.Mcp.Tools
                         else unverified++;
 
                         // L3 verify: orientation proven by math, not asserted.
-                        // faces_door: does the clone's ACTUAL FacingOrientation
-                        // point toward its nearest door? null when the room has
-                        // no door (face_into_room rooms) — then facing_ok is
-                        // true only if the rule that ran was face_into_room.
+                        // facing_ok: does the clone's ACTUAL FacingOrientation
+                        // agree with the vector the RULE says it should face?
+                        // We re-derive the expected facing from ResolveFacing
+                        // (same rule hierarchy that placed it — face_door snaps
+                        // to a wall inward normal, face_into_room backs onto the
+                        // nearest wall) and require the actual facing to be
+                        // within ~25 deg of it (dot > 0.9). This catches a
+                        // fixture rotated 90 deg that a raw ±90 deg door-dot let
+                        // through. faces_door stays INFORMATIONAL: the raw
+                        // fixture->door dot when doors exist, null otherwise —
+                        // the wire shape {orientation_rule, faces_door, facing_ok}
+                        // is unchanged.
                         // same_family (ChangeTypeId) preserves the drafter's own
                         // transform — nothing rotated — so facing is unconditionally
                         // ok: the drafter's placement IS ground truth, and applying
-                        // the faces_door check would false-flag fixtures they angled
+                        // the facing check would false-flag fixtures they angled
                         // away from a door on purpose. Short-circuit before any
                         // room/door lookup (also cheaper).
                         bool? facesDoor = null;
@@ -1120,22 +1128,27 @@ namespace BinaVibe.Mcp.Tools
                                 var nwRoom = nwEl?.Room;
                                 if (nwEl != null && nwRoom != null)
                                 {
+                                    var c = BBoxCenter(nwEl);
+                                    // Informational faces_door: raw door-dot when
+                                    // this room has doors, null otherwise.
                                     var doorPts = RoomSolver.RoomDoors(doc, nwRoom)
                                         .Select(d => (d.Location as LocationPoint)?.Point)
                                         .Where(p => p != null).ToList();
-                                    var c = BBoxCenter(nwEl);
                                     if (doorPts.Count > 0)
                                     {
                                         var nearestDoor = doorPts.OrderBy(p =>
                                             new XYZ(p.X - c.X, p.Y - c.Y, 0).GetLength()).First();
                                         facesDoor = RoomSolver.FacesDoor(
                                             nwEl.FacingOrientation, new XYZ(c.X, c.Y, 0), nearestDoor);
-                                        facingOk = facesDoor == true;
                                     }
-                                    else
-                                    {
-                                        facingOk = orientationRule == "face_into_room";
-                                    }
+                                    // facing_ok: compare actual facing to the
+                                    // rule's expected facing vector (±~25 deg).
+                                    var (expected, _) = RoomSolver.ResolveFacing(
+                                        doc, nwRoom, new XYZ(c.X, c.Y, 0));
+                                    facingOk = expected != null
+                                        && new XYZ(nwEl.FacingOrientation.X,
+                                                   nwEl.FacingOrientation.Y, 0)
+                                            .Normalize().DotProduct(expected) > 0.9;
                                 }
                             }
                             catch { facingOk = false; }

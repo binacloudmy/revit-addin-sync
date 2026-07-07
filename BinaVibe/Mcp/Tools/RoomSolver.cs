@@ -144,9 +144,14 @@ namespace BinaVibe.Mcp.Tools
 
         // ─── Drafter Sight v2 P1: orientation rule hierarchy ────────────────
         // Deterministic facing for a fixture in a room. Rules, in order:
-        //   face_door      — face the NEAREST door bounding this room (stall
-        //                    partition doors match per-stall; a single room
-        //                    door serves the whole row).
+        //   face_door      — face along the inward normal of the wall segment
+        //                    best aligned with the door direction (axis-aligned
+        //                    like a drafter, NOT aimed at the door point). The
+        //                    nearest door bounding this room sets the direction;
+        //                    the fixture then backs onto the wall whose inward
+        //                    normal most agrees with it. Only when no wall
+        //                    segments exist do we fall back to the raw
+        //                    fixture->door vector.
         //   face_into_room — no door: back onto the nearest wall segment and
         //                    face its inward normal.
         //   none           — no room/doors/segments: caller falls back to the
@@ -170,7 +175,22 @@ namespace BinaVibe.Mcp.Tools
                         new XYZ(p.X - fixtureXY.X, p.Y - fixtureXY.Y, 0).GetLength()).First();
                     var v = new XYZ(nearest.X - fixtureXY.X, nearest.Y - fixtureXY.Y, 0);
                     if (v.GetLength() > 1e-6)
-                        return (v.Normalize(), "face_door");
+                    {
+                        v = v.Normalize();
+                        // Snap to the wall the fixture backs onto: pick the
+                        // segment whose inward normal is most aligned with the
+                        // door direction and face perpendicular off it, so the
+                        // fixture ends up axis-aligned like a drafter places it
+                        // (not rotated diagonally toward a diagonal door point).
+                        var segs = WallSegments(room);
+                        if (segs.Count > 0)
+                        {
+                            var best = segs.OrderByDescending(s =>
+                                s.InwardNormal.DotProduct(v)).First();
+                            return (best.InwardNormal, "face_door");
+                        }
+                        return (v, "face_door");
+                    }
                 }
                 var segs = WallSegments(room);
                 if (segs.Count > 0)
