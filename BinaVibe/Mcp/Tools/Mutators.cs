@@ -160,6 +160,30 @@ namespace BinaVibe.Mcp.Tools
             Level level = doc.GetElement(src.LevelId) as Level;
             XYZ srcFacing = src.FacingOrientation;
             bool flipped = src.HandFlipped;
+            // Families disagree on origin (pan-center vs tank-back) — the raw
+            // LocationPoint lands the new family shifted off the wall. Align by
+            // the VISIBLE footprint instead: capture the source bbox centre now,
+            // move the clone onto it after placement. Also capture the room's
+            // nearest-wall inward normal: a symmetric source (tandas cangkung)
+            // carries a meaningless FacingOrientation, so the clone must never
+            // end up facing INTO the wall.
+            XYZ srcCenter = BBoxCenter(src);
+            XYZ inward = null;
+            try
+            {
+                var srcRoom = src.Room ?? doc.GetRoomAtPoint(pt);
+                if (srcRoom != null)
+                {
+                    var segs = RoomSolver.WallSegments(srcRoom);
+                    if (segs.Count > 0)
+                    {
+                        var nearest = segs.OrderBy(s =>
+                            RoomSolver.DistPointToSegXY(pt, s.Start, s.End)).First();
+                        inward = nearest.InwardNormal;
+                    }
+                }
+            }
+            catch { /* facing fix is best-effort */ }
 
             var nw = level != null
                 ? doc.Create.NewFamilyInstance(pt, sym, level, Autodesk.Revit.DB.Structure.StructuralType.NonStructural)
@@ -176,6 +200,26 @@ namespace BinaVibe.Mcp.Tools
                     doc, nw.Id, Line.CreateBound(pt, pt + XYZ.BasisZ), ang);
             }
             if (flipped && nw.CanFlipHand) nw.flipHand();
+
+            // Facing sanity: if the clone now faces INTO the nearest wall
+            // (source facing was arbitrary), flip it 180 deg to face the room.
+            if (inward != null && nw.FacingOrientation.DotProduct(inward) < -0.1)
+            {
+                ElementTransformUtils.RotateElement(
+                    doc, nw.Id, Line.CreateBound(pt, pt + XYZ.BasisZ), Math.PI);
+                doc.Regenerate();
+            }
+
+            // Footprint alignment: move the clone so its bbox centre lands on
+            // the source's bbox centre (XY only — Z is the family's own
+            // vertical convention, handled below).
+            XYZ nwCenter = BBoxCenter(nw);
+            var shift = new XYZ(srcCenter.X - nwCenter.X, srcCenter.Y - nwCenter.Y, 0);
+            if (shift.GetLength() > 0.01)
+            {
+                ElementTransformUtils.MoveElement(doc, nw.Id, shift);
+                doc.Regenerate();
+            }
 
             // Vertical: match an existing instance of the TARGET family (its own
             // convention) — NEVER copy the source's offset. Leave default if none.
