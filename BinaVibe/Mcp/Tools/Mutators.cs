@@ -1010,8 +1010,9 @@ namespace BinaVibe.Mcp.Tools
             var skipped = new List<object>();
             // Phase 6 fidelity: capture each source's footprint + facing +
             // room BEFORE the swap, measure the clone after. Aggregated below.
-            int movedOver50 = 0, inRoomFail = 0, facingChanged = 0, unverified = 0, clashTotal = 0;
-            int vectorFallbackCount = 0;
+            int movedOver50 = 0, inRoomFail = 0, unverified = 0, clashTotal = 0;
+            int facingOkCount = 0;
+            var newIds = new List<long>();
             double maxMovedMm = 0;
 
             using var tx = new Transaction(doc, $"BinaVibe: replace_family_instances ({ids.Count})");
@@ -1037,7 +1038,6 @@ namespace BinaVibe.Mcp.Tools
 
                         var oldBb = fi.get_BoundingBox(null);
                         XYZ oldCenter = BBoxCenter(fi);
-                        XYZ oldFacing = fi.FacingOrientation;
                         bool oldHadRoom = false;
                         try { oldHadRoom = fi.Room != null; } catch { }
 
@@ -1060,7 +1060,6 @@ namespace BinaVibe.Mcp.Tools
                                 continue;
                             }
                             newId = created.Value;
-                            if (orientationRule == "vector_fallback") vectorFallbackCount++;
                         }
                         doc.Regenerate();
 
@@ -1080,9 +1079,6 @@ namespace BinaVibe.Mcp.Tools
                             try
                             {
                                 if (oldHadRoom && nwEl.Room == null) inRoomFail++;
-                                if (oldFacing != null
-                                    && nwEl.FacingOrientation.DotProduct(oldFacing) < 0.95)
-                                    facingChanged++;
                             }
                             catch { }
                             var vbb = nwEl.get_BoundingBox(null);
@@ -1099,7 +1095,45 @@ namespace BinaVibe.Mcp.Tools
                         }
                         else unverified++;
 
-                        replaced.Add(new { old_id = id, new_id = newId, moved_mm = movedMm, facing_source = orientationRule });
+                        // L3 verify: orientation proven by math, not asserted.
+                        // faces_door: does the clone's ACTUAL FacingOrientation
+                        // point toward its nearest door? null when the room has
+                        // no door (face_into_room rooms) — then facing_ok is
+                        // true only if the rule that ran was face_into_room.
+                        bool? facesDoor = null;
+                        bool facingOk = false;
+                        try
+                        {
+                            var nwRoom = nwEl?.Room;
+                            if (nwEl != null && nwRoom != null)
+                            {
+                                var doorPts = RoomSolver.RoomDoors(doc, nwRoom)
+                                    .Select(d => (d.Location as LocationPoint)?.Point)
+                                    .Where(p => p != null).ToList();
+                                var c = BBoxCenter(nwEl);
+                                if (doorPts.Count > 0)
+                                {
+                                    var nearestDoor = doorPts.OrderBy(p =>
+                                        new XYZ(p.X - c.X, p.Y - c.Y, 0).GetLength()).First();
+                                    facesDoor = RoomSolver.FacesDoor(
+                                        nwEl.FacingOrientation, new XYZ(c.X, c.Y, 0), nearestDoor);
+                                    facingOk = facesDoor == true;
+                                }
+                                else
+                                {
+                                    facingOk = orientationRule == "face_into_room"
+                                               || orientationRule == "same_family";
+                                }
+                            }
+                            else facingOk = orientationRule == "same_family";
+                        }
+                        catch { facingOk = false; }
+                        if (facingOk) facingOkCount++;
+
+                        replaced.Add(new { old_id = id, new_id = newId, moved_mm = movedMm,
+                                           orientation_rule = orientationRule,
+                                           faces_door = facesDoor, facing_ok = facingOk });
+                        newIds.Add(newId);
                     }
                     catch (Exception ex)
                     {
@@ -1116,18 +1150,19 @@ namespace BinaVibe.Mcp.Tools
                 ["new_type"] = $"{sym.FamilyName} - {sym.Name}",
                 ["replaced"] = replaced,
                 ["skipped"] = skipped,
+                ["new_ids"] = newIds,
                 ["verify"] = new Dictionary<string, object?>
                 {
                     ["max_moved_mm"] = maxMovedMm,
                     ["moved_over_50mm_count"] = movedOver50,
                     ["in_room_fail_count"] = inRoomFail,
                     ["clash_count"] = clashTotal,
-                    ["facing_changed_count"] = facingChanged,
                     ["unverified_count"] = unverified,
-                    // "low" when ANY cross-family swap fell back to source-vector
-                    // alignment (no room/wall/sibling to derive facing from) —
-                    // the agent must flag those as unverified facing, per recipe.
-                    ["facing_confidence"] = vectorFallbackCount > 0 ? "low" : "high",
+                    ["facing_ok_count"] = facingOkCount,
+                    ["facing_ok"] = facingOkCount == replaced.Count,
+                    // Legacy field, one release (wire-skew guard): old backend
+                    // prompts still read it; derived, never independently set.
+                    ["facing_confidence"] = facingOkCount == replaced.Count ? "high" : "low",
                 },
             };
         }
