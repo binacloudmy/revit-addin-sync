@@ -186,7 +186,7 @@ namespace BinaVibe.Mcp.Tools
             var (targetFacing, rule) = RoomSolver.ResolveFacing(doc, room, srcCenterXY);
             orientationRule = rule;
 
-            XYZ rotateTo = targetFacing ?? srcFacing;   // "none" → keep default, reported unverified
+            XYZ rotateTo = targetFacing ?? srcFacing;   // "none" → fall back to source vector; rule reported, facing_ok decides honesty
             double ang = nw.FacingOrientation.AngleTo(rotateTo);
             if (ang > 1e-9)
             {

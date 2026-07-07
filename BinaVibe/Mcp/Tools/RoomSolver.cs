@@ -149,8 +149,9 @@ namespace BinaVibe.Mcp.Tools
         //                    door serves the whole row).
         //   face_into_room — no door: back onto the nearest wall segment and
         //                    face its inward normal.
-        //   none           — no room/doors/segments: caller keeps the clone's
-        //                    default facing and reports it unverified.
+        //   none           — no room/doors/segments: caller falls back to the
+        //                    source's facing vector and reports rule "none"
+        //                    (facing_ok is then proven by geometry or false).
         // Returns the facing as a unit XY vector plus the rule name — the rule
         // is wire-reported per fixture so a fallback is never silent.
         internal static (XYZ facing, string rule) ResolveFacing(
