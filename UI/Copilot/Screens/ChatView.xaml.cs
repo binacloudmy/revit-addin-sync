@@ -425,19 +425,19 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             var rate = new Button
             {
-                Content = "Rate", Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                Content = "Rate",
                 Foreground = CopilotColors.From("#1d4ed8"), FontSize = 12, FontWeight = FontWeights.SemiBold,
-                Cursor = System.Windows.Input.Cursors.Hand, Padding = new Thickness(8, 4, 8, 4),
+                Padding = new Thickness(8, 4, 8, 4),
                 VerticalAlignment = VerticalAlignment.Center
             };
+            Controls.FlatButton.Apply(rate, 6);
             rate.Click += (_, __) => { try { Vm.RequestRate(); } catch { /* best-effort */ } };
             Grid.SetColumn(rate, 1);
             inner.Children.Add(rate);
 
             var dismiss = new Button
             {
-                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
-                Padding = new Thickness(6, 4, 6, 4), Cursor = System.Windows.Input.Cursors.Hand,
+                Padding = new Thickness(6, 4, 6, 4),
                 VerticalAlignment = VerticalAlignment.Center,
                 Content = new Path
                 {
@@ -447,6 +447,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     Data = Geometry.Parse("M5,5 L15,15 M15,5 L5,15")
                 }
             };
+            Controls.FlatButton.Apply(dismiss, 6);
             dismiss.Click += (_, __) => { _nudgeDismissed = true; Rebuild(); };
             Grid.SetColumn(dismiss, 2);
             inner.Children.Add(dismiss);
@@ -576,9 +577,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var btn = new Button
             {
                 Content = icon, Width = 27, Height = 27,
-                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
-                Margin = new Thickness(3, 0, 0, 0), Cursor = System.Windows.Input.Cursors.Hand,
+                Margin = new Thickness(3, 0, 0, 0),
             };
+            // Flat chrome: no default WPF button box/focus rect (that light-blue
+            // highlight), just a theme-aware hover tint. Selected state is the icon
+            // colour (PaintVotes), never a background box — matches the design.
+            Controls.FlatButton.Apply(btn, 7);
             btn.Click += (_, __) => { try { onClick(); } catch { /* best-effort */ } };
             return btn;
         }
@@ -669,10 +673,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var cancel = new Button
             {
                 Content = "Cancel", FontSize = 11, FontWeight = FontWeights.Medium,
-                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
                 Foreground = CopilotColors.From("#99a3b3"), Padding = new Thickness(8, 7, 8, 7),
-                Cursor = System.Windows.Input.Cursors.Hand,
             };
+            Controls.FlatButton.Apply(cancel, 6);
             cancel.Click += (_, __) => close();
             actions.Children.Add(cancel);
             sp.Children.Add(actions);
@@ -929,10 +932,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var dismiss = new Button
             {
                 Content = "Dismiss", FontSize = 11.5, FontWeight = FontWeights.Medium,
-                Background = Brushes.Transparent, BorderThickness = new Thickness(0),
                 Foreground = CopilotColors.From("#99a3b3"), Padding = new Thickness(8, 8, 6, 8),
-                Cursor = System.Windows.Input.Cursors.Hand, Margin = new Thickness(3, 0, 0, 0),
+                Margin = new Thickness(3, 0, 0, 0),
             };
+            Controls.FlatButton.Apply(dismiss, 6);
             dismiss.Click += (_, __) => { m.Dismissed = true; Rebuild(); };
             Grid.SetColumn(dismiss, 1);
             ag.Children.Add(dismiss);
