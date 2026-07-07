@@ -119,8 +119,8 @@ namespace RevitWebAppSync.Helpers
                     while (i < lines.Length && IsTableRow(lines[i].TrimStart()))
                         rows.Add(lines[i++].Trim());
                     i--; // step back; for-loop will advance
-                    var grid = TableGrid(rows, maxWidth);
-                    if (grid != null) Add(new BlockUIContainer(grid) { Margin = new Thickness(0, 4, 0, 4) });
+                    var table = TableBlock(rows, maxWidth);
+                    if (table != null) Add(new BlockUIContainer(table) { Margin = new Thickness(0, 4, 0, 4) });
                     continue;
                 }
 
@@ -208,17 +208,41 @@ namespace RevitWebAppSync.Helpers
             return t.Split('|').Select(c => c.Trim()).ToArray();
         }
 
-        /// <summary>The auto-sizing Grid table the chat has always used — hosted
-        /// in a BlockUIContainer (FlowDocument Tables can't auto-fit columns).</summary>
-        private static Grid TableGrid(List<string> rows, double maxWidth)
+        // Per-column readable floor. Star columns shrink to fit the bubble; this
+        // stops any column collapsing to nothing at very narrow panel widths.
+        private const double MinColWidth = 46;
+
+        /// <summary>Width-responsive markdown table. Columns are STAR-sized
+        /// (proportional to their longest cell) so the table always fits the bubble
+        /// and cell text WRAPS instead of clipping — never Auto (Auto measures
+        /// unbounded and overflows the narrow Revit dock). The grid is hosted in a
+        /// horizontal ScrollViewer and its width is bound to the viewport, so at
+        /// extreme widths where even wrapped columns can't fit their minimum, the
+        /// TABLE scrolls inside its own box — the thread never scrolls sideways.</summary>
+        private static FrameworkElement TableBlock(List<string> rows, double maxWidth)
         {
             var dataRows = rows.Where(r => !IsSeparatorRow(r)).Select(SplitCells).ToList();
             if (dataRows.Count == 0) return null;
             int cols = dataRows.Max(r => r.Length);
 
-            var grid = new Grid { MaxWidth = maxWidth };
+            // Proportional weights from each column's longest cell (clamped) so a
+            // wide "Tujuan" column gets more share than a narrow index column.
+            var weights = new double[cols];
             for (int c = 0; c < cols; c++)
-                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            {
+                int longest = 4;
+                foreach (var row in dataRows)
+                    if (c < row.Length && row[c] != null) longest = Math.Max(longest, row[c].Length);
+                weights[c] = Math.Min(30, Math.Max(4, longest));
+            }
+
+            var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Stretch };
+            for (int c = 0; c < cols; c++)
+                grid.ColumnDefinitions.Add(new ColumnDefinition
+                {
+                    Width = new GridLength(weights[c], GridUnitType.Star),
+                    MinWidth = MinColWidth,
+                });
             for (int r = 0; r < dataRows.Count; r++)
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
@@ -248,6 +272,8 @@ namespace RevitWebAppSync.Helpers
                     grid.Children.Add(cell);
                 }
             }
+
+            grid.MaxWidth = maxWidth;
             return grid;
         }
 
