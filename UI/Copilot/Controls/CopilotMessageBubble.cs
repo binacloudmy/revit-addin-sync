@@ -25,7 +25,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             double maxWidth, string time = null, Model.SlashTool slashCommand = null)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            var bubble = new Border { Background = CopilotColors.From("#eef1f5"), CornerRadius = new CornerRadius(14, 14, 4, 14), Padding = new Thickness(13, 9, 13, 9), MaxWidth = maxWidth * 0.84 };
+            // Command bubbles use the design's tighter padding (8px 9px 9px); plain
+            // text bubbles keep the wider 9px 13px. (Both radius 14 14 4 14.)
+            var padding = slashCommand != null ? new Thickness(9, 8, 9, 9) : new Thickness(13, 9, 13, 9);
+            var bubble = new Border { Background = CopilotColors.From("#eef1f5"), CornerRadius = new CornerRadius(14, 14, 4, 14), Padding = padding, MaxWidth = maxWidth * 0.84 };
             var bubbleStack = new StackPanel();
 
             // Slash command runs as a chip at the top of the bubble.
@@ -33,7 +36,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             {
                 var chip = CommandChip.Build(slashCommand);
                 chip.HorizontalAlignment = HorizontalAlignment.Left;
-                chip.Margin = new Thickness(0, 0, 0, string.IsNullOrEmpty(text) ? 0 : 6);
+                chip.Margin = new Thickness(0, 0, 0, string.IsNullOrEmpty(text) ? 0 : 7);
                 bubbleStack.Children.Add(chip);
             }
 
