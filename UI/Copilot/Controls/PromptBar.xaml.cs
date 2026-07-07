@@ -133,6 +133,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Close the palette from the host (scrim click-outside).</summary>
         public void CloseSlashPalette() => Input.CloseSlashExternal();
 
+        /// <summary>Drop a starter prompt into the composer for the user to edit —
+        /// does NOT send. If the user has already typed something, leave it alone
+        /// (just focus) rather than overwrite. Caret goes to the end so they can
+        /// type over the placeholders immediately.</summary>
+        public void InsertStarterPrompt(string text)
+        {
+            if (Input?.Editor == null) return;
+            if (!string.IsNullOrWhiteSpace(Input.Editor.Text)) { Input.Editor.Focus(); return; }
+            Input.Editor.Text = text ?? "";
+            Input.Editor.CaretIndex = Input.Editor.Text.Length;
+            Input.Editor.Focus();
+        }
+
         private void OnToolPicked(Model.SlashTool tool)
         {
             _pendingTool = tool;

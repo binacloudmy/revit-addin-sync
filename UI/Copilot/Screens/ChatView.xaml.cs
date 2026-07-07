@@ -1410,7 +1410,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 Grid.SetColumn(chev, 2); g.Children.Add(chev);
                 btn.Content = g;
                 var p = prompt;
-                btn.Click += (_, __) => Vm.ChatSendCommand.Execute(p);
+                // Behavior change: don't send — drop the starter prompt into the
+                // composer for the user to edit, then they press send themselves.
+                btn.Click += (_, __) => Prompt.InsertStarterPrompt(p);
                 sug.Children.Add(btn);
                 sug.Children.Add(new Border { Height = 1, Background = CopilotColors.From("#140F1B2D") });
             }
