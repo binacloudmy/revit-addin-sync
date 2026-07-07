@@ -21,6 +21,21 @@ namespace BinaVibe.Mcp.Tools
 {
     public static class ToolRegistry
     {
+        // Model-changing tools that get an automatic post-change screenshot
+        // (auto-sight): the backend VLM judge folds it into a text verdict so
+        // the agent SEES what its edit did. Matches the backend's spatial set
+        // plus the colour tools (visible change). Excludes param-only, view /
+        // sheet / annotation and pure-read tools — nothing to eyeball.
+        private static readonly HashSet<string> _SIGHT_TOOLS = new()
+        {
+            "delete_elements", "swap_element_type", "replace_family_instances",
+            "replace_with_reference", "change_type", "move_elements",
+            "rotate_elements", "mirror_elements", "copy_elements",
+            "place_family_instance", "place_door", "place_window",
+            "place_in_room", "place_relative", "place_in_each_room",
+            "color_elements", "color_by_parameter",
+        };
+
         public static Dictionary<string, object?> Invoke(UIApplication app, string tool, JsonElement args)
         {
             var doc = app.ActiveUIDocument?.Document;
@@ -28,6 +43,16 @@ namespace BinaVibe.Mcp.Tools
             if (doc == null || uidoc == null)
                 throw new InvalidOperationException("no active document — open a Revit project first");
 
+            var result = Dispatch(app, doc, uidoc, tool, args);
+            // Auto-sight: screenshot the change so the agent can understand it.
+            if (result != null && _SIGHT_TOOLS.Contains(tool))
+                Inspectors.AttachMutationSight(uidoc, tool, args, result);
+            return result;
+        }
+
+        private static Dictionary<string, object?> Dispatch(UIApplication app, Document doc,
+            UIDocument uidoc, string tool, JsonElement args)
+        {
             return tool switch
             {
                 // INSPECT — 20 tools, all live

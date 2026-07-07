@@ -213,113 +213,7 @@ namespace BinaVibe.Mcp.Tools
                 label = room?.Name ?? target;
             }
 
-            View? exportView = null;
-            var created = new List<ElementId>();
-            using (var tx = new Transaction(doc, "BinaVibe: look_at (temp view)"))
-            {
-                TxGuard.StartSwallowing(tx);
-                if (viewKind == "3d")
-                {
-                    var vft = new FilteredElementCollector(doc)
-                        .OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
-                        .FirstOrDefault(v => v.ViewFamily == ViewFamily.ThreeDimensional);
-                    if (vft != null)
-                    {
-                        var v3 = View3D.CreateIsometric(doc, vft.Id);
-                        if (box != null)
-                            v3.SetSectionBox(new BoundingBoxXYZ
-                            {
-                                Min = box.Min - new XYZ(6, 6, 1),
-                                Max = box.Max + new XYZ(6, 6, 3),
-                            });
-                        exportView = v3;
-                        created.Add(v3.Id);
-                    }
-                }
-                else
-                {
-                    var basePlan = doc.ActiveView as ViewPlan
-                        ?? new FilteredElementCollector(doc).OfClass(typeof(ViewPlan))
-                            .Cast<ViewPlan>().FirstOrDefault(v => !v.IsTemplate);
-                    if (basePlan != null)
-                    {
-                        var dup = doc.GetElement(
-                            basePlan.Duplicate(ViewDuplicateOption.Duplicate)) as ViewPlan;
-                        if (dup != null && box != null)
-                        {
-                            dup.CropBoxActive = true;
-                            dup.CropBox = new BoundingBoxXYZ
-                            {
-                                Min = new XYZ(box.Min.X - 6, box.Min.Y - 6, dup.CropBox.Min.Z),
-                                Max = new XYZ(box.Max.X + 6, box.Max.Y + 6, dup.CropBox.Max.Z),
-                            };
-                        }
-                        exportView = (View?)dup ?? basePlan;
-                        if (dup != null) created.Add(dup.Id);
-                    }
-                }
-                tx.Commit();
-            }
-            if (exportView == null)
-                return new Dictionary<string, object?>
-                { ["ok"] = false, ["error"] = "no exportable view (open a plan view first)" };
-
-            string? b64 = null;
-            try
-            {
-                var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
-                    $"bina_look_{System.Guid.NewGuid():N}");
-                var opts = new ImageExportOptions
-                {
-                    ExportRange = ExportRange.SetOfViews,
-                    FilePath = tmp,
-                    HLRandWFViewsFileType = ImageFileType.PNG,
-                    ImageResolution = ImageResolution.DPI_150,
-                    PixelSize = 1024,
-                    ZoomType = ZoomFitType.FitToPage,
-                };
-                opts.SetViewsAndSheets(new List<ElementId> { exportView.Id });
-                doc.ExportImage(opts);
-
-                // Revit appends the view name — find the produced file.
-                var dir = System.IO.Path.GetDirectoryName(tmp)!;
-                var stem = System.IO.Path.GetFileName(tmp);
-                var file = System.IO.Directory.GetFiles(dir, stem + "*.png").FirstOrDefault();
-                if (file != null)
-                {
-                    b64 = System.Convert.ToBase64String(System.IO.File.ReadAllBytes(file));
-                    try { System.IO.File.Delete(file); } catch { }
-                }
-            }
-            catch { /* export failure reported below */ }
-
-            // Elements visible in the crop — ids the VLM verdict can reference
-            // (text list beats burned-in marks per SeeAct; ids stay actionable).
-            var visible = new List<object>();
-            try
-            {
-                visible = new FilteredElementCollector(doc, exportView.Id)
-                    .WhereElementIsNotElementType()
-                    .OfClass(typeof(FamilyInstance))
-                    .Take(20)
-                    .Select(e => (object)new Dictionary<string, object?>
-                    {
-                        ["id"] = e.Id.Value,
-                        ["type_name"] = (e as FamilyInstance)?.Symbol?.Name,
-                        ["category"] = e.Category?.Name,
-                    })
-                    .ToList();
-            }
-            catch { }
-
-            if (created.Count > 0)
-            {
-                using var tx2 = new Transaction(doc, "BinaVibe: look_at cleanup");
-                TxGuard.StartSwallowing(tx2);
-                foreach (var id in created) { try { doc.Delete(id); } catch { } }
-                tx2.Commit();
-            }
-
+            var (b64, visible) = CaptureImage(doc, box, viewKind);
             if (b64 == null)
                 return new Dictionary<string, object?>
                 { ["ok"] = false, ["error"] = "image export produced no file" };
@@ -333,6 +227,228 @@ namespace BinaVibe.Mcp.Tools
                 ["elements_visible"] = visible,
             };
         }
+
+        // ─── shared capture core (look_at AND auto-sight) ────────────────────
+        // Render `box` (or the active plan/3D view when box == null) to a
+        // cropped PNG on a throwaway view; return (base64, visible family
+        // instances). Never throws — returns (null, empty) on any failure so
+        // callers degrade gracefully. The temp view is always cleaned up.
+        internal static (string? b64, List<object> visible) CaptureImage(
+            Document doc, BoundingBoxXYZ? box, string viewKind)
+        {
+            View? exportView = null;
+            var created = new List<ElementId>();
+            var visible = new List<object>();
+            try
+            {
+                using (var tx = new Transaction(doc, "BinaVibe: sight (temp view)"))
+                {
+                    TxGuard.StartSwallowing(tx);
+                    if (viewKind == "3d")
+                    {
+                        var vft = new FilteredElementCollector(doc)
+                            .OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
+                            .FirstOrDefault(v => v.ViewFamily == ViewFamily.ThreeDimensional);
+                        if (vft != null)
+                        {
+                            var v3 = View3D.CreateIsometric(doc, vft.Id);
+                            if (box != null)
+                                v3.SetSectionBox(new BoundingBoxXYZ
+                                {
+                                    Min = box.Min - new XYZ(6, 6, 1),
+                                    Max = box.Max + new XYZ(6, 6, 3),
+                                });
+                            exportView = v3;
+                            created.Add(v3.Id);
+                        }
+                    }
+                    else
+                    {
+                        var basePlan = doc.ActiveView as ViewPlan
+                            ?? new FilteredElementCollector(doc).OfClass(typeof(ViewPlan))
+                                .Cast<ViewPlan>().FirstOrDefault(v => !v.IsTemplate);
+                        if (basePlan != null)
+                        {
+                            var dup = doc.GetElement(
+                                basePlan.Duplicate(ViewDuplicateOption.Duplicate)) as ViewPlan;
+                            if (dup != null && box != null)
+                            {
+                                dup.CropBoxActive = true;
+                                dup.CropBox = new BoundingBoxXYZ
+                                {
+                                    Min = new XYZ(box.Min.X - 6, box.Min.Y - 6, dup.CropBox.Min.Z),
+                                    Max = new XYZ(box.Max.X + 6, box.Max.Y + 6, dup.CropBox.Max.Z),
+                                };
+                            }
+                            exportView = (View?)dup ?? basePlan;
+                            if (dup != null) created.Add(dup.Id);
+                        }
+                    }
+                    tx.Commit();
+                }
+                if (exportView == null) return (null, visible);
+
+                string? b64 = null;
+                try
+                {
+                    var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(),
+                        $"bina_sight_{System.Guid.NewGuid():N}");
+                    var opts = new ImageExportOptions
+                    {
+                        ExportRange = ExportRange.SetOfViews,
+                        FilePath = tmp,
+                        HLRandWFViewsFileType = ImageFileType.PNG,
+                        ImageResolution = ImageResolution.DPI_150,
+                        PixelSize = 1024,
+                        ZoomType = ZoomFitType.FitToPage,
+                    };
+                    opts.SetViewsAndSheets(new List<ElementId> { exportView.Id });
+                    doc.ExportImage(opts);
+
+                    // Revit appends the view name — find the produced file.
+                    var dir = System.IO.Path.GetDirectoryName(tmp)!;
+                    var stem = System.IO.Path.GetFileName(tmp);
+                    var file = System.IO.Directory.GetFiles(dir, stem + "*.png").FirstOrDefault();
+                    if (file != null)
+                    {
+                        b64 = System.Convert.ToBase64String(System.IO.File.ReadAllBytes(file));
+                        try { System.IO.File.Delete(file); } catch { }
+                    }
+                }
+                catch { /* export failure → b64 stays null */ }
+
+                // Elements visible in the crop — ids the VLM verdict can
+                // reference (text list beats burned-in marks per SeeAct).
+                try
+                {
+                    visible = new FilteredElementCollector(doc, exportView.Id)
+                        .WhereElementIsNotElementType()
+                        .OfClass(typeof(FamilyInstance))
+                        .Take(20)
+                        .Select(e => (object)new Dictionary<string, object?>
+                        {
+                            ["id"] = e.Id.Value,
+                            ["type_name"] = (e as FamilyInstance)?.Symbol?.Name,
+                            ["category"] = e.Category?.Name,
+                        })
+                        .ToList();
+                }
+                catch { }
+
+                return (b64, visible);
+            }
+            catch { return (null, visible); }
+            finally
+            {
+                if (created.Count > 0)
+                {
+                    try
+                    {
+                        using var tx2 = new Transaction(doc, "BinaVibe: sight cleanup");
+                        TxGuard.StartSwallowing(tx2);
+                        foreach (var id in created) { try { doc.Delete(id); } catch { } }
+                        tx2.Commit();
+                    }
+                    catch { }
+                }
+            }
+        }
+
+        // ─── auto-sight: screenshot RIGHT AFTER a model change ───────────────
+        // Frames the just-changed elements and captures a cropped image so the
+        // backend VLM judge can tell the (text-only) agent what its edit did —
+        // no separate look_at round. Attaches result["sight"] = {image_b64,
+        // elements_visible, view, change}. Best-effort: any failure (incl. a
+        // delete where the ids are gone → falls back to the active view) leaves
+        // the result untouched. Call only for model-changing tools.
+        public static void AttachMutationSight(UIDocument uidoc, string tool,
+            JsonElement args, Dictionary<string, object?> result)
+        {
+            try
+            {
+                var doc = uidoc.Document;
+                if (result == null) return;
+                // Only bother when the tool reported success.
+                if (result.TryGetValue("ok", out var okv) && okv is bool ok && !ok) return;
+
+                var ids = ChangedElementIds(args, result);
+                BoundingBoxXYZ? box = null;
+                foreach (var id in ids)
+                {
+                    var el = doc.GetElement(new ElementId(id));
+                    var bb = el?.get_BoundingBox(null);
+                    if (bb == null) continue;
+                    if (box == null)
+                        box = new BoundingBoxXYZ { Min = bb.Min, Max = bb.Max };
+                    else
+                    {
+                        box.Min = new XYZ(Math.Min(box.Min.X, bb.Min.X),
+                                          Math.Min(box.Min.Y, bb.Min.Y),
+                                          Math.Min(box.Min.Z, bb.Min.Z));
+                        box.Max = new XYZ(Math.Max(box.Max.X, bb.Max.X),
+                                          Math.Max(box.Max.Y, bb.Max.Y),
+                                          Math.Max(box.Max.Z, bb.Max.Z));
+                    }
+                }
+                // box == null (e.g. delete: ids gone) → CaptureImage falls back
+                // to the whole active view, which still answers "what's missing".
+                var (b64, visible) = CaptureImage(doc, box, "plan");
+                if (b64 == null) return;
+                result["sight"] = new Dictionary<string, object?>
+                {
+                    ["image_b64"] = b64,
+                    ["elements_visible"] = visible,
+                    ["view"] = "plan",
+                    ["change"] = tool,
+                };
+            }
+            catch { /* auto-sight is best-effort — never break the mutation */ }
+        }
+
+        // Best-effort set of element ids a mutation touched, for framing the
+        // auto-sight crop: new ids from replaced[]/placed[]/id/new_id, else the
+        // element_ids/target_ids the call acted on. Missing ids are fine — an
+        // empty list makes CaptureImage frame the whole active view.
+        private static List<long> ChangedElementIds(JsonElement args,
+            Dictionary<string, object?> result)
+        {
+            var ids = new HashSet<long>();
+            void AddFromList(object? v)
+            {
+                if (v is System.Collections.IEnumerable en && !(v is string))
+                    foreach (var it in en)
+                    {
+                        if (it is Dictionary<string, object?> d)
+                        {
+                            foreach (var k in new[] { "new_id", "id" })
+                                if (d.TryGetValue(k, out var iv) && ToLong(iv) is long l) { ids.Add(l); break; }
+                        }
+                        else if (ToLong(it) is long l) ids.Add(l);
+                    }
+            }
+            if (result != null)
+            {
+                foreach (var key in new[] { "replaced", "placed", "created", "new_ids", "ids" })
+                    if (result.TryGetValue(key, out var v)) AddFromList(v);
+                foreach (var key in new[] { "new_id", "id" })
+                    if (result.TryGetValue(key, out var v) && ToLong(v) is long l) ids.Add(l);
+            }
+            if (ids.Count == 0 && args.ValueKind == JsonValueKind.Object)
+                foreach (var key in new[] { "element_ids", "target_ids" })
+                    if (args.TryGetProperty(key, out var arr) && arr.ValueKind == JsonValueKind.Array)
+                        foreach (var e in arr.EnumerateArray())
+                            if (e.ValueKind == JsonValueKind.Number && e.TryGetInt64(out var n)) ids.Add(n);
+            return ids.ToList();
+        }
+
+        private static long? ToLong(object? v) => v switch
+        {
+            long l => l,
+            int i => i,
+            double d => (long)d,
+            string s when long.TryParse(s, out var n) => n,
+            _ => null,
+        };
 
         // ─── get_room_geometry (Phase 4) ─────────────────────────────────
         public static Dictionary<string, object?> GetRoomGeometry(Document doc, JsonElement args)
