@@ -882,6 +882,10 @@ namespace RevitWebAppSync.UI.Copilot
                     Options = new List<ClarifyOption>(),
                     Steps = rr.Steps,
                 });
+                // Persist the clarify turn — without this the early return drops
+                // both the user's message and the question from History/Export
+                // (the user side is only ever saved paired with a bot reply).
+                AppendToCurrentSession(displayText, rr.ClarifyingQuestion, "ok", null, historyFiles);
                 return;
             }
 
