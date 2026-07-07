@@ -142,38 +142,55 @@ namespace BinaVibe.Mcp.Tools
         public static double FacingAngle(XYZ toward) =>
             Math.Atan2(toward.Y, toward.X);
 
-        // Room centre in plan, averaged from wall-segment midpoints. Cheap and
-        // robust enough to answer "which wall is behind me" without needing the
-        // full boundary polygon area centroid.
-        public static XYZ RoomCentroid(Room room)
+        // ─── Drafter Sight v2 P1: orientation rule hierarchy ────────────────
+        // Deterministic facing for a fixture in a room. Rules, in order:
+        //   face_door      — face the NEAREST door bounding this room (stall
+        //                    partition doors match per-stall; a single room
+        //                    door serves the whole row).
+        //   face_into_room — no door: back onto the nearest wall segment and
+        //                    face its inward normal.
+        //   none           — no room/doors/segments: caller keeps the clone's
+        //                    default facing and reports it unverified.
+        // Returns the facing as a unit XY vector plus the rule name — the rule
+        // is wire-reported per fixture so a fallback is never silent.
+        internal static (XYZ facing, string rule) ResolveFacing(
+            Document doc, Room room, XYZ fixtureXY)
         {
-            var segs = WallSegments(room);
-            if (segs.Count == 0)
-                return (room.Location as LocationPoint)?.Point ?? XYZ.Zero;
-            double x = segs.Average(s => s.Mid.X);
-            double y = segs.Average(s => s.Mid.Y);
-            return new XYZ(x, y, 0);
+            if (room == null) return (null, "none");
+            try
+            {
+                var doors = RoomDoors(doc, room)
+                    .Select(d => (d.Location as LocationPoint)?.Point)
+                    .Where(p => p != null)
+                    .ToList();
+                if (doors.Count > 0)
+                {
+                    var nearest = doors.OrderBy(p =>
+                        new XYZ(p.X - fixtureXY.X, p.Y - fixtureXY.Y, 0).GetLength()).First();
+                    var v = new XYZ(nearest.X - fixtureXY.X, nearest.Y - fixtureXY.Y, 0);
+                    if (v.GetLength() > 1e-6)
+                        return (v.Normalize(), "face_door");
+                }
+                var segs = WallSegments(room);
+                if (segs.Count > 0)
+                {
+                    var back = segs.OrderBy(s =>
+                        DistPointToSegXY(fixtureXY, s.Start, s.End)).First();
+                    return (back.InwardNormal, "face_into_room");
+                }
+            }
+            catch { /* fall through to none */ }
+            return (null, "none");
         }
 
-        // The wall a fixture BACKS ONTO: of the room's segments, the one whose
-        // inward normal best aligns with the direction from the fixture toward
-        // the room centre. This is deliberately NOT "nearest wall" — in a row of
-        // toilet stalls the nearest wall is a side partition whose inward normal
-        // is perpendicular to the true facing, which is exactly why a
-        // nearest-wall test flips fixtures the wrong way. Returns null when the
-        // room has no usable segments.
-        public static WallSeg BackingWall(Room room, XYZ fixtureXY)
+        // Verify math (L3): does `facing` point toward the door? Pure dot
+        // product — cannot be gamed by heuristics upstream.
+        internal static bool FacesDoor(XYZ facing, XYZ fixtureXY, XYZ doorXY)
         {
-            var segs = WallSegments(room);
-            if (segs.Count == 0) return null;
-            var toCentre = RoomCentroid(room) - fixtureXY;
-            toCentre = new XYZ(toCentre.X, toCentre.Y, 0);
-            if (toCentre.GetLength() < 1e-6)
-                // Fixture sits ~at the room centre — no meaningful "behind";
-                // fall back to the nearest wall so we still return something.
-                return segs.OrderBy(s => DistPointToSegXY(fixtureXY, s.Start, s.End)).First();
-            toCentre = toCentre.Normalize();
-            return segs.OrderByDescending(s => s.InwardNormal.DotProduct(toCentre)).First();
+            var v = new XYZ(doorXY.X - fixtureXY.X, doorXY.Y - fixtureXY.Y, 0);
+            if (v.GetLength() < 1e-6 || facing == null) return false;
+            return new XYZ(facing.X, facing.Y, 0).Normalize()
+                .DotProduct(v.Normalize()) > 0.0;
         }
 
         public static double DistPointToSegXY(XYZ p, XYZ a, XYZ b)
