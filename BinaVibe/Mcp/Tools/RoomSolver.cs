@@ -142,6 +142,40 @@ namespace BinaVibe.Mcp.Tools
         public static double FacingAngle(XYZ toward) =>
             Math.Atan2(toward.Y, toward.X);
 
+        // Room centre in plan, averaged from wall-segment midpoints. Cheap and
+        // robust enough to answer "which wall is behind me" without needing the
+        // full boundary polygon area centroid.
+        public static XYZ RoomCentroid(Room room)
+        {
+            var segs = WallSegments(room);
+            if (segs.Count == 0)
+                return (room.Location as LocationPoint)?.Point ?? XYZ.Zero;
+            double x = segs.Average(s => s.Mid.X);
+            double y = segs.Average(s => s.Mid.Y);
+            return new XYZ(x, y, 0);
+        }
+
+        // The wall a fixture BACKS ONTO: of the room's segments, the one whose
+        // inward normal best aligns with the direction from the fixture toward
+        // the room centre. This is deliberately NOT "nearest wall" — in a row of
+        // toilet stalls the nearest wall is a side partition whose inward normal
+        // is perpendicular to the true facing, which is exactly why a
+        // nearest-wall test flips fixtures the wrong way. Returns null when the
+        // room has no usable segments.
+        public static WallSeg BackingWall(Room room, XYZ fixtureXY)
+        {
+            var segs = WallSegments(room);
+            if (segs.Count == 0) return null;
+            var toCentre = RoomCentroid(room) - fixtureXY;
+            toCentre = new XYZ(toCentre.X, toCentre.Y, 0);
+            if (toCentre.GetLength() < 1e-6)
+                // Fixture sits ~at the room centre — no meaningful "behind";
+                // fall back to the nearest wall so we still return something.
+                return segs.OrderBy(s => DistPointToSegXY(fixtureXY, s.Start, s.End)).First();
+            toCentre = toCentre.Normalize();
+            return segs.OrderByDescending(s => s.InwardNormal.DotProduct(toCentre)).First();
+        }
+
         public static double DistPointToSegXY(XYZ p, XYZ a, XYZ b)
         {
             var ab = new XYZ(b.X - a.X, b.Y - a.Y, 0);
