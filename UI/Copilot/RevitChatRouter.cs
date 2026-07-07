@@ -681,7 +681,11 @@ namespace RevitWebAppSync.UI.Copilot
                         })
                         .ToList();
                 }
-                catch { /* rooms digest is best-effort — never block the turn */ }
+                catch (System.Exception ex)
+                {
+                    ctx.Rooms = null;   // best-effort — never block the turn
+                    System.Diagnostics.Debug.WriteLine("[BINA] rooms digest failed: " + ex);
+                }
 
                 // Real view list (id+name+type) — lets the agent resolve
                 // "open Aras 01" to the exact view instead of guessing. Bounded.
