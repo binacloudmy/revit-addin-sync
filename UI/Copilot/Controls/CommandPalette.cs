@@ -194,17 +194,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             _countText.Text = matches.Count + (matches.Count == 1 ? " result" : " results");
 
             var groups = new List<KeyValuePair<string, List<SlashTool>>>();
+            var matchSet = new HashSet<SlashTool>(matches);
 
-            if (q.Length == 0)
-            {
-                var quickIds = (_prefs.PinnedTools ?? new List<string>())
-                    .Concat((_prefs.RecentTools ?? new List<string>()).Where(id => !_prefs.IsPinned(id)))
-                    .Where(id => ToolCatalog.ById(id) != null)
-                    .Distinct().Take(5).ToList();
-                var quick = quickIds.Select(ToolCatalog.ById).ToList();
-                if (quick.Count > 0) groups.Add(new KeyValuePair<string, List<SlashTool>>("Quick access", quick));
-            }
+            // Quick access is VIRTUAL — computed from the pin flags, not a real
+            // category. It lists the pinned (starred) tools (filtered by the query),
+            // in pin order. Pinned tools ALSO stay in their real category below, so a
+            // pinned tool appears twice. Hidden entirely when nothing pinned matches.
+            var quick = (_prefs.PinnedTools ?? new List<string>())
+                .Select(ToolCatalog.ById).Where(t => t != null && matchSet.Contains(t))
+                .ToList();
+            if (quick.Count > 0)
+                groups.Add(new KeyValuePair<string, List<SlashTool>>("Quick access", quick));
 
+            // Real categories, always in this fixed order (ToolCatalog.Categories =
+            // General → Architecture → Structure → MEP). Hide any with no matches.
             foreach (var cat in ToolCatalog.Categories)
             {
                 var g = matches.Where(t => t.Category == cat).ToList();
@@ -243,24 +246,31 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         }
 
         // ── row + section builders ──────────────────────────────────────────
+        // Design section header (line 1484): flex row — muted icon(13) · uppercase
+        // category label · a hairline rule filling the rest. gap 7px, pad 9/12/5.
         private Border SectionHeader(string cat)
         {
             var b = new Border { Padding = new Thickness(12, 9, 12, 5) };
-            var sp = new StackPanel { Orientation = Orientation.Horizontal };
-            sp.Children.Add(IconEl(ToolCatalog.SectionIconKey(cat), 13, "Cp.Faint"));
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });   // icon
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });   // label
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // rule
+
+            var icon = IconEl(ToolCatalog.SectionIconKey(cat), 13, "Cp.Faint");
+            Grid.SetColumn(icon, 0); grid.Children.Add(icon);
+
             var t = new TextBlock
             {
                 Text = cat.ToUpperInvariant(), FontSize = 10, FontWeight = FontWeights.Bold,
                 Margin = new Thickness(7, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center,
             };
             t.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
-            var line = new Border { Height = 1, VerticalAlignment = VerticalAlignment.Center, MinWidth = 20 };
+            Grid.SetColumn(t, 1); grid.Children.Add(t);
+
+            var line = new Border { Height = 1, VerticalAlignment = VerticalAlignment.Center };
             line.SetResourceReference(BackgroundProperty, "Cp.Line");
-            var grid = new Grid();
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            Grid.SetColumn(sp, 0); grid.Children.Add(sp);
-            Grid.SetColumn(line, 1); grid.Children.Add(line);
+            Grid.SetColumn(line, 2); grid.Children.Add(line);
+
             b.Child = grid;
             return b;
         }
