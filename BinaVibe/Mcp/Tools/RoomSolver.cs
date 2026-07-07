@@ -152,6 +152,61 @@ namespace BinaVibe.Mcp.Tools
             return new XYZ(p.X - proj.X, p.Y - proj.Y, 0).GetLength();
         }
 
+        // Typology: find an existing instance of the same type placed in
+        // another room — same-name-prefix rooms first ("Tandas ..." family).
+        public static FamilyInstance FindTypologyExample(Document doc,
+            FamilySymbol sym, Room targetRoom)
+        {
+            var candidates = new FilteredElementCollector(doc)
+                .WhereElementIsNotElementType()
+                .OfClass(typeof(FamilyInstance))
+                .Cast<FamilyInstance>()
+                .Where(fi => fi.Symbol?.Id == sym.Id
+                    && fi.Location is LocationPoint)
+                .Where(fi =>
+                {
+                    try { return fi.Room != null && fi.Room.Id != targetRoom.Id; }
+                    catch { return false; }
+                })
+                .ToList();
+            if (candidates.Count == 0) return null;
+            string prefix = (targetRoom.Name ?? "").Split(' ').FirstOrDefault() ?? "";
+            return candidates.FirstOrDefault(fi =>
+                       fi.Room.Name != null
+                       && fi.Room.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                   ?? candidates[0];
+        }
+
+        // Read the example's placement RELATIVE to its room wall, transplant
+        // onto the target wall segment: same distance-from-wall, same offset
+        // along the wall measured from the NEAREST corner (handles mirrored
+        // rooms), same facing angle relative to the wall's inward normal.
+        public static (XYZ point, XYZ facing) TransplantPlacement(
+            FamilyInstance example, Room exampleRoom, WallSeg targetSeg)
+        {
+            var lp = ((LocationPoint)example.Location).Point;
+            var exSegs = WallSegments(exampleRoom);
+            var exSeg = exSegs.OrderBy(s => DistPointToSegXY(lp, s.Start, s.End)).First();
+
+            double dWall = DistPointToSegXY(lp, exSeg.Start, exSeg.End);
+            var exDir = (exSeg.End - exSeg.Start).Normalize();
+            double along = new XYZ(lp.X - exSeg.Start.X, lp.Y - exSeg.Start.Y, 0)
+                .DotProduct(exDir);
+            double fromNearestCorner = Math.Min(along, exSeg.LengthFt - along);
+            // facing relative to the wall: signed angle inward-normal -> facing
+            double relAngle = FacingAngle(example.FacingOrientation)
+                - FacingAngle(exSeg.InwardNormal);
+
+            var tDir = (targetSeg.End - targetSeg.Start).Normalize();
+            double tAlong = Math.Min(
+                Math.Max(fromNearestCorner, 0.5),
+                Math.Max(targetSeg.LengthFt - 0.5, 0.5));
+            var pt = targetSeg.Start + tDir * tAlong + targetSeg.InwardNormal * dWall;
+            double fAngle = FacingAngle(targetSeg.InwardNormal) + relAngle;
+            var facing = new XYZ(Math.Cos(fAngle), Math.Sin(fAngle), 0);
+            return (pt, facing);
+        }
+
         // Deterministic post-placement verify (Phase 6). Never throws.
         public static Dictionary<string, object?> Verify(Document doc,
             ElementId newId, Room expectedRoom)

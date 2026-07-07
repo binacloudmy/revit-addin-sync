@@ -1198,7 +1198,34 @@ namespace BinaVibe.Mcp.Tools
             // Resolve anchor -> points + facing direction (solver, not LLM).
             var points = new List<XYZ>();
             XYZ faceToward = XYZ.BasisY;
-            if (anchor == "center")
+            string anchorUsed = anchor;
+
+            if (anchor == "match_existing")
+            {
+                // Typology: copy the drafter's existing sibling layout.
+                var seg0 = RoomSolver.PickWall(segs, wallSel, doors);
+                var example = seg0 != null ? RoomSolver.FindTypologyExample(doc, sym, room) : null;
+                Autodesk.Revit.DB.Architecture.Room exRoom = null;
+                try { exRoom = example?.Room; } catch { /* phase-less docs throw */ }
+                if (example != null && exRoom != null && seg0 != null)
+                {
+                    var (tp, tf) = RoomSolver.TransplantPlacement(example, exRoom, seg0);
+                    points.Add(tp);
+                    faceToward = tf;
+                    anchorUsed = $"match_existing:{example.Id.Value}";
+                }
+                else
+                {
+                    anchor = "wall";           // fall through to rule anchor
+                    anchorUsed = "wall_rules";
+                }
+            }
+
+            if (points.Count > 0)
+            {
+                // transplant already resolved point + facing — skip rule anchors
+            }
+            else if (anchor == "center")
             {
                 var bbRoom = room.get_BoundingBox(null);
                 var c = bbRoom != null ? (bbRoom.Min + bbRoom.Max) * 0.5
@@ -1273,6 +1300,7 @@ namespace BinaVibe.Mcp.Tools
                 ["ok"] = placed.Count > 0,
                 ["placed"] = placed,
                 ["skipped"] = skipped,
+                ["anchor_used"] = anchorUsed,
                 ["verify"] = verifyBlock,
             };
         }
