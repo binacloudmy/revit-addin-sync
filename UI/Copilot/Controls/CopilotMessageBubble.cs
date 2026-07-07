@@ -22,11 +22,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// hover copy button on the left.</summary>
         public static FrameworkElement User(string text, string userInitial,
             IEnumerable<string> imagesBase64, IEnumerable<(string Name, int Lines)> files,
-            double maxWidth, string time = null)
+            double maxWidth, string time = null, Model.SlashTool slashCommand = null)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             var bubble = new Border { Background = CopilotColors.From("#eef1f5"), CornerRadius = new CornerRadius(14, 14, 4, 14), Padding = new Thickness(13, 9, 13, 9), MaxWidth = maxWidth * 0.84 };
             var bubbleStack = new StackPanel();
+
+            // Slash command runs as a chip at the top of the bubble.
+            if (slashCommand != null)
+            {
+                var chip = CommandChip.Build(slashCommand);
+                chip.HorizontalAlignment = HorizontalAlignment.Left;
+                chip.Margin = new Thickness(0, 0, 0, string.IsNullOrEmpty(text) ? 0 : 6);
+                bubbleStack.Children.Add(chip);
+            }
 
             // Screenshots pasted with this prompt render above the text.
             if (imagesBase64 != null)
@@ -64,7 +73,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 BorderThickness = new Thickness(0), Background = System.Windows.Media.Brushes.Transparent,
                 Padding = new Thickness(0), IsTabStop = false,
             };
-            bubbleStack.Children.Add(ClampableText(textBox));
+            // Skip the (empty) text row for a bare slash command — the chip stands alone.
+            if (!string.IsNullOrEmpty(text) || slashCommand == null)
+                bubbleStack.Children.Add(ClampableText(textBox));
             bubble.Child = bubbleStack;
             AttachCopyMenu(bubble, text);
             // Copy affordance sits on the LEFT of the right-aligned bubble.

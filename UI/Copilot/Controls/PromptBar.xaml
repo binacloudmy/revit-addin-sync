@@ -8,6 +8,8 @@
         <StackPanel>
             <!-- pending pasted screenshots (thumbnail chips with an × to remove) -->
             <StackPanel x:Name="ThumbStrip" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,8"/>
+            <!-- pending slash command (accent chip with an × to clear) -->
+            <StackPanel x:Name="CommandStrip" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,8"/>
             <!-- Slate composer: sunken rounded container, borderless input,
                  ghost attach button, accent-gradient send/stop button. -->
             <Border Background="{DynamicResource Cp.Sunken}" CornerRadius="13" Padding="13,8,8,8">
@@ -165,7 +167,7 @@
             </Popup>
             <TextBlock x:Name="PlaceholderHint" HorizontalAlignment="Center" Margin="0,8,0,1"
                        FontSize="10" Foreground="{DynamicResource Cp.Faint}">
-                <Run Text="Type "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to reference a level, category, view, or selection"/>
+                <Run Text="Type "/><Run Text="/" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" for tools · "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to reference a level, view or selection"/>
             </TextBlock>
         </StackPanel>
     </Border>

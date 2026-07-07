@@ -38,6 +38,19 @@
     <SolidColorBrush x:Key="Cp.Red"       Color="#dc2626"/>
     <SolidColorBrush x:Key="Cp.Meter"     Color="#f59e0b"/>
 
+    <!-- ═══════════ SLASH-COMMAND TOOL TYPES ═══════════
+         Icon tile / badge tag / legend dot colours by command type + the pin star.
+         Theme-aware (see CopilotTheme palette). *Bg keys are the ~13% tinted tag bg. -->
+    <!-- Fixed hex (design badgeColor() — SAME in light + dark; do NOT theme-shift,
+         or the shade drifts from the mockup). *Bg = exact 13% tint (0x21 alpha). -->
+    <SolidColorBrush x:Key="Cp.Tool.Det"   Color="#0d9488"/>
+    <SolidColorBrush x:Key="Cp.Tool.Ai"    Color="#7c3aed"/>
+    <SolidColorBrush x:Key="Cp.Tool.Rep"   Color="#d97706"/>
+    <SolidColorBrush x:Key="Cp.Tool.DetBg" Color="#210d9488"/>
+    <SolidColorBrush x:Key="Cp.Tool.AiBg"  Color="#217c3aed"/>
+    <SolidColorBrush x:Key="Cp.Tool.RepBg" Color="#21d97706"/>
+    <SolidColorBrush x:Key="Cp.Pin"        Color="#f5a623"/>
+
     <!-- -accent-grad: 135deg, 60% accent mixed toward white → accent -->
     <LinearGradientBrush x:Key="Cp.AccentGrad" StartPoint="0,0" EndPoint="1,1">
         <GradientStop Offset="0" Color="#7795e8"/>

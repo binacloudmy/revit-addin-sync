@@ -31,10 +31,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 }
                 Input.TriggerSubmit();
             };
+            Input.ToolPicked += OnToolPicked;
             Input.Submitted += (text, mentions) =>
             {
                 // Enter while a reply streams must not queue another prompt.
                 if (Busy) return;
+                // A pending slash command takes the turn: raise it (with any typed
+                // args) and skip the normal text/attachment submit path. UI-only.
+                if (_pendingTool != null)
+                {
+                    var tool = _pendingTool;
+                    ClearPendingTool();
+                    SlashToolSubmitted?.Invoke(tool, text);
+                    return;
+                }
                 // With screenshots and/or files attached, submit a composed payload
                 // (text + base64 PNGs + file attachments) and clear the strip; plain
                 // text otherwise so the other PromptBar hosts (Result/Library
@@ -106,6 +116,46 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 UsagePopup.IsOpen = false;
                 UpgradeRequested?.Invoke();
             };
+        }
+
+        // ─── Slash command (pending, sent as the next turn) ──────────────────
+        /// <summary>Raised when a message is sent with a slash command active —
+        /// the picked tool plus any typed args. UI-only for now.</summary>
+        public event System.Action<Model.SlashTool, string> SlashToolSubmitted;
+
+        private Model.SlashTool _pendingTool;
+
+        /// <summary>Host the "/" palette overlay for this composer (ChatView owns the
+        /// in-panel layer; the editor drives it). See MentionInput.AttachSlashPalette.</summary>
+        public void AttachSlashPalette(CommandPalette palette, System.Action<bool> setVisible)
+            => Input.AttachSlashPalette(palette, setVisible);
+
+        /// <summary>Close the palette from the host (scrim click-outside).</summary>
+        public void CloseSlashPalette() => Input.CloseSlashExternal();
+
+        private void OnToolPicked(Model.SlashTool tool)
+        {
+            _pendingTool = tool;
+            Input.AllowEmptySubmit = true;   // a bare "/tool" turn can be sent
+            RebuildCommandStrip();
+            UpdateSendVisual();
+            Input.Editor.Focus();
+        }
+
+        private void ClearPendingTool()
+        {
+            _pendingTool = null;
+            Input.AllowEmptySubmit = false;
+            RebuildCommandStrip();
+            UpdateSendVisual();
+        }
+
+        private void RebuildCommandStrip()
+        {
+            CommandStrip.Children.Clear();
+            if (_pendingTool == null) { CommandStrip.Visibility = Visibility.Collapsed; return; }
+            CommandStrip.Children.Add(CommandChip.Build(_pendingTool, ClearPendingTool));
+            CommandStrip.Visibility = Visibility.Visible;
         }
 
         // ─── Footer usage meter ───────────────────────────────────────────────
@@ -272,7 +322,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private void UpdateSendVisual()
         {
             if (SendBtn == null || SendIcon == null || Input?.Editor == null) return;
-            bool armed = Busy || !string.IsNullOrWhiteSpace(Input.Editor.Text);
+            bool armed = Busy || _pendingTool != null || !string.IsNullOrWhiteSpace(Input.Editor.Text);
             if (armed)
             {
                 SendBtn.Background = TryFindResource("Cp.AccentGrad") as System.Windows.Media.Brush ?? Brushes.RoyalBlue;

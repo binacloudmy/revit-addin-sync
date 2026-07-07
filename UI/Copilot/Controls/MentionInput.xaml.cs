@@ -33,7 +33,33 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Raised when the user drops one or more files onto the input area.</summary>
         public event Action<string[]> FileDropped;
 
+        /// <summary>Raised when the user picks a tool from the "/" command palette.</summary>
+        public event Action<SlashTool> ToolPicked;
+
+        /// <summary>When set (by the PromptBar while a slash command is pending),
+        /// Enter/Send submits even with an empty editor — the command carries the turn.</summary>
+        public bool AllowEmptySubmit { get; set; }
+
         private int _atIndex = -1;
+        private int _slashIndex = -1;
+
+        // The "/" command palette is hosted OUTSIDE this control (as an in-panel
+        // overlay in ChatView) so it can't float past the pane edges like a Popup.
+        // ChatView wires it in via AttachSlashPalette; until then, "/" does nothing
+        // special (e.g. the Result/Library follow-up composers have no palette).
+        private Controls.CommandPalette _palette;
+        private Action<bool> _setSlashVisible;
+        private bool _slashOpen;
+
+        /// <summary>Host the palette overlay: give this composer the palette instance
+        /// and a callback that shows/hides the overlay layer.</summary>
+        public void AttachSlashPalette(Controls.CommandPalette palette, Action<bool> setVisible)
+        {
+            if (_palette != null) _palette.ToolPicked -= OnSlashToolPicked;
+            _palette = palette;
+            _setSlashVisible = setVisible;
+            if (_palette != null) _palette.ToolPicked += OnSlashToolPicked;
+        }
 
         public MentionInput()
         {
@@ -108,7 +134,18 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             int caret = Editor.CaretIndex;
             if (caret > text.Length) caret = text.Length;
 
+            // A "/" command token (at line start or after whitespace) takes
+            // precedence when it sits closer to the caret than any "@".
+            int slash = LastSlashTrigger(text, caret);
             int at = text.LastIndexOf('@', Math.Max(0, caret - 1));
+            if (slash >= 0 && slash >= at)
+            {
+                ClosePicker();
+                OpenSlash(text, slash, caret);
+                return;
+            }
+            CloseSlash();
+
             if (at < 0) { ClosePicker(); return; }
 
             string query = text.Substring(at + 1, caret - at - 1);
@@ -116,6 +153,59 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             _atIndex = at;
             BuildPicker(query);
+        }
+
+        // Index of the "/" that starts the command token ending at the caret, or -1.
+        // The slash must sit at the start of the input or right after whitespace
+        // (so "and/or", URLs and paths don't trigger the palette), and the run from
+        // it to the caret must be a single unbroken token.
+        private static int LastSlashTrigger(string text, int caret)
+        {
+            for (int i = caret - 1; i >= 0; i--)
+            {
+                char c = text[i];
+                if (c == '/')
+                    return (i == 0 || char.IsWhiteSpace(text[i - 1])) ? i : -1;
+                if (char.IsWhiteSpace(c)) return -1;   // token broken before a slash
+            }
+            return -1;
+        }
+
+        private void OpenSlash(string text, int slashIdx, int caret)
+        {
+            if (_palette == null) return;   // no overlay attached (non-chat composer)
+            _slashIndex = slashIdx;
+            string query = text.Substring(slashIdx + 1, caret - slashIdx - 1);
+            if (!_slashOpen) { _palette.Open(query); _slashOpen = true; _setSlashVisible?.Invoke(true); }
+            else _palette.SetQuery(query);
+        }
+
+        private void CloseSlash()
+        {
+            _slashIndex = -1;
+            if (_slashOpen) { _slashOpen = false; _setSlashVisible?.Invoke(false); }
+        }
+
+        /// <summary>Close the palette from the host (scrim click-outside).</summary>
+        public void CloseSlashExternal() => CloseSlash();
+
+        // Picked from the palette (click or Enter): strip the "/query" from the
+        // editor, close, and hand the tool up to the PromptBar for the chip.
+        private void OnSlashToolPicked(SlashTool tool)
+        {
+            var text = Editor.Text ?? "";
+            int caret = Editor.CaretIndex;
+            if (_slashIndex >= 0 && _slashIndex <= text.Length)
+            {
+                if (caret < _slashIndex || caret > text.Length) caret = text.Length;
+                string before = text.Substring(0, _slashIndex);
+                string after = text.Substring(caret);
+                Editor.Text = before + after;
+                Editor.CaretIndex = before.Length;
+            }
+            CloseSlash();
+            Editor.Focus();
+            ToolPicked?.Invoke(tool);
         }
 
         // Design popover (lines 502-512): ONE "REFERENCE" caps header, then flat
@@ -214,6 +304,23 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 catch { /* clipboard busy — fall through to the normal paste */ }
             }
 
+            // "/" command palette gets first dibs on the nav keys while it's open.
+            if (_slashOpen && _palette != null)
+            {
+                switch (e.Key)
+                {
+                    case Key.Escape: CloseSlash(); e.Handled = true; return;
+                    case Key.Up: _palette.MoveActive(-1); e.Handled = true; return;
+                    case Key.Down: _palette.MoveActive(1); e.Handled = true; return;
+                    case Key.Enter:
+                    case Key.Tab:
+                        _palette.PickActive();   // fires ToolPicked → OnSlashToolPicked
+                        e.Handled = true; return;
+                    // Backspace with an empty query (caret right after "/") deletes the
+                    // "/" and DetectToken then closes the palette — no special-casing.
+                }
+            }
+
             if (Picker.IsOpen)
             {
                 if (e.Key == Key.Escape) { ClosePicker(); e.Handled = true; return; }
@@ -243,11 +350,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private void Submit()
         {
             var text = (Editor.Text ?? "").Trim();
-            if (string.IsNullOrEmpty(text)) return;
+            // Empty text still submits when a slash command is pending (AllowEmptySubmit)
+            // so a bare "/tool" turn can be sent with no extra prose.
+            if (string.IsNullOrEmpty(text) && !AllowEmptySubmit) return;
             var mentions = ParseMentions(text);
             Submitted?.Invoke(text, mentions);
             Editor.Clear();
             ClosePicker();
+            CloseSlash();
         }
 
         private List<Mention> ParseMentions(string text)

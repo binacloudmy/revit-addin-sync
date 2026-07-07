@@ -36,6 +36,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         public ChatView()
         {
             InitializeComponent();
+            // Slash command sent from the composer → add the turn (chip bubble +
+            // placeholder reply). UI-only until tools run from chat.
+            Prompt.SlashToolSubmitted += (tool, args) => Vm?.ChatSendSlashCommand(tool, args);
+            // Host the "/" palette as an IN-PANEL overlay (SlashLayer) so it stays
+            // inside the pane and tracks resize — the editor shows/hides the layer.
+            Prompt.AttachSlashPalette(SlashPalette, v =>
+            {
+                if (v) UpdateSlashPaletteBounds();
+                SlashLayer.Visibility = v ? Visibility.Visible : Visibility.Collapsed;
+            });
+            SlashScrim.MouseLeftButtonDown += (_, __) => Prompt.CloseSlashPalette();
+            SizeChanged += (_, __) => { if (SlashLayer.Visibility == Visibility.Visible) UpdateSlashPaletteBounds(); };
             DataContextChanged += (_, __) => Hook();
             // Re-render the (code-behind-drawn) thread when the palette flips —
             // its bubbles snapshot colours via CopilotColors, so unlike the XAML
@@ -66,6 +78,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                      : (Scroller != null ? Scroller.ActualWidth : 0);
             if (w <= 0) return 360;
             return System.Math.Max(320, w * 0.85 - 44);
+        }
+
+        // Keep the "/" palette bounded by the pane: cap the whole card to ~64% of
+        // the panel height and the inner scrolling list to what's left after the
+        // header + footer, so it never covers the tabs or spills past the edges.
+        private void UpdateSlashPaletteBounds()
+        {
+            double h = ActualHeight;
+            if (h <= 0) return;
+            double cap = System.Math.Max(200, h * 0.64);
+            SlashPalette.MaxHeight = cap;
+            SlashPalette.SetListMaxHeight(cap - 96);   // ≈ header + footer + margins
         }
 
         private void OnThemeChanged() => Rebuild();
@@ -238,7 +262,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (m.Role == "user")
                 return CopilotMessageBubble.User(
                     m.Text, Vm?.UserFirstName, m.ImagesBase64,
-                    m.Files?.Select(f => (f.Name, LineCount(f.Content))), BubbleMaxWidth(), m.Time);
+                    m.Files?.Select(f => (f.Name, LineCount(f.Content))), BubbleMaxWidth(), m.Time,
+                    m.SlashCommand);
 
             // Cancelled generation — the design's italic faint "Interrupted."
             // line: stop-in-circle icon + italic text, no bubble, no feedback.
