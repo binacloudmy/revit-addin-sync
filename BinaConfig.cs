@@ -42,6 +42,35 @@ namespace RevitWebAppSync
         // above, so enabling updates later needs no rebuild.
         public string UpdateFeedUrl { get; set; }
 
+        // BINA Copilot Engine mode: the agent loop runs as a LOCAL process
+        // (bina-ai's app/engine) that calls back into this add-in's local tool
+        // server over 127.0.0.1. When true, App.cs starts McpServer (the local
+        // tool server) and does NOT start the cloud WSS tunnel. Off by default
+        // = cloud ping-pong transport, unchanged. Set in config.json.
+        public bool EngineMode { get; set; }
+
+        // Port this add-in's local tool server listens on in Engine mode. The
+        // HttpListener prefix stays "localhost" (Windows non-admin URL-ACL
+        // rule — an explicit 127.0.0.1 prefix needs netsh urlacl/elevation).
+        public int EnginePort { get; set; } = 48820;
+
+        // Shared loopback secret; every /mcp/tools request must present it in
+        // the X-Bina-Secret header. Interim channel (Phases 1-3): the engine
+        // process and this add-in both read the same value from their configs.
+        // Phase 4 replaces this with a per-boot spawn secret.
+        public string EngineSecret { get; set; }
+
+        // Phase 4: when true, the add-in auto-spawns the packaged engine
+        // (bina-engine.exe) via EngineManager and hands it the secret + port.
+        // When false (default), the engine is started manually (the Phase 1-3
+        // UAT flow). Opt-in so manual-start validation is never broken.
+        public bool EngineAutoSpawn { get; set; }
+
+        // Port the engine's own HTTP API (the pane's turn endpoint) listens on
+        // — must match AIBaseUrl's port. EngineManager spawns the engine here.
+        // Distinct from EnginePort (this add-in's local tool server).
+        public int EngineHostPort { get; set; } = 48810;
+
         // Full sign-in endpoint. Defaults to BASE_URL/api/auth/user/sign-in, but
         // can be pinned independently via the LOGIN_URL env key or config.json
         // (e.g. auth split onto its own host).

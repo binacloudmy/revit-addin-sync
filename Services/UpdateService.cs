@@ -152,6 +152,10 @@ namespace RevitWebAppSync.Services
                 return;
             }
 
+            // Stage the engine payload independently of the add-in version — the
+            // engine can update on its own cadence. Best-effort, never blocks.
+            await StageEngineIfPresentAsync(feed.Engine);
+
             var current = GetCurrentVersion();
             if (remote <= current)
             {
@@ -282,6 +286,89 @@ namespace RevitWebAppSync.Services
             // Missing flag = mandatory: the backend and addin move together,
             // so a stale client is broken by default unless the feed opts out.
             [JsonProperty("mandatory")] public bool Mandatory { get; set; } = true;
+
+            // Phase 4: optional Copilot Engine payload, shipped in the SAME
+            // version.json. Staged into engine\<ver>\ hot-safe, like the addin.
+            [JsonProperty("engine")] public EngineFeed Engine { get; set; }
+        }
+
+        public sealed class EngineFeed
+        {
+            [JsonProperty("version")] public string Version { get; set; }
+            [JsonProperty("url")] public string Url { get; set; }
+            [JsonProperty("sha256")] public string Sha256 { get; set; }
+            // Refuse an engine build that needs a newer addin than is running
+            // (wire-format compatibility). Empty = no floor.
+            [JsonProperty("minAddinVersion")] public string MinAddinVersion { get; set; }
+        }
+
+        private static readonly string EngineDir = Path.Combine(Root, "engine");
+
+        /// <summary>Stage the engine payload if the feed carries a newer one and
+        /// this add-in satisfies its minAddinVersion. Self-contained (does not
+        /// touch the add-in staging path); newest-semver hot-safe: never
+        /// overwrites a running engine\&lt;ver&gt;\ dir. Best-effort — a failed
+        /// engine stage never blocks the add-in update.</summary>
+        private static async Task StageEngineIfPresentAsync(EngineFeed engine)
+        {
+            if (engine?.Version == null || engine.Url == null) return;
+            if (!Version.TryParse(engine.Version, out var remote))
+            {
+                Log($"engine: unparseable version '{engine.Version}'");
+                return;
+            }
+
+            // compatibility floor: don't stage an engine that needs a newer addin
+            if (!string.IsNullOrWhiteSpace(engine.MinAddinVersion)
+                && Version.TryParse(engine.MinAddinVersion, out var floor)
+                && GetCurrentVersion() < floor)
+            {
+                Log($"engine {remote} needs addin >= {floor}; running {GetCurrentVersion()} — skipped");
+                return;
+            }
+
+            var targetDir = Path.Combine(EngineDir, remote.ToString());
+            if (File.Exists(Path.Combine(targetDir, CompleteMarker)))
+            {
+                Log($"engine {remote} already staged");
+                return;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(StagingDir);
+                var zipPath = Path.Combine(StagingDir, $"engine-{remote}.zip");
+                using (var http = NewHttp())
+                {
+                    var bytes = await http.GetByteArrayAsync(engine.Url);
+                    if (!string.IsNullOrWhiteSpace(engine.Sha256))
+                    {
+                        using var sha = System.Security.Cryptography.SHA256.Create();
+                        var got = BitConverter.ToString(sha.ComputeHash(bytes)).Replace("-", "").ToLowerInvariant();
+                        if (!string.Equals(got, engine.Sha256.Trim().ToLowerInvariant(), StringComparison.Ordinal))
+                        {
+                            Log($"engine {remote} sha256 mismatch — refused");
+                            return;
+                        }
+                    }
+                    File.WriteAllBytes(zipPath, bytes);
+                }
+
+                var extractDir = Path.Combine(StagingDir, $"engine-{remote}");
+                if (Directory.Exists(extractDir)) Directory.Delete(extractDir, true);
+                System.IO.Compression.ZipFile.ExtractToDirectory(zipPath, extractDir);
+
+                Directory.CreateDirectory(EngineDir);
+                if (Directory.Exists(targetDir)) Directory.Delete(targetDir, true);
+                Directory.Move(extractDir, targetDir);          // atomic-ish final move
+                File.WriteAllText(Path.Combine(targetDir, CompleteMarker), remote.ToString());
+                try { File.Delete(zipPath); } catch { }
+                Log($"engine {remote} staged — EngineManager picks it up next Revit start");
+            }
+            catch (Exception ex)
+            {
+                Log($"engine {remote} stage failed (non-blocking): {ex.Message}");
+            }
         }
     }
 }

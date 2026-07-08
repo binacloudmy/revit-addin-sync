@@ -640,6 +640,32 @@ namespace RevitWebAppSync.UI.Copilot
                 ctx.SelectedElementIds = uidoc.Selection.GetElementIds().Select(id => (int)id.Value).ToList();
                 ctx.Phases = new FilteredElementCollector(doc).OfClass(typeof(Phase)).Cast<Phase>().Select(p => p.Name).ToList();
 
+                // Phase 2 scene digest: placement facts for the working set
+                // (the current selection) so the agent SEES where things are
+                // without a query_geometry round-trip. Reuses the same
+                // PlacementFacts helper query_geometry uses. Cap 40; best-effort
+                // per element (a phase-less or odd element must not break context).
+                var __digest = new List<Dictionary<string, object>>();
+                foreach (var selId in uidoc.Selection.GetElementIds().Take(40))
+                {
+                    try
+                    {
+                        var selEl = doc.GetElement(selId);
+                        if (selEl == null) continue;
+                        var facts = BinaVibe.Mcp.Tools.QueryGeometry.PlacementFacts(doc, selEl);
+                        __digest.Add(new Dictionary<string, object>
+                        {
+                            ["id"] = (int)selId.Value,
+                            ["xyz"] = facts.TryGetValue("xyz", out var xyz) ? xyz : null,
+                            ["facing"] = facts.TryGetValue("facing", out var fac) ? fac : null,
+                            ["room"] = facts.TryGetValue("room", out var rm) ? rm : null,
+                            ["hostId"] = facts.TryGetValue("host_id", out var h) ? h : null,
+                        });
+                    }
+                    catch { /* skip this element, keep the rest */ }
+                }
+                if (__digest.Count > 0) ctx.SceneDigest = __digest;
+
                 // Real view list (id+name+type) — lets the agent resolve
                 // "open Aras 01" to the exact view instead of guessing. Bounded.
                 var __allViews = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()

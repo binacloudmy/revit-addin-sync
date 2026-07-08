@@ -52,6 +52,8 @@ namespace RevitWebAppSync
         // backend can call back into the live Revit session for the
         // Inspector preflight (and Step 3+ MUTATE tools).
         public static BinaVibe.Mcp.McpServer VibeMcpServer { get; private set; }
+        // Phase 4: owns the local engine process when EngineAutoSpawn is on.
+        public static RevitWebAppSync.Services.EngineManager VibeEngine { get; private set; }
 
         // BinaVibe v2 outbound WSS tunnel client (PRD §6.5 / production
         // transport). When BINA_VIBE_MCP_TRANSPORT is "wss" or "both",
@@ -277,16 +279,35 @@ namespace RevitWebAppSync
                 //   wss   — outbound WSS only (production, firewall-safe)
                 //   both  — start both (handy during migration)
                 var transport = (Environment.GetEnvironmentVariable("BINA_VIBE_MCP_TRANSPORT") ?? "http").ToLowerInvariant();
+                var cfg = BinaConfig.Load();
 
-                // HARD GATE — the MCP tool path is disabled. The backend is
-                // codegen-only and rejects the tunnel (403), and the mirror the
-                // DocumentChangedIndexer feeds is unread. Running this block is
-                // pure cost: ~15 tunnel reconnect attempts PER PROMPT plus a
-                // UI-thread element walk on every edit (mirror delta) that
-                // nothing consumes — the source of the post-prompt UI-thread
-                // blocks. Off by default; set BINA_VIBE_TOOLPATH=1 to revive
-                // once the backend's tool-calling path is back.
-                if ((Environment.GetEnvironmentVariable("BINA_VIBE_TOOLPATH") ?? "0") != "1")
+                if (cfg.EngineMode)
+                {
+                    // BINA Copilot Engine mode: the agent loop runs as a local
+                    // process next to Revit and calls this add-in's local tool
+                    // server (McpServer) over 127.0.0.1. Start the HTTP tool
+                    // server ONLY — the cloud WSS tunnel is not used in engine
+                    // mode. The old BINA_VIBE_TOOLPATH env gate is bypassed.
+                    if (string.IsNullOrWhiteSpace(cfg.EngineSecret))
+                    {
+                        System.Diagnostics.Debug.WriteLine(
+                            "[BINA] EngineMode on but EngineSecret missing — local tool server NOT started.");
+                        transport = "off";
+                    }
+                    else
+                    {
+                        transport = "http";
+                    }
+                }
+                // HARD GATE (cloud mode only) — the MCP tool path is disabled.
+                // The backend is codegen-only and rejects the tunnel (403), and
+                // the mirror the DocumentChangedIndexer feeds is unread. Running
+                // this block is pure cost: ~15 tunnel reconnect attempts PER
+                // PROMPT plus a UI-thread element walk on every edit (mirror
+                // delta) that nothing consumes. Off by default; set
+                // BINA_VIBE_TOOLPATH=1 to revive once the backend's tool-calling
+                // path is back.
+                else if ((Environment.GetEnvironmentVariable("BINA_VIBE_TOOLPATH") ?? "0") != "1")
                 {
                     System.Diagnostics.Debug.WriteLine(
                         "[BINA] MCP tool path gated OFF (codegen-only) — no tunnel, no mirror indexer. Set BINA_VIBE_TOOLPATH=1 to enable.");
@@ -297,10 +318,31 @@ namespace RevitWebAppSync
                 {
                     try
                     {
-                        var port = int.TryParse(Environment.GetEnvironmentVariable("BINA_VIBE_MCP_PORT"), out var p) ? p : 8080;
-                        VibeMcpServer = new BinaVibe.Mcp.McpServer(port);
+                        var port = cfg.EngineMode
+                            ? cfg.EnginePort
+                            : (int.TryParse(Environment.GetEnvironmentVariable("BINA_VIBE_MCP_PORT"), out var p) ? p : 8080);
+                        VibeMcpServer = new BinaVibe.Mcp.McpServer(port, cfg.EngineSecret ?? "");
                         VibeMcpServer.Start();
                         System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP server listening on {VibeMcpServer.Prefix}");
+
+                        // Phase 4 (opt-in): auto-spawn the packaged engine and
+                        // hand it the SAME secret the tool server validates.
+                        // Off by default — Phases 1-3 start the engine manually.
+                        if (cfg.EngineMode && cfg.EngineAutoSpawn)
+                        {
+                            try
+                            {
+                                VibeEngine = new RevitWebAppSync.Services.EngineManager(
+                                    cfg.EngineHostPort, cfg.EngineSecret ?? "");
+                                _ = VibeEngine.EnsureRunningAsync();   // fire-and-forget; health-gated
+                                System.Diagnostics.Debug.WriteLine(
+                                    $"[BINA] engine auto-spawn requested on port {cfg.EngineHostPort}");
+                            }
+                            catch (Exception engEx)
+                            {
+                                System.Diagnostics.Debug.WriteLine("[BINA] engine auto-spawn failed: " + engEx.Message);
+                            }
+                        }
                     }
                     catch (Exception mcpEx)
                     {
@@ -308,12 +350,12 @@ namespace RevitWebAppSync
                     }
                 }
 
-                if (transport == "wss" || transport == "both")
+                // Cloud WSS tunnel — never started in engine mode.
+                if ((transport == "wss" || transport == "both") && !cfg.EngineMode)
                 {
                     try
                     {
                         var flags = BinaVibe.Policy.VibeFlags.Load();
-                        var cfg = BinaConfig.Load();
                         // Send the logged-in user's BINA Cloud JWT so the backend can
                         // validate the tunnel against bina-be and bind the tenant to the
                         // verified identity. Falls back to BINA_VIBE_TOKEN / dev-token only
@@ -446,6 +488,7 @@ namespace RevitWebAppSync
             // Stop the embedded MCP server cleanly so the port is free
             // on next Revit start.
             try { VibeMcpServer?.Dispose(); } catch { }
+            try { VibeEngine?.Dispose(); } catch { }
             try { VibeMcpTunnel?.Dispose(); } catch { }
             try { VibeIndexer?.Dispose(); } catch { }
 

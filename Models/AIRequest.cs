@@ -46,6 +46,14 @@ namespace RevitWebAppSync.Models
         [JsonProperty("selectedElementIds")]
         public List<int> SelectedElementIds { get; set; }
 
+        /// <summary>Phase 2 scene digest: placement facts for the working set
+        /// so the agent SEES where things are (xyz/facing/room/host) without a
+        /// query_geometry round-trip. Each entry {id, xyz, facing, room, hostId}.
+        /// Bounded in BuildContext. Serialised as "sceneDigest" to match the
+        /// backend RevitModelContext.scene_digest field.</summary>
+        [JsonProperty("sceneDigest")]
+        public List<Dictionary<string, object>> SceneDigest { get; set; }
+
         /// <summary>Real view list (id + name + type) so the agent resolves
         /// "open Aras 01" to the exact view instead of guessing. Bounded by
         /// BuildContext to avoid dumping thousands of views.</summary>

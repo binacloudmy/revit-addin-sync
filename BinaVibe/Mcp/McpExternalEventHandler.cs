@@ -5,8 +5,10 @@
 //   - McpJobPump (primary): a permanently-subscribed Idling handler that drains
 //     and forces continuous idling via SetRaiseWithoutDelay until the queue is
 //     empty. This is what guarantees prompt execution from the modeless pane.
-//   - This ExternalEvent (Execute, below): retained for the gated inbound MCP
-//     server / tunnel, which still raises it. It one-shot drains the same queue.
+//   - This ExternalEvent (Execute, below): a one-shot drain of the same queue,
+//     retained for any caller that raises it. NOTE: McpServer no longer uses
+//     this path — it enqueues via McpJobPump.Enqueue (shared pump + watchdog);
+//     the private handler McpServer used to construct was never pump-drained.
 //
 // Job completion goes through McpJob.SetResult / SetError (idempotent, CAS-
 // guarded) so a late drain that dequeues an already-timed-out / watchdog-failed

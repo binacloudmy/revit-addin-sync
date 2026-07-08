@@ -26,6 +26,14 @@
 #ifndef PluginDir
   #define PluginDir "..\artifacts\plugin"
 #endif
+; Phase 4: the packaged Copilot Engine (bina-engine.exe + _internal). Optional
+; — define EngineDir + EngineVersion to seed it; omit to ship addin-only.
+#ifndef EngineDir
+  #define EngineDir "..\artifacts\engine"
+#endif
+#ifndef EngineVersion
+  #define EngineVersion AppVersion
+#endif
 
 [Setup]
 ; AppId is permanent — same rule as an MSI UpgradeCode, never regenerate.
@@ -56,6 +64,9 @@ Source: "{#LoaderDir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\2026"; F
 Source: "{#LoaderDir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\2027"; Flags: ignoreversion recursesubdirs
 ; Seed plugin build so the loader has something to boot before the first OTA.
 Source: "{#PluginDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\versions\{#AppVersion}"; Flags: ignoreversion recursesubdirs
+; Seed the packaged engine so EngineManager can spawn it before the first OTA.
+; Optional: only if the build published artifacts\engine (Check skips it cleanly).
+Source: "{#EngineDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\engine\{#EngineVersion}"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
 
 [InstallDelete]
 ; Stale pre-loader direct-load manifests — a second live copy breaks startup.

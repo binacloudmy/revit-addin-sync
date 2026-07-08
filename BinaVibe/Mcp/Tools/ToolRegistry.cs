@@ -38,6 +38,7 @@ namespace BinaVibe.Mcp.Tools
                 "list_worksets"                 => Inspectors.ListWorksets(doc),
                 "get_element_parameters"        => Inspectors.GetElementParameters(doc, args),
                 "find_elements_by_filter"       => Inspectors.FindElementsByFilter(doc, args),
+                "query_geometry"                => QueryGeometry.Run(doc, args),
                 "get_current_selection"         => Inspectors.GetCurrentSelection(uidoc),
                 "get_active_view"               => Inspectors.GetActiveView(doc),
                 "get_current_view_elements"     => Inspectors.GetCurrentViewElements(uidoc),

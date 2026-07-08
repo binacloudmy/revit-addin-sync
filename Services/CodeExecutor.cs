@@ -80,6 +80,25 @@ namespace RevitWebAppSync.Services
                     };
                 }
 
+                // Guard branches exit with `SetResult(...); return null;` — the
+                // early return skips the wrapper tail that hands __result back, so
+                // the stored card was silently lost ("Ran, but no result was
+                // reported" even though the snippet DID report). Recover it (and
+                // any ShowMessage output) from the instance before giving up.
+                if (result == null)
+                {
+                    var __rf = type.GetField("__result",
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    result = __rf?.GetValue(instance);
+                    if (result == null)
+                    {
+                        var __of = type.GetField("__aiOutput",
+                            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                        var __sb = __of?.GetValue(instance) as StringBuilder;
+                        if (__sb != null && __sb.Length > 0) result = __sb.ToString().TrimEnd();
+                    }
+                }
+
                 // A string return is a status message; any other object/array is structured
                 // model data — capture it as JSON so the Copilot card renders real numbers.
                 string message;

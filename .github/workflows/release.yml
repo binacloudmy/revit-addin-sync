@@ -76,7 +76,7 @@ jobs:
           $zip = "RevitWebAppSync-$v.zip"
           Compress-Archive -Path artifacts/plugin/* -DestinationPath $zip
           $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
-          @{
+          $feed = [ordered]@{
             version   = $v
             url       = "https://github.com/${{ github.repository }}/releases/download/v$v/$zip"
             sha256    = $sha
@@ -84,7 +84,16 @@ jobs:
             # Stale clients are blocked until they update (UpdateWindow gate).
             # Flip to $false for releases old builds may keep using.
             mandatory = $true
-          } | ConvertTo-Json | Set-Content version.json
+          }
+          # Phase 4: if the engine was built (bina-ai packaging/build-engine.ps1
+          # emits dist/engine-version.json + bina-engine-<v>.zip into ./engine/),
+          # merge its block so the ONE version.json carries both artifacts.
+          if (Test-Path engine/engine-version.json) {
+            $eng = (Get-Content engine/engine-version.json -Raw | ConvertFrom-Json).engine
+            $feed.engine = $eng
+            Write-Host "merged engine block: $($eng.version)"
+          }
+          $feed | ConvertTo-Json -Depth 5 | Set-Content version.json
           "zip=$zip" >> $env:GITHUB_OUTPUT
 
       - name: Build installer (Inno Setup EXE)
@@ -99,7 +108,15 @@ jobs:
           # harvest nothing and ship 32KB shells (v0.0.1-v0.0.6).
           $loaderDir = (Resolve-Path artifacts/loader).Path
           $pluginDir = (Resolve-Path artifacts/plugin).Path
-          & $iscc installer/RevitCopilot.iss /DAppVersion=$v "/DLoaderDir=$loaderDir" "/DPluginDir=$pluginDir" /Oinstaller
+          # Phase 4: seed the engine into the installer if it was built.
+          # (bina-ai packaging/build-engine.ps1 -> dist/bina-engine/ -> artifacts/engine/)
+          $engineArg = @()
+          if (Test-Path artifacts/engine) {
+            $engineDir = (Resolve-Path artifacts/engine).Path
+            $engineArg = @("/DEngineDir=$engineDir", "/DEngineVersion=$v")
+            Set-Content artifacts/engine/.complete $v
+          }
+          & $iscc installer/RevitCopilot.iss /DAppVersion=$v "/DLoaderDir=$loaderDir" "/DPluginDir=$pluginDir" @engineArg /Oinstaller
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Move-Item "installer/RevitCopilot-$v-setup.exe" .
           # Guard: a payload-less installer is tiny; the real one carries the

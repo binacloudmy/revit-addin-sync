@@ -1,14 +1,24 @@
-// McpServer — embedded HTTP listener that exposes Revit data + actions
-// to the bina-ai backend at `POST /mcp/tools/{name}`.
+// McpServer — embedded HTTP listener that exposes Revit data + actions to the
+// LOCAL BINA Copilot Engine at `POST /mcp/tools/{name}`.
 //
-// Matches the protocol the backend's `app.agents.vibe.mcp_client.call`
-// speaks: plain HTTPS POST, JSON args in body, JSON result back.
+// Engine architecture (docs/superpowers/specs/2026-07-08-copilot-engine-colocate-design.md):
+// the agent loop runs as a local process next to Revit and calls this server
+// synchronously over 127.0.0.1 — one POST per tool, the run never pauses.
 //
-// Threading:
+// Wire format:
+//   POST /mcp/tools/{name}
+//   headers: X-Bina-Secret (required, must match BinaConfig.EngineSecret),
+//            Idempotency-Key (optional, dedupes retries)
+//   body:    {"tool_call_id": "...", "args": { ... }}   (legacy bare-args tolerated)
+//   200 + tool JSON, 401 bad/missing secret, 504 on the request-wait cap.
+//
+// Threading (the earlier orphaned-queue bug is fixed here):
 //   - HttpListener runs an accept loop on a background thread.
-//   - Each request hands off to a thread-pool task that queues an
-//     McpJob and waits up to 30s for the Revit thread to fulfil it.
-//   - McpExternalEventHandler drains the queue on Revit's main thread.
+//   - Each request queues its McpJob via McpJobPump.Enqueue — the SAME queue
+//     the Idling drainer services (with SetRaiseWithoutDelay) and the same 6s
+//     modal/busy watchdog fast-fails. (The previous private McpExternalEventHandler
+//     this class constructed was never drained by the pump, so every request hung
+//     to the timeout — removed.)
 
 using System;
 using System.IO;
@@ -17,34 +27,40 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Autodesk.Revit.UI;
 
 namespace BinaVibe.Mcp
 {
     public sealed class McpServer : IDisposable
     {
         private readonly HttpListener _listener = new();
-        private readonly McpExternalEventHandler _handler;
-        private readonly ExternalEvent _externalEvent;
         private readonly CancellationTokenSource _cts = new();
-        // A cold large model's first build (Revit open + first-transaction
-        // regen) can run ~150s. A short cap reported "failed" while Revit was
-        // still drawing the element (false failure + duplicate risk), so wait
-        // generously and report the truth. Override via BINA_VIBE_JOB_MAX_WAIT.
-        private readonly TimeSpan _jobTimeout = TimeSpan.FromSeconds(
+        private readonly McpIdempotencyCache _idempotency = new();
+        private readonly string _secret;
+
+        // How long a single tool request may wait for the Revit UI thread to
+        // fulfil it. The pump's 6s idle watchdog fast-fails busy/modal cases
+        // well before this; this is the hard ceiling for a genuinely slow tool.
+        // Override via BINA_VIBE_JOB_MAX_WAIT.
+        private readonly TimeSpan _requestWait = TimeSpan.FromSeconds(
             int.TryParse(Environment.GetEnvironmentVariable("BINA_VIBE_JOB_MAX_WAIT"),
-                out var _jw) && _jw > 0 ? _jw : 600);
+                out var _jw) && _jw > 0 ? _jw : 50);
 
         public int Port { get; }
+        // Prefix stays "localhost" (NOT 127.0.0.1): on Windows a non-admin
+        // process may register a localhost HttpListener prefix without a URL
+        // ACL, but an explicit 127.0.0.1 prefix needs `netsh http add urlacl`
+        // (elevation). http.sys matches on the Host header, so the engine must
+        // dial http://localhost:{port} to match.
         public string Prefix => $"http://localhost:{Port}/";
 
-        public McpServer(int port = 8080)
+        // secret: the shared loopback secret every /mcp/tools request must
+        // present in X-Bina-Secret. Captured once here (not re-read per request)
+        // — an interim Phase-1 value; changing it requires a restart.
+        public McpServer(int port = 48820, string secret = "")
         {
             Port = port;
+            _secret = secret ?? "";
             _listener.Prefixes.Add(Prefix);
-            _handler = new McpExternalEventHandler();
-            _externalEvent = ExternalEvent.Create(_handler);
-            _handler.Event = _externalEvent;  // lets the handler re-raise for the next queued job
         }
 
         public void Start()
@@ -85,6 +101,15 @@ namespace BinaVibe.Mcp
                     return;
                 }
 
+                // Secret gate — reject before any parsing or execution.
+                var presented = ctx.Request.Headers["X-Bina-Secret"];
+                if (string.IsNullOrEmpty(_secret) ||
+                    !string.Equals(presented, _secret, StringComparison.Ordinal))
+                {
+                    await WriteJson(ctx, 401, new { error = "bad or missing X-Bina-Secret" });
+                    return;
+                }
+
                 var toolName = path.Substring("/mcp/tools/".Length);
                 if (string.IsNullOrEmpty(toolName))
                 {
@@ -105,7 +130,13 @@ namespace BinaVibe.Mcp
                 {
                     try
                     {
-                        args = JsonDocument.Parse(body).RootElement.Clone();
+                        var root = JsonDocument.Parse(body).RootElement;
+                        // Engine wire: {"tool_call_id": "...", "args": {...}}.
+                        // Legacy bare-args body (no "args" property) tolerated.
+                        args = root.ValueKind == JsonValueKind.Object &&
+                               root.TryGetProperty("args", out var a)
+                            ? a.Clone()
+                            : root.Clone();
                     }
                     catch (JsonException je)
                     {
@@ -114,14 +145,22 @@ namespace BinaVibe.Mcp
                     }
                 }
 
-                var job = new McpJob { Tool = toolName, Args = args };
-                job.TEnqueued = System.Diagnostics.Stopwatch.GetTimestamp();   // t0
-                _handler.Pending.Enqueue(job);
-                _externalEvent.Raise();
+                var idemKey = ctx.Request.Headers["Idempotency-Key"];
+                var job = new McpJob { Tool = toolName, Args = args, IdempotencyKey = idemKey ?? "" };
 
-                if (!job.Completed.Wait(_jobTimeout))
+                // Retry-safe dedup: a repeated Idempotency-Key returns the job
+                // already in flight/completed — we only await it, never enqueue
+                // a second execution (so a client retry can't double-mutate).
+                var canonical = _idempotency.GetOrAdd(idemKey, job);
+                if (ReferenceEquals(canonical, job))
+                    McpJobPump.Enqueue(job);       // new key: run it (shared pump + watchdog)
+                else
+                    job = canonical;               // duplicate: await the original
+
+                if (!job.Completed.Wait(_requestWait))
                 {
-                    await WriteJson(ctx, 504, new { error = $"tool {toolName} timed out after {_jobTimeout.TotalSeconds}s" });
+                    job.Abandoned = true;
+                    await WriteJson(ctx, 504, new { error = $"tool {toolName} timed out after {_requestWait.TotalSeconds}s" });
                     return;
                 }
 
