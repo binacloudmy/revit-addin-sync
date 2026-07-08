@@ -16,6 +16,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using Autodesk.Revit.DB;
@@ -533,6 +534,171 @@ namespace BinaVibe.Mcp.Tools
                 };
             }
             catch { tx.RollBack(); throw; }
+        }
+
+        // ─── load_family ────────────────────────────────────────────────
+        // Fetch a family from the BINA cloud library and load it into the
+        // open project. Backend enriches the call with download_url (short-
+        // lived signed URL), file_type ('rfa'|'rvt'), family_name and
+        // source_names. rvt is the container path for SYSTEM families
+        // (wall/floor types can't exist as .rfa): background-open the
+        // project, EditFamily-load the loadable families and CopyElements
+        // the system types named in source_names.
+        public static Dictionary<string, object?> LoadFamily(UIApplication app, JsonElement args)
+        {
+            var doc = app.ActiveUIDocument?.Document
+                ?? throw new InvalidOperationException("no active document");
+            var url = ArgsHelp.GetString(args, "download_url") ?? throw new ArgumentException("missing download_url");
+            var fileType = ArgsHelp.GetString(args, "file_type") ?? throw new ArgumentException("missing file_type");
+            var familyName = ArgsHelp.GetString(args, "family_name") ?? throw new ArgumentException("missing family_name");
+            var sourceNames = ArgsHelp.GetStringList(args, "source_names");
+
+            // Idempotent: already loaded → report existing types, no download.
+            var existing = FamilyTypesOf(doc, familyName);
+            if (existing.Count > 0)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["family_name"] = familyName,
+                    ["loaded_types"] = existing,
+                    ["already_loaded"] = true,
+                };
+
+            var tempDir = Path.Combine(Path.GetTempPath(), "BinaVibe", "families");
+            Directory.CreateDirectory(tempDir);
+            var safeName = string.Concat(familyName.Split(Path.GetInvalidFileNameChars()));
+            var tempPath = Path.Combine(tempDir, $"{safeName}.{fileType}");
+            using (var http = new System.Net.Http.HttpClient())
+            {
+                var bytes = http.GetByteArrayAsync(url).GetAwaiter().GetResult();
+                File.WriteAllBytes(tempPath, bytes);
+            }
+
+            try
+            {
+                return fileType == "rvt"
+                    ? LoadFromRvtContainer(app, doc, tempPath, familyName, sourceNames)
+                    : LoadFromRfa(doc, tempPath, familyName);
+            }
+            finally
+            {
+                try { File.Delete(tempPath); } catch { /* temp cleanup only */ }
+            }
+        }
+
+        private static Dictionary<string, object?> LoadFromRfa(Document doc, string path, string familyName)
+        {
+            using var tx = new Transaction(doc, "BinaVibe: load_family");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                if (!doc.LoadFamily(path, new OverwriteFamilyLoadOptions(), out var family))
+                    throw new InvalidOperationException(
+                        $"Revit rejected family file for '{familyName}' (corrupt or newer Revit version?)");
+                doc.Regenerate();
+                tx.Commit();
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["family_name"] = family.Name,
+                    ["loaded_types"] = FamilyTypesOf(doc, family.Name),
+                    ["already_loaded"] = false,
+                };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
+        private static Dictionary<string, object?> LoadFromRvtContainer(
+            UIApplication app, Document doc, string path, string familyName, List<string> sourceNames)
+        {
+            var wanted = new HashSet<string>(
+                sourceNames.Count > 0 ? sourceNames : new List<string> { familyName },
+                StringComparer.OrdinalIgnoreCase);
+
+            var sourceDoc = app.Application.OpenDocumentFile(path);
+            var famDocs = new List<Document>();
+            try
+            {
+                // Loadable families → EditFamily BEFORE the target transaction
+                // (EditFamily is illegal while any document is modifiable).
+                var systemTypeIds = new List<ElementId>();
+                foreach (var name in wanted)
+                {
+                    var fam = new FilteredElementCollector(sourceDoc).OfClass(typeof(Family))
+                        .Cast<Family>()
+                        .FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+                    if (fam != null) { famDocs.Add(sourceDoc.EditFamily(fam)); continue; }
+
+                    // Not a loadable family → treat as a system family type
+                    // (WallType / FloorType / ...) and copy the type element.
+                    var sysType = new FilteredElementCollector(sourceDoc)
+                        .WhereElementIsElementType()
+                        .Cast<ElementType>()
+                        .FirstOrDefault(t =>
+                            string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(t.FamilyName, name, StringComparison.OrdinalIgnoreCase));
+                    if (sysType != null) systemTypeIds.Add(sysType.Id);
+                }
+                if (famDocs.Count == 0 && systemTypeIds.Count == 0)
+                    throw new ArgumentException(
+                        $"none of [{string.Join(", ", wanted)}] found in library container '{Path.GetFileName(path)}'");
+
+                var loaded = new List<string>();
+                using var tx = new Transaction(doc, "BinaVibe: load_family");
+                TxGuard.StartSwallowing(tx);
+                try
+                {
+                    foreach (var famDoc in famDocs)
+                    {
+                        var family = famDoc.LoadFamily(doc, new OverwriteFamilyLoadOptions());
+                        if (family != null) loaded.AddRange(FamilyTypesOf(doc, family.Name));
+                    }
+                    if (systemTypeIds.Count > 0)
+                    {
+                        var copied = ElementTransformUtils.CopyElements(
+                            sourceDoc, systemTypeIds, doc, null, new CopyPasteOptions());
+                        loaded.AddRange(copied
+                            .Select(id => doc.GetElement(id))
+                            .OfType<ElementType>()
+                            .Select(t => $"{t.FamilyName} : {t.Name}"));
+                    }
+                    doc.Regenerate();
+                    tx.Commit();
+                }
+                catch { tx.RollBack(); throw; }
+
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["family_name"] = familyName,
+                    ["loaded_types"] = loaded,
+                    ["already_loaded"] = false,
+                };
+            }
+            finally
+            {
+                foreach (var fd in famDocs) { try { fd.Close(false); } catch { } }
+                try { sourceDoc.Close(false); } catch { }
+            }
+        }
+
+        private static List<string> FamilyTypesOf(Document doc, string familyName) =>
+            new FilteredElementCollector(doc)
+                .WhereElementIsElementType()
+                .OfClass(typeof(FamilySymbol))
+                .Cast<FamilySymbol>()
+                .Where(fs => string.Equals(fs.FamilyName, familyName, StringComparison.OrdinalIgnoreCase))
+                .Select(fs => $"{fs.FamilyName} : {fs.Name}")
+                .ToList();
+
+        private sealed class OverwriteFamilyLoadOptions : IFamilyLoadOptions
+        {
+            public bool OnFamilyFound(bool familyInUse, out bool overwriteParameterValues)
+            { overwriteParameterValues = true; return true; }
+
+            public bool OnSharedFamilyFound(Family sharedFamily, bool familyInUse,
+                out FamilySource source, out bool overwriteParameterValues)
+            { source = FamilySource.Family; overwriteParameterValues = true; return true; }
         }
 
         // ─── move_elements ──────────────────────────────────────────────
