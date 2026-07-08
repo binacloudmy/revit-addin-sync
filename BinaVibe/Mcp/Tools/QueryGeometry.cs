@@ -13,12 +13,21 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Architecture;   // Room (in_room primitive)
 
 namespace BinaVibe.Mcp.Tools
 {
     internal static class QueryGeometry
     {
-        // Tool entry: args = {"element_ids":[long,...], "aspects":[str,...]?}.
+        // Tool entry: args = {"element_ids":[long,...], "want":[str,...]?, "aspects":[str,...]?}.
+        //
+        // ``want`` is the parametric relational-primitive vocabulary (universal,
+        // no scenario logic — see docs/superpowers/specs/2026-07-09-query-geometry-
+        // relational-primitives-design.md): "nearest:<category>", "in_room",
+        // "clashes", "hosted_on", "angle_to:<target>", "distance_to:<target>".
+        // Every relation is returned as NUMBERS (distance_mm, angle_from_facing_deg)
+        // so the agent COMPARES rather than doing trig. ``aspects`` is the older
+        // param kept as an alias.
         public static Dictionary<string, object?> Run(Document doc, JsonElement args)
         {
             if (doc == null)
@@ -29,10 +38,18 @@ namespace BinaVibe.Mcp.Tools
                 foreach (var e in idArr.EnumerateArray())
                     if (e.TryGetInt64(out var v)) ids.Add(v);
 
+            var want = new List<string>();
+            if (args.TryGetProperty("want", out var wArr) && wArr.ValueKind == JsonValueKind.Array)
+                foreach (var e in wArr.EnumerateArray())
+                    if (e.ValueKind == JsonValueKind.String) want.Add(e.GetString()!);
+
             var aspects = new HashSet<string>();
             if (args.TryGetProperty("aspects", out var aArr) && aArr.ValueKind == JsonValueKind.Array)
                 foreach (var e in aArr.EnumerateArray())
                     if (e.ValueKind == JsonValueKind.String) aspects.Add(e.GetString()!);
+            // aspects -> want aliases (one-release migration)
+            if (aspects.Contains("nearest_walls")) want.Add("nearest:wall");
+            if (aspects.Contains("clashes")) want.Add("clashes");
 
             var rows = new List<object?>();
             var skipped = new List<long>();
@@ -46,8 +63,7 @@ namespace BinaVibe.Mcp.Tools
                 try
                 {
                     foreach (var kv in PlacementFacts(doc, el)) row[kv.Key] = kv.Value;
-                    if (aspects.Contains("nearest_walls")) row["nearest_walls"] = NearestWalls(doc, el);
-                    if (aspects.Contains("clashes")) row["clashes"] = Clashes(doc, el);
+                    foreach (var w in want) ApplyWant(doc, el, w, row);
                 }
                 catch (System.Exception ex)
                 {
@@ -59,6 +75,23 @@ namespace BinaVibe.Mcp.Tools
             var result = new Dictionary<string, object?> { ["ok"] = true, ["elements"] = rows };
             if (skipped.Count > 0) result["skipped_ids"] = skipped;
             return result;
+        }
+
+        // Dispatch one ``want`` primitive onto the element's result row. Unknown
+        // primitives are ignored (forward-compatible). Every relation writes
+        // NUMBERS, never a verdict.
+        private static void ApplyWant(Document doc, Element el, string want, Dictionary<string, object?> row)
+        {
+            if (want == "clashes") { row["clashes"] = Clashes(doc, el); return; }
+            if (want == "in_room") { row["in_room"] = InRoom(doc, el); return; }
+            if (want == "hosted_on") { row["hosted_on"] = HostedOn(el); return; }
+            if (want.StartsWith("nearest:"))
+            {
+                var cat = want.Substring("nearest:".Length);
+                row["nearest_" + cat] = Nearest(doc, el, cat);
+                return;
+            }
+            // angle_to:/distance_to:<target> — follow-up primitives; add here.
         }
 
         // ── Salvaged verbatim from feat/model-sight-phase-1-2 Inspectors.cs ──
@@ -92,6 +125,9 @@ namespace BinaVibe.Mcp.Tools
 
             return new Dictionary<string, object?>
             {
+                // location_known kills the axis-0,0 footgun: an unresolved position
+                // is null + location_known=false, NEVER [0,0,0] (a real coordinate).
+                ["location_known"] = pt != null,
                 ["xyz"] = pt == null ? null : new[] { pt.X, pt.Y, pt.Z },
                 ["rotation_deg"] = System.Math.Round(rotDeg, 3),
                 ["bbox"] = bb == null ? null : new[]
@@ -104,6 +140,113 @@ namespace BinaVibe.Mcp.Tools
                 ["level"] = level,
                 ["facing"] = facing == null ? null : new[] { facing.X, facing.Y },
             };
+        }
+
+        // ── Relational primitives (parametric ``want``) — universal, no scenario
+        //    logic. Each returns NUMBERS (the agent compares; C# does the trig). ──
+
+        private static readonly Dictionary<string, BuiltInCategory> _cat = new()
+        {
+            ["door"] = BuiltInCategory.OST_Doors,
+            ["window"] = BuiltInCategory.OST_Windows,
+            ["wall"] = BuiltInCategory.OST_Walls,
+            ["column"] = BuiltInCategory.OST_Columns,
+            ["room"] = BuiltInCategory.OST_Rooms,
+            ["furniture"] = BuiltInCategory.OST_Furniture,
+        };
+
+        // nearest:<category> → {id, distance_mm, angle_from_facing_deg, direction}.
+        // angle_from_facing_deg is THE field that removes LLM trig: the C# computes
+        // the angle between the element's facing and the direction to the nearest
+        // <category>; the agent just checks "is it small?".
+        private static Dictionary<string, object?>? Nearest(Document doc, Element el, string category)
+        {
+            bool exterior = category == "exterior_wall";
+            var bic = exterior ? BuiltInCategory.OST_Walls
+                     : (_cat.TryGetValue(category, out var c) ? c : BuiltInCategory.INVALID);
+            if (bic == BuiltInCategory.INVALID) return null;
+
+            var elBb = el.get_BoundingBox(null);
+            if (elBb == null) return null;
+            var self = (elBb.Min + elBb.Max) * 0.5;
+
+            Element? best = null; double bestDist = double.MaxValue; XYZ? bestPt = null;
+            foreach (var cand in new FilteredElementCollector(doc)
+                         .OfCategory(bic).WhereElementIsNotElementType())
+            {
+                if (cand.Id.Value == el.Id.Value) continue;
+                if (exterior && cand is Wall w && w.WallType?.Function != WallFunction.Exterior) continue;
+                var pt = CenterOf(cand);
+                if (pt == null) continue;
+                double d = pt.DistanceTo(self);
+                if (d < bestDist) { bestDist = d; best = cand; bestPt = pt; }
+            }
+            if (best == null || bestPt == null) return null;
+
+            var row = new Dictionary<string, object?>
+            {
+                ["id"] = best.Id.Value,
+                ["distance_mm"] = System.Math.Round(bestDist * 304.8, 0),
+                ["direction"] = new[] { System.Math.Round(bestPt.X - self.X, 3), System.Math.Round(bestPt.Y - self.Y, 3) },
+            };
+            // angle between facing (XY) and direction to the nearest — exact, in C#.
+            var facing = (el as FamilyInstance)?.FacingOrientation;
+            if (facing != null)
+            {
+                var dir = new XYZ(bestPt.X - self.X, bestPt.Y - self.Y, 0);
+                if (dir.GetLength() > 1e-6)
+                {
+                    double dot = (facing.X * dir.X + facing.Y * dir.Y) / (Norm2(facing) * dir.GetLength());
+                    dot = System.Math.Max(-1.0, System.Math.Min(1.0, dot));
+                    row["angle_from_facing_deg"] = System.Math.Round(System.Math.Acos(dot) * 180.0 / System.Math.PI, 1);
+                }
+            }
+            return row;
+        }
+
+        // in_room → {room, number, is_inside} via Revit's exact boundary test.
+        private static Dictionary<string, object?> InRoom(Document doc, Element el)
+        {
+            var pt = (el.Location as LocationPoint)?.Point;
+            if (pt == null)
+                return new Dictionary<string, object?> { ["is_inside"] = false, ["room"] = null };
+            Room? found = null;
+            foreach (var r in new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms)
+                         .WhereElementIsNotElementType().Cast<Room>())
+            {
+                if (r.Area <= 0) continue;
+                try { if (r.IsPointInRoom(pt)) { found = r; break; } } catch { }
+            }
+            return new Dictionary<string, object?>
+            {
+                ["is_inside"] = found != null,
+                ["room"] = found?.Name,
+                ["number"] = found?.Number,
+            };
+        }
+
+        private static Dictionary<string, object?> HostedOn(Element el)
+        {
+            var host = (el as FamilyInstance)?.Host;
+            return new Dictionary<string, object?>
+            {
+                ["host_id"] = host != null ? (object?)host.Id.Value : null,
+                ["host_category"] = host?.Category?.Name,
+            };
+        }
+
+        private static XYZ? CenterOf(Element e)
+        {
+            if (e.Location is LocationPoint lp) return lp.Point;
+            if (e.Location is LocationCurve lc && lc.Curve != null) return lc.Curve.Evaluate(0.5, true);
+            var bb = e.get_BoundingBox(null);
+            return bb == null ? null : (bb.Min + bb.Max) * 0.5;
+        }
+
+        private static double Norm2(XYZ v)
+        {
+            double n = System.Math.Sqrt(v.X * v.X + v.Y * v.Y);
+            return n < 1e-9 ? 1e-9 : n;
         }
 
         // Nearest walls to the element bbox: id + inward-ish plane normal (XY).
