@@ -92,6 +92,7 @@ namespace BinaVibe.Mcp.Tools
                 "hide_isolate_elements"  => Mutators.HideIsolateElements(doc, args),
                 "set_category_visibility" => Mutators.SetCategoryVisibility(doc, args),
                 "place_family_instance"  => Mutators.PlaceFamilyInstance(doc, args),
+                "load_family"            => Mutators.LoadFamily(app, args),
                 "move_elements"          => Mutators.MoveElements(doc, args),
                 "create_sheet"           => Mutators.CreateSheet(doc, args),
                 "place_view_on_sheet"    => Mutators.PlaceViewOnSheet(doc, args),

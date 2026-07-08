@@ -1287,6 +1287,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 ["color_elements"] = "Coloring elements",
                 ["hide_isolate_elements"] = "Hiding/isolating elements",
                 ["place_family_instance"] = "Placing a family",
+                ["load_family"] = "Loading a family from the library",
                 ["move_elements"] = "Moving elements",
                 ["create_sheet"] = "Creating a sheet",
                 ["place_view_on_sheet"] = "Placing the view on a sheet",
