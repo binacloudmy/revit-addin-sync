@@ -24,9 +24,19 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void FromCredits_AtLimit()
+        public void FromCredits_NearLimit_NotBlocked()
         {
-            var s = UsageState.FromCredits(false, 30, 30);
+            // ~1,000 credits left of 1,000,000 — must NOT trip the upgrade wall,
+            // and must not display 100% while credits remain.
+            var s = UsageState.FromCredits(false, 999_000, 1_000_000);
+            Assert.Equal(99, s.Pct);
+            Assert.False(s.AtLimit);
+        }
+
+        [Fact]
+        public void FromCredits_Exhausted_IsAtLimit()
+        {
+            var s = UsageState.FromCredits(false, 1_000_000, 1_000_000);
             Assert.Equal(100, s.Pct);
             Assert.True(s.AtLimit);
         }
