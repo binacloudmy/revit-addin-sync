@@ -119,6 +119,7 @@ namespace BinaVibe.Mcp.Tools
                 .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
                 ?? throw new ArgumentException($"type '{typeName}' not found in category {el.Category.Name}");
 
+            long? _changeTypeNewId = null;
             using var tx = new Transaction(doc, $"BinaVibe: change_type {typeName}");
             TxGuard.StartSwallowing(tx);
             try
@@ -128,7 +129,7 @@ namespace BinaVibe.Mcp.Tools
                 // Place a fresh instance preserving placement, then delete.
                 if (el is FamilyInstance fiX && newType is FamilySymbol symX
                     && fiX.Symbol.Family.Id != symX.Family.Id)
-                    ReplaceCrossFamily(doc, fiX, symX);
+                    _changeTypeNewId = ReplaceCrossFamily(doc, fiX, symX)?.Value;
                 else
                     el.ChangeTypeId(newType.Id);
                 tx.Commit();
@@ -138,6 +139,9 @@ namespace BinaVibe.Mcp.Tools
             return new Dictionary<string, object?>
             {
                 ["ok"] = true,
+                // new_id set only for a cross-family replace (fresh instance);
+                // null for an in-place ChangeTypeId (the id is unchanged).
+                ["new_id"] = _changeTypeNewId,
                 ["element_id"] = id,
                 ["new_type"] = typeName,
             };
@@ -151,9 +155,11 @@ namespace BinaVibe.Mcp.Tools
         // family's own vertical (matched from an existing sibling, never copied
         // from the source), then delete the source. Caller must wrap in a
         // Transaction. Returns false if the source has no usable location point.
-        private static bool ReplaceCrossFamily(Document doc, FamilyInstance src, FamilySymbol sym)
+        // Returns the NEW instance's id on success (the agent needs it for any
+        // follow-up — the src id is deleted), or null when it can't place.
+        private static ElementId? ReplaceCrossFamily(Document doc, FamilyInstance src, FamilySymbol sym)
         {
-            if (!(src.Location is LocationPoint lp)) return false;
+            if (!(src.Location is LocationPoint lp)) return null;
             if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
 
             XYZ pt = lp.Point;
@@ -191,7 +197,7 @@ namespace BinaVibe.Mcp.Tools
             }
 
             doc.Delete(src.Id);
-            return true;
+            return nw.Id;
         }
 
         private static XYZ BBoxCenter(Element e)
@@ -243,6 +249,11 @@ namespace BinaVibe.Mcp.Tools
             int facingBad = 0;
             var failures = new List<object>();
             var dbg = new List<object>();
+            // The new element ids created by this replace, in target order. The
+            // agent MUST use these for any follow-up (rotate/verify) — without
+            // them it cannot know which elements it just made (the old ids are
+            // deleted) and wastes the turn hunting for its own output.
+            var newIds = new List<object>();
 
             using var tx = new Transaction(doc, $"BinaVibe: replace_with_reference ({targetIds.Count})");
             TxGuard.StartSwallowing(tx);
@@ -305,9 +316,11 @@ namespace BinaVibe.Mcp.Tools
 
                         doc.Delete(target.Id);
                         replaced++;
+                        if (clone != null) newIds.Add(clone.Id.Value);
                         dbg.Add(new
                         {
                             target = tid,
+                            new_id = clone?.Id.Value,
                             refLoc = Fmt(refLoc), tgtLoc = Fmt(tgtLoc),
                             refCenter = Fmt(refCenter), tgtCenter = Fmt(tgtCenter),
                             shift = Fmt(shift),
@@ -327,6 +340,10 @@ namespace BinaVibe.Mcp.Tools
             {
                 ["ok"] = true,
                 ["replaced"] = replaced,
+                // The ids created by this replace — use these directly for any
+                // follow-up (rotate/verify). NEVER re-search for the swapped
+                // elements; the old ids no longer exist.
+                ["new_ids"] = newIds,
                 ["facing_ok"] = facingBad == 0,
                 ["facing_mismatches"] = facingBad,
                 ["failures"] = failures,
@@ -1101,6 +1118,10 @@ namespace BinaVibe.Mcp.Tools
 
             int swapped = 0;
             var failures = new List<object>();
+            // ids created by cross-family replaces (fresh instances). For an
+            // in-place ChangeTypeId the id is unchanged, so we echo the original.
+            // Either way the agent gets the CURRENT id to act on — no hunting.
+            var newIds = new List<object>();
 
             using var tx = new Transaction(doc, $"BinaVibe: swap_element_type ({ids.Count})");
             TxGuard.StartSwallowing(tx);
@@ -1118,12 +1139,14 @@ namespace BinaVibe.Mcp.Tools
                         if (el is FamilyInstance fiX && newType is FamilySymbol symX
                             && fiX.Symbol.Family.Id != symX.Family.Id)
                         {
-                            if (ReplaceCrossFamily(doc, fiX, symX)) swapped++;
+                            var nid = ReplaceCrossFamily(doc, fiX, symX);
+                            if (nid != null) { swapped++; newIds.Add(nid.Value); }
                             else failures.Add(new { id, error = "cross-family replace failed (no location point)" });
                             continue;
                         }
                         el.ChangeTypeId(newType.Id);
                         swapped++;
+                        newIds.Add(id);   // in-place: id unchanged
                     }
                     catch (Exception ex)
                     {
@@ -1138,6 +1161,9 @@ namespace BinaVibe.Mcp.Tools
             {
                 ["ok"] = true,
                 ["swapped"] = swapped,
+                // Current ids of the swapped elements — use these for follow-up
+                // (rotate/verify). NEVER re-search for the swapped elements.
+                ["new_ids"] = newIds,
                 ["new_type"] = newTypeName,
                 ["failures"] = failures,
             };
