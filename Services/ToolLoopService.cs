@@ -119,6 +119,15 @@ namespace RevitWebAppSync.Services
         {
             _http = http;
             _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedAIBaseUrl;
+            // The dev/local bina-ai backend is multi-tenant and requires an
+            // X-Tenant-Id header on /agents/revit-ai/* (missing it → HTTP 400
+            // "X-Tenant-Id header required"); cloud staging ignores it. Send the
+            // per-machine tenant (vibe.json, default "default") on every tool-loop
+            // call — same value the MCP tunnel already forwards.
+            var tenant = BinaVibe.Policy.VibeFlags.Load().TenantId;
+            if (_http != null && !string.IsNullOrEmpty(tenant)
+                && !_http.DefaultRequestHeaders.Contains("X-Tenant-Id"))
+                _http.DefaultRequestHeaders.Add("X-Tenant-Id", tenant);
         }
 
         /// <summary>START a tool-calling turn. Body matches the codegen AIRequest

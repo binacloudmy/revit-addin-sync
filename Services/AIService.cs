@@ -27,6 +27,18 @@ namespace RevitWebAppSync.Services
             Timeout = TimeSpan.FromSeconds(90)
         };
 
+        // The dev/local bina-ai backend is multi-tenant and requires an
+        // X-Tenant-Id header on /agents/revit-ai/* and /credits/* (missing it →
+        // HTTP 400 / a "login required" 401); cloud staging ignores it. Send the
+        // per-machine tenant (vibe.json, default "default") on every call from the
+        // shared client — same value the MCP tunnel already forwards.
+        static AIService()
+        {
+            var tenant = BinaVibe.Policy.VibeFlags.Load().TenantId;
+            if (!string.IsNullOrEmpty(tenant))
+                _httpClient.DefaultRequestHeaders.Add("X-Tenant-Id", tenant);
+        }
+
         private readonly string _baseUrl;
 
         // AI Agent backend (ngrok tunnel to Mac running bina-ai FastAPI).
