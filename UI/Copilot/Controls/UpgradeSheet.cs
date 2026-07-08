@@ -224,7 +224,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             head.Children.Add(name);
             if (p.Recommended)
             {
-                var pill = new Border { CornerRadius = new CornerRadius(20), Padding = new Thickness(9, 3, 9, 3), VerticalAlignment = VerticalAlignment.Center };
+                // Rounded-rectangle badge (mockup shape): taller band with a moderate
+                // radius that stays well below half-height, so the ends read as rounded
+                // corners — not a fully-rounded pill/ellipse.
+                var pill = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(11, 6, 11, 6), VerticalAlignment = VerticalAlignment.Center };
                 pill.SetResourceReference(Border.BackgroundProperty, "Cp.AccentGrad");
                 var pt = new TextBlock { Text = "RECOMMENDED", FontSize = 8.5, FontWeight = FontWeights.Bold };
                 pt.SetResourceReference(TextBlock.ForegroundProperty, "Cp.AccentContrast");
