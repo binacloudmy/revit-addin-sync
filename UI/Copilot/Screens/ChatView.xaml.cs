@@ -256,6 +256,42 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             tt.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(7, 0, dur) { EasingFunction = ease });
         }
 
+        // Liveness affordance pinned under a streaming reply: three pulsing dots
+        // (typing-indicator style) so a mid-word pause — backend running tools
+        // between tool-loop rounds, 10s+ — reads as "still working", not frozen.
+        // Direct BeginAnimation (not a XAML Storyboard, which crashes in a Revit
+        // dockable pane — same constraint as MsgRise/the spinner). The dots live
+        // only on the live Thinking+StreamingReply bubble; when the turn completes
+        // the message flips to a plain reply and this element is never built.
+        private static FrameworkElement StreamingDots()
+        {
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 2, 0, 8),
+                HorizontalAlignment = HorizontalAlignment.Left,
+            };
+            var fill = CopilotColors.From("#99a3b3");
+            var dur = new Duration(TimeSpan.FromMilliseconds(560));
+            for (int i = 0; i < 3; i++)
+            {
+                var dot = new System.Windows.Shapes.Ellipse
+                {
+                    Width = 5, Height = 5, Fill = fill, Opacity = 0.3,
+                    Margin = new Thickness(i == 0 ? 0 : 4, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                dot.BeginAnimation(OpacityProperty, new DoubleAnimation(0.3, 1.0, dur)
+                {
+                    AutoReverse = true,
+                    RepeatBehavior = RepeatBehavior.Forever,
+                    BeginTime = TimeSpan.FromMilliseconds(i * 180),
+                });
+                row.Children.Add(dot);
+            }
+            return row;
+        }
+
         private FrameworkElement Message(ChatMessage m)
         {
             // User bubble — shared with the History detail view.
@@ -292,6 +328,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 if (!string.IsNullOrEmpty(m.Text))
                     col.Children.Add(CopilotMessageBubble.MarkdownText(m.Text, col.MaxWidth));
+                // Pin the pulsing-dots liveness indicator below the partial prose.
+                // Still Kind=Thinking, so this only shows while the turn runs; the
+                // final reply (Kind flips off Thinking) never renders it.
+                col.Children.Add(StreamingDots());
                 aiRow.Children.Add(col);
                 return aiRow;
             }
