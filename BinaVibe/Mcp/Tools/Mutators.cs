@@ -201,6 +201,21 @@ namespace BinaVibe.Mcp.Tools
             return (e.Location as LocationPoint)?.Point ?? XYZ.Zero;
         }
 
+        // Average centre of the given elements (their location point, else bbox
+        // centre) — the sensible default pivot for "spin in place".
+        private static XYZ ElementsCenter(Document doc, IList<ElementId> ids)
+        {
+            double sx = 0, sy = 0, sz = 0; int n = 0;
+            foreach (var id in ids)
+            {
+                var e = doc.GetElement(id);
+                if (e == null) continue;
+                XYZ p = (e.Location as LocationPoint)?.Point ?? BBoxCenter(e);
+                sx += p.X; sy += p.Y; sz += p.Z; n++;
+            }
+            return n == 0 ? XYZ.Zero : new XYZ(sx / n, sy / n, sz / n);
+        }
+
         private static string Fmt(XYZ p) =>
             p == null ? "null" : $"({p.X:F2},{p.Y:F2},{p.Z:F2})";
 
@@ -225,6 +240,7 @@ namespace BinaVibe.Mcp.Tools
             XYZ refFacing = reference.FacingOrientation;
 
             int replaced = 0;
+            int facingBad = 0;
             var failures = new List<object>();
             var dbg = new List<object>();
 
@@ -242,26 +258,50 @@ namespace BinaVibe.Mcp.Tools
 
                         XYZ tgtCenter = BBoxCenter(target);
                         XYZ tgtLoc = (target.Location as LocationPoint)?.Point ?? tgtCenter;
-                        // Align by INSERTION POINT (LocationPoint), NOT bbox-centre.
-                        // The two families have different footprints, so aligning
-                        // bbox-centres leaves a constant offset (the squat pan vs
-                        // sitting WC footprint diff). Both families insert at the
-                        // same stall anchor, so insertion-point alignment is 1:1.
-                        // XY only — the clone keeps the reference's correct vertical.
-                        XYZ shift = new XYZ(tgtLoc.X - refLoc.X, tgtLoc.Y - refLoc.Y, 0);
+                        XYZ tgtFacing = target.FacingOrientation;  // capture before delete
+                        // POSITION by VISIBLE bbox-centre (rotate-then-recentre), NOT
+                        // by insertion point. A family's LocationPoint can sit ~270mm
+                        // off its visible pan, so aligning insertion points across two
+                        // different families — or rotating about that point — flings the
+                        // fixture into the wall. Instead: copy the reference, rotate it to
+                        // the target's facing about its OWN centre, then translate so its
+                        // visible centre lands exactly on the target's. XY only — the
+                        // clone keeps the reference family's correct vertical.
+                        XYZ shift = new XYZ(tgtCenter.X - refCenter.X, tgtCenter.Y - refCenter.Y, 0);
 
                         var copied = ElementTransformUtils.CopyElement(doc, reference.Id, shift);
                         doc.Regenerate();
                         var clone = copied.Count > 0 ? doc.GetElement(copied.First()) as FamilyInstance : null;
 
-                        // Flip 180° if the target faces the opposite way.
-                        if (clone != null && target.FacingOrientation.DotProduct(refFacing) < 0)
+                        bool facingOk = true;
+                        if (clone != null)
                         {
-                            XYZ c = BBoxCenter(clone);
-                            ElementTransformUtils.RotateElement(
-                                doc, clone.Id, Line.CreateBound(c, c + XYZ.BasisZ), Math.PI);
-                            doc.Regenerate();
+                            // 1. Match the TARGET's facing EXACTLY (any angle, not just a
+                            //    0/180 flip), rotating about the clone's OWN centre so it
+                            //    spins in place instead of swinging on an off-centre pivot.
+                            double ang = refFacing.AngleTo(tgtFacing);
+                            if (ang > 1e-9)
+                            {
+                                XYZ cross = refFacing.CrossProduct(tgtFacing);
+                                if (cross.Z < 0) ang = -ang;
+                                XYZ c0 = BBoxCenter(clone);
+                                ElementTransformUtils.RotateElement(
+                                    doc, clone.Id, Line.CreateBound(c0, c0 + XYZ.BasisZ), ang);
+                                doc.Regenerate();
+                            }
+                            // 2. Recentre: land the clone's visible centre on the target's
+                            //    (XY only — keep the reference family's vertical).
+                            XYZ cc = BBoxCenter(clone);
+                            XYZ delta = new XYZ(tgtCenter.X - cc.X, tgtCenter.Y - cc.Y, 0);
+                            if (delta.GetLength() > 1e-9)
+                            {
+                                ElementTransformUtils.MoveElement(doc, clone.Id, delta);
+                                doc.Regenerate();
+                            }
+                            // Verify the clone now points the way the target did.
+                            facingOk = clone.FacingOrientation.DotProduct(tgtFacing) > 0.99;
                         }
+                        if (!facingOk) facingBad++;
 
                         doc.Delete(target.Id);
                         replaced++;
@@ -271,6 +311,7 @@ namespace BinaVibe.Mcp.Tools
                             refLoc = Fmt(refLoc), tgtLoc = Fmt(tgtLoc),
                             refCenter = Fmt(refCenter), tgtCenter = Fmt(tgtCenter),
                             shift = Fmt(shift),
+                            facing_ok = facingOk,
                         });
                     }
                     catch (Exception ex)
@@ -286,6 +327,8 @@ namespace BinaVibe.Mcp.Tools
             {
                 ["ok"] = true,
                 ["replaced"] = replaced,
+                ["facing_ok"] = facingBad == 0,
+                ["facing_mismatches"] = facingBad,
                 ["failures"] = failures,
                 ["debug"] = dbg,
             };
@@ -1281,14 +1324,29 @@ namespace BinaVibe.Mcp.Tools
         {
             var ids = ArgsHelp.GetLongList(args, "element_ids");
             double angleDeg = ArgsHelp.GetDouble(args, "angle_deg") ?? throw new ArgumentException("missing angle_deg");
-            double axisX = ArgsHelp.GetDouble(args, "axis_x") ?? 0.0;
-            double axisY = ArgsHelp.GetDouble(args, "axis_y") ?? 0.0;
+            double? axisXArg = ArgsHelp.GetDouble(args, "axis_x");
+            double? axisYArg = ArgsHelp.GetDouble(args, "axis_y");
 
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = true, ["rotated"] = 0 };
 
             var elementIds = ids.Select(id => new ElementId(id)).ToList();
             double angleRad = angleDeg * Math.PI / 180.0;
+
+            // Axis: use the caller's (axis_x, axis_y) when given; otherwise spin
+            // IN PLACE about the elements' own centre — NEVER default to the
+            // project origin (0,0), which would fling them across the model.
+            double axisX, axisY;
+            if (axisXArg.HasValue || axisYArg.HasValue)
+            {
+                axisX = axisXArg ?? 0.0;
+                axisY = axisYArg ?? 0.0;
+            }
+            else
+            {
+                XYZ ctr = ElementsCenter(doc, elementIds);
+                axisX = ctr.X; axisY = ctr.Y;
+            }
 
             // Vertical axis through (axisX, axisY): two points along Z.
             var axisLine = Line.CreateBound(

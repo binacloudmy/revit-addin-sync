@@ -23,6 +23,7 @@ namespace BinaVibe.Mcp.Tools
     {
         public static Dictionary<string, object?> Invoke(UIApplication app, string tool, JsonElement args)
         {
+            McpCallLog.Write(tool, args);   // UAT: trace tool-call sequence (roundtrip proof)
             var doc = app.ActiveUIDocument?.Document;
             var uidoc = app.ActiveUIDocument;
             if (doc == null || uidoc == null)

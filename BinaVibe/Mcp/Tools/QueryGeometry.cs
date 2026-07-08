@@ -139,25 +139,73 @@ namespace BinaVibe.Mcp.Tools
             return walls;
         }
 
-        // Elements whose bbox intersects this element's bbox (excluding self).
-        // A cheap proximity/overlap signal — not a precise solids clash. Read-only.
+        // Walls / columns whose SOLID region the element penetrates — the copilot's
+        // "am I buried in a wall?" signal. For each hit we return the penetration
+        // depth and a minimal push_out vector, so the agent can nudge the element
+        // clear in ONE move_elements call and re-verify. Flush contact (< TOL) and
+        // the element's OWN host wall are excluded so a correctly-mounted fixture is
+        // never a false alarm. Read-only — NO Transaction.
+        private const double CLASH_TOL_FT = 0.082;  // ~25mm; below this is contact, not a clash
+
         private static List<object?> Clashes(Document doc, Element el)
         {
             var bb = el.get_BoundingBox(null);
             if (bb == null) return new List<object?>();
+            long hostId = (el as FamilyInstance)?.Host?.Id.Value ?? -1;
+            var elCenter = (bb.Min + bb.Max) * 0.5;
+
             var outline = new Outline(bb.Min, bb.Max);
             var filter = new BoundingBoxIntersectsFilter(outline);
-            return new FilteredElementCollector(doc)
+            var hits = new FilteredElementCollector(doc)
                 .WhereElementIsNotElementType()
                 .WherePasses(filter)
-                .Where(e => e.Id.Value != el.Id.Value && e.Category != null)
-                .Take(20)
-                .Select(e => (object?)new Dictionary<string, object?>
+                .Where(e => e.Id.Value != el.Id.Value && e.Id.Value != hostId && e.Category != null)
+                .Where(e => e.Category.Id.Value == (long)BuiltInCategory.OST_Walls
+                         || e.Category.Id.Value == (long)BuiltInCategory.OST_Columns
+                         || e.Category.Id.Value == (long)BuiltInCategory.OST_StructuralColumns)
+                .Take(20);
+
+            var result = new List<object?>();
+            foreach (var e in hits)
+            {
+                var wb = e.get_BoundingBox(null);
+                if (wb == null) continue;
+                double ox = System.Math.Min(bb.Max.X, wb.Max.X) - System.Math.Max(bb.Min.X, wb.Min.X);
+                double oy = System.Math.Min(bb.Max.Y, wb.Max.Y) - System.Math.Max(bb.Min.Y, wb.Min.Y);
+                double oz = System.Math.Min(bb.Max.Z, wb.Max.Z) - System.Math.Max(bb.Min.Z, wb.Min.Z);
+                if (ox <= 0 || oy <= 0 || oz <= 0) continue;   // no true 3D overlap
+
+                // Penetration = smaller horizontal overlap; push out along that axis,
+                // away from the wall's centre. (A deep overlap on ONE axis = buried.)
+                var wCenter = (wb.Min + wb.Max) * 0.5;
+                double pen; XYZ push;
+                if (ox <= oy)
+                {
+                    pen = ox;
+                    push = new XYZ((elCenter.X >= wCenter.X ? 1.0 : -1.0) * ox, 0, 0);
+                }
+                else
+                {
+                    pen = oy;
+                    push = new XYZ(0, (elCenter.Y >= wCenter.Y ? 1.0 : -1.0) * oy, 0);
+                }
+                if (pen < CLASH_TOL_FT) continue;   // flush contact, not a real clash
+
+                result.Add(new Dictionary<string, object?>
                 {
                     ["id"] = e.Id.Value,
                     ["category"] = e.Category?.Name,
-                })
-                .ToList();
+                    ["penetration_ft"] = System.Math.Round(pen, 3),
+                    ["penetration_mm"] = System.Math.Round(pen * 304.8, 0),
+                    ["push_out_ft"] = new[]
+                    {
+                        System.Math.Round(push.X, 3),
+                        System.Math.Round(push.Y, 3),
+                        System.Math.Round(push.Z, 3),
+                    },
+                });
+            }
+            return result;
         }
     }
 }
