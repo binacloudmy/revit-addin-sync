@@ -43,7 +43,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var root = new StackPanel();
 
             int active = 1; // Basic starts centered (design planIdx: 1)
-            var cards = new Border[Plans.Length];
+            var cards = new FrameworkElement[Plans.Length];   // card wrappers (shadow + card)
+            var shadows = new Border[Plans.Length];           // soft lift, shown only under the active card
             var ctas = new Button[Plans.Length];
             var dots = new Border[Plans.Length];
 
@@ -64,12 +65,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             for (int i = 0; i < Plans.Length; i++)
             {
-                var card = BuildCard(Plans[i], out var cta);
+                var card = BuildCard(Plans[i], out var cta, out var shadow);
                 card.HorizontalAlignment = HorizontalAlignment.Center;
                 card.VerticalAlignment = VerticalAlignment.Top;
                 card.RenderTransformOrigin = new Point(0.5, 0.5);
                 card.RenderTransform = new TransformGroup { Children = { new ScaleTransform(1, 1), new TranslateTransform(0, 0) } };
                 cards[i] = card;
+                shadows[i] = shadow;
                 ctas[i] = cta;
                 viewport.Children.Add(card);
             }
@@ -93,6 +95,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     double oTo = on ? 1.0 : (Math.Abs(delta) == 1 ? 0.45 : 0.0);
                     Panel.SetZIndex(cards[i], on ? 2 : 1);
                     cards[i].IsHitTestVisible = on;
+                    double shTo = on ? 1.0 : 0.0;   // lift only under the active card
                     if (animate)
                     {
                         var dur = new Duration(TimeSpan.FromMilliseconds(320));
@@ -102,6 +105,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         scale.BeginAnimation(ScaleTransform.ScaleXProperty, sa);
                         scale.BeginAnimation(ScaleTransform.ScaleYProperty, sa);
                         cards[i].BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(oTo, dur) { EasingFunction = ease });
+                        shadows[i]?.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(shTo, dur) { EasingFunction = ease });
                     }
                     else
                     {
@@ -110,6 +114,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                         scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
                         scale.ScaleX = scale.ScaleY = sTo;
                         cards[i].BeginAnimation(UIElement.OpacityProperty, null); cards[i].Opacity = oTo;
+                        if (shadows[i] != null) { shadows[i].BeginAnimation(UIElement.OpacityProperty, null); shadows[i].Opacity = shTo; }
                     }
                     StyleCta(ctas[i], Plans[i], on);
                     if (dots[i] != null) StyleDot(dots[i], on);
@@ -207,7 +212,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         // ── pieces ───────────────────────────────────────────────────────────
 
-        private static Border BuildCard(PlanDef p, out Button cta)
+        private static FrameworkElement BuildCard(PlanDef p, out Button cta, out Border shadow)
         {
             var body = new StackPanel();
 
@@ -219,7 +224,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             head.Children.Add(name);
             if (p.Recommended)
             {
-                var pill = new Border { CornerRadius = new CornerRadius(20), Padding = new Thickness(9, 3, 9, 3), VerticalAlignment = VerticalAlignment.Center };
+                // Rounded-rectangle badge (mockup shape): taller band with a moderate
+                // radius that stays well below half-height, so the ends read as rounded
+                // corners — not a fully-rounded pill/ellipse.
+                var pill = new Border { CornerRadius = new CornerRadius(8), Padding = new Thickness(11, 6, 11, 6), VerticalAlignment = VerticalAlignment.Center };
                 pill.SetResourceReference(Border.BackgroundProperty, "Cp.AccentGrad");
                 var pt = new TextBlock { Text = "RECOMMENDED", FontSize = 8.5, FontWeight = FontWeights.Bold };
                 pt.SetResourceReference(TextBlock.ForegroundProperty, "Cp.AccentContrast");
@@ -279,18 +287,38 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 CornerRadius = new CornerRadius(15),
                 Padding = new Thickness(15),
                 BorderThickness = new Thickness(p.Recommended ? 1.5 : 1),
-                // RenderTransform (not LayoutTransform): the peek-scale must NOT shrink
-                // the card's LAYOUT size, otherwise scaled neighbours occupy 0.9·w and
-                // the centering maths (which assume full w) drift, pushing the active
-                // card off-centre and clipping it.
-                RenderTransform = new ScaleTransform(1, 1),
-                RenderTransformOrigin = new Point(0.5, 0.5),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
                 VerticalAlignment = VerticalAlignment.Stretch,
                 Child = body,
             };
             card.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
             card.SetResourceReference(Border.BorderBrushProperty, p.Recommended ? "Cp.Accent" : "Cp.Line");
-            return card;
+
+            // Soft lift for the selected card. The shadow lives on a SIBLING border
+            // BEHIND the card (identical rounded silhouette), never on the card itself
+            // — an Effect on the text-bearing border would rasterise/blur the text
+            // (same pattern as the palette + kebab menu). The card is opaque (Cp.Bg)
+            // so it fully covers the shadow border's face; only the blur peeks out.
+            shadow = new Border
+            {
+                CornerRadius = new CornerRadius(15),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                Opacity = 0,   // Relayout raises it to 1 only for the active card
+                Effect = new System.Windows.Media.Effects.DropShadowEffect
+                {
+                    BlurRadius = 22, ShadowDepth = 5, Direction = 270, Opacity = 0.17, Color = Colors.Black,
+                },
+            };
+            shadow.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
+
+            // Wrapper carries the peek transform (applied by the caller) so shadow +
+            // card scale/translate together. Bottom margin gives the clipped viewport
+            // room for the downward shadow so it isn't sheared off.
+            var wrap = new Grid { Margin = new Thickness(0, 0, 0, 20) };
+            wrap.Children.Add(shadow);
+            wrap.Children.Add(card);
+            return wrap;
         }
 
         private static void SetCtaContent(Button cta, PlanDef p, bool arrow)
