@@ -132,30 +132,12 @@ namespace BinaVibe.Mcp.Tools
                 "create_dimensions"             => Dimensioning.CreateDimensions(app, doc, args),
 
                 // Generic OSS-compatible wrappers — dispatch to typed tools.
-                // The typed tool's arg contract applies verbatim.
-                "create_point_element"          => Invoke(app, ArgsHelp.GetString(args, "category")?.ToLowerInvariant() switch
-                                                    {
-                                                        "doors" or "ost_doors" => "place_door",
-                                                        "windows" or "ost_windows" => "place_window",
-                                                        _ => "place_family_instance",
-                                                    }, args),
-                "create_line_element"           => Invoke(app, ArgsHelp.GetString(args, "category")?.ToLowerInvariant() switch
-                                                    {
-                                                        "walls" or "ost_walls" => "create_wall",
-                                                        "structuralframing" or "ost_structuralframing" or "beams" => "create_beam",
-                                                        "pipecurves" or "ost_pipecurves" or "pipes" => "create_pipe",
-                                                        "ductcurves" or "ost_ductcurves" or "ducts" => "create_duct",
-                                                        _ => throw new InvalidOperationException(
-                                                            "create_line_element category must be Walls|StructuralFraming|PipeCurves|DuctCurves"),
-                                                    }, args),
-                "create_surface_element"        => Invoke(app, ArgsHelp.GetString(args, "category")?.ToLowerInvariant() switch
-                                                    {
-                                                        "floors" or "ost_floors" => "create_floor",
-                                                        "ceilings" or "ost_ceilings" => "create_ceiling",
-                                                        "roofs" or "ost_roofs" => "create_roof",
-                                                        _ => throw new InvalidOperationException(
-                                                            "create_surface_element category must be Floors|Ceilings|Roofs"),
-                                                    }, args),
+                // Arg names get remapped per target below (RemapArgs) since the
+                // generic contract's keys don't all match what the typed
+                // handlers read (see mapping table in RemapArgs call sites).
+                "create_point_element"          => CreatePointElement(app, args),
+                "create_line_element"           => CreateLineElement(app, args),
+                "create_surface_element"        => CreateSurfaceElement(app, args),
 
                 "store_data"                    => ScratchStore.Store(doc, args),
                 "query_data"                    => ScratchStore.Query(doc, args),
@@ -170,5 +152,80 @@ namespace BinaVibe.Mcp.Tools
                 ["error"] = $"tool {tool} not implemented yet",
                 ["status"] = "not_implemented",
             };
+
+        // ─── generic-tool arg remapping ─────────────────────────────────
+        // Rebuild an args object with generic-contract keys renamed to the
+        // target tool's native keys. Unmapped keys pass through unchanged.
+        private static JsonElement RemapArgs(JsonElement args, params (string from, string to)[] renames)
+        {
+            var dict = new Dictionary<string, JsonElement>();
+            if (args.ValueKind == JsonValueKind.Object)
+                foreach (var p in args.EnumerateObject())
+                    dict[p.Name] = p.Value.Clone();
+            foreach (var (from, to) in renames)
+                if (dict.TryGetValue(from, out var v) && !dict.ContainsKey(to))
+                {
+                    dict[to] = v;
+                    dict.Remove(from);
+                }
+            return JsonSerializer.SerializeToElement(dict);
+        }
+
+        // create_point_element: generic {category, type_name, xyz_mm, level, host_id?}
+        //   place_door / place_window (PlaceFamilyOnWall) read host_wall_id + location_mm; type_name matches already.
+        //   place_family_instance reads family_type + xyz_mm (matches) + level (matches).
+        private static Dictionary<string, object?> CreatePointElement(UIApplication app, JsonElement args)
+        {
+            var category = ArgsHelp.GetString(args, "category")?.ToLowerInvariant();
+            return category switch
+            {
+                "doors" or "ost_doors" => Invoke(app, "place_door",
+                    RemapArgs(args, ("host_id", "host_wall_id"), ("xyz_mm", "location_mm"))),
+                "windows" or "ost_windows" => Invoke(app, "place_window",
+                    RemapArgs(args, ("host_id", "host_wall_id"), ("xyz_mm", "location_mm"))),
+                _ => Invoke(app, "place_family_instance",
+                    RemapArgs(args, ("type_name", "family_type"))),
+            };
+        }
+
+        // create_line_element: generic {category, start_mm, end_mm, type_name?, level}
+        //   create_wall reads start_mm/end_mm/level/type_name — matches verbatim, no remap.
+        //   create_beam (MutatorsStructure) reads beam_type_name.
+        //   create_pipe (MutatorsMep) reads pipe_type_name.
+        //   create_duct (MutatorsMep) reads duct_type_name.
+        private static Dictionary<string, object?> CreateLineElement(UIApplication app, JsonElement args)
+        {
+            var category = ArgsHelp.GetString(args, "category")?.ToLowerInvariant();
+            return category switch
+            {
+                "walls" or "ost_walls" => Invoke(app, "create_wall", args),
+                "structuralframing" or "ost_structuralframing" or "beams" => Invoke(app, "create_beam",
+                    RemapArgs(args, ("type_name", "beam_type_name"))),
+                "pipecurves" or "ost_pipecurves" or "pipes" => Invoke(app, "create_pipe",
+                    RemapArgs(args, ("type_name", "pipe_type_name"))),
+                "ductcurves" or "ost_ductcurves" or "ducts" => Invoke(app, "create_duct",
+                    RemapArgs(args, ("type_name", "duct_type_name"))),
+                _ => throw new InvalidOperationException(
+                    "create_line_element category must be Walls|StructuralFraming|PipeCurves|DuctCurves"),
+            };
+        }
+
+        // create_surface_element: generic {category, boundary_mm, type_name?, level}
+        //   create_floor reads boundary_mm/level/type_name — matches verbatim, no remap.
+        //   create_ceiling reads boundary_mm/level/type_name — matches verbatim, no remap.
+        //   create_roof reads boundary_mm/level/roof_type_name.
+        private static Dictionary<string, object?> CreateSurfaceElement(UIApplication app, JsonElement args)
+        {
+            var category = ArgsHelp.GetString(args, "category")?.ToLowerInvariant();
+            return category switch
+            {
+                "floors" or "ost_floors" => Invoke(app, "create_floor", args),
+                "ceilings" or "ost_ceilings" => Invoke(app, "create_ceiling", args),
+                "roofs" or "ost_roofs" => Invoke(app, "create_roof",
+                    RemapArgs(args, ("type_name", "roof_type_name"))),
+                _ => throw new InvalidOperationException(
+                    "create_surface_element category must be Floors|Ceilings|Roofs"),
+            };
+        }
     }
 }
