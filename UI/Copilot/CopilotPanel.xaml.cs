@@ -88,8 +88,14 @@ namespace RevitWebAppSync.UI.Copilot
             if (!string.IsNullOrWhiteSpace(rv))
                 Model.CopilotContext.RevitVersion = "Revit " + rv;
 
-            // First name for the chat greeting; fall back to "there".
-            var user = uiApp?.Application?.Username;
+            // First name for the chat greeting. Use the BINA Cloud logged-in
+            // identity (config.UserName), NOT the Revit/Autodesk account — on
+            // shared/lab machines the two differ and showing the Revit name
+            // misrepresents who's signed in. Runs on every pane-show, so a
+            // login/logout/switch is reflected the next time the pane opens.
+            // Logged out: "there" — deliberately does not leak the Revit name.
+            var cfg = BinaConfig.Load();
+            var user = (cfg != null && cfg.IsLoggedIn()) ? cfg.UserName : null;
             _vm.UserFirstName = string.IsNullOrWhiteSpace(user) ? "there" : user.Split(' ', '.', '@')[0];
 
             var doc = uiApp?.ActiveUIDocument?.Document;
