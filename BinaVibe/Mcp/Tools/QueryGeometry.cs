@@ -129,11 +129,22 @@ namespace BinaVibe.Mcp.Tools
                 // is null + location_known=false, NEVER [0,0,0] (a real coordinate).
                 ["location_known"] = pt != null,
                 ["xyz"] = pt == null ? null : new[] { pt.X, pt.Y, pt.Z },
+                ["xyz_mm"] = pt == null ? null : new[]
+                {
+                    System.Math.Round(pt.X * 304.8, 0),
+                    System.Math.Round(pt.Y * 304.8, 0),
+                    System.Math.Round(pt.Z * 304.8, 0),
+                },
                 ["rotation_deg"] = System.Math.Round(rotDeg, 3),
                 ["bbox"] = bb == null ? null : new[]
                 {
                     new[] { bb.Min.X, bb.Min.Y, bb.Min.Z },
                     new[] { bb.Max.X, bb.Max.Y, bb.Max.Z },
+                },
+                ["bbox_mm"] = bb == null ? null : new[]
+                {
+                    new[] { System.Math.Round(bb.Min.X * 304.8, 0), System.Math.Round(bb.Min.Y * 304.8, 0), System.Math.Round(bb.Min.Z * 304.8, 0) },
+                    new[] { System.Math.Round(bb.Max.X * 304.8, 0), System.Math.Round(bb.Max.Y * 304.8, 0), System.Math.Round(bb.Max.Z * 304.8, 0) },
                 },
                 ["host_id"] = fi?.Host != null ? (object?)fi.Host.Id.Value : null,
                 ["room"] = room,
@@ -188,6 +199,11 @@ namespace BinaVibe.Mcp.Tools
                 ["id"] = best.Id.Value,
                 ["distance_mm"] = System.Math.Round(bestDist * 304.8, 0),
                 ["direction"] = new[] { System.Math.Round(bestPt.X - self.X, 3), System.Math.Round(bestPt.Y - self.Y, 3) },
+                ["direction_mm"] = new[]
+                {
+                    System.Math.Round((bestPt.X - self.X) * 304.8, 0),
+                    System.Math.Round((bestPt.Y - self.Y) * 304.8, 0),
+                },
             };
             // angle between facing (XY) and direction to the nearest — exact, in C#.
             var facing = (el as FamilyInstance)?.FacingOrientation;
@@ -277,6 +293,7 @@ namespace BinaVibe.Mcp.Tools
                     ["id"] = x.Id.Value,
                     ["normal"] = new[] { x.normal.X, x.normal.Y },
                     ["distance_ft"] = System.Math.Round(x.dist, 3),
+                    ["distance_mm"] = System.Math.Round(x.dist * 304.8, 0),
                 })
                 .ToList();
             return walls;
@@ -345,6 +362,12 @@ namespace BinaVibe.Mcp.Tools
                         System.Math.Round(push.X, 3),
                         System.Math.Round(push.Y, 3),
                         System.Math.Round(push.Z, 3),
+                    },
+                    ["push_out_mm"] = new[]
+                    {
+                        System.Math.Round(push.X * 304.8, 0),
+                        System.Math.Round(push.Y * 304.8, 0),
+                        System.Math.Round(push.Z * 304.8, 0),
                     },
                 });
             }
