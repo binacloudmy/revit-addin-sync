@@ -68,6 +68,8 @@ namespace BinaVibe.Mcp.Tools
                 "select_elements"               => Inspectors.SelectElements(uidoc, args),
                 "count_by"                      => Inspectors.CountBy(doc, args),
                 "export_schedule_to_excel"      => Inspectors.ExportScheduleToExcel(doc, args),
+                "get_project_base_point"        => Coordination.GetProjectBasePoint(doc, args),
+                "check_grid_alignment"          => Coordination.CheckGridAlignment(doc, args),
                 "isolate_elements"              => Mutators.IsolateElements(doc, args),
                 "tag_all_in_view"               => Mutators.TagAllInView(doc, args),
                 "create_schedule"               => Mutators.CreateSchedule(doc, args),
