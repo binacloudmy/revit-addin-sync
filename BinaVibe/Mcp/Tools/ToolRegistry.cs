@@ -124,6 +124,8 @@ namespace BinaVibe.Mcp.Tools
                 "apply_view_filter"             => Mutators.ApplyViewFilter(doc, args),
                 "create_floor"                  => Mutators.CreateFloor(doc, args),
                 "create_ceiling"                => Mutators.CreateCeiling(doc, args),
+                "create_beam_system"            => MutatorsStructure.CreateBeamSystem(doc, args),
+                "create_beam"                   => MutatorsStructure.CreateBeam(doc, args),
 
                 _ => NotImplemented(tool),
             };
