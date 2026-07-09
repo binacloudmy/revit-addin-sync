@@ -2001,6 +2001,63 @@ namespace BinaVibe.Mcp.Tools
             catch { tx.RollBack(); throw; }
         }
 
+        // ─── create_roof ────────────────────────────────────────────────
+        /// <summary>
+        /// args: { boundary_mm:[[x,y],...], level:string, roof_type_name?:string, offset_mm?:number }
+        /// Creates a flat (non-sloped) roof from a closed 2D boundary on a level.
+        /// Adapted from mcp-servers-for-revit (MIT) — CreateSurfaceElementEventHandler.cs
+        /// OST_Roofs case. FLAT footprint roof only: every edge DefinesSlope=false.
+        ///
+        /// Returns {ok, new_ids, roof_type, level}.
+        /// </summary>
+        public static Dictionary<string, object?> CreateRoof(Document doc, JsonElement args)
+        {
+            var boundary = ArgsHelp.GetPointListMm(args, "boundary_mm");
+            if (boundary.Count < 3)
+                throw new InvalidOperationException("boundary_mm needs at least 3 [x,y] points (closed loop, mm)");
+            var levelName = ArgsHelp.GetString(args, "level")
+                ?? throw new InvalidOperationException("level required");
+            var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException($"level '{levelName}' not found (use list_levels)");
+            var typeName = ArgsHelp.GetString(args, "roof_type_name");
+            var roofType = new FilteredElementCollector(doc)
+                .OfClass(typeof(RoofType)).OfCategory(BuiltInCategory.OST_Roofs).Cast<RoofType>()
+                .FirstOrDefault(t => typeName == null
+                    || string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException(typeName != null
+                    ? $"roof type '{typeName}' not found" : "no roof types in project");
+            var offsetFt = ArgsHelp.GetLengthMm(args, "offset_mm") ?? 0;
+
+            var curves = new CurveArray();
+            for (int i = 0; i < boundary.Count; i++)
+            {
+                var a = new XYZ(boundary[i].X, boundary[i].Y, level.Elevation);
+                var next = boundary[(i + 1) % boundary.Count];
+                var b = new XYZ(next.X, next.Y, level.Elevation);
+                if (a.DistanceTo(b) < 1e-6) continue;   // skip duplicate closing point
+                curves.Append(Line.CreateBound(a, b));
+            }
+
+            using var tx = new Transaction(doc, "BINA: create roof");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                var roof = doc.Create.NewFootPrintRoof(curves, level, roofType, out ModelCurveArray modelCurves);
+                foreach (ModelCurve mc in modelCurves)
+                    roof.set_DefinesSlope(mc, false);       // flat roof
+                if (Math.Abs(offsetFt) > 1e-9)
+                    roof.get_Parameter(BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM)?.Set(offsetFt);
+                tx.Commit();
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["new_ids"] = new List<long> { roof.Id.Value },
+                    ["roof_type"] = roofType.Name, ["level"] = level.Name,
+                };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
         // ─── create_ceiling ──────────────────────────────────────────────
         /// <summary>
         /// args: { boundary:[[x,y],...], level:string, type_name?:string }
