@@ -736,3 +736,28 @@ For a fast pre-demo check, run these eight in order:
    error-explainer card.
 
 If all eight pass, the demo path is solid.
+
+---
+
+## 18. OSS tool port — Windows smoke (feat/oss-tool-port)
+
+Build the addin, open a test model with levels + a beam family + duct/pipe types, then via the engine or pane run each and check the result in Revit. Every mutate must return new_ids and the elements must be SELECTED/visible when done.
+
+Happy path / failure case per tool:
+
+- [ ] list_phases / list_design_options / list_rvt_links / list_revisions / list_model_groups — each returns ok + plausible counts (failure: none — read-only)
+- [ ] get_sheet_viewports (a real sheet_number) / (failure: bogus sheet_number → clear error)
+- [ ] list_project_parameters / get_type_parameters (a wall type id) / (failure: bad element_id)
+- [ ] list_rooms — area_m2 matches Revit room schedule to 0.01 (failure: none)
+- [ ] filter_elements category=Walls visible_in_current_view=true / bbox query around a known wall (failure: no criteria → clear error)
+- [ ] create_beam_system 6000x8000mm bay, spacing_mm=1500 — beams appear, actual_spacing_mm ≈1500 (failure: bogus beam_type_name)
+- [ ] create_beam between two grid intersections (failure: bogus level)
+- [ ] create_duct + create_pipe 3000mm straight run (failure: no MEP types loaded → clear error)
+- [ ] create_roof over a 4-point rectangle — flat roof on level (failure: 2-point boundary)
+- [ ] create_dimensions on 3 parallel walls, direction perpendicular — dim string appears (failure: 1 element id)
+- [ ] create_dimensions in a SECTION view — expect wrong/degenerate result (known plan-view-only scope; verify the T13 docstring warns about it)
+- [ ] create_point_element category=Doors → routes to place_door (check McpCallLog shows both names)
+- [ ] create_line_element category=Walls / create_surface_element category=Floors
+- [ ] store_data key=test → query_data key=test roundtrip; second doc gets its own store
+- [ ] store_data with two UNSAVED docs open (both "Project X") — check %APPDATA%/BINA/scratch/ for hash collision (known limitation)
+- [ ] UNITS: create_wall with height_mm=3000 → wall is 3000mm; legacy height_ft=10 still works; place_family_instance with legacy x/y/z (feet) still places correctly
