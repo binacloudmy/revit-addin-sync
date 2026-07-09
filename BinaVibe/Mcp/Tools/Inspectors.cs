@@ -1293,5 +1293,35 @@ namespace BinaVibe.Mcp.Tools
                 ["parameters"] = parameters, ["count"] = parameters.Count,
             };
         }
+
+        // ─── list_rooms ─────────────────────────────────────────────────
+        // adapted from mcp-servers-for-revit (MIT) — ExportRoomDataEventHandler.cs
+        // Their core returns feet-based Area/Volume/Perimeter; we convert to
+        // metric at the boundary per the mm-first units policy.
+        public static Dictionary<string, object?> ListRooms(Document doc, JsonElement args)
+        {
+            const double Ft2ToM2 = 0.09290304;
+            const double Ft3ToM3 = 0.028316846592;
+            const double FtToM = 0.3048;
+            var levelFilter = ArgsHelp.GetString(args, "level");
+            var rooms = new FilteredElementCollector(doc)
+                .OfCategory(BuiltInCategory.OST_Rooms)
+                .WhereElementIsNotElementType()
+                .Cast<Autodesk.Revit.DB.Architecture.Room>()
+                .Where(r => levelFilter == null ||
+                            string.Equals(r.Level?.Name, levelFilter, StringComparison.OrdinalIgnoreCase))
+                .Select(r => new Dictionary<string, object?>
+                {
+                    ["id"] = r.Id.Value,
+                    ["number"] = r.Number,
+                    ["name"] = r.Name,
+                    ["level"] = r.Level?.Name ?? "",
+                    ["area_m2"] = Math.Round(r.Area * Ft2ToM2, 2),
+                    ["perimeter_m"] = Math.Round(r.Perimeter * FtToM, 2),
+                    ["volume_m3"] = Math.Round(r.Volume * Ft3ToM3, 2),
+                    ["placed"] = r.Area > 0,   // unplaced/unenclosed rooms report zero area
+                }).ToList<object>();
+            return new Dictionary<string, object?> { ["ok"] = true, ["rooms"] = rooms, ["count"] = rooms.Count };
+        }
     }
 }

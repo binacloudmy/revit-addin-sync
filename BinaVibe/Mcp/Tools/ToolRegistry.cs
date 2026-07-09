@@ -61,6 +61,7 @@ namespace BinaVibe.Mcp.Tools
                 "get_sheet_viewports"           => Inspectors.GetSheetViewports(doc, args),
                 "list_project_parameters"       => Inspectors.ListProjectParameters(doc),
                 "get_type_parameters"           => Inspectors.GetTypeParameters(doc, args),
+                "list_rooms"                    => Inspectors.ListRooms(doc, args),
                 "open_view"                     => Inspectors.OpenView(uidoc, args),
                 "select_elements"               => Inspectors.SelectElements(uidoc, args),
                 "count_by"                      => Inspectors.CountBy(doc, args),
