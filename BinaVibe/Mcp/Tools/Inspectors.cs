@@ -663,15 +663,24 @@ namespace BinaVibe.Mcp.Tools
             var p = el.LookupParameter(paramName);
             if (p == null) return false;
 
-            var raw = SafeParamValue(p);
-            var rawStr = raw?.ToString() ?? "";
+            // Display-form string for string ops (contains/equals). For Double
+            // params AsValueString is the project-units rendering ("3.000 m");
+            // SafeParamValue would stringify the rich dict — never use it here.
+            var rawStr = p.StorageType == StorageType.Double
+                ? (p.AsValueString() ?? "")
+                : (SafeParamValue(p)?.ToString() ?? "");
 
             // Try numeric comparison first when both sides coerce.
             if (double.TryParse(wantStr, System.Globalization.NumberStyles.Any,
                     System.Globalization.CultureInfo.InvariantCulture, out var wantNum))
             {
                 double? actualNum = null;
-                if (p.StorageType == StorageType.Double) actualNum = p.AsDouble();
+                if (p.StorageType == StorageType.Double)
+                    // Compare in PROJECT DISPLAY UNITS: the drafter/model says
+                    // "< 3.0" meaning metres (what Revit shows), not internal
+                    // feet. This was the 2026-07 UAT wrong-answer bug: 2.6m
+                    // rooms arrived as 8.53 (ft) and passed "< 3.0" = false.
+                    actualNum = ParamUnits.ToDisplay(doc, p, p.AsDouble());
                 else if (p.StorageType == StorageType.Integer) actualNum = (double)p.AsInteger();
                 else if (double.TryParse(rawStr, System.Globalization.NumberStyles.Any,
                              System.Globalization.CultureInfo.InvariantCulture, out var parsed))
