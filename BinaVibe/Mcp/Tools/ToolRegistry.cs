@@ -6,9 +6,8 @@
 // bool / list / dict). No FamilyInstance or ElementId objects in
 // results — convert to int + name first.
 //
-// **Step-1 scope:** all 10 INSPECT tools wired. MUTATE tools return
-// {"error": "not implemented"} so the bina-ai Executor surfaces a
-// clean failure. Step 3 lights them up.
+// All INSPECT and MUTATE tools are wired live below; unknown names fall to
+// NotImplemented (a {"status":"not_implemented"} envelope, not an exception).
 
 using System;
 using System.Collections.Generic;
@@ -63,6 +62,15 @@ namespace BinaVibe.Mcp.Tools
                 "create_3d_view"                => Mutators.Create3dView(uidoc, args),
                 "set_section_box"               => Mutators.SetSectionBox(doc, args),
                 "find_missing_parameter"        => Inspectors.FindMissingParameter(doc, args),
+                "list_rooms"                    => Inspectors.ListRooms(doc),
+                "list_phases"                   => Inspectors.ListPhases(doc),
+                "list_design_options"           => Inspectors.ListDesignOptions(doc),
+                "list_rvt_links"                => Inspectors.ListRvtLinks(doc),
+                "list_revisions"                => Inspectors.ListRevisions(doc),
+                "list_model_groups"             => Inspectors.ListModelGroups(doc),
+                "get_sheet_viewports"           => Inspectors.GetSheetViewports(doc, args),
+                "list_project_parameters"       => Inspectors.ListProjectParameters(doc),
+                "get_type_parameters"           => Inspectors.GetTypeParameters(doc, args),
                 "rename_elements"               => Mutators.RenameElements(doc, args),
                 "color_by_parameter"            => Mutators.ColorByParameter(doc, args),
                 "delete_unused_views"           => Mutators.DeleteUnusedViews(doc, args),

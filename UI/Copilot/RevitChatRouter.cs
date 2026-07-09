@@ -605,13 +605,12 @@ namespace RevitWebAppSync.UI.Copilot
 
         private ModelContext BuildContext(string prompt = "")
         {
-            var ctx = new ModelContext
-            {
-                Levels = new List<string>(),
-                Categories = new List<string> { "Walls", "Doors", "Windows", "Floors", "Roofs", "Ceilings", "Rooms", "Furniture", "Columns" },
-                Phases = new List<string>(),
-                SelectedElementIds = new List<int>(),
-            };
+            // The agent reads the live model on demand via INSPECT tools, so the
+            // backend no longer needs a per-turn model snapshot. We send only
+            // revit_version (the backend version-pins its API-reference grounding
+            // on it). ProjectId is still populated for the separate snapshot
+            // indexer namespace (unrelated to the old additional_context block).
+            var ctx = new ModelContext();
 
             // Set the project id that matches the snapshot namespace the
             // DocumentChangedIndexer uses for /revit-copilot/snapshot/{tenant}/{project}.
@@ -633,26 +632,6 @@ namespace RevitWebAppSync.UI.Copilot
 
                 ctx.ProjectName = doc.Title;
                 ctx.RevitVersion = uidoc.Application.Application.VersionNumber;
-                ctx.Levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
-                    .OrderBy(l => l.Elevation).Select(l => l.Name).ToList();
-                var view = doc.ActiveView;
-                if (view != null) { ctx.ActiveViewName = view.Name; ctx.ActiveViewType = view.ViewType.ToString(); }
-                ctx.SelectedElementIds = uidoc.Selection.GetElementIds().Select(id => (int)id.Value).ToList();
-                ctx.Phases = new FilteredElementCollector(doc).OfClass(typeof(Phase)).Cast<Phase>().Select(p => p.Name).ToList();
-
-                // Real view list (id+name+type) — lets the agent resolve
-                // "open Aras 01" to the exact view instead of guessing. Bounded.
-                var __allViews = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
-                    .Where(v => !v.IsTemplate)
-                    .Select(v => new ViewInfo
-                    {
-                        Id = (int)v.Id.Value,
-                        Name = v.Name,
-                        ViewType = v.ViewType.ToString(),
-                        OwnerView = (v as ViewPlan)?.GenLevel?.Name ?? "",
-                    })
-                    .ToList();
-                ctx.Views = BoundViews(__allViews, prompt);
             }
             catch { /* best-effort context */ }
             return ctx;

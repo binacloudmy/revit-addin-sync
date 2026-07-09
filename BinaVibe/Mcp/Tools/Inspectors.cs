@@ -1083,5 +1083,260 @@ namespace BinaVibe.Mcp.Tools
             }
             return null;
         }
+
+        // ─── list_rooms ─────────────────────────────────────────────────
+        // Placed rooms with number/name/level and metric area/perimeter/volume.
+        public static Dictionary<string, object?> ListRooms(Document doc)
+        {
+            const double ft2ToM2 = 0.09290304;
+            const double ftToM = 0.3048;
+            const double ft3ToM3 = 0.0283168;
+            var rooms = new FilteredElementCollector(doc)
+                .OfCategory(BuiltInCategory.OST_Rooms)
+                .WhereElementIsNotElementType()
+                .Cast<Autodesk.Revit.DB.Architecture.Room>()
+                .Select(r => (object)new Dictionary<string, object?>
+                {
+                    ["id"] = r.Id.Value,
+                    ["number"] = r.Number,
+                    ["name"] = r.Name,
+                    ["level"] = r.Level?.Name,
+                    ["placed"] = r.Location != null && r.Area > 0,
+                    ["area_m2"] = Math.Round(r.Area * ft2ToM2, 3),
+                    ["perimeter_m"] = Math.Round(r.Perimeter * ftToM, 3),
+                    ["volume_m3"] = Math.Round(r.Volume * ft3ToM3, 3),
+                })
+                .ToList<object>();
+            return new Dictionary<string, object?> { ["ok"] = true, ["rooms"] = rooms, ["count"] = rooms.Count };
+        }
+
+        // ─── list_phases ────────────────────────────────────────────────
+        public static Dictionary<string, object?> ListPhases(Document doc)
+        {
+            var phases = new List<object>();
+            int seq = 0;
+            foreach (Phase ph in doc.Phases)
+            {
+                phases.Add(new Dictionary<string, object?>
+                {
+                    ["id"] = ph.Id.Value,
+                    ["name"] = ph.Name,
+                    ["sequence"] = seq++,
+                });
+            }
+            return new Dictionary<string, object?> { ["ok"] = true, ["phases"] = phases };
+        }
+
+        // ─── list_design_options ────────────────────────────────────────
+        public static Dictionary<string, object?> ListDesignOptions(Document doc)
+        {
+            var options = new FilteredElementCollector(doc)
+                .OfClass(typeof(DesignOption)).Cast<DesignOption>()
+                .Select(o =>
+                {
+                    // The option set is a plain Element; resolve its name via the
+                    // OPTION_SET_ID param (DesignOptionSet is not public API).
+                    string? setName = null;
+                    var p = o.get_Parameter(BuiltInParameter.OPTION_SET_ID);
+                    if (p != null)
+                    {
+                        var setId = p.AsElementId();
+                        if (setId != null && setId.Value != ElementId.InvalidElementId.Value)
+                            setName = doc.GetElement(setId)?.Name;
+                    }
+                    return (object)new Dictionary<string, object?>
+                    {
+                        ["id"] = o.Id.Value,
+                        ["name"] = o.Name,
+                        ["is_primary"] = o.IsPrimary,
+                        ["option_set"] = setName,
+                    };
+                })
+                .ToList<object>();
+            return new Dictionary<string, object?> { ["ok"] = true, ["design_options"] = options };
+        }
+
+        // ─── list_rvt_links ─────────────────────────────────────────────
+        public static Dictionary<string, object?> ListRvtLinks(Document doc)
+        {
+            var links = new List<object>();
+            foreach (var inst in new FilteredElementCollector(doc)
+                .OfClass(typeof(RevitLinkInstance)).Cast<RevitLinkInstance>())
+            {
+                string? path = null;
+                string? status = null;
+                try
+                {
+                    var lt = doc.GetElement(inst.GetTypeId()) as RevitLinkType;
+                    if (lt != null)
+                    {
+                        status = lt.GetLinkedFileStatus().ToString();
+                        var extRef = lt.GetExternalFileReference();
+                        if (extRef != null)
+                            path = ModelPathUtils.ConvertModelPathToUserVisiblePath(extRef.GetAbsolutePath());
+                    }
+                }
+                catch { /* best-effort link metadata */ }
+                links.Add(new Dictionary<string, object?>
+                {
+                    ["id"] = inst.Id.Value,
+                    ["name"] = inst.Name,
+                    ["status"] = status,
+                    ["path"] = path,
+                });
+            }
+            return new Dictionary<string, object?> { ["ok"] = true, ["links"] = links };
+        }
+
+        // ─── list_revisions ─────────────────────────────────────────────
+        public static Dictionary<string, object?> ListRevisions(Document doc)
+        {
+            var revs = new FilteredElementCollector(doc)
+                .OfCategory(BuiltInCategory.OST_Revisions)
+                .WhereElementIsNotElementType()
+                .Cast<Revision>()
+                .Select(r => (object)new Dictionary<string, object?>
+                {
+                    ["id"] = r.Id.Value,
+                    ["sequence"] = r.SequenceNumber,
+                    ["date"] = r.RevisionDate,
+                    ["description"] = r.Description,
+                    ["issued"] = r.Issued,
+                })
+                .ToList<object>();
+            return new Dictionary<string, object?> { ["ok"] = true, ["revisions"] = revs };
+        }
+
+        // ─── list_model_groups ──────────────────────────────────────────
+        public static Dictionary<string, object?> ListModelGroups(Document doc)
+        {
+            var groups = new List<object>();
+            foreach (var gt in new FilteredElementCollector(doc)
+                .OfClass(typeof(GroupType)).Cast<GroupType>())
+            {
+                // Skip detail groups — model groups only.
+                if (gt.Category != null && gt.Category.Id.Value != (long)(int)BuiltInCategory.OST_IOSModelGroups)
+                    continue;
+                int members = 0;
+                var instances = gt.Groups;
+                if (instances != null)
+                {
+                    foreach (Group g in instances) { members = g.GetMemberIds().Count; break; }
+                }
+                groups.Add(new Dictionary<string, object?>
+                {
+                    ["id"] = gt.Id.Value,
+                    ["name"] = gt.Name,
+                    ["instances"] = instances?.Size ?? 0,
+                    ["members"] = members,
+                });
+            }
+            return new Dictionary<string, object?> { ["ok"] = true, ["model_groups"] = groups };
+        }
+
+        // ─── get_sheet_viewports ────────────────────────────────────────
+        // args: { sheet_id?: long, sheet_number?: string }. Omit both for all
+        // sheets. Maps each sheet to the views placed on it.
+        public static Dictionary<string, object?> GetSheetViewports(Document doc, JsonElement args)
+        {
+            long sheetId = TryGetLong(args, "sheet_id") ?? 0;
+            string? sheetNumber = TryGetString(args, "sheet_number");
+            IEnumerable<ViewSheet> sheets = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewSheet)).Cast<ViewSheet>();
+            if (sheetId != 0)
+                sheets = sheets.Where(s => s.Id.Value == sheetId);
+            else if (!string.IsNullOrWhiteSpace(sheetNumber))
+                sheets = sheets.Where(s => string.Equals(s.SheetNumber, sheetNumber, StringComparison.OrdinalIgnoreCase));
+
+            var result = new List<object>();
+            foreach (var sheet in sheets)
+            {
+                var placed = new List<object>();
+                foreach (var vpId in sheet.GetAllViewports())
+                {
+                    if (!(doc.GetElement(vpId) is Viewport vp)) continue;
+                    var v = doc.GetElement(vp.ViewId) as View;
+                    placed.Add(new Dictionary<string, object?>
+                    {
+                        ["viewport_id"] = vp.Id.Value,
+                        ["view_id"] = vp.ViewId.Value,
+                        ["view_name"] = v?.Name,
+                        ["view_type"] = v?.ViewType.ToString(),
+                    });
+                }
+                result.Add(new Dictionary<string, object?>
+                {
+                    ["sheet_id"] = sheet.Id.Value,
+                    ["number"] = sheet.SheetNumber,
+                    ["name"] = sheet.Name,
+                    ["views"] = placed,
+                });
+            }
+            return new Dictionary<string, object?> { ["ok"] = true, ["sheets"] = result };
+        }
+
+        // ─── list_project_parameters ────────────────────────────────────
+        // Project/shared parameter bindings: name, instance-vs-type, bound
+        // categories, and data type.
+        public static Dictionary<string, object?> ListProjectParameters(Document doc)
+        {
+            var result = new List<object>();
+            var it = doc.ParameterBindings.ForwardIterator();
+            it.Reset();
+            while (it.MoveNext())
+            {
+                var def = it.Key as Definition;
+                var binding = it.Current as ElementBinding;
+                if (def == null) continue;
+                var cats = new List<string>();
+                if (binding?.Categories != null)
+                    foreach (Category c in binding.Categories) cats.Add(c.Name);
+                string? dataType = null;
+                try { dataType = def.GetDataType()?.TypeId; } catch { /* older API / unspecified */ }
+                result.Add(new Dictionary<string, object?>
+                {
+                    ["name"] = def.Name,
+                    ["binding"] = binding is InstanceBinding ? "instance"
+                        : (binding is TypeBinding ? "type" : "unknown"),
+                    ["categories"] = cats,
+                    ["data_type"] = dataType,
+                });
+            }
+            return new Dictionary<string, object?> { ["ok"] = true, ["project_parameters"] = result };
+        }
+
+        // ─── get_type_parameters ────────────────────────────────────────
+        // Type-level parameter definitions + values for an element (or type) id.
+        public static Dictionary<string, object?> GetTypeParameters(Document doc, JsonElement args)
+        {
+            long id = TryGetLong(args, "element_id") ?? 0;
+            if (id == 0) throw new System.ArgumentException("missing element_id");
+            var el = doc.GetElement(new ElementId(id));
+            if (el == null) throw new System.ArgumentException($"element {id} not found");
+
+            var typeEl = el as ElementType;
+            if (typeEl == null)
+            {
+                var tid = el.GetTypeId();
+                typeEl = (tid.Value != ElementId.InvalidElementId.Value ? doc.GetElement(tid) : null) as ElementType;
+            }
+            if (typeEl == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"element {id} has no type" };
+
+            var paramMap = new Dictionary<string, object?>();
+            foreach (Parameter p in typeEl.Parameters)
+            {
+                if (p?.Definition == null) continue;
+                paramMap[p.Definition.Name] = SafeParamValue(p);
+            }
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["type_id"] = typeEl.Id.Value,
+                ["type_name"] = typeEl.Name,
+                ["family_name"] = typeEl.FamilyName,
+                ["parameters"] = paramMap,
+            };
+        }
     }
 }
