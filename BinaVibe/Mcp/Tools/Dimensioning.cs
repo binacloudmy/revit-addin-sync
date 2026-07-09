@@ -6,7 +6,6 @@
 // FindReferenceAtPoint mode and AIResult envelope.
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -18,11 +17,7 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> CreateDimensions(UIApplication app, Document doc, JsonElement args)
         {
             var uidoc = app.ActiveUIDocument;
-            var idsEl = args.TryGetProperty("element_ids", out var v) && v.ValueKind == JsonValueKind.Array
-                ? v : throw new InvalidOperationException("element_ids required (2+ element ids)");
-            var ids = new List<long>();
-            foreach (var item in idsEl.EnumerateArray())
-                if (item.TryGetInt64(out var n)) ids.Add(n);
+            var ids = ArgsHelp.GetLongList(args, "element_ids");
             if (ids.Count < 2)
                 throw new InvalidOperationException("element_ids needs at least 2 ids to dimension between");
 
@@ -71,7 +66,7 @@ namespace BinaVibe.Mcp.Tools
             else
             {
                 var bb = firstElement!.get_BoundingBox(view)
-                    ?? throw new InvalidOperationException("cannot locate first element in view");
+                    ?? throw new InvalidOperationException($"cannot locate first element {ids[0]} in view '{view.Name}'");
                 var perpendicular = new XYZ(-direction.Y, direction.X, 0);
                 linePoint = (bb.Min + bb.Max) / 2 + perpendicular * (1000.0 / 304.8);
             }
