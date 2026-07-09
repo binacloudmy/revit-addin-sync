@@ -1088,8 +1088,12 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> ListPhases(Document doc)
         {
             var phases = new List<object>();
+            int i = 0;
             foreach (Phase p in doc.Phases)
-                phases.Add(new Dictionary<string, object?> { ["id"] = p.Id.Value, ["name"] = p.Name });
+            {
+                phases.Add(new Dictionary<string, object?> { ["id"] = p.Id.Value, ["name"] = p.Name, ["sequence"] = i });
+                i++;
+            }
             return new Dictionary<string, object?> { ["ok"] = true, ["phases"] = phases, ["count"] = phases.Count };
         }
 
@@ -1098,11 +1102,19 @@ namespace BinaVibe.Mcp.Tools
         {
             var options = new FilteredElementCollector(doc)
                 .OfClass(typeof(DesignOption)).Cast<DesignOption>()
-                .Select(o => new Dictionary<string, object?>
+                .Select(o =>
                 {
-                    ["id"] = o.Id.Value,
-                    ["name"] = o.Name,
-                    ["is_primary"] = o.IsPrimary,
+                    var optionSetId = o.get_Parameter(BuiltInParameter.OPTION_SET_ID)?.AsElementId();
+                    var optionSet = (optionSetId != null && optionSetId != ElementId.InvalidElementId)
+                        ? doc.GetElement(optionSetId)?.Name ?? ""
+                        : "";
+                    return new Dictionary<string, object?>
+                    {
+                        ["id"] = o.Id.Value,
+                        ["name"] = o.Name,
+                        ["is_primary"] = o.IsPrimary,
+                        ["option_set"] = optionSet,
+                    };
                 }).ToList<object>();
             return new Dictionary<string, object?> { ["ok"] = true, ["design_options"] = options, ["count"] = options.Count };
         }
@@ -1146,50 +1158,74 @@ namespace BinaVibe.Mcp.Tools
         // ─── list_model_groups ──────────────────────────────────────────
         public static Dictionary<string, object?> ListModelGroups(Document doc)
         {
-            var groups = new FilteredElementCollector(doc)
+            var modelGroups = new FilteredElementCollector(doc)
                 .OfClass(typeof(Group)).Cast<Group>()
                 .Where(g => g.Category != null && g.Category.Id.Value == (long)BuiltInCategory.OST_IOSModelGroups)
                 .GroupBy(g => g.GroupType?.Name ?? g.Name)
                 .Select(grp => new Dictionary<string, object?>
                 {
-                    ["type_name"] = grp.Key,
+                    ["name"] = grp.Key,
                     ["instances"] = grp.Count(),
-                    ["ids"] = grp.Select(g => g.Id.Value).ToList(),
+                    ["instance_details"] = grp.Select(g => new Dictionary<string, object?>
+                    {
+                        ["id"] = g.Id.Value,
+                        ["members"] = g.GetMemberIds().Count,
+                    }).ToList<object>(),
                 }).ToList<object>();
-            return new Dictionary<string, object?> { ["ok"] = true, ["groups"] = groups, ["count"] = groups.Count };
+            return new Dictionary<string, object?> { ["ok"] = true, ["model_groups"] = modelGroups, ["count"] = modelGroups.Count };
         }
 
         // ─── get_sheet_viewports ────────────────────────────────────────
-        // args: sheet_id (long) OR sheet_number (string) — at least one.
+        // args: sheet_id (long) OR sheet_number (string) — scopes to one sheet.
+        // Omit both to return every sheet in the project.
         public static Dictionary<string, object?> GetSheetViewports(Document doc, JsonElement args)
         {
-            ViewSheet? sheet = null;
             var sheetId = ArgsHelp.GetLong(args, "sheet_id");
             var sheetNumber = ArgsHelp.GetString(args, "sheet_number");
+            List<ViewSheet> sheets;
             if (sheetId.HasValue)
-                sheet = doc.GetElement(new ElementId(sheetId.Value)) as ViewSheet;
-            else if (!string.IsNullOrEmpty(sheetNumber))
-                sheet = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet))
-                    .Cast<ViewSheet>().FirstOrDefault(s => s.SheetNumber == sheetNumber);
-            if (sheet == null)
-                throw new InvalidOperationException("sheet not found — pass sheet_id or sheet_number (use list_sheets)");
-            var viewports = sheet.GetAllViewports().Select(vpId =>
             {
-                var vp = (Viewport)doc.GetElement(vpId);
-                var view = doc.GetElement(vp.ViewId) as View;
-                var center = vp.GetBoxCenter();
-                return new Dictionary<string, object?>
+                var sheet = doc.GetElement(new ElementId(sheetId.Value)) as ViewSheet;
+                if (sheet == null)
+                    throw new InvalidOperationException($"sheet {sheetId.Value} not found — use list_sheets");
+                sheets = new List<ViewSheet> { sheet };
+            }
+            else if (!string.IsNullOrEmpty(sheetNumber))
+            {
+                var sheet = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet))
+                    .Cast<ViewSheet>().FirstOrDefault(s => s.SheetNumber == sheetNumber);
+                if (sheet == null)
+                    throw new InvalidOperationException($"sheet '{sheetNumber}' not found — use list_sheets");
+                sheets = new List<ViewSheet> { sheet };
+            }
+            else
+            {
+                sheets = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>().ToList();
+            }
+
+            var sheetResults = sheets.Select(sheet => new Dictionary<string, object?>
+            {
+                ["sheet_number"] = sheet.SheetNumber,
+                ["sheet_name"] = sheet.Name,
+                ["viewports"] = sheet.GetAllViewports().Select(vpId =>
                 {
-                    ["viewport_id"] = vp.Id.Value,
-                    ["view_id"] = vp.ViewId.Value,
-                    ["view_name"] = view?.Name ?? "",
-                    ["center_mm"] = new[] { center.X * 304.8, center.Y * 304.8 },
-                };
+                    var vp = (Viewport)doc.GetElement(vpId);
+                    var view = doc.GetElement(vp.ViewId) as View;
+                    var center = vp.GetBoxCenter();
+                    return new Dictionary<string, object?>
+                    {
+                        ["viewport_id"] = vp.Id.Value,
+                        ["view_id"] = vp.ViewId.Value,
+                        ["view_name"] = view?.Name ?? "",
+                        ["view_type"] = view?.ViewType.ToString() ?? "",
+                        ["center_mm"] = new[] { center.X * 304.8, center.Y * 304.8 },
+                    };
+                }).ToList<object>(),
             }).ToList<object>();
+
             return new Dictionary<string, object?>
             {
-                ["ok"] = true, ["sheet_number"] = sheet.SheetNumber, ["sheet_name"] = sheet.Name,
-                ["viewports"] = viewports, ["count"] = viewports.Count,
+                ["ok"] = true, ["sheets"] = sheetResults, ["count"] = sheetResults.Count,
             };
         }
 
@@ -1211,9 +1247,10 @@ namespace BinaVibe.Mcp.Tools
                     ["name"] = def.Name,
                     ["is_instance"] = binding is InstanceBinding,
                     ["categories"] = cats,
+                    ["data_type"] = def.GetDataType()?.TypeId ?? "",
                 });
             }
-            return new Dictionary<string, object?> { ["ok"] = true, ["parameters"] = result, ["count"] = result.Count };
+            return new Dictionary<string, object?> { ["ok"] = true, ["project_parameters"] = result, ["count"] = result.Count };
         }
 
         // ─── get_type_parameters ────────────────────────────────────────
@@ -1252,6 +1289,7 @@ namespace BinaVibe.Mcp.Tools
             return new Dictionary<string, object?>
             {
                 ["ok"] = true, ["type_id"] = typeEl.Id.Value, ["type_name"] = typeEl.Name,
+                ["family_name"] = (typeEl as ElementType)?.FamilyName ?? "",
                 ["parameters"] = parameters, ["count"] = parameters.Count,
             };
         }
