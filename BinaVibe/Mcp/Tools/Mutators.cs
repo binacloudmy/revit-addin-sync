@@ -1411,9 +1411,9 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> CopyElements(Document doc, JsonElement args)
         {
             var ids = ArgsHelp.GetLongList(args, "element_ids");
-            double dx = ArgsHelp.GetDouble(args, "dx") ?? throw new ArgumentException("missing dx");
-            double dy = ArgsHelp.GetDouble(args, "dy") ?? throw new ArgumentException("missing dy");
-            double dz = ArgsHelp.GetDouble(args, "dz") ?? throw new ArgumentException("missing dz");
+            double dx = ArgsHelp.GetLengthMm(args, "dx_mm", "dx") ?? throw new ArgumentException("missing dx");
+            double dy = ArgsHelp.GetLengthMm(args, "dy_mm", "dy") ?? throw new ArgumentException("missing dy");
+            double dz = ArgsHelp.GetLengthMm(args, "dz_mm", "dz") ?? throw new ArgumentException("missing dz");
 
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = true, ["created_ids"] = new List<object>() };
