@@ -781,14 +781,15 @@ namespace BinaVibe.Mcp.Tools
         // model never has to guess units (the 2026-07 UAT wrong-answer class).
         private static Dictionary<string, object?> RichDouble(Parameter p)
         {
+            var raw = p.AsDouble();
             var d = new Dictionary<string, object?>
             {
-                ["value"] = p.AsDouble(),
+                ["value"] = raw,
                 ["display_value"] = p.AsValueString(),
             };
             var twin = ParamUnits.MetricTwin(p.Definition);
             if (twin.HasValue)
-                d[twin.Value.suffix] = System.Math.Round(p.AsDouble() * twin.Value.factor, 4);
+                d[twin.Value.suffix] = System.Math.Round(raw * twin.Value.factor, 4);
             return d;
         }
 
@@ -827,7 +828,10 @@ namespace BinaVibe.Mcp.Tools
                 var paramName = key.Substring(6);
                 var p = el.LookupParameter(paramName);
                 if (p == null) return false;
-                return string.Equals(SafeParamValue(p)?.ToString(), want, System.StringComparison.OrdinalIgnoreCase);
+                var pv = p.StorageType == StorageType.Double
+                    ? (p.AsValueString() ?? "")
+                    : (SafeParamValue(p)?.ToString() ?? "");
+                return string.Equals(pv, want, System.StringComparison.OrdinalIgnoreCase);
             }
             return true;
         }
