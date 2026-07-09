@@ -3130,5 +3130,64 @@ namespace BinaVibe.Mcp.Tools
                 _ => v.GetRawText(),
             };
         }
+
+        private const double MmPerFoot = 304.8;
+
+        // Reads a length arg in mm (preferred) with optional legacy-ft fallback.
+        // RETURNS FEET — callers pass the result straight to the Revit API.
+        public static double? GetLengthMm(JsonElement el, string mmName, string? legacyFtName = null)
+        {
+            var mm = GetDouble(el, mmName);
+            if (mm.HasValue) return mm.Value / MmPerFoot;
+            if (legacyFtName != null)
+            {
+                var ft = GetDouble(el, legacyFtName);
+                if (ft.HasValue) return ft.Value;
+            }
+            return null;
+        }
+
+        // Parses one point given in mm — accepts [x,y,z] array or {x,y,z} object.
+        // RETURNS an XYZ in FEET.
+        public static XYZ? GetPointMm(JsonElement el, string name)
+        {
+            if (el.ValueKind != JsonValueKind.Object) return null;
+            if (!el.TryGetProperty(name, out var v)) return null;
+            double? x = null, y = null, z = 0;
+            if (v.ValueKind == JsonValueKind.Array)
+            {
+                var items = new List<double>();
+                foreach (var item in v.EnumerateArray())
+                    if (item.ValueKind == JsonValueKind.Number && item.TryGetDouble(out var d)) items.Add(d);
+                if (items.Count >= 2) { x = items[0]; y = items[1]; z = items.Count > 2 ? items[2] : 0; }
+            }
+            else if (v.ValueKind == JsonValueKind.Object)
+            {
+                if (v.TryGetProperty("x", out var xv) && xv.TryGetDouble(out var xd)) x = xd;
+                if (v.TryGetProperty("y", out var yv) && yv.TryGetDouble(out var yd)) y = yd;
+                if (v.TryGetProperty("z", out var zv) && zv.TryGetDouble(out var zd)) z = zd;
+            }
+            if (!x.HasValue || !y.HasValue) return null;
+            return new XYZ(x.Value / MmPerFoot, y.Value / MmPerFoot, (z ?? 0) / MmPerFoot);
+        }
+
+        // Parses [[x,y,z], ...] in mm. RETURNS XYZs in FEET.
+        public static List<XYZ> GetPointListMm(JsonElement el, string name)
+        {
+            var pts = new List<XYZ>();
+            if (el.ValueKind != JsonValueKind.Object) return pts;
+            if (!el.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Array) return pts;
+            foreach (var item in v.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Array) continue;
+                var items = new List<double>();
+                foreach (var n in item.EnumerateArray())
+                    if (n.ValueKind == JsonValueKind.Number && n.TryGetDouble(out var d)) items.Add(d);
+                if (items.Count >= 2)
+                    pts.Add(new XYZ(items[0] / MmPerFoot, items[1] / MmPerFoot,
+                                    (items.Count > 2 ? items[2] : 0) / MmPerFoot));
+            }
+            return pts;
+        }
     }
 }
