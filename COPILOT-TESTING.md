@@ -761,3 +761,12 @@ Happy path / failure case per tool:
 - [ ] store_data key=test → query_data key=test roundtrip; second doc gets its own store
 - [ ] store_data with two UNSAVED docs open (both "Project X") — check %APPDATA%/BINA/scratch/ for hash collision (known limitation)
 - [ ] UNITS: create_wall with height_mm=3000 → wall is 3000mm; legacy height_ft=10 still works; place_family_instance with legacy x/y/z (feet) still places correctly
+
+Beat-Revit-AI iteration additions:
+- [ ] find_elements_by_parameter Tinggi_Siling < 3.0 → returns the 2.6m rooms AND the 0.30m outlier (display-units compare)
+- [ ] get_element_parameters on a room → length params carry value_mm + display_value
+- [ ] audit_parameters category=Doors group=Data → fill matrix matches manual spot-check; partial_by_type appears for mixed params
+- [ ] filter_elements/find_elements_by_filter on a category with >50 elements → matches beyond #50 found (predicate-before-cap)
+- [ ] get_project_base_point with architect link loaded → host PBP + link offset in mm
+- [ ] check_grid_alignment → per-grid delta_mm sensible; unlink model → clear error
+- [ ] UAT REPLAY: the 6 prompts from "REVIT CO PILOT.docx" — clearance answer lists 7 rooms; door audit covers custom jkr params; room list 63/63; no "(N dipapar)"; no internal names
