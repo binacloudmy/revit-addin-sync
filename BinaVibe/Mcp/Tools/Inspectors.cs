@@ -723,6 +723,43 @@ namespace BinaVibe.Mcp.Tools
             return null;
         }
 
+        // ─── Unit handling ──────────────────────────────────────────────
+        // Unit handling for parameter VALUES. Revit stores Double params in
+        // internal units (feet/ft²/ft³/radians). Two consumers:
+        //   MetricTwin  — fixed metric conversions for the value_mm/value_m2/...
+        //                 return twins (predictable keys the model can rely on).
+        //   ToDisplay   — project display units, used by numeric condition
+        //                 compares so "3.0" means what the drafter sees in Revit.
+        internal static class ParamUnits
+        {
+            public static (string suffix, double factor)? MetricTwin(Definition def)
+            {
+                ForgeTypeId? spec;
+                try { spec = def.GetDataType(); } catch { return null; }
+                if (spec == null) return null;
+                if (spec.Equals(SpecTypeId.Length)) return ("value_mm", 304.8);
+                if (spec.Equals(SpecTypeId.Area)) return ("value_m2", 0.09290304);
+                if (spec.Equals(SpecTypeId.Volume)) return ("value_m3", 0.028316846592);
+                if (spec.Equals(SpecTypeId.Angle)) return ("value_deg", 180.0 / System.Math.PI);
+                return null;
+            }
+
+            // Convert an internal-units double to the PROJECT's display units for
+            // this parameter's spec (e.g. metres on JKR templates). Falls back to
+            // the raw value when the spec has no unit formatting (plain Number).
+            public static double ToDisplay(Document doc, Parameter p, double internalVal)
+            {
+                try
+                {
+                    var spec = p.Definition.GetDataType();
+                    if (spec == null || !UnitUtils.IsMeasurableSpec(spec)) return internalVal;
+                    var unit = doc.GetUnits().GetFormatOptions(spec).GetUnitTypeId();
+                    return UnitUtils.ConvertFromInternalUnits(internalVal, unit);
+                }
+                catch { return internalVal; }
+            }
+        }
+
         private static object? SafeParamValue(Parameter p)
         {
             try
@@ -731,12 +768,28 @@ namespace BinaVibe.Mcp.Tools
                 {
                     StorageType.String => p.AsString(),
                     StorageType.Integer => p.AsInteger(),
-                    StorageType.Double => p.AsDouble(),
+                    StorageType.Double => RichDouble(p),
                     StorageType.ElementId => p.AsElementId().Value,
                     _ => p.AsValueString(),
                 };
             }
             catch { return null; }
+        }
+
+        // Double params carry Revit-internal units — emit the raw value PLUS
+        // a fixed-metric twin and the project-units display string, so the
+        // model never has to guess units (the 2026-07 UAT wrong-answer class).
+        private static Dictionary<string, object?> RichDouble(Parameter p)
+        {
+            var d = new Dictionary<string, object?>
+            {
+                ["value"] = p.AsDouble(),
+                ["display_value"] = p.AsValueString(),
+            };
+            var twin = ParamUnits.MetricTwin(p.Definition);
+            if (twin.HasValue)
+                d[twin.Value.suffix] = System.Math.Round(p.AsDouble() * twin.Value.factor, 4);
+            return d;
         }
 
         private static bool PredicateMatches(Element el, Document doc, string? predicate)
@@ -1250,15 +1303,8 @@ namespace BinaVibe.Mcp.Tools
                 parameters.Add(new Dictionary<string, object?>
                 {
                     ["name"] = p.Definition?.Name ?? "",
-                    ["value"] = p.StorageType switch
-                    {
-                        StorageType.String => p.AsString(),
-                        StorageType.Integer => p.AsInteger(),
-                        StorageType.Double => p.AsDouble(),   // Revit internal units
-                        StorageType.ElementId => p.AsElementId().Value,
-                        _ => p.AsValueString(),
-                    },
-                    ["display_value"] = p.AsValueString(),    // formatted in project units (metric)
+                    ["value"] = SafeParamValue(p),
+                    ["display_value"] = p.AsValueString(),
                     ["read_only"] = p.IsReadOnly,
                 });
             }
