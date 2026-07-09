@@ -131,6 +131,35 @@ namespace BinaVibe.Mcp.Tools
                 "create_pipe"                   => MutatorsMep.CreatePipe(doc, args),
                 "create_dimensions"             => Dimensioning.CreateDimensions(app, doc, args),
 
+                // Generic OSS-compatible wrappers — dispatch to typed tools.
+                // The typed tool's arg contract applies verbatim.
+                "create_point_element"          => Invoke(app, ArgsHelp.GetString(args, "category")?.ToLowerInvariant() switch
+                                                    {
+                                                        "doors" or "ost_doors" => "place_door",
+                                                        "windows" or "ost_windows" => "place_window",
+                                                        _ => "place_family_instance",
+                                                    }, args),
+                "create_line_element"           => Invoke(app, ArgsHelp.GetString(args, "category")?.ToLowerInvariant() switch
+                                                    {
+                                                        "walls" or "ost_walls" => "create_wall",
+                                                        "structuralframing" or "ost_structuralframing" or "beams" => "create_beam",
+                                                        "pipecurves" or "ost_pipecurves" or "pipes" => "create_pipe",
+                                                        "ductcurves" or "ost_ductcurves" or "ducts" => "create_duct",
+                                                        _ => throw new InvalidOperationException(
+                                                            "create_line_element category must be Walls|StructuralFraming|PipeCurves|DuctCurves"),
+                                                    }, args),
+                "create_surface_element"        => Invoke(app, ArgsHelp.GetString(args, "category")?.ToLowerInvariant() switch
+                                                    {
+                                                        "floors" or "ost_floors" => "create_floor",
+                                                        "ceilings" or "ost_ceilings" => "create_ceiling",
+                                                        "roofs" or "ost_roofs" => "create_roof",
+                                                        _ => throw new InvalidOperationException(
+                                                            "create_surface_element category must be Floors|Ceilings|Roofs"),
+                                                    }, args),
+
+                "store_data"                    => ScratchStore.Store(doc, args),
+                "query_data"                    => ScratchStore.Query(doc, args),
+
                 _ => NotImplemented(tool),
             };
         }
