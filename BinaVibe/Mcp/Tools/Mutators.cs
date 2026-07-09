@@ -1441,10 +1441,10 @@ namespace BinaVibe.Mcp.Tools
 
         // ─── mirror_elements ─────────────────────────────────────────────
         /// <summary>
-        /// args: { element_ids:[long], plane:"x"|"y", origin_x?:double, origin_y?:double, copy?:bool }
+        /// args: { element_ids:[long], plane:"x"|"y", origin_x_mm?:double, origin_y_mm?:double, copy?:bool }
         /// Mirrors elements across a vertical plane.
-        ///   plane="x" → mirror plane normal along X at x=origin_x  (the YZ plane shifted to origin_x).
-        ///   plane="y" → mirror plane normal along Y at y=origin_y  (the XZ plane shifted to origin_y).
+        ///   plane="x" → mirror plane normal along X at x=origin_x_mm  (the YZ plane shifted to origin_x_mm).
+        ///   plane="y" → mirror plane normal along Y at y=origin_y_mm  (the XZ plane shifted to origin_y_mm).
         /// copy=true (default) keeps originals; copy=false moves them.
         /// Uses ElementTransformUtils.MirrorElements (Revit 2015+).
         /// </summary>
@@ -1452,8 +1452,8 @@ namespace BinaVibe.Mcp.Tools
         {
             var ids = ArgsHelp.GetLongList(args, "element_ids");
             var planeName = ArgsHelp.GetString(args, "plane") ?? "x";
-            double originX = ArgsHelp.GetDouble(args, "origin_x") ?? 0.0;
-            double originY = ArgsHelp.GetDouble(args, "origin_y") ?? 0.0;
+            double originX = ArgsHelp.GetLengthMm(args, "origin_x_mm", "origin_x") ?? 0.0;
+            double originY = ArgsHelp.GetLengthMm(args, "origin_y_mm", "origin_y") ?? 0.0;
             bool copy = ArgsHelp.GetBool(args, "copy") ?? true;
 
             if (ids.Count == 0)

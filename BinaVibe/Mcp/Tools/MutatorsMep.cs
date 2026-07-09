@@ -61,7 +61,7 @@ namespace BinaVibe.Mcp.Tools
                 .FirstOrDefault(p => typeName == null
                     || string.Equals(p.Name, typeName, StringComparison.OrdinalIgnoreCase))
                 ?? throw new InvalidOperationException(typeName != null
-                    ? $"pipe type '{typeName}' not found"
+                    ? $"pipe type '{typeName}' not found (use list_family_types(\"OST_PipeCurves\"))"
                     : "no pipe types in project");
             var systemType = new FilteredElementCollector(doc).OfClass(typeof(MEPSystemType)).Cast<MEPSystemType>()
                 .FirstOrDefault(m => m.SystemClassification == MEPSystemClassification.DomesticColdWater
