@@ -39,6 +39,9 @@ namespace BinaVibe.Mcp.Tools
             // rectangle of the passed points (their BuildRectangularProfile).
             double xMin = boundary.Min(p => p.X), xMax = boundary.Max(p => p.X);
             double yMin = boundary.Min(p => p.Y), yMax = boundary.Max(p => p.Y);
+            if (xMax - xMin < 1e-6 || yMax - yMin < 1e-6)
+                throw new InvalidOperationException(
+                    "boundary_mm is degenerate — points must span a rectangle with nonzero width and height");
             double z = level.Elevation;
             var p1 = new XYZ(xMin, yMin, z); var p2 = new XYZ(xMax, yMin, z);
             var p3 = new XYZ(xMax, yMax, z); var p4 = new XYZ(xMin, yMax, z);
@@ -62,26 +65,30 @@ namespace BinaVibe.Mcp.Tools
             };
 
             using var tx = new Transaction(doc, "BINA: create beam system");
-            tx.Start();
-            if (!beamType.IsActive) beamType.Activate();
-            var beamSystem = BeamSystem.Create(doc, profile, level, dirIndex, false);
-            beamSystem.BeamType = beamType;
-            var layoutRule = new LayoutRuleFixedDistance(spacingFt.Value, justifyType);
-            beamSystem.LayoutRule = layoutRule;
-            doc.Regenerate();   // BeamSystem materialises member beams on regen
-            var beamIds = beamSystem.GetBeamIds().Select(id => id.Value).ToList();
-            tx.Commit();
-
-            return new Dictionary<string, object?>
+            TxGuard.StartSwallowing(tx);
+            try
             {
-                ["ok"] = true,
-                ["new_ids"] = beamIds,
-                ["beam_system_id"] = beamSystem.Id.Value,
-                ["count"] = beamIds.Count,
-                ["actual_spacing_mm"] = Math.Round(layoutRule.Spacing * 304.8, 0),
-                ["beam_type"] = $"{beamType.Family.Name}: {beamType.Name}",
-                ["level"] = level.Name,
-            };
+                if (!beamType.IsActive) beamType.Activate();
+                var beamSystem = BeamSystem.Create(doc, profile, level, dirIndex, false);
+                beamSystem.BeamType = beamType;
+                var layoutRule = new LayoutRuleFixedDistance(spacingFt.Value, justifyType);
+                beamSystem.LayoutRule = layoutRule;
+                doc.Regenerate();   // BeamSystem materialises member beams on regen
+                var beamIds = beamSystem.GetBeamIds().Select(id => id.Value).ToList();
+                tx.Commit();
+
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["new_ids"] = beamIds,
+                    ["beam_system_id"] = beamSystem.Id.Value,
+                    ["count"] = beamIds.Count,
+                    ["actual_spacing_mm"] = Math.Round(layoutRule.Spacing * 304.8, 0),
+                    ["beam_type"] = $"{beamType.Family.Name}: {beamType.Name}",
+                    ["level"] = level.Name,
+                };
+            }
+            catch { tx.RollBack(); throw; }
         }
 
         public static Dictionary<string, object?> CreateBeam(Document doc, JsonElement args)
@@ -100,21 +107,25 @@ namespace BinaVibe.Mcp.Tools
             var beamType = ResolveBeamType(doc, beamTypeName);
 
             using var tx = new Transaction(doc, "BINA: create beam");
-            tx.Start();
-            if (!beamType.IsActive) beamType.Activate();
-            var line = Line.CreateBound(
-                new XYZ(start.X, start.Y, level.Elevation + start.Z),
-                new XYZ(end.X, end.Y, level.Elevation + end.Z));
-            var beam = doc.Create.NewFamilyInstance(line, beamType, level, StructuralType.Beam);
-            tx.Commit();
-
-            return new Dictionary<string, object?>
+            TxGuard.StartSwallowing(tx);
+            try
             {
-                ["ok"] = true,
-                ["new_ids"] = new List<long> { beam.Id.Value },
-                ["beam_type"] = $"{beamType.Family.Name}: {beamType.Name}",
-                ["level"] = level.Name,
-            };
+                if (!beamType.IsActive) beamType.Activate();
+                var line = Line.CreateBound(
+                    new XYZ(start.X, start.Y, level.Elevation + start.Z),
+                    new XYZ(end.X, end.Y, level.Elevation + end.Z));
+                var beam = doc.Create.NewFamilyInstance(line, beamType, level, StructuralType.Beam);
+                tx.Commit();
+
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["new_ids"] = new List<long> { beam.Id.Value },
+                    ["beam_type"] = $"{beamType.Family.Name}: {beamType.Name}",
+                    ["level"] = level.Name,
+                };
+            }
+            catch { tx.RollBack(); throw; }
         }
 
         // adapted from mcp-servers-for-revit (MIT) — ResolveBeamType: exact
