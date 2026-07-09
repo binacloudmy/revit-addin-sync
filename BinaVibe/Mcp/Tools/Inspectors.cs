@@ -208,12 +208,19 @@ namespace BinaVibe.Mcp.Tools
             IEnumerable<Element> q = col;
 
             bool isRooms = bic == BuiltInCategory.OST_Rooms;
-            const double ft2ToM2 = 0.092903;
+            const double ft2ToM2 = 0.09290304;
 
-            var matches = new List<object>();
-            foreach (var el in q.Take(50))
+            const int Cap = 100;
+            var matched = new List<Element>();
+            foreach (var el in q)
             {
                 if (!PredicateMatches(el, doc, predicate)) continue;
+                matched.Add(el);
+            }
+
+            var matches = new List<object>();
+            foreach (var el in matched.Take(Cap))
+            {
                 var typeEl = el.GetTypeId().Value != ElementId.InvalidElementId.Value
                     ? doc.GetElement(el.GetTypeId()) : null;
                 var lvl = el.LevelId.Value != ElementId.InvalidElementId.Value
@@ -223,7 +230,7 @@ namespace BinaVibe.Mcp.Tools
                 var paramsDict = new Dictionary<string, object?>();
                 if (isRooms && el is SpatialElement room)
                 {
-                    // Revit stores room Area in ft² (×0.092903 → m²). Skip
+                    // Revit stores room Area in ft² (×0.09290304 → m²). Skip
                     // unplaced/unbounded rooms (Area <= 0) — they have no area.
                     double areaFt2 = room.Area;
                     if (areaFt2 > 0)
@@ -238,14 +245,18 @@ namespace BinaVibe.Mcp.Tools
                     ["level"] = lvl?.Name,
                     ["params"] = paramsDict,
                 });
-                if (matches.Count >= 20) break;
             }
-            return new Dictionary<string, object?>
+
+            var result = new Dictionary<string, object?>
             {
                 ["category"] = category,
                 ["predicate"] = predicate,
                 ["matches"] = matches,
             };
+            if (matched.Count > Cap)
+                result["truncated"] = $"showing {Cap} of {matched.Count} matches — narrow the predicate";
+
+            return result;
         }
 
         // ─── get_current_selection ──────────────────────────────────────
