@@ -1389,7 +1389,7 @@ namespace BinaVibe.Mcp.Tools
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = false,
-                    ["error"] = $"category too large ({elements.Count} instances) — narrow with param_names",
+                    ["error"] = $"category too large ({elements.Count} instances) — audit a more specific category, or check one parameter with find_missing_parameter",
                 };
 
             // stats[param] = (group, filled, empty, perType[typeName] = (filled, total))
