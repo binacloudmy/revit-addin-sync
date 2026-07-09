@@ -1369,5 +1369,92 @@ namespace BinaVibe.Mcp.Tools
                 }).ToList<object>();
             return new Dictionary<string, object?> { ["ok"] = true, ["rooms"] = rooms, ["count"] = rooms.Count };
         }
+
+        // ─── audit_parameters ───────────────────────────────────────────
+        // Bulk fill-rate matrix for ALL instances of a category — the one-call
+        // answer to "check every parameter on every door" audits. Read-only.
+        public static Dictionary<string, object?> AuditParameters(Document doc, JsonElement args)
+        {
+            var category = ArgsHelp.GetString(args, "category")
+                ?? throw new InvalidOperationException("category required (e.g. Doors / OST_Doors)");
+            var bic = CategoryResolve.Resolve(category)
+                ?? throw new InvalidOperationException($"unknown category '{category}'");
+            var groupFilter = ArgsHelp.GetString(args, "group");           // e.g. "Data"
+            var nameFilter = ArgsHelp.GetStringList(args, "param_names");  // optional explicit list
+
+            var elements = new FilteredElementCollector(doc)
+                .OfCategory(bic).WhereElementIsNotElementType()
+                .ToElements();
+            if (elements.Count > 2000)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"category too large ({elements.Count} instances) — narrow with param_names",
+                };
+
+            // stats[param] = (group, filled, empty, perType[typeName] = (filled, total))
+            var stats = new Dictionary<string, (string group, int filled, int empty,
+                Dictionary<string, (int filled, int total)> perType)>();
+
+            foreach (var el in elements)
+            {
+                var typeName = (doc.GetElement(el.GetTypeId()) as ElementType)?.Name ?? "(no type)";
+                foreach (Parameter p in el.Parameters)
+                {
+                    var def = p.Definition;
+                    if (def == null) continue;
+                    string grp;
+                    try { grp = LabelUtils.GetLabelForGroup(def.GetGroupTypeId()); }
+                    catch { grp = ""; }
+                    if (groupFilter != null &&
+                        !string.Equals(grp, groupFilter, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (nameFilter.Count > 0 &&
+                        !nameFilter.Any(n => string.Equals(n, def.Name, StringComparison.OrdinalIgnoreCase))) continue;
+
+                    bool filled = p.HasValue &&
+                        !(p.StorageType == StorageType.String && string.IsNullOrWhiteSpace(p.AsString()));
+
+                    if (!stats.TryGetValue(def.Name, out var s))
+                        s = (grp, 0, 0, new Dictionary<string, (int, int)>());
+                    if (filled) s.filled++; else s.empty++;
+                    var t = s.perType.TryGetValue(typeName, out var tv) ? tv : (0, 0);
+                    s.perType[typeName] = (t.Item1 + (filled ? 1 : 0), t.Item2 + 1);
+                    stats[def.Name] = s;
+                }
+            }
+
+            var parameters = stats
+                .OrderBy(kv => kv.Value.group).ThenBy(kv => kv.Key)
+                .Select(kv =>
+                {
+                    var total = kv.Value.filled + kv.Value.empty;
+                    var entry = new Dictionary<string, object?>
+                    {
+                        ["name"] = kv.Key,
+                        ["group"] = kv.Value.group,
+                        ["filled"] = kv.Value.filled,
+                        ["empty"] = kv.Value.empty,
+                        ["fill_rate"] = total == 0 ? 0 : Math.Round((double)kv.Value.filled / total, 3),
+                    };
+                    // Per-type breakdown ONLY when partially filled — the
+                    // "Saiz_Fizikal only on D3/D11" pattern.
+                    if (kv.Value.filled > 0 && kv.Value.empty > 0)
+                        entry["partial_by_type"] = kv.Value.perType
+                            .Select(t => new Dictionary<string, object?>
+                            {
+                                ["type_name"] = t.Key,
+                                ["filled"] = t.Value.filled,
+                                ["total"] = t.Value.total,
+                            }).ToList<object>();
+                    return (object)entry;
+                }).ToList();
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["category"] = category,
+                ["total_elements"] = elements.Count,
+                ["parameters"] = parameters, ["count"] = parameters.Count,
+            };
+        }
     }
 }
