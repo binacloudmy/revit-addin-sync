@@ -26,7 +26,8 @@ namespace BinaVibe.Mcp.Tools
                 {
                     ["id"] = l.Id.Value,
                     ["name"] = l.Name,
-                    ["elevation"] = l.Elevation,
+                    ["elevation"] = l.Elevation,               // legacy (feet) — kept
+                    ["elevation_mm"] = Math.Round(l.Elevation * 304.8, 0),
                 })
                 .ToList<object>();
             return new Dictionary<string, object?> { ["levels"] = levels };

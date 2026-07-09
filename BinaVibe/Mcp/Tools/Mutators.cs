@@ -493,11 +493,11 @@ namespace BinaVibe.Mcp.Tools
         // ─── create_wall ────────────────────────────────────────────────
         public static Dictionary<string, object?> CreateWall(Document doc, JsonElement args)
         {
-            var p1 = ArgsHelp.GetXyz(args, "start") ?? throw new ArgumentException("missing start [x,y,z]");
-            var p2 = ArgsHelp.GetXyz(args, "end") ?? throw new ArgumentException("missing end [x,y,z]");
+            var p1 = ArgsHelp.GetPointMm(args, "start_mm") ?? ArgsHelp.GetXyz(args, "start") ?? throw new ArgumentException("missing start [x,y,z]");
+            var p2 = ArgsHelp.GetPointMm(args, "end_mm") ?? ArgsHelp.GetXyz(args, "end") ?? throw new ArgumentException("missing end [x,y,z]");
             var levelName = ArgsHelp.GetString(args, "level") ?? throw new ArgumentException("missing level");
             var typeName = ArgsHelp.GetString(args, "type_name");
-            double height = ArgsHelp.GetDouble(args, "height_ft") ?? 10.0;
+            double height = ArgsHelp.GetLengthMm(args, "height_mm", "height_ft") ?? (3000.0 / 304.8);
 
             var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
                 .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
@@ -540,9 +540,10 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> PlaceFamilyInstance(Document doc, JsonElement args)
         {
             var familyType = ArgsHelp.GetString(args, "family_type") ?? throw new ArgumentException("missing family_type");
-            double x = ArgsHelp.GetDouble(args, "x") ?? throw new ArgumentException("missing x");
-            double y = ArgsHelp.GetDouble(args, "y") ?? throw new ArgumentException("missing y");
-            double z = ArgsHelp.GetDouble(args, "z") ?? throw new ArgumentException("missing z");
+            var xyzMm = ArgsHelp.GetPointMm(args, "xyz_mm");
+            double x = xyzMm?.X ?? ArgsHelp.GetDouble(args, "x") ?? throw new ArgumentException("missing x");
+            double y = xyzMm?.Y ?? ArgsHelp.GetDouble(args, "y") ?? throw new ArgumentException("missing y");
+            double z = xyzMm?.Z ?? ArgsHelp.GetDouble(args, "z") ?? throw new ArgumentException("missing z");
             var levelName = ArgsHelp.GetString(args, "level");
 
             // Resolve FamilySymbol by name across all loadable family categories.
@@ -765,9 +766,9 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> MoveElements(Document doc, JsonElement args)
         {
             var ids = ArgsHelp.GetLongList(args, "element_ids");
-            double dx = ArgsHelp.GetDouble(args, "dx") ?? throw new ArgumentException("missing dx");
-            double dy = ArgsHelp.GetDouble(args, "dy") ?? throw new ArgumentException("missing dy");
-            double dz = ArgsHelp.GetDouble(args, "dz") ?? throw new ArgumentException("missing dz");
+            double dx = ArgsHelp.GetLengthMm(args, "dx_mm", "dx") ?? throw new ArgumentException("missing dx");
+            double dy = ArgsHelp.GetLengthMm(args, "dy_mm", "dy") ?? throw new ArgumentException("missing dy");
+            double dz = ArgsHelp.GetLengthMm(args, "dz_mm", "dz") ?? throw new ArgumentException("missing dz");
 
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = true, ["moved"] = 0 };
@@ -844,8 +845,9 @@ namespace BinaVibe.Mcp.Tools
         {
             var viewName = ArgsHelp.GetString(args, "view_name") ?? throw new ArgumentException("missing view_name");
             var sheetNumber = ArgsHelp.GetString(args, "sheet_number") ?? throw new ArgumentException("missing sheet_number");
-            double x = ArgsHelp.GetDouble(args, "x") ?? 0.0;
-            double y = ArgsHelp.GetDouble(args, "y") ?? 0.0;
+            var pointMm = ArgsHelp.GetPointMm(args, "point_mm");
+            double x = pointMm?.X ?? ArgsHelp.GetDouble(args, "x") ?? 0.0;
+            double y = pointMm?.Y ?? ArgsHelp.GetDouble(args, "y") ?? 0.0;
 
             var view = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
                 .FirstOrDefault(v => !v.IsTemplate && string.Equals(v.Name, viewName, StringComparison.OrdinalIgnoreCase))
@@ -964,7 +966,7 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> CreateLevel(Document doc, JsonElement args)
         {
             var name = ArgsHelp.GetString(args, "name") ?? throw new ArgumentException("missing name");
-            double elevation = ArgsHelp.GetDouble(args, "elevation") ?? throw new ArgumentException("missing elevation");
+            double elevation = ArgsHelp.GetLengthMm(args, "elevation_mm", "elevation") ?? throw new ArgumentException("missing elevation");
 
             using var tx = new Transaction(doc, "BinaVibe: create_level");
             TxGuard.StartSwallowing(tx);
@@ -988,10 +990,12 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> CreateGrid(Document doc, JsonElement args)
         {
             var name = ArgsHelp.GetString(args, "name") ?? throw new ArgumentException("missing name");
-            double startX = ArgsHelp.GetDouble(args, "start_x") ?? throw new ArgumentException("missing start_x");
-            double startY = ArgsHelp.GetDouble(args, "start_y") ?? throw new ArgumentException("missing start_y");
-            double endX = ArgsHelp.GetDouble(args, "end_x") ?? throw new ArgumentException("missing end_x");
-            double endY = ArgsHelp.GetDouble(args, "end_y") ?? throw new ArgumentException("missing end_y");
+            var startMm = ArgsHelp.GetPointMm(args, "start_mm");
+            var endMm = ArgsHelp.GetPointMm(args, "end_mm");
+            double startX = startMm?.X ?? ArgsHelp.GetDouble(args, "start_x") ?? throw new ArgumentException("missing start_x");
+            double startY = startMm?.Y ?? ArgsHelp.GetDouble(args, "start_y") ?? throw new ArgumentException("missing start_y");
+            double endX = endMm?.X ?? ArgsHelp.GetDouble(args, "end_x") ?? throw new ArgumentException("missing end_x");
+            double endY = endMm?.Y ?? ArgsHelp.GetDouble(args, "end_y") ?? throw new ArgumentException("missing end_y");
 
             var line = Line.CreateBound(new XYZ(startX, startY, 0), new XYZ(endX, endY, 0));
 
@@ -1016,8 +1020,9 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> CreateRoomXY(Document doc, JsonElement args)
         {
             var levelName = ArgsHelp.GetString(args, "level") ?? throw new ArgumentException("missing level");
-            double x = ArgsHelp.GetDouble(args, "x") ?? throw new ArgumentException("missing x");
-            double y = ArgsHelp.GetDouble(args, "y") ?? throw new ArgumentException("missing y");
+            var pointMm = ArgsHelp.GetPointMm(args, "point_mm");
+            double x = pointMm?.X ?? ArgsHelp.GetDouble(args, "x") ?? throw new ArgumentException("missing x");
+            double y = pointMm?.Y ?? ArgsHelp.GetDouble(args, "y") ?? throw new ArgumentException("missing y");
             var name = ArgsHelp.GetString(args, "name");
 
             var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
@@ -1173,8 +1178,9 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> PlaceTextNote(Document doc, JsonElement args)
         {
             var viewName = ArgsHelp.GetString(args, "view_name") ?? throw new ArgumentException("missing view_name");
-            double x = ArgsHelp.GetDouble(args, "x") ?? throw new ArgumentException("missing x");
-            double y = ArgsHelp.GetDouble(args, "y") ?? throw new ArgumentException("missing y");
+            var pointMm = ArgsHelp.GetPointMm(args, "point_mm");
+            double x = pointMm?.X ?? ArgsHelp.GetDouble(args, "x") ?? throw new ArgumentException("missing x");
+            double y = pointMm?.Y ?? ArgsHelp.GetDouble(args, "y") ?? throw new ArgumentException("missing y");
             var text = ArgsHelp.GetString(args, "text") ?? throw new ArgumentException("missing text");
 
             var view = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
@@ -1350,8 +1356,8 @@ namespace BinaVibe.Mcp.Tools
         {
             var ids = ArgsHelp.GetLongList(args, "element_ids");
             double angleDeg = ArgsHelp.GetDouble(args, "angle_deg") ?? throw new ArgumentException("missing angle_deg");
-            double? axisXArg = ArgsHelp.GetDouble(args, "axis_x");
-            double? axisYArg = ArgsHelp.GetDouble(args, "axis_y");
+            double? axisXArg = ArgsHelp.GetLengthMm(args, "axis_x_mm", "axis_x");
+            double? axisYArg = ArgsHelp.GetLengthMm(args, "axis_y_mm", "axis_y");
 
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = true, ["rotated"] = 0 };
@@ -1954,8 +1960,9 @@ namespace BinaVibe.Mcp.Tools
             var levelName = ArgsHelp.GetString(args, "level") ?? throw new ArgumentException("missing level");
             var typeName = ArgsHelp.GetString(args, "type_name");
 
-            // Parse boundary: array of [x,y] pairs.
-            var points = ParseBoundary2D(args, "boundary");
+            // Parse boundary: mm-preferred [[x,y,z]...] array, legacy feet fallback.
+            var pointsMm = ArgsHelp.GetPointListMm(args, "boundary_mm");
+            var points = pointsMm.Count > 0 ? pointsMm : ParseBoundary2D(args, "boundary");
             if (points.Count < 3)
                 throw new ArgumentException("boundary must have at least 3 points");
 
@@ -2076,7 +2083,8 @@ namespace BinaVibe.Mcp.Tools
             var levelName = ArgsHelp.GetString(args, "level") ?? throw new ArgumentException("missing level");
             var typeName = ArgsHelp.GetString(args, "type_name");
 
-            var points = ParseBoundary2D(args, "boundary");
+            var pointsMm = ArgsHelp.GetPointListMm(args, "boundary_mm");
+            var points = pointsMm.Count > 0 ? pointsMm : ParseBoundary2D(args, "boundary");
             if (points.Count < 3)
                 throw new ArgumentException("boundary must have at least 3 points");
 
@@ -2284,7 +2292,7 @@ namespace BinaVibe.Mcp.Tools
         {
             var hostId = ArgsHelp.GetLong(args, "host_wall_id") ?? throw new ArgumentException("missing host_wall_id");
             var typeName = ArgsHelp.GetString(args, "type_name") ?? throw new ArgumentException("missing type_name");
-            var loc = ArgsHelp.GetXyz(args, "location") ?? throw new ArgumentException("missing location [x,y,z]");
+            var loc = ArgsHelp.GetPointMm(args, "location_mm") ?? ArgsHelp.GetXyz(args, "location") ?? throw new ArgumentException("missing location [x,y,z]");
 
             var host = doc.GetElement(new ElementId(hostId)) as Wall
                 ?? throw new ArgumentException($"host wall {hostId} not found");
