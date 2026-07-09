@@ -126,6 +126,8 @@ namespace BinaVibe.Mcp.Tools
                 "create_ceiling"                => Mutators.CreateCeiling(doc, args),
                 "create_beam_system"            => MutatorsStructure.CreateBeamSystem(doc, args),
                 "create_beam"                   => MutatorsStructure.CreateBeam(doc, args),
+                "create_duct"                   => MutatorsMep.CreateDuct(doc, args),
+                "create_pipe"                   => MutatorsMep.CreatePipe(doc, args),
 
                 _ => NotImplemented(tool),
             };
