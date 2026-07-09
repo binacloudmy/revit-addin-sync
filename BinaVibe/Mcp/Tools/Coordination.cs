@@ -84,9 +84,19 @@ namespace BinaVibe.Mcp.Tools
             var t = link.GetTotalTransform();
 
             static Dictionary<string, Curve> GridsOf(Document d)
-                => new FilteredElementCollector(d).OfClass(typeof(Grid)).Cast<Grid>()
-                    .Where(g => g.Curve != null)
-                    .GroupBy(g => g.Name).ToDictionary(g => g.Key, g => g.First().Curve);
+            {
+                var dict = new Dictionary<string, Curve>();
+                foreach (var g in new FilteredElementCollector(d).OfClass(typeof(Grid)).Cast<Grid>())
+                {
+                    Curve? c = null;
+                    try { c = g.Curve; } catch { /* multi-segment grid — no single curve */ }
+                    if (c != null && !dict.ContainsKey(g.Name)) dict[g.Name] = c;
+                }
+                return dict;
+            }
+
+            static double PlanDist(XYZ a, XYZ b)
+                => new XYZ(a.X - b.X, a.Y - b.Y, 0).GetLength();
 
             var hostGrids = GridsOf(doc);
             var linkGrids = GridsOf(linkDoc);
@@ -102,7 +112,14 @@ namespace BinaVibe.Mcp.Tools
                     var lp0 = t.OfPoint(ll.GetEndPoint(0));
                     var lDir = t.OfVector(ll.Direction).Normalize();
                     var hDir = hl.Direction.Normalize();
-                    var cross = hDir.CrossProduct(lDir).GetLength();
+
+                    // Grids are vertical planes — compare PLAN position only.
+                    // A link modelled at a different elevation must not read
+                    // as "misaligned" from pure Z offset.
+                    var hDirXy = new XYZ(hDir.X, hDir.Y, 0).Normalize();
+                    var lDirXy = new XYZ(lDir.X, lDir.Y, 0).Normalize();
+                    var cross = hDirXy.CrossProduct(lDirXy).GetLength();
+
                     if (cross > 1e-6)
                     {
                         row["aligned"] = false;
@@ -114,8 +131,9 @@ namespace BinaVibe.Mcp.Tools
                     {
                         // Perpendicular distance from host line to the
                         // transformed link line (parallel case).
-                        var v = lp0 - hl.GetEndPoint(0);
-                        var perp = v - hDir.Multiply(v.DotProduct(hDir));
+                        var v3 = lp0 - hl.GetEndPoint(0);
+                        var v = new XYZ(v3.X, v3.Y, 0);
+                        var perp = v - hDirXy.Multiply(v.DotProduct(hDirXy));
                         var deltaMm = Math.Round(perp.GetLength() * MmPerFoot, 2);
                         row["delta_mm"] = deltaMm;
                         row["aligned"] = deltaMm <= 1.0;
@@ -124,9 +142,9 @@ namespace BinaVibe.Mcp.Tools
                 }
                 else
                 {
-                    // Curved grids: max endpoint deviation after transform.
-                    var d0 = hostCurve.GetEndPoint(0).DistanceTo(t.OfPoint(linkCurve.GetEndPoint(0)));
-                    var d1 = hostCurve.GetEndPoint(1).DistanceTo(t.OfPoint(linkCurve.GetEndPoint(1)));
+                    // Curved grids: max endpoint deviation after transform (PLAN distance only).
+                    var d0 = PlanDist(hostCurve.GetEndPoint(0), t.OfPoint(linkCurve.GetEndPoint(0)));
+                    var d1 = PlanDist(hostCurve.GetEndPoint(1), t.OfPoint(linkCurve.GetEndPoint(1)));
                     var deltaMm = Math.Round(Math.Max(d0, d1) * MmPerFoot, 2);
                     row["delta_mm"] = deltaMm;
                     row["aligned"] = deltaMm <= 1.0;
