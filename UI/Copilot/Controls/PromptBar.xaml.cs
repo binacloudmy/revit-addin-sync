@@ -178,37 +178,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Raised by the popover's "Upgrade plan" button; host opens the upgrade sheet.</summary>
         public event System.Action UpgradeRequested;
 
-        /// <summary>Bind the meter to the VM's usage snapshot; re-renders on UsageChanged.</summary>
+        /// <summary>Usage meter removed from the composer footer. Kept as a no-op
+        /// so existing callers still compile; the meter row stays hidden.</summary>
         public void BindUsage(CopilotViewModel vm)
         {
-            if (vm == null) return;
-            void Render()
-            {
-                var u = vm.Usage;
-                // Pro/unlimited (0%) hides the meter — design shows it for limited plans.
-                bool show = u != null && (u.Pct > 0 || u.AtLimit || u.PlanName == "Free");
-                MeterBtn.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-                if (!show) return;
-                MeterPlan.Text = u.PlanName;
-                MeterPct.Text = u.Pct + "%";
-                var fill = CopilotTheme.Brush(Model.UsageState.MeterColorKey(u.Pct));
-                MeterFill.Background = fill;
-                // Proportional fill via star-sized columns (avoids manual measure).
-                MeterFillCol.Width = new GridLength(System.Math.Max(0, u.Pct), GridUnitType.Star);
-                MeterRestCol.Width = new GridLength(System.Math.Max(0, 100 - u.Pct), GridUnitType.Star);
-                // Popover mirrors the same snapshot.
-                PopPlan.Text = u.PlanName;
-                PopPctUsed.Text = u.Pct + "% used";
-                PopFill.Background = fill;
-                PopFillCol.Width = new GridLength(System.Math.Max(0, u.Pct), GridUnitType.Star);
-                PopRestCol.Width = new GridLength(System.Math.Max(0, 100 - u.Pct), GridUnitType.Star);
-            }
-            vm.UsageChanged += () =>
-            {
-                if (Dispatcher.CheckAccess()) Render();
-                else Dispatcher.BeginInvoke((System.Action)Render);
-            };
-            Render();
+            MeterBtn.Visibility = Visibility.Collapsed;
         }
 
         // ─── Pasted screenshots (pending, sent with the next prompt) ─────────
