@@ -3163,9 +3163,9 @@ namespace BinaVibe.Mcp.Tools
             }
             else if (v.ValueKind == JsonValueKind.Object)
             {
-                if (v.TryGetProperty("x", out var xv) && xv.TryGetDouble(out var xd)) x = xd;
-                if (v.TryGetProperty("y", out var yv) && yv.TryGetDouble(out var yd)) y = yd;
-                if (v.TryGetProperty("z", out var zv) && zv.TryGetDouble(out var zd)) z = zd;
+                if (v.TryGetProperty("x", out var xv) && xv.ValueKind == JsonValueKind.Number && xv.TryGetDouble(out var xd)) x = xd;
+                if (v.TryGetProperty("y", out var yv) && yv.ValueKind == JsonValueKind.Number && yv.TryGetDouble(out var yd)) y = yd;
+                if (v.TryGetProperty("z", out var zv) && zv.ValueKind == JsonValueKind.Number && zv.TryGetDouble(out var zd)) z = zd;
             }
             if (!x.HasValue || !y.HasValue) return null;
             return new XYZ(x.Value / MmPerFoot, y.Value / MmPerFoot, (z ?? 0) / MmPerFoot);
