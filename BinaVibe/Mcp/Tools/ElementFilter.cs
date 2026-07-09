@@ -45,7 +45,10 @@ namespace BinaVibe.Mcp.Tools
                     || e.Id.Value == familySymbolId.Value);
             if (bboxMin != null && bboxMax != null)
             {
-                var outline = new Outline(bboxMin, bboxMax);
+                // Normalize corner order — LLM callers may pass corners unsorted.
+                var lo = new XYZ(Math.Min(bboxMin.X, bboxMax.X), Math.Min(bboxMin.Y, bboxMax.Y), Math.Min(bboxMin.Z, bboxMax.Z));
+                var hi = new XYZ(Math.Max(bboxMin.X, bboxMax.X), Math.Max(bboxMin.Y, bboxMax.Y), Math.Max(bboxMin.Z, bboxMax.Z));
+                var outline = new Outline(lo, hi);
                 filtered = filtered.Where(e =>
                 {
                     var bb = e.get_BoundingBox(null);
