@@ -52,7 +52,7 @@ namespace BinaVibe.Mcp.Tools
         {
             var category = TryGetString(args, "category") ?? "OST_Doors";
             var nameContains = TryGetString(args, "name_contains");
-            var bic = ResolveBuiltInCategory(category);
+            var bic = CategoryResolve.Resolve(category);
             if (!bic.HasValue)
             {
                 // Unknown category must FAIL LOUDLY — running unfiltered used to
@@ -188,7 +188,7 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> FindElementsByFilter(Document doc, JsonElement args)
         {
             var category = TryGetString(args, "category") ?? "Walls";
-            var bic = ResolveBuiltInCategory(category);
+            var bic = CategoryResolve.Resolve(category);
             var predicate = TryGetString(args, "predicate");
             if (!bic.HasValue)
             {
@@ -608,7 +608,7 @@ namespace BinaVibe.Mcp.Tools
                 }
             }
 
-            var bic = ResolveBuiltInCategory(category);
+            var bic = CategoryResolve.Resolve(category);
             var col = new FilteredElementCollector(doc).WhereElementIsNotElementType();
             if (bic.HasValue) col = col.OfCategory(bic.Value);
             IEnumerable<Element> q = col;
@@ -786,35 +786,10 @@ namespace BinaVibe.Mcp.Tools
                 || want.IndexOf(actual, System.StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private static BuiltInCategory? ResolveBuiltInCategory(string category)
-        {
-            // Accept either the BIC enum literal ("OST_Walls") or the
-            // friendly category name ("Walls", "Doors", "Plumbing Fixtures").
-            // The old 7-entry switch silently returned null for everything
-            // else — and callers then ran UNFILTERED collectors, handing the
-            // agent 500 junk types ("Arrowhead" as a plumbing fixture). That
-            // garbage is what forced the multi-round tool tours on every
-            // "tandas" question. Resolve generically: any friendly name maps
-            // to OST_<NameWithoutSpaces>.
-            if (string.IsNullOrWhiteSpace(category)) return null;
-            if (category.StartsWith("OST_", System.StringComparison.OrdinalIgnoreCase)
-                && System.Enum.TryParse<BuiltInCategory>(category, true, out var bic))
-                return bic;
-            var compact = "OST_" + category.Replace(" ", "").Replace("-", "");
-            if (System.Enum.TryParse<BuiltInCategory>(compact, true, out var bic2))
-                return bic2;
-            return category.ToLowerInvariant() switch
-            {
-                "walls" => BuiltInCategory.OST_Walls,
-                "doors" => BuiltInCategory.OST_Doors,
-                "windows" => BuiltInCategory.OST_Windows,
-                "floors" => BuiltInCategory.OST_Floors,
-                "rooms" => BuiltInCategory.OST_Rooms,
-                "levels" => BuiltInCategory.OST_Levels,
-                "grids" => BuiltInCategory.OST_Grids,
-                _ => null,
-            };
-        }
+        // Category-name resolution moved to CategoryResolve.Resolve (ElementFilter.cs)
+        // so filter_elements can share the same friendly-name/OST_ logic —
+        // one implementation, no copies. See that class for the original
+        // comment on why unknown categories must fail loudly.
 
         // ─── open_view ──────────────────────────────────────────────────
         // Activate a graphical view by (partial) name. UI navigation, not a
@@ -1066,7 +1041,7 @@ namespace BinaVibe.Mcp.Tools
         // friendly-name -> BuiltInCategory resolution the INSPECT tools use.
         internal static BuiltInCategory? ResolveCategoryRobust(Document doc, string category)
         {
-            var simple = ResolveBuiltInCategory(category);
+            var simple = CategoryResolve.Resolve(category);
             if (simple != null) return simple;
             var compact = "OST_" + category.Replace(" ", "");
             foreach (BuiltInCategory c in Enum.GetValues(typeof(BuiltInCategory)))
