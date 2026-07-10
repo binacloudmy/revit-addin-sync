@@ -7,6 +7,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
+using BinaVibe.Mcp;
 using RevitWebAppSync.UI.Copilot.Controls;
 using RevitWebAppSync.UI.Copilot.Model;
 
@@ -36,6 +37,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         public ChatView()
         {
             InitializeComponent();
+            // Element-id clicks (MarkdownRenderer, table cells + bina://select/<id>
+            // links) → local select+zoom. Static event, guarded subscribe — see
+            // WireElementIdClick.
+            WireElementIdClick();
             // Slash command sent from the composer → add the turn (chip bubble +
             // placeholder reply). UI-only until tools run from chat.
             Prompt.SlashToolSubmitted += (tool, args) => Vm?.ChatSendSlashCommand(tool, args);
@@ -65,6 +70,49 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _lastLayoutWidth = e.NewSize.Width;
                 Rebuild();
             };
+        }
+
+        // ─── Element-id click → local select+zoom (Task 7) ──────────────────
+        // MarkdownRenderer.ElementIdClicked is STATIC and ChatView is cached
+        // per CopilotPanel (View<T> in CopilotPanel.xaml.cs) but a new panel
+        // instance (pane re-dock, multi-doc host) constructs a new ChatView —
+        // guard so a re-construction never stacks a second handler on the
+        // static event (which would select+zoom the same click twice).
+        private static bool _elementClickWired;
+
+        private static void WireElementIdClick()
+        {
+            if (_elementClickWired) return;
+            _elementClickWired = true;
+            RevitWebAppSync.Helpers.MarkdownRenderer.ElementIdClicked += OnElementIdClicked;
+        }
+
+        /// <summary>Runs the addin's OWN `select_elements` tool against the live
+        /// Revit doc — the SAME McpJob/McpJobPump path ToolLoopRunner.ExecuteOneAsync
+        /// uses for every backend-driven tool call (see Services/ToolLoopRunner.cs),
+        /// just fired locally with no /tool/generate round-trip and no resume loop
+        /// (select_elements is a single fire-and-observe call). `async void` is
+        /// deliberate here — this IS the event handler, and a click must never
+        /// throw into WPF, so every failure path is swallowed into a status log.</summary>
+        private static async void OnElementIdClicked(long elementId)
+        {
+            try
+            {
+                var args = System.Text.Json.JsonSerializer.SerializeToElement(
+                    new System.Collections.Generic.Dictionary<string, object>
+                    {
+                        ["element_ids"] = new[] { elementId },
+                    });
+                var job = new McpJob { Tool = "select_elements", Args = args };
+                McpJobPump.Enqueue(job);
+                await job.Done.Task.ConfigureAwait(false);
+                if (job.Error != null)
+                    System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements({elementId}) failed: {job.Error}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements({elementId}) threw: {ex.Message}");
+            }
         }
 
         private double _lastLayoutWidth;

@@ -37,7 +37,15 @@ namespace RevitWebAppSync.Helpers
         private static Brush CodeFg  => UI.Copilot.Controls.CopilotColors.From("#1e40af");
         private static Brush BlockBg => UI.Copilot.Controls.CopilotColors.From("#f6f8fa");
         private static Brush CellBg  => UI.Copilot.Controls.CopilotColors.From("#ffffff"); // table data-cell surface (dark → #1a2433)
+        private static Brush IdLinkHoverBg => UI.Copilot.Controls.CopilotColors.From("#dbeafe"); // clickable-id hover chip
         private static readonly FontFamily CodeFont = new FontFamily("Cascadia Mono, Consolas, monospace");
+
+        /// <summary>Raised when the drafter clicks a detected element-id table cell
+        /// or a `bina://select/&lt;id&gt;` inline link. ChatView subscribes ONCE
+        /// (guarded — this event is static and bubbles are rebuilt per message/
+        /// theme-flip) and runs the addin's own `select_elements` tool locally
+        /// (no backend round-trip) to select + zoom the element in Revit.</summary>
+        public static event Action<long> ElementIdClicked;
 
         public static FrameworkElement Render(string markdown, double maxWidth = 350)
         {
@@ -208,6 +216,34 @@ namespace RevitWebAppSync.Helpers
             return t.Split('|').Select(c => c.Trim()).ToArray();
         }
 
+        // Detection rule (deliberately strict, see ElementIdClicked doc-comment):
+        // the trimmed cell text must parse whole as a positive long ≥ 100000 —
+        // real Revit element ids are always in that range, so this never fires
+        // on a small "Count"/"Level" style numeric column.
+        private static bool TryParseElementId(string cellText, out long id) =>
+            long.TryParse((cellText ?? "").Trim(), out id) && id >= 100000;
+
+        /// <summary>Accent-underlined, hand-cursor TextBlock for a detected
+        /// element-id cell. Hover background + click both mirror the `[text](url)`
+        /// Hyperlink branch below (same event, two different WPF primitives —
+        /// table cells are plain TextBlocks, not text-flow Inlines).</summary>
+        private static TextBlock IdLinkText(string text, long elementId)
+        {
+            var tb = new TextBlock
+            {
+                Text = text,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = Accent,
+                FontSize = 11.5,
+                TextDecorations = TextDecorations.Underline,
+                Cursor = Cursors.Hand,
+            };
+            tb.MouseEnter += (_, __) => tb.Background = IdLinkHoverBg;
+            tb.MouseLeave += (_, __) => tb.Background = Brushes.Transparent;
+            tb.MouseLeftButtonDown += (_, __) => { try { ElementIdClicked?.Invoke(elementId); } catch { /* listener's problem, not ours */ } };
+            return tb;
+        }
+
         // Per-column readable floor. Star columns shrink to fit the bubble; this
         // stops any column collapsing to nothing at very narrow panel widths.
         private const double MinColWidth = 46;
@@ -224,6 +260,19 @@ namespace RevitWebAppSync.Helpers
             var dataRows = rows.Where(r => !IsSeparatorRow(r)).Select(SplitCells).ToList();
             if (dataRows.Count == 0) return null;
             int cols = dataRows.Max(r => r.Length);
+
+            // Element-id columns: header cell text is exactly ID / Id / Element ID
+            // (case-insensitive, trimmed) — deliberately strict so a "Count" or
+            // "Area" column never lights up as a false-positive link.
+            var idCols = new HashSet<int>();
+            var header0 = dataRows[0];
+            for (int c = 0; c < header0.Length; c++)
+            {
+                var h = (header0[c] ?? "").Trim();
+                if (string.Equals(h, "ID", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(h, "Element ID", StringComparison.OrdinalIgnoreCase))
+                    idCols.Add(c);
+            }
 
             // Proportional weights from each column's longest cell (clamped) so a
             // wide "Tujuan" column gets more share than a narrow index column.
@@ -258,14 +307,26 @@ namespace RevitWebAppSync.Helpers
                         Background = header ? CodeBg : CellBg,
                         Padding = new Thickness(7, 4, 7, 4),
                     };
-                    var tb = new TextBlock
+                    string cellText = c < dataRows[r].Length ? dataRows[r][c] : "";
+                    TextBlock tb;
+                    // Body cell in an id column whose text parses as a positive
+                    // long ≥ 100000 → clickable element-id link (never the header
+                    // row itself, so the column label stays plain text).
+                    if (!header && idCols.Contains(c) && TryParseElementId(cellText, out long elementId))
                     {
-                        TextWrapping = TextWrapping.Wrap,
-                        Foreground = header ? Ink : Text,
-                        FontSize = 11.5,
-                        FontWeight = header ? FontWeights.SemiBold : FontWeights.Normal,
-                    };
-                    AddInlines(tb.Inlines, c < dataRows[r].Length ? dataRows[r][c] : "");
+                        tb = IdLinkText(cellText.Trim(), elementId);
+                    }
+                    else
+                    {
+                        tb = new TextBlock
+                        {
+                            TextWrapping = TextWrapping.Wrap,
+                            Foreground = header ? Ink : Text,
+                            FontSize = 11.5,
+                            FontWeight = header ? FontWeights.SemiBold : FontWeights.Normal,
+                        };
+                        AddInlines(tb.Inlines, cellText);
+                    }
                     cell.Child = tb;
                     Grid.SetRow(cell, r);
                     Grid.SetColumn(cell, c);
@@ -277,6 +338,11 @@ namespace RevitWebAppSync.Helpers
             return grid;
         }
 
+        // bina://select/<id> is the only URI scheme AddInlines treats as "live" —
+        // everything else (http links etc.) stays an inert underlined Run, same
+        // as before this task.
+        private static readonly Regex SelectUriPattern = new Regex(@"^bina://select/(\d+)$");
+
         private static void AddInlines(InlineCollection inlines, string text)
         {
             var pattern = @"(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`(.+?)`)|(\[(.+?)\]\((.+?)\))";
@@ -287,11 +353,32 @@ namespace RevitWebAppSync.Helpers
                 if (m.Groups[2].Success) inlines.Add(new Run(m.Groups[2].Value) { FontWeight = FontWeights.Bold });
                 else if (m.Groups[4].Success) inlines.Add(new Run(m.Groups[4].Value) { FontStyle = FontStyles.Italic });
                 else if (m.Groups[6].Success) inlines.Add(new Run(m.Groups[6].Value) { FontFamily = CodeFont, Foreground = CodeFg, FontSize = 11 });
-                else if (m.Groups[8].Success) inlines.Add(new Run(m.Groups[8].Value) { Foreground = Accent, TextDecorations = TextDecorations.Underline });
+                else if (m.Groups[8].Success) inlines.Add(LinkInline(m.Groups[8].Value, m.Groups[9].Value));
                 last = m.Index + m.Length;
             }
             if (last < text.Length) inlines.Add(new Run(text.Substring(last)));
             if (inlines.Count == 0) inlines.Add(new Run(text));
+        }
+
+        /// <summary>`[text](url)` → a real clickable Hyperlink ONLY for
+        /// `bina://select/&lt;id&gt;` (raises the same ElementIdClicked event as
+        /// the table id-cells); any other url stays the inert styled Run today's
+        /// prose links have always rendered as (no navigation, nothing to click).</summary>
+        private static Inline LinkInline(string linkText, string url)
+        {
+            var m = SelectUriPattern.Match(url ?? "");
+            if (m.Success && long.TryParse(m.Groups[1].Value, out long elementId))
+            {
+                var hl = new Hyperlink(new Run(linkText))
+                {
+                    Foreground = Accent,
+                    TextDecorations = TextDecorations.Underline,
+                    Cursor = Cursors.Hand,
+                };
+                hl.Click += (_, __) => { try { ElementIdClicked?.Invoke(elementId); } catch { /* listener's problem, not ours */ } };
+                return hl;
+            }
+            return new Run(linkText) { Foreground = Accent, TextDecorations = TextDecorations.Underline };
         }
     }
 }
