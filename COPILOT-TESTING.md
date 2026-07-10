@@ -770,3 +770,12 @@ Beat-Revit-AI iteration additions:
 - [ ] get_project_base_point with architect link loaded → host PBP + link offset in mm
 - [ ] check_grid_alignment → per-grid delta_mm sensible; unlink model → clear error
 - [ ] UAT REPLAY: the 6 prompts from "REVIT CO PILOT.docx" — clearance answer lists 7 rooms; door audit covers custom jkr params; room list 63/63; no "(N dipapar)"; no internal names
+
+## 19. Pane UX upgrades (feat/oss-tool-port + feat/copilot-engine)
+- [ ] Streaming: long Malay prompt — spinner replaced by growing text at first delta; last word completes
+- [ ] Trail live: multi-tool prompt — rows tick ✓ with elapsed times while running
+- [ ] Trail collapse: after the answer, pill "✓ N langkah · Xs ▸" — tap expands/collapses; survives scroll
+- [ ] Tindakan buttons: audit prompt → [Ya, teruskan][Tidak] under the answer; Ya sends the offer + runs act-and-verify; buttons vanish after tap; older messages show no buttons
+- [ ] No tindakan → no buttons (plain reply unchanged)
+- [ ] Clickable ids: audit table → id underlined; click selects + zooms the element in Revit; non-id numbers (areas, counts) NOT clickable
+- [ ] Regression: copy/select text in replies still works; user bubbles unchanged; history tab renders old messages
