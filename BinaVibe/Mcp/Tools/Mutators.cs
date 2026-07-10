@@ -2335,7 +2335,14 @@ namespace BinaVibe.Mcp.Tools
                     else throw new ArgumentException($"value '{value}' is not Integer");
                     break;
                 case StorageType.Double:
-                    if (double.TryParse(value.ToString(), out var d)) p.Set(d);
+                    if (double.TryParse(value.ToString(), out var d))
+                    {
+                        // Measurable params (length/area/...): the caller speaks
+                        // PROJECT DISPLAY UNITS (mm on JKR templates) — convert
+                        // to internal. Non-measurable Doubles pass through.
+                        var pdoc = p.Element?.Document;
+                        p.Set(pdoc != null ? ParamUnits.ToInternal(pdoc, p, d) : d);
+                    }
                     else throw new ArgumentException($"value '{value}' is not Double");
                     break;
                 case StorageType.ElementId:
@@ -2646,7 +2653,11 @@ namespace BinaVibe.Mcp.Tools
                         if (int.TryParse(value, out var iv)) return p.Set(iv);
                         return p.Set(value.Trim().ToLowerInvariant() == "yes" || value.Trim() == "1" || value.Trim().ToLowerInvariant() == "true" ? 1 : 0);
                     case StorageType.Double:
-                        if (double.TryParse(value, out var dv)) return p.Set(dv);
+                        if (double.TryParse(value, out var dv))
+                        {
+                            var pdoc2 = p.Element?.Document;
+                            return p.Set(pdoc2 != null ? ParamUnits.ToInternal(pdoc2, p, dv) : dv);
+                        }
                         return false;
                     default: return false;
                 }

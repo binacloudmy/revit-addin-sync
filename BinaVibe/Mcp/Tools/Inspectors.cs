@@ -773,7 +773,24 @@ namespace BinaVibe.Mcp.Tools
                 return null;
             }
 
-            // Convert an internal-units double to the PROJECT's display units for
+            // Convert a DISPLAY-units double (what the drafter/model says: mm/m per
+        // project settings) to Revit-internal units for writes. Inverse of
+        // ToDisplay — keeps the write contract symmetric with reads/compares.
+        // (UAT 2026-07-11: set_parameter "2600" landed as 2600 FEET = 792m
+        // ceiling; the copilot itself diagnosed it from the value_mm twins.)
+        public static double ToInternal(Document doc, Parameter p, double displayVal)
+        {
+            try
+            {
+                var spec = p.Definition.GetDataType();
+                if (spec == null || !UnitUtils.IsMeasurableSpec(spec)) return displayVal;
+                var unit = doc.GetUnits().GetFormatOptions(spec).GetUnitTypeId();
+                return UnitUtils.ConvertToInternalUnits(displayVal, unit);
+            }
+            catch { return displayVal; }
+        }
+
+        // Convert an internal-units double to the PROJECT's display units for
             // this parameter's spec (e.g. metres on JKR templates). Falls back to
             // the raw value when the spec has no unit formatting (plain Number).
             public static double ToDisplay(Document doc, Parameter p, double internalVal)
