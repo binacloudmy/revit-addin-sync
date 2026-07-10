@@ -91,5 +91,103 @@ namespace Tests
             Assert.Single(steps);
             Assert.Equal("a", steps[0].StepId);
         }
+
+        [Fact]
+        public void Apply_done_stamps_ended_utc()
+        {
+            var steps = new ObservableCollection<ProgressStep>();
+            var beforeApply = DateTime.UtcNow;
+            ProgressReducer.Apply(steps, "tc1", "executing", "Creating wall", "", StepState.Running);
+            var startedUtc = steps[0].StartedUtc;
+            Assert.NotNull(startedUtc);
+            Assert.Null(steps[0].EndedUtc);
+
+            ProgressReducer.Apply(steps, "tc1", "executing", "Creating wall", "", StepState.Done);
+            var afterApply = DateTime.UtcNow;
+            Assert.NotNull(steps[0].EndedUtc);
+            Assert.True(steps[0].EndedUtc >= beforeApply && steps[0].EndedUtc <= afterApply);
+        }
+
+        [Fact]
+        public void Apply_error_stamps_ended_utc()
+        {
+            var steps = new ObservableCollection<ProgressStep>();
+            ProgressReducer.Apply(steps, "tc1", "executing", "Creating wall", "", StepState.Running);
+            Assert.Null(steps[0].EndedUtc);
+
+            ProgressReducer.Apply(steps, "tc1", "executing", "Creating wall", "", StepState.Error);
+            Assert.NotNull(steps[0].EndedUtc);
+        }
+
+        [Fact]
+        public void ElapsedText_returns_empty_while_running()
+        {
+            var steps = new ObservableCollection<ProgressStep>();
+            ProgressReducer.Apply(steps, "tc1", "executing", "Creating wall", "", StepState.Running);
+            Assert.Equal("", steps[0].ElapsedText);
+        }
+
+        [Fact]
+        public void ElapsedText_formats_elapsed_seconds()
+        {
+            var step = new ProgressStep
+            {
+                StepId = "tc1",
+                Phase = "executing",
+                Label = "Creating wall",
+                StartedUtc = DateTime.UtcNow.AddSeconds(-1.4),
+                EndedUtc = DateTime.UtcNow,
+                State = StepState.Done
+            };
+            var elapsed = step.ElapsedText;
+            Assert.NotEmpty(elapsed);
+            Assert.EndsWith("s", elapsed);
+        }
+
+        [Fact]
+        public void CompleteRunning_stamps_ended_utc_on_running()
+        {
+            var steps = new ObservableCollection<ProgressStep>();
+            ProgressReducer.Apply(steps, "tc1", "executing", "Creating wall", "", StepState.Running);
+            Assert.Null(steps[0].EndedUtc);
+
+            ProgressReducer.CompleteRunning(steps);
+            Assert.NotNull(steps[0].EndedUtc);
+            Assert.Equal(StepState.Done, steps[0].State);
+        }
+
+        [Fact]
+        public void Summary_returns_empty_for_null_or_empty_steps()
+        {
+            Assert.Equal("", ProgressTrail.Summary(null));
+            Assert.Equal("", ProgressTrail.Summary(new List<ProgressStep>()));
+        }
+
+        [Fact]
+        public void Summary_counts_steps_and_totals_time()
+        {
+            var steps = new List<ProgressStep>
+            {
+                new ProgressStep
+                {
+                    StepId = "a",
+                    StartedUtc = DateTime.UtcNow.AddSeconds(-2),
+                    EndedUtc = DateTime.UtcNow.AddSeconds(-1),
+                    State = StepState.Done
+                },
+                new ProgressStep
+                {
+                    StepId = "b",
+                    StartedUtc = DateTime.UtcNow.AddSeconds(-1),
+                    EndedUtc = DateTime.UtcNow,
+                    State = StepState.Done
+                }
+            };
+            var summary = ProgressTrail.Summary(steps);
+            Assert.Contains("✓", summary);
+            Assert.Contains("2", summary);
+            Assert.Contains("langkah", summary);
+            Assert.Contains("s", summary);
+        }
     }
 }
