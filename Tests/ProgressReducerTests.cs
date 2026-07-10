@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using RevitWebAppSync.UI.Copilot.Model;
 using Xunit;
@@ -117,6 +119,17 @@ namespace Tests
 
             ProgressReducer.Apply(steps, "tc1", "executing", "Creating wall", "", StepState.Error);
             Assert.NotNull(steps[0].EndedUtc);
+        }
+
+        [Fact]
+        public void Apply_append_done_stamps_ended()
+        {
+            var steps = new ObservableCollection<ProgressStep>();
+            ProgressReducer.Apply(steps, "tc1", "executing", "Creating wall", "", StepState.Done);
+            Assert.Single(steps);
+            Assert.NotNull(steps[0].EndedUtc);
+            Assert.NotEmpty(steps[0].ElapsedText);
+            Assert.Contains("langkah", ProgressTrail.Summary(new List<ProgressStep> { steps[0] }));
         }
 
         [Fact]

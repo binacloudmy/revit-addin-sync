@@ -65,14 +65,19 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
             if (existing == null)
             {
-                steps.Add(new ProgressStep
+                var newStep = new ProgressStep
                 {
                     StepId = stepId,
                     Phase = phase,
                     Label = label,
                     Detail = detail,
                     State = state,
-                });
+                };
+                if (state == StepState.Done || state == StepState.Error)
+                {
+                    newStep.EndedUtc = DateTime.UtcNow;
+                }
+                steps.Add(newStep);
             }
             else
             {
@@ -164,10 +169,23 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             if (steps == null || steps.Count == 0) return "";
             var start = steps[0].StartedUtc;
-            DateTime end = DateTime.UtcNow;
+            DateTime end = start;
             foreach (var s in steps)
-                if (s.EndedUtc != null && s.EndedUtc > start)
+            {
+                if (s.EndedUtc != null && s.EndedUtc.Value > end)
                     end = s.EndedUtc.Value;
+            }
+            // If any step is still running, use current time if it's later than the max end
+            foreach (var s in steps)
+            {
+                if (s.EndedUtc == null)
+                {
+                    var now = DateTime.UtcNow;
+                    if (now > end)
+                        end = now;
+                    break;
+                }
+            }
             var total = (end - start).TotalSeconds;
             return "✓ " + steps.Count + " langkah · " + total.ToString("0.#") + "s";
         }
