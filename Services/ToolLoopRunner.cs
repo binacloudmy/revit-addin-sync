@@ -170,6 +170,9 @@ namespace RevitWebAppSync.Services
                     outcome.Clarify = turn.Clarify;
                     outcome.Reply = turn.Reply ?? "";
                     ProgressReducer.CompleteRunning(trail);
+                    // Push the finalized trail so a live view never keeps showing
+                    // a ▶ row while the loop is parked waiting for the user.
+                    try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
                     outcome.Steps = new List<ProgressStep>(trail);
                     return outcome;
                 }
@@ -201,6 +204,9 @@ namespace RevitWebAppSync.Services
                     // Revit tool rows are appended in the resume round).
                     ProgressReducer.MoveStepToEnd(trail, "review");
                     ProgressReducer.CompleteRunning(trail);
+                    // Final typed push mirrors the finalized snapshot below so the
+                    // live view's last frame matches the persisted trail (all ✓).
+                    try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
                     outcome.Steps = new List<ProgressStep>(trail);
                     return outcome;
                 }
