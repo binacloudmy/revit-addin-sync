@@ -2341,7 +2341,7 @@ namespace BinaVibe.Mcp.Tools
                         // PROJECT DISPLAY UNITS (mm on JKR templates) — convert
                         // to internal. Non-measurable Doubles pass through.
                         var pdoc = p.Element?.Document;
-                        p.Set(pdoc != null ? ParamUnits.ToInternal(pdoc, p, d) : d);
+                        p.Set(pdoc != null ? Inspectors.ParamUnits.ToInternal(pdoc, p, d) : d);
                     }
                     else throw new ArgumentException($"value '{value}' is not Double");
                     break;
@@ -2656,7 +2656,7 @@ namespace BinaVibe.Mcp.Tools
                         if (double.TryParse(value, out var dv))
                         {
                             var pdoc2 = p.Element?.Document;
-                            return p.Set(pdoc2 != null ? ParamUnits.ToInternal(pdoc2, p, dv) : dv);
+                            return p.Set(pdoc2 != null ? Inspectors.ParamUnits.ToInternal(pdoc2, p, dv) : dv);
                         }
                         return false;
                     default: return false;
