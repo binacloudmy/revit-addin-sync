@@ -20,12 +20,19 @@ tools the copilot pane uses, over the same safe path.
 
 ## Enabling it
 
-Off by default — the pane never needs it. Turn on with an env flag when the
-engine starts:
+Always on — the engine mounts the MCP server unconditionally at startup
+(no flag; a facade build failure degrades to engine-without-MCP):
 
 ```
-BINA_ENGINE=1 BINA_ENGINE_SECRET=<secret> BINA_ENGINE_MCP=1 \
+BINA_ENGINE=1 BINA_ENGINE_SECRET=<secret> \
   uv run uvicorn app.engine.main:app --host 127.0.0.1 --port 48810
+```
+
+Or use the helper (reads GLM_API_KEY from .env, preflights the add-in,
+optional -Ngrok prints the claude.ai connector URL):
+
+```
+pwsh scripts/start-engine.ps1 -Secret <secret> -Ngrok
 ```
 
 The MCP server mounts at **`http://127.0.0.1:48810/mcp`** (streamable-http).
