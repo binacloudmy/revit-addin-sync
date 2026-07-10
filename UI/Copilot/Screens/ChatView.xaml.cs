@@ -355,7 +355,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // serialized history.)
 
             // Progress trail pill: collapsed expandable summary on final AI replies
-            if (m.Steps != null && m.Steps.Count > 0)
+            // only (not Clarify/Proposal/Running/Result — those carry Steps too but
+            // render their own cards, so the pill would be a stray duplicate).
+            if (m.Kind == CpMsgKind.AiReply && m.Steps != null && m.Steps.Count > 0)
             {
                 string trailSummary = ProgressTrail.Summary(m.Steps);
                 string glyphText = "▸";
@@ -365,15 +367,14 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
                 var pillButton = new Button
                 {
-                    Padding = new Thickness(5, 11, 11, 11),
+                    Padding = new Thickness(11, 5, 11, 5),
                     BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(16),
                     Margin = new Thickness(0, 0, 0, 9),
                     Cursor = System.Windows.Input.Cursors.Hand,
                 };
                 pillButton.SetResourceReference(Button.BorderBrushProperty, "Cp.Muted");
                 pillButton.Background = Brushes.Transparent;
-                FlatButton.Apply(pillButton, 16);
+                FlatButton.Apply(pillButton, 16, withBorder: true);
 
                 var pillText = new TextBlock
                 {
