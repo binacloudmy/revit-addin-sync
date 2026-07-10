@@ -27,20 +27,48 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     /// </summary>
     public class ProgressTrailView : StackPanel
     {
+        // Fingerprint of the last-rendered snapshot (StepId|State|Label|
+        // ElapsedText per row). Update is re-fired on every ~80-char reply
+        // delta (OnCodeStream carries LiveSteps along), so without a no-change
+        // guard the rows — and the Running spinner's rotation, restarting from
+        // 0° — would rebuild on every text tick and visibly stutter. Same idea
+        // as ThinkingTrailView's _shownLabel/_shownState early return.
+        private string _renderedKey;
+
         public ProgressTrailView()
         {
             Orientation = Orientation.Vertical;
             Margin = new Thickness(0, 4, 0, 2);
         }
 
-        /// <summary>Rebuild all rows from the given snapshot. No-op (clears) on
-        /// null/empty. Must be called on the UI thread.</summary>
+        /// <summary>Rebuild all rows from the given snapshot. No-op when nothing
+        /// visible changed since the last render (keeps the spinner animation
+        /// running smoothly across reply-stream re-renders). Must be called on
+        /// the UI thread.</summary>
         public void Update(IReadOnlyList<ProgressStep> steps)
         {
+            var key = Fingerprint(steps);
+            if (key == _renderedKey) return;
+            _renderedKey = key;
+
             Children.Clear();
             if (steps == null) return;
             foreach (var s in steps)
                 Children.Add(Row(s));
+        }
+
+        // One line per row: everything Update renders. If none of it changed,
+        // the visual tree is already correct and rebuilding would only reset
+        // animations. Reads the shared/mutable steps synchronously — UI thread
+        // only, same contract as Update.
+        private static string Fingerprint(IReadOnlyList<ProgressStep> steps)
+        {
+            if (steps == null || steps.Count == 0) return "";
+            var sb = new System.Text.StringBuilder();
+            foreach (var s in steps)
+                sb.Append(s.StepId).Append('|').Append(s.State).Append('|')
+                  .Append(s.Label).Append('|').Append(s.ElapsedText).Append('\n');
+            return sb.ToString();
         }
 
         private static FrameworkElement Row(ProgressStep s)
