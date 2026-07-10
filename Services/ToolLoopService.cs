@@ -37,6 +37,11 @@ namespace RevitWebAppSync.Services
         [JsonPropertyName("run_id")] public string RunId { get; set; } = "";
         [JsonPropertyName("session_id")] public string SessionId { get; set; } = "";
         [JsonPropertyName("reply")] public string Reply { get; set; } = "";
+        // A one-tap "next step" offer the model surfaced in its reply (e.g. "Nak
+        // saya lanjutkan?"), extracted server-side from a trailing "Tindakan:"
+        // line. Empty on older backends / turns with no offer — treat null/empty
+        // as "no offer", never render buttons.
+        [JsonPropertyName("tindakan")] public string Tindakan { get; set; } = "";
         // When the tool agent fell back to codegen (no tool fit), the done turn
         // carries the C# to run; empty when it answered in prose / via tools.
         [JsonPropertyName("code")] public string Code { get; set; } = "";

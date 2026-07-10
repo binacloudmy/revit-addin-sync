@@ -195,6 +195,7 @@ namespace RevitWebAppSync.UI.Copilot
                 IsQuery = string.IsNullOrWhiteSpace(outcome.Code) || outcome.IsQuery,
                 ToolCallTrace = outcome.ToolsUsed.Count > 0 ? outcome.ToolsUsed : null,
                 Steps = outcome.Steps,
+                Tindakan = outcome.Tindakan ?? "",
             };
         }
 

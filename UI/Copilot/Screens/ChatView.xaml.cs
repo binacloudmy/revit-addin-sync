@@ -414,6 +414,16 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 }
             }
 
+            // Tindakan (one-tap next-step offer): [✓ Ya, teruskan] [Tidak] under
+            // the answer. Only while unresolved, and only on the LAST AiReply in
+            // the thread — a stale offer on an older message just renders as the
+            // plain trailing text above (no dead buttons for a superseded turn).
+            if (m.Kind == CpMsgKind.AiReply && !string.IsNullOrWhiteSpace(m.Tindakan)
+                && !m.TindakanResolved && IsLastAiReply(m))
+            {
+                col.Children.Add(TindakanRow(m));
+            }
+
             switch (m.Kind)
             {
                 // NOTE: Thinking is handled above (ThinkingTrail) and returns early —
@@ -474,6 +484,67 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             aiRow.Children.Add(col);
             return aiRow;
+        }
+
+        // ─── Tindakan (one-tap next-step offer) ─────────────────────────────
+        // m is the last message in Vm.Thread with Kind == AiReply. Gates the
+        // button row so a stale offer on an older bubble (superseded by a
+        // newer answer) never renders live buttons.
+        private bool IsLastAiReply(ChatMessage m)
+        {
+            if (Vm == null) return false;
+            for (int i = Vm.Thread.Count - 1; i >= 0; i--)
+            {
+                if (Vm.Thread[i].Kind == CpMsgKind.AiReply)
+                    return ReferenceEquals(Vm.Thread[i], m);
+            }
+            return false;
+        }
+
+        // Horizontal button row: primary "✓ Ya, teruskan" (accent bg, white
+        // text, 7px radius — same chrome family as ProposalCard's "Apply to
+        // model" button) and secondary "Tidak" (bordered flat, matches the
+        // langkah pill's FlatButton.Apply(..., withBorder: true) idiom).
+        private FrameworkElement TindakanRow(ChatMessage m)
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 9) };
+
+            var yes = new Button
+            {
+                Padding = new Thickness(12, 6, 12, 6),
+                BorderThickness = new Thickness(0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+            };
+            yes.SetResourceReference(BackgroundProperty, "Cp.AccentGrad");
+            var yesBorder = new FrameworkElementFactory(typeof(Border));
+            yesBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(7));
+            yesBorder.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(BackgroundProperty));
+            yesBorder.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+            var yesCp = new FrameworkElementFactory(typeof(ContentPresenter));
+            yesBorder.AppendChild(yesCp);
+            yes.Template = new ControlTemplate(typeof(Button)) { VisualTree = yesBorder };
+            var yesLabel = new TextBlock { Text = "✓ Ya, teruskan", FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+            yesLabel.SetResourceReference(TextBlock.ForegroundProperty, "Cp.AccentContrast");
+            yes.Content = yesLabel;
+            yes.Click += (_, __) => Vm?.AcceptTindakan(m);
+            row.Children.Add(yes);
+
+            var no = new Button
+            {
+                Content = "Tidak",
+                FontSize = 11.5, FontWeight = FontWeights.Medium,
+                Padding = new Thickness(12, 6, 12, 6),
+                BorderThickness = new Thickness(1),
+                Margin = new Thickness(8, 0, 0, 0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+            };
+            no.SetResourceReference(Control.ForegroundProperty, "Cp.Muted");
+            no.SetResourceReference(Button.BorderBrushProperty, "Cp.Muted");
+            FlatButton.Apply(no, 7, withBorder: true);
+            no.Click += (_, __) => Vm?.DeclineTindakan(m);
+            row.Children.Add(no);
+
+            return row;
         }
 
         // ─── Inline rating nudge ─────────────────────────────────────────────

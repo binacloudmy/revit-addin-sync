@@ -977,6 +977,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Verdict = rr.Verdict,
                     Interrupted = rr.Interrupted,
                     Time = System.DateTime.Now.ToString("h:mm tt"),
+                    Tindakan = rr.Tindakan ?? "",
                 });
                 var replyToolIds = (rr.ToolCallTrace != null && rr.ToolCallTrace.Count > 0) ? rr.ToolCallTrace : new List<string> { tool.Id };
                 AppendToCurrentSession(displayText, rr.Reply ?? "Done", "ok", replyToolIds, historyFiles);
@@ -1048,6 +1049,33 @@ namespace RevitWebAppSync.UI.Copilot
 
             if (Executor != null) Executor.Run(tool, new Dictionary<string, object>(), code, Done);
             else Done(new ExecOutcome { Success = true });
+        }
+
+        // ─── Tindakan (one-tap next-step offer) ────────────────────────────────
+        // The agent's reply can end with a "next step" offer ("Nak saya
+        // lanjutkan?"); the pane renders it as [✓ Ya, teruskan] / [Tidak] under
+        // the LAST AiReply while unresolved (ChatView gates the buttons — see
+        // IsLastAiReply). Ya re-sends the offer text as if the drafter typed it
+        // — SAME path as a normal ChatSend, so it goes through the tool loop,
+        // history, feedback, everything unchanged. Tidak just dismisses.
+        public void AcceptTindakan(ChatMessage m)
+        {
+            if (m == null || string.IsNullOrWhiteSpace(m.Tindakan) || m.TindakanResolved) return;
+            m.TindakanResolved = true;
+            ChatSend("Ya, teruskan: " + m.Tindakan);
+        }
+
+        public void DeclineTindakan(ChatMessage m)
+        {
+            if (m == null) return;
+            m.TindakanResolved = true;
+            // Item-replace trick: setting the SAME item back into the indexer
+            // still raises ObservableCollection's CollectionChanged (Replace),
+            // which ChatView's Thread.CollectionChanged hook uses to Rebuild() —
+            // there's no separate "refresh" method, this is how every other
+            // in-place mutation (m.Dismissed = true, etc.) forces a redraw.
+            int i = Thread.IndexOf(m);
+            if (i >= 0) Thread[i] = Thread[i];
         }
 
         // ─── Feedback (👍/👎) ───────────────────────────────────────────────────

@@ -187,6 +187,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<string> ImagesBase64;  // screenshots pasted with this prompt (base64 PNG) — rendered as thumbnails
         public List<FileAttachment> Files;  // text files attached with this prompt — rendered as chips (content lives only in the backend route text)
         public RevitWebAppSync.Models.ReviewerVerdict Verdict; // attached to AiReply messages
+        // One-tap "next step" offer parsed server-side from the reply's trailing
+        // "Tindakan:" line. Empty/null = no offer (old backend or plain reply) —
+        // ChatView must render no buttons in that case. Rendered ONLY on the
+        // LAST AiReply in the thread and only while unresolved; older messages
+        // with a stale offer fall back to plain text.
+        public string Tindakan;
+        public bool TindakanResolved;
     }
 
     /// <summary>A text file attached to a prompt. Content is sent to the backend

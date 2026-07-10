@@ -27,6 +27,9 @@ namespace RevitWebAppSync.Services
     {
         public bool Success { get; set; } = true;
         public string Reply { get; set; } = "";
+        // One-tap "next step" offer parsed server-side from the reply's trailing
+        // "Tindakan:" line (empty when the turn made no offer / older backend).
+        public string Tindakan { get; set; } = "";
         // Set when the tool agent fell back to codegen — the addin runs it via
         // its normal executor (compile-gate + transaction wrap), same as /generate.
         public string Code { get; set; } = "";
@@ -185,6 +188,7 @@ namespace RevitWebAppSync.Services
                     // so the committed message keeps the full one-bubble answer.
                     AppendRound(narration, turn.Reply);
                     outcome.Reply = narration.Length > 0 ? narration.ToString() : (turn.Reply ?? "");
+                    outcome.Tindakan = turn.Tindakan ?? "";
                     outcome.Code = turn.Code ?? "";
                     outcome.IsQuery = turn.IsQuery;
                     // Fold in the server-side tools the agent ran this turn
