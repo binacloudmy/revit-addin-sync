@@ -38,14 +38,18 @@ namespace BinaVibe.Mcp.Tools
                 .OfClass(typeof(RevitLinkInstance)).Cast<RevitLinkInstance>()
                 .Select(l =>
                 {
-                    var t = l.GetTotalTransform();
-                    var rot = Math.Round(Math.Atan2(t.BasisX.Y, t.BasisX.X) * 180.0 / Math.PI, 3);
+                    // Unloaded links: transform access is believed safe (placement
+                    // persists), but guard anyway — one bad link must not kill the read.
+                    Transform? t = null;
+                    try { t = l.GetTotalTransform(); } catch { /* leave null */ }
+                    var rot = t == null ? (double?)null
+                        : Math.Round(Math.Atan2(t.BasisX.Y, t.BasisX.X) * 180.0 / Math.PI, 3);
                     return (object)new Dictionary<string, object?>
                     {
                         ["link_id"] = l.Id.Value,
                         ["name"] = l.Name,
                         ["loaded"] = l.GetLinkDocument() != null,
-                        ["origin_offset_mm"] = Mm(t.Origin),
+                        ["origin_offset_mm"] = t == null ? null : Mm(t.Origin),
                         ["rotation_deg"] = rot,
                     };
                 }).ToList();

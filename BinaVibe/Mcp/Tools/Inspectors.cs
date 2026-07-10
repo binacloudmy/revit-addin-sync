@@ -625,13 +625,12 @@ namespace BinaVibe.Mcp.Tools
             if (bic.HasValue) col = col.OfCategory(bic.Value);
             IEnumerable<Element> q = col;
 
-            const int cap = 50;
+            const int cap = 100;
             var elements = new List<object>();
+            var matchedTotal = 0;
 
             foreach (var el in q)
             {
-                if (elements.Count >= cap) break;
-
                 bool passes = conditions.Count == 0
                     ? true
                     : matchAll
@@ -639,6 +638,8 @@ namespace BinaVibe.Mcp.Tools
                         : conditions.Any(c => EvaluateCondition(el, doc, c.param, c.op, c.value));
 
                 if (!passes) continue;
+                matchedTotal++;
+                if (elements.Count >= cap) continue;   // keep counting, stop shaping
 
                 var typeEl = el.GetTypeId().Value != ElementId.InvalidElementId.Value
                     ? doc.GetElement(el.GetTypeId()) : null;
@@ -660,15 +661,26 @@ namespace BinaVibe.Mcp.Tools
                 });
             }
 
-            return new Dictionary<string, object?>
+            var result = new Dictionary<string, object?>
             {
                 ["ok"] = true,
                 ["elements"] = elements,
                 ["count"] = elements.Count,
             };
+            if (matchedTotal > cap)
+                result["truncated"] = $"showing {cap} of {matchedTotal} matches — narrow the conditions";
+            return result;
         }
 
         // ─── condition evaluator ─────────────────────────────────────────
+        // Display-form string for a parameter: Double params render via
+        // AsValueString (project units, e.g. "3.000 m") — SafeParamValue would
+        // stringify the rich dict. Shared by EvaluateCondition + PredicateMatches.
+        private static string DisplayFormString(Parameter p)
+            => p.StorageType == StorageType.Double
+                ? (p.AsValueString() ?? "")
+                : (SafeParamValue(p)?.ToString() ?? "");
+
         private static bool EvaluateCondition(Element el, Document doc, string paramName, string op, string wantStr)
         {
             var p = el.LookupParameter(paramName);
@@ -676,10 +688,7 @@ namespace BinaVibe.Mcp.Tools
 
             // Display-form string for string ops (contains/equals). For Double
             // params AsValueString is the project-units rendering ("3.000 m");
-            // SafeParamValue would stringify the rich dict — never use it here.
-            var rawStr = p.StorageType == StorageType.Double
-                ? (p.AsValueString() ?? "")
-                : (SafeParamValue(p)?.ToString() ?? "");
+            var rawStr = DisplayFormString(p);
 
             // Try numeric comparison first when both sides coerce.
             if (double.TryParse(wantStr, System.Globalization.NumberStyles.Any,
@@ -848,10 +857,7 @@ namespace BinaVibe.Mcp.Tools
                 var paramName = key.Substring(6);
                 var p = el.LookupParameter(paramName);
                 if (p == null) return false;
-                var pv = p.StorageType == StorageType.Double
-                    ? (p.AsValueString() ?? "")
-                    : (SafeParamValue(p)?.ToString() ?? "");
-                return string.Equals(pv, want, System.StringComparison.OrdinalIgnoreCase);
+                return string.Equals(DisplayFormString(p), want, System.StringComparison.OrdinalIgnoreCase);
             }
             return true;
         }
