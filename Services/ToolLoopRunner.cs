@@ -86,7 +86,8 @@ namespace RevitWebAppSync.Services
         // through it, and each pending Revit execution pushes its own.
         public async Task<ToolLoopOutcome> RunAsync(
             AIRequest request, string accessToken, Action<string> onProgress = null,
-            CancellationToken ct = default, Action<string> onReply = null)
+            CancellationToken ct = default, Action<string> onReply = null,
+            Action<IReadOnlyList<ProgressStep>> onSteps = null)
         {
             // One trail spans the whole loop: the streamed first turn AND every
             // Revit-execution round reduce into it, so the addin shows a single
@@ -109,13 +110,13 @@ namespace RevitWebAppSync.Services
                 // Stream the first turn so the agent's steps appear live instead
                 // of a static "Thinking…". Returns the same ToolTurn (done OR
                 // awaiting_revit) the non-streaming path did.
-                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct, wrapped).ConfigureAwait(false);
+                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct, wrapped, onSteps).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
                 return new ToolLoopOutcome { Success = false, Error = $"tool/generate failed: {ex.Message}" };
             }
-            return await DriveAsync(turn, request?.SessionId, accessToken, onProgress, onReply, narration, trail, ct).ConfigureAwait(false);
+            return await DriveAsync(turn, request?.SessionId, accessToken, onProgress, onReply, narration, trail, ct, onSteps).ConfigureAwait(false);
         }
 
         /// <summary>Re-enter the loop after a clarify pause: POST the user's
@@ -124,7 +125,8 @@ namespace RevitWebAppSync.Services
         public async Task<ToolLoopOutcome> ResumeWithInputAsync(
             string runId, string sessionId, IReadOnlyList<ClarifyAnswerDto> answers,
             string accessToken, Action<string> onProgress = null,
-            CancellationToken ct = default, Action<string> onReply = null)
+            CancellationToken ct = default, Action<string> onReply = null,
+            Action<IReadOnlyList<ProgressStep>> onSteps = null)
         {
             var trail = new ObservableCollection<ProgressStep>();
             var narration = new System.Text.StringBuilder();
@@ -137,7 +139,7 @@ namespace RevitWebAppSync.Services
             {
                 return new ToolLoopOutcome { Success = false, Error = $"tool/resume-input failed: {ex.Message}" };
             }
-            return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply, narration, trail, ct).ConfigureAwait(false);
+            return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply, narration, trail, ct, onSteps).ConfigureAwait(false);
         }
 
         // Shared execute/resume driver: takes the latest turn and loops until
@@ -146,7 +148,8 @@ namespace RevitWebAppSync.Services
             ToolTurn turn, string sessionFallback, string accessToken,
             Action<string> onProgress, Action<string> onReply,
             System.Text.StringBuilder narration,
-            ObservableCollection<ProgressStep> trail, CancellationToken ct)
+            ObservableCollection<ProgressStep> trail, CancellationToken ct,
+            Action<IReadOnlyList<ProgressStep>> onSteps = null)
         {
             var wrapped = Wrap(onReply, narration);
             var outcome = new ToolLoopOutcome();
@@ -225,12 +228,14 @@ namespace RevitWebAppSync.Services
                     string runLabel = known ? "" : ToolLabels.Label(call.Tool, call.Args) + "…";
                     ProgressReducer.Apply(trail, call.ToolCallId, "executing", runLabel, "", StepState.Running);
                     try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* best-effort UI */ }
+                    try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
 
                     var res = await ExecuteOneAsync(call, ct).ConfigureAwait(false);
 
                     ProgressReducer.Apply(trail, call.ToolCallId, "executing", "", "",
                         res.Ok ? StepState.Done : StepState.Error);
                     try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* best-effort UI */ }
+                    try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
                     results.Add(res);
                 }
 
@@ -241,7 +246,7 @@ namespace RevitWebAppSync.Services
                     // reply text live instead of a blocking 7-15s POST. Falls back
                     // to the blocking endpoint on older backends (404) internally.
                     turn = await _svc.ResumeStreamAsync(turn.RunId, turn.SessionId ?? sessionFallback, results,
-                                                        accessToken, onProgress, trail, wrapped, ct)
+                                                        accessToken, onProgress, trail, wrapped, ct, onSteps)
                                      .ConfigureAwait(false);
                 }
                 catch (Exception ex)

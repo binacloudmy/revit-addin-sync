@@ -141,12 +141,12 @@ namespace RevitWebAppSync.Services
         public async Task<ToolTurn> GenerateStreamAsync(
             AIRequest request, string accessToken, Action<string> onProgress,
             ObservableCollection<ProgressStep> trail = null, CancellationToken ct = default,
-            Action<string> onReply = null)
+            Action<string> onReply = null, Action<IReadOnlyList<ProgressStep>> onSteps = null)
         {
             var bodyJson = Newtonsoft.Json.JsonConvert.SerializeObject(request);
             return await StreamTurnAsync(
                 AiUrl.Build(_baseUrl, "tool/generate/stream"),
-                bodyJson, accessToken, onProgress, trail, onReply, ct).ConfigureAwait(false);
+                bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps).ConfigureAwait(false);
         }
 
         /// <summary>RESUME a paused run over SSE — the resume leg is where the
@@ -160,13 +160,14 @@ namespace RevitWebAppSync.Services
             string runId, string sessionId, IReadOnlyList<ToolResultDto> results,
             string accessToken, Action<string> onProgress,
             ObservableCollection<ProgressStep> trail = null,
-            Action<string> onReply = null, CancellationToken ct = default)
+            Action<string> onReply = null, CancellationToken ct = default,
+            Action<IReadOnlyList<ProgressStep>> onSteps = null)
         {
             var body = new ToolResumeBody { RunId = runId, SessionId = sessionId, ToolResults = results };
             var bodyJson = JsonSerializer.Serialize(body, _json);
             var turn = await StreamTurnAsync(
                 AiUrl.Build(_baseUrl, "tool/resume/stream"),
-                bodyJson, accessToken, onProgress, trail, onReply, ct).ConfigureAwait(false);
+                bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps).ConfigureAwait(false);
             // Older backend without the streaming twin → transparent fallback.
             if (turn != null && turn.Status == "error" && (turn.Error ?? "").StartsWith("HTTP 404"))
                 return await ResumeAsync(runId, sessionId, results, accessToken, ct).ConfigureAwait(false);
@@ -179,7 +180,8 @@ namespace RevitWebAppSync.Services
         // onReply (cumulative), and returns the terminal ToolTurn.
         private async Task<ToolTurn> StreamTurnAsync(
             string url, string bodyJson, string accessToken, Action<string> onProgress,
-            ObservableCollection<ProgressStep> trail, Action<string> onReply, CancellationToken ct)
+            ObservableCollection<ProgressStep> trail, Action<string> onReply, CancellationToken ct,
+            Action<IReadOnlyList<ProgressStep>> onSteps = null)
         {
             // Accumulate phase/tool events into a step trail (BIMLogiq-style)
             // and push the rendered trail through onProgress, instead of a
@@ -226,7 +228,7 @@ namespace RevitWebAppSync.Services
                 void Flush()
                 {
                     if (ev != null && data.Length > 0)
-                        final = HandleStreamEvent(ev, data.ToString(), onProgress, trail, onReply, replySb) ?? final;
+                        final = HandleStreamEvent(ev, data.ToString(), onProgress, trail, onReply, replySb, onSteps) ?? final;
                     data.Clear();
                 }
                 while (!reader.EndOfStream)
@@ -257,7 +259,8 @@ namespace RevitWebAppSync.Services
         // done/awaiting_revit deserialize to the terminal ToolTurn; error becomes
         // an error ToolTurn.
         private ToolTurn HandleStreamEvent(string ev, string raw, Action<string> onProgress,
-            ObservableCollection<ProgressStep> trail, Action<string> onReply, StringBuilder replySb)
+            ObservableCollection<ProgressStep> trail, Action<string> onReply, StringBuilder replySb,
+            Action<IReadOnlyList<ProgressStep>> onSteps = null)
         {
             switch (ev)
             {
@@ -310,7 +313,7 @@ namespace RevitWebAppSync.Services
                             label = string.IsNullOrEmpty(tool)
                                 ? "Working…"
                                 : "Running " + tool.Replace('_', ' ').Trim() + "…";
-                        ReduceAndEmit(trail, onProgress, stepId, phase, label, detail, state);
+                        ReduceAndEmit(trail, onProgress, onSteps, stepId, phase, label, detail, state);
                     }
                     catch { }
                     return null;
@@ -330,7 +333,7 @@ namespace RevitWebAppSync.Services
                         if (string.IsNullOrEmpty(stepId))
                             stepId = string.IsNullOrEmpty(label) ? Guid.NewGuid().ToString("N") : "status:" + label;
                         if (!string.IsNullOrEmpty(label) || !string.IsNullOrEmpty(detail))
-                            ReduceAndEmit(trail, onProgress, stepId, phase, label, detail, state);
+                            ReduceAndEmit(trail, onProgress, onSteps, stepId, phase, label, detail, state);
                     }
                     catch { }
                     return null;
@@ -361,11 +364,13 @@ namespace RevitWebAppSync.Services
         // rendered multi-row trail through onProgress. Pure reuse of the same
         // ProgressReducer/ProgressTrail the codegen path uses.
         private static void ReduceAndEmit(ObservableCollection<ProgressStep> trail, Action<string> onProgress,
+            Action<IReadOnlyList<ProgressStep>> onSteps,
             string stepId, string phase, string label, string detail, string state)
         {
             if (trail == null) return;
             ProgressReducer.Apply(trail, stepId, phase, label, detail, ProgressTrail.StateFrom(state));
             try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* UI hiccup */ }
+            try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* UI hiccup — snapshot, caller may enumerate later */ }
         }
 
         // Read a string property tolerantly (missing / non-string -> "").

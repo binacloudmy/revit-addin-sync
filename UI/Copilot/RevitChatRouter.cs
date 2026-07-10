@@ -81,6 +81,15 @@ namespace RevitWebAppSync.UI.Copilot
         /// so the existing "Drafting…" card still updates.</summary>
         public Action<string> OnProgress { get; set; }
 
+        /// <summary>Optional callback for the TYPED step trail — fires alongside
+        /// OnProgress on every reducer application (server-streamed tool/status
+        /// events AND local Revit-execution ticks), carrying a snapshot
+        /// (new List copy) of the live ProgressStep trail instead of a
+        /// pre-rendered string. UI consumers that want structured rows (icons,
+        /// timestamps, per-row state) should use this instead of parsing
+        /// OnProgress's rendered text.</summary>
+        public Action<IReadOnlyList<ProgressStep>> OnSteps { get; set; }
+
         /// <summary>Screenshots pasted with the NEXT prompt (base64 PNG). Set by
         /// the viewmodel right before RouteAsync, consumed and cleared by the
         /// route that builds the request — same per-call pattern as OnProgress.</summary>
@@ -280,7 +289,8 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     ho = await _toolLoop.ResumeWithInputAsync(
                         hitl.RunId, hitl.SessionId, BuildAnswers(hitl, message), token, EmitProgress,
-                        hcts.Token, onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } }
+                        hcts.Token, onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
+                        onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } }
                         ).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) { hcanceled = true; }
@@ -343,7 +353,8 @@ namespace RevitWebAppSync.UI.Copilot
                     // streaming path uses).
                     outcome = await _toolLoop.RunAsync(
                         treq, token, EmitProgress, cts.Token,
-                        onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } }
+                        onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
+                        onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } }
                         ).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
