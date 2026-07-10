@@ -346,9 +346,58 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 return aiRow;
             }
 
-            // Design: a completed reply shows ONLY the answer — the live single-line
-            // thinking indicator fades out and no step trail is persisted.
-            // (ProgressTracePanel/ToolTracePanel remain for old serialized history.)
+            // Design: a completed reply shows the answer. When m.Steps is populated
+            // (final AI replies from the backend), a collapsed pill above the text shows
+            // the summary ("✓ N langkah · Xs") with a ▸/▾ toggle glyph; clicking expands
+            // a ProgressTrailView below it showing all Done rows + elapsed times.
+            // The live single-line thinking indicator fades out and no step trail
+            // persists otherwise. (ProgressTracePanel/ToolTracePanel remain for old
+            // serialized history.)
+
+            // Progress trail pill: collapsed expandable summary on final AI replies
+            if (m.Steps != null && m.Steps.Count > 0)
+            {
+                string trailSummary = ProgressTrail.Summary(m.Steps);
+                string glyphText = "▸";
+                var trailView = new ProgressTrailView();
+                trailView.Update(m.Steps);
+                trailView.Visibility = Visibility.Collapsed;
+
+                var pillButton = new Button
+                {
+                    Padding = new Thickness(5, 11, 11, 11),
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(16),
+                    Margin = new Thickness(0, 0, 0, 9),
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                };
+                pillButton.SetResourceReference(Button.BorderBrushProperty, "Cp.Muted");
+                pillButton.Background = Brushes.Transparent;
+                FlatButton.Apply(pillButton, 16);
+
+                var pillText = new TextBlock
+                {
+                    FontSize = 11.5,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                pillText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+                pillButton.Content = pillText;
+
+                // Click handler: toggle trail visibility and swap glyph
+                pillButton.Click += (_, __) =>
+                {
+                    bool expanding = trailView.Visibility == Visibility.Collapsed;
+                    trailView.Visibility = expanding ? Visibility.Visible : Visibility.Collapsed;
+                    glyphText = expanding ? "▾" : "▸";
+                    pillText.Text = trailSummary + "  " + glyphText;
+                };
+
+                // Initial text with ▸ glyph
+                pillText.Text = trailSummary + "  " + glyphText;
+
+                col.Children.Add(pillButton);
+                col.Children.Add(trailView);
+            }
 
             if (!string.IsNullOrEmpty(m.Text))
             {
