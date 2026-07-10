@@ -71,7 +71,7 @@ namespace BinaVibe.Mcp.Tools
                 if (!beamType.IsActive) beamType.Activate();
                 var beamSystem = BeamSystem.Create(doc, profile, level, dirIndex, false);
                 beamSystem.BeamType = beamType;
-                var layoutRule = new LayoutRuleFixedDistance(spacingFt.Value, justifyType);
+                var layoutRule = new LayoutRuleFixedDistance(spacingFt, justifyType);
                 beamSystem.LayoutRule = layoutRule;
                 doc.Regenerate();   // BeamSystem materialises member beams on regen
                 var beamIds = beamSystem.GetBeamIds().Select(id => id.Value).ToList();
