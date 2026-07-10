@@ -85,11 +85,17 @@
                 <!-- Kebab dropdown: Rate Copilot / Report a bug -->
                 <Popup x:Name="MenuPopup" PlacementTarget="{Binding ElementName=MenuBtn}" Placement="Bottom"
                        HorizontalOffset="-150" VerticalOffset="4" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
-                    <Border Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
+                    <!-- Layered: soft shadow on a sibling behind, so the text card
+                         itself is never rasterized (crisp text, clean edges). -->
+                    <Grid Margin="10" UseLayoutRounding="True"
+                          TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType">
+                        <Border Background="{DynamicResource Cp.Menu}" CornerRadius="12" MinWidth="188">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="20" ShadowDepth="3" Opacity="0.14" Color="#000000"/>
+                            </Border.Effect>
+                        </Border>
+                        <Border Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
                             CornerRadius="12" Padding="5" MinWidth="188">
-                        <Border.Effect>
-                            <DropShadowEffect BlurRadius="24" ShadowDepth="6" Opacity="0.28" Color="#000000"/>
-                        </Border.Effect>
                         <StackPanel>
                             <Button Style="{DynamicResource Cp.MenuItem}" Click="OnRate">
                                 <StackPanel Orientation="Horizontal">
@@ -110,7 +116,8 @@
                                 </StackPanel>
                             </Button>
                         </StackPanel>
-                    </Border>
+                        </Border>
+                    </Grid>
                 </Popup>
             </Grid>
         </Border>

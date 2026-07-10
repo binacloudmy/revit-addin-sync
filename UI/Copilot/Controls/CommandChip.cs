@@ -41,11 +41,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var sp = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             sp.Children.Add(Icon(tool.IconKey, 13, "Cp.Accent"));
 
-            // "/" faded (design opacity .55, weight 800) then the name (weight 680).
-            var slash = new TextBlock { Text = "/", FontSize = 11.5, FontWeight = FontWeights.ExtraBold, Opacity = 0.55, Margin = new Thickness(4, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+            // "/" and the name both full-strength accent (mockup: "icon / Name"), with a
+            // little air on each side of the slash so it reads as a separator, not glued on.
+            var slash = new TextBlock { Text = "/", FontSize = 11.5, FontWeight = FontWeights.ExtraBold, Margin = new Thickness(5, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
             slash.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Accent");
             sp.Children.Add(slash);
-            var name = new TextBlock { Text = tool.Name, FontSize = 11.5, FontWeight = FontWeight.FromOpenTypeWeight(680), Margin = new Thickness(3, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+            var name = new TextBlock { Text = tool.Name, FontSize = 11.5, FontWeight = FontWeight.FromOpenTypeWeight(680), Margin = new Thickness(5, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
             name.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Accent");
             sp.Children.Add(name);
 
