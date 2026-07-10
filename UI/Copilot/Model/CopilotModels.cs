@@ -163,6 +163,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English
         public List<string> ToolCallTrace; // tool-calling agent: ordered tool names called
         public IReadOnlyList<ProgressStep> Steps; // full phased trail; ChatView prefers this over ToolCallTrace
+        // Transient live trail for the CURRENT turn's Thinking bubble (set by
+        // CopilotViewModel's OnSteps/OnCodeStream handlers, cleared per-turn).
+        // Unlike Steps (persisted with a resolved message), LiveSteps only ever
+        // rides on the in-flight Thinking message — ChatView renders it via the
+        // cached ProgressTrailView instead of the single-line ThinkingTrail.
+        public IReadOnlyList<ProgressStep> LiveSteps;
         // A Thinking-kind message whose Text is the ACCUMULATING reply prose
         // (not a step trail). The VM reuses Kind=Thinking during reply streaming
         // so ReplaceLastThinking keeps targeting the same growing bubble; this

@@ -203,7 +203,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // begun): drop the persistent thinking view so the NEXT run's steps
             // reveal + animate fresh instead of reusing the prior run's rows.
             if (empty || (Vm.Thread.Count > 0 && Vm.Thread[Vm.Thread.Count - 1].Role == "user"))
+            {
                 _thinkingView = null;
+                _progressTrailView = null;
+            }
 
             if (empty) { BodyHost.Children.Add(EmptyState()); return; }
 
@@ -320,12 +323,19 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // collapses and the accumulating answer renders in its place.
             if (m.Kind == CpMsgKind.Thinking && !m.StreamingReply)
             {
-                col.Children.Add(ThinkingTrail(m.Text));
+                // Typed live step trail (mock 1+2 combined): multi-row trail,
+                // ticking as rows go running -> done. Falls back to the old
+                // single-line ThinkingTrail when the backend never sent steps.
+                col.Children.Add(m.LiveSteps != null ? ProgressTrailPanel(m.LiveSteps) : ThinkingTrail(m.Text));
                 aiRow.Children.Add(col);
                 return aiRow;
             }
             if (m.Kind == CpMsgKind.Thinking && m.StreamingReply)
             {
+                // Once reply prose starts streaming, the trail stays pinned ABOVE
+                // the growing answer (rows keep ticking) instead of collapsing.
+                if (m.LiveSteps != null)
+                    col.Children.Add(ProgressTrailPanel(m.LiveSteps));
                 if (!string.IsNullOrEmpty(m.Text))
                     col.Children.Add(CopilotMessageBubble.MarkdownText(m.Text, col.MaxWidth));
                 // Pin the pulsing-dots liveness indicator below the partial prose.
@@ -811,6 +821,21 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 oldParent.Children.Remove(_thinkingView);
             _thinkingView.Update(text);
             return _thinkingView;
+        }
+
+        // Same one-instance-per-turn caching as ThinkingTrail/_thinkingView above
+        // (see Rebuild's reset when a new turn starts) — Rebuild fires on EVERY
+        // thread mutation, so a fresh ProgressTrailView per call would recreate
+        // (and re-animate) every row on every tick instead of updating in place.
+        private ProgressTrailView _progressTrailView;
+
+        private FrameworkElement ProgressTrailPanel(System.Collections.Generic.IReadOnlyList<ProgressStep> steps)
+        {
+            if (_progressTrailView == null) _progressTrailView = new ProgressTrailView();
+            else if (_progressTrailView.Parent is Panel oldParent)
+                oldParent.Children.Remove(_progressTrailView);
+            _progressTrailView.Update(steps);
+            return _progressTrailView;
         }
 
         private FrameworkElement ClarifyCard(ChatMessage m)

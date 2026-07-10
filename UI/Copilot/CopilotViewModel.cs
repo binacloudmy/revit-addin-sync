@@ -418,6 +418,19 @@ namespace RevitWebAppSync.UI.Copilot
         private bool _isSending;
         public bool IsSending { get => _isSending; set { _isSending = value; Raise(); } }
 
+        // Live step trail state for the CURRENT turn. _lastSteps is the latest
+        // typed-steps snapshot from RevitChatRouter.OnSteps (null until the
+        // backend emits at least one steps frame — older backends never set
+        // this, which is how the legacy OnProgress fallback below detects it
+        // should keep driving the trail). _streamText mirrors whatever reply
+        // prose OnCodeStream has accumulated so far, so OnSteps can keep the
+        // growing answer visible under the trail instead of blanking it.
+        // Both reset at the start of every turn (ChatSend) — never mid-turn,
+        // so a late OnProgress tick from an old-style backend can't clobber
+        // a newer OnSteps-driven trail once one has arrived this turn.
+        private IReadOnlyList<ProgressStep> _lastSteps;
+        private string _streamText;
+
         /// <summary>User clicked Stop — abort the streaming reply. The router's
         /// RouteAsync then returns a "Cancelled." result which resolves the bubble;
         /// IsSending clears in ResolveProposalAsync's finally.</summary>
@@ -668,7 +681,9 @@ namespace RevitWebAppSync.UI.Copilot
             //     return;
             // }
 
-            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Drafting a command for that…" });
+            _lastSteps = null;
+            _streamText = null;
+            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Menganalisis permintaan…" });
             _ = ResolveProposalAsync(routeText, text, interp.ToolId, images, historyFiles);
         }
 
@@ -847,27 +862,54 @@ namespace RevitWebAppSync.UI.Copilot
                     // reply per tool-loop round, but ToolLoopRunner ACCUMULATES them
                     // (round1 \n\n round2 \n\n …) so `cumulative` here is always the
                     // full running answer — we just render it into the single bubble.
+                    // Legacy plain-text trail — only drives the bubble when this
+                    // turn never got a typed steps frame (older backend). Once
+                    // OnSteps has fired once, _lastSteps is non-null and this
+                    // fallback goes quiet for the rest of the turn.
                     revitRouter.OnProgress = (trail) =>
                     {
-                        if (replyStreaming) return;
+                        if (replyStreaming || _lastSteps != null) return;
                         ReplaceLastThinking(new ChatMessage
                         {
                             Role = "ai", Kind = CpMsgKind.Thinking,
                             Text = string.IsNullOrEmpty(trail) ? "Thinking…" : trail,
                         });
                     };
+                    // Typed live step trail (▶ running, ✓ done, ✗ error) — the
+                    // multi-row trail rendered by ProgressTrailView. Marshaled the
+                    // same way as ReplaceLastThinking itself (see its dispatcher
+                    // check): ProgressStep objects are shared/mutable, but we only
+                    // ever pass the reference along here — ProgressTrailView reads
+                    // their current values synchronously on the UI thread inside
+                    // Update, never binds to their INPC.
+                    revitRouter.OnSteps = steps =>
+                    {
+                        _lastSteps = steps;
+                        ReplaceLastThinking(new ChatMessage
+                        {
+                            Role = "ai", Kind = CpMsgKind.Thinking,
+                            Text = _streamText ?? "",
+                            StreamingReply = !string.IsNullOrEmpty(_streamText),
+                            LiveSteps = steps,
+                        });
+                    };
                     revitRouter.OnCodeStream = (cumulative) =>
                     {
                         if (string.IsNullOrWhiteSpace(cumulative)) return;
                         replyStreaming = true;
+                        _streamText = cumulative;
                         // StreamingReply: still Kind=Thinking so ReplaceLastThinking
                         // keeps growing THIS bubble, but flagged so ChatView renders
                         // the prose as the reply (markdown) — not the steps trail.
+                        // LiveSteps carries along whatever trail has arrived so far
+                        // so the ticking rows stay visible ABOVE the growing answer
+                        // instead of disappearing the moment prose starts.
                         ReplaceLastThinking(new ChatMessage
                         {
                             Role = "ai", Kind = CpMsgKind.Thinking,
                             Text = cumulative,
                             StreamingReply = true,
+                            LiveSteps = _lastSteps,
                         });
                     };
                 }
@@ -885,6 +927,7 @@ namespace RevitWebAppSync.UI.Copilot
                     {
                         revitRouter.OnProgress = null;
                         revitRouter.OnCodeStream = null;
+                        revitRouter.OnSteps = null;
                     }
                 }
             }
