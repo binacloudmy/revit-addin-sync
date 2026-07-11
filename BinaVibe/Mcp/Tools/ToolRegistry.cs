@@ -53,6 +53,7 @@ namespace BinaVibe.Mcp.Tools
                 "find_elements_by_parameter"    => Inspectors.FindElementsByParameter(doc, args),
                 "get_material_quantities"       => Inspectors.GetMaterialQuantities(doc, args),
                 "get_model_warnings"            => Inspectors.GetModelWarnings(doc),
+                "find_duplicate_walls"          => Inspectors.FindDuplicateWalls(doc),
                 "list_view_filters"             => Inspectors.ListViewFilters(doc),
                 "list_phases"                   => Inspectors.ListPhases(doc),
                 "list_design_options"           => Inspectors.ListDesignOptions(doc),

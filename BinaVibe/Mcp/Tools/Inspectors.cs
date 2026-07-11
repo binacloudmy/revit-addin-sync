@@ -1393,6 +1393,340 @@ namespace BinaVibe.Mcp.Tools
             return new Dictionary<string, object?> { ["ok"] = true, ["rooms"] = rooms, ["count"] = rooms.Count };
         }
 
+        // ─── find_duplicate_walls ────────────────────────────────────────
+        /// <summary>
+        /// Deterministic duplicate/overlap classification for host walls
+        /// (Line or Arc LocationCurve). Ground truth for ClickUp P1
+        /// 86ey84zpn: Revit's "walls overlap" model warning fires for ANY
+        /// curve overlap — partial included — and the agent was reading
+        /// that warning text and self-judging "duplicate", nearly deleting
+        /// legitimately overlapping (but non-duplicate) walls. This tool
+        /// does the geometry compare itself, in C#, and returns three
+        /// CATEGORICALLY DISJOINT buckets — a given wall pair lands in
+        /// exactly one of them, never more:
+        ///   exact_duplicates              — same curve + type + level + base
+        ///                                   offset. Safe auto-delete candidates
+        ///                                   (keep the lowest element id).
+        ///   partial_overlaps              — collinear Line walls with a real
+        ///                                   but partial 1D overlap. NEVER a
+        ///                                   safe bulk-delete — stacked/joined
+        ///                                   walls are legitimate design.
+        ///   same_location_different_type  — identical curve, but different
+        ///                                   WallType or base offset (e.g. a
+        ///                                   partition redrawn in a different
+        ///                                   type on top of the original).
+        /// Tolerance: 5mm (converted to feet internally: 5/304.8).
+        /// Arc walls only ever land in exact_duplicates or
+        /// same_location_different_type — arc partial-overlap detection is
+        /// intentionally out of scope (YAGNI; no UAT case has needed it) and
+        /// arcs never enter the partial_overlaps pass.
+        /// Perf: walls_scanned is capped at 5000 (returns capped:true beyond
+        /// that — audit a smaller model/link, this isn't meant for a
+        /// federated master). Line walls are bucketed by (level, quantized
+        /// 1-degree direction) before the pairwise compare so a normal floor
+        /// plan doesn't do an O(n^2) sweep across the whole model — only
+        /// within same-level, near-parallel candidates (±1 bucket to absorb
+        /// bucket-boundary rounding; the actual parallel/collinear tests
+        /// below are exact, the bucket only narrows candidates).
+        /// </summary>
+        public static Dictionary<string, object?> FindDuplicateWalls(Document doc)
+        {
+            const double TolFt = 5.0 / 304.8;                 // 5mm, in feet
+            const double ParallelSin = 0.0017453283;           // sin(0.1 deg) — cross-product parallel gate
+            const int WallCap = 5000;
+
+            var rawWalls = new FilteredElementCollector(doc)
+                .OfClass(typeof(Wall)).Cast<Wall>()
+                .ToList();
+
+            bool capped = rawWalls.Count > WallCap;
+            if (capped) rawWalls = rawWalls.Take(WallCap).ToList();
+
+            // Snapshot — guard every field the classifier needs. Walls with no
+            // LocationCurve (some in-place/stacked-wall members) or a curve
+            // that's neither Line nor Arc (splines) are out of scope — skip.
+            var snaps = new List<DupWallSnap>();
+            foreach (var w in rawWalls)
+            {
+                if (!(w.Location is LocationCurve lc) || lc.Curve == null) continue;
+                var curve = lc.Curve;
+                if (!(curve is Line) && !(curve is Arc)) continue;
+
+                double baseOffset = 0;
+                try { baseOffset = w.get_Parameter(BuiltInParameter.WALL_BASE_OFFSET)?.AsDouble() ?? 0; } catch { }
+                // Captured per snapshot contract but deliberately NOT part of any
+                // equality gate below: Unconnected Height is unreliable for
+                // walls whose Top is constrained to a level ("Up to level") —
+                // Revit still reports a (stale/cached) number for it, so
+                // gating exact_duplicate on it would risk FALSE NEGATIVES
+                // (missing real duplicates) rather than the false-positive
+                // bug this tool exists to fix.
+                double unconnectedHeight = 0;
+                try { unconnectedHeight = w.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM)?.AsDouble() ?? 0; } catch { }
+
+                var typeId = w.GetTypeId();
+                var typeName = typeId.Value != ElementId.InvalidElementId.Value
+                    ? (doc.GetElement(typeId) as ElementType)?.Name ?? "" : "";
+                var levelName = w.LevelId.Value != ElementId.InvalidElementId.Value
+                    ? doc.GetElement(w.LevelId)?.Name ?? "" : "";
+
+                snaps.Add(new DupWallSnap
+                {
+                    Id = w.Id.Value,
+                    TypeId = typeId.Value,
+                    TypeName = typeName,
+                    LevelId = w.LevelId.Value,
+                    LevelName = levelName,
+                    BaseOffset = baseOffset,
+                    UnconnectedHeightFt = unconnectedHeight,
+                    Curve = curve,
+                    LengthFt = curve.Length,
+                });
+            }
+
+            int n = snaps.Count;
+            var exactParent = DsuMake(n);
+            var sameLocParent = DsuMake(n);
+            var partialPairs = new List<(int i, int j, double overlapFt)>();
+
+            // Same-level candidate scoping ("different levels = never overlap").
+            var byLevel = new Dictionary<long, List<int>>();
+            for (int i = 0; i < n; i++)
+            {
+                if (!byLevel.TryGetValue(snaps[i].LevelId, out var list))
+                { list = new List<int>(); byLevel[snaps[i].LevelId] = list; }
+                list.Add(i);
+            }
+
+            foreach (var group in byLevel.Values)
+            {
+                var arcIdxs = group.Where(i => snaps[i].Curve is Arc).ToList();
+                var lineIdxs = group.Where(i => snaps[i].Curve is Line).ToList();
+
+                // ── Arc-Arc: exact-duplicate / same-location only. ──
+                for (int a = 0; a < arcIdxs.Count; a++)
+                {
+                    for (int b = a + 1; b < arcIdxs.Count; b++)
+                    {
+                        int i = arcIdxs[a], j = arcIdxs[b];
+                        if (!ArcsEqual(snaps[i], snaps[j], TolFt)) continue;
+                        if (SameTypeAndOffset(snaps[i], snaps[j], TolFt)) DsuUnion(exactParent, i, j);
+                        else DsuUnion(sameLocParent, i, j);
+                    }
+                }
+
+                // ── Line-Line: bucket by 1-degree direction, then pairwise. ──
+                var angleDeg = new Dictionary<int, double>();
+                var buckets = new Dictionary<int, List<int>>();
+                foreach (var i in lineIdxs)
+                {
+                    var dir = ((Line)snaps[i].Curve).Direction.Normalize();
+                    double ang = Math.Atan2(dir.Y, dir.X) * 180.0 / Math.PI;
+                    if (ang < 0) ang += 180.0;
+                    if (ang >= 180.0) ang -= 180.0;
+                    angleDeg[i] = ang;
+                    int bucket = (int)Math.Floor(ang);
+                    if (!buckets.TryGetValue(bucket, out var list)) { list = new List<int>(); buckets[bucket] = list; }
+                    list.Add(i);
+                }
+
+                foreach (var i in lineIdxs)
+                {
+                    int bucket = (int)Math.Floor(angleDeg[i]);
+                    var candidates = new List<int>();
+                    for (int d = -1; d <= 1; d++)
+                    {
+                        int bk = ((bucket + d) % 180 + 180) % 180;
+                        if (buckets.TryGetValue(bk, out var list)) candidates.AddRange(list);
+                    }
+
+                    foreach (var j in candidates)
+                    {
+                        if (j <= i) continue; // undirected pair, once each
+                        if (!LinesParallel(snaps[i], snaps[j], ParallelSin)) continue;
+
+                        if (LinesEqualEndpoints(snaps[i], snaps[j], TolFt))
+                        {
+                            if (SameTypeAndOffset(snaps[i], snaps[j], TolFt)) DsuUnion(exactParent, i, j);
+                            else DsuUnion(sameLocParent, i, j);
+                            continue; // exact/same-location pairs never also count as partial
+                        }
+
+                        if (!LinesCollinear(snaps[i], snaps[j], TolFt)) continue;
+                        double overlapFt = ProjectedOverlap(snaps[i], snaps[j]);
+                        if (overlapFt > TolFt)
+                            partialPairs.Add((i, j, overlapFt));
+                    }
+                }
+            }
+
+            // ── Materialize groups ──
+            var exactDuplicates = new List<object>();
+            foreach (var grp in GroupByRoot(exactParent, n).Where(g => g.Count >= 2))
+            {
+                // NOTE: IEnumerable<long> has no implicit conversion to
+                // IEnumerable<object> (generic covariance excludes value
+                // types) — box each id via Select(id => (object)id) before
+                // ToList(), same as everywhere else below.
+                var idsLong = grp.Select(i => snaps[i].Id).OrderBy(id => id).ToList();
+                var first = snaps[grp.OrderBy(i => snaps[i].Id).First()];
+                exactDuplicates.Add(new Dictionary<string, object?>
+                {
+                    ["keep_id"] = idsLong[0],
+                    ["delete_ids"] = idsLong.Skip(1).Select(id => (object)id).ToList(),
+                    ["type_name"] = first.TypeName,
+                    ["level"] = first.LevelName,
+                    ["length_mm"] = Math.Round(first.LengthFt * 304.8, 0),
+                });
+            }
+
+            var sameLocationGroups = new List<object>();
+            foreach (var grp in GroupByRoot(sameLocParent, n).Where(g => g.Count >= 2))
+            {
+                var ids = grp.Select(i => snaps[i].Id).OrderBy(id => id).Select(id => (object)id).ToList();
+                var typeNames = grp.Select(i => snaps[i].TypeName).Distinct().ToList<object>();
+                sameLocationGroups.Add(new Dictionary<string, object?>
+                {
+                    ["ids"] = ids,
+                    ["type_names"] = typeNames,
+                });
+            }
+
+            var partialOverlaps = partialPairs
+                .Select(p => (object)new Dictionary<string, object?>
+                {
+                    ["ids"] = new List<object> { snaps[p.i].Id, snaps[p.j].Id }
+                        .OrderBy(id => (long)id).ToList<object>(),
+                    ["overlap_mm"] = Math.Round(p.overlapFt * 304.8, 0),
+                    ["type_names"] = new List<object> { snaps[p.i].TypeName, snaps[p.j].TypeName },
+                })
+                .ToList();
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["exact_duplicates"] = exactDuplicates,
+                ["partial_overlaps"] = partialOverlaps,
+                ["same_location_different_type"] = sameLocationGroups,
+                ["counts"] = new Dictionary<string, object?>
+                {
+                    ["exact_groups"] = exactDuplicates.Count,
+                    ["partial_pairs"] = partialOverlaps.Count,
+                    ["same_location_groups"] = sameLocationGroups.Count,
+                    ["walls_scanned"] = snaps.Count,
+                },
+                ["capped"] = capped,
+            };
+        }
+
+        // ─── find_duplicate_walls helpers ────────────────────────────────
+
+        private sealed class DupWallSnap
+        {
+            public long Id;
+            public long TypeId;
+            public string TypeName = "";
+            public long LevelId;
+            public string LevelName = "";
+            public double BaseOffset;
+            public double UnconnectedHeightFt; // captured, intentionally not gated — see comment at snapshot build site
+            public Curve Curve = null!;
+            public double LengthFt;
+        }
+
+        private static bool SameTypeAndOffset(DupWallSnap a, DupWallSnap b, double tolFt)
+            => a.TypeId == b.TypeId && Math.Abs(a.BaseOffset - b.BaseOffset) < tolFt;
+
+        private static bool LinesParallel(DupWallSnap a, DupWallSnap b, double parallelSin)
+        {
+            var da = ((Line)a.Curve).Direction.Normalize();
+            var db = ((Line)b.Curve).Direction.Normalize();
+            return da.CrossProduct(db).GetLength() < parallelSin;
+        }
+
+        private static bool LinesCollinear(DupWallSnap a, DupWallSnap b, double tolFt)
+        {
+            var la = (Line)a.Curve;
+            var lb = (Line)b.Curve;
+            var da = la.Direction.Normalize();
+            var v = lb.GetEndPoint(0) - la.GetEndPoint(0);
+            var perp = v - da.Multiply(v.DotProduct(da));
+            return perp.GetLength() < tolFt;
+        }
+
+        private static bool LinesEqualEndpoints(DupWallSnap a, DupWallSnap b, double tolFt)
+        {
+            var la = (Line)a.Curve;
+            var lb = (Line)b.Curve;
+            var a0 = la.GetEndPoint(0); var a1 = la.GetEndPoint(1);
+            var b0 = lb.GetEndPoint(0); var b1 = lb.GetEndPoint(1);
+            bool direct = a0.DistanceTo(b0) < tolFt && a1.DistanceTo(b1) < tolFt;
+            bool reversed = a0.DistanceTo(b1) < tolFt && a1.DistanceTo(b0) < tolFt;
+            return direct || reversed;
+        }
+
+        // Projected 1D overlap length (feet) of two collinear lines, measured
+        // along wall a's direction. Positive => real overlap; <= 0 => no
+        // overlap or corner-touching only (excluded by the TolFt> check).
+        private static double ProjectedOverlap(DupWallSnap a, DupWallSnap b)
+        {
+            var la = (Line)a.Curve;
+            var lb = (Line)b.Curve;
+            var da = la.Direction.Normalize();
+            var origin = la.GetEndPoint(0);
+            double t0 = 0.0, t1 = (la.GetEndPoint(1) - origin).DotProduct(da);
+            double s0 = (lb.GetEndPoint(0) - origin).DotProduct(da);
+            double s1 = (lb.GetEndPoint(1) - origin).DotProduct(da);
+            double tMin = Math.Min(t0, t1), tMax = Math.Max(t0, t1);
+            double sMin = Math.Min(s0, s1), sMax = Math.Max(s0, s1);
+            return Math.Min(tMax, sMax) - Math.Max(tMin, sMin);
+        }
+
+        private static bool ArcsEqual(DupWallSnap a, DupWallSnap b, double tolFt)
+        {
+            var arcA = (Arc)a.Curve;
+            var arcB = (Arc)b.Curve;
+            if (arcA.Center.DistanceTo(arcB.Center) >= tolFt) return false;
+            if (Math.Abs(arcA.Radius - arcB.Radius) >= tolFt) return false;
+            var a0 = arcA.GetEndPoint(0); var a1 = arcA.GetEndPoint(1);
+            var b0 = arcB.GetEndPoint(0); var b1 = arcB.GetEndPoint(1);
+            bool direct = a0.DistanceTo(b0) < tolFt && a1.DistanceTo(b1) < tolFt;
+            bool reversed = a0.DistanceTo(b1) < tolFt && a1.DistanceTo(b0) < tolFt;
+            return direct || reversed;
+        }
+
+        // ── tiny union-find (disjoint set) over snapshot indices ──
+        private static int[] DsuMake(int n)
+        {
+            var p = new int[n];
+            for (int i = 0; i < n; i++) p[i] = i;
+            return p;
+        }
+
+        private static int DsuFind(int[] p, int x)
+        {
+            while (p[x] != x) { p[x] = p[p[x]]; x = p[x]; }
+            return x;
+        }
+
+        private static void DsuUnion(int[] p, int a, int b)
+        {
+            int ra = DsuFind(p, a), rb = DsuFind(p, b);
+            if (ra != rb) p[ra] = rb;
+        }
+
+        private static List<List<int>> GroupByRoot(int[] p, int n)
+        {
+            var groups = new Dictionary<int, List<int>>();
+            for (int i = 0; i < n; i++)
+            {
+                int root = DsuFind(p, i);
+                if (!groups.TryGetValue(root, out var list)) { list = new List<int>(); groups[root] = list; }
+                list.Add(i);
+            }
+            return groups.Values.ToList();
+        }
+
         // ─── audit_parameters ───────────────────────────────────────────
         // Bulk fill-rate matrix for ALL instances of a category — the one-call
         // answer to "check every parameter on every door" audits. Read-only.
