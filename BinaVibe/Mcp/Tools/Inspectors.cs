@@ -1415,6 +1415,14 @@ namespace BinaVibe.Mcp.Tools
         ///                                   WallType or base offset (e.g. a
         ///                                   partition redrawn in a different
         ///                                   type on top of the original).
+        /// INVARIANT (canonicalize-to-keep, exact wins): every wall id
+        /// appears in at most one bucket, EXCEPT keep_ids, which may also
+        /// appear in partial/same-location entries — a keep_id survives the
+        /// delete, so manual-review flags on it stay meaningful. delete_ids
+        /// appear ONLY in exact_duplicates: partial and same-location
+        /// entries are emitted with every exact-group member remapped to its
+        /// group's keep_id, then deduped, with self-pairs and sub-2-member
+        /// groups dropped.
         /// Tolerance: 5mm (converted to feet internally: 5/304.8).
         /// Arc walls only ever land in exact_duplicates or
         /// same_location_different_type — arc partial-overlap detection is
@@ -1561,15 +1569,28 @@ namespace BinaVibe.Mcp.Tools
             }
 
             // ── Materialize groups ──
+            // Canonicalize-to-keep, EXACT WINS: without this, disjointness
+            // would only hold per-PAIR, not per-WALL. Failure case: walls A,B
+            // same type+curve (exact) and C same curve but different offset —
+            // the A-C and B-C pairs would put BOTH A and B into
+            // same_location_different_type, so B would simultaneously be an
+            // auto-delete candidate (delete_ids) AND "semak manual". Fix:
+            // every exact-group member id maps to its group's keep_id before
+            // partial/same-location entries are emitted; collapsed duplicates
+            // are deduped and self-pairs dropped.
             var exactDuplicates = new List<object>();
+            var canon = new int[n];                       // snapshot idx -> exact-group keep idx (or self)
+            for (int i = 0; i < n; i++) canon[i] = i;
             foreach (var grp in GroupByRoot(exactParent, n).Where(g => g.Count >= 2))
             {
                 // NOTE: IEnumerable<long> has no implicit conversion to
                 // IEnumerable<object> (generic covariance excludes value
                 // types) — box each id via Select(id => (object)id) before
                 // ToList(), same as everywhere else below.
+                int keepIdx = grp.OrderBy(i => snaps[i].Id).First();
+                foreach (var m in grp) canon[m] = keepIdx;
                 var idsLong = grp.Select(i => snaps[i].Id).OrderBy(id => id).ToList();
-                var first = snaps[grp.OrderBy(i => snaps[i].Id).First()];
+                var first = snaps[keepIdx];
                 exactDuplicates.Add(new Dictionary<string, object?>
                 {
                     ["keep_id"] = idsLong[0],
@@ -1581,24 +1602,42 @@ namespace BinaVibe.Mcp.Tools
             }
 
             var sameLocationGroups = new List<object>();
+            var seenSameLoc = new HashSet<string>();       // dedupe groups that collapse identically
             foreach (var grp in GroupByRoot(sameLocParent, n).Where(g => g.Count >= 2))
             {
-                var ids = grp.Select(i => snaps[i].Id).OrderBy(id => id).Select(id => (object)id).ToList();
-                var typeNames = grp.Select(i => snaps[i].TypeName).Distinct().ToList<object>();
+                var canonIdxs = grp.Select(i => canon[i]).Distinct().ToList();
+                if (canonIdxs.Count < 2) continue;         // collapsed to one wall — not a group
+                var idsLong = canonIdxs.Select(i => snaps[i].Id).OrderBy(id => id).ToList();
+                var sig = string.Join(",", idsLong);
+                if (!seenSameLoc.Add(sig)) continue;
+                var typeNames = canonIdxs.Select(i => snaps[i].TypeName).Distinct().ToList<object>();
                 sameLocationGroups.Add(new Dictionary<string, object?>
                 {
-                    ["ids"] = ids,
+                    ["ids"] = idsLong.Select(id => (object)id).ToList(),
                     ["type_names"] = typeNames,
                 });
             }
 
-            var partialOverlaps = partialPairs
-                .Select(p => (object)new Dictionary<string, object?>
+            // Partial pairs: canonicalize both ends, drop self-pairs (both
+            // ends collapsed into the same exact group), dedupe collapsed
+            // pairs keeping the LARGEST overlap (most conservative flag).
+            var partialByPair = new Dictionary<(int lo, int hi), double>();
+            foreach (var p in partialPairs)
+            {
+                int ci = canon[p.i], cj = canon[p.j];
+                if (ci == cj) continue;
+                var key = ci < cj ? (lo: ci, hi: cj) : (lo: cj, hi: ci);
+                if (!partialByPair.TryGetValue(key, out var best) || p.overlapFt > best)
+                    partialByPair[key] = p.overlapFt;
+            }
+            var partialOverlaps = partialByPair
+                .OrderBy(kv => snaps[kv.Key.lo].Id).ThenBy(kv => snaps[kv.Key.hi].Id)
+                .Select(kv => (object)new Dictionary<string, object?>
                 {
-                    ["ids"] = new List<object> { snaps[p.i].Id, snaps[p.j].Id }
-                        .OrderBy(id => (long)id).ToList<object>(),
-                    ["overlap_mm"] = Math.Round(p.overlapFt * 304.8, 0),
-                    ["type_names"] = new List<object> { snaps[p.i].TypeName, snaps[p.j].TypeName },
+                    ["ids"] = new List<long> { snaps[kv.Key.lo].Id, snaps[kv.Key.hi].Id }
+                        .OrderBy(id => id).Select(id => (object)id).ToList(),
+                    ["overlap_mm"] = Math.Round(kv.Value * 304.8, 0),
+                    ["type_names"] = new List<object> { snaps[kv.Key.lo].TypeName, snaps[kv.Key.hi].TypeName },
                 })
                 .ToList();
 
