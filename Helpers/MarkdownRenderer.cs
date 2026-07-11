@@ -40,6 +40,11 @@ namespace RevitWebAppSync.Helpers
         private static Brush IdLinkHoverBg => UI.Copilot.Controls.CopilotColors.From("#dbeafe"); // clickable-id hover chip
         private static readonly FontFamily CodeFont = new FontFamily("Cascadia Mono, Consolas, monospace");
 
+        // Ambient FlowDocument font size (Render sets doc.FontSize to this). Runs
+        // inherit it through the WPF property tree, but EmojiInline must be given
+        // it EXPLICITLY at construction — see AppendTextWithEmoji remarks.
+        private const double BodyFontSize = 12.5;
+
         /// <summary>Raised when the drafter clicks a detected element-id table cell
         /// or a `bina://select/&lt;id&gt;` inline link. ChatView subscribes ONCE
         /// (guarded — this event is static and bubbles are rebuilt per message/
@@ -52,7 +57,7 @@ namespace RevitWebAppSync.Helpers
             var doc = new FlowDocument
             {
                 PagePadding = new Thickness(0),
-                FontSize = 12.5,
+                FontSize = BodyFontSize,
                 Foreground = Text,
             };
 
@@ -149,7 +154,7 @@ namespace RevitWebAppSync.Helpers
 
                 // paragraph
                 var p = new Paragraph { Margin = new Thickness(0, 1, 0, 1), LineHeight = 18 };
-                AddInlines(p.Inlines, trimmed);
+                AddInlines(p.Inlines, trimmed, BodyFontSize);
                 Add(p);
             }
 
@@ -163,7 +168,7 @@ namespace RevitWebAppSync.Helpers
                 Foreground = Ink, FontSize = fontSize, FontWeight = FontWeights.Bold,
                 Margin = new Thickness(0, 5, 0, 2),
             };
-            AddInlines(p.Inlines, text);
+            AddInlines(p.Inlines, text, fontSize);
             return p;
         }
 
@@ -171,7 +176,7 @@ namespace RevitWebAppSync.Helpers
         {
             var p = new Paragraph { Margin = new Thickness(8, 1, 0, 1) };
             p.Inlines.Add(new Run(marker + "  ") { Foreground = Accent });
-            AddInlines(p.Inlines, text);
+            AddInlines(p.Inlines, text, BodyFontSize);
             return p;
         }
 
@@ -185,7 +190,7 @@ namespace RevitWebAppSync.Helpers
                 Padding = new Thickness(9, 5, 9, 5),
                 Margin = new Thickness(0, 3, 0, 3),
             };
-            AddInlines(p.Inlines, text);
+            AddInlines(p.Inlines, text, 12); // matches the paragraph's FontSize above
             return p;
         }
 
@@ -325,7 +330,7 @@ namespace RevitWebAppSync.Helpers
                             FontSize = 11.5,
                             FontWeight = header ? FontWeights.SemiBold : FontWeights.Normal,
                         };
-                        AddInlines(tb.Inlines, cellText);
+                        AddInlines(tb.Inlines, cellText, 11.5); // matches the cell TextBlock's FontSize above
                     }
                     cell.Child = tb;
                     Grid.SetRow(cell, r);
@@ -343,22 +348,26 @@ namespace RevitWebAppSync.Helpers
         // as before this task.
         private static readonly Regex SelectUriPattern = new Regex(@"^bina://select/(\d+)$");
 
-        private static void AddInlines(InlineCollection inlines, string text)
+        // fontSize = the effective text size of the surrounding element (each call
+        // site knows its own: body/list 12.5, blockquote 12, headings 13-15, table
+        // cells 11.5). Runs don't need it (they inherit), but any EmojiInline built
+        // for this text does — see AppendTextWithEmoji remarks.
+        private static void AddInlines(InlineCollection inlines, string text, double fontSize)
         {
             var pattern = @"(\*\*(.+?)\*\*)|(\*(.+?)\*)|(`(.+?)`)|(\[(.+?)\]\((.+?)\))";
             int last = 0;
             foreach (Match m in Regex.Matches(text, pattern))
             {
-                if (m.Index > last) AppendTextWithEmoji(inlines, text.Substring(last, m.Index - last));
-                if (m.Groups[2].Success) AppendTextWithEmoji(inlines, m.Groups[2].Value, r => r.FontWeight = FontWeights.Bold);
-                else if (m.Groups[4].Success) AppendTextWithEmoji(inlines, m.Groups[4].Value, r => r.FontStyle = FontStyles.Italic);
+                if (m.Index > last) AppendTextWithEmoji(inlines, text.Substring(last, m.Index - last), fontSize);
+                if (m.Groups[2].Success) AppendTextWithEmoji(inlines, m.Groups[2].Value, fontSize, r => r.FontWeight = FontWeights.Bold);
+                else if (m.Groups[4].Success) AppendTextWithEmoji(inlines, m.Groups[4].Value, fontSize, r => r.FontStyle = FontStyles.Italic);
                 // Code spans stay literal/monochrome — never emoji-substituted.
                 else if (m.Groups[6].Success) inlines.Add(new Run(m.Groups[6].Value) { FontFamily = CodeFont, Foreground = CodeFg, FontSize = 11 });
                 // Link text/click-handling is untouched — element ids never contain emoji.
                 else if (m.Groups[8].Success) inlines.Add(LinkInline(m.Groups[8].Value, m.Groups[9].Value));
                 last = m.Index + m.Length;
             }
-            if (last < text.Length) AppendTextWithEmoji(inlines, text.Substring(last));
+            if (last < text.Length) AppendTextWithEmoji(inlines, text.Substring(last), fontSize);
             if (inlines.Count == 0) inlines.Add(new Run(text));
         }
 
@@ -384,11 +393,20 @@ namespace RevitWebAppSync.Helpers
         /// would otherwise inherit and get tinted with, silently defeating the point
         /// of this change (real color emoji, not navy-tinted ones).
         ///
+        /// <c>FontSize</c> must also be set explicitly (never left to inherit):
+        /// setting <c>Text</c> triggers <c>EmojiInline.Rebuild()</c> synchronously,
+        /// BEFORE the inline is attached to the tree — sizing the glyph image with
+        /// the WPF default FontSize and leaving correction to inherited-property
+        /// invalidation timing after <c>inlines.Add()</c>. Emoji.Wpf's own call
+        /// sites always pass FontSize explicitly; so do we (initializer order
+        /// matters: FontSize before Text, so the first Rebuild already sees it).
+        ///
         /// EmojiInline construction is wrapped in try/catch: a decorative color-emoji
         /// nicety must never crash the copilot pane, so any failure (e.g. a missing
         /// emoji font resource) falls back to a plain styled Run of the same text.
-        /// Strings with no emoji take the original single-Run path — zero overhead.</summary>
-        private static void AppendTextWithEmoji(InlineCollection inlines, string text, Action<Run> style = null)
+        /// Strings with no emoji take the original single-Run path (they still pay
+        /// one MatchOne.Matches scan, but allocate nothing new).</summary>
+        private static void AppendTextWithEmoji(InlineCollection inlines, string text, double fontSize, Action<Run> style = null)
         {
             if (string.IsNullOrEmpty(text)) return;
 
@@ -417,8 +435,9 @@ namespace RevitWebAppSync.Helpers
                 {
                     inlines.Add(new Emoji.Wpf.EmojiInline
                     {
-                        Text = m.Value,
+                        FontSize = fontSize,        // BEFORE Text — see remarks above
                         Foreground = Brushes.Black, // true color — see remarks above
+                        Text = m.Value,
                     });
                 }
                 catch
