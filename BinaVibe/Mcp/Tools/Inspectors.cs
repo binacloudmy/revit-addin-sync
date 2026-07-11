@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
@@ -1882,6 +1883,173 @@ namespace BinaVibe.Mcp.Tools
                 ["ok"] = true, ["category"] = category,
                 ["total_elements"] = elements.Count,
                 ["parameters"] = parameters, ["count"] = parameters.Count,
+            };
+        }
+
+        // ─── audit_view_names ───────────────────────────────────────────
+        // Deterministic view-name compliance: the LLM must NEVER eyeball view
+        // names (measured ~88% false-positive rate + a missed seeded
+        // 'FloorPlan_final_FINAL' violation when it did). The caller supplies
+        // ONE anchored .NET regex derived from the stated naming convention;
+        // every audited view is regex-matched — no judgment calls, no misses.
+        //
+        // Default audit scope = plans/ceilings/sections/area/engineering
+        // plans (the surfaces the ClickUp fix line calls out). Elevation /
+        // ThreeD / DraftingView / Detail are real model views but sit outside
+        // that default — they're reported separately as `other_model_views`,
+        // never counted as violations, so callers can still see them without
+        // the tool silently making a scope decision for the user.
+        //
+        // Schedules, legends, sheets and view templates are excluded
+        // entirely (they carry their own naming/numbering conventions) —
+        // only their counts are returned, never rows.
+        public static Dictionary<string, object?> AuditViewNames(Document doc, JsonElement args)
+        {
+            var pattern = ArgsHelp.GetString(args, "pattern");
+            if (string.IsNullOrEmpty(pattern))
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = "pattern is required — a .NET regex the view name must fully match (anchor it yourself with ^$ if you want a full match)",
+                };
+
+            Regex regex;
+            try
+            {
+                // 2s timeout guards against catastrophic backtracking in a
+                // caller-supplied pattern.
+                regex = new Regex(pattern, RegexOptions.None, TimeSpan.FromSeconds(2));
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"invalid regex: {ex.Message}" };
+            }
+
+            var includeViewTypes = ArgsHelp.GetStringList(args, "include_view_types");
+
+            var defaultScope = new HashSet<ViewType>
+            {
+                ViewType.FloorPlan, ViewType.CeilingPlan, ViewType.AreaPlan,
+                ViewType.EngineeringPlan, ViewType.Section,
+            };
+            var otherModelViewTypes = new HashSet<ViewType>
+            {
+                ViewType.Elevation, ViewType.ThreeD, ViewType.DraftingView, ViewType.Detail,
+            };
+
+            HashSet<ViewType> auditScope;
+            bool usingDefaultScope = includeViewTypes.Count == 0;
+            if (usingDefaultScope)
+            {
+                auditScope = defaultScope;
+            }
+            else
+            {
+                auditScope = new HashSet<ViewType>();
+                var unknown = new List<string>();
+                foreach (var name in includeViewTypes)
+                {
+                    if (Enum.TryParse<ViewType>(name, ignoreCase: false, out var vt) && Enum.IsDefined(typeof(ViewType), vt))
+                        auditScope.Add(vt);
+                    else
+                        unknown.Add(name);
+                }
+                if (unknown.Count > 0)
+                {
+                    var validNames = string.Join(", ", Enum.GetNames(typeof(ViewType)).OrderBy(n => n));
+                    return new Dictionary<string, object?>
+                    {
+                        ["ok"] = false,
+                        ["error"] = $"unknown view type(s): {string.Join(", ", unknown)} — valid values: {validNames}",
+                    };
+                }
+            }
+            var auditedScopeNames = auditScope.Select(v => v.ToString()).OrderBy(n => n).ToList<object>();
+
+            // Excluded-by-design buckets (never audited, counts only).
+            var scheduleTypes = new HashSet<ViewType> { ViewType.Schedule, ViewType.ColumnSchedule, ViewType.PanelSchedule };
+            var systemTypes = new HashSet<ViewType> { ViewType.Internal, ViewType.ProjectBrowser, ViewType.SystemBrowser, ViewType.Undefined };
+
+            var allViews = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().ToList();
+
+            int excludedSchedules = 0, excludedLegends = 0, excludedSheets = 0, excludedTemplates = 0, excludedOther = 0;
+            int compliantCount = 0, auditedCount = 0;
+            var violations = new List<object>();
+            var otherModelViews = new List<object>();
+            const int OtherCap = 50;
+            bool otherCapped = false;
+
+            foreach (var v in allViews)
+            {
+                if (v.IsTemplate) { excludedTemplates++; continue; }
+
+                var vt = v.ViewType;
+                // Sheets/schedules are reachable via View subclasses (ViewSheet,
+                // ViewSchedule) as well as via ViewType — belt and suspenders.
+                if (vt == ViewType.DrawingSheet || v is ViewSheet) { excludedSheets++; continue; }
+                if (scheduleTypes.Contains(vt) || v is ViewSchedule) { excludedSchedules++; continue; }
+                if (vt == ViewType.Legend) { excludedLegends++; continue; }
+                if (systemTypes.Contains(vt)) { excludedOther++; continue; }
+
+                if (auditScope.Contains(vt))
+                {
+                    auditedCount++;
+                    if (regex.IsMatch(v.Name))
+                    {
+                        compliantCount++;
+                    }
+                    else
+                    {
+                        violations.Add(new Dictionary<string, object?>
+                        {
+                            ["id"] = v.Id.Value,
+                            ["name"] = v.Name,
+                            ["view_type"] = vt.ToString(),
+                        });
+                    }
+                }
+                else if (usingDefaultScope && otherModelViewTypes.Contains(vt))
+                {
+                    if (otherModelViews.Count < OtherCap)
+                        otherModelViews.Add(new Dictionary<string, object?>
+                        {
+                            ["id"] = v.Id.Value,
+                            ["name"] = v.Name,
+                            ["view_type"] = vt.ToString(),
+                        });
+                    else
+                        otherCapped = true;
+                }
+                else
+                {
+                    // Not in the audited scope and not a recognized
+                    // "other model view" (Rendering/Walkthrough/Report/... or,
+                    // when include_view_types narrows scope, everything else).
+                    excludedOther++;
+                }
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["audited_scope"] = auditedScopeNames,
+                ["compliant_count"] = compliantCount,
+                ["violations"] = violations,
+                ["other_model_views"] = otherModelViews,
+                ["other_model_views_capped"] = otherCapped,
+                ["excluded_counts"] = new Dictionary<string, object?>
+                {
+                    ["schedules"] = excludedSchedules,
+                    ["legends"] = excludedLegends,
+                    ["sheets"] = excludedSheets,
+                    ["templates"] = excludedTemplates,
+                    ["other"] = excludedOther,
+                },
+                ["counts"] = new Dictionary<string, object?>
+                {
+                    ["audited"] = auditedCount,
+                    ["violations"] = violations.Count,
+                },
             };
         }
     }
