@@ -349,15 +349,92 @@ namespace RevitWebAppSync.Helpers
             int last = 0;
             foreach (Match m in Regex.Matches(text, pattern))
             {
-                if (m.Index > last) inlines.Add(new Run(text.Substring(last, m.Index - last)));
-                if (m.Groups[2].Success) inlines.Add(new Run(m.Groups[2].Value) { FontWeight = FontWeights.Bold });
-                else if (m.Groups[4].Success) inlines.Add(new Run(m.Groups[4].Value) { FontStyle = FontStyles.Italic });
+                if (m.Index > last) AppendTextWithEmoji(inlines, text.Substring(last, m.Index - last));
+                if (m.Groups[2].Success) AppendTextWithEmoji(inlines, m.Groups[2].Value, r => r.FontWeight = FontWeights.Bold);
+                else if (m.Groups[4].Success) AppendTextWithEmoji(inlines, m.Groups[4].Value, r => r.FontStyle = FontStyles.Italic);
+                // Code spans stay literal/monochrome — never emoji-substituted.
                 else if (m.Groups[6].Success) inlines.Add(new Run(m.Groups[6].Value) { FontFamily = CodeFont, Foreground = CodeFg, FontSize = 11 });
+                // Link text/click-handling is untouched — element ids never contain emoji.
                 else if (m.Groups[8].Success) inlines.Add(LinkInline(m.Groups[8].Value, m.Groups[9].Value));
                 last = m.Index + m.Length;
             }
-            if (last < text.Length) inlines.Add(new Run(text.Substring(last)));
+            if (last < text.Length) AppendTextWithEmoji(inlines, text.Substring(last));
             if (inlines.Count == 0) inlines.Add(new Run(text));
+        }
+
+        /// <summary>Splits <paramref name="text"/> on any Emoji.Wpf-detected emoji
+        /// and appends each segment to <paramref name="inlines"/>: plain segments
+        /// as a <see cref="Run"/> styled via <paramref name="style"/> (identical to
+        /// what every call site built inline before this helper existed), emoji
+        /// segments as a full-color <c>Emoji.Wpf.EmojiInline</c> — WPF's own text
+        /// stack has no color-font support and renders emoji as monochrome outline
+        /// glyphs otherwise.
+        ///
+        /// Detection reuses Emoji.Wpf's own compiled regex, <c>EmojiData.MatchOne</c>
+        /// — the name is misleading; Emoji.Wpf's own <c>TextBlock.RecomputeInlines</c>
+        /// and <c>FlowDocumentExtensions</c> both call <c>.Matches()</c> on it to find
+        /// every emoji occurrence in a string, not just the first (verified against
+        /// the emoji.wpf source, there is no public <c>MatchMultiple</c> API — only a
+        /// stale comment mentions that name).
+        ///
+        /// <c>Foreground</c> is pinned to <see cref="Brushes.Black"/> on every
+        /// EmojiInline: <c>EmojiInline.Rebuild()</c> only skips its (monochrome)
+        /// TintEffect when Foreground resolves to pure black — this app's ambient
+        /// text color is a dark navy (#131c2b, not pure black), which every inline
+        /// would otherwise inherit and get tinted with, silently defeating the point
+        /// of this change (real color emoji, not navy-tinted ones).
+        ///
+        /// EmojiInline construction is wrapped in try/catch: a decorative color-emoji
+        /// nicety must never crash the copilot pane, so any failure (e.g. a missing
+        /// emoji font resource) falls back to a plain styled Run of the same text.
+        /// Strings with no emoji take the original single-Run path — zero overhead.</summary>
+        private static void AppendTextWithEmoji(InlineCollection inlines, string text, Action<Run> style = null)
+        {
+            if (string.IsNullOrEmpty(text)) return;
+
+            MatchCollection matches = null;
+            try { matches = Emoji.Wpf.EmojiData.MatchOne.Matches(text); }
+            catch { /* detection failed — fall through to the plain-Run fast path */ }
+
+            if (matches == null || matches.Count == 0)
+            {
+                var run = new Run(text);
+                style?.Invoke(run);
+                inlines.Add(run);
+                return;
+            }
+
+            int last = 0;
+            foreach (Match m in matches)
+            {
+                if (m.Index > last)
+                {
+                    var plain = new Run(text.Substring(last, m.Index - last));
+                    style?.Invoke(plain);
+                    inlines.Add(plain);
+                }
+                try
+                {
+                    inlines.Add(new Emoji.Wpf.EmojiInline
+                    {
+                        Text = m.Value,
+                        Foreground = Brushes.Black, // true color — see remarks above
+                    });
+                }
+                catch
+                {
+                    var fallback = new Run(m.Value);
+                    style?.Invoke(fallback);
+                    inlines.Add(fallback);
+                }
+                last = m.Index + m.Length;
+            }
+            if (last < text.Length)
+            {
+                var tail = new Run(text.Substring(last));
+                style?.Invoke(tail);
+                inlines.Add(tail);
+            }
         }
 
         /// <summary>`[text](url)` → a real clickable Hyperlink ONLY for
