@@ -510,31 +510,63 @@ namespace BinaVibe.Mcp.Tools
         /// <summary>
         /// Returns the model's open Revit warnings: description + the element ids involved.
         /// Uses Document.GetWarnings() (available Revit 2015+). Capped at 500 warnings.
-        /// Returns {ok, warnings:[{description, element_ids:[...]}], count}.
+        /// Returns {ok, warnings:[{description, element_ids:[...]}], count,
+        /// by_type:[{type, count, element_ids:[...]}]}.
+        /// by_type is the CANONICAL grouping for "summarise/group warnings by type"
+        /// asks — group by w.GetDescriptionText(), the real Revit warning-type
+        /// string (do not invent categories or group by an invented "priority"
+        /// bucket instead). Ordered by count desc; element_ids is the union of
+        /// failing-element ids across every warning in that type's group.
+        /// The flat `warnings` list is kept EXACTLY as before — callers depend on it.
         /// </summary>
         public static Dictionary<string, object?> GetModelWarnings(Document doc)
         {
             const int cap = 500;
             var warnings = doc.GetWarnings();
             var result = new List<object>();
+            var byType = new Dictionary<string, (int Count, List<long> ElementIds)>();
 
             foreach (var w in warnings.Take(cap))
             {
                 var eids = w.GetFailingElements()
                     .Select(eid => (object)eid.Value)
                     .ToList<object>();
+                var description = w.GetDescriptionText();
                 result.Add(new Dictionary<string, object?>
                 {
-                    ["description"] = w.GetDescriptionText(),
+                    ["description"] = description,
                     ["element_ids"] = eids,
                 });
+
+                if (!byType.TryGetValue(description, out var group))
+                {
+                    group = (0, new List<long>());
+                }
+                group.Count++;
+                foreach (var eid in w.GetFailingElements())
+                {
+                    if (!group.ElementIds.Contains(eid.Value))
+                        group.ElementIds.Add(eid.Value);
+                }
+                byType[description] = group;
             }
+
+            var byTypeList = byType
+                .OrderByDescending(kv => kv.Value.Count)
+                .Select(kv => (object)new Dictionary<string, object?>
+                {
+                    ["type"] = kv.Key,
+                    ["count"] = kv.Value.Count,
+                    ["element_ids"] = kv.Value.ElementIds.Cast<object>().ToList(),
+                })
+                .ToList<object>();
 
             return new Dictionary<string, object?>
             {
                 ["ok"] = true,
                 ["warnings"] = result,
                 ["count"] = result.Count,
+                ["by_type"] = byTypeList,
             };
         }
 
