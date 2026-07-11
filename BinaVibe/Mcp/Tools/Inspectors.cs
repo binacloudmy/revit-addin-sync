@@ -1890,8 +1890,13 @@ namespace BinaVibe.Mcp.Tools
         // Deterministic view-name compliance: the LLM must NEVER eyeball view
         // names (measured ~88% false-positive rate + a missed seeded
         // 'FloorPlan_final_FINAL' violation when it did). The caller supplies
-        // ONE anchored .NET regex derived from the stated naming convention;
-        // every audited view is regex-matched — no judgment calls, no misses.
+        // ONE .NET regex derived from the stated naming convention; every
+        // audited view is FULL-NAME matched — the tool wraps the pattern as
+        // ^(?:pattern)$ itself, so full-match semantics are guaranteed here
+        // and never delegated back to the (unreliable) calling model. The
+        // wrap is unconditional: ^(?:^A$)$ still matches exactly like ^A$,
+        // and detecting "already anchored" is a trap (alternation like A|B
+        // makes prefix/suffix checks wrong).
         //
         // Default audit scope = plans/ceilings/sections/area/engineering
         // plans (the surfaces the ClickUp fix line calls out). Elevation /
@@ -1910,15 +1915,17 @@ namespace BinaVibe.Mcp.Tools
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = false,
-                    ["error"] = "pattern is required — a .NET regex the view name must fully match (anchor it yourself with ^$ if you want a full match)",
+                    ["error"] = "pattern is required — a .NET regex; the tool matches it against the FULL view name (anchoring is applied by the tool)",
                 };
 
             Regex regex;
             try
             {
-                // 2s timeout guards against catastrophic backtracking in a
+                // Full-name match is guaranteed HERE (unconditional ^(?:...)$
+                // wrap) — never rely on the caller to anchor. 2s timeout
+                // guards against catastrophic backtracking in a
                 // caller-supplied pattern.
-                regex = new Regex(pattern, RegexOptions.None, TimeSpan.FromSeconds(2));
+                regex = new Regex("^(?:" + pattern + ")$", RegexOptions.None, TimeSpan.FromSeconds(2));
             }
             catch (Exception ex)
             {
@@ -1937,6 +1944,22 @@ namespace BinaVibe.Mcp.Tools
                 ViewType.Elevation, ViewType.ThreeD, ViewType.DraftingView, ViewType.Detail,
             };
 
+            // Excluded-by-design buckets (never audited, counts only). The
+            // loop below skips these BEFORE the scope check, so an
+            // include_view_types entry naming one of them could never audit
+            // anything — validated and rejected loudly below instead of
+            // silently returning audited:0 forever.
+            var scheduleTypes = new HashSet<ViewType> { ViewType.Schedule, ViewType.ColumnSchedule, ViewType.PanelSchedule };
+            var systemTypes = new HashSet<ViewType> { ViewType.Internal, ViewType.ProjectBrowser, ViewType.SystemBrowser, ViewType.Undefined };
+            var alwaysExcluded = new HashSet<ViewType>(scheduleTypes.Concat(systemTypes))
+            {
+                ViewType.DrawingSheet, ViewType.Legend,
+            };
+            var auditableNames = string.Join(", ",
+                Enum.GetNames(typeof(ViewType))
+                    .Where(n => Enum.TryParse<ViewType>(n, out var t) && !alwaysExcluded.Contains(t))
+                    .OrderBy(n => n));
+
             HashSet<ViewType> auditScope;
             bool usingDefaultScope = includeViewTypes.Count == 0;
             if (usingDefaultScope)
@@ -1949,26 +1972,29 @@ namespace BinaVibe.Mcp.Tools
                 var unknown = new List<string>();
                 foreach (var name in includeViewTypes)
                 {
-                    if (Enum.TryParse<ViewType>(name, ignoreCase: false, out var vt) && Enum.IsDefined(typeof(ViewType), vt))
-                        auditScope.Add(vt);
-                    else
+                    if (!Enum.TryParse<ViewType>(name, ignoreCase: false, out var vt) || !Enum.IsDefined(typeof(ViewType), vt))
+                    {
                         unknown.Add(name);
+                        continue;
+                    }
+                    if (alwaysExcluded.Contains(vt))
+                        return new Dictionary<string, object?>
+                        {
+                            ["ok"] = false,
+                            ["error"] = $"view type '{name}' is excluded from naming audits (schedules/legends/sheets/system); auditable types: {auditableNames}",
+                        };
+                    auditScope.Add(vt);
                 }
                 if (unknown.Count > 0)
                 {
-                    var validNames = string.Join(", ", Enum.GetNames(typeof(ViewType)).OrderBy(n => n));
                     return new Dictionary<string, object?>
                     {
                         ["ok"] = false,
-                        ["error"] = $"unknown view type(s): {string.Join(", ", unknown)} — valid values: {validNames}",
+                        ["error"] = $"unknown view type(s): {string.Join(", ", unknown)} — auditable types: {auditableNames}",
                     };
                 }
             }
             var auditedScopeNames = auditScope.Select(v => v.ToString()).OrderBy(n => n).ToList<object>();
-
-            // Excluded-by-design buckets (never audited, counts only).
-            var scheduleTypes = new HashSet<ViewType> { ViewType.Schedule, ViewType.ColumnSchedule, ViewType.PanelSchedule };
-            var systemTypes = new HashSet<ViewType> { ViewType.Internal, ViewType.ProjectBrowser, ViewType.SystemBrowser, ViewType.Undefined };
 
             var allViews = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().ToList();
 
@@ -1994,7 +2020,23 @@ namespace BinaVibe.Mcp.Tools
                 if (auditScope.Contains(vt))
                 {
                     auditedCount++;
-                    if (regex.IsMatch(v.Name))
+                    bool compliant;
+                    try
+                    {
+                        compliant = regex.IsMatch(v.Name);
+                    }
+                    catch (RegexMatchTimeoutException)
+                    {
+                        // The 2s timeout fires at MATCH time, not construction —
+                        // keep the tool's {ok:false, error} contract instead of
+                        // letting the exception escape the dispatcher.
+                        return new Dictionary<string, object?>
+                        {
+                            ["ok"] = false,
+                            ["error"] = "regex timed out — simplify the pattern",
+                        };
+                    }
+                    if (compliant)
                     {
                         compliantCount++;
                     }
