@@ -127,6 +127,48 @@ namespace RevitWebAppSync
             }
         }
 
+        /// <summary>
+        /// Restarts the locally-spawned engine process with a freshly-minted
+        /// device token (colocate deployment pipeline Task 4). Called by
+        /// BrowserLoginCommand after it mints + persists BinaConfig.DeviceToken
+        /// so the engine's next spawn picks it up via BINA_ENGINE_TOKEN
+        /// (EngineManager reads BinaConfig fresh at spawn time).
+        ///
+        /// Disposing an EngineManager also disposes its single-flight gate
+        /// semaphore (see EngineManager.Dispose), so the disposed instance
+        /// cannot be reused — this constructs a brand-new one exactly as
+        /// OnStartup's auto-spawn block does, rather than calling
+        /// EnsureRunningAsync again on the old (now-disposed) instance.
+        ///
+        /// No-op when engine auto-spawn isn't configured (VibeEngine is null
+        /// in that mode, so there is nothing to restart). Best-effort/
+        /// fire-and-forget — never blocks the caller (login UX).
+        /// </summary>
+        public static void RestartVibeEngineForNewToken()
+        {
+            try
+            {
+                var cfg = BinaConfig.Load();
+                if (!cfg.EngineMode || !cfg.EngineAutoSpawn)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        "[BINA] engine auto-spawn not enabled — skipping engine restart after login.");
+                    return;
+                }
+
+                VibeEngine?.Dispose();
+                VibeEngine = new RevitWebAppSync.Services.EngineManager(
+                    cfg.EngineHostPort, cfg.EngineSecret ?? "");
+                _ = VibeEngine.EnsureRunningAsync();   // fire-and-forget; health-gated
+                System.Diagnostics.Debug.WriteLine(
+                    "[BINA] engine restart requested with fresh device token");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] engine restart after login failed: {ex.Message}");
+            }
+        }
+
         public Result OnStartup(UIControlledApplication application)
         {
             try
