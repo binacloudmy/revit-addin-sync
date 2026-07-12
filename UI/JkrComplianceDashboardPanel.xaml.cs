@@ -765,18 +765,33 @@ namespace RevitWebAppSync.UI
         /// <summary>Deep-link the current issue into the Revit 3D view.</summary>
         internal void LocateInRevit(IssueVm issue)
         {
-            if (issue == null || issue.RevitElementId <= 0) return;
+            if (issue == null || issue.RevitElementId <= 0)
+            {
+                _vm.ShowToast("This issue has no linked element to locate.");
+                return;
+            }
             var uiDoc = UiAppLive?.ActiveUIDocument;
-            if (uiDoc == null) return;
+            if (uiDoc == null)
+            {
+                _vm.ShowToast("No active Revit document — open a model and try again.");
+                return;
+            }
             try
             {
-                var ids = new List<ElementId> { new ElementId(issue.RevitElementId) };
+                var id = new ElementId(issue.RevitElementId);
+                if (uiDoc.Document.GetElement(id) == null)
+                {
+                    _vm.ShowToast("Element no longer exists in the model — try re-scanning.");
+                    return;
+                }
+                var ids = new List<ElementId> { id };
                 uiDoc.ShowElements(ids);
                 uiDoc.Selection.SetElementIds(ids);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[BINA] locate failed: {ex.Message}");
+                _vm.ShowToast($"Couldn't locate element in view — {ex.Message}");
             }
         }
 

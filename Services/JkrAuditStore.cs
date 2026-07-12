@@ -336,7 +336,10 @@ namespace RevitWebAppSync.Services
                 FixOldValue = FixOldValue ?? "",
                 FixPriority = FixPriority,
                 FixTarget = string.IsNullOrEmpty(FixTarget) ? "instance" : FixTarget,
-                Locatable = Locatable,
+                // AND with RevitElementId>0 — same desync guard as IssueMapper.FromDto.
+                // Audit snapshots written before that fix may still have Locatable=true
+                // with RevitElementId==0; don't resurrect a dead Locate button on restore.
+                Locatable = Locatable && RevitElementId > 0,
                 FixReference = FixReference ?? "",
                 AutoFixable = false, // already fixed — don't re-offer the button
             };
