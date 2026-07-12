@@ -249,7 +249,12 @@ namespace RevitWebAppSync.Services
             try
             {
                 var r = await _http.GetAsync($"http://127.0.0.1:{_port}/health");
-                return r.IsSuccessStatusCode;
+                if (!r.IsSuccessStatusCode) return false;
+                // Shape check: a foreign process squatting on our port that
+                // happens to answer 200 must NOT be attached as our engine
+                // (app/engine/main.py health returns {"engine": true}).
+                var body = await r.Content.ReadAsStringAsync();
+                return body.Contains("\"engine\"");
             }
             catch { return false; }
         }
