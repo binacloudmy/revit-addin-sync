@@ -127,6 +127,53 @@ namespace RevitWebAppSync
             }
         }
 
+        /// <summary>
+        /// Restarts the locally-spawned engine process with a freshly-minted
+        /// device token (colocate deployment pipeline Task 4). Called by
+        /// BrowserLoginCommand after it mints + persists BinaConfig.DeviceToken
+        /// so the engine's next spawn picks it up via BINA_ENGINE_TOKEN
+        /// (EngineManager reads BinaConfig fresh at spawn time).
+        ///
+        /// Disposing an EngineManager also disposes its single-flight gate
+        /// semaphore (see EngineManager.Dispose), so the disposed instance
+        /// cannot be reused — this constructs a brand-new one exactly as
+        /// OnStartup's auto-spawn block does, rather than calling
+        /// EnsureRunningAsync again on the old (now-disposed) instance.
+        ///
+        /// No-op when engine auto-spawn isn't configured (VibeEngine is null
+        /// in that mode, so there is nothing to restart). Best-effort/
+        /// fire-and-forget — never blocks the caller (login UX).
+        /// </summary>
+        public static void RestartVibeEngineForNewToken()
+        {
+            try
+            {
+                var cfg = BinaConfig.Load();
+                // Same gate as OnStartup's spawn path: EngineMode + AutoSpawn,
+                // AND a non-blank secret — OnStartup refuses to start the local
+                // tool server (and therefore the engine) when EngineSecret is
+                // missing, so a restart must never spawn what startup refused.
+                if (!cfg.EngineMode || !cfg.EngineAutoSpawn ||
+                    string.IsNullOrWhiteSpace(cfg.EngineSecret))
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        "[BINA] engine auto-spawn not enabled (or EngineSecret missing) — skipping engine restart after login.");
+                    return;
+                }
+
+                VibeEngine?.Dispose();
+                VibeEngine = new RevitWebAppSync.Services.EngineManager(
+                    cfg.EngineHostPort, cfg.EngineSecret ?? "");
+                _ = VibeEngine.EnsureRunningAsync();   // fire-and-forget; health-gated
+                System.Diagnostics.Debug.WriteLine(
+                    "[BINA] engine restart requested with fresh device token");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA] engine restart after login failed: {ex.Message}");
+            }
+        }
+
         public Result OnStartup(UIControlledApplication application)
         {
             try

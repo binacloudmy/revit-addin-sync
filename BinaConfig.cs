@@ -71,6 +71,20 @@ namespace RevitWebAppSync
         // Distinct from EnginePort (this add-in's local tool server).
         public int EngineHostPort { get; set; } = 48810;
 
+        // Colocate deployment pipeline (Task 4 wires the device-pairing flow
+        // that populates these): the cloud gateway's base URL and this
+        // device's bearer token, handed to the local engine process via
+        // BINA_GATEWAY_URL / BINA_ENGINE_TOKEN env vars (EngineManager).
+        // Nullable/plain — no other behavior; whichever task lands first
+        // carries them, do not duplicate.
+        public string GatewayUrl { get; set; }
+        public string DeviceToken { get; set; }
+        // Unix epoch SECONDS the DeviceToken expires at (from the gateway's
+        // expires_at). Nullable: absent on configs whose token was minted
+        // before expiry persistence landed. BrowserLoginCommand re-mints when
+        // this is within 3 days of now (proactive refresh, no scheduler).
+        public long? DeviceTokenExpiresAt { get; set; }
+
         // Full sign-in endpoint. Defaults to BASE_URL/api/auth/user/sign-in, but
         // can be pinned independently via the LOGIN_URL env key or config.json
         // (e.g. auth split onto its own host).

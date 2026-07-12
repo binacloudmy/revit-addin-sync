@@ -12,6 +12,9 @@
 ; Build (CI does this in .github/workflows/release.yml):
 ;   ISCC installer\RevitCopilot.iss /DAppVersion=0.0.8 ^
 ;     /DLoaderDir=..\artifacts\loader /DPluginDir=..\artifacts\plugin
+; Optional engine + signing flags (see installer\build-installer.ps1 for the
+; wrapper that computes these): /DEngineDir=... /DEngineVersion=... and
+; /Sbinasign=<signtool command> /DSignToolName=binasign
 ;
 ; Layout installed (same as the MSI did):
 ;   %APPDATA%\Autodesk\Revit\Addins\<2025|2026|2027>\  BinaSync.addin + BinaLoader.dll
@@ -56,6 +59,17 @@ DisableReadyPage=yes
 DisableFinishedPage=yes
 Uninstallable=yes
 UninstallDisplayName=BINA AI Copilot
+; Optional code signing: build-installer.ps1 passes SignToolName (via /D) +
+; a matching /S<name>=<signtool command> only when -SignCert/-SignPassword or
+; SIGNTOOL_ARGS was given. SignTool signs the compiled setup EXE; pairing it
+; with SignedUninstaller also signs the uninstaller stub embedded inside it
+; (the only way to get a signed uninstaller — it can't be signed after the
+; fact since Inno generates it fresh on the end user's machine at install
+; time). Omit -> this whole block doesn't exist -> unsigned, unchanged build.
+#ifdef SignToolName
+SignTool={#SignToolName}
+SignedUninstaller=yes
+#endif
 
 [Files]
 ; Loader shim into every supported Revit year (only net8 hosts: 2025-2027).

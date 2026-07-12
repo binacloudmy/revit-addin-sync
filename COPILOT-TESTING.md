@@ -779,3 +779,16 @@ Beat-Revit-AI iteration additions:
 - [ ] No tindakan → no buttons (plain reply unchanged)
 - [ ] Clickable ids: audit table → id underlined; click selects + zooms the element in Revit; non-id numbers (areas, counts) NOT clickable
 - [ ] Regression: copy/select text in replies still works; user bubbles unchanged; history tab renders old messages
+
+## 20. Colocate deployment (engine bundle + supervisor)
+- [ ] Bundle: `pwsh scripts/build-engine-bundle.ps1 -Version 0.9.0 -Smoke` → smoke OK
+- [ ] Cold spawn: place bundle under %LocalAppData%\Bina\RevitSync\engine\0.9.0\, start Revit, open pane → engine healthy, turn works
+- [ ] Attach: second Revit instance → no second engine process
+- [ ] Crash respawn: kill python.exe → engine back within ~25s; kill 3× fast → pane error state + log link
+- [ ] Version gate: set min_addin_version above the addin version → error banner, no spawn
+- [ ] Login token: login in addin → config.json gains DeviceToken; engine env has BINA_ENGINE_TOKEN (Process Explorer)
+- [ ] Poison-pill: set DEEPSEEK_API_KEY + GatewayUrl → engine refuses, log names the key
+- [ ] Update channel: feed with EngineVersion/EngineUrl/EngineSha256 → new dir appears; corrupt sha → rejected, current kept
+- [ ] Installer: build with -EngineZip → fresh machine install → cold-spawn checklist passes
+- [ ] Signed build: build-installer.ps1 -SignCert <pfx> -SignPassword <pw> — signtool quoting survives ISCC (the /Sbinasign mechanism); installer + uninstaller both signed (signtool verify /pa)
+- [ ] OTA feed: version.json with flat engineVersion/engineUrl/engineSha256 fields (NOT the old nested {engine:{...}} shape)

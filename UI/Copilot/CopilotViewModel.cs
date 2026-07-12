@@ -647,14 +647,14 @@ namespace RevitWebAppSync.UI.Copilot
                 : files.Select(f => new HistoryFile(f.Name, LineCount(f.Content))).ToList();
 
             // Intent detection runs on the user's text only, so file contents can't
-            // falsely match tool keywords in PickResponseTool.
+            // falsely match tool keywords in PickResponseTool. NO early-return here:
+            // the local keyword clarify-intercept was disabled 2026-06-12 (see the
+            // commented block below) but a merge resurrected a live copy ABOVE the
+            // auth gate — it hijacked any prompt lacking a known verb ("audit …
+            // walls") with canned tool chips and never reached the backend
+            // (BINAXONE CatA finding, 2026-07-12). The interpreter still runs
+            // silently to supply the fallback ToolId the router expects.
             var interp = QueryInterpreter.Interpret(text);
-            if (interp.IsClarify)
-            {
-                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Clarify, Question = interp.Question, Options = interp.Options });
-                AppendToCurrentSession(text, interp.Question ?? "Needs clarification", userFiles: historyFiles);
-                return;
-            }
 
             // Auth gate: BINA Copilot needs a signed-in BINA Cloud session. Show a friendly
             // prompt instead of letting the request 401 at the backend.
