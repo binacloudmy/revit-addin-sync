@@ -118,6 +118,8 @@ if ($env:SIGNTOOL_ARGS -or $SignCert) {
     # concatenation, not interpolation, to keep it literal.
     $signCommand = 'signtool.exe sign ' + $signBody + ' "$f"'
     $signIscArgs = @("/Sbinasign=$signCommand", "/DSignToolName=binasign")
+} elseif ($SignPassword) {
+    Write-Warning "-SignPassword given without -SignCert — signing skipped"
 }
 
 if ($Sign -and $signIscArgs.Count -gt 0) {

@@ -357,10 +357,10 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>Shape of engine-version.json (see
-        /// scripts/build-engine-bundle.ps1) — flat, snake_case, not the
-        /// "engine" sub-block UpdateService.EngineFeed merges into
-        /// version.json (that's the OTA feed; this is the bundle's own
-        /// manifest, read locally next to the launcher).</summary>
+        /// scripts/build-engine-bundle.ps1) — flat, snake_case, distinct
+        /// from UpdateService.UpdateFeed's EngineVersion/EngineUrl/
+        /// EngineSha256 fields (that's the OTA feed; this is the bundle's
+        /// own manifest, read locally next to the launcher).</summary>
         private sealed class EngineVersionManifest
         {
             [JsonProperty("engine_version")] public string EngineVersion { get; set; }

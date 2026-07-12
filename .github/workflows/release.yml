@@ -85,9 +85,11 @@ jobs:
             # Flip to $false for releases old builds may keep using.
             mandatory = $true
           }
-          # Phase 4: if the engine was built (bina-ai packaging/build-engine.ps1
-          # emits dist/engine-version.json + bina-engine-<v>.zip into ./engine/),
-          # merge its block so the ONE version.json carries both artifacts.
+          # Phase 4 (superseded by bina-ai scripts/build-engine-bundle.ps1 +
+          # flat engineVersion/engineUrl/engineSha256 feed fields — this
+          # merge block is not currently wired into any step of this
+          # workflow and never fires): if the engine was built, merge its
+          # block so the ONE version.json carries both artifacts.
           if (Test-Path engine/engine-version.json) {
             $eng = (Get-Content engine/engine-version.json -Raw | ConvertFrom-Json).engine
             $feed.engine = $eng
@@ -109,7 +111,7 @@ jobs:
           $loaderDir = (Resolve-Path artifacts/loader).Path
           $pluginDir = (Resolve-Path artifacts/plugin).Path
           # Phase 4: seed the engine into the installer if it was built.
-          # (bina-ai packaging/build-engine.ps1 -> dist/bina-engine/ -> artifacts/engine/)
+          # (bina-ai scripts/build-engine-bundle.ps1 -> dist/bina-engine/ -> artifacts/engine/)
           $engineArg = @()
           if (Test-Path artifacts/engine) {
             $engineDir = (Resolve-Path artifacts/engine).Path
