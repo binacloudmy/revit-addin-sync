@@ -101,7 +101,8 @@ namespace RevitWebAppSync.Services
             }
             finally
             {
-                _gate.Release();
+                // Dispose() may have disposed _gate while we were in flight.
+                try { _gate.Release(); } catch (ObjectDisposedException) { }
             }
         }
 
@@ -172,6 +173,17 @@ namespace RevitWebAppSync.Services
             Process proc;
             try
             {
+                // Dispose-safe spawn window: Dispose() doesn't take _gate (a
+                // sync Dispose blocking Revit shutdown for up to 20s+ of
+                // readiness polling would be worse), so a fast startup→teardown
+                // could otherwise land Dispose BEFORE _proc is assigned and
+                // orphan the just-spawned engine forever (pidfile already
+                // deleted by Dispose). Check right before Start...
+                if (_disposing)
+                {
+                    Debug.WriteLine("[BINA] disposing — not spawning engine.");
+                    return;
+                }
                 proc = Process.Start(psi);
                 if (proc == null)
                 {
@@ -180,13 +192,24 @@ namespace RevitWebAppSync.Services
                     return;
                 }
                 _proc = proc;
+                // ...and re-check right after the assignment: a Dispose that
+                // ran in the check→Start instant missed this proc (it read the
+                // old _proc), so reap it here ourselves.
+                if (_disposing)
+                {
+                    Debug.WriteLine("[BINA] disposed during spawn — killing engine.");
+                    KillProcessSafely(proc);
+                    return;
+                }
 
                 Directory.CreateDirectory(EngineRoot);
                 File.WriteAllText(PidFile, proc.Id.ToString());
                 Debug.WriteLine($"[BINA] engine starting pid={proc.Id} port={_port} launcher={launcher}");
 
-                proc.EnableRaisingEvents = true;
+                // Subscribe BEFORE enabling events — the reverse order has a
+                // window where an instant crash raises no Exited callback.
                 proc.Exited += OnEngineExited;
+                proc.EnableRaisingEvents = true;
 
                 proc.OutputDataReceived += (s, e) => AppendLog(e.Data);
                 proc.ErrorDataReceived += (s, e) => AppendLog(e.Data);
@@ -276,7 +299,8 @@ namespace RevitWebAppSync.Services
                 }
                 finally
                 {
-                    _gate.Release();
+                    // Dispose() may have disposed _gate while we were in flight.
+                    try { _gate.Release(); } catch (ObjectDisposedException) { }
                 }
             }
             catch (Exception ex)
@@ -413,13 +437,20 @@ namespace RevitWebAppSync.Services
 
         public void Dispose()
         {
+            // Flag FIRST: Core checks it before Process.Start and re-checks
+            // after the _proc assignment, so a spawn racing this Dispose is
+            // either never started or reaped by Core itself.
             _disposing = true;
             try
             {
-                if (_proc != null && !_proc.HasExited) _proc.Kill(entireProcessTree: true);
+                var p = _proc;   // single read of the shared field
+                if (p != null && !p.HasExited) p.Kill(entireProcessTree: true);
                 if (File.Exists(PidFile)) File.Delete(PidFile);
             }
             catch { }
+            // After the kill logic: any queued watchdog WaitAsync throws
+            // ObjectDisposedException into its own catch-all and exits.
+            try { _gate.Dispose(); } catch { }
         }
     }
 }
