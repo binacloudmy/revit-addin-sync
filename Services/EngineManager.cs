@@ -42,6 +42,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 
@@ -54,10 +55,18 @@ namespace RevitWebAppSync.Services
         private readonly string _secret;
         private Process _proc;
 
-        // Crash watchdog state.
+        // Crash watchdog state. _respawns/_healthySince are only mutated while
+        // holding _gate (single-flight), so no interlocked ops needed.
         private int _respawns;
         private DateTime _healthySince = DateTime.MinValue;
         private volatile bool _disposing;
+
+        // Single-flight gate: watchdog respawns queue behind any in-flight
+        // EnsureRunningAsync instead of racing it (a second concurrent attempt
+        // used to overwrite _proc, letting the first attempt's readiness
+        // timeout kill the second's healthy respawn → cascading Exited →
+        // false crash-loop). SemaphoreSlim, NOT lock() — the body awaits.
+        private readonly SemaphoreSlim _gate = new SemaphoreSlim(1, 1);
 
         // Readiness/health status for the pane to poll. Volatile string
         // assignment is enough here — we never need read-modify-write.
@@ -81,8 +90,24 @@ namespace RevitWebAppSync.Services
         /// <summary>Ensure an engine is answering on the loopback port; spawn the
         /// newest installed version if not. Idempotent — safe to call at startup
         /// even if a healthy engine is already running (e.g. left by a prior
-        /// Revit session), and safe to call again from the crash watchdog.</summary>
+        /// Revit session), and safe to call again from the crash watchdog.
+        /// Single-flight: concurrent callers queue on _gate.</summary>
         public async Task EnsureRunningAsync()
+        {
+            await _gate.WaitAsync();
+            try
+            {
+                await EnsureRunningCoreAsync();
+            }
+            finally
+            {
+                _gate.Release();
+            }
+        }
+
+        /// <summary>The actual ensure/spawn/readiness body. MUST be called with
+        /// _gate held (EnsureRunningAsync or the watchdog's gated section).</summary>
+        private async Task EnsureRunningCoreAsync()
         {
             KillStaleFromPidFile();
             if (await IsHealthyAsync())
@@ -141,27 +166,32 @@ namespace RevitWebAppSync.Services
                 psi.Environment["BINA_ENGINE_TOKEN"] = cfg.DeviceToken;
 
             Status = "starting";
+            // Track the process THIS attempt started in a local — even if a
+            // queued attempt later replaces _proc, our timeout path can only
+            // ever kill our own spawn, never a sibling's healthy one.
+            Process proc;
             try
             {
-                _proc = Process.Start(psi);
-                if (_proc == null)
+                proc = Process.Start(psi);
+                if (proc == null)
                 {
                     Status = "error:spawn-failed";
                     Debug.WriteLine("[BINA] engine Process.Start returned null.");
                     return;
                 }
+                _proc = proc;
 
                 Directory.CreateDirectory(EngineRoot);
-                File.WriteAllText(PidFile, _proc.Id.ToString());
-                Debug.WriteLine($"[BINA] engine starting pid={_proc.Id} port={_port} launcher={launcher}");
+                File.WriteAllText(PidFile, proc.Id.ToString());
+                Debug.WriteLine($"[BINA] engine starting pid={proc.Id} port={_port} launcher={launcher}");
 
-                _proc.EnableRaisingEvents = true;
-                _proc.Exited += OnEngineExited;
+                proc.EnableRaisingEvents = true;
+                proc.Exited += OnEngineExited;
 
-                _proc.OutputDataReceived += (s, e) => AppendLog(e.Data);
-                _proc.ErrorDataReceived += (s, e) => AppendLog(e.Data);
-                _proc.BeginOutputReadLine();
-                _proc.BeginErrorReadLine();
+                proc.OutputDataReceived += (s, e) => AppendLog(e.Data);
+                proc.ErrorDataReceived += (s, e) => AppendLog(e.Data);
+                proc.BeginOutputReadLine();
+                proc.BeginErrorReadLine();
             }
             catch (Exception ex)
             {
@@ -170,22 +200,25 @@ namespace RevitWebAppSync.Services
                 return;
             }
 
-            // Readiness: poll every 1s up to 20s.
-            for (var i = 0; i < 20; i++)
+            // Readiness: poll every 1s against a hard 20s wall-clock deadline
+            // (a fixed 20-iteration count could stretch to ~60s when each
+            // health probe eats its full 2s HttpClient timeout).
+            var deadline = Stopwatch.StartNew();
+            while (deadline.Elapsed < TimeSpan.FromSeconds(20))
             {
                 await Task.Delay(1000);
                 if (await IsHealthyAsync())
                 {
                     Status = "healthy";
                     _healthySince = DateTime.UtcNow;
-                    Debug.WriteLine($"[BINA] engine healthy pid={_proc?.Id} port={_port}");
+                    Debug.WriteLine($"[BINA] engine healthy pid={proc.Id} port={_port}");
                     return;
                 }
             }
 
             Status = "error:start-timeout";
             Debug.WriteLine("[BINA] engine did not become healthy within 20s — killing.");
-            KillProcessSafely(_proc);
+            KillProcessSafely(proc);
         }
 
         private async Task<bool> IsHealthyAsync()
@@ -201,31 +234,50 @@ namespace RevitWebAppSync.Services
         /// <summary>Crash watchdog. Fires when the spawned process (cmd.exe
         /// wrapping run-engine.cmd, or the legacy exe) exits on its own —
         /// NOT when we kill it ourselves during Dispose (_disposing guard).
-        /// A start-timeout kill (see EnsureRunningAsync) is intentionally NOT
-        /// guarded — it flows through here and counts against the respawn
-        /// cap, which is the desired bounded-retry behavior either way.</summary>
+        /// A start-timeout kill (see EnsureRunningCoreAsync) is intentionally
+        /// NOT guarded — it flows through here and counts against the respawn
+        /// cap, which is the desired bounded-retry behavior either way.
+        /// Single-flight: all bookkeeping + the respawn run under _gate, so a
+        /// respawn queues behind any in-flight ensure attempt instead of
+        /// racing it. Calls EnsureRunningCoreAsync directly (SemaphoreSlim is
+        /// not reentrant — going through EnsureRunningAsync would deadlock).</summary>
         private async void OnEngineExited(object sender, EventArgs e)
         {
             if (_disposing) return;
             try
             {
-                if (_healthySince != DateTime.MinValue &&
-                    DateTime.UtcNow - _healthySince >= TimeSpan.FromMinutes(10))
+                await _gate.WaitAsync();
+                try
                 {
-                    _respawns = 0;   // 10 minutes of healthy uptime forgives past crashes
-                }
-                _healthySince = DateTime.MinValue;
+                    if (_disposing) return;
 
-                if (_respawns >= 3)
+                    // Stale event: a queued/newer attempt already replaced the
+                    // process this handler belongs to — its exit is history,
+                    // not a crash of the CURRENT engine. Don't burn the cap.
+                    if (!ReferenceEquals(sender, _proc)) return;
+
+                    if (_healthySince != DateTime.MinValue &&
+                        DateTime.UtcNow - _healthySince >= TimeSpan.FromMinutes(10))
+                    {
+                        _respawns = 0;   // 10 minutes of healthy uptime forgives past crashes
+                    }
+                    _healthySince = DateTime.MinValue;
+
+                    if (_respawns >= 3)
+                    {
+                        Status = "error:crash-loop";
+                        Debug.WriteLine("[BINA] engine crash-loop — giving up after 3 respawn attempts.");
+                        return;
+                    }
+
+                    _respawns++;
+                    Debug.WriteLine($"[BINA] engine exited unexpectedly — respawn attempt {_respawns}/3.");
+                    await EnsureRunningCoreAsync();
+                }
+                finally
                 {
-                    Status = "error:crash-loop";
-                    Debug.WriteLine("[BINA] engine crash-loop — giving up after 3 respawn attempts.");
-                    return;
+                    _gate.Release();
                 }
-
-                _respawns++;
-                Debug.WriteLine($"[BINA] engine exited unexpectedly — respawn attempt {_respawns}/3.");
-                await EnsureRunningAsync();
             }
             catch (Exception ex)
             {
@@ -331,13 +383,26 @@ namespace RevitWebAppSync.Services
                         // v2 launches via cmd.exe (run-engine.cmd) or, legacy,
                         // bina-engine.exe directly — accept either name so the
                         // stale-kill safety net still works with the new bundle
-                        // layout, not just the retired PyInstaller path.
-                        if (p != null && !p.HasExited &&
-                            (p.ProcessName.IndexOf("bina-engine", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                             p.ProcessName.IndexOf("cmd", StringComparison.OrdinalIgnoreCase) >= 0))
+                        // layout. "cmd" must be an EXACT match (ProcessName has
+                        // no .exe suffix): a substring test also hits e.g.
+                        // cmdagent.exe, and a recycled PID would then kill an
+                        // innocent process WITH its whole tree.
+                        var isOurs = p != null && !p.HasExited &&
+                            (string.Equals(p.ProcessName, "cmd", StringComparison.OrdinalIgnoreCase) ||
+                             p.ProcessName.IndexOf("bina-engine", StringComparison.OrdinalIgnoreCase) >= 0);
+
+                        // Recycled-PID guard: the pidfile is written right AFTER
+                        // Process.Start, so the real engine's start time precedes
+                        // the file's write time. A process that started after it
+                        // merely reuses the PID — leave it alone.
+                        if (isOurs &&
+                            p.StartTime.ToUniversalTime()
+                                > File.GetLastWriteTimeUtc(PidFile).AddSeconds(5))
                         {
-                            p.Kill(entireProcessTree: true);
+                            isOurs = false;
                         }
+
+                        if (isOurs) p.Kill(entireProcessTree: true);
                     }
                     catch { /* pid not alive / not ours — fine */ }
                 }
