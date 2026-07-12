@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Security.Cryptography;
 using Newtonsoft.Json;
 
 namespace RevitWebAppSync
@@ -89,6 +90,17 @@ namespace RevitWebAppSync
         // can be pinned independently via the LOGIN_URL env key or config.json
         // (e.g. auth split onto its own host).
         public string LoginUrl { get; set; }
+
+        // Zero-config release (setup exe -> Login -> works, no hand-edited
+        // config.json): stamped the first time ApplyDefaults() runs so it
+        // never re-runs on subsequent Load() calls. Nullable, not a bool —
+        // Newtonsoft can't tell "absent from JSON" from "explicitly false"
+        // for a plain bool, which would make an idempotence/overwrite gate
+        // built on a bool ambiguous on configs written before this field
+        // existed. A null DateTime is unambiguous either way (missing key
+        // deserializes to null, same as an explicit `null` in the file), so
+        // it doubles as both the one-time gate AND an audit timestamp.
+        public DateTime? AutoConfiguredAt { get; set; }
 
         // Defaults now come from the embedded .env (.env.local on Debug,
         // .env.production on Release). The string literals below are last-resort
@@ -215,19 +227,126 @@ namespace RevitWebAppSync
 
         public static BinaConfig Load()
         {
+            BinaConfig cfg = null;
             try
             {
                 if (File.Exists(ConfigPath))
                 {
                     string json = File.ReadAllText(ConfigPath);
-                    return JsonConvert.DeserializeObject<BinaConfig>(json);
+                    cfg = JsonConvert.DeserializeObject<BinaConfig>(json);
                 }
             }
             catch (Exception ex)
             {
             }
 
-            return new BinaConfig();
+            cfg = cfg ?? new BinaConfig();
+
+            // Zero-config release: fill blank/absent values ONCE (see
+            // ApplyDefaults' own doc comment for the exact rules + the
+            // one-time gate). Runs for both a brand-new config.json (fresh
+            // install) and a pre-existing one that predates this field.
+            cfg.ApplyDefaults();
+
+            return cfg;
+        }
+
+        /// <summary>
+        /// Zero-config first-run self-configuration (drafter runs the setup
+        /// exe -> opens Revit -> clicks Login -> everything works, no hand
+        /// edits to config.json). Fills ONLY blank/absent values and never
+        /// touches anything the user (or a prior run) already set — see
+        /// AutoConfiguredAt's doc comment for why the gate is a nullable
+        /// timestamp rather than a bool. Saves at most once per config file.
+        /// </summary>
+        private void ApplyDefaults()
+        {
+            if (AutoConfiguredAt.HasValue) return;   // already ran once — never re-run
+
+            if (string.IsNullOrWhiteSpace(EngineSecret))
+            {
+                EngineSecret = GenerateEngineSecret();
+            }
+
+            if (EngineHostPort <= 0)
+            {
+                EngineHostPort = 48810;
+            }
+
+            if (string.IsNullOrWhiteSpace(GatewayUrl))
+            {
+                var fromDefaultsFile = ReadGatewayUrlFromDefaultsFile();
+                if (!string.IsNullOrWhiteSpace(fromDefaultsFile))
+                {
+                    GatewayUrl = fromDefaultsFile;
+                }
+            }
+
+            // Auto-enable Engine mode ONLY when BOTH an engine bundle is
+            // actually installed on disk AND a gateway is configured (just
+            // resolved above, either from a prior manual config.json or from
+            // the installer's bina-defaults.json). A cloud-only install (no
+            // engine bundle shipped) must never flip these — EngineMode stays
+            // false and the addin behaves exactly as it does today.
+            if (!EngineMode &&
+                !string.IsNullOrWhiteSpace(GatewayUrl) &&
+                !string.IsNullOrEmpty(Services.EngineManager.NewestEngineLauncher()))
+            {
+                EngineMode = true;
+                EngineAutoSpawn = true;
+            }
+
+            // Once Engine mode is on, AI calls must target the local engine,
+            // not the cloud. Only steer AIBaseUrl away from blank or an
+            // obvious cloud default (bina.cloud / any https:// URL) — a
+            // custom localhost value a developer already set is left alone.
+            if (EngineMode && IsBlankOrCloudDefault(AIBaseUrl))
+            {
+                AIBaseUrl = "http://localhost:" + EngineHostPort;
+            }
+
+            AutoConfiguredAt = DateTime.UtcNow;
+            Save();
+        }
+
+        private static bool IsBlankOrCloudDefault(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return true;
+            if (url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return true;
+            if (url.IndexOf("bina.cloud", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
+        }
+
+        private static string GenerateEngineSecret()
+        {
+            // 32 random hex chars (16 bytes) — matches the shared-secret
+            // shape EngineManager/McpServer already validate elsewhere.
+            var bytes = RandomNumberGenerator.GetBytes(16);
+            return Convert.ToHexString(bytes).ToLowerInvariant();
+        }
+
+        // Installer-carried default (build-installer.ps1 -GatewayUrl writes
+        // this file next to the addin DLLs; see installer/RevitCopilot.iss).
+        // Read from the EXECUTING assembly's own directory so it tracks
+        // whichever version the OTA updater staged, not a hardcoded path.
+        // Tolerates a missing file or bad JSON — silently no-ops either way.
+        private static string ReadGatewayUrlFromDefaultsFile()
+        {
+            try
+            {
+                var asmDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                if (string.IsNullOrEmpty(asmDir)) return null;
+
+                var path = Path.Combine(asmDir, "bina-defaults.json");
+                if (!File.Exists(path)) return null;
+
+                var json = File.ReadAllText(path);
+                var map = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
+                if (map != null && map.TryGetValue("GatewayUrl", out var v) && !string.IsNullOrWhiteSpace(v))
+                    return v;
+            }
+            catch { /* missing/bad defaults file is never fatal */ }
+            return null;
         }
 
         public void Save()

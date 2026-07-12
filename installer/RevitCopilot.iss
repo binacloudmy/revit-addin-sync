@@ -37,6 +37,12 @@
 #ifndef EngineVersion
   #define EngineVersion AppVersion
 #endif
+; Zero-config release: bina-defaults.json (installer-carried GatewayUrl).
+; Optional — build-installer.ps1 -GatewayUrl defines DefaultsDir; omit and the
+; fallback dir doesn't exist, so skipifsourcedoesntexist skips it cleanly.
+#ifndef DefaultsDir
+  #define DefaultsDir "..\artifacts\defaults"
+#endif
 
 [Setup]
 ; AppId is permanent — same rule as an MSI UpgradeCode, never regenerate.
@@ -81,6 +87,9 @@ Source: "{#PluginDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\versions\{#App
 ; Seed the packaged engine so EngineManager can spawn it before the first OTA.
 ; Optional: only if the build published artifacts\engine (Check skips it cleanly).
 Source: "{#EngineDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\engine\{#EngineVersion}"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+; Zero-config defaults land NEXT TO the plugin DLLs (BinaConfig reads
+; bina-defaults.json from the executing assembly's own directory).
+Source: "{#DefaultsDir}\bina-defaults.json"; DestDir: "{localappdata}\Bina\RevitSync\versions\{#AppVersion}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [InstallDelete]
 ; Stale pre-loader direct-load manifests — a second live copy breaks startup.

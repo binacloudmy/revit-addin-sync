@@ -75,7 +75,11 @@ namespace RevitWebAppSync.Services
 
         private static readonly object _logLock = new object();
 
-        private static string EngineRoot => Path.Combine(
+        // internal (not private): BinaConfig.ApplyDefaults reuses this exact
+        // probe to decide whether a local engine bundle is installed before
+        // auto-flipping EngineMode/EngineAutoSpawn on first run — see
+        // BinaConfig.cs. Do not duplicate the probe logic there.
+        internal static string EngineRoot => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "Bina", "RevitSync", "engine");
         private static string PidFile => Path.Combine(EngineRoot, "engine.pid");
@@ -314,7 +318,9 @@ namespace RevitWebAppSync.Services
             }
         }
 
-        private static string NewestEngineLauncher()
+        // internal (not private): see EngineRoot's comment above — reused by
+        // BinaConfig.ApplyDefaults as the "is an engine bundle installed?" probe.
+        internal static string NewestEngineLauncher()
         {
             if (!Directory.Exists(EngineRoot)) return null;
             return Directory.GetDirectories(EngineRoot)

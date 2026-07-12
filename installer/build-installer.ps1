@@ -31,6 +31,15 @@
 #
 # -Sign/-Thumbprint (legacy) still works and signs only the setup EXE
 # post-compile; -SignCert/SIGNTOOL_ARGS supersede it when both are given.
+#
+# Zero-config release: pass -GatewayUrl so a drafter's install never needs a
+# hand-edited config.json. The addin's BinaConfig.ApplyDefaults() reads this
+# back on first run (see BinaConfig.cs) and, when a colocated engine bundle
+# is ALSO present (-EngineZip), auto-enables Engine mode + points AIBaseUrl
+# at the local engine. Omit it and the installer is addin-only/cloud-mode,
+# exactly as before this flag existed.
+#
+#   installer\build-installer.ps1 -Version 0.0.8 -GatewayUrl https://gw.bina.cloud
 
 param(
     [string]$Version = "0.0.1",
@@ -40,7 +49,8 @@ param(
     [string]$TimestampUrl = "http://timestamp.digicert.com",
     [string]$EngineZip = "",
     [string]$SignCert = "",
-    [string]$SignPassword = ""
+    [string]$SignPassword = "",
+    [string]$GatewayUrl = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -93,6 +103,20 @@ if ($EngineZip) {
     $engineIscArgs = @("/DEngineDir=$engineDir", "/DEngineVersion=$engineVersion")
 }
 
+# Optional: stage bina-defaults.json (zero-config release) next to the addin
+# DLLs. Same guarded pattern as the engine bundle above — without -GatewayUrl
+# the /D flag is omitted entirely, RevitCopilot.iss's DefaultsDir falls back
+# to a nonexistent directory, and skipifsourcedoesntexist skips it cleanly:
+# byte-identical ISCC invocation to before this feature existed.
+$defaultsIscArgs = @()
+if ($GatewayUrl) {
+    $defaultsDir = Join-Path $repo "artifacts\defaults"
+    Write-Host "==> Writing bina-defaults.json (GatewayUrl=$GatewayUrl)..." -ForegroundColor Cyan
+    New-Item -ItemType Directory -Force -Path $defaultsDir | Out-Null
+    @{ GatewayUrl = $GatewayUrl } | ConvertTo-Json | Set-Content (Join-Path $defaultsDir "bina-defaults.json")
+    $defaultsIscArgs = @("/DDefaultsDir=$defaultsDir")
+}
+
 # Optional: code signing, native Inno mechanism (signs the setup EXE AND the
 # embedded uninstaller stub — post-compile signtool can only reach the EXE).
 # Precedence: SIGNTOOL_ARGS env (password never touches the command line) >
@@ -135,7 +159,7 @@ if (-not (Test-Path $iscc)) {
 
 Write-Host "==> Building installer EXE..." -ForegroundColor Cyan
 $iscArgs = @($iss, "/DAppVersion=$Version", "/DLoaderDir=$loaderDir", "/DPluginDir=$pluginDir") +
-    $engineIscArgs + $signIscArgs + @("/O$repo")
+    $engineIscArgs + $defaultsIscArgs + $signIscArgs + @("/O$repo")
 & $iscc @iscArgs
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 
