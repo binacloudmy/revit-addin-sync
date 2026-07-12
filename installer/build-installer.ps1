@@ -151,10 +151,16 @@ if ($Sign -and $signIscArgs.Count -gt 0) {
     $Sign = $false
 }
 
-# Inno Setup compiler.
-$iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
-if (-not (Test-Path $iscc)) {
-    throw "Inno Setup 6 not found ($iscc). Install: winget install JRSoftware.InnoSetup"
+# Inno Setup compiler — machine-wide (elevated install) or per-user (winget
+# without admin lands in %LOCALAPPDATA%\Programs).
+$isccCandidates = @(
+    "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+)
+$iscc = $isccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $iscc) {
+    throw "Inno Setup 6 not found (looked in: $($isccCandidates -join '; ')). Install: winget install JRSoftware.InnoSetup"
 }
 
 Write-Host "==> Building installer EXE..." -ForegroundColor Cyan
