@@ -27,11 +27,13 @@ namespace RevitWebAppSync
 
                 if (config.IsLoggedIn())
                 {
+                    bool loggedOut = false;
                     var userInfoWindow = new UserInfoWindow(config);
                     if (userInfoWindow.ShowDialog() == true)
                     {
                         if (userInfoWindow.LoggedOut)
                         {
+                            loggedOut = true;
                             config.ClearSession();
                             config.Save();
                             SecureTokenStore.Clear();
@@ -44,6 +46,21 @@ namespace RevitWebAppSync
                             ShowProjectPicker(config);
                         }
                     }
+
+                    // Already-signed-in sessions (the OTA-upgrade rollout case) never
+                    // reach the fresh-login mint below, so without this they'd run
+                    // the engine tokenless forever. Mint-if-missing — and proactively
+                    // re-mint when the persisted token is within 3 days of its
+                    // expiry — using the access token this session already holds.
+                    // Never re-mints on every click while a healthy token exists,
+                    // and never after a logout (that access token is being discarded).
+                    if (!loggedOut &&
+                        !string.IsNullOrEmpty(config.GatewayUrl) &&
+                        DeviceTokenMissingOrExpiring(config))
+                    {
+                        _ = MintDeviceTokenAndRestartEngineAsync(config.AccessToken);
+                    }
+
                     return Result.Succeeded;
                 }
 
@@ -168,11 +185,52 @@ namespace RevitWebAppSync
                     var j = Newtonsoft.Json.Linq.JObject.Parse(
                         await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
                     cfg.DeviceToken = (string)j["token"];
+                    cfg.DeviceTokenExpiresAt = ParseExpiryToUnixSeconds(j["expires_at"]);
                     cfg.Save();
                     App.RestartVibeEngineForNewToken();
                 }
             }
             catch { /* engine token is best-effort at login; next login retries */ }
+        }
+
+        /// <summary>True when no device token is persisted, or the persisted one
+        /// expires within 3 days (proactive refresh — kills the 14-day cliff
+        /// without a scheduler). A token with an unknown expiry (mint predates
+        /// expiry persistence, or the gateway omitted/changed the field) is
+        /// treated as healthy — we only refresh on positive evidence, so old
+        /// configs don't re-mint on every ribbon click.</summary>
+        private static bool DeviceTokenMissingOrExpiring(BinaConfig cfg)
+        {
+            if (string.IsNullOrEmpty(cfg.DeviceToken)) return true;
+            if (!cfg.DeviceTokenExpiresAt.HasValue) return false;
+            long nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            const long threeDays = 3L * 24 * 60 * 60;
+            return cfg.DeviceTokenExpiresAt.Value - nowUnix < threeDays;
+        }
+
+        /// <summary>Best-effort parse of the gateway's expires_at into unix epoch
+        /// SECONDS: accepts a numeric epoch or an ISO-8601 timestamp string.
+        /// Null on anything else — an unparseable expiry must never fail the
+        /// token save itself.</summary>
+        private static long? ParseExpiryToUnixSeconds(Newtonsoft.Json.Linq.JToken expiresAt)
+        {
+            try
+            {
+                if (expiresAt == null) return null;
+                if (expiresAt.Type == Newtonsoft.Json.Linq.JTokenType.Integer ||
+                    expiresAt.Type == Newtonsoft.Json.Linq.JTokenType.Float)
+                    return (long)expiresAt;
+                var s = (string)expiresAt;
+                if (string.IsNullOrWhiteSpace(s)) return null;
+                if (DateTimeOffset.TryParse(
+                        s,
+                        System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal,
+                        out var dto))
+                    return dto.ToUnixTimeSeconds();
+                return null;
+            }
+            catch { return null; }
         }
 
         /// <summary>Show the right-docked Copilot pane and push live Revit context — same

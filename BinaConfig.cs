@@ -79,6 +79,11 @@ namespace RevitWebAppSync
         // carries them, do not duplicate.
         public string GatewayUrl { get; set; }
         public string DeviceToken { get; set; }
+        // Unix epoch SECONDS the DeviceToken expires at (from the gateway's
+        // expires_at). Nullable: absent on configs whose token was minted
+        // before expiry persistence landed. BrowserLoginCommand re-mints when
+        // this is within 3 days of now (proactive refresh, no scheduler).
+        public long? DeviceTokenExpiresAt { get; set; }
 
         // Full sign-in endpoint. Defaults to BASE_URL/api/auth/user/sign-in, but
         // can be pinned independently via the LOGIN_URL env key or config.json

@@ -149,10 +149,15 @@ namespace RevitWebAppSync
             try
             {
                 var cfg = BinaConfig.Load();
-                if (!cfg.EngineMode || !cfg.EngineAutoSpawn)
+                // Same gate as OnStartup's spawn path: EngineMode + AutoSpawn,
+                // AND a non-blank secret — OnStartup refuses to start the local
+                // tool server (and therefore the engine) when EngineSecret is
+                // missing, so a restart must never spawn what startup refused.
+                if (!cfg.EngineMode || !cfg.EngineAutoSpawn ||
+                    string.IsNullOrWhiteSpace(cfg.EngineSecret))
                 {
                     System.Diagnostics.Debug.WriteLine(
-                        "[BINA] engine auto-spawn not enabled — skipping engine restart after login.");
+                        "[BINA] engine auto-spawn not enabled (or EngineSecret missing) — skipping engine restart after login.");
                     return;
                 }
 
