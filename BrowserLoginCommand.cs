@@ -68,7 +68,9 @@ namespace RevitWebAppSync
                 // blocks the Revit UI thread until the browser round-trip returns —
                 // acceptable for an explicit, user-initiated login click.
                 // 2nd arg is the bina-ai base (it issues the tokens), not bina-be.
-                var client = new BinaOAuthClient(config.ResolvedLoginWebUrl, config.ResolvedAIBaseUrl);
+                // ResolvedAuthBaseUrl, NOT ResolvedAIBaseUrl: in engine mode the
+                // latter is the local engine (no auth routes) — see BinaConfig.
+                var client = new BinaOAuthClient(config.ResolvedLoginWebUrl, config.ResolvedAuthBaseUrl);
                 BinaTokenSet tokens;
                 try
                 {

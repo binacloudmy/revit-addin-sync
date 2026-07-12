@@ -180,6 +180,28 @@ namespace RevitWebAppSync
         }
 
         [JsonIgnore]
+        public string ResolvedAuthBaseUrl
+        {
+            // The base that ISSUES tokens (login page's api= param, /auth/token,
+            // /auth/refresh, /auth/me) — always a CLOUD host. In engine mode
+            // AIBaseUrl points at the LOCAL engine (localhost:48810), which
+            // mounts no auth routes: the PKCE exchange there 404s
+            // ({"detail":"Not Found"} — first zero-config UAT, 2026-07-13).
+            //   1. GatewayUrl (colocate: the gateway is the cloud) when set;
+            //   2. else ResolvedAIBaseUrl unless it's loopback (cloud mode —
+            //      unchanged behavior);
+            //   3. else the built-in cloud default.
+            get
+            {
+                if (!string.IsNullOrWhiteSpace(GatewayUrl)) return GatewayUrl.TrimEnd('/');
+                var ai = ResolvedAIBaseUrl ?? "";
+                bool isLoopback = ai.IndexOf("localhost", StringComparison.OrdinalIgnoreCase) >= 0
+                               || ai.IndexOf("127.0.0.1", StringComparison.OrdinalIgnoreCase) >= 0;
+                return isLoopback ? DEFAULT_AI_BASE_URL : ai;
+            }
+        }
+
+        [JsonIgnore]
         public string ResolvedApiBaseUrl =>
             // Filter out localhost/loopback values left in config.json from dev
             // sessions — they resolve to a dead local port on user machines and
