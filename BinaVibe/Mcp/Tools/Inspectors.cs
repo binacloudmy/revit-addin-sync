@@ -1268,7 +1268,7 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> ListModelGroups(Document doc)
         {
             var modelGroups = new FilteredElementCollector(doc)
-                .OfClass(typeof(Group)).Cast<Group>()
+                .OfClass(typeof(Autodesk.Revit.DB.Group)).Cast<Autodesk.Revit.DB.Group>()
                 .Where(g => g.Category != null && g.Category.Id.Value == (long)BuiltInCategory.OST_IOSModelGroups)
                 .GroupBy(g => g.GroupType?.Name ?? g.Name)
                 .Select(grp => new Dictionary<string, object?>
