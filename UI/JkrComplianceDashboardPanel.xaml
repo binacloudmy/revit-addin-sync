@@ -379,6 +379,13 @@
                            Foreground="{StaticResource Ink3}" FontSize="12" Margin="0,10,0,0"
                            HorizontalAlignment="Center"
                            FontFamily="{StaticResource Font.Sans}"/>
+                <!-- Shown only when the empty result is caused by an active search/severity/
+                     category filter (see RenderAll) — one click resets all three. -->
+                <TextBlock x:Name="EmptyClearFilters" Text="Clear filters" Visibility="Collapsed"
+                           Foreground="{StaticResource BrandDark}" FontSize="12" Margin="0,8,0,0"
+                           HorizontalAlignment="Center" Cursor="Hand" TextDecorations="Underline"
+                           FontFamily="{StaticResource Font.Sans}"
+                           MouseLeftButtonUp="EmptyClearFilters_Click"/>
             </StackPanel>
         </Grid>
 

@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
@@ -510,31 +511,63 @@ namespace BinaVibe.Mcp.Tools
         /// <summary>
         /// Returns the model's open Revit warnings: description + the element ids involved.
         /// Uses Document.GetWarnings() (available Revit 2015+). Capped at 500 warnings.
-        /// Returns {ok, warnings:[{description, element_ids:[...]}], count}.
+        /// Returns {ok, warnings:[{description, element_ids:[...]}], count,
+        /// by_type:[{type, count, element_ids:[...]}]}.
+        /// by_type is the CANONICAL grouping for "summarise/group warnings by type"
+        /// asks — group by w.GetDescriptionText(), the real Revit warning-type
+        /// string (do not invent categories or group by an invented "priority"
+        /// bucket instead). Ordered by count desc; element_ids is the union of
+        /// failing-element ids across every warning in that type's group.
+        /// The flat `warnings` list is kept EXACTLY as before — callers depend on it.
         /// </summary>
         public static Dictionary<string, object?> GetModelWarnings(Document doc)
         {
             const int cap = 500;
             var warnings = doc.GetWarnings();
             var result = new List<object>();
+            var byType = new Dictionary<string, (int Count, List<long> ElementIds)>();
 
             foreach (var w in warnings.Take(cap))
             {
                 var eids = w.GetFailingElements()
                     .Select(eid => (object)eid.Value)
                     .ToList<object>();
+                var description = w.GetDescriptionText();
                 result.Add(new Dictionary<string, object?>
                 {
-                    ["description"] = w.GetDescriptionText(),
+                    ["description"] = description,
                     ["element_ids"] = eids,
                 });
+
+                if (!byType.TryGetValue(description, out var group))
+                {
+                    group = (0, new List<long>());
+                }
+                group.Count++;
+                foreach (var eid in w.GetFailingElements())
+                {
+                    if (!group.ElementIds.Contains(eid.Value))
+                        group.ElementIds.Add(eid.Value);
+                }
+                byType[description] = group;
             }
+
+            var byTypeList = byType
+                .OrderByDescending(kv => kv.Value.Count)
+                .Select(kv => (object)new Dictionary<string, object?>
+                {
+                    ["type"] = kv.Key,
+                    ["count"] = kv.Value.Count,
+                    ["element_ids"] = kv.Value.ElementIds.Cast<object>().ToList(),
+                })
+                .ToList<object>();
 
             return new Dictionary<string, object?>
             {
                 ["ok"] = true,
                 ["warnings"] = result,
                 ["count"] = result.Count,
+                ["by_type"] = byTypeList,
             };
         }
 
@@ -1393,6 +1426,379 @@ namespace BinaVibe.Mcp.Tools
             return new Dictionary<string, object?> { ["ok"] = true, ["rooms"] = rooms, ["count"] = rooms.Count };
         }
 
+        // ─── find_duplicate_walls ────────────────────────────────────────
+        /// <summary>
+        /// Deterministic duplicate/overlap classification for host walls
+        /// (Line or Arc LocationCurve). Ground truth for ClickUp P1
+        /// 86ey84zpn: Revit's "walls overlap" model warning fires for ANY
+        /// curve overlap — partial included — and the agent was reading
+        /// that warning text and self-judging "duplicate", nearly deleting
+        /// legitimately overlapping (but non-duplicate) walls. This tool
+        /// does the geometry compare itself, in C#, and returns three
+        /// CATEGORICALLY DISJOINT buckets — a given wall pair lands in
+        /// exactly one of them, never more:
+        ///   exact_duplicates              — same curve + type + level + base
+        ///                                   offset. Safe auto-delete candidates
+        ///                                   (keep the lowest element id).
+        ///   partial_overlaps              — collinear Line walls with a real
+        ///                                   but partial 1D overlap. NEVER a
+        ///                                   safe bulk-delete — stacked/joined
+        ///                                   walls are legitimate design.
+        ///   same_location_different_type  — identical curve, but different
+        ///                                   WallType or base offset (e.g. a
+        ///                                   partition redrawn in a different
+        ///                                   type on top of the original).
+        /// INVARIANT (canonicalize-to-keep, exact wins): every wall id
+        /// appears in at most one bucket, EXCEPT keep_ids, which may also
+        /// appear in partial/same-location entries — a keep_id survives the
+        /// delete, so manual-review flags on it stay meaningful. delete_ids
+        /// appear ONLY in exact_duplicates: partial and same-location
+        /// entries are emitted with every exact-group member remapped to its
+        /// group's keep_id, then deduped, with self-pairs and sub-2-member
+        /// groups dropped.
+        /// Tolerance: 5mm (converted to feet internally: 5/304.8).
+        /// Arc walls only ever land in exact_duplicates or
+        /// same_location_different_type — arc partial-overlap detection is
+        /// intentionally out of scope (YAGNI; no UAT case has needed it) and
+        /// arcs never enter the partial_overlaps pass.
+        /// Perf: walls_scanned is capped at 5000 (returns capped:true beyond
+        /// that — audit a smaller model/link, this isn't meant for a
+        /// federated master). Line walls are bucketed by (level, quantized
+        /// 1-degree direction) before the pairwise compare so a normal floor
+        /// plan doesn't do an O(n^2) sweep across the whole model — only
+        /// within same-level, near-parallel candidates (±1 bucket to absorb
+        /// bucket-boundary rounding; the actual parallel/collinear tests
+        /// below are exact, the bucket only narrows candidates).
+        /// </summary>
+        public static Dictionary<string, object?> FindDuplicateWalls(Document doc)
+        {
+            const double TolFt = 5.0 / 304.8;                 // 5mm, in feet
+            const double ParallelSin = 0.0017453283;           // sin(0.1 deg) — cross-product parallel gate
+            const int WallCap = 5000;
+
+            var rawWalls = new FilteredElementCollector(doc)
+                .OfClass(typeof(Wall)).Cast<Wall>()
+                .ToList();
+
+            bool capped = rawWalls.Count > WallCap;
+            if (capped) rawWalls = rawWalls.Take(WallCap).ToList();
+
+            // Snapshot — guard every field the classifier needs. Walls with no
+            // LocationCurve (some in-place/stacked-wall members) or a curve
+            // that's neither Line nor Arc (splines) are out of scope — skip.
+            var snaps = new List<DupWallSnap>();
+            foreach (var w in rawWalls)
+            {
+                if (!(w.Location is LocationCurve lc) || lc.Curve == null) continue;
+                var curve = lc.Curve;
+                if (!(curve is Line) && !(curve is Arc)) continue;
+
+                double baseOffset = 0;
+                try { baseOffset = w.get_Parameter(BuiltInParameter.WALL_BASE_OFFSET)?.AsDouble() ?? 0; } catch { }
+                // Captured per snapshot contract but deliberately NOT part of any
+                // equality gate below: Unconnected Height is unreliable for
+                // walls whose Top is constrained to a level ("Up to level") —
+                // Revit still reports a (stale/cached) number for it, so
+                // gating exact_duplicate on it would risk FALSE NEGATIVES
+                // (missing real duplicates) rather than the false-positive
+                // bug this tool exists to fix.
+                double unconnectedHeight = 0;
+                try { unconnectedHeight = w.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM)?.AsDouble() ?? 0; } catch { }
+
+                var typeId = w.GetTypeId();
+                var typeName = typeId.Value != ElementId.InvalidElementId.Value
+                    ? (doc.GetElement(typeId) as ElementType)?.Name ?? "" : "";
+                var levelName = w.LevelId.Value != ElementId.InvalidElementId.Value
+                    ? doc.GetElement(w.LevelId)?.Name ?? "" : "";
+
+                snaps.Add(new DupWallSnap
+                {
+                    Id = w.Id.Value,
+                    TypeId = typeId.Value,
+                    TypeName = typeName,
+                    LevelId = w.LevelId.Value,
+                    LevelName = levelName,
+                    BaseOffset = baseOffset,
+                    UnconnectedHeightFt = unconnectedHeight,
+                    Curve = curve,
+                    LengthFt = curve.Length,
+                });
+            }
+
+            int n = snaps.Count;
+            var exactParent = DsuMake(n);
+            var sameLocParent = DsuMake(n);
+            var partialPairs = new List<(int i, int j, double overlapFt)>();
+
+            // Same-level candidate scoping ("different levels = never overlap").
+            var byLevel = new Dictionary<long, List<int>>();
+            for (int i = 0; i < n; i++)
+            {
+                if (!byLevel.TryGetValue(snaps[i].LevelId, out var list))
+                { list = new List<int>(); byLevel[snaps[i].LevelId] = list; }
+                list.Add(i);
+            }
+
+            foreach (var group in byLevel.Values)
+            {
+                var arcIdxs = group.Where(i => snaps[i].Curve is Arc).ToList();
+                var lineIdxs = group.Where(i => snaps[i].Curve is Line).ToList();
+
+                // ── Arc-Arc: exact-duplicate / same-location only. ──
+                for (int a = 0; a < arcIdxs.Count; a++)
+                {
+                    for (int b = a + 1; b < arcIdxs.Count; b++)
+                    {
+                        int i = arcIdxs[a], j = arcIdxs[b];
+                        if (!ArcsEqual(snaps[i], snaps[j], TolFt)) continue;
+                        if (SameTypeAndOffset(snaps[i], snaps[j], TolFt)) DsuUnion(exactParent, i, j);
+                        else DsuUnion(sameLocParent, i, j);
+                    }
+                }
+
+                // ── Line-Line: bucket by 1-degree direction, then pairwise. ──
+                var angleDeg = new Dictionary<int, double>();
+                var buckets = new Dictionary<int, List<int>>();
+                foreach (var i in lineIdxs)
+                {
+                    var dir = ((Line)snaps[i].Curve).Direction.Normalize();
+                    double ang = Math.Atan2(dir.Y, dir.X) * 180.0 / Math.PI;
+                    if (ang < 0) ang += 180.0;
+                    if (ang >= 180.0) ang -= 180.0;
+                    angleDeg[i] = ang;
+                    int bucket = (int)Math.Floor(ang);
+                    if (!buckets.TryGetValue(bucket, out var list)) { list = new List<int>(); buckets[bucket] = list; }
+                    list.Add(i);
+                }
+
+                foreach (var i in lineIdxs)
+                {
+                    int bucket = (int)Math.Floor(angleDeg[i]);
+                    var candidates = new List<int>();
+                    for (int d = -1; d <= 1; d++)
+                    {
+                        int bk = ((bucket + d) % 180 + 180) % 180;
+                        if (buckets.TryGetValue(bk, out var list)) candidates.AddRange(list);
+                    }
+
+                    foreach (var j in candidates)
+                    {
+                        if (j <= i) continue; // undirected pair, once each
+                        if (!LinesParallel(snaps[i], snaps[j], ParallelSin)) continue;
+
+                        if (LinesEqualEndpoints(snaps[i], snaps[j], TolFt))
+                        {
+                            if (SameTypeAndOffset(snaps[i], snaps[j], TolFt)) DsuUnion(exactParent, i, j);
+                            else DsuUnion(sameLocParent, i, j);
+                            continue; // exact/same-location pairs never also count as partial
+                        }
+
+                        if (!LinesCollinear(snaps[i], snaps[j], TolFt)) continue;
+                        double overlapFt = ProjectedOverlap(snaps[i], snaps[j]);
+                        if (overlapFt > TolFt)
+                            partialPairs.Add((i, j, overlapFt));
+                    }
+                }
+            }
+
+            // ── Materialize groups ──
+            // Canonicalize-to-keep, EXACT WINS: without this, disjointness
+            // would only hold per-PAIR, not per-WALL. Failure case: walls A,B
+            // same type+curve (exact) and C same curve but different offset —
+            // the A-C and B-C pairs would put BOTH A and B into
+            // same_location_different_type, so B would simultaneously be an
+            // auto-delete candidate (delete_ids) AND "semak manual". Fix:
+            // every exact-group member id maps to its group's keep_id before
+            // partial/same-location entries are emitted; collapsed duplicates
+            // are deduped and self-pairs dropped.
+            var exactDuplicates = new List<object>();
+            var canon = new int[n];                       // snapshot idx -> exact-group keep idx (or self)
+            for (int i = 0; i < n; i++) canon[i] = i;
+            foreach (var grp in GroupByRoot(exactParent, n).Where(g => g.Count >= 2))
+            {
+                // NOTE: IEnumerable<long> has no implicit conversion to
+                // IEnumerable<object> (generic covariance excludes value
+                // types) — box each id via Select(id => (object)id) before
+                // ToList(), same as everywhere else below.
+                int keepIdx = grp.OrderBy(i => snaps[i].Id).First();
+                foreach (var m in grp) canon[m] = keepIdx;
+                var idsLong = grp.Select(i => snaps[i].Id).OrderBy(id => id).ToList();
+                var first = snaps[keepIdx];
+                exactDuplicates.Add(new Dictionary<string, object?>
+                {
+                    ["keep_id"] = idsLong[0],
+                    ["delete_ids"] = idsLong.Skip(1).Select(id => (object)id).ToList(),
+                    ["type_name"] = first.TypeName,
+                    ["level"] = first.LevelName,
+                    ["length_mm"] = Math.Round(first.LengthFt * 304.8, 0),
+                });
+            }
+
+            var sameLocationGroups = new List<object>();
+            var seenSameLoc = new HashSet<string>();       // dedupe groups that collapse identically
+            foreach (var grp in GroupByRoot(sameLocParent, n).Where(g => g.Count >= 2))
+            {
+                var canonIdxs = grp.Select(i => canon[i]).Distinct().ToList();
+                if (canonIdxs.Count < 2) continue;         // collapsed to one wall — not a group
+                var idsLong = canonIdxs.Select(i => snaps[i].Id).OrderBy(id => id).ToList();
+                var sig = string.Join(",", idsLong);
+                if (!seenSameLoc.Add(sig)) continue;
+                var typeNames = canonIdxs.Select(i => snaps[i].TypeName).Distinct().ToList<object>();
+                sameLocationGroups.Add(new Dictionary<string, object?>
+                {
+                    ["ids"] = idsLong.Select(id => (object)id).ToList(),
+                    ["type_names"] = typeNames,
+                });
+            }
+
+            // Partial pairs: canonicalize both ends, drop self-pairs (both
+            // ends collapsed into the same exact group), dedupe collapsed
+            // pairs keeping the LARGEST overlap (most conservative flag).
+            var partialByPair = new Dictionary<(int lo, int hi), double>();
+            foreach (var p in partialPairs)
+            {
+                int ci = canon[p.i], cj = canon[p.j];
+                if (ci == cj) continue;
+                var key = ci < cj ? (lo: ci, hi: cj) : (lo: cj, hi: ci);
+                if (!partialByPair.TryGetValue(key, out var best) || p.overlapFt > best)
+                    partialByPair[key] = p.overlapFt;
+            }
+            var partialOverlaps = partialByPair
+                .OrderBy(kv => snaps[kv.Key.lo].Id).ThenBy(kv => snaps[kv.Key.hi].Id)
+                .Select(kv => (object)new Dictionary<string, object?>
+                {
+                    ["ids"] = new List<long> { snaps[kv.Key.lo].Id, snaps[kv.Key.hi].Id }
+                        .OrderBy(id => id).Select(id => (object)id).ToList(),
+                    ["overlap_mm"] = Math.Round(kv.Value * 304.8, 0),
+                    ["type_names"] = new List<object> { snaps[kv.Key.lo].TypeName, snaps[kv.Key.hi].TypeName },
+                })
+                .ToList();
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["exact_duplicates"] = exactDuplicates,
+                ["partial_overlaps"] = partialOverlaps,
+                ["same_location_different_type"] = sameLocationGroups,
+                ["counts"] = new Dictionary<string, object?>
+                {
+                    ["exact_groups"] = exactDuplicates.Count,
+                    ["partial_pairs"] = partialOverlaps.Count,
+                    ["same_location_groups"] = sameLocationGroups.Count,
+                    ["walls_scanned"] = snaps.Count,
+                },
+                ["capped"] = capped,
+            };
+        }
+
+        // ─── find_duplicate_walls helpers ────────────────────────────────
+
+        private sealed class DupWallSnap
+        {
+            public long Id;
+            public long TypeId;
+            public string TypeName = "";
+            public long LevelId;
+            public string LevelName = "";
+            public double BaseOffset;
+            public double UnconnectedHeightFt; // captured, intentionally not gated — see comment at snapshot build site
+            public Curve Curve = null!;
+            public double LengthFt;
+        }
+
+        private static bool SameTypeAndOffset(DupWallSnap a, DupWallSnap b, double tolFt)
+            => a.TypeId == b.TypeId && Math.Abs(a.BaseOffset - b.BaseOffset) < tolFt;
+
+        private static bool LinesParallel(DupWallSnap a, DupWallSnap b, double parallelSin)
+        {
+            var da = ((Line)a.Curve).Direction.Normalize();
+            var db = ((Line)b.Curve).Direction.Normalize();
+            return da.CrossProduct(db).GetLength() < parallelSin;
+        }
+
+        private static bool LinesCollinear(DupWallSnap a, DupWallSnap b, double tolFt)
+        {
+            var la = (Line)a.Curve;
+            var lb = (Line)b.Curve;
+            var da = la.Direction.Normalize();
+            var v = lb.GetEndPoint(0) - la.GetEndPoint(0);
+            var perp = v - da.Multiply(v.DotProduct(da));
+            return perp.GetLength() < tolFt;
+        }
+
+        private static bool LinesEqualEndpoints(DupWallSnap a, DupWallSnap b, double tolFt)
+        {
+            var la = (Line)a.Curve;
+            var lb = (Line)b.Curve;
+            var a0 = la.GetEndPoint(0); var a1 = la.GetEndPoint(1);
+            var b0 = lb.GetEndPoint(0); var b1 = lb.GetEndPoint(1);
+            bool direct = a0.DistanceTo(b0) < tolFt && a1.DistanceTo(b1) < tolFt;
+            bool reversed = a0.DistanceTo(b1) < tolFt && a1.DistanceTo(b0) < tolFt;
+            return direct || reversed;
+        }
+
+        // Projected 1D overlap length (feet) of two collinear lines, measured
+        // along wall a's direction. Positive => real overlap; <= 0 => no
+        // overlap or corner-touching only (excluded by the TolFt> check).
+        private static double ProjectedOverlap(DupWallSnap a, DupWallSnap b)
+        {
+            var la = (Line)a.Curve;
+            var lb = (Line)b.Curve;
+            var da = la.Direction.Normalize();
+            var origin = la.GetEndPoint(0);
+            double t0 = 0.0, t1 = (la.GetEndPoint(1) - origin).DotProduct(da);
+            double s0 = (lb.GetEndPoint(0) - origin).DotProduct(da);
+            double s1 = (lb.GetEndPoint(1) - origin).DotProduct(da);
+            double tMin = Math.Min(t0, t1), tMax = Math.Max(t0, t1);
+            double sMin = Math.Min(s0, s1), sMax = Math.Max(s0, s1);
+            return Math.Min(tMax, sMax) - Math.Max(tMin, sMin);
+        }
+
+        private static bool ArcsEqual(DupWallSnap a, DupWallSnap b, double tolFt)
+        {
+            var arcA = (Arc)a.Curve;
+            var arcB = (Arc)b.Curve;
+            if (arcA.Center.DistanceTo(arcB.Center) >= tolFt) return false;
+            if (Math.Abs(arcA.Radius - arcB.Radius) >= tolFt) return false;
+            var a0 = arcA.GetEndPoint(0); var a1 = arcA.GetEndPoint(1);
+            var b0 = arcB.GetEndPoint(0); var b1 = arcB.GetEndPoint(1);
+            bool direct = a0.DistanceTo(b0) < tolFt && a1.DistanceTo(b1) < tolFt;
+            bool reversed = a0.DistanceTo(b1) < tolFt && a1.DistanceTo(b0) < tolFt;
+            return direct || reversed;
+        }
+
+        // ── tiny union-find (disjoint set) over snapshot indices ──
+        private static int[] DsuMake(int n)
+        {
+            var p = new int[n];
+            for (int i = 0; i < n; i++) p[i] = i;
+            return p;
+        }
+
+        private static int DsuFind(int[] p, int x)
+        {
+            while (p[x] != x) { p[x] = p[p[x]]; x = p[x]; }
+            return x;
+        }
+
+        private static void DsuUnion(int[] p, int a, int b)
+        {
+            int ra = DsuFind(p, a), rb = DsuFind(p, b);
+            if (ra != rb) p[ra] = rb;
+        }
+
+        private static List<List<int>> GroupByRoot(int[] p, int n)
+        {
+            var groups = new Dictionary<int, List<int>>();
+            for (int i = 0; i < n; i++)
+            {
+                int root = DsuFind(p, i);
+                if (!groups.TryGetValue(root, out var list)) { list = new List<int>(); groups[root] = list; }
+                list.Add(i);
+            }
+            return groups.Values.ToList();
+        }
+
         // ─── audit_parameters ───────────────────────────────────────────
         // Bulk fill-rate matrix for ALL instances of a category — the one-call
         // answer to "check every parameter on every door" audits. Read-only.
@@ -1477,6 +1883,215 @@ namespace BinaVibe.Mcp.Tools
                 ["ok"] = true, ["category"] = category,
                 ["total_elements"] = elements.Count,
                 ["parameters"] = parameters, ["count"] = parameters.Count,
+            };
+        }
+
+        // ─── audit_view_names ───────────────────────────────────────────
+        // Deterministic view-name compliance: the LLM must NEVER eyeball view
+        // names (measured ~88% false-positive rate + a missed seeded
+        // 'FloorPlan_final_FINAL' violation when it did). The caller supplies
+        // ONE .NET regex derived from the stated naming convention; every
+        // audited view is FULL-NAME matched — the tool wraps the pattern as
+        // ^(?:pattern)$ itself, so full-match semantics are guaranteed here
+        // and never delegated back to the (unreliable) calling model. The
+        // wrap is unconditional: ^(?:^A$)$ still matches exactly like ^A$,
+        // and detecting "already anchored" is a trap (alternation like A|B
+        // makes prefix/suffix checks wrong).
+        //
+        // Default audit scope = plans/ceilings/sections/area/engineering
+        // plans (the surfaces the ClickUp fix line calls out). Elevation /
+        // ThreeD / DraftingView / Detail are real model views but sit outside
+        // that default — they're reported separately as `other_model_views`,
+        // never counted as violations, so callers can still see them without
+        // the tool silently making a scope decision for the user.
+        //
+        // Schedules, legends, sheets and view templates are excluded
+        // entirely (they carry their own naming/numbering conventions) —
+        // only their counts are returned, never rows.
+        public static Dictionary<string, object?> AuditViewNames(Document doc, JsonElement args)
+        {
+            var pattern = ArgsHelp.GetString(args, "pattern");
+            if (string.IsNullOrEmpty(pattern))
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = "pattern is required — a .NET regex; the tool matches it against the FULL view name (anchoring is applied by the tool)",
+                };
+
+            Regex regex;
+            try
+            {
+                // Full-name match is guaranteed HERE (unconditional ^(?:...)$
+                // wrap) — never rely on the caller to anchor. 2s timeout
+                // guards against catastrophic backtracking in a
+                // caller-supplied pattern.
+                regex = new Regex("^(?:" + pattern + ")$", RegexOptions.None, TimeSpan.FromSeconds(2));
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"invalid regex: {ex.Message}" };
+            }
+
+            var includeViewTypes = ArgsHelp.GetStringList(args, "include_view_types");
+
+            var defaultScope = new HashSet<ViewType>
+            {
+                ViewType.FloorPlan, ViewType.CeilingPlan, ViewType.AreaPlan,
+                ViewType.EngineeringPlan, ViewType.Section,
+            };
+            var otherModelViewTypes = new HashSet<ViewType>
+            {
+                ViewType.Elevation, ViewType.ThreeD, ViewType.DraftingView, ViewType.Detail,
+            };
+
+            // Excluded-by-design buckets (never audited, counts only). The
+            // loop below skips these BEFORE the scope check, so an
+            // include_view_types entry naming one of them could never audit
+            // anything — validated and rejected loudly below instead of
+            // silently returning audited:0 forever.
+            var scheduleTypes = new HashSet<ViewType> { ViewType.Schedule, ViewType.ColumnSchedule, ViewType.PanelSchedule };
+            var systemTypes = new HashSet<ViewType> { ViewType.Internal, ViewType.ProjectBrowser, ViewType.SystemBrowser, ViewType.Undefined };
+            var alwaysExcluded = new HashSet<ViewType>(scheduleTypes.Concat(systemTypes))
+            {
+                ViewType.DrawingSheet, ViewType.Legend,
+            };
+            var auditableNames = string.Join(", ",
+                Enum.GetNames(typeof(ViewType))
+                    .Where(n => Enum.TryParse<ViewType>(n, out var t) && !alwaysExcluded.Contains(t))
+                    .OrderBy(n => n));
+
+            HashSet<ViewType> auditScope;
+            bool usingDefaultScope = includeViewTypes.Count == 0;
+            if (usingDefaultScope)
+            {
+                auditScope = defaultScope;
+            }
+            else
+            {
+                auditScope = new HashSet<ViewType>();
+                var unknown = new List<string>();
+                foreach (var name in includeViewTypes)
+                {
+                    if (!Enum.TryParse<ViewType>(name, ignoreCase: false, out var vt) || !Enum.IsDefined(typeof(ViewType), vt))
+                    {
+                        unknown.Add(name);
+                        continue;
+                    }
+                    if (alwaysExcluded.Contains(vt))
+                        return new Dictionary<string, object?>
+                        {
+                            ["ok"] = false,
+                            ["error"] = $"view type '{name}' is excluded from naming audits (schedules/legends/sheets/system); auditable types: {auditableNames}",
+                        };
+                    auditScope.Add(vt);
+                }
+                if (unknown.Count > 0)
+                {
+                    return new Dictionary<string, object?>
+                    {
+                        ["ok"] = false,
+                        ["error"] = $"unknown view type(s): {string.Join(", ", unknown)} — auditable types: {auditableNames}",
+                    };
+                }
+            }
+            var auditedScopeNames = auditScope.Select(v => v.ToString()).OrderBy(n => n).ToList<object>();
+
+            var allViews = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().ToList();
+
+            int excludedSchedules = 0, excludedLegends = 0, excludedSheets = 0, excludedTemplates = 0, excludedOther = 0;
+            int compliantCount = 0, auditedCount = 0;
+            var violations = new List<object>();
+            var otherModelViews = new List<object>();
+            const int OtherCap = 50;
+            bool otherCapped = false;
+
+            foreach (var v in allViews)
+            {
+                if (v.IsTemplate) { excludedTemplates++; continue; }
+
+                var vt = v.ViewType;
+                // Sheets/schedules are reachable via View subclasses (ViewSheet,
+                // ViewSchedule) as well as via ViewType — belt and suspenders.
+                if (vt == ViewType.DrawingSheet || v is ViewSheet) { excludedSheets++; continue; }
+                if (scheduleTypes.Contains(vt) || v is ViewSchedule) { excludedSchedules++; continue; }
+                if (vt == ViewType.Legend) { excludedLegends++; continue; }
+                if (systemTypes.Contains(vt)) { excludedOther++; continue; }
+
+                if (auditScope.Contains(vt))
+                {
+                    auditedCount++;
+                    bool compliant;
+                    try
+                    {
+                        compliant = regex.IsMatch(v.Name);
+                    }
+                    catch (RegexMatchTimeoutException)
+                    {
+                        // The 2s timeout fires at MATCH time, not construction —
+                        // keep the tool's {ok:false, error} contract instead of
+                        // letting the exception escape the dispatcher.
+                        return new Dictionary<string, object?>
+                        {
+                            ["ok"] = false,
+                            ["error"] = "regex timed out — simplify the pattern",
+                        };
+                    }
+                    if (compliant)
+                    {
+                        compliantCount++;
+                    }
+                    else
+                    {
+                        violations.Add(new Dictionary<string, object?>
+                        {
+                            ["id"] = v.Id.Value,
+                            ["name"] = v.Name,
+                            ["view_type"] = vt.ToString(),
+                        });
+                    }
+                }
+                else if (usingDefaultScope && otherModelViewTypes.Contains(vt))
+                {
+                    if (otherModelViews.Count < OtherCap)
+                        otherModelViews.Add(new Dictionary<string, object?>
+                        {
+                            ["id"] = v.Id.Value,
+                            ["name"] = v.Name,
+                            ["view_type"] = vt.ToString(),
+                        });
+                    else
+                        otherCapped = true;
+                }
+                else
+                {
+                    // Not in the audited scope and not a recognized
+                    // "other model view" (Rendering/Walkthrough/Report/... or,
+                    // when include_view_types narrows scope, everything else).
+                    excludedOther++;
+                }
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["audited_scope"] = auditedScopeNames,
+                ["compliant_count"] = compliantCount,
+                ["violations"] = violations,
+                ["other_model_views"] = otherModelViews,
+                ["other_model_views_capped"] = otherCapped,
+                ["excluded_counts"] = new Dictionary<string, object?>
+                {
+                    ["schedules"] = excludedSchedules,
+                    ["legends"] = excludedLegends,
+                    ["sheets"] = excludedSheets,
+                    ["templates"] = excludedTemplates,
+                    ["other"] = excludedOther,
+                },
+                ["counts"] = new Dictionary<string, object?>
+                {
+                    ["audited"] = auditedCount,
+                    ["violations"] = violations.Count,
+                },
             };
         }
     }

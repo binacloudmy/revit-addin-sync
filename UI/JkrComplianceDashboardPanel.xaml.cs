@@ -186,10 +186,47 @@ namespace RevitWebAppSync.UI
             {
                 EmptyState.Visibility = System.Windows.Visibility.Visible;
                 IssuesScroll.Visibility = System.Windows.Visibility.Collapsed;
-                EmptyIcon.Glyph = _vm.IsOpenTab ? "check" : "clipboard";
-                EmptyMessage.Text = _vm.IsOpenTab && _vm.ActiveCategory != null
-                    ? $"No open {_vm.ActiveCategory.ToLower()} issues — nice!"
-                    : _vm.IsOpenTab ? "All clear — no open issues." : "No resolved issues yet.";
+
+                // A zero-result list can mean "genuinely clean" OR "a filter zeroed it
+                // out" — those need different copy so the drafter isn't told the model
+                // is clean when it's really their search/severity/category chip hiding
+                // everything. Priority mirrors how Refresh() applies filters: tab first,
+                // then search, then severity, then category.
+                bool hasSearch = _vm.HasSearch;
+                bool hasSeverity = _vm.ActiveSeverity != null;
+                bool hasCategory = _vm.ActiveCategory != null;
+
+                if (!_vm.IsOpenTab)
+                {
+                    EmptyIcon.Glyph = "clipboard";
+                    EmptyMessage.Text = "No resolved issues yet.";
+                }
+                else if (hasSearch)
+                {
+                    EmptyIcon.Glyph = "search";
+                    EmptyMessage.Text = $"No open issues match \"{_vm.Search}\".";
+                }
+                else if (hasSeverity)
+                {
+                    EmptyIcon.Glyph = "search";
+                    EmptyMessage.Text = $"No open {_vm.ActiveSeverity} issues.";
+                }
+                else if (hasCategory)
+                {
+                    EmptyIcon.Glyph = "search";
+                    EmptyMessage.Text = $"No open {_vm.ActiveCategory.ToLower()} issues — nice!";
+                }
+                else
+                {
+                    EmptyIcon.Glyph = "check";
+                    EmptyMessage.Text = "All clear — no open issues.";
+                }
+
+                // "Clear filters" is only meaningful when a filter is actually
+                // responsible for the empty state.
+                EmptyClearFilters.Visibility = (hasSearch || hasSeverity || hasCategory)
+                    ? System.Windows.Visibility.Visible
+                    : System.Windows.Visibility.Collapsed;
             }
             else
             {
@@ -721,6 +758,19 @@ namespace RevitWebAppSync.UI
             _vm.Search = "";
         }
 
+        /// <summary>
+        /// "Clear filters" link in the filtered-empty state (see RenderAll). Resets
+        /// search/severity/category through the VM setters — not private fields —
+        /// so Refresh()/RebuildAll() fire and the list/category chips resync.
+        /// </summary>
+        private void EmptyClearFilters_Click(object sender, MouseButtonEventArgs e)
+        {
+            SearchInput.Text = "";
+            _vm.Search = "";
+            _vm.ActiveSeverity = null;
+            _vm.ActiveCategory = null;
+        }
+
         private void Pill_Picked(object sender, EventArgs e)
         {
             if (sender is CategoryPill p && p.DataContext is CategoryVm c)
@@ -765,18 +815,33 @@ namespace RevitWebAppSync.UI
         /// <summary>Deep-link the current issue into the Revit 3D view.</summary>
         internal void LocateInRevit(IssueVm issue)
         {
-            if (issue == null || issue.RevitElementId <= 0) return;
+            if (issue == null || issue.RevitElementId <= 0)
+            {
+                _vm.ShowToast("This issue has no linked element to locate.");
+                return;
+            }
             var uiDoc = UiAppLive?.ActiveUIDocument;
-            if (uiDoc == null) return;
+            if (uiDoc == null)
+            {
+                _vm.ShowToast("No active Revit document — open a model and try again.");
+                return;
+            }
             try
             {
-                var ids = new List<ElementId> { new ElementId(issue.RevitElementId) };
+                var id = new ElementId(issue.RevitElementId);
+                if (uiDoc.Document.GetElement(id) == null)
+                {
+                    _vm.ShowToast("Element no longer exists in the model — try re-scanning.");
+                    return;
+                }
+                var ids = new List<ElementId> { id };
                 uiDoc.ShowElements(ids);
                 uiDoc.Selection.SetElementIds(ids);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[BINA] locate failed: {ex.Message}");
+                _vm.ShowToast($"Couldn't locate element in view — {ex.Message}");
             }
         }
 
