@@ -19,9 +19,16 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public static UsageState FromCredits(bool unlimited, int used, int limit)
         {
             if (unlimited) return new UsageState { PlanName = "Pro", Pct = 0, AtLimit = false };
+            // AtLimit is the REAL count — you're only blocked when credits are
+            // actually exhausted, not when the rounded percent reaches 100. A
+            // 999,000/1,000,000 balance (~1k left) must NOT trip the upgrade wall.
+            bool atLimit = limit > 0 && used >= limit;
+            // Floor (not round) so 99.9% shows as 99%, and never display 100%
+            // while any credits remain — keeps the meter honest with AtLimit.
             var pct = limit <= 0 ? 0 :
-                Math.Max(0, Math.Min(100, (int)Math.Round(100.0 * used / limit)));
-            return new UsageState { PlanName = "Free", Pct = pct, AtLimit = pct >= 100 };
+                Math.Max(0, Math.Min(100, (int)Math.Floor(100.0 * used / limit)));
+            if (pct >= 100 && !atLimit) pct = 99;
+            return new UsageState { PlanName = "Free", Pct = pct, AtLimit = atLimit };
         }
     }
 }
