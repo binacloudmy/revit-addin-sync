@@ -3,7 +3,10 @@
 # Delete this workflow when Phase B lands or is descoped.
 name: spike-net48
 
-on: workflow_dispatch
+# on-push (not dispatch): dispatch only registers off the default branch.
+on:
+  push:
+    branches: [spike/net48-revit2023]
 
 jobs:
   spike:
