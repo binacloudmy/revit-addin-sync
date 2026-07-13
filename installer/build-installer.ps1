@@ -170,7 +170,10 @@ if ($env:SIGNTOOL_ARGS -or $SignCert) {
     # artifact; $f is INNO's own placeholder for the file being signed (not a
     # PowerShell variable) so it must stay unexpanded — built via string
     # concatenation, not interpolation, to keep it literal.
-    $signCommand = 'signtool.exe sign ' + $signBody + ' "$f"'
+    # $q is Inno's quote placeholder — literal quotes here would need \"-escaping
+    # through PowerShell->ISCC and ISCC's parser doesn't unescape them
+    # (v0.0.17 signing failed on the mangled quotes until this).
+    $signCommand = 'signtool.exe sign ' + $signBody + ' $q$f$q'
     $signIscArgs = @("/Sbinasign=$signCommand", "/DSignToolName=binasign")
 } elseif ($SignPassword) {
     Write-Warning "-SignPassword given without -SignCert — signing skipped"
