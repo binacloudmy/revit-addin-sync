@@ -46,19 +46,25 @@ namespace BinaLoader
 
         public Result OnStartup(UIControlledApplication application)
         {
-            foreach (var dir in CandidateDirs())
+            var revitYear = application.ControlledApplication.VersionNumber;
+            var attempted = 0;
+            Exception? lastError = null;
+
+            foreach (var dir in CandidateDirs(revitYear))
             {
+                attempted++;
                 try
                 {
                     _inner = Instantiate(dir);
                 }
                 catch (Exception ex)
                 {
+                    lastError = ex;
                     Log($"load failed from '{dir}': {ex}");
                     continue; // half-staged or corrupt build — try the next-newest
                 }
 
-                Log($"loaded {_inner.GetType().Assembly.GetName().Version} from '{dir}'");
+                Log($"loaded {_inner.GetType().Assembly.GetName().Version} from '{dir}' (Revit {revitYear})");
                 CleanupOldVersions(keep: 2);
 
                 try
@@ -76,7 +82,20 @@ namespace BinaLoader
                 }
             }
 
-            Log("no loadable version found");
+            // Two distinct failures — do not conflate them (a "reinstall" dialog on
+            // a load error hides the real cause; cost a morning on 2026-07-13):
+            // builds existed but none loaded vs. nothing installed at all.
+            if (attempted > 0)
+            {
+                Log($"{attempted} candidate build(s) found for Revit {revitYear}, none loadable");
+                TaskDialog.Show("BINA Sync",
+                    $"BINA Sync is installed but failed to load in Revit {revitYear}.\n\n" +
+                    $"{lastError?.GetType().Name}: {lastError?.Message}\n\n" +
+                    $"Details: {LogPath}");
+                return Result.Failed;
+            }
+
+            Log($"no loadable version found for Revit {revitYear}");
             TaskDialog.Show("BINA Sync",
                 "No installed version found. Please reinstall BINA Sync.\n\n" +
                 $"Expected a build under:\n{VersionsDir}");
@@ -97,8 +116,13 @@ namespace BinaLoader
         }
 
         /// <summary>Plugin dirs to try, best first: dev override, then complete
-        /// version folders newest-first.</summary>
-        private static IEnumerable<string> CandidateDirs()
+        /// version folders newest-first — resolved to the payload matching the
+        /// running Revit year. A version dir's root manifest.json may carry a
+        /// "targets" map ({"2026": "net8.0", ...}); when it does, only the
+        /// mapped subfolder is a candidate for this year (a version packaged
+        /// for other years only is skipped, never load-attempted). No targets
+        /// key = legacy flat layout: the version dir root IS the payload.</summary>
+        private static IEnumerable<string> CandidateDirs(string revitYear)
         {
             var dev = Environment.GetEnvironmentVariable(DevDirEnvVar);
             if (!string.IsNullOrWhiteSpace(dev) && Directory.Exists(dev))
@@ -114,7 +138,35 @@ namespace BinaLoader
                 .Select(x => x.Dir);
 
             foreach (var dir in ranked)
-                yield return dir;
+            {
+                var payload = ResolvePayloadDir(dir, revitYear);
+                if (payload != null)
+                    yield return payload;
+            }
+        }
+
+        /// <summary>The payload dir inside a version dir for this Revit year,
+        /// or null when the version deliberately has none for it.</summary>
+        private static string? ResolvePayloadDir(string versionDir, string revitYear)
+        {
+            var targets = ReadManifest(versionDir).Targets;
+            if (targets == null)
+                return versionDir; // legacy flat layout
+
+            if (!targets.TryGetValue(revitYear, out var sub) || string.IsNullOrWhiteSpace(sub))
+            {
+                Log($"'{versionDir}' has no payload for Revit {revitYear} (targets: {string.Join(",", targets.Keys)})");
+                return null;
+            }
+
+            var payload = Path.Combine(versionDir, sub);
+            if (!Directory.Exists(payload))
+            {
+                Log($"'{versionDir}' targets map names '{sub}' but the folder is missing");
+                return null;
+            }
+
+            return payload;
         }
 
         private static IExternalApplication Instantiate(string dir)
@@ -137,8 +189,20 @@ namespace BinaLoader
             if (!File.Exists(path))
                 return new PluginManifest { Assembly = DefaultAssembly, EntryType = DefaultEntryType };
 
-            return JsonSerializer.Deserialize<PluginManifest>(File.ReadAllText(path))
-                   ?? new PluginManifest { Assembly = DefaultAssembly, EntryType = DefaultEntryType };
+            try
+            {
+                return JsonSerializer.Deserialize<PluginManifest>(File.ReadAllText(path))
+                       ?? new PluginManifest { Assembly = DefaultAssembly, EntryType = DefaultEntryType };
+            }
+            catch (Exception ex)
+            {
+                // Called during candidate ENUMERATION now (targets map), where a
+                // throw would escape the per-candidate try/catch — degrade to the
+                // defaults instead (flat-layout semantics; a truly corrupt payload
+                // still fails cleanly in Instantiate and falls to the next-newest).
+                Log($"manifest.json unreadable in '{dir}': {ex.Message}");
+                return new PluginManifest { Assembly = DefaultAssembly, EntryType = DefaultEntryType };
+            }
         }
 
         private static Version? ParseVersion(string name) =>
@@ -184,6 +248,11 @@ namespace BinaLoader
 
             [System.Text.Json.Serialization.JsonPropertyName("entryType")]
             public string? EntryType { get; set; }
+
+            /// <summary>Revit year -> payload subfolder ("2026": "net8.0").
+            /// Present only in the multi-year layout; null = flat legacy dir.</summary>
+            [System.Text.Json.Serialization.JsonPropertyName("targets")]
+            public Dictionary<string, string>? Targets { get; set; }
         }
     }
 }

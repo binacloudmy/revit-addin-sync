@@ -11,20 +11,27 @@
 ;
 ; Build (CI does this in .github/workflows/release.yml):
 ;   ISCC installer\RevitCopilot.iss /DAppVersion=0.0.8 ^
-;     /DLoaderDir=..\artifacts\loader /DPluginDir=..\artifacts\plugin
+;     /DLoaderNet8Dir=..\artifacts\loader-net8 /DPluginDir=..\artifacts\plugin
+; Optional: /DLoaderNet48Dir=..\artifacts\loader-net48 registers Revit 2024
+; (build-installer.ps1 passes it ONLY when a net48 payload was published — a
+; loader with nothing to load would dead-end 2024 users on a reinstall dialog).
 ; Optional engine + signing flags (see installer\build-installer.ps1 for the
 ; wrapper that computes these): /DEngineDir=... /DEngineVersion=... and
 ; /Sbinasign=<signtool command> /DSignToolName=binasign
 ;
-; Layout installed (same as the MSI did):
-;   %APPDATA%\Autodesk\Revit\Addins\<2025|2026|2027>\  BinaSync.addin + BinaLoader.dll
-;   %LocalAppData%\Bina\RevitSync\versions\<ver>\      full plugin (seed build)
+; Layout installed:
+;   %APPDATA%\Autodesk\Revit\Addins\<2025|2026|2027>\  BinaSync.addin + BinaLoader.dll (net8)
+;   %APPDATA%\Autodesk\Revit\Addins\2024\              same, net48 build (when defined)
+;   %LocalAppData%\Bina\RevitSync\versions\<ver>\      root manifest.json (targets map)
+;                                          \net8.0\    payload for Revit 2025+2026
+;                                          \net10.0\   payload for Revit 2027
+;                                          \net48\     payload for Revit 2024 (Phase B)
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
 #endif
-#ifndef LoaderDir
-  #define LoaderDir "..\artifacts\loader"
+#ifndef LoaderNet8Dir
+  #define LoaderNet8Dir "..\artifacts\loader-net8"
 #endif
 #ifndef PluginDir
   #define PluginDir "..\artifacts\plugin"
@@ -37,12 +44,9 @@
 #ifndef EngineVersion
   #define EngineVersion AppVersion
 #endif
-; Zero-config release: bina-defaults.json (installer-carried GatewayUrl).
-; Optional — build-installer.ps1 -GatewayUrl defines DefaultsDir; omit and the
-; fallback dir doesn't exist, so skipifsourcedoesntexist skips it cleanly.
-#ifndef DefaultsDir
-  #define DefaultsDir "..\artifacts\defaults"
-#endif
+; Zero-config release (bina-defaults.json): now written by build-installer.ps1
+; directly into each payload subfolder, so it rides the PluginDir copy below —
+; no dedicated define/entry anymore.
 
 [Setup]
 ; AppId is permanent — same rule as an MSI UpgradeCode, never regenerate.
@@ -78,21 +82,25 @@ SignedUninstaller=yes
 #endif
 
 [Files]
-; Loader shim into every supported Revit year (only net8 hosts: 2025-2027).
-Source: "{#LoaderDir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\2025"; Flags: ignoreversion recursesubdirs
-Source: "{#LoaderDir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\2026"; Flags: ignoreversion recursesubdirs
-Source: "{#LoaderDir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\2027"; Flags: ignoreversion recursesubdirs
-; Seed plugin build so the loader has something to boot before the first OTA.
+; net8 loader shim into every net8+ Revit year (2025-2026 = .NET 8; 2027's
+; .NET 10 host loads a net8 assembly fine).
+Source: "{#LoaderNet8Dir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\2025"; Flags: ignoreversion recursesubdirs
+Source: "{#LoaderNet8Dir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\2026"; Flags: ignoreversion recursesubdirs
+Source: "{#LoaderNet8Dir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\2027"; Flags: ignoreversion recursesubdirs
+; net48 loader for Revit 2024 — only when the build ships a 2024 payload.
+#ifdef LoaderNet48Dir
+Source: "{#LoaderNet48Dir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\2024"; Flags: ignoreversion recursesubdirs
+#endif
+; Seed plugin build (per-target subfolders + root manifest.json + .complete)
+; so the loader has something to boot before the first OTA.
 Source: "{#PluginDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\versions\{#AppVersion}"; Flags: ignoreversion recursesubdirs
 ; Seed the packaged engine so EngineManager can spawn it before the first OTA.
 ; Optional: only if the build published artifacts\engine (Check skips it cleanly).
 Source: "{#EngineDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\engine\{#EngineVersion}"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
-; Zero-config defaults land NEXT TO the plugin DLLs (BinaConfig reads
-; bina-defaults.json from the executing assembly's own directory).
-Source: "{#DefaultsDir}\bina-defaults.json"; DestDir: "{localappdata}\Bina\RevitSync\versions\{#AppVersion}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [InstallDelete]
 ; Stale pre-loader direct-load manifests — a second live copy breaks startup.
+Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2024\RevitWebAppSync.addin"
 Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2025\RevitWebAppSync.addin"
 Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2026\RevitWebAppSync.addin"
 Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2027\RevitWebAppSync.addin"

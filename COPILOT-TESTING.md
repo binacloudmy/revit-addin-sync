@@ -792,3 +792,14 @@ Beat-Revit-AI iteration additions:
 - [ ] Installer: build with -EngineZip → fresh machine install → cold-spawn checklist passes
 - [ ] Signed build: build-installer.ps1 -SignCert <pfx> -SignPassword <pw> — signtool quoting survives ISCC (the /Sbinasign mechanism); installer + uninstaller both signed (signtool verify /pa)
 - [ ] OTA feed: version.json with flat engineVersion/engineUrl/engineSha256 fields (NOT the old nested {engine:{...}} shape)
+
+## 21. Multi-year payloads (one installer, Revit 2024–2027)
+- [ ] Build: `installer\build-installer.ps1 -Version <v>` → `artifacts\plugin\` has `net8.0\` + `net10.0\` (+ `net48\` once Phase B lands), root `manifest.json` with targets map, `.complete`; both loader dirs published
+- [ ] Revit 2026: install → loader.log shows `loaded ... from '...\versions\<v>\net8.0' (Revit 2026)`, pane works
+- [ ] Revit 2027 (or preview): loader picks `net10.0\`
+- [ ] Wrong-year probe: delete `net8.0\` from the version dir → Revit 2026 skips that version and falls to the previous complete one; if none, dialog says "installed but failed to load" / "no payload" — NEVER the bare "reinstall" text when a version dir existed
+- [ ] Honest dialog: corrupt the newest payload's DLL (truncate) with no older version present → dialog names the exception type + loader.log path, not "No installed version found"
+- [ ] Legacy compat: hand-stage an old FLAT-layout version dir (payload at root, no targets key) newer than installed → loader loads it from the root
+- [ ] OTA: feed a new-layout zip → staged, next Revit start loads the right subfolder; `UpdateService` version gate still compares correctly (GetCurrentVersion walks up from the subfolder)
+- [ ] Installer registrations: Addins\2025/2026/2027 get the net8 loader; Addins\2024 only exists when a net48 payload shipped
+- [ ] (Phase B) Revit 2024: net48 loader in Addins\2024 picks `net48\`, pane works

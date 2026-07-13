@@ -33,7 +33,11 @@ jobs:
 
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: 8.0.x
+          # 8.0 builds net8.0-windows (+ net48 via reference assemblies);
+          # 10.0 builds the Revit 2027 net10.0-windows payload.
+          dotnet-version: |
+            8.0.x
+            10.0.x
 
       - name: Derive version
         id: ver
@@ -47,26 +51,79 @@ jobs:
           if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Bad version '$v' — want MAJOR.MINOR.PATCH" }
           "version=$v" >> $env:GITHUB_OUTPUT
 
-      - name: Publish plugin (OTA payload)
+      - name: Publish plugin (OTA payload, per-target subfolders)
         shell: pwsh
         run: |
           $v = '${{ steps.ver.outputs.version }}'
-          dotnet publish RevitWebAppSync.csproj -c Release -o artifacts/plugin -p:Version=$v
-          if ($LASTEXITCODE -ne 0) { exit 1 }
-          # Loader metadata: which dll/type to bootstrap, marker that the
-          # folder is a complete build (MSI-seeded; the updater writes its own).
-          @{ version = $v; assembly = 'RevitWebAppSync.dll'; entryType = 'RevitWebAppSync.App' } |
+          # Multi-year layout (BinaLoader ResolvePayloadDir): one subfolder per
+          # target runtime + a root manifest.json carrying the year->subfolder
+          # map. ALWAYS publish with an explicit -f — a multi-TFM publish
+          # without one shipped a net10 payload to a .NET 8 Revit (2026-07-13).
+          $targets = [ordered]@{ "net8.0-windows" = "net8.0"; "net10.0-windows" = "net10.0" }
+          if ((Get-Content RevitWebAppSync.csproj -Raw) -match '<TargetFrameworks>[^<]*net48') {
+            $targets["net48"] = "net48"   # Phase B auto-activates
+          }
+          $yearMap = [ordered]@{}
+          foreach ($tfm in $targets.Keys) {
+            $sub = $targets[$tfm]
+            dotnet publish RevitWebAppSync.csproj -c Release -f $tfm -o "artifacts/plugin/$sub" -p:Version=$v
+            if ($LASTEXITCODE -ne 0) { exit 1 }
+            @{ version = $v; assembly = 'RevitWebAppSync.dll'; entryType = 'RevitWebAppSync.App' } |
+              ConvertTo-Json | Set-Content "artifacts/plugin/$sub/manifest.json"
+            switch ($sub) {
+              "net48"   { $yearMap["2024"] = $sub }
+              "net8.0"  { $yearMap["2025"] = $sub; $yearMap["2026"] = $sub }
+              "net10.0" { $yearMap["2027"] = $sub }
+            }
+          }
+          # Root manifest: which dll/type to bootstrap + the targets map.
+          @{ version = $v; assembly = 'RevitWebAppSync.dll'; entryType = 'RevitWebAppSync.App'; targets = $yearMap } |
             ConvertTo-Json | Set-Content artifacts/plugin/manifest.json
-          Remove-Item artifacts/plugin/*.pdb -ErrorAction SilentlyContinue
+          Get-ChildItem artifacts/plugin -Recurse -Filter *.pdb | Remove-Item -ErrorAction SilentlyContinue
 
-      - name: Publish loader
+      - name: Publish loaders (net8 for 2025-2027, net48 for 2024)
         shell: pwsh
         run: |
           $v = '${{ steps.ver.outputs.version }}'
-          dotnet publish BinaLoader/BinaLoader.csproj -c Release -o artifacts/loader -p:Version=$v
+          dotnet publish BinaLoader/BinaLoader.csproj -c Release -f net8.0-windows -o artifacts/loader-net8 -p:Version=$v
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          Copy-Item BinaLoader/BinaSync.addin artifacts/loader/
-          Remove-Item artifacts/loader/*.pdb -ErrorAction SilentlyContinue
+          Copy-Item BinaLoader/BinaSync.addin artifacts/loader-net8/
+          dotnet publish BinaLoader/BinaLoader.csproj -c Release -f net48 -o artifacts/loader-net48 -p:Version=$v
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Copy-Item BinaLoader/BinaSync.addin artifacts/loader-net48/
+          Get-ChildItem artifacts -Recurse -Filter *.pdb | Remove-Item -ErrorAction SilentlyContinue
+
+      # Optional colocated-engine channel: set the ENGINE_ZIP_URL repository
+      # variable (Settings -> Secrets and variables -> Actions -> Variables) to
+      # a bina-engine-<ver>.zip built by bina-ai scripts/build-engine-bundle.ps1
+      # (e.g. a previous release's asset URL, or blob storage). When set, the
+      # release re-attaches the zip, version.json carries the flat
+      # engineVersion/engineUrl/engineSha256 fields UpdateService.CheckEngineAsync
+      # reads, and the installer seeds the bundle. Unset = engine channel inert,
+      # release is byte-identical to an addin-only one.
+      - name: Fetch engine bundle (optional)
+        id: engine
+        shell: pwsh
+        run: |
+          $url = '${{ vars.ENGINE_ZIP_URL }}'
+          if (-not $url) {
+            Write-Host "ENGINE_ZIP_URL not set — addin-only release"
+            "present=false" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+          Invoke-WebRequest $url -OutFile engine-download.zip
+          Expand-Archive engine-download.zip -DestinationPath artifacts/engine
+          $manifest = Get-Content artifacts/engine/engine-version.json -Raw | ConvertFrom-Json
+          $ev = $manifest.engine_version
+          if (-not $ev) { throw "engine-version.json in $url has no engine_version" }
+          $zip = "bina-engine-$ev.zip"
+          Move-Item engine-download.zip $zip
+          $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          Write-Host "engine bundle $ev ($zip, sha256=$sha)"
+          "present=true" >> $env:GITHUB_OUTPUT
+          "version=$ev" >> $env:GITHUB_OUTPUT
+          "sha256=$sha" >> $env:GITHUB_OUTPUT
+          "zip=$zip" >> $env:GITHUB_OUTPUT
 
       - name: Zip payload + feed json
         id: payload
@@ -85,15 +142,14 @@ jobs:
             # Flip to $false for releases old builds may keep using.
             mandatory = $true
           }
-          # Phase 4 (superseded by bina-ai scripts/build-engine-bundle.ps1 +
-          # flat engineVersion/engineUrl/engineSha256 feed fields — this
-          # merge block is not currently wired into any step of this
-          # workflow and never fires): if the engine was built, merge its
-          # block so the ONE version.json carries both artifacts.
-          if (Test-Path engine/engine-version.json) {
-            $eng = (Get-Content engine/engine-version.json -Raw | ConvertFrom-Json).engine
-            $feed.engine = $eng
-            Write-Host "merged engine block: $($eng.version)"
+          # Colocated-engine channel: FLAT fields, the shape
+          # UpdateService.CheckEngineAsync actually reads (the old nested
+          # {engine:{...}} block was never consumed by any client).
+          if ('${{ steps.engine.outputs.present }}' -eq 'true') {
+            $feed.engineVersion = '${{ steps.engine.outputs.version }}'
+            $feed.engineUrl     = "https://github.com/${{ github.repository }}/releases/download/v$v/${{ steps.engine.outputs.zip }}"
+            $feed.engineSha256  = '${{ steps.engine.outputs.sha256 }}'
+            Write-Host "feed carries engine $($feed.engineVersion)"
           }
           $feed | ConvertTo-Json -Depth 5 | Set-Content version.json
           "zip=$zip" >> $env:GITHUB_OUTPUT
@@ -108,17 +164,23 @@ jobs:
           if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress; }
           # ABSOLUTE source dirs — relative paths once made the old WiX MSI
           # harvest nothing and ship 32KB shells (v0.0.1-v0.0.6).
-          $loaderDir = (Resolve-Path artifacts/loader).Path
+          $loaderNet8Dir = (Resolve-Path artifacts/loader-net8).Path
           $pluginDir = (Resolve-Path artifacts/plugin).Path
-          # Phase 4: seed the engine into the installer if it was built.
-          # (bina-ai scripts/build-engine-bundle.ps1 -> dist/bina-engine/ -> artifacts/engine/)
-          $engineArg = @()
-          if (Test-Path artifacts/engine) {
-            $engineDir = (Resolve-Path artifacts/engine).Path
-            $engineArg = @("/DEngineDir=$engineDir", "/DEngineVersion=$v")
-            Set-Content artifacts/engine/.complete $v
+          # Addins\2024 registration only when a 2024 payload exists — a net48
+          # loader with nothing to load dead-ends 2024 users on a reinstall dialog.
+          $net48Arg = @()
+          if (Test-Path artifacts/plugin/net48) {
+            $net48Arg = @("/DLoaderNet48Dir=$((Resolve-Path artifacts/loader-net48).Path)")
           }
-          & $iscc installer/RevitCopilot.iss /DAppVersion=$v "/DLoaderDir=$loaderDir" "/DPluginDir=$pluginDir" @engineArg /Oinstaller
+          # Seed the fetched engine bundle into the installer. DestDir must be
+          # the ENGINE's own version (EngineManager scans engine\<ver>\ by
+          # semver), never the addin version.
+          $engineArg = @()
+          if ('${{ steps.engine.outputs.present }}' -eq 'true') {
+            $engineDir = (Resolve-Path artifacts/engine).Path
+            $engineArg = @("/DEngineDir=$engineDir", "/DEngineVersion=${{ steps.engine.outputs.version }}")
+          }
+          & $iscc installer/RevitCopilot.iss /DAppVersion=$v "/DLoaderNet8Dir=$loaderNet8Dir" "/DPluginDir=$pluginDir" @net48Arg @engineArg /Oinstaller
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Move-Item "installer/RevitCopilot-$v-setup.exe" .
           # Guard: a payload-less installer is tiny; the real one carries the
@@ -136,11 +198,18 @@ jobs:
           # Stable-named copy → evergreen landing-page link:
           # releases/latest/download/RevitCopilotSetup.exe always serves the newest.
           Copy-Item "RevitCopilot-$v-setup.exe" RevitCopilotSetup.exe
+          # Engine bundle rides the same release when fetched — version.json's
+          # engineUrl points at THIS release's copy of it.
+          $engineAsset = @()
+          if ('${{ steps.engine.outputs.present }}' -eq 'true') {
+            $engineAsset = @('${{ steps.engine.outputs.zip }}')
+          }
           gh release create "v$v" `
             '${{ steps.payload.outputs.zip }}' `
             version.json `
             "RevitCopilot-$v-setup.exe" `
             RevitCopilotSetup.exe `
+            @engineAsset `
             --title "BINA Sync $v" --generate-notes
 
       - name: Upload artifacts (manual runs)

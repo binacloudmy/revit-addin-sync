@@ -61,23 +61,54 @@ if ($Version -notmatch '^\d+\.\d+\.\d+$') {
     throw "Version '$Version' must be MAJOR.MINOR.PATCH"
 }
 
-$pluginDir = Join-Path $repo "artifacts\plugin"
-$loaderDir = Join-Path $repo "artifacts\loader"
+$pluginDir     = Join-Path $repo "artifacts\plugin"
+$loaderNet8Dir  = Join-Path $repo "artifacts\loader-net8"
+$loaderNet48Dir = Join-Path $repo "artifacts\loader-net48"
 $iss       = Join-Path $repo "installer\RevitCopilot.iss"
 $exe       = Join-Path $repo "RevitCopilot-$Version-setup.exe"
 
 Remove-Item -Recurse -Force (Join-Path $repo "artifacts") -ErrorAction SilentlyContinue
 
-Write-Host "==> Publishing plugin $Version ($Configuration)..." -ForegroundColor Cyan
-dotnet publish "RevitWebAppSync.csproj" -c $Configuration -o $pluginDir -p:Version=$Version
+# Multi-year payload layout (see BinaLoader/LoaderApp.cs ResolvePayloadDir):
+#   versions\<ver>\manifest.json   root manifest with the year->subfolder map
+#   versions\<ver>\net8.0\         Revit 2025 + 2026 (both .NET 8 hosts)
+#   versions\<ver>\net10.0\        Revit 2027 (.NET 10 host)
+#   versions\<ver>\net48\          Revit 2024 (Phase B — when the csproj grows net48)
+# ALWAYS publish with an explicit -f: publishing a multi-TFM project without
+# one is what shipped a net10 payload to a .NET 8 Revit (2026-07-13 incident).
+$pluginTargets = [ordered]@{ "net8.0-windows" = "net8.0"; "net10.0-windows" = "net10.0" }
+$plugincsproj = [xml](Get-Content (Join-Path $repo "RevitWebAppSync.csproj"))
+if ($plugincsproj.Project.PropertyGroup.TargetFrameworks -like "*net48*") {
+    $pluginTargets["net48"] = "net48"    # Phase B auto-activates
+}
+$yearMap = [ordered]@{}
+foreach ($tfm in $pluginTargets.Keys) {
+    $sub = $pluginTargets[$tfm]
+    $out = Join-Path $pluginDir $sub
+    Write-Host "==> Publishing plugin $Version ($Configuration, $tfm -> $sub)..." -ForegroundColor Cyan
+    dotnet publish "RevitWebAppSync.csproj" -c $Configuration -f $tfm -o $out -p:Version=$Version
+    if ($LASTEXITCODE -ne 0) { throw "plugin publish failed for $tfm" }
+    # Per-payload manifest: what the loader's Instantiate() reads in the dir it loads.
+    @{ version = $Version; assembly = 'RevitWebAppSync.dll'; entryType = 'RevitWebAppSync.App' } |
+        ConvertTo-Json | Set-Content (Join-Path $out "manifest.json")
+    switch ($sub) {
+        "net48"   { $yearMap["2024"] = $sub }
+        "net8.0"  { $yearMap["2025"] = $sub; $yearMap["2026"] = $sub }
+        "net10.0" { $yearMap["2027"] = $sub }
+    }
+}
 
-Write-Host "==> Publishing loader..." -ForegroundColor Cyan
-dotnet publish "BinaLoader\BinaLoader.csproj" -c $Configuration -o $loaderDir -p:Version=$Version
-Copy-Item -Force (Join-Path $repo "BinaLoader\BinaSync.addin") $loaderDir
+Write-Host "==> Publishing loaders..." -ForegroundColor Cyan
+dotnet publish "BinaLoader\BinaLoader.csproj" -c $Configuration -f net8.0-windows -o $loaderNet8Dir -p:Version=$Version
+if ($LASTEXITCODE -ne 0) { throw "loader publish failed for net8.0-windows" }
+Copy-Item -Force (Join-Path $repo "BinaLoader\BinaSync.addin") $loaderNet8Dir
+dotnet publish "BinaLoader\BinaLoader.csproj" -c $Configuration -f net48 -o $loaderNet48Dir -p:Version=$Version
+if ($LASTEXITCODE -ne 0) { throw "loader publish failed for net48" }
+Copy-Item -Force (Join-Path $repo "BinaLoader\BinaSync.addin") $loaderNet48Dir
 
-# Loader metadata + completeness marker — the seed folder must look exactly
-# like one staged by UpdateService.
-@{ version = $Version; assembly = 'RevitWebAppSync.dll'; entryType = 'RevitWebAppSync.App' } |
+# Root manifest (year->subfolder map the loader keys on) + completeness marker
+# — the seed folder must look exactly like one staged by UpdateService.
+@{ version = $Version; assembly = 'RevitWebAppSync.dll'; entryType = 'RevitWebAppSync.App'; targets = $yearMap } |
     ConvertTo-Json | Set-Content (Join-Path $pluginDir "manifest.json")
 Set-Content (Join-Path $pluginDir ".complete") $Version
 
@@ -104,17 +135,16 @@ if ($EngineZip) {
 }
 
 # Optional: stage bina-defaults.json (zero-config release) next to the addin
-# DLLs. Same guarded pattern as the engine bundle above — without -GatewayUrl
-# the /D flag is omitted entirely, RevitCopilot.iss's DefaultsDir falls back
-# to a nonexistent directory, and skipifsourcedoesntexist skips it cleanly:
-# byte-identical ISCC invocation to before this feature existed.
-$defaultsIscArgs = @()
+# DLLs. BinaConfig reads it from the executing assembly's own directory, which
+# is now a per-target SUBFOLDER — so it goes into every payload subfolder and
+# rides the PluginDir recursesubdirs copy (no separate .iss entry needed).
+# Without -GatewayUrl nothing is written: byte-identical to an addin-only build.
 if ($GatewayUrl) {
-    $defaultsDir = Join-Path $repo "artifacts\defaults"
-    Write-Host "==> Writing bina-defaults.json (GatewayUrl=$GatewayUrl)..." -ForegroundColor Cyan
-    New-Item -ItemType Directory -Force -Path $defaultsDir | Out-Null
-    @{ GatewayUrl = $GatewayUrl } | ConvertTo-Json | Set-Content (Join-Path $defaultsDir "bina-defaults.json")
-    $defaultsIscArgs = @("/DDefaultsDir=$defaultsDir")
+    Write-Host "==> Writing bina-defaults.json (GatewayUrl=$GatewayUrl) into each payload..." -ForegroundColor Cyan
+    foreach ($sub in $pluginTargets.Values) {
+        @{ GatewayUrl = $GatewayUrl } | ConvertTo-Json |
+            Set-Content (Join-Path (Join-Path $pluginDir $sub) "bina-defaults.json")
+    }
 }
 
 # Optional: code signing, native Inno mechanism (signs the setup EXE AND the
@@ -163,9 +193,16 @@ if (-not $iscc) {
     throw "Inno Setup 6 not found (looked in: $($isccCandidates -join '; ')). Install: winget install JRSoftware.InnoSetup"
 }
 
+# Addins\2024 registration is gated on an actual 2024 payload — a net48 loader
+# with nothing to load would dead-end Revit 2024 users on a reinstall dialog.
+$net48IscArgs = @()
+if ($yearMap.Contains("2024")) {
+    $net48IscArgs = @("/DLoaderNet48Dir=$loaderNet48Dir")
+}
+
 Write-Host "==> Building installer EXE..." -ForegroundColor Cyan
-$iscArgs = @($iss, "/DAppVersion=$Version", "/DLoaderDir=$loaderDir", "/DPluginDir=$pluginDir") +
-    $engineIscArgs + $defaultsIscArgs + $signIscArgs + @("/O$repo")
+$iscArgs = @($iss, "/DAppVersion=$Version", "/DLoaderNet8Dir=$loaderNet8Dir", "/DPluginDir=$pluginDir") +
+    $net48IscArgs + $engineIscArgs + $signIscArgs + @("/O$repo")
 & $iscc @iscArgs
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
 

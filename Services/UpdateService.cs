@@ -253,14 +253,20 @@ namespace RevitWebAppSync.Services
 
         /// <summary>Effective running version. Prefer the versions\&lt;ver&gt;\ folder
         /// name we were loaded from (survives builds that forget to bump
-        /// AssemblyVersion); fall back to the assembly version.</summary>
+        /// AssemblyVersion); fall back to the assembly version. Handles both
+        /// layouts: flat legacy (versions\&lt;ver&gt;\*.dll) and multi-year
+        /// (versions\&lt;ver&gt;\net8.0\*.dll) — walk up until the parent is
+        /// versions\ and the folder name parses as a version.</summary>
         private static Version GetCurrentVersion()
         {
-            var dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            var parent = Path.GetDirectoryName(dir);
-            if (string.Equals(parent, VersionsDir, StringComparison.OrdinalIgnoreCase)
-                && Version.TryParse(Path.GetFileName(dir), out var fromDir))
-                return fromDir;
+            for (var dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                 !string.IsNullOrEmpty(dir);
+                 dir = Path.GetDirectoryName(dir))
+            {
+                if (string.Equals(Path.GetDirectoryName(dir), VersionsDir, StringComparison.OrdinalIgnoreCase)
+                    && Version.TryParse(Path.GetFileName(dir), out var fromDir))
+                    return fromDir;
+            }
 
             return Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
         }
