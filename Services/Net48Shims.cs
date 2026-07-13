@@ -28,4 +28,37 @@ namespace RevitWebAppSync.Services
         public void Unload() { /* not supported on .NET Framework */ }
     }
 }
+
+namespace Autodesk.Revit.DB
+{
+    /// <summary>Revit 2024 renamed ElementId's payload: <c>IntegerValue</c>
+    /// (int) became <c>Value</c> (long). The codebase is written against the
+    /// 2024+ shape; this C#-14 extension property supplies <c>.Value</c> on
+    /// the 2023 refs. Declared in the Autodesk.Revit.DB namespace so every
+    /// file that uses ElementId already has it in scope. Returns INT (2023's
+    /// native width): it widens implicitly wherever the code expects long,
+    /// and keeps <c>new ElementId(x.Value)</c> binding to 2023's int ctor.</summary>
+    public static class ElementIdCompatExtensions
+    {
+        extension(ElementId id)
+        {
+            public int Value => id.IntegerValue;
+        }
+    }
+}
+
+namespace System.Collections.Generic
+{
+    /// <summary>net48 lacks CollectionExtensions.GetValueOrDefault.</summary>
+    internal static class DictionaryCompatExtensions
+    {
+        public static TValue GetValueOrDefault<TKey, TValue>(
+            this Dictionary<TKey, TValue> d, TKey key)
+            => d.TryGetValue(key, out var v) ? v : default;
+
+        public static TValue GetValueOrDefault<TKey, TValue>(
+            this Dictionary<TKey, TValue> d, TKey key, TValue fallback)
+            => d.TryGetValue(key, out var v) ? v : fallback;
+    }
+}
 #endif
