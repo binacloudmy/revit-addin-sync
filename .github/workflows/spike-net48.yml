@@ -1,0 +1,38 @@
+# Phase B spike (throwaway): does the plugin compile as net48 against the
+# Revit 2023 API? Catalogs the errors for the 2023/2024 port decision.
+# Delete this workflow when Phase B lands or is descoped.
+name: spike-net48
+
+on: workflow_dispatch
+
+jobs:
+  spike:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Compile net48 (errors are the point)
+        shell: pwsh
+        run: |
+          # net48 only — the runner's SDK8 can't evaluate the net10 TFM.
+          dotnet build RevitWebAppSync.csproj -f net48 -p:TargetFrameworks=net48 `
+            -v q -nologo 2>&1 | Tee-Object build-net48.log
+          # Always succeed — the log is the deliverable.
+          exit 0
+
+      - name: Error summary
+        shell: pwsh
+        run: |
+          $errors = Select-String -Path build-net48.log -Pattern "error (CS|MSB|NU)\d+" -AllMatches
+          "total error lines: $($errors.Count)"
+          Select-String -Path build-net48.log -Pattern "error (CS|MSB|NU)(\d+)" |
+            ForEach-Object { $_.Matches[0].Value } | Group-Object | Sort-Object Count -Descending |
+            Format-Table Count, Name -AutoSize
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: build-net48-log
+          path: build-net48.log
