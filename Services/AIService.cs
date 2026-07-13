@@ -432,7 +432,11 @@ namespace RevitWebAppSync.Services
         {
             try
             {
-                using var req = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/credits/balance");
+                // Cloud base, not _baseUrl: in engine mode _baseUrl is the local
+                // engine, which mounts no /credits route — this 404'd and the
+                // catch below silently blanked the quota display.
+                var creditsBase = BinaConfig.Load().ResolvedCloudBaseUrl;
+                using var req = new HttpRequestMessage(HttpMethod.Get, $"{creditsBase}/credits/balance");
                 if (!string.IsNullOrEmpty(accessToken))
                     req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
                 var resp = await _httpClient.SendAsync(req, cancellationToken);

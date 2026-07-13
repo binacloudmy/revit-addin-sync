@@ -180,13 +180,14 @@ namespace RevitWebAppSync
         }
 
         [JsonIgnore]
-        public string ResolvedAuthBaseUrl
+        public string ResolvedCloudBaseUrl
         {
-            // The base that ISSUES tokens (login page's api= param, /auth/token,
-            // /auth/refresh, /auth/me) — always a CLOUD host. In engine mode
-            // AIBaseUrl points at the LOCAL engine (localhost:48810), which
-            // mounts no auth routes: the PKCE exchange there 404s
-            // ({"detail":"Not Found"} — first zero-config UAT, 2026-07-13).
+            // The CLOUD bina-ai host, for features the local engine does not
+            // serve. In engine mode AIBaseUrl points at the LOCAL engine
+            // (localhost:48810), which mounts ONLY the tool loop + feedback —
+            // auth (PKCE 404, first zero-config UAT 2026-07-13), JKR/fire
+            // compliance ("Scan failed: NotFound", same day), cost analysis
+            // and /credits/balance all live cloud-side only.
             //   1. GatewayUrl (colocate: the gateway is the cloud) when set;
             //   2. else ResolvedAIBaseUrl unless it's loopback (cloud mode —
             //      unchanged behavior);
@@ -200,6 +201,11 @@ namespace RevitWebAppSync
                 return isLoopback ? DEFAULT_AI_BASE_URL : ai;
             }
         }
+
+        // Token-issuing base (login page api= param, /auth/*). Named alias so
+        // auth call sites read as auth; it IS the cloud base.
+        [JsonIgnore]
+        public string ResolvedAuthBaseUrl => ResolvedCloudBaseUrl;
 
         [JsonIgnore]
         public string ResolvedApiBaseUrl =>

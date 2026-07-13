@@ -18,7 +18,8 @@ namespace RevitWebAppSync.Services
 
         public ComplianceService(string baseUrl = null)
         {
-            _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedAIBaseUrl;
+            // Cloud base: the local engine serves no /v1/compliance routes.
+            _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedCloudBaseUrl;
             _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
         }
 

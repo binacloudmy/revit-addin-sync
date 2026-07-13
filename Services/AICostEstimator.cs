@@ -25,7 +25,8 @@ namespace RevitWebAppSync.Services
 
         public AICostEstimator(string baseUrl = null)
         {
-            _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedAIBaseUrl;
+            // Cloud base: the local engine serves no /cost routes.
+            _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedCloudBaseUrl;
             _httpClient = new HttpClient
             {
                 Timeout = TimeSpan.FromSeconds(300)  // 5 min for large batch matching
