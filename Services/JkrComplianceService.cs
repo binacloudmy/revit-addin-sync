@@ -25,7 +25,10 @@ namespace RevitWebAppSync.Services
 
         public JkrComplianceService(string baseUrl = null)
         {
-            _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedAIBaseUrl;
+            // Cloud base, NOT ResolvedAIBaseUrl: in engine mode the latter is
+            // the local engine, which mounts no /v1/compliance routes — every
+            // scan died with "Server error: NotFound" (colocate UAT 2026-07-13).
+            _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedCloudBaseUrl;
             _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(180) };
         }
 
