@@ -460,6 +460,10 @@ namespace RevitWebAppSync.Services
                 // the official JKR file defines classification params.
                 if (!paramName.Contains("_jkr_"))
                     return $"'{paramName}' is not defined in the loaded shared parameter file.";
+                // Doc 09 field convention: 3rd suffix letter = storage type.
+                // Material params (`_stm`) can't be meaningfully auto-created.
+                if (paramName.EndsWith("m"))
+                    return $"'{paramName}' is a material parameter — cannot auto-create; assign via Manage > Shared Parameters.";
                 try
                 {
                     DefinitionGroup jkrGroup = null;
@@ -470,7 +474,20 @@ namespace RevitWebAppSync.Services
                     if (jkrGroup == null)
                         jkrGroup = sharedFile.Groups.Create("JKR");
 
-                    var options = new ExternalDefinitionCreationOptions(paramName, SpecTypeId.String.Text)
+                    // Suffix -> Revit spec type per Doc 09 (t=Text, y=Yes/No,
+                    // i=Integer, n=Number, l=Length, a=Area, x=Multiline Text).
+                    var spec = SpecTypeId.String.Text;
+                    switch (paramName[paramName.Length - 1])
+                    {
+                        case 'y': spec = SpecTypeId.Boolean.YesNo; break;
+                        case 'i': spec = SpecTypeId.Int.Integer; break;
+                        case 'n': spec = SpecTypeId.Number; break;
+                        case 'l': spec = SpecTypeId.Length; break;
+                        case 'a': spec = SpecTypeId.Area; break;
+                    }
+                    // `_stt`/`_sit` text params end in 't' and keep the
+                    // default Text spec above.
+                    var options = new ExternalDefinitionCreationOptions(paramName, spec)
                     {
                         Visible = true,
                     };
@@ -620,6 +637,14 @@ namespace RevitWebAppSync.Services
                     before = param.AsInteger().ToString();
                     if (int.TryParse(fix.Value, out int intVal))
                         set = param.Set(intVal);
+                    else
+                    {
+                        // Yes/No params (JKR `_sty` suffix, Doc 09 field
+                        // convention) arrive as Ya/Tidak text — map to 1/0.
+                        var v = (fix.Value ?? "").Trim().ToLowerInvariant();
+                        if (v == "ya" || v == "yes" || v == "true") set = param.Set(1);
+                        else if (v == "tidak" || v == "no" || v == "false") set = param.Set(0);
+                    }
                     after = param.AsInteger().ToString();
                     break;
                 case StorageType.Double:
