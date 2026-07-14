@@ -417,7 +417,40 @@ namespace RevitWebAppSync.Services
             }
 
             if (def == null)
-                return $"'{paramName}' is not defined in the loaded shared parameter file.";
+            {
+                // The loaded shared-param file doesn't define this JKR parameter
+                // (common: project files carry a partial JKR set — UAT 2026-07-14
+                // had LOD_jkr_sit / Bidang_Kejuruteraan / Nama_Komponen_Utama
+                // missing, turning 153 auto-fixes into Manual). Create the
+                // definition in a "JKR" group as a Text parameter, matching how
+                // the official JKR file defines classification params.
+                if (!paramName.Contains("_jkr_"))
+                    return $"'{paramName}' is not defined in the loaded shared parameter file.";
+                try
+                {
+                    DefinitionGroup jkrGroup = null;
+                    foreach (var g in sharedFile.Groups)
+                    {
+                        if (string.Equals(g.Name, "JKR", StringComparison.OrdinalIgnoreCase)) { jkrGroup = g; break; }
+                    }
+                    if (jkrGroup == null)
+                        jkrGroup = sharedFile.Groups.Create("JKR");
+
+                    var options = new ExternalDefinitionCreationOptions(paramName, SpecTypeId.String.Text)
+                    {
+                        Visible = true,
+                    };
+                    def = jkrGroup.Definitions.Create(options) as ExternalDefinition;
+                    if (def == null)
+                        return $"Could not create shared parameter definition '{paramName}'.";
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA Bind] created missing definition '{paramName}' in group 'JKR'");
+                }
+                catch (Exception ex)
+                {
+                    return $"'{paramName}' is not defined in the loaded shared parameter file and could not be created: {ex.Message}";
+                }
+            }
 
             var category = elem.Category;
             if (category == null || !category.AllowsBoundParameters)
