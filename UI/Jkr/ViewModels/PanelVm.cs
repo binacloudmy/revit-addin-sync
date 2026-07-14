@@ -175,6 +175,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>Count of auto-fixable issues (Open + Ignored with a fix_action).</summary>
         public int FixableCount => Issues.Count(i => i.IsActionable && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction));
 
+        /// <summary>Count of issues the AI Fix button can send to the backend:
+        /// actionable, no deterministic fix, tied to a real element, and carrying
+        /// a backend check_id for the round-trip.</summary>
+        public int AiFixableCount => Issues.Count(i =>
+            i.IsActionable && !i.AutoFixable && i.RevitElementId > 0 && !string.IsNullOrEmpty(i.CheckId));
+
         public string SessionLine
         {
             get
@@ -382,7 +388,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         {
             Raise(nameof(OpenCount)); Raise(nameof(IgnoredCount)); Raise(nameof(ResolvedCount)); Raise(nameof(ManualFixCount)); Raise(nameof(NonOpenCount)); Raise(nameof(Total));
             Raise(nameof(Percent)); Raise(nameof(HighOpen)); Raise(nameof(MedOpen)); Raise(nameof(LowOpen));
-            Raise(nameof(FixableCount)); Raise(nameof(SessionLine));
+            Raise(nameof(FixableCount)); Raise(nameof(AiFixableCount)); Raise(nameof(SessionLine));
             foreach (var c in Categories)
             {
                 if (c.IsAll)

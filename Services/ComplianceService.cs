@@ -261,6 +261,15 @@ namespace RevitWebAppSync.Services
         [JsonProperty("issue_id")]
         public string IssueId { get; set; } = "";
 
+        // Backend V2 check_id + domain — round-tripped by the JKR AI auto-fix
+        // request so returned fixes key back to their originating checks.
+        // Empty for fire-compliance (V1) responses.
+        [JsonProperty("check_id")]
+        public string CheckId { get; set; } = "";
+
+        [JsonProperty("domain")]
+        public string Domain { get; set; } = "";
+
         [JsonProperty("element_id")]
         public long ElementId { get; set; }
 
