@@ -397,9 +397,43 @@ namespace RevitWebAppSync.Services
 
             if (sharedFile == null)
             {
-                _sharedParamFileMissing = true;
-                _sharedParamFileMissingMessage = "No shared parameter file is loaded — set Manage > Shared Parameters first.";
-                return _sharedParamFileMissingMessage;
+                // No shared parameter file configured in this Revit session
+                // (UAT 2026-07-14: scan payload showed shared_param_files=[] —
+                // every JKR bind fix died here). Provision one under the
+                // add-in's AppData folder so definition-creation has a home.
+                try
+                {
+                    var dir = System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                        "RevitWebAppSync");
+                    System.IO.Directory.CreateDirectory(dir);
+                    var spPath = System.IO.Path.Combine(dir, "jkr_shared_params.txt");
+                    if (!System.IO.File.Exists(spPath))
+                    {
+                        // Minimal valid shared-parameter file header; Revit
+                        // appends GROUP/PARAM sections through the API.
+                        System.IO.File.WriteAllText(spPath,
+                            "# This is a Revit shared parameter file.\n" +
+                            "# Provisioned by BINA JKR auto-fix.\n" +
+                            "*META\tVERSION\tMINVERSION\n" +
+                            "META\t2\t1\n");
+                    }
+                    app.SharedParametersFilename = spPath;
+                    sharedFile = app.OpenSharedParameterFile();
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA Bind] provisioned shared parameter file: {spPath}");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA Bind] shared-param file provisioning failed: {ex.Message}");
+                }
+                if (sharedFile == null)
+                {
+                    _sharedParamFileMissing = true;
+                    _sharedParamFileMissingMessage = "No shared parameter file is loaded and one could not be created — set Manage > Shared Parameters manually.";
+                    return _sharedParamFileMissingMessage;
+                }
             }
 
             ExternalDefinition def = null;
