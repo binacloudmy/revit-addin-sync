@@ -429,7 +429,6 @@ namespace RevitWebAppSync.Services
         [JsonProperty("elements")]
         public List<JkrElementData> Elements { get; set; } = new List<JkrElementData>();
     }
-}
 
     // --- V2 Response Models (for deserialization) ---
 
@@ -669,3 +668,4 @@ namespace RevitWebAppSync.Services
         [JsonProperty("section")]
         public string Section { get; set; } = "";
     }
+}

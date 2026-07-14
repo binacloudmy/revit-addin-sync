@@ -336,8 +336,15 @@ namespace RevitWebAppSync.UI
                 return;
             }
 
+            // Manual entries are retried too: a fix that failed for an
+            // environmental reason (e.g. shared-param definition missing before
+            // the definition-creation applicator landed) succeeds on a later
+            // attempt. A fix that fails again just returns to Manual.
+            bool Retryable(IssueVm i) =>
+                i.IsActionable || i.Status == IssueStatus.ManualFixNeeded;
+
             var fixable = _vm.Issues
-                .Where(i => i.IsActionable && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction))
+                .Where(i => Retryable(i) && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction))
                 .ToList();
 
             // Issues without a deterministic fix: ask the backend's AI fixer
@@ -345,7 +352,7 @@ namespace RevitWebAppSync.UI
             // one Fix All click covers both. Failure here degrades to the
             // deterministic-only set — it never blocks Fix All.
             var aiCandidates = _vm.Issues
-                .Where(i => i.IsActionable && !i.AutoFixable && i.RevitElementId > 0
+                .Where(i => Retryable(i) && !i.AutoFixable && i.RevitElementId > 0
                             && !string.IsNullOrEmpty(i.CheckId))
                 .ToList();
 
