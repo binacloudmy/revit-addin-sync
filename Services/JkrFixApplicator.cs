@@ -574,7 +574,7 @@ namespace RevitWebAppSync.Services
                 Definition = def,
                 Category = category,
                 WasFreshBind = true,
-                WasInstanceBinding = false,
+                WasInstanceBinding = instanceScope,
             };
             System.Diagnostics.Debug.WriteLine(
                 $"[BINA Bind] fresh-bound '{paramName}' to '{category.Name}'");
