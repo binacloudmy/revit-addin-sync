@@ -299,6 +299,22 @@ namespace RevitWebAppSync.Services
                 }
             }
 
+            // Instance writes on model-group members are blocked by Revit outside
+            // group-edit mode and raise a modal "Changes to groups are allowed
+            // only in group edit mode" error that freezes the whole batch
+            // (UAT 2026-07-15). Fail fast to Manual instead. Type-side writes
+            // are unaffected — the ElementType is not a group member.
+            if (param.Element != null && param.Element.Id == elem.Id
+                && elem.GroupId != null && elem.GroupId != ElementId.InvalidElementId)
+            {
+                UndoBindingIfWePlacedIt(bindingMutation);
+                return new FixResult
+                {
+                    Success = false,
+                    Message = $"Element {fix.ElementId} is inside a model group — Revit blocks instance parameter edits outside group edit mode. Edit the group (or ungroup) and re-run Fix All.",
+                };
+            }
+
             if (param.IsReadOnly)
             {
                 System.Diagnostics.Debug.WriteLine(
