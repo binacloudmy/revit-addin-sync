@@ -541,11 +541,16 @@ namespace RevitWebAppSync.Services
                 return null;
             }
 
-            // Fresh binding. JKR classification params (Kod_Jenis, Sistem, etc.) are
-            // type-level by spec — bind to the element's type so the value applies to
-            // every instance of that type and avoids the read-only-on-instance trap.
+            // Fresh binding. Doc 09 field convention: 2nd suffix letter is the
+            // binding scope — `_s t x` = Type (Kod_Jenis, Sistem, ...),
+            // `_s i x` = Instance (LOD_jkr_sit, Kaedah_Pemasangan_jkr_sit, ...).
             catSet.Insert(category);
-            var binding = app.Create.NewTypeBinding(catSet);
+            var scopeMatch = System.Text.RegularExpressions.Regex.Match(
+                paramName, @"_jkr_s([ti])[a-z]$");
+            bool instanceScope = scopeMatch.Success && scopeMatch.Groups[1].Value == "i";
+            Binding binding = instanceScope
+                ? (Binding)app.Create.NewInstanceBinding(catSet)
+                : app.Create.NewTypeBinding(catSet);
             if (!bindings.Insert(def, binding, GroupTypeId.Data))
                 return $"Failed to bind '{paramName}' to category '{category.Name}'.";
             mutation = new BindingMutation
