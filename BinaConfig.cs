@@ -349,8 +349,13 @@ namespace RevitWebAppSync
         {
             // 32 random hex chars (16 bytes) — matches the shared-secret
             // shape EngineManager/McpServer already validate elsewhere.
+#if NETFRAMEWORK
+            var bytes = new byte[16];
+            using (var rng = RandomNumberGenerator.Create()) rng.GetBytes(bytes);
+#else
             var bytes = RandomNumberGenerator.GetBytes(16);
-            return Convert.ToHexString(bytes).ToLowerInvariant();
+#endif
+            return Services.RuntimeCompat.ToHexString(bytes).ToLowerInvariant();
         }
 
         // Installer-carried default (build-installer.ps1 -GatewayUrl writes

@@ -979,7 +979,7 @@ namespace RevitWebAppSync.UI
                 if (_uiApp?.ActiveUIDocument == null) return;
                 var uidoc = _uiApp.ActiveUIDocument;
                 var doc = uidoc.Document;
-                var elemId = new ElementId(elementId);
+                var elemId = ElemIds.From(elementId);
                 var elem = doc.GetElement(elemId);
                 if (elem == null) return;
 

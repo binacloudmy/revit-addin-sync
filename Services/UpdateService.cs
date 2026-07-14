@@ -196,15 +196,15 @@ namespace RevitWebAppSync.Services
                 {
                     response.EnsureSuccessStatusCode();
                     var total = response.Content.Headers.ContentLength ?? -1L;
-                    await using var download = await response.Content.ReadAsStreamAsync();
-                    await using var zipStream = File.Create(zipPath);
+                    using var download = await response.Content.ReadAsStreamAsync();
+                    using var zipStream = File.Create(zipPath);
 
                     var buffer = new byte[81920];
                     long done = 0;
                     int read;
-                    while ((read = await download.ReadAsync(buffer)) > 0)
+                    while ((read = await download.ReadAsync(buffer, 0, buffer.Length)) > 0)
                     {
-                        await zipStream.WriteAsync(buffer.AsMemory(0, read));
+                        await zipStream.WriteAsync(buffer, 0, read);
                         done += read;
                         if (total > 0)
                             progress?.Report(((double)done / total * 0.9,
@@ -216,7 +216,7 @@ namespace RevitWebAppSync.Services
                 if (!string.IsNullOrWhiteSpace(feed.Sha256))
                 {
                     using var file = File.OpenRead(zipPath);
-                    var actual = Convert.ToHexString(await SHA256.HashDataAsync(file));
+                    var actual = RuntimeCompat.ToHexString(await RuntimeCompat.Sha256Async(file));
                     if (!actual.Equals(feed.Sha256, StringComparison.OrdinalIgnoreCase))
                         throw new InvalidOperationException(
                             $"download corrupted (SHA256 mismatch) — try again");
@@ -346,8 +346,8 @@ namespace RevitWebAppSync.Services
                 using (var response = await http.GetAsync(feed.EngineUrl, HttpCompletionOption.ResponseHeadersRead))
                 {
                     response.EnsureSuccessStatusCode();
-                    await using var download = await response.Content.ReadAsStreamAsync();
-                    await using (var zipStream = File.Create(zipPath))
+                    using var download = await response.Content.ReadAsStreamAsync();
+                    using (var zipStream = File.Create(zipPath))
                     {
                         await download.CopyToAsync(zipStream);
                     }
@@ -355,7 +355,7 @@ namespace RevitWebAppSync.Services
 
                 using (var file = File.OpenRead(zipPath))
                 {
-                    var actual = Convert.ToHexString(await SHA256.HashDataAsync(file));
+                    var actual = RuntimeCompat.ToHexString(await RuntimeCompat.Sha256Async(file));
                     if (!actual.Equals(feed.EngineSha256.Trim(), StringComparison.OrdinalIgnoreCase))
                     {
                         Log($"engine {remote} sha256 mismatch — refused, keeping current");

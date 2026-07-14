@@ -29,7 +29,7 @@ namespace BinaVibe.Mcp.Tools
             {
                 case JsonValueKind.String:
                     var s = v.GetString() ?? "";
-                    if (s.Length > 1 && s[0] == '$' && s.Contains('.'))
+                    if (s.Length > 1 && s[0] == '$' && s.Contains("."))
                     {
                         var dot = s.IndexOf('.');
                         if (int.TryParse(s.Substring(1, dot - 1), out var idx)

@@ -158,7 +158,7 @@ namespace BinaVibe.Mcp.Tools
             long id = TryGetLong(args, "element_id") ?? 0;
             if (id == 0) throw new System.ArgumentException("missing element_id");
 
-            var el = doc.GetElement(new ElementId(id));
+            var el = doc.GetElement(ElemIds.From(id));
             if (el == null) throw new System.ArgumentException($"element {id} not found");
 
             var typeEl = el.GetTypeId().Value != ElementId.InvalidElementId.Value
@@ -449,7 +449,7 @@ namespace BinaVibe.Mcp.Tools
             if (suppliedIds.Count > 0)
             {
                 elements = suppliedIds
-                    .Select(id => doc.GetElement(new ElementId(id)))
+                    .Select(id => doc.GetElement(ElemIds.From(id)))
                     .Where(el => el != null);
             }
             else
@@ -1005,7 +1005,7 @@ namespace BinaVibe.Mcp.Tools
             if (args.TryGetProperty("element_ids", out var arr) && arr.ValueKind == JsonValueKind.Array)
                 foreach (var e in arr.EnumerateArray())
                     if (e.ValueKind == JsonValueKind.Number && e.TryGetInt64(out var v))
-                        ids.Add(new ElementId(v));
+                        ids.Add(ElemIds.From(v));
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no element ids given" };
 
@@ -1294,7 +1294,7 @@ namespace BinaVibe.Mcp.Tools
             List<ViewSheet> sheets;
             if (sheetId.HasValue)
             {
-                var sheet = doc.GetElement(new ElementId(sheetId.Value)) as ViewSheet;
+                var sheet = doc.GetElement(ElemIds.From(sheetId.Value)) as ViewSheet;
                 if (sheet == null)
                     throw new InvalidOperationException($"sheet {sheetId.Value} not found — use list_sheets");
                 sheets = new List<ViewSheet> { sheet };
@@ -1368,7 +1368,7 @@ namespace BinaVibe.Mcp.Tools
         {
             var id = ArgsHelp.GetLong(args, "element_id")
                 ?? throw new InvalidOperationException("element_id required");
-            var el = doc.GetElement(new ElementId(id))
+            var el = doc.GetElement(ElemIds.From(id))
                 ?? throw new InvalidOperationException($"element {id} not found");
             Element typeEl = el;
             if (el is not ElementType)

@@ -828,7 +828,7 @@ namespace RevitWebAppSync.UI
             }
             try
             {
-                var id = new ElementId(issue.RevitElementId);
+                var id = ElemIds.From(issue.RevitElementId);
                 if (uiDoc.Document.GetElement(id) == null)
                 {
                     _vm.ShowToast("Element no longer exists in the model — try re-scanning.");

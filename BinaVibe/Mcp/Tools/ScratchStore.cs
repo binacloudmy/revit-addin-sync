@@ -15,8 +15,9 @@ namespace BinaVibe.Mcp.Tools
         private static string PathFor(Document doc)
         {
             var key = string.IsNullOrEmpty(doc.PathName) ? doc.Title : doc.PathName;
-            var hash = Convert.ToHexString(
-                SHA256.HashData(Encoding.UTF8.GetBytes(key)))[..16].ToLowerInvariant();
+            var hash = RevitWebAppSync.Services.RuntimeCompat.ToHexString(
+                RevitWebAppSync.Services.RuntimeCompat.Sha256(Encoding.UTF8.GetBytes(key)))
+                .Substring(0, 16).ToLowerInvariant();
             var dir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "BINA", "scratch");
@@ -47,7 +48,12 @@ namespace BinaVibe.Mcp.Tools
             var p = PathFor(doc);
             var tmp = p + ".tmp";
             File.WriteAllText(tmp, JsonSerializer.Serialize(data));
+#if NETFRAMEWORK
+            if (File.Exists(p)) File.Delete(p);   // net48 Move has no overwrite
+            File.Move(tmp, p);
+#else
             File.Move(tmp, p, overwrite: true);   // atomic-ish swap
+#endif
             return new Dictionary<string, object?> { ["ok"] = true, ["keys"] = data.Count };
         }
 

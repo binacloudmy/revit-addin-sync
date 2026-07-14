@@ -93,7 +93,7 @@ namespace RevitWebAppSync.Services
             if (fix.Action == "rename_type") return false;
             try
             {
-                var elem = _doc.GetElement(new ElementId(fix.ElementId));
+                var elem = _doc.GetElement(ElemIds.From(fix.ElementId));
                 if (elem == null) return false;
                 // Param already resolvable → SetParameterInTx won't attempt a binding.
                 return ResolveParameter(elem, fix.ParameterName, fix.Target) == null;
@@ -207,7 +207,7 @@ namespace RevitWebAppSync.Services
             if (string.IsNullOrEmpty(fix.Value))
                 return new FixResult { Success = false, Message = "No new name provided" };
 
-            var elem = _doc.GetElement(new ElementId(fix.ElementId));
+            var elem = _doc.GetElement(ElemIds.From(fix.ElementId));
             if (elem == null)
                 return new FixResult { Success = false, Message = $"Element {fix.ElementId} not found" };
 
@@ -266,7 +266,7 @@ namespace RevitWebAppSync.Services
             if (string.IsNullOrEmpty(fix.ParameterName))
                 return new FixResult { Success = false, Message = "No parameter name provided" };
 
-            var elem = _doc.GetElement(new ElementId(fix.ElementId));
+            var elem = _doc.GetElement(ElemIds.From(fix.ElementId));
             if (elem == null)
                 return new FixResult { Success = false, Message = $"Element {fix.ElementId} not found" };
 

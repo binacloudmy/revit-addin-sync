@@ -1,14 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- Revit changed its host runtime mid-cycle: 2025 & 2026 run on .NET 8,
-         but 2027 runs on .NET 10 (RevitAPI 27.x). A single binary can't serve
-         both — a net8 DLL loaded into 2027 hits "Assembly version conflict"
-         (8.0.0.0 vs preloaded 10.0.0.0) on the WPF/networking stack and crashes.
-         So we multi-target and deploy the matching build per host (see PostBuild):
+    <!-- Revit changed its host runtime mid-cycle: 2023 & 2024 run .NET
+         Framework 4.8, 2025 & 2026 run .NET 8, 2027 runs .NET 10 (RevitAPI
+         27.x). A single binary can't serve them — a net8 DLL loaded into 2027
+         hits "Assembly version conflict" (8.0.0.0 vs preloaded 10.0.0.0) on
+         the WPF/networking stack and crashes. So we multi-target and deploy
+         the matching build per host (see PostBuild):
+           net48           -> Revit 2023/2024   (Revit API 2023.* — lowest
+                              common; a 2023-ref build loads on 2024 the same
+                              way the 2025-ref loader serves 2025-2027)
            net8.0-windows  -> Revit 2025/2026   (Revit API 2025.*)
            net10.0-windows -> Revit 2027        (Revit API 2027.*) -->
-    <TargetFrameworks>net8.0-windows;net10.0-windows</TargetFrameworks>
+    <TargetFrameworks>net48;net8.0-windows;net10.0-windows</TargetFrameworks>
+    <!-- net48 defaults to C# 7.3; the codebase uses modern syntax. -->
+    <LangVersion>latest</LangVersion>
+    <!-- API drift guard for the .NET Framework years (#if REVIT2023_24). -->
+    <DefineConstants Condition="'$(TargetFramework)' == 'net48'">$(DefineConstants);REVIT2023_24</DefineConstants>
     <PlatformTarget>x64</PlatformTarget>
     <OutputType>Library</OutputType>
     <AssemblyName>RevitWebAppSync</AssemblyName>
@@ -29,6 +37,7 @@
     <!-- Which Revit Addins\<year>\ folders each TFM deploys into (PostBuild).
          net8 serves 2025 & 2026; net10 serves 2027. The copy is best-effort:
          each year is only written if that Addins folder actually exists. -->
+    <DeployVersions Condition="'$(TargetFramework)' == 'net48'">2023;2024</DeployVersions>
     <DeployVersions Condition="'$(TargetFramework)' == 'net8.0-windows'">2025;2026</DeployVersions>
     <DeployVersions Condition="'$(TargetFramework)' == 'net10.0-windows'">2027</DeployVersions>
   </PropertyGroup>
@@ -37,6 +46,22 @@
        Revit install. The version MUST match the host runtime for each TFM —
        2025.* (net8) loads on Revit 2025/2026; 2027.* (net10) loads on Revit 2027.
        Referencing 2025 for the net10 host is exactly what caused the crash. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <!-- Dead code with zero importers, kept only for reference — they use
+         Core-only APIs (HttpUtility-free JSON auth, stream ctors) that are
+         not worth porting to .NET Framework. -->
+    <Compile Remove="BinaVibe\Auth\DEPRECATED_OidcClient.cs" />
+    <Compile Remove="BinaVibe\Bridge\DEPRECATED_VibeBridgeClient.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2023.*" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2023.*" />
+    <!-- Compile net48 without a local .NET Framework install (mac/Linux CI). -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.*" PrivateAssets="all" />
+    <!-- In-box on net8/net10; packages on .NET Framework. -->
+    <PackageReference Include="System.Text.Json" Version="8.0.*" />
+    <PackageReference Include="System.Net.Http" Version="4.3.*" />
+  </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2025.*" />
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2025.*" />

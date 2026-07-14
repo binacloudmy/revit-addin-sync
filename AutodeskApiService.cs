@@ -210,7 +210,7 @@ namespace RevitWebAppSync
                 LogToFile("✅ Temporary file created successfully");
                 
                 // Read the temporary file
-                byte[] fileBytes = await File.ReadAllBytesAsync(tempFilePath);
+                byte[] fileBytes = await Services.RuntimeCompat.ReadAllBytesAsync(tempFilePath);
                 LogToFile($"✅ File loaded from temp copy: {fileBytes.Length} bytes");
                 
                 return fileBytes;

@@ -313,7 +313,7 @@ namespace RevitWebAppSync.Handlers
         {
             try
             {
-                var elem = doc.GetElement(new ElementId(elemId));
+                var elem = doc.GetElement(ElemIds.From(elemId));
                 if (elem == null)
                 {
                     result.Skipped++;
