@@ -802,4 +802,4 @@ Beat-Revit-AI iteration additions:
 - [ ] Legacy compat: hand-stage an old FLAT-layout version dir (payload at root, no targets key) newer than installed → loader loads it from the root
 - [ ] OTA: feed a new-layout zip → staged, next Revit start loads the right subfolder; `UpdateService` version gate still compares correctly (GetCurrentVersion walks up from the subfolder)
 - [ ] Installer registrations: Addins\2025/2026/2027 get the net8 loader; Addins\2024 only exists when a net48 payload shipped
-- [ ] (Phase B) Revit 2024: net48 loader in Addins\2024 picks `net48\`, pane works
+- [ ] (Phase B) Revit 2023 + 2024: net48 loader in Addins\2023/2024 picks `net48\` (2023-ref build), pane works on BOTH; purge_unused reports "needs Revit 2025+" honestly

@@ -87,8 +87,9 @@ SignedUninstaller=yes
 Source: "{#LoaderNet8Dir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\2025"; Flags: ignoreversion recursesubdirs
 Source: "{#LoaderNet8Dir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\2026"; Flags: ignoreversion recursesubdirs
 Source: "{#LoaderNet8Dir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\2027"; Flags: ignoreversion recursesubdirs
-; net48 loader for Revit 2024 — only when the build ships a 2024 payload.
+; net48 loader for Revit 2023/2024 — only when the build ships a net48 payload.
 #ifdef LoaderNet48Dir
+Source: "{#LoaderNet48Dir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\2023"; Flags: ignoreversion recursesubdirs
 Source: "{#LoaderNet48Dir}\*"; DestDir: "{userappdata}\Autodesk\Revit\Addins\2024"; Flags: ignoreversion recursesubdirs
 #endif
 ; Seed plugin build (per-target subfolders + root manifest.json + .complete)
@@ -100,6 +101,7 @@ Source: "{#EngineDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\engine\{#Engin
 
 [InstallDelete]
 ; Stale pre-loader direct-load manifests — a second live copy breaks startup.
+Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2023\RevitWebAppSync.addin"
 Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2024\RevitWebAppSync.addin"
 Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2025\RevitWebAppSync.addin"
 Type: files; Name: "{userappdata}\Autodesk\Revit\Addins\2026\RevitWebAppSync.addin"

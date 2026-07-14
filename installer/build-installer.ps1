@@ -92,7 +92,7 @@ foreach ($tfm in $pluginTargets.Keys) {
     @{ version = $Version; assembly = 'RevitWebAppSync.dll'; entryType = 'RevitWebAppSync.App' } |
         ConvertTo-Json | Set-Content (Join-Path $out "manifest.json")
     switch ($sub) {
-        "net48"   { $yearMap["2024"] = $sub }
+        "net48"   { $yearMap["2023"] = $sub; $yearMap["2024"] = $sub }
         "net8.0"  { $yearMap["2025"] = $sub; $yearMap["2026"] = $sub }
         "net10.0" { $yearMap["2027"] = $sub }
     }
