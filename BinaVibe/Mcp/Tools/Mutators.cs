@@ -35,7 +35,7 @@ namespace BinaVibe.Mcp.Tools
                 ?? throw new ArgumentException("missing param/parameter");
             var value = ArgsHelp.GetValueRaw(args, "value");
 
-            var el = doc.GetElement(new ElementId(id)) ?? throw new ArgumentException($"element {id} not found");
+            var el = doc.GetElement(ElemIds.From(id)) ?? throw new ArgumentException($"element {id} not found");
             var p = el.LookupParameter(paramName) ?? throw new ArgumentException($"parameter {paramName} not on element");
             if (p.IsReadOnly) throw new InvalidOperationException($"parameter {paramName} is read-only");
 
@@ -111,7 +111,7 @@ namespace BinaVibe.Mcp.Tools
         {
             var id = ArgsHelp.GetLong(args, "element_id") ?? throw new ArgumentException("missing element_id");
             var typeName = ArgsHelp.GetString(args, "type_name") ?? throw new ArgumentException("missing type_name");
-            var el = doc.GetElement(new ElementId(id)) ?? throw new ArgumentException($"element {id} not found");
+            var el = doc.GetElement(ElemIds.From(id)) ?? throw new ArgumentException($"element {id} not found");
 
             // Find a type with that name in the same category.
             var newType = new FilteredElementCollector(doc).WhereElementIsElementType()
@@ -238,7 +238,7 @@ namespace BinaVibe.Mcp.Tools
         {
             var refId = ArgsHelp.GetLong(args, "reference_id") ?? throw new ArgumentException("missing reference_id");
             var targetIds = ArgsHelp.GetLongList(args, "target_ids");
-            var reference = doc.GetElement(new ElementId(refId)) as FamilyInstance
+            var reference = doc.GetElement(ElemIds.From(refId)) as FamilyInstance
                 ?? throw new ArgumentException($"reference {refId} is not a family instance");
 
             XYZ refCenter = BBoxCenter(reference);
@@ -264,7 +264,7 @@ namespace BinaVibe.Mcp.Tools
                     try
                     {
                         if (tid == refId) continue;  // never replace the reference itself
-                        var target = doc.GetElement(new ElementId(tid)) as FamilyInstance;
+                        var target = doc.GetElement(ElemIds.From(tid)) as FamilyInstance;
                         if (target == null) { failures.Add(new { id = tid, error = "not a family instance" }); continue; }
 
                         XYZ tgtCenter = BBoxCenter(target);
@@ -365,7 +365,7 @@ namespace BinaVibe.Mcp.Tools
                 {
                     try
                     {
-                        var del = doc.Delete(new ElementId(id));
+                        var del = doc.Delete(ElemIds.From(id));
                         deleted += del?.Count ?? 0;
                     }
                     catch (Exception ex)
@@ -1085,7 +1085,7 @@ namespace BinaVibe.Mcp.Tools
             {
                 foreach (var id in ids)
                 {
-                    var eid = new ElementId(id);
+                    var eid = ElemIds.From(id);
                     targetView.SetElementOverrides(eid, ogs);
                     colored++;
                 }
@@ -1136,7 +1136,7 @@ namespace BinaVibe.Mcp.Tools
                 {
                     try
                     {
-                        var el = doc.GetElement(new ElementId(id));
+                        var el = doc.GetElement(ElemIds.From(id));
                         if (el == null) continue;
                         // Cross-family → place + delete (preserve placement).
                         // ChangeTypeId across families misaligns (keeps source
@@ -1234,7 +1234,7 @@ namespace BinaVibe.Mcp.Tools
                 targetView = doc.ActiveView ?? throw new InvalidOperationException("no active view and no view_name supplied");
             }
 
-            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+            var elementIds = ids.Select(id => ElemIds.From(id)).ToList();
 
             using var tx = new Transaction(doc, $"BinaVibe: hide_isolate_elements ({mode}, {ids.Count})");
             TxGuard.StartSwallowing(tx);
@@ -1362,7 +1362,7 @@ namespace BinaVibe.Mcp.Tools
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = true, ["rotated"] = 0 };
 
-            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+            var elementIds = ids.Select(id => ElemIds.From(id)).ToList();
             double angleRad = angleDeg * Math.PI / 180.0;
 
             // Axis: use the caller's (axis_x, axis_y) when given; otherwise spin
@@ -1418,7 +1418,7 @@ namespace BinaVibe.Mcp.Tools
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = true, ["created_ids"] = new List<object>() };
 
-            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+            var elementIds = ids.Select(id => ElemIds.From(id)).ToList();
             var translation = new XYZ(dx, dy, dz);
 
             using var tx = new Transaction(doc, $"BinaVibe: copy_elements ({ids.Count})");
@@ -1459,7 +1459,7 @@ namespace BinaVibe.Mcp.Tools
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = true, ["mirrored"] = 0 };
 
-            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+            var elementIds = ids.Select(id => ElemIds.From(id)).ToList();
 
             // Build the mirror plane (vertical, Z is the out-of-plane axis).
             Plane mirrorPlane;
@@ -1598,7 +1598,7 @@ namespace BinaVibe.Mcp.Tools
             if (ids.Count == 0)
                 throw new ArgumentException("element_ids must not be empty");
 
-            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+            var elementIds = ids.Select(id => ElemIds.From(id)).ToList();
 
             using var tx = new Transaction(doc, "BinaVibe: group_elements");
             TxGuard.StartSwallowing(tx);
@@ -1651,7 +1651,7 @@ namespace BinaVibe.Mcp.Tools
                 {
                     try
                     {
-                        var el = doc.GetElement(new ElementId(id));
+                        var el = doc.GetElement(ElemIds.From(id));
                         if (el == null) continue;
                         el.Pinned = pinned;
                         affected++;
@@ -1686,8 +1686,8 @@ namespace BinaVibe.Mcp.Tools
             var idA = ArgsHelp.GetLong(args, "element_id_a") ?? throw new ArgumentException("missing element_id_a");
             var idB = ArgsHelp.GetLong(args, "element_id_b") ?? throw new ArgumentException("missing element_id_b");
 
-            var elA = doc.GetElement(new ElementId(idA)) ?? throw new ArgumentException($"element {idA} not found");
-            var elB = doc.GetElement(new ElementId(idB)) ?? throw new ArgumentException($"element {idB} not found");
+            var elA = doc.GetElement(ElemIds.From(idA)) ?? throw new ArgumentException($"element {idA} not found");
+            var elB = doc.GetElement(ElemIds.From(idB)) ?? throw new ArgumentException($"element {idB} not found");
 
             using var tx = new Transaction(doc, "BinaVibe: join_geometry");
             TxGuard.StartSwallowing(tx);
@@ -1919,9 +1919,9 @@ namespace BinaVibe.Mcp.Tools
                 }
                 else if (hasColor)
                 {
-                    byte r = (byte)Math.Clamp((int)rRaw!.Value, 0, 255);
-                    byte g = (byte)Math.Clamp((int)gRaw!.Value, 0, 255);
-                    byte b = (byte)Math.Clamp((int)bRaw!.Value, 0, 255);
+                    byte r = (byte)RevitWebAppSync.Services.RuntimeCompat.Clamp((int)rRaw!.Value, 0, 255);
+                    byte g = (byte)RevitWebAppSync.Services.RuntimeCompat.Clamp((int)gRaw!.Value, 0, 255);
+                    byte b = (byte)RevitWebAppSync.Services.RuntimeCompat.Clamp((int)bRaw!.Value, 0, 255);
 
                     var color = new Color(r, g, b);
                     var ogs = new OverrideGraphicSettings();
@@ -2294,7 +2294,7 @@ namespace BinaVibe.Mcp.Tools
             var typeName = ArgsHelp.GetString(args, "type_name") ?? throw new ArgumentException("missing type_name");
             var loc = ArgsHelp.GetPointMm(args, "location_mm") ?? ArgsHelp.GetXyz(args, "location") ?? throw new ArgumentException("missing location [x,y,z]");
 
-            var host = doc.GetElement(new ElementId(hostId)) as Wall
+            var host = doc.GetElement(ElemIds.From(hostId)) as Wall
                 ?? throw new ArgumentException($"host wall {hostId} not found");
 
             var symbol = new FilteredElementCollector(doc).WhereElementIsElementType()
@@ -2346,7 +2346,7 @@ namespace BinaVibe.Mcp.Tools
                     else throw new ArgumentException($"value '{value}' is not Double");
                     break;
                 case StorageType.ElementId:
-                    if (long.TryParse(value.ToString(), out var eid)) p.Set(new ElementId(eid));
+                    if (long.TryParse(value.ToString(), out var eid)) p.Set(ElemIds.From(eid));
                     else throw new ArgumentException($"value '{value}' is not ElementId");
                     break;
                 default: throw new NotSupportedException($"unsupported StorageType {p.StorageType}");
@@ -2376,7 +2376,7 @@ namespace BinaVibe.Mcp.Tools
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no element ids given" };
             var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
-            var eids = ids.Select(id => new ElementId(id)).ToList();
+            var eids = ids.Select(id => ElemIds.From(id)).ToList();
             using var tx = new Transaction(doc, "BinaVibe: isolate_elements");
             TxGuard.StartSwallowing(tx);
             try { view.IsolateElementsTemporary(eids); tx.Commit(); }
@@ -2426,7 +2426,7 @@ namespace BinaVibe.Mcp.Tools
             string scopedTo;
             if (ids.Count > 0)
             {
-                targets = ids.Select(i => new ElementId(i)).ToList();
+                targets = ids.Select(i => ElemIds.From(i)).ToList();
                 scopedTo = ids.Count + " element(s)";
             }
             else if (!string.IsNullOrWhiteSpace(level))
@@ -2607,7 +2607,7 @@ namespace BinaVibe.Mcp.Tools
             var roomIds = new HashSet<long>(new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms)
                 .WhereElementIsNotElementType().Cast<Room>()
                 .Where(r => r.Area > 0 && (r.Name ?? "").IndexOf(inRooms, StringComparison.OrdinalIgnoreCase) >= 0)
-                .Select(r => r.Id.Value));
+                .Select(r => (long)r.Id.Value));
             if (roomIds.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"no rooms matching '{inRooms}'" };
 
@@ -2835,6 +2835,13 @@ namespace BinaVibe.Mcp.Tools
         // ─── purge_unused ────────────────────────────────────────────────
         public static Dictionary<string, object?> PurgeUnused(Document doc, JsonElement args)
         {
+#if REVIT2023_24
+            // Document.GetUnusedElements is Revit 2024+ API; this payload is
+            // compiled against 2023 refs (serves 2023+2024) — report the
+            // capability honestly instead of half-purging.
+            return new Dictionary<string, object?> { ["ok"] = false,
+                ["error"] = "purge_unused needs Revit 2025 or newer" };
+#else
             int purged = 0;
             using var tx = new Transaction(doc, "BinaVibe: purge_unused");
             TxGuard.StartSwallowing(tx);
@@ -2852,6 +2859,7 @@ namespace BinaVibe.Mcp.Tools
             }
             catch { tx.RollBack(); throw; }
             return new Dictionary<string, object?> { ["ok"] = true, ["purged"] = purged };
+#endif
         }
 
         // ─── crop_view_to_elements ──────────────────────────────────────
@@ -2870,7 +2878,7 @@ namespace BinaVibe.Mcp.Tools
             XYZ? wMin = null, wMax = null;
             foreach (var id in ids)
             {
-                var el = doc.GetElement(new ElementId(id));
+                var el = doc.GetElement(ElemIds.From(id));
                 if (el == null) continue;
                 var bb = el.get_BoundingBox(view) ?? el.get_BoundingBox(null);
                 if (bb == null) continue;

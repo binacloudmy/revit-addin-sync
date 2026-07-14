@@ -49,9 +49,17 @@ namespace Autodesk.Revit.DB
 
 namespace System.Collections.Generic
 {
-    /// <summary>net48 lacks CollectionExtensions.GetValueOrDefault.</summary>
+    /// <summary>net48 lacks CollectionExtensions.GetValueOrDefault and the
+    /// KeyValuePair.Deconstruct that `foreach (var (k, v) in dict)` needs.</summary>
     internal static class DictionaryCompatExtensions
     {
+        public static void Deconstruct<TKey, TValue>(
+            this KeyValuePair<TKey, TValue> kv, out TKey key, out TValue value)
+        {
+            key = kv.Key;
+            value = kv.Value;
+        }
+
         public static TValue GetValueOrDefault<TKey, TValue>(
             this Dictionary<TKey, TValue> d, TKey key)
             => d.TryGetValue(key, out var v) ? v : default;

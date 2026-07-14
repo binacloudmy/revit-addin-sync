@@ -149,7 +149,7 @@ namespace RevitWebAppSync.Services
                 }
 
                 // 429 — burst limit; the addin should back off and retry shortly.
-                if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                if ((int)response.StatusCode == 429) // TooManyRequests (member absent on net48)
                 {
                     return new AIResponse
                     {

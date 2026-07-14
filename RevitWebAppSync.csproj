@@ -47,6 +47,13 @@
        2025.* (net8) loads on Revit 2025/2026; 2027.* (net10) loads on Revit 2027.
        Referencing 2025 for the net10 host is exactly what caused the crash. -->
   <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <!-- Dead code with zero importers, kept only for reference — they use
+         Core-only APIs (HttpUtility-free JSON auth, stream ctors) that are
+         not worth porting to .NET Framework. -->
+    <Compile Remove="BinaVibe\Auth\DEPRECATED_OidcClient.cs" />
+    <Compile Remove="BinaVibe\Bridge\DEPRECATED_VibeBridgeClient.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2023.*" />
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2023.*" />
     <!-- Compile net48 without a local .NET Framework install (mac/Linux CI). -->

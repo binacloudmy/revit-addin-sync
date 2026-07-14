@@ -400,7 +400,7 @@ namespace RevitWebAppSync.Services
         {
             try
             {
-                if (proc != null && !proc.HasExited) proc.Kill(entireProcessTree: true);
+                if (proc != null && !proc.HasExited) RuntimeCompat.KillTree(proc);
             }
             catch { /* best-effort */ }
         }
@@ -437,7 +437,7 @@ namespace RevitWebAppSync.Services
                             isOurs = false;
                         }
 
-                        if (isOurs) p.Kill(entireProcessTree: true);
+                        if (isOurs) RuntimeCompat.KillTree(p);
                     }
                     catch { /* pid not alive / not ours — fine */ }
                 }
@@ -455,7 +455,7 @@ namespace RevitWebAppSync.Services
             try
             {
                 var p = _proc;   // single read of the shared field
-                if (p != null && !p.HasExited) p.Kill(entireProcessTree: true);
+                if (p != null && !p.HasExited) RuntimeCompat.KillTree(p);
                 if (File.Exists(PidFile)) File.Delete(PidFile);
             }
             catch { }

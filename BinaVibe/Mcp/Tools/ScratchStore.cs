@@ -47,7 +47,12 @@ namespace BinaVibe.Mcp.Tools
             var p = PathFor(doc);
             var tmp = p + ".tmp";
             File.WriteAllText(tmp, JsonSerializer.Serialize(data));
+#if NETFRAMEWORK
+            if (File.Exists(p)) File.Delete(p);   // net48 Move has no overwrite
+            File.Move(tmp, p);
+#else
             File.Move(tmp, p, overwrite: true);   // atomic-ish swap
+#endif
             return new Dictionary<string, object?> { ["ok"] = true, ["keys"] = data.Count };
         }
 

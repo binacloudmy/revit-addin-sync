@@ -24,7 +24,7 @@ namespace BinaVibe.Mcp.Tools
             View view;
             var viewId = ArgsHelp.GetLong(args, "view_id");
             if (viewId.HasValue)
-                view = doc.GetElement(new ElementId(viewId.Value)) as View
+                view = doc.GetElement(ElemIds.From(viewId.Value)) as View
                     ?? throw new InvalidOperationException($"view {viewId} not found");
             else
                 view = uidoc.ActiveView;
@@ -46,7 +46,7 @@ namespace BinaVibe.Mcp.Tools
             Element? firstElement = null;
             foreach (var id in ids)
             {
-                var el = doc.GetElement(new ElementId(id))
+                var el = doc.GetElement(ElemIds.From(id))
                     ?? throw new InvalidOperationException($"element {id} not found");
                 firstElement ??= el;
                 var refs = GetReferences(el, view, direction);
