@@ -202,9 +202,9 @@ namespace RevitWebAppSync.Services
                     var buffer = new byte[81920];
                     long done = 0;
                     int read;
-                    while ((read = await download.ReadAsync(buffer)) > 0)
+                    while ((read = await download.ReadAsync(buffer, 0, buffer.Length)) > 0)
                     {
-                        await zipStream.WriteAsync(buffer.AsMemory(0, read));
+                        await zipStream.WriteAsync(buffer, 0, read);
                         done += read;
                         if (total > 0)
                             progress?.Report(((double)done / total * 0.9,

@@ -78,7 +78,7 @@ namespace BinaVibe.Mcp.Tools
             {
                 foreach (var id in ids)
                 {
-                    var el = doc.GetElement(new ElementId(id));
+                    var el = doc.GetElement(ElemIds.From(id));
                     if (el == null) { skippedMissing++; continue; }
                     if (el.GroupId.Value != ElementId.InvalidElementId.Value) { skippedGroups++; continue; }
                     var p = el.LookupParameter(paramName);
@@ -465,7 +465,7 @@ namespace BinaVibe.Mcp.Tools
             {
                 foreach (var vid in viewIds)
                 {
-                    var v = doc.GetElement(new ElementId(vid)) as View;
+                    var v = doc.GetElement(ElemIds.From(vid)) as View;
                     if (v == null || v.IsTemplate) continue;
                     v.ViewTemplateId = template.Id;
                     applied++;
@@ -773,7 +773,7 @@ namespace BinaVibe.Mcp.Tools
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = true, ["moved"] = 0 };
 
-            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+            var elementIds = ids.Select(id => ElemIds.From(id)).ToList();
             var translation = new XYZ(dx, dy, dz);
 
             using var tx = new Transaction(doc, $"BinaVibe: move_elements ({ids.Count})");

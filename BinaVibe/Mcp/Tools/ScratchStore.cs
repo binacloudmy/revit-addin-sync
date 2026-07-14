@@ -15,8 +15,9 @@ namespace BinaVibe.Mcp.Tools
         private static string PathFor(Document doc)
         {
             var key = string.IsNullOrEmpty(doc.PathName) ? doc.Title : doc.PathName;
-            var hash = Convert.ToHexString(
-                SHA256.HashData(Encoding.UTF8.GetBytes(key)))[..16].ToLowerInvariant();
+            var hash = RevitWebAppSync.Services.RuntimeCompat.ToHexString(
+                RevitWebAppSync.Services.RuntimeCompat.Sha256(Encoding.UTF8.GetBytes(key)))
+                .Substring(0, 16).ToLowerInvariant();
             var dir = Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                 "BINA", "scratch");

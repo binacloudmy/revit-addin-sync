@@ -56,7 +56,7 @@ namespace BinaVibe.Mcp.Tools
             foreach (var id in ids)
             {
                 Element? el = null;
-                try { el = doc.GetElement(new ElementId(id)); } catch { }
+                try { el = doc.GetElement(ElemIds.From(id)); } catch { }
                 if (el == null) { skipped.Add(id); continue; }
 
                 var row = new Dictionary<string, object?> { ["id"] = id };
