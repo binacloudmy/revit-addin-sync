@@ -42,6 +42,11 @@ namespace RevitWebAppSync.UI
         // appears in Revit's undo history as a single "JKR Reset" step.
         private readonly List<JkrFixAction> _appliedFixes = new List<JkrFixAction>();
 
+        // Snapshot of the last scan request — AI Fix reuses its project/model
+        // metadata and element data so the backend fixer sees exactly what the
+        // failing checks were computed from.
+        private JkrComplianceRequestV2 _lastScanRequest;
+
         // LOD level is selectable via the LOD ComboBox in the hero header.
         // Default is 300; user can change to 100/200/300/400/500 before scanning.
         private int SelectedLodLevel => _vm.SelectedLodLevel;
@@ -143,8 +148,9 @@ namespace RevitWebAppSync.UI
             MdPill.Opacity = (sev == null || sev == IssuePriority.Medium) ? 1.0 : 0.4;
             LoPill.Opacity = (sev == null || sev == IssuePriority.Low) ? 1.0 : 0.4;
 
-            // Fix All badge count
-            var fc = _vm.FixableCount;
+            // Fix All badge count — deterministic fixes plus issues the AI fixer
+            // can attempt (Fix All fetches those from /jkr-autofix before the batch).
+            var fc = _vm.FixableCount + _vm.AiFixableCount;
             FixCountText.Text = fc.ToString();
             FixCountBadge.Visibility = fc > 0 ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
 
@@ -317,7 +323,7 @@ namespace RevitWebAppSync.UI
         private void MdPill_Click(object s, RoutedEventArgs e) => _vm.ToggleSeverity(IssuePriority.Medium);
         private void LoPill_Click(object s, RoutedEventArgs e) => _vm.ToggleSeverity(IssuePriority.Low);
 
-        private void FixAll_Click(object sender, RoutedEventArgs e)
+        private async void FixAll_Click(object sender, RoutedEventArgs e)
         {
             if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
             {
@@ -330,10 +336,52 @@ namespace RevitWebAppSync.UI
                 return;
             }
 
+            // Manual entries are retried too: a fix that failed for an
+            // environmental reason (e.g. shared-param definition missing before
+            // the definition-creation applicator landed) succeeds on a later
+            // attempt. A fix that fails again just returns to Manual.
+            bool Retryable(IssueVm i) =>
+                i.IsActionable || i.Status == IssueStatus.ManualFixNeeded;
+
             var fixable = _vm.Issues
-                .Where(i => i.IsActionable && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction))
-                .OrderBy(i => i.FixPriority)
+                .Where(i => Retryable(i) && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction))
                 .ToList();
+
+            // Issues without a deterministic fix: ask the backend's AI fixer
+            // (/jkr-autofix) for validated FixActions before the batch runs, so
+            // one Fix All click covers both. Failure here degrades to the
+            // deterministic-only set — it never blocks Fix All.
+            var aiCandidates = _vm.Issues
+                .Where(i => Retryable(i) && !i.AutoFixable && i.RevitElementId > 0
+                            && !string.IsNullOrEmpty(i.CheckId))
+                .ToList();
+
+            if (aiCandidates.Count > 0 && _lastScanRequest != null)
+            {
+                _fixInFlight = true;   // block re-entry while the AI request is in flight
+                FixAllBtn.IsEnabled = false;
+                FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
+                FixProgressLabel.Text = $"AI analysing {aiCandidates.Count} issue{(aiCandidates.Count == 1 ? "" : "s")}…";
+                FixProgressCount.Text = "";
+                FixProgressBar.Width = 0;
+                try
+                {
+                    var aiFixed = await FetchAiFixesAsync(aiCandidates);
+                    fixable.AddRange(aiFixed);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA AiFix] failed: {ex.Message}");
+                    _vm.ShowToast("AI fixes unavailable — applying standard fixes only.");
+                }
+                finally
+                {
+                    _fixInFlight = false;   // ApplyFixBatch re-takes the lock below
+                    FixAllBtn.IsEnabled = true;
+                }
+            }
+
+            fixable = fixable.OrderBy(i => i.FixPriority).ToList();
 
             // Diagnostic: confirm what the badge said vs. what got queued. If these
             // don't match the user's expectation, we know the drop is upstream.
@@ -341,14 +389,105 @@ namespace RevitWebAppSync.UI
                 $"[BINA FixAll] queueing — total Issues={_vm.Issues.Count} " +
                 $"actionable={_vm.Issues.Count(i => i.IsActionable)} " +
                 $"autoFixable={_vm.Issues.Count(i => i.IsActionable && i.AutoFixable)} " +
-                $"withFixAction={fixable.Count}");
+                $"aiCandidates={aiCandidates.Count} withFixAction={fixable.Count}");
 
             if (fixable.Count == 0)
             {
+                FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
                 _vm.ShowToast("No auto-fixable issues found.");
                 return;
             }
 
+            try
+            {
+                ApplyFixBatch(fixable);
+            }
+            catch (Exception ex)
+            {
+                // ApplyFixBatch takes the in-flight lock before raising the event;
+                // if it throws mid-way, release the lock and UI state it left behind.
+                _fixInFlight = false;
+                FixAllBtn.IsEnabled = true;
+                FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
+                TaskDialog.Show("BINA JKR Compliance", $"Fix All error:\n\n{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Ask /v1/compliance/jkr-autofix for fixes on issues the scan couldn't fix
+        /// deterministically, and map the returned (backend-validated) FixActions
+        /// onto the issues so they ride the normal Fix All batch. Returns the
+        /// issues that received a fix; declined ones are left untouched.
+        /// </summary>
+        private async Task<List<IssueVm>> FetchAiFixesAsync(List<IssueVm> candidates)
+        {
+            var elementIds = new HashSet<long>(candidates.Select(c => c.RevitElementId));
+            var request = new JkrAutoFixRequest
+            {
+                Project = _lastScanRequest.Project,
+                Model = _lastScanRequest.Model,
+                Elements = _lastScanRequest.Elements
+                    .Where(el => elementIds.Contains(el.ElementId)).ToList(),
+                Issues = candidates.Select(c => new JkrAutoFixIssue
+                {
+                    CheckId = c.CheckId,
+                    Rule = string.IsNullOrEmpty(c.RawRule) ? c.Title : c.RawRule,
+                    Domain = string.IsNullOrEmpty(c.Domain) ? "element" : c.Domain,
+                    Status = "fail",
+                    ElementId = c.RevitElementId,
+                    Category = c.Category,
+                    TypeName = c.Element?.Name ?? "",
+                    ActualValue = c.Actual,
+                    ExpectedValue = c.Required,
+                    Reason = c.Description,
+                }).ToList(),
+            };
+
+            var response = await _jkrService.RequestAiFixesAsync(request);
+            if (!string.IsNullOrEmpty(response?.Error))
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA AiFix] backend error: {response.Error}");
+                _vm.ShowToast("AI fixes unavailable — applying standard fixes only.");
+                return new List<IssueVm>();
+            }
+
+            // Map validated fixes back onto their issues by check_id.
+            var byId = (response.Fixes ?? new List<JkrAutoFixProposal>())
+                .Where(f => f.FixAction != null && !string.IsNullOrEmpty(f.CheckId))
+                .GroupBy(f => f.CheckId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var aiFixed = new List<IssueVm>();
+            foreach (var issue in candidates)
+            {
+                if (!byId.TryGetValue(issue.CheckId, out var proposal)) continue;
+                var fix = proposal.FixAction;
+                issue.FixAction = fix.Action ?? "";
+                issue.FixParameterName = fix.ParameterName ?? "";
+                issue.FixValue = fix.Value ?? "";
+                issue.FixOldValue = fix.OldValue ?? "";
+                issue.FixPriority = fix.Priority;
+                issue.FixTarget = string.IsNullOrEmpty(fix.Target) ? "instance" : fix.Target;
+                issue.FixReference = fix.Reference ?? "";
+                issue.Example = fix.Value ?? "";
+                issue.AutoFixable = true;
+                aiFixed.Add(issue);
+            }
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[BINA AiFix] model={response.ModelUsed} fixes={aiFixed.Count} " +
+                $"unfixed={response.UnfixedCheckIds?.Count ?? 0}");
+            return aiFixed;
+        }
+
+        /// <summary>
+        /// Queue a batch of fix-carrying issues into JkrRenameHandler and fire the
+        /// ExternalEvent. Fix All calls this with the merged set: deterministic
+        /// fixes from the scan plus AI fixes fetched from /jkr-autofix.
+        /// Caller guarantees: handler initialised, !_fixInFlight, fixable non-empty.
+        /// </summary>
+        private void ApplyFixBatch(List<IssueVm> fixable)
+        {
             // Captured before any status mutations so the post-fix toast can report a truthful delta.
             var openBeforeFix = _vm.OpenCount;
 
@@ -657,6 +796,7 @@ namespace RevitWebAppSync.UI
 
             var request = extraction.ToV2Request(lodLevel: SelectedLodLevel);
             request.Project.Discipline = _vm.SelectedDiscipline;  // scope the scan to the chosen discipline
+            _lastScanRequest = request;  // AI Fix reuses this snapshot
 
             var response = isRecheck
                 ? await _jkrService.RecheckJkrComplianceAsync(request)

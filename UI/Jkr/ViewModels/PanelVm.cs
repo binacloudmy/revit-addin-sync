@@ -172,8 +172,20 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public void ToggleSeverity(IssuePriority p) =>
             ActiveSeverity = (_activeSeverity == p) ? (IssuePriority?)null : p;
 
-        /// <summary>Count of auto-fixable issues (Open + Ignored with a fix_action).</summary>
-        public int FixableCount => Issues.Count(i => i.IsActionable && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction));
+        /// <summary>Retryable by Fix All: Open/Ignored, plus Manual — a fix that
+        /// failed for an environmental reason (e.g. missing shared-param
+        /// definition) can succeed on a later attempt.</summary>
+        private static bool FixRetryable(IssueVm i) =>
+            i.IsActionable || i.Status == IssueStatus.ManualFixNeeded;
+
+        /// <summary>Count of auto-fixable issues (Open + Ignored + Manual with a fix_action).</summary>
+        public int FixableCount => Issues.Count(i => FixRetryable(i) && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction));
+
+        /// <summary>Count of issues Fix All's AI phase can send to the backend:
+        /// retryable, no deterministic fix, tied to a real element, and carrying
+        /// a backend check_id for the round-trip.</summary>
+        public int AiFixableCount => Issues.Count(i =>
+            FixRetryable(i) && !i.AutoFixable && i.RevitElementId > 0 && !string.IsNullOrEmpty(i.CheckId));
 
         public string SessionLine
         {
@@ -382,7 +394,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         {
             Raise(nameof(OpenCount)); Raise(nameof(IgnoredCount)); Raise(nameof(ResolvedCount)); Raise(nameof(ManualFixCount)); Raise(nameof(NonOpenCount)); Raise(nameof(Total));
             Raise(nameof(Percent)); Raise(nameof(HighOpen)); Raise(nameof(MedOpen)); Raise(nameof(LowOpen));
-            Raise(nameof(FixableCount)); Raise(nameof(SessionLine));
+            Raise(nameof(FixableCount)); Raise(nameof(AiFixableCount)); Raise(nameof(SessionLine));
             foreach (var c in Categories)
             {
                 if (c.IsAll)

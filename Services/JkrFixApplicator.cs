@@ -299,6 +299,22 @@ namespace RevitWebAppSync.Services
                 }
             }
 
+            // Instance writes on model-group members are blocked by Revit outside
+            // group-edit mode and raise a modal "Changes to groups are allowed
+            // only in group edit mode" error that freezes the whole batch
+            // (UAT 2026-07-15). Fail fast to Manual instead. Type-side writes
+            // are unaffected — the ElementType is not a group member.
+            if (param.Element != null && param.Element.Id == elem.Id
+                && elem.GroupId != null && elem.GroupId != ElementId.InvalidElementId)
+            {
+                UndoBindingIfWePlacedIt(bindingMutation);
+                return new FixResult
+                {
+                    Success = false,
+                    Message = $"Element {fix.ElementId} is inside a model group — Revit blocks instance parameter edits outside group edit mode. Edit the group (or ungroup) and re-run Fix All.",
+                };
+            }
+
             if (param.IsReadOnly)
             {
                 System.Diagnostics.Debug.WriteLine(
@@ -397,9 +413,43 @@ namespace RevitWebAppSync.Services
 
             if (sharedFile == null)
             {
-                _sharedParamFileMissing = true;
-                _sharedParamFileMissingMessage = "No shared parameter file is loaded — set Manage > Shared Parameters first.";
-                return _sharedParamFileMissingMessage;
+                // No shared parameter file configured in this Revit session
+                // (UAT 2026-07-14: scan payload showed shared_param_files=[] —
+                // every JKR bind fix died here). Provision one under the
+                // add-in's AppData folder so definition-creation has a home.
+                try
+                {
+                    var dir = System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                        "RevitWebAppSync");
+                    System.IO.Directory.CreateDirectory(dir);
+                    var spPath = System.IO.Path.Combine(dir, "jkr_shared_params.txt");
+                    if (!System.IO.File.Exists(spPath))
+                    {
+                        // Minimal valid shared-parameter file header; Revit
+                        // appends GROUP/PARAM sections through the API.
+                        System.IO.File.WriteAllText(spPath,
+                            "# This is a Revit shared parameter file.\n" +
+                            "# Provisioned by BINA JKR auto-fix.\n" +
+                            "*META\tVERSION\tMINVERSION\n" +
+                            "META\t2\t1\n");
+                    }
+                    app.SharedParametersFilename = spPath;
+                    sharedFile = app.OpenSharedParameterFile();
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA Bind] provisioned shared parameter file: {spPath}");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA Bind] shared-param file provisioning failed: {ex.Message}");
+                }
+                if (sharedFile == null)
+                {
+                    _sharedParamFileMissing = true;
+                    _sharedParamFileMissingMessage = "No shared parameter file is loaded and one could not be created — set Manage > Shared Parameters manually.";
+                    return _sharedParamFileMissingMessage;
+                }
             }
 
             ExternalDefinition def = null;
@@ -417,7 +467,57 @@ namespace RevitWebAppSync.Services
             }
 
             if (def == null)
-                return $"'{paramName}' is not defined in the loaded shared parameter file.";
+            {
+                // The loaded shared-param file doesn't define this JKR parameter
+                // (common: project files carry a partial JKR set — UAT 2026-07-14
+                // had LOD_jkr_sit / Bidang_Kejuruteraan / Nama_Komponen_Utama
+                // missing, turning 153 auto-fixes into Manual). Create the
+                // definition in a "JKR" group as a Text parameter, matching how
+                // the official JKR file defines classification params.
+                if (!paramName.Contains("_jkr_"))
+                    return $"'{paramName}' is not defined in the loaded shared parameter file.";
+                // Doc 09 field convention: 3rd suffix letter = storage type.
+                // Material params (`_stm`) can't be meaningfully auto-created.
+                if (paramName.EndsWith("m"))
+                    return $"'{paramName}' is a material parameter — cannot auto-create; assign via Manage > Shared Parameters.";
+                try
+                {
+                    DefinitionGroup jkrGroup = null;
+                    foreach (var g in sharedFile.Groups)
+                    {
+                        if (string.Equals(g.Name, "JKR", StringComparison.OrdinalIgnoreCase)) { jkrGroup = g; break; }
+                    }
+                    if (jkrGroup == null)
+                        jkrGroup = sharedFile.Groups.Create("JKR");
+
+                    // Suffix -> Revit spec type per Doc 09 (t=Text, y=Yes/No,
+                    // i=Integer, n=Number, l=Length, a=Area, x=Multiline Text).
+                    var spec = SpecTypeId.String.Text;
+                    switch (paramName[paramName.Length - 1])
+                    {
+                        case 'y': spec = SpecTypeId.Boolean.YesNo; break;
+                        case 'i': spec = SpecTypeId.Int.Integer; break;
+                        case 'n': spec = SpecTypeId.Number; break;
+                        case 'l': spec = SpecTypeId.Length; break;
+                        case 'a': spec = SpecTypeId.Area; break;
+                    }
+                    // `_stt`/`_sit` text params end in 't' and keep the
+                    // default Text spec above.
+                    var options = new ExternalDefinitionCreationOptions(paramName, spec)
+                    {
+                        Visible = true,
+                    };
+                    def = jkrGroup.Definitions.Create(options) as ExternalDefinition;
+                    if (def == null)
+                        return $"Could not create shared parameter definition '{paramName}'.";
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA Bind] created missing definition '{paramName}' in group 'JKR'");
+                }
+                catch (Exception ex)
+                {
+                    return $"'{paramName}' is not defined in the loaded shared parameter file and could not be created: {ex.Message}";
+                }
+            }
 
             var category = elem.Category;
             if (category == null || !category.AllowsBoundParameters)
@@ -457,11 +557,16 @@ namespace RevitWebAppSync.Services
                 return null;
             }
 
-            // Fresh binding. JKR classification params (Kod_Jenis, Sistem, etc.) are
-            // type-level by spec — bind to the element's type so the value applies to
-            // every instance of that type and avoids the read-only-on-instance trap.
+            // Fresh binding. Doc 09 field convention: 2nd suffix letter is the
+            // binding scope — `_s t x` = Type (Kod_Jenis, Sistem, ...),
+            // `_s i x` = Instance (LOD_jkr_sit, Kaedah_Pemasangan_jkr_sit, ...).
             catSet.Insert(category);
-            var binding = app.Create.NewTypeBinding(catSet);
+            var scopeMatch = System.Text.RegularExpressions.Regex.Match(
+                paramName, @"_jkr_s([ti])[a-z]$");
+            bool instanceScope = scopeMatch.Success && scopeMatch.Groups[1].Value == "i";
+            Binding binding = instanceScope
+                ? (Binding)app.Create.NewInstanceBinding(catSet)
+                : app.Create.NewTypeBinding(catSet);
             if (!bindings.Insert(def, binding, GroupTypeId.Data))
                 return $"Failed to bind '{paramName}' to category '{category.Name}'.";
             mutation = new BindingMutation
@@ -469,7 +574,7 @@ namespace RevitWebAppSync.Services
                 Definition = def,
                 Category = category,
                 WasFreshBind = true,
-                WasInstanceBinding = false,
+                WasInstanceBinding = instanceScope,
             };
             System.Diagnostics.Debug.WriteLine(
                 $"[BINA Bind] fresh-bound '{paramName}' to '{category.Name}'");
@@ -553,6 +658,14 @@ namespace RevitWebAppSync.Services
                     before = param.AsInteger().ToString();
                     if (int.TryParse(fix.Value, out int intVal))
                         set = param.Set(intVal);
+                    else
+                    {
+                        // Yes/No params (JKR `_sty` suffix, Doc 09 field
+                        // convention) arrive as Ya/Tidak text — map to 1/0.
+                        var v = (fix.Value ?? "").Trim().ToLowerInvariant();
+                        if (v == "ya" || v == "yes" || v == "true") set = param.Set(1);
+                        else if (v == "tidak" || v == "no" || v == "false") set = param.Set(0);
+                    }
                     after = param.AsInteger().ToString();
                     break;
                 case StorageType.Double:

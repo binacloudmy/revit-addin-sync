@@ -62,6 +62,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             return new IssueVm
             {
                 Id = dto.IssueId ?? "",
+                CheckId = dto.CheckId ?? "",
+                Domain = dto.Domain ?? "",
+                RawRule = dto.Rule ?? "",
                 Category = category,
                 Title = Humanize(dto.Rule),
                 Description = dto.Reason ?? "",
