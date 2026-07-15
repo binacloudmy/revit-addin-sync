@@ -155,16 +155,43 @@ if ($GatewayUrl) {
 # byte-identical unsigned ISCC invocation.
 $signIscArgs = @()
 if ($env:SIGNTOOL_ARGS -or $SignCert) {
+    $signCertObj = $null   # public cert for the TrustedPublisher pre-trust export below
     if ($env:SIGNTOOL_ARGS) {
         $signBody = $env:SIGNTOOL_ARGS
-        Write-Host "==> Signing via SIGNTOOL_ARGS env (cert material not logged)" -ForegroundColor Cyan
+        Write-Host "==> Signing via SIGNTOOL_ARGS env (cert material not logged; no pre-trust .cer export)" -ForegroundColor Cyan
     } elseif (Test-Path $SignCert) {
         if (-not $SignPassword) { throw "-SignCert <pfx path> requires -SignPassword" }
         $signBody = "/f `"$SignCert`" /p `"$SignPassword`" /fd SHA256 /tr $TimestampUrl /td SHA256"
+        $signCertObj = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($SignCert, $SignPassword)
         Write-Host "==> Signing via PFX $SignCert" -ForegroundColor Cyan
     } else {
         $signBody = "/sha1 $SignCert /fd SHA256 /tr $TimestampUrl /td SHA256"
+        $signCertObj = Get-Item "Cert:\CurrentUser\My\$SignCert"
         Write-Host "==> Signing via cert store thumbprint $SignCert" -ForegroundColor Cyan
+    }
+    # Revit validates Authenticode on the addin DLLs themselves — an unsigned
+    # BinaLoader.dll shows "Unknown Publisher" in Revit's security dialog even
+    # when the installer EXE is signed. Sign them here, before ISCC packs them.
+    # Via cmd so $signBody stays one opaque string in all three cert forms
+    # (SIGNTOOL_ARGS may contain quoted paths that PowerShell's & would resplit).
+    $addinDlls = @(
+        (Join-Path $loaderNet8Dir "BinaLoader.dll"),
+        (Join-Path $loaderNet48Dir "BinaLoader.dll")
+    ) + ($pluginTargets.Values | ForEach-Object { Join-Path (Join-Path $pluginDir $_) "RevitWebAppSync.dll" })
+    foreach ($dll in $addinDlls) {
+        Write-Host "==> Signing $($dll.Substring($repo.Length + 1))..." -ForegroundColor Cyan
+        cmd /c "signtool.exe sign $signBody `"$dll`""
+        if ($LASTEXITCODE -ne 0) { throw "signtool failed for $dll" }
+    }
+    # Export the PUBLIC cert so the installer can pre-trust the publisher
+    # (certutil -addstore TrustedPublisher in the .iss [Run] section) — without
+    # it Revit still shows the one-time "Signed Add-In — Always Load?" prompt.
+    # Unsigned builds never write the .cer, so the .iss entries skip and the
+    # output stays byte-identical.
+    if ($signCertObj) {
+        $cerPath = Join-Path $repo "artifacts\bina-cloudtech.cer"
+        Export-Certificate -Cert $signCertObj -FilePath $cerPath | Out-Null
+        Write-Host "==> Exported publisher cert to artifacts\bina-cloudtech.cer" -ForegroundColor Cyan
     }
     # Inno's /S<name>=<command> registers a sign tool ISCC shells out to per
     # artifact; $f is INNO's own placeholder for the file being signed (not a

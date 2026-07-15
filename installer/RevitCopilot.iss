@@ -98,6 +98,15 @@ Source: "{#PluginDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\versions\{#App
 ; Seed the packaged engine so EngineManager can spawn it before the first OTA.
 ; Optional: only if the build published artifacts\engine (Check skips it cleanly).
 Source: "{#EngineDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\engine\{#EngineVersion}"; Flags: ignoreversion recursesubdirs skipifsourcedoesntexist
+; Publisher public cert (exported by build-installer.ps1 only on signed
+; builds). Pre-trusting it below removes even the one-time "Signed Add-In —
+; Always Load?" prompt. Unsigned builds have no .cer -> both entries skip.
+Source: "..\artifacts\bina-cloudtech.cer"; DestDir: "{localappdata}\Bina\RevitSync"; Flags: skipifsourcedoesntexist
+
+[Run]
+; Per-user TrustedPublisher store (no admin) — Revit checks it before showing
+; the addin security dialog. Idempotent: re-adding an existing cert is a no-op.
+Filename: "certutil"; Parameters: "-user -addstore TrustedPublisher ""{localappdata}\Bina\RevitSync\bina-cloudtech.cer"""; Flags: runhidden; Check: FileExists(ExpandConstant('{localappdata}\Bina\RevitSync\bina-cloudtech.cer'))
 
 [InstallDelete]
 ; Stale pre-loader direct-load manifests — a second live copy breaks startup.
