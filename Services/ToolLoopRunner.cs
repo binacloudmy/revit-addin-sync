@@ -249,6 +249,18 @@ namespace RevitWebAppSync.Services
                     results.Add(res);
                 }
 
+                // The resume leg is the longest decode in the loop, and the backend
+                // can be silent until the first reply token (reasoning models emit
+                // no events while thinking) — without a ▶ row the trail sits all-✓
+                // for 7-15s and reads as a crash. Re-open the writing phase NOW so
+                // the spinner stays honest; step_id "run" matches the backend's
+                // "Generating answer" events so they coalesce onto this row, and
+                // MoveStepToEnd keeps the trail chronological (after the tool rows).
+                ProgressReducer.MoveStepToEnd(trail, "run");
+                ProgressReducer.Apply(trail, "run", "writing", "Generating answer", "", StepState.Running);
+                try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* best-effort UI */ }
+                try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
+
                 try
                 {
                     // Streamed resume: the agent's post-execution answer (often the
