@@ -83,6 +83,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
             {
                 if (!string.IsNullOrEmpty(label)) existing.Label = label;
                 if (!string.IsNullOrEmpty(detail)) existing.Detail = detail;
+                if (state == StepState.Running && existing.State != StepState.Running)
+                {
+                    // Row re-opened (the writing phase runs once per tool-loop
+                    // round) — restart its clock so the elapsed time reflects
+                    // the live leg, not the first bracket.
+                    existing.StartedUtc = DateTime.UtcNow;
+                    existing.EndedUtc = null;
+                }
                 if ((state == StepState.Done || state == StepState.Error) && existing.EndedUtc == null)
                 {
                     existing.EndedUtc = DateTime.UtcNow;
