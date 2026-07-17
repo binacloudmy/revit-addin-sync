@@ -98,8 +98,10 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 try
                 {
-                    rd[kv.Key] = new SolidColorBrush(
+                    var b = new SolidColorBrush(
                         (Color)ColorConverter.ConvertFromString(IsDark ? kv.Value.dark : kv.Value.light));
+                    b.Freeze();   // never mutated — swaps replace the whole dict
+                    rd[kv.Key] = b;
                 }
                 catch { /* skip malformed hex */ }
             }
@@ -118,6 +120,7 @@ namespace RevitWebAppSync.UI.Copilot
                 g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString(stops.b), 1));
             }
             catch { }
+            g.Freeze();   // never mutated — swaps replace the whole dict
             return g;
         }
 

@@ -82,6 +82,7 @@ namespace RevitWebAppSync.UI.Copilot
             // screens flip) — a local-scope Remove+Insert does. Re-synced on Loaded
             // in case the pane was hidden (Unloaded) across a theme change.
             _localTheme = CopilotTheme.NewThemeDictionary();
+            _localThemeDark = CopilotTheme.IsDark;
             Resources.MergedDictionaries.Add(_localTheme);
             Loaded += (_, __) =>
             {
@@ -95,16 +96,21 @@ namespace RevitWebAppSync.UI.Copilot
             UpdateBody();
         }
 
-        private System.Windows.ResourceDictionary _localTheme;
+        private ResourceDictionary _localTheme;
+        private bool _localThemeDark;
 
         private void SwapLocalTheme()
         {
+            // No-op when the mounted dict already matches (every pane re-show
+            // hits this via Loaded) — only rebuild on an actual theme flip.
+            if (_localTheme != null && _localThemeDark == CopilotTheme.IsDark) return;
             var dicts = Resources.MergedDictionaries;
             var next = CopilotTheme.NewThemeDictionary();
             var i = _localTheme != null ? dicts.IndexOf(_localTheme) : -1;
             if (i >= 0) { dicts.RemoveAt(i); dicts.Insert(i, next); }
             else dicts.Add(next);
             _localTheme = next;
+            _localThemeDark = CopilotTheme.IsDark;
         }
 
         /// <summary>Pushed in by OpenCopilotCommand each time the pane is shown.</summary>
