@@ -42,11 +42,11 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void FromCredits_Unlimited_IsZeroPro()
+        public void FromCredits_Unlimited_IsZeroPower()
         {
             var s = UsageState.FromCredits(true, 999, 0);
             Assert.Equal(0, s.Pct);
-            Assert.Equal("Pro", s.PlanName);
+            Assert.Equal("Power", s.PlanName);
             Assert.False(s.AtLimit);
         }
     }

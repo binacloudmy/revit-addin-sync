@@ -31,10 +31,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             new PlanDef { Name = "Free", Price = "$0", IncLabel = "WHAT'S INCLUDED", CtaLabel = "Get started", Solid = false,
                 Features = new[] { "Limited usage", "Core Revit commands", "Chat history" } },
-            new PlanDef { Name = "Basic", Price = "$20", IncLabel = "WHAT'S INCLUDED", CtaLabel = "Upgrade to Basic", Solid = true, Recommended = true,
-                Features = new[] { "10× higher usage limit", "Faster responses", "Full Revit command library", "Chat history & exports", "Email support" } },
-            new PlanDef { Name = "Pro", Price = "$40", IncLabel = "EVERYTHING IN BASIC, PLUS", CtaLabel = "Upgrade to Pro", Solid = true,
-                Features = new[] { "Everything in Basic", "5× higher usage limit", "Priority responses", "Batch commands & automation", "Priority support" } },
+            new PlanDef { Name = "Plus", Price = "$20", IncLabel = "WHAT'S INCLUDED", CtaLabel = "Upgrade to Plus", Solid = true, Recommended = true,
+                Features = new[] { "Everything in Free", "Full daily usage allowance", "All-day use + checks throughout", "Bring-your-own family library", "Email support" } },
+            new PlanDef { Name = "Power", Price = "$99", IncLabel = "EVERYTHING IN PLUS, AND", CtaLabel = "Upgrade to Power", Solid = true,
+                Features = new[] { "Everything in Plus", "6× the usage of Plus", "Full single-source family library", "Largest models", "Priority support" } },
         };
 
         /// <summary>Build the sheet BODY (the panel wraps it in its sheet chrome).</summary>
@@ -42,7 +42,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             var root = new StackPanel();
 
-            int active = 1; // Basic starts centered (design planIdx: 1)
+            int active = 1; // Plus starts centered (design planIdx: 1)
             var cards = new FrameworkElement[Plans.Length];   // card wrappers (shadow + card)
             var shadows = new Border[Plans.Length];           // soft lift, shown only under the active card
             var ctas = new Button[Plans.Length];
