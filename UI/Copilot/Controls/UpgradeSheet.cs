@@ -16,8 +16,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     /// </summary>
     public static class UpgradeSheet
     {
-        private const string UpgradeUrl = "https://billing.bina.cloud/upgrade";
-        private const string PricingUrl = "https://bina.cloud/pricing";
+        // Both point at the plugin landing page's pricing/checkout (subscription.astro
+        // on https://revit.bina.cloud) — the canonical source for tiers + purchase,
+        // matching this sheet's plan cards. Same host the addin uses for OAuth.
+        private const string UpgradeUrl = "https://revit.bina.cloud/subscription/";
+        private const string PricingUrl = "https://revit.bina.cloud/subscription/";
         private const double Gap = 12;
 
         private class PlanDef
