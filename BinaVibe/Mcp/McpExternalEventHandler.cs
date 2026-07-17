@@ -66,6 +66,8 @@ namespace BinaVibe.Mcp
                     job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();
                     LogTimings(job);
                     job.SetError(ex.Message);
+                    RevitWebAppSync.Services.TelemetryService.Track("tool_exec", "failed",
+                        new { tool = job.Tool, error_class = ex.GetType().Name });
                 }
                 n++;
             }

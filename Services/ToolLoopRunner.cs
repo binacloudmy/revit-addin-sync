@@ -164,11 +164,19 @@ namespace RevitWebAppSync.Services
         {
             var wrapped = Wrap(onReply, narration);
             var outcome = new ToolLoopOutcome();
+            var turnWatch = System.Diagnostics.Stopwatch.StartNew();
 
             for (int round = 0; round < MaxRounds; round++)
             {
                 if (turn == null || turn.Status == "error" || !turn.Success)
+                {
+                    // Backend answered with an error turn (no exception thrown
+                    // client-side) — without this the failure would be invisible
+                    // to the fleet counters.
+                    TelemetryService.Track("ai_request", "failed",
+                        new { op = "turn_error", error_class = "BackendErrorTurn" });
                     return new ToolLoopOutcome { Success = false, Error = turn?.Error ?? "tool turn failed" };
+                }
 
                 // Clarify pause (HITL): hand the question up to the pane. The
                 // loop ends here; the pane re-enters via ResumeWithInputAsync
@@ -220,6 +228,14 @@ namespace RevitWebAppSync.Services
                     // live view's last frame matches the persisted trail (all ✓).
                     try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
                     outcome.Steps = new List<ProgressStep>(trail);
+                    // Quality signals no exception ever throws: a done frame with
+                    // nothing in it (the "Done." empty-bubble class), and turns
+                    // that finish but took abnormally long (provider degrading).
+                    if (string.IsNullOrWhiteSpace(outcome.Reply) && string.IsNullOrWhiteSpace(outcome.Code))
+                        TelemetryService.Track("ai_request", "empty_reply");
+                    else if (turnWatch.Elapsed > TimeSpan.FromMinutes(5))
+                        TelemetryService.Track("ai_request", "slow_turn",
+                            new { seconds = (int)turnWatch.Elapsed.TotalSeconds });
                     return outcome;
                 }
 
@@ -288,6 +304,7 @@ namespace RevitWebAppSync.Services
                 }
             }
 
+            TelemetryService.Track("ai_request", "round_cap");
             return new ToolLoopOutcome
             {
                 Success = false,

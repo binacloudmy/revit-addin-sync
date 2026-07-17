@@ -39,6 +39,7 @@ namespace RevitWebAppSync.Services
 
         private static Timer _timer;
         private static string _machineId = "";
+        private static string _operator = "";
         private static string _addinVersion = "";
         private static string _revitYear = "";
         private static string _endpoint = "";
@@ -49,6 +50,10 @@ namespace RevitWebAppSync.Services
             {
                 _machineId = TelemetryIdentity.MachineId(
                     Environment.MachineName, Environment.UserName);
+                // Human-readable operator label so alerts can say WHO is broken
+                // (works pre-login — startup failures included). Deliberate
+                // identity capture, see TelemetryEvent PII note.
+                _operator = Environment.UserName + "@" + Environment.MachineName;
                 _addinVersion = UpdateService.CurrentVersion?.ToString() ?? "";
                 _revitYear = revitYear ?? "";
                 _endpoint = (BinaConfig.Load().ResolvedCloudBaseUrl ?? "").TrimEnd('/')
@@ -65,7 +70,7 @@ namespace RevitWebAppSync.Services
             try
             {
                 _queue.Enqueue(TelemetryEvent.Create(
-                    kind, stage, _machineId, _addinVersion, _revitYear,
+                    kind, stage, _machineId, _operator, _addinVersion, _revitYear,
                     engineVersion: "", payload: payload, utcNow: DateTime.UtcNow));
                 var __ = FlushAsync();
             }

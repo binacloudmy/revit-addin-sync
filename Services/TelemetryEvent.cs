@@ -11,13 +11,16 @@ namespace RevitWebAppSync.Services
     /// Pure wire model for /telemetry/events (fleet health heartbeats).
     /// Dependency-free (no Revit SDK, no IO) so the Tests project can
     /// compile-link it, same as AiUrl. PII contract: payload carries exception
-    /// TYPE NAMES only — never messages, prompts, or paths.
+    /// TYPE NAMES only — never messages, prompts, or paths. The operator label
+    /// (windows-user@machine) IS identifying, included by deliberate product
+    /// decision so alerts can name the affected drafter.
     /// </summary>
     internal sealed class TelemetryEvent
     {
         [JsonProperty("kind")] public string Kind { get; set; }
         [JsonProperty("stage")] public string Stage { get; set; }
         [JsonProperty("machine_id")] public string MachineId { get; set; }
+        [JsonProperty("operator")] public string Operator { get; set; }
         [JsonProperty("addin_version")] public string AddinVersion { get; set; }
         [JsonProperty("revit_year")] public string RevitYear { get; set; }
         [JsonProperty("engine_version")] public string EngineVersion { get; set; }
@@ -25,14 +28,16 @@ namespace RevitWebAppSync.Services
         [JsonProperty("occurred_at")] public string OccurredAt { get; set; }
 
         internal static TelemetryEvent Create(
-            string kind, string stage, string machineId, string addinVersion,
-            string revitYear, string engineVersion, object payload, DateTime utcNow)
+            string kind, string stage, string machineId, string operatorLabel,
+            string addinVersion, string revitYear, string engineVersion,
+            object payload, DateTime utcNow)
         {
             return new TelemetryEvent
             {
                 Kind = kind ?? string.Empty,
                 Stage = stage ?? string.Empty,
                 MachineId = machineId ?? string.Empty,
+                Operator = operatorLabel ?? string.Empty,
                 AddinVersion = addinVersion ?? string.Empty,
                 RevitYear = revitYear ?? string.Empty,
                 EngineVersion = engineVersion ?? string.Empty,

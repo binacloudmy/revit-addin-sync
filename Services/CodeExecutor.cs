@@ -135,6 +135,8 @@ namespace RevitWebAppSync.Services
             catch (TargetInvocationException ex)
             {
                 var innerEx = ex.InnerException ?? ex;
+                Services.TelemetryService.Track("tool_exec", "failed",
+                    new { tool = "codegen", error_class = innerEx.GetType().Name });
                 return new ExecutionResult
                 {
                     Success = false,
@@ -145,6 +147,8 @@ namespace RevitWebAppSync.Services
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"[BinaVibe][timing] codegen COMPILE FAILED — {ex.Message}");
+                Services.TelemetryService.Track("tool_exec", "failed",
+                    new { tool = "codegen", error_class = "CompilationException" });
                 return new ExecutionResult
                 {
                     Success = false,
@@ -153,6 +157,8 @@ namespace RevitWebAppSync.Services
             }
             catch (Exception ex)
             {
+                Services.TelemetryService.Track("tool_exec", "failed",
+                    new { tool = "codegen", error_class = ex.GetType().Name });
                 return new ExecutionResult
                 {
                     Success = false,

@@ -224,6 +224,8 @@ namespace RevitWebAppSync.Services
             {
                 Status = "error:spawn-failed";
                 Debug.WriteLine("[BINA] engine failed to start: " + ex.Message);
+                Services.TelemetryService.Track("engine", "spawn_failed",
+                    new { error_class = ex.GetType().Name });
                 return;
             }
 
@@ -315,6 +317,8 @@ namespace RevitWebAppSync.Services
             catch (Exception ex)
             {
                 Debug.WriteLine("[BINA] engine watchdog respawn failed: " + ex.Message);
+                Services.TelemetryService.Track("engine", "respawn_failed",
+                    new { error_class = ex.GetType().Name });
             }
         }
 
