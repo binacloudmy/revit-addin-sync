@@ -73,11 +73,21 @@ namespace RevitWebAppSync.Services
                     // Idling hook only toasts. Mandatory ones wait for the
                     // Idling hook to raise the blocking UpdateWindow.
                     if (_pending != null && !_pending.Mandatory)
-                        await StageAsync(null);
+                    {
+                        // Own catch: StageCoreAsync already Tracks stage_failed;
+                        // letting it bubble would double-report as check_failed.
+                        try { await StageAsync(null); }
+                        catch (Exception stageEx)
+                        {
+                            Log($"silent stage failed: {stageEx.GetType().Name}");
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
                     Log($"update check failed: {ex}");
+                    TelemetryService.Track("update", "check_failed",
+                        new { error_class = ex.GetType().Name });
                 }
             });
         }
@@ -143,6 +153,7 @@ namespace RevitWebAppSync.Services
             if (feed?.Version == null || feed.Url == null)
             {
                 Log($"malformed feed at {feedUrl}");
+                TelemetryService.Track("update", "feed_malformed");
                 return;
             }
 
@@ -171,6 +182,8 @@ namespace RevitWebAppSync.Services
 
             Log($"update available: {remote} (current {current}, mandatory {feed.Mandatory})");
             _pending = feed;
+            TelemetryService.Track("update", "available",
+                new { to_version = remote.ToString() });
         }
 
         private static async Task StageCoreAsync(UpdateFeed feed,
@@ -240,6 +253,15 @@ namespace RevitWebAppSync.Services
                 Log($"staged {remote} → {targetDir}");
                 _staged = true;
                 progress?.Report((1.0, "Done"));
+                TelemetryService.Track("update", "staged",
+                    new { to_version = remote.ToString() });
+            }
+            catch (Exception ex)
+            {
+                Log($"stage {remote} failed: {ex}");
+                TelemetryService.Track("update", "stage_failed",
+                    new { to_version = remote.ToString(), error_class = ex.GetType().Name });
+                throw;   // UpdateWindow still surfaces the failure to the user
             }
             finally
             {
@@ -377,6 +399,8 @@ namespace RevitWebAppSync.Services
             catch (Exception ex)
             {
                 Log($"engine {remote} stage failed (non-blocking): {ex.Message}");
+                TelemetryService.Track("update", "engine_stage_failed",
+                    new { to_version = remote.ToString(), error_class = ex.GetType().Name });
             }
             finally
             {

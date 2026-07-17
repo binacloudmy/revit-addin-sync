@@ -178,6 +178,12 @@ namespace RevitWebAppSync
         {
             try
             {
+                // Fleet heartbeat: 'started' now, 'ready' at the end of this
+                // method — the gap between the two is how the backend detects a
+                // release that dies mid-startup on some Revit year.
+                Services.TelemetryService.Init(application.ControlledApplication.VersionNumber);
+                Services.TelemetryService.Track("startup", "started");
+
                 // Idle-gap heartbeat (diagnostic): Revit raises Idling whenever
                 // its UI thread is free. If two consecutive Idling events are
                 // >2s apart, the UI thread was BLOCKED that long ("Not
@@ -265,6 +271,8 @@ namespace RevitWebAppSync
                 catch (Exception dockEx)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA] Cost dockable pane registration failed: {dockEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "cost_pane", error_class = dockEx.GetType().Name });
                 }
 
                 // Register Fire Compliance dockable pane
@@ -279,6 +287,8 @@ namespace RevitWebAppSync
                 catch (Exception compEx)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA] Compliance dockable pane registration failed: {compEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "compliance_pane", error_class = compEx.GetType().Name });
                 }
 
                 // Register JKR BIM Compliance dockable pane
@@ -293,6 +303,8 @@ namespace RevitWebAppSync
                 catch (Exception jkrEx)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA] JKR Compliance dockable pane registration failed: {jkrEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "jkr_pane", error_class = jkrEx.GetType().Name });
                 }
 
                 // Register Revit Copilot dockable pane
@@ -307,6 +319,8 @@ namespace RevitWebAppSync
                 catch (Exception copilotEx)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA] Copilot dockable pane registration failed: {copilotEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "copilot_pane", error_class = copilotEx.GetType().Name });
                 }
 
                 // Subscribe to document changes for live cost updates
@@ -318,6 +332,8 @@ namespace RevitWebAppSync
                 catch (Exception evtEx)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA] Cost update handler failed: {evtEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "cost_update_handler", error_class = evtEx.GetType().Name });
                 }
 
                 // Decide which MCP transport(s) to boot. Default is
@@ -518,10 +534,15 @@ namespace RevitWebAppSync
                 // configured (see BinaConfig.UpdateFeedUrl).
                 Services.UpdateService.Start(application);
 
+                Services.TelemetryService.Track("startup", "ready");
                 return Result.Succeeded;
             }
             catch (Exception ex)
             {
+                Services.TelemetryService.Track("startup", "failed",
+                    new { error_class = ex.GetType().Name });
+                // Revit may be about to unload us — drain synchronously (2s cap).
+                Services.TelemetryService.FlushBlocking(TimeSpan.FromSeconds(2));
                 TaskDialog.Show("Error", $"Failed to initialize add-in: {ex.Message}");
                 return Result.Failed;
             }
@@ -538,6 +559,15 @@ namespace RevitWebAppSync
             try { VibeEngine?.Dispose(); } catch { }
             try { VibeMcpTunnel?.Dispose(); } catch { }
             try { VibeIndexer?.Dispose(); } catch { }
+
+            // 'clean' shutdown marker: a session with 'started' but neither
+            // 'ready' nor 'clean' reads as a dirty exit in the scorecard.
+            try
+            {
+                Services.TelemetryService.Track("shutdown", "clean");
+                Services.TelemetryService.FlushBlocking(TimeSpan.FromSeconds(2));
+            }
+            catch { }
 
             return Result.Succeeded;
         }

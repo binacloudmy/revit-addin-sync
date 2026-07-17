@@ -117,6 +117,11 @@ namespace RevitWebAppSync.Services
             }
             catch (Exception ex)
             {
+                // User-initiated cancel is not a failure — tracking it would
+                // pollute the fleet ai_request error rate with stop-button noise.
+                if (!ct.IsCancellationRequested)
+                    TelemetryService.Track("ai_request", "failed",
+                        new { op = "generate", error_class = ex.GetType().Name });
                 return new ToolLoopOutcome { Success = false, Error = $"tool/generate failed: {ex.Message}" };
             }
             return await DriveAsync(turn, request?.SessionId, accessToken, onProgress, onReply, narration, trail, ct, onSteps).ConfigureAwait(false);
@@ -140,6 +145,9 @@ namespace RevitWebAppSync.Services
             }
             catch (Exception ex)
             {
+                if (!ct.IsCancellationRequested)
+                    TelemetryService.Track("ai_request", "failed",
+                        new { op = "resume_input", error_class = ex.GetType().Name });
                 return new ToolLoopOutcome { Success = false, Error = $"tool/resume-input failed: {ex.Message}" };
             }
             return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply, narration, trail, ct, onSteps).ConfigureAwait(false);
@@ -273,6 +281,9 @@ namespace RevitWebAppSync.Services
                 }
                 catch (Exception ex)
                 {
+                    if (!ct.IsCancellationRequested)
+                        TelemetryService.Track("ai_request", "failed",
+                            new { op = "resume", error_class = ex.GetType().Name });
                     return new ToolLoopOutcome { Success = false, Error = $"tool/resume failed: {ex.Message}" };
                 }
             }
