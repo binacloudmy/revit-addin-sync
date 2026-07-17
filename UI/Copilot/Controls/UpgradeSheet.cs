@@ -16,11 +16,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     /// </summary>
     public static class UpgradeSheet
     {
-        // Both point at the plugin landing page's pricing/checkout (subscription.astro
-        // on https://revit.bina.cloud) — the canonical source for tiers + purchase,
-        // matching this sheet's plan cards. Same host the addin uses for OAuth.
-        private const string UpgradeUrl = "https://revit.bina.cloud/subscription/";
-        private const string PricingUrl = "https://revit.bina.cloud/subscription/";
+        // The plugin landing page's pricing/checkout (subscription.astro) — the
+        // canonical source for tiers + purchase, matching this sheet's plan cards.
+        // Derived from the SAME web origin the addin uses for OAuth
+        // (LOGIN_WEB_URL / config LoginWebUrl) so a host change moves both
+        // together; hardcoding it here is what shipped a dead host once already.
+        private static string SubscriptionUrl =>
+            BinaConfig.Load().ResolvedLoginWebUrl.TrimEnd('/') + "/subscription/";
         private const double Gap = 12;
 
         private class PlanDef
@@ -197,7 +199,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Cursor = Cursors.Hand,
             };
             seeAll.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
-            seeAll.MouseLeftButtonDown += (_, __) => OpenUrl(PricingUrl);
+            seeAll.MouseLeftButtonDown += (_, __) => OpenUrl(SubscriptionUrl);
             root.Children.Add(seeAll);
 
             root.Loaded += (_, __) =>
@@ -281,7 +283,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 HorizontalAlignment = HorizontalAlignment.Stretch, BorderThickness = new Thickness(0),
             };
             var ctaLocal = cta;
-            cta.Click += (_, __) => { if (ctaLocal.IsEnabled) OpenUrl(UpgradeUrl); };
+            cta.Click += (_, __) => { if (ctaLocal.IsEnabled) OpenUrl(SubscriptionUrl); };
             SetCtaContent(cta, p, arrow: p.Solid);
             body.Children.Add(cta);
 
