@@ -509,7 +509,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (_rowTemplate != null) return _rowTemplate;
             var border = new FrameworkElementFactory(typeof(Border));
             border.Name = "bd";
-            border.SetValue(Border.BorderBrushProperty, CopilotColors.From("#0D0F1B2D"));
+            // DynamicResource (not a baked From() brush): this template is static-
+            // cached and built once, so a concrete brush would freeze the first
+            // theme. Cp.LineSoft re-resolves on every light/dark swap.
+            border.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
             border.SetValue(Border.BorderThicknessProperty, new Thickness(0, 0, 0, 1));
             border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
             var cp = new FrameworkElementFactory(typeof(ContentPresenter));

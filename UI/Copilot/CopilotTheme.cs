@@ -85,6 +85,42 @@ namespace RevitWebAppSync.UI.Copilot
             if (notify) { try { ThemeChanged?.Invoke(); } catch { /* best-effort re-render */ } }
         }
 
+        /// <summary>A fresh dictionary of every Cp.* brush for the CURRENT theme.
+        /// Mount it in a FrameworkElement's own Resources and Remove+Insert it there
+        /// on ThemeChanged: a local-scope resource change reliably re-invalidates that
+        /// subtree's {DynamicResource} bindings, which an App.Resources change does
+        /// NOT do inside Revit's hosted dockable pane (the chrome stays light).</summary>
+        public static ResourceDictionary NewThemeDictionary()
+        {
+            EnsureLoaded();
+            var rd = new ResourceDictionary();
+            foreach (var kv in Palette)
+            {
+                try
+                {
+                    rd[kv.Key] = new SolidColorBrush(
+                        (Color)ColorConverter.ConvertFromString(IsDark ? kv.Value.dark : kv.Value.light));
+                }
+                catch { /* skip malformed hex */ }
+            }
+            rd["Cp.AccentGrad"] = Grad(IsDark ? ("#83b8fb", "#60a5fa") : ("#7795e8", "#1d4ed8"));
+            rd["Cp.AccentGradHover"] = Grad(IsDark ? ("#95c3fc", "#74b0fb") : ("#8aa4ec", "#2c5ce0"));
+            return rd;
+        }
+
+        // 135° two-stop gradient, mirrors Cp.AccentGrad* in CopilotTokens.xaml.
+        private static LinearGradientBrush Grad((string a, string b) stops)
+        {
+            var g = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+            try
+            {
+                g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString(stops.a), 0));
+                g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString(stops.b), 1));
+            }
+            catch { }
+            return g;
+        }
+
         // token key → (light hex, dark hex). Mirrors CopilotTokens.xaml (light) and
         // docs/design/copilot-panel-slate.dc.html (dark). Solid brushes only;
         // gradients handled separately above.

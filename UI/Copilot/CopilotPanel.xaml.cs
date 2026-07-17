@@ -74,8 +74,37 @@ namespace RevitWebAppSync.UI.Copilot
             // Local sink for ratings / bug reports (JSONL under %APPDATA%). Model
             // name + user id are captured lazily so they reflect the live context.
             _feedback = new LocalFeedbackService(() => _vm.ModelName, () => cfg?.UserId.ToString());
+
+            // Mount the active theme brushes on the PANEL's own resources and swap
+            // them here on ThemeChanged. Mutating/replacing App-scope resources does
+            // not re-invalidate this pane's {DynamicResource} chrome bindings inside
+            // Revit's dockable-pane host (the chrome stays light while the code-built
+            // screens flip) — a local-scope Remove+Insert does. Re-synced on Loaded
+            // in case the pane was hidden (Unloaded) across a theme change.
+            _localTheme = CopilotTheme.NewThemeDictionary();
+            Resources.MergedDictionaries.Add(_localTheme);
+            Loaded += (_, __) =>
+            {
+                CopilotTheme.ThemeChanged -= SwapLocalTheme;
+                CopilotTheme.ThemeChanged += SwapLocalTheme;
+                SwapLocalTheme();
+            };
+            Unloaded += (_, __) => CopilotTheme.ThemeChanged -= SwapLocalTheme;
+
             UpdateThemeIcon();
             UpdateBody();
+        }
+
+        private System.Windows.ResourceDictionary _localTheme;
+
+        private void SwapLocalTheme()
+        {
+            var dicts = Resources.MergedDictionaries;
+            var next = CopilotTheme.NewThemeDictionary();
+            var i = _localTheme != null ? dicts.IndexOf(_localTheme) : -1;
+            if (i >= 0) { dicts.RemoveAt(i); dicts.Insert(i, next); }
+            else dicts.Add(next);
+            _localTheme = next;
         }
 
         /// <summary>Pushed in by OpenCopilotCommand each time the pane is shown.</summary>
