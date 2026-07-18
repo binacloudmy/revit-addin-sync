@@ -67,19 +67,22 @@ namespace RevitWebAppSync.Services
                     $"[BinaVibe][timing] codegen compile={_swCompile.ElapsedMilliseconds}ms " +
                     $"exec(tx+regen)={_swExec.ElapsedMilliseconds}ms");
 
-                // Watchdog: a snippet that ran past the hard cap is reported as a
-                // timeout rather than success — the self-heal loop then feeds this
-                // back as an error (e.g. "tighten the loop / add a bound").
-                if (_swExec.Elapsed > ExecutionWatchdogTimeout)
+                // Watchdog: the invoke above is SYNCHRONOUS — by the time we get
+                // here the snippet has COMPLETED and its transaction committed.
+                // Reporting an over-time run as "was stopped" was a lie that
+                // discarded the real result: round-13 CIDB retests (2026-07-19)
+                // showed committed beams/pipes + a populated legend view while
+                // the chat claimed "that didn't run" on both DEV-16 and DEV-18.
+                // Over-time-but-completed = SUCCESS with the real result plus a
+                // slowness note; a genuine mid-flight stop is impossible on this
+                // path, so never claim one.
+                bool _overran = _swExec.Elapsed > ExecutionWatchdogTimeout;
+                if (_overran)
                 {
                     System.Diagnostics.Debug.WriteLine(
                         $"[BinaVibe][timing] codegen EXEC OVERRAN watchdog — " +
-                        $"{_swExec.ElapsedMilliseconds}ms > {ExecutionWatchdogTimeout.TotalMilliseconds}ms");
-                    return new ExecutionResult
-                    {
-                        Success = false,
-                        Error = $"Execution exceeded {(int)ExecutionWatchdogTimeout.TotalSeconds}s and was stopped."
-                    };
+                        $"{_swExec.ElapsedMilliseconds}ms > {ExecutionWatchdogTimeout.TotalMilliseconds}ms " +
+                        "(completed anyway; reporting real result)");
                 }
 
                 // Guard branches exit with `SetResult(...); return null;` — the
@@ -108,6 +111,8 @@ namespace RevitWebAppSync.Services
                 if (result is string s)
                 {
                     message = string.IsNullOrEmpty(s) ? "Done" : s;
+                    if (_overran)
+                        message += $" (slow run: {(int)_swExec.Elapsed.TotalSeconds}s — consider tightening loops)";
                 }
                 else if (result != null)
                 {
