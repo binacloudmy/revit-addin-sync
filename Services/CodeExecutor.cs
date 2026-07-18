@@ -455,6 +455,18 @@ namespace RevitWebAppSync.Services
             if (selfManagesTransaction)
                 processedCode = InjectFailureHandlingIntoUserTransactions(processedCode);
 
+            // Bare `return;` in a snippet is CS0126 inside the object-returning
+            // Execute wrapper ("An object of a type convertible to 'object' is
+            // required") — the model writes it as an early exit after
+            // SetResult(...). Rewrite to `return null;`, with the same
+            // string/comment guard as the transaction rewrites. (Same fix as
+            // msproject-addin's WrapCode.)
+            var snapshotReturns = processedCode;
+            processedCode = Regex.Replace(
+                snapshotReturns,
+                @"\breturn\s*;",
+                m => InCommentOrString(snapshotReturns, m.Index) ? m.Value : "return null;");
+
             var lines = processedCode.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
             foreach (var line in lines)
             {
