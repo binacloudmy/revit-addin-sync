@@ -281,6 +281,39 @@ namespace RevitWebAppSync.Services
             return code;
         }
 
+        // Body spans of `void <name>(...) { ... }` local functions in the
+        // snippet — regions where a bare `return;` is legal and must NOT be
+        // rewritten to `return null;`. Brace-matched with the same line-local
+        // string/comment awareness as InCommentOrString.
+        private static List<(int start, int end)> FindVoidLocalFunctionRegions(string code)
+        {
+            var regions = new List<(int, int)>();
+            foreach (Match m in Regex.Matches(code, @"\bvoid\s+\w+\s*\([^)]*\)\s*\{"))
+            {
+                int open = m.Index + m.Length - 1;   // the '{'
+                int depth = 0;
+                for (int i = open; i < code.Length; i++)
+                {
+                    char c = code[i];
+                    if (InCommentOrString(code, i)) continue;
+                    if (c == '{') depth++;
+                    else if (c == '}')
+                    {
+                        depth--;
+                        if (depth == 0) { regions.Add((open, i)); break; }
+                    }
+                }
+            }
+            return regions;
+        }
+
+        private static bool InAnyRegion(List<(int start, int end)> regions, int index)
+        {
+            foreach (var r in regions)
+                if (index > r.start && index < r.end) return true;
+            return false;
+        }
+
         // True when the char at `index` sits inside a // comment or an open
         // string literal on its line. The transaction-wrapper rewrites above
         // must never fire there: a `tx.Commit();` mentioned inside a string or
@@ -364,6 +397,11 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("using Autodesk.Revit.DB;");
             sb.AppendLine("using Autodesk.Revit.DB.Architecture;");
             sb.AppendLine("using Autodesk.Revit.DB.Structure;");
+            // MEP namespaces: `Pipe` etc. failed with "type or namespace not
+            // found" on the round-7 CIDB FF retest (2026-07-18). Electrical is
+            // deliberately EXCLUDED — its Panel collides with DB.Panel.
+            sb.AppendLine("using Autodesk.Revit.DB.Plumbing;");
+            sb.AppendLine("using Autodesk.Revit.DB.Mechanical;");
             sb.AppendLine("using Autodesk.Revit.UI;");
             sb.AppendLine("using Autodesk.Revit.UI.Selection;");
             if (needsExcel) sb.AppendLine("using ClosedXML.Excel;");
@@ -459,13 +497,20 @@ namespace RevitWebAppSync.Services
             // Execute wrapper ("An object of a type convertible to 'object' is
             // required") — the model writes it as an early exit after
             // SetResult(...). Rewrite to `return null;`, with the same
-            // string/comment guard as the transaction rewrites. (Same fix as
-            // msproject-addin's WrapCode.)
+            // string/comment guard as the transaction rewrites — but NOT inside
+            // the snippet's own void local functions (CAD-geometry walkers like
+            // WalkGeo/ExtractFF/ExtractLines): there a bare return is legal and
+            // `return null;` is CS0127 "returns void, a return keyword must not
+            // be followed by an object expression" — the exact round-7 CIDB
+            // failure on DEV-16/DEV-18 (2026-07-18).
             var snapshotReturns = processedCode;
+            var voidRegions = FindVoidLocalFunctionRegions(snapshotReturns);
             processedCode = Regex.Replace(
                 snapshotReturns,
                 @"\breturn\s*;",
-                m => InCommentOrString(snapshotReturns, m.Index) ? m.Value : "return null;");
+                m => InCommentOrString(snapshotReturns, m.Index)
+                     || InAnyRegion(voidRegions, m.Index)
+                     ? m.Value : "return null;");
 
             var lines = processedCode.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
             foreach (var line in lines)
