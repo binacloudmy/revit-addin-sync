@@ -161,11 +161,24 @@ namespace RevitWebAppSync.Services
             }
             finally
             {
-                // Release the per-execution assembly so the Revit session doesn't
-                // accumulate one dynamic assembly per generated snippet.
-                loadContext?.Unload();
+                // Do NOT Unload() here. Unloading the collectible context right
+                // after execution crashed Revit outright when anything still
+                // referenced its types — the snippet's own `__result` object IS
+                // a type from this assembly, and a failed attempt can leave
+                // delegates/updaters alive. Both round-12 CIDB hard crashes
+                // (2026-07-19) fired on the retry's second compile cycle, i.e.
+                // the next load after an unload of a still-referenced context.
+                // Retain instead: a session runs at most dozens of snippets and
+                // each assembly is a few hundred KB — retention is noise; a
+                // poisoned unload is a process kill.
+                if (loadContext != null) _retainedContexts.Add(loadContext);
             }
         }
+
+        // Spent per-snippet load contexts, retained for the session lifetime
+        // (see the finally above). Process exit reclaims everything.
+        private static readonly List<AssemblyLoadContext> _retainedContexts
+            = new List<AssemblyLoadContext>();
 
         /// <summary>
         /// Compile-only check — no execution, no Revit thread.
