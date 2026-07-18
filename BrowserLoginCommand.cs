@@ -119,6 +119,7 @@ namespace RevitWebAppSync
                 config.ProjectId = 1;
                 config.ProjectName = "Demo";
                 config.Save();
+                Services.TelemetryService.SetUser(tokens.UserId);
 
                 // Engine credential (deployment spec B4/gateway spec A4): exchange the
                 // access token for a 14-day revocable device token, persist it, and

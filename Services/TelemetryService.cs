@@ -43,6 +43,7 @@ namespace RevitWebAppSync.Services
         private static string _addinVersion = "";
         private static string _revitYear = "";
         private static string _endpoint = "";
+        private static int _userId;
 
         internal static void Init(string revitYear)
         {
@@ -56,8 +57,10 @@ namespace RevitWebAppSync.Services
                 _operator = Environment.UserName + "@" + Environment.MachineName;
                 _addinVersion = UpdateService.CurrentVersion?.ToString() ?? "";
                 _revitYear = revitYear ?? "";
-                _endpoint = (BinaConfig.Load().ResolvedCloudBaseUrl ?? "").TrimEnd('/')
+                var cfg = BinaConfig.Load();
+                _endpoint = (cfg.ResolvedCloudBaseUrl ?? "").TrimEnd('/')
                             + "/telemetry/events";
+                _userId = cfg.UserId;   // persisted session; 0 until first login
                 LoadSpool();
                 _timer = new Timer(_ => { var __ = FlushAsync(); },
                                    null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(30));
@@ -65,13 +68,22 @@ namespace RevitWebAppSync.Services
             catch { /* telemetry must never break startup */ }
         }
 
+        /// <summary>Called after a successful login so events from this
+        /// session onward carry the account join key.</summary>
+        internal static void SetUser(int userId)
+        {
+            _userId = userId;
+        }
+
         internal static void Track(string kind, string stage, object payload = null)
         {
             try
             {
-                _queue.Enqueue(TelemetryEvent.Create(
+                var ev = TelemetryEvent.Create(
                     kind, stage, _machineId, _operator, _addinVersion, _revitYear,
-                    engineVersion: "", payload: payload, utcNow: DateTime.UtcNow));
+                    engineVersion: "", payload: payload, utcNow: DateTime.UtcNow);
+                ev.UserId = _userId;
+                _queue.Enqueue(ev);
                 var __ = FlushAsync();
             }
             catch { /* never throws */ }

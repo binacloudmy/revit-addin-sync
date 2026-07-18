@@ -21,6 +21,9 @@ namespace RevitWebAppSync.Services
         [JsonProperty("stage")] public string Stage { get; set; }
         [JsonProperty("machine_id")] public string MachineId { get; set; }
         [JsonProperty("operator")] public string Operator { get; set; }
+        // Backend join key: alerts look up the user's registered phone at
+        // RENDER time (never stored per-event). 0 = not logged in yet.
+        [JsonProperty("user_id")] public int UserId { get; set; }
         [JsonProperty("addin_version")] public string AddinVersion { get; set; }
         [JsonProperty("revit_year")] public string RevitYear { get; set; }
         [JsonProperty("engine_version")] public string EngineVersion { get; set; }
