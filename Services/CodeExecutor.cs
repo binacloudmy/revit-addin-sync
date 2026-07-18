@@ -251,24 +251,65 @@ namespace RevitWebAppSync.Services
                 var en = Regex.Escape(n);
 
                 // After `<n>.Start();`, attach the failure preprocessor.
+                // Snapshot per replace: the evaluator's in-string/comment guard
+                // must scan the same text the regex matched against.
+                var snapshot = code;
                 code = Regex.Replace(
-                    code,
+                    snapshot,
                     $@"\b{en}\s*\.\s*Start\s*\(\s*\)\s*;",
-                    m => m.Value
+                    m => InCommentOrString(snapshot, m.Index)
+                         ? m.Value
+                         : m.Value
                          + " { var __fho_" + n + " = " + n + ".GetFailureHandlingOptions();"
                          + " __fho_" + n + " = __fho_" + n + ".SetFailuresPreprocessor(new __FailHandler());"
                          + " " + n + ".SetFailureHandlingOptions(__fho_" + n + "); }");
 
                 // `<n>.Commit();` (as a bare statement) → checked Commit that
                 // throws on rollback. Only matches when Commit() is a statement;
-                // doesn't touch `if (<n>.Commit() == ...)` etc.
+                // doesn't touch `if (<n>.Commit() == ...)` etc. The message is
+                // ASCII-only ON PURPOSE: this line gets spliced into generated
+                // code, and a mis-splice must not add non-ASCII tokens on top.
+                var snapshot2 = code;
                 code = Regex.Replace(
-                    code,
+                    snapshot2,
                     $@"\b{en}\s*\.\s*Commit\s*\(\s*\)\s*;",
-                    "if (" + n + ".Commit() != TransactionStatus.Committed)"
-                    + " throw new InvalidOperationException(\"Changes were not applied — the transaction was rolled back (Revit blocked the edit, e.g. shared/locked elements, join conflicts, or warnings escalated to errors).\");");
+                    m => InCommentOrString(snapshot2, m.Index)
+                         ? m.Value
+                         : "if (" + n + ".Commit() != TransactionStatus.Committed)"
+                         + " throw new InvalidOperationException(\"Changes were not applied - the transaction was rolled back (Revit blocked the edit: shared or locked elements, join conflicts, or warnings escalated to errors).\");");
             }
             return code;
+        }
+
+        // True when the char at `index` sits inside a // comment or an open
+        // string literal on its line. The transaction-wrapper rewrites above
+        // must never fire there: a `tx.Commit();` mentioned inside a string or
+        // comment in generated code got spliced with the rollback throw, whose
+        // quotes shattered the surrounding literal and dumped the message words
+        // into the compiler ("the name 'conflicts' does not exist..." cascade —
+        // observed identically across multiple CIDB retests, 2026-07-17/18).
+        // Line-local scan: good enough for generated snippets, which don't use
+        // multi-line verbatim strings around transaction calls.
+        private static bool InCommentOrString(string code, int index)
+        {
+            int lineStart = code.LastIndexOf('\n', Math.Max(0, index - 1)) + 1;
+            bool inStr = false;
+            char quote = '\0';
+            for (int i = lineStart; i < index; i++)
+            {
+                char c = code[i];
+                if (inStr)
+                {
+                    if (c == '\\') { i++; continue; }
+                    if (c == quote) inStr = false;
+                }
+                else
+                {
+                    if (c == '"' || c == '\'') { inStr = true; quote = c; }
+                    else if (c == '/' && i + 1 < code.Length && code[i + 1] == '/') return true;
+                }
+            }
+            return inStr;
         }
 
         // Serialize a snippet's structured return to JSON, defensively — ignores reference
