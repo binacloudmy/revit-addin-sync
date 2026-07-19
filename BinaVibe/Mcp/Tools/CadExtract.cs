@@ -145,6 +145,12 @@ namespace BinaVibe.Mcp.Tools
                 {
                     ["x1_ft"] = Math.Round(a.X, 4), ["y1_ft"] = Math.Round(a.Y, 4), ["z1_ft"] = Math.Round(a.Z, 4),
                     ["x2_ft"] = Math.Round(b.X, 4), ["y2_ft"] = Math.Round(b.Y, 4), ["z2_ft"] = Math.Round(b.Z, 4),
+                    // mm twins: exact arg shape for mm-based tools (create_beam/create_pipe).
+                    // Round-28 root cause: the model converted 19.685 ft with x30.48 (cm
+                    // factor) and every beam came out 1/10 scale — no model-side unit
+                    // conversion is trustworthy, so ship both unit systems ready-made.
+                    ["start_mm"] = new[] { Math.Round(a.X * 304.8, 1), Math.Round(a.Y * 304.8, 1), Math.Round(a.Z * 304.8, 1) },
+                    ["end_mm"] = new[] { Math.Round(b.X * 304.8, 1), Math.Round(b.Y * 304.8, 1), Math.Round(b.Z * 304.8, 1) },
                     ["length_mm"] = Math.Round(a.DistanceTo(b) * 304.8, 1),
                     ["layer"] = layer,
                 });
@@ -171,6 +177,7 @@ namespace BinaVibe.Mcp.Tools
                                 ["x_ft"] = Math.Round(tf.Origin.X, 4),
                                 ["y_ft"] = Math.Round(tf.Origin.Y, 4),
                                 ["z_ft"] = Math.Round(tf.Origin.Z, 4),
+                                ["point_mm"] = new[] { Math.Round(tf.Origin.X * 304.8, 1), Math.Round(tf.Origin.Y * 304.8, 1), Math.Round(tf.Origin.Z * 304.8, 1) },
                                 ["rotation_deg"] = Math.Round(rot, 1),
                                 ["mirrored"] = tf.HasReflection,
                                 ["layer"] = layer,
@@ -213,6 +220,7 @@ namespace BinaVibe.Mcp.Tools
                                     ["x_ft"] = Math.Round(arc.Center.X, 4),
                                     ["y_ft"] = Math.Round(arc.Center.Y, 4),
                                     ["z_ft"] = Math.Round(arc.Center.Z, 4),
+                                    ["point_mm"] = new[] { Math.Round(arc.Center.X * 304.8, 1), Math.Round(arc.Center.Y * 304.8, 1), Math.Round(arc.Center.Z * 304.8, 1) },
                                     ["radius_mm"] = Math.Round(arc.Radius * 304.8, 1),
                                     ["layer"] = layer,
                                 });
@@ -277,7 +285,7 @@ namespace BinaVibe.Mcp.Tools
                 ["truncated"] = truncated,
                 ["skipped_entities"] = skippedEntities,
                 ["import_location"] = ImportLocation(doc, chosen),
-                ["units_note"] = "coordinates in FEET (Revit internal, use directly in XYZ); lengths in mm",
+                ["units_note"] = "*_ft fields are FEET (use directly in C# XYZ); start_mm/end_mm/point_mm are MILLIMETER triplets — pass them UNCHANGED as the *_mm args of mm-based tools (create_beam, create_pipe, place_family). NEVER convert units yourself: ft to mm is x304.8 and a x30.48 slip has already shipped 1/10-scale beams.",
             };
         }
 
@@ -360,6 +368,7 @@ namespace BinaVibe.Mcp.Tools
                     ["x_ft"] = Math.Round(x / cnt, 4),
                     ["y_ft"] = Math.Round(y / cnt, 4),
                     ["z_ft"] = Math.Round(z / cnt, 4),
+                    ["point_mm"] = new[] { Math.Round(x / cnt * 304.8, 1), Math.Round(y / cnt * 304.8, 1), Math.Round(z / cnt * 304.8, 1) },
                     ["curve_count"] = cnt,
                     ["size_x_mm"] = Math.Round((maxX - minX) * 304.8, 0),
                     ["size_y_mm"] = Math.Round((maxY - minY) * 304.8, 0),
