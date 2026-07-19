@@ -117,8 +117,10 @@ namespace BinaVibe.Mcp.Tools
             var layerCensus = new Dictionary<string, int[]>(StringComparer.OrdinalIgnoreCase); // [gi, pl, ln, arc, other]
             var segments = new List<Dictionary<string, object>>();
             var blocks = new List<Dictionary<string, object>>();
+            var circles = new List<Dictionary<string, object>>();
             var clusterCurves = new List<Curve>();
             bool truncated = false;
+            int skippedEntities = 0;
 
             string LayerOf(GeometryObject o)
                 => (doc.GetElement(o.GraphicsStyleId) as GraphicsStyle)?
@@ -152,6 +154,8 @@ namespace BinaVibe.Mcp.Tools
             {
                 foreach (GeometryObject obj in gi.GetInstanceGeometry())
                 {
+                    try
+                    {
                     var layer = LayerOf(obj);
                     if (obj is GeometryInstance nested)
                     {
@@ -190,18 +194,37 @@ namespace BinaVibe.Mcp.Tools
                     {
                         Bump(layer, 2);
                         if (!LayerWanted(layer)) continue;
+                        if (!ln.IsBound) continue;   // ray/xline — no endpoints
                         AddSegment(ln.GetEndPoint(0), ln.GetEndPoint(1), layer);
                         if (ln.Length >= MinSegmentFt) clusterCurves.Add(ln);
                     }
-                    else if (obj is Arc)
+                    else if (obj is Arc arc)
                     {
                         Bump(layer, 3);
-                        if (LayerWanted(layer) && obj is Curve ac) clusterCurves.Add(ac);
+                        if (!LayerWanted(layer)) continue;
+                        if (!arc.IsBound)
+                        {
+                            // Full circle — a point marker (sprinkler heads etc.).
+                            // Calling GetEndPoint on it throws "The input curve is
+                            // not bound" (round-20 CIDB failure, all 15 instances).
+                            if (circles.Count < MaxClusters)
+                                circles.Add(new Dictionary<string, object>
+                                {
+                                    ["x_ft"] = Math.Round(arc.Center.X, 4),
+                                    ["y_ft"] = Math.Round(arc.Center.Y, 4),
+                                    ["z_ft"] = Math.Round(arc.Center.Z, 4),
+                                    ["radius_mm"] = Math.Round(arc.Radius * 304.8, 1),
+                                    ["layer"] = layer,
+                                });
+                        }
+                        else clusterCurves.Add(arc);
                     }
                     else
                     {
                         Bump(layer, 4);
                     }
+                    }
+                    catch { skippedEntities++; }
                 }
             }
 
@@ -249,10 +272,36 @@ namespace BinaVibe.Mcp.Tools
                 ["segments_found"] = segments.Count,
                 ["segments_unique"] = deduped.Count,
                 ["blocks"] = blocks,
+                ["circles"] = circles,
                 ["clusters"] = clusters,
                 ["truncated"] = truncated,
+                ["skipped_entities"] = skippedEntities,
+                ["import_location"] = ImportLocation(doc, chosen),
                 ["units_note"] = "coordinates in FEET (Revit internal, use directly in XYZ); lengths in mm",
             };
+        }
+
+        // Where the chosen CAD instance actually sits — placements land HERE.
+        // Round-20 CIDB: 5 rounds of "wrong location" reports were placements
+        // at the import's true position while the tester checked another view.
+        private static Dictionary<string, object?> ImportLocation(Document doc, ImportInstance im)
+        {
+            try
+            {
+                var bb = im.get_BoundingBox(null);
+                if (bb == null) return new Dictionary<string, object?> { ["known"] = false };
+                var c = (bb.Min + bb.Max) * 0.5;
+                return new Dictionary<string, object?>
+                {
+                    ["known"] = true,
+                    ["center_x_ft"] = Math.Round(c.X, 2),
+                    ["center_y_ft"] = Math.Round(c.Y, 2),
+                    ["center_z_ft"] = Math.Round(c.Z, 2),
+                    ["level"] = (doc.GetElement(im.LevelId) as Level)?.Name ?? "(none)",
+                    ["note"] = "placements will land at this location - verify in a view showing it",
+                };
+            }
+            catch { return new Dictionary<string, object?> { ["known"] = false }; }
         }
 
         // Connected-component clustering: curves sharing an endpoint (within
@@ -266,9 +315,11 @@ namespace BinaVibe.Mcp.Tools
 
             for (int i = 0; i < n; i++)
             {
+                if (!curves[i].IsBound) continue;
                 var a0 = curves[i].GetEndPoint(0); var a1 = curves[i].GetEndPoint(1);
                 for (int j = i + 1; j < n; j++)
                 {
+                    if (!curves[j].IsBound) continue;
                     var b0 = curves[j].GetEndPoint(0); var b1 = curves[j].GetEndPoint(1);
                     if (a0.DistanceTo(b0) < EndpointTolFt || a0.DistanceTo(b1) < EndpointTolFt ||
                         a1.DistanceTo(b0) < EndpointTolFt || a1.DistanceTo(b1) < EndpointTolFt)
@@ -293,6 +344,7 @@ namespace BinaVibe.Mcp.Tools
                 Curve longest = grp[0];
                 foreach (var c in grp)
                 {
+                    if (!c.IsBound) continue;
                     var m = c.Evaluate(0.5, true);
                     x += m.X; y += m.Y; z += m.Z; cnt++;
                     foreach (var p in new[] { c.GetEndPoint(0), c.GetEndPoint(1) })
