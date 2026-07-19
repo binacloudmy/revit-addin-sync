@@ -23,12 +23,15 @@ namespace BinaVibe.Mcp.Tools
     /// </summary>
     internal static class CadExtract
     {
+        private static Dictionary<string, object?> Err(string message)
+            => new Dictionary<string, object?> { ["ok"] = false, ["error"] = message };
+
         private const double EndpointTolFt = 0.033;   // ~10mm — connectivity clustering
         private const double MinSegmentFt = 0.164;    // ~50mm — below = block residue
         private const int MaxSegments = 2000;
         private const int MaxClusters = 200;
 
-        public static object Run(UIDocument uidoc, JsonElement args)
+        public static Dictionary<string, object?> Run(UIDocument uidoc, JsonElement args)
         {
             var doc = uidoc.Document;
             string? nameFilter = ArgsHelp.GetString(args, "name_filter");
@@ -39,7 +42,7 @@ namespace BinaVibe.Mcp.Tools
             var all = new FilteredElementCollector(doc)
                 .OfClass(typeof(ImportInstance)).Cast<ImportInstance>().ToList();
             if (all.Count == 0)
-                return new { ok = false, error = "no linked/imported CAD in the model" };
+                return Err("no linked/imported CAD in the model");
 
             string NameOf(ImportInstance im)
                 => doc.GetElement(im.GetTypeId())?.Name ?? im.Category?.Name ?? "(unnamed)";
@@ -49,7 +52,7 @@ namespace BinaVibe.Mcp.Tools
             {
                 candidates = all.Where(im => im.Id.Value == importId.Value).ToList();
                 if (candidates.Count == 0)
-                    return new { ok = false, error = $"import_id {importId} not found" };
+                    return Err($"import_id {importId} not found");
             }
             else if (!string.IsNullOrWhiteSpace(nameFilter))
             {
@@ -59,13 +62,12 @@ namespace BinaVibe.Mcp.Tools
                 {
                     var names = all.Select(NameOf).Distinct(StringComparer.OrdinalIgnoreCase)
                         .Take(20).ToList();
-                    return new
+                    return new Dictionary<string, object?>
                     {
-                        ok = true,
-                        matched = 0,
-                        error = (string?)null,
-                        imports_present = names,
-                        note = "no import name contains '" + nameFilter + "' - pick from imports_present",
+                        ["ok"] = true,
+                        ["matched"] = 0,
+                        ["imports_present"] = names,
+                        ["note"] = "no import name contains '" + nameFilter + "' - pick from imports_present",
                     };
                 }
             }
@@ -94,19 +96,19 @@ namespace BinaVibe.Mcp.Tools
                 else
                 {
                     // ambiguous — DO NOT guess; report instances so the model asks the user
-                    var options = candidates.Take(15).Select(im => new
+                    var options = candidates.Take(15).Select(im => (object)new Dictionary<string, object?>
                     {
-                        import_id = im.Id.Value,
-                        name = NameOf(im),
-                        level = (doc.GetElement(im.LevelId) as Level)?.Name ?? "(none)",
+                        ["import_id"] = im.Id.Value,
+                        ["name"] = NameOf(im),
+                        ["level"] = (doc.GetElement(im.LevelId) as Level)?.Name ?? "(none)",
                     }).ToList();
-                    return new
+                    return new Dictionary<string, object?>
                     {
-                        ok = true,
-                        matched = candidates.Count,
-                        ambiguous = true,
-                        instances = options,
-                        note = "multiple matching CAD instances - call again with import_id after asking the user",
+                        ["ok"] = true,
+                        ["matched"] = candidates.Count,
+                        ["ambiguous"] = true,
+                        ["instances"] = options,
+                        ["note"] = "multiple matching CAD instances - call again with import_id after asking the user",
                     };
                 }
             }
@@ -205,7 +207,7 @@ namespace BinaVibe.Mcp.Tools
 
             var geo = chosen.get_Geometry(new Options());
             if (geo == null)
-                return new { ok = false, error = "chosen import has no readable geometry" };
+                return Err("chosen import has no readable geometry");
             foreach (GeometryObject top in geo)
                 if (top is GeometryInstance giTop) WalkNested(giTop, 0);
 
@@ -225,31 +227,31 @@ namespace BinaVibe.Mcp.Tools
 
             var census = layerCensus.OrderByDescending(kv => kv.Value.Sum())
                 .Take(20)
-                .Select(kv => new
+                .Select(kv => (object)new Dictionary<string, object?>
                 {
-                    layer = kv.Key,
-                    geometry_instances = kv.Value[0],
-                    polylines = kv.Value[1],
-                    lines = kv.Value[2],
-                    arcs = kv.Value[3],
-                    other = kv.Value[4],
+                    ["layer"] = kv.Key,
+                    ["geometry_instances"] = kv.Value[0],
+                    ["polylines"] = kv.Value[1],
+                    ["lines"] = kv.Value[2],
+                    ["arcs"] = kv.Value[3],
+                    ["other"] = kv.Value[4],
                 }).ToList();
 
-            return new
+            return new Dictionary<string, object?>
             {
-                ok = true,
-                import_id = chosen.Id.Value,
-                import_name = NameOf(chosen),
-                import_level = (doc.GetElement(chosen.LevelId) as Level)?.Name ?? "(none)",
-                instances_of_this_type = candidates.Count,
-                layer_census = census,
-                segments = deduped,
-                segments_found = segments.Count,
-                segments_unique = deduped.Count,
-                blocks,
-                clusters,
-                truncated,
-                units_note = "coordinates in FEET (Revit internal, use directly in XYZ); lengths in mm",
+                ["ok"] = true,
+                ["import_id"] = chosen.Id.Value,
+                ["import_name"] = NameOf(chosen),
+                ["import_level"] = (doc.GetElement(chosen.LevelId) as Level)?.Name ?? "(none)",
+                ["instances_of_this_type"] = candidates.Count,
+                ["layer_census"] = census,
+                ["segments"] = deduped,
+                ["segments_found"] = segments.Count,
+                ["segments_unique"] = deduped.Count,
+                ["blocks"] = blocks,
+                ["clusters"] = clusters,
+                ["truncated"] = truncated,
+                ["units_note"] = "coordinates in FEET (Revit internal, use directly in XYZ); lengths in mm",
             };
         }
 
@@ -301,15 +303,15 @@ namespace BinaVibe.Mcp.Tools
                     if (c.Length > longest.Length) longest = c;
                 }
                 var dir = (longest.GetEndPoint(1) - longest.GetEndPoint(0)).Normalize();
-                result.Add(new
+                result.Add(new Dictionary<string, object?>
                 {
-                    x_ft = Math.Round(x / cnt, 4),
-                    y_ft = Math.Round(y / cnt, 4),
-                    z_ft = Math.Round(z / cnt, 4),
-                    curve_count = cnt,
-                    size_x_mm = Math.Round((maxX - minX) * 304.8, 0),
-                    size_y_mm = Math.Round((maxY - minY) * 304.8, 0),
-                    rotation_deg = Math.Round(Math.Atan2(dir.Y, dir.X) * 180.0 / Math.PI, 1),
+                    ["x_ft"] = Math.Round(x / cnt, 4),
+                    ["y_ft"] = Math.Round(y / cnt, 4),
+                    ["z_ft"] = Math.Round(z / cnt, 4),
+                    ["curve_count"] = cnt,
+                    ["size_x_mm"] = Math.Round((maxX - minX) * 304.8, 0),
+                    ["size_y_mm"] = Math.Round((maxY - minY) * 304.8, 0),
+                    ["rotation_deg"] = Math.Round(Math.Atan2(dir.Y, dir.X) * 180.0 / Math.PI, 1),
                 });
             }
             return result;
