@@ -32,8 +32,6 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <AssemblyVersion>$(Version)</AssemblyVersion>
-
     <!-- Which Revit Addins\<year>\ folders each TFM deploys into (PostBuild).
          net8 serves 2025 & 2026; net10 serves 2027. The copy is best-effort:
          each year is only written if that Addins folder actually exists. -->
