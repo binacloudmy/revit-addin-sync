@@ -1792,7 +1792,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var b = new FrameworkElementFactory(typeof(Border));
             b.SetValue(Border.CornerRadiusProperty, new CornerRadius(999));
             b.SetValue(Border.BackgroundProperty, Brushes.Transparent);
-            b.SetValue(Border.BorderBrushProperty, CopilotColors.From("#140F1B2D"));
+            // DynamicResource (not a baked From() brush): this template is static-
+            // cached and built once, so a concrete brush would freeze the first
+            // theme. Cp.Line re-resolves on every light/dark swap.
+            b.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
             b.SetValue(Border.BorderThicknessProperty, new Thickness(1));
             b.SetValue(Border.PaddingProperty, new Thickness(10, 4, 10, 4));
             var cp = new FrameworkElementFactory(typeof(ContentPresenter));
@@ -1807,7 +1810,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var b = new FrameworkElementFactory(typeof(Border));
             b.SetValue(Border.CornerRadiusProperty, new CornerRadius(10));
             b.SetBinding(Border.BackgroundProperty, new System.Windows.Data.Binding("Background") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
-            b.SetValue(Border.BorderBrushProperty, CopilotColors.From("#140F1B2D"));
+            // Live Cp.Line, not a baked From() brush — see PillTemplate.
+            b.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
             b.SetValue(Border.BorderThicknessProperty, new Thickness(1));
             b.SetValue(Border.PaddingProperty, new Thickness(14, 12, 14, 12));
             var cp = new FrameworkElementFactory(typeof(ContentPresenter));
@@ -1838,7 +1842,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var b = new FrameworkElementFactory(typeof(Border));
             b.SetValue(Border.CornerRadiusProperty, new CornerRadius(6));
             b.SetValue(Border.BackgroundProperty, Brushes.Transparent);
-            b.SetValue(Border.BorderBrushProperty, CopilotColors.From("#140F1B2D"));
+            // Live Cp.Line, not a baked From() brush — see PillTemplate.
+            b.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
             b.SetValue(Border.BorderThicknessProperty, new Thickness(1));
             b.SetValue(Border.PaddingProperty, new Thickness(9, 5, 9, 5));
             var cp = new FrameworkElementFactory(typeof(ContentPresenter));
