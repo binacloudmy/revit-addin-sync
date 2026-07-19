@@ -190,6 +190,16 @@ namespace RevitWebAppSync
                     // Capture a live UIApplication for the Copilot pane fallback
                     // (sender of Idling IS the UIApplication, in valid context).
                     if (UiApp == null && s is UIApplication __ua) UiApp = __ua;
+
+                    // Refresh the @-mention picker + BuildContext snapshots
+                    // HERE (valid API context, throttled inside). The pane's
+                    // UI thread only reads caches — collector/selection calls
+                    // from the WPF thread crashed Revit (round-29 CIDB repro).
+                    if (s is UIApplication __mua)
+                    {
+                        UI.Copilot.RevitMentionProvider.RefreshCache(__mua);
+                        UI.Copilot.CopilotContextSnapshot.Refresh(__mua);
+                    }
                     var now = System.Diagnostics.Stopwatch.GetTimestamp();
                     double freq = System.Diagnostics.Stopwatch.Frequency;
                     double gapMs = lastIdleTs != 0 ? (now - lastIdleTs) * 1000.0 / freq : 0;
