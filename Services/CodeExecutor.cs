@@ -294,7 +294,7 @@ namespace RevitWebAppSync.Services
                     m => InCommentOrString(snapshot2, m.Index)
                          ? m.Value
                          : "if (" + n + ".Commit() != TransactionStatus.Committed)"
-                         + " throw new InvalidOperationException(\"Changes were not applied - the transaction was rolled back (Revit blocked the edit: shared or locked elements, join conflicts, or warnings escalated to errors).\");");
+                         + " throw new InvalidOperationException(\"Changes were not applied - the transaction was rolled back.\" + __FailHandler.Suffix());");
             }
             return code;
         }
@@ -468,15 +468,25 @@ namespace RevitWebAppSync.Services
             // to the agent.
             sb.AppendLine("        private class __FailHandler : IFailuresPreprocessor");
             sb.AppendLine("        {");
+            sb.AppendLine("            // Real Revit failure texts captured at rollback — surfaced in the");
+            sb.AppendLine("            // thrown message so the user sees e.g. \"Can't keep elements joined\"");
+            sb.AppendLine("            // instead of a generic guess (round-31 CIDB quality finding).");
+            sb.AppendLine("            public static readonly List<string> Errors = new List<string>();");
             sb.AppendLine("            public FailureProcessingResult PreprocessFailures(FailuresAccessor a)");
             sb.AppendLine("            {");
             sb.AppendLine("                bool hasError = false;");
             sb.AppendLine("                foreach (var f in a.GetFailureMessages())");
             sb.AppendLine("                {");
             sb.AppendLine("                    if (f.GetSeverity() == FailureSeverity.Warning) a.DeleteWarning(f);");
-            sb.AppendLine("                    else hasError = true;");
+            sb.AppendLine("                    else { hasError = true; try { var __d = f.GetDescriptionText(); if (!string.IsNullOrWhiteSpace(__d) && !Errors.Contains(__d)) Errors.Add(__d); } catch { } }");
             sb.AppendLine("                }");
             sb.AppendLine("                return hasError ? FailureProcessingResult.ProceedWithRollBack : FailureProcessingResult.Continue;");
+            sb.AppendLine("            }");
+            sb.AppendLine("            public static string Suffix()");
+            sb.AppendLine("            {");
+            sb.AppendLine("                if (Errors.Count == 0) return \"\";");
+            sb.AppendLine("                var take = Errors.Count > 3 ? Errors.GetRange(0, 3) : Errors;");
+            sb.AppendLine("                return \" Revit reported: \" + string.Join(\"; \", take);");
             sb.AppendLine("            }");
             sb.AppendLine("        }");
             sb.AppendLine();
@@ -484,6 +494,7 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("        public object Execute(Document doc, UIDocument uidoc, View activeView)");
             sb.AppendLine("        {");
             sb.AppendLine("            this.doc = doc; this.uidoc = uidoc; this.activeView = activeView;");
+            sb.AppendLine("            __FailHandler.Errors.Clear();");
 
             // Auto-wrap the body in a Transaction (with the silent failure handler)
             // so model edits commit + get a named undo entry on the first attempt.
@@ -539,7 +550,7 @@ namespace RevitWebAppSync.Services
             if (!selfManagesTransaction)
             {
                 sb.AppendLine("                if (__tx.Commit() != TransactionStatus.Committed)");
-                sb.AppendLine("                    throw new InvalidOperationException(\"Changes were not applied — the transaction was rolled back (you may have cancelled, or Revit blocked the edit, e.g. elements inside a group).\");");
+                sb.AppendLine("                    throw new InvalidOperationException(\"Changes were not applied - the transaction was rolled back.\" + __FailHandler.Suffix());");
                 sb.AppendLine("            }");
             }
 
