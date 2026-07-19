@@ -17,6 +17,13 @@
     <LangVersion>latest</LangVersion>
     <!-- API drift guard for the .NET Framework years (#if REVIT2023_24). -->
     <DefineConstants Condition="'$(TargetFramework)' == 'net48'">$(DefineConstants);REVIT2023_24</DefineConstants>
+    <!-- Release channels: Debug embeds .env.local, Staging embeds
+         .env.staging (UAT builds against the staging backend), Release
+         embeds .env.production (fleet, prod backend). BinaConfig.LoadEnv
+         switches on DEBUG / STAGING. -->
+    <Configurations>Debug;Staging;Release</Configurations>
+    <DefineConstants Condition="'$(Configuration)' == 'Staging'">$(DefineConstants);STAGING</DefineConstants>
+    <Optimize Condition="'$(Configuration)' == 'Staging'">true</Optimize>
     <PlatformTarget>x64</PlatformTarget>
     <OutputType>Library</OutputType>
     <AssemblyName>RevitWebAppSync</AssemblyName>
@@ -93,6 +100,7 @@
          on Release via #if DEBUG. LogicalName keeps the leading-dot filename
          from mangling the manifest resource name. -->
     <EmbeddedResource Include=".env.local" LogicalName="env.local" />
+    <EmbeddedResource Include=".env.staging" LogicalName="env.staging" />
     <EmbeddedResource Include=".env.production" LogicalName="env.production" />
 
     <EmbeddedResource Include="Resources\revitSync.png" />

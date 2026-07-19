@@ -26,6 +26,7 @@
     <Compile Include="..\UI\Jkr\JkrTheme.cs" Link="JkrTheme.cs" />
     <Compile Include="..\Services\JkrCodeParser.cs" Link="JkrCodeParser.cs" />
     <Compile Include="..\Services\AiUrl.cs" Link="AiUrl.cs" />
+    <Compile Include="..\Services\UrlResolution.cs" Link="UrlResolution.cs" />
     <Compile Include="..\Services\TelemetryEvent.cs" Link="TelemetryEvent.cs" />
     <Compile Include="..\Services\AIServiceStreamParser.cs" Link="AIServiceStreamParser.cs" />
     <!-- ToolLabels: single tool-name -> readable-label map, used by the parser's

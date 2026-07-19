@@ -55,7 +55,7 @@ namespace RevitWebAppSync
                     // Never re-mints on every click while a healthy token exists,
                     // and never after a logout (that access token is being discarded).
                     if (!loggedOut &&
-                        !string.IsNullOrEmpty(config.GatewayUrl) &&
+                        !string.IsNullOrEmpty(config.ResolvedGatewayUrl) &&
                         DeviceTokenMissingOrExpiring(config))
                     {
                         _ = MintDeviceTokenAndRestartEngineAsync(config.AccessToken);
@@ -173,7 +173,7 @@ namespace RevitWebAppSync
         private static async Task MintDeviceTokenAndRestartEngineAsync(string accessToken)
         {
             var cfg = BinaConfig.Load();
-            if (string.IsNullOrEmpty(cfg.GatewayUrl))
+            if (string.IsNullOrEmpty(cfg.ResolvedGatewayUrl))
             {
                 System.Diagnostics.Debug.WriteLine(
                     "[BINA] GatewayUrl not configured — skipping engine device-token mint.");
@@ -186,7 +186,7 @@ namespace RevitWebAppSync
                 http.DefaultRequestHeaders.Authorization =
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
                 var resp = await http.PostAsync(
-                    cfg.GatewayUrl.TrimEnd('/') + "/auth/device-token", null).ConfigureAwait(false);
+                    cfg.ResolvedGatewayUrl + "/auth/device-token", null).ConfigureAwait(false);
                 if (resp.IsSuccessStatusCode)
                 {
                     var j = Newtonsoft.Json.Linq.JObject.Parse(
