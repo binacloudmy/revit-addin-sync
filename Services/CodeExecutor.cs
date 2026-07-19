@@ -651,16 +651,8 @@ namespace RevitWebAppSync.Services
         }
     }
 
-    public class ExecutionResult
-    {
-        public bool Success { get; set; }
-        public string Message { get; set; }
-        public string Error { get; set; }
-
-        /// <summary>JSON of the snippet's structured return value (real model data), when it
-        /// returned an object/array rather than a status string. Drives the Copilot result card.</summary>
-        public string Data { get; set; }
-    }
+    // ExecutionResult lives in ExecutionResult.cs — it is a dependency-free DTO,
+    // and this file pulls in Revit + Roslyn, which the unit tests can't reference.
 
     public class CompilationException : Exception
     {

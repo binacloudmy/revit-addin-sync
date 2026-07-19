@@ -13,6 +13,13 @@
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!--
+      Reference-only Revit API, version-matched to this project's TFM the same
+      way RevitWebAppSync.csproj matches its own (2027.* -> net10). Needed by
+      the DocumentChangedIndexer source link below, which pulls in
+      Autodesk.Revit.DB. From NuGet, so it builds with no local Revit install.
+    -->
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.*" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,6 +36,11 @@
     <Compile Include="..\Services\UrlResolution.cs" Link="UrlResolution.cs" />
     <Compile Include="..\Services\TelemetryEvent.cs" Link="TelemetryEvent.cs" />
     <Compile Include="..\Services\AIServiceStreamParser.cs" Link="AIServiceStreamParser.cs" />
+    <!-- SelfHeal: pure retry policy (using System only). ExecutionResult is its
+         return type — a dependency-free DTO split out of CodeExecutor.cs, which
+         can't be linked here because it references Revit + Roslyn. -->
+    <Compile Include="..\Services\SelfHeal.cs" Link="SelfHeal.cs" />
+    <Compile Include="..\Services\ExecutionResult.cs" Link="ExecutionResult.cs" />
     <!-- ToolLabels: single tool-name -> readable-label map, used by the parser's
          tool-event fallback (and ToolLoopRunner). Pure (Dictionary + System.Text.Json). -->
     <Compile Include="..\Services\ToolLabels.cs" Link="ToolLabels.cs" />
