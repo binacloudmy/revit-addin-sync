@@ -146,7 +146,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             CloseSlash();
 
-            if (at < 0) { ClosePicker(); return; }
+            // caret must sit STRICTLY AFTER the "@" or the query length below
+            // goes negative. Root cause of the rounds-29..34 Revit crash: the
+            // @-button sets Editor.Text programmatically, TextChanged fires
+            // with the caret reset to 0, at==caret==0 → Substring(1, -1) →
+            // ArgumentOutOfRangeException escaping a WPF handler killed the
+            // process (stack finally captured round 34 via panel-debug.log).
+            if (at < 0 || at >= caret) { ClosePicker(); return; }
 
             string query = text.Substring(at + 1, caret - at - 1);
             if (query.Contains(' ') || query.Contains('\n')) { ClosePicker(); return; }
@@ -188,6 +194,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         /// <summary>Close the palette from the host (scrim click-outside).</summary>
         public void CloseSlashExternal() => CloseSlash();
+
+        /// <summary>Re-run token detection after the host mutates Text/caret
+        /// programmatically (the @-button sets Text then CaretIndex; TextChanged
+        /// fired between the two with a stale caret, so the picker never opened
+        /// for the button path — round-34 UX note).</summary>
+        public void RefreshTokenDetection() => DetectToken();
 
         // Picked from the palette (click or Enter): strip the "/query" from the
         // editor, close, and hand the tool up to the PromptBar for the chip.

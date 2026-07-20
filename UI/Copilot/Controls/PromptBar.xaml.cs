@@ -1,3 +1,4 @@
+using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -106,6 +107,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     Input.Editor.CaretIndex = Input.Editor.Text.Length;
                     log("caret-ok");
                     Input.Editor.Focus();
+                    // TextChanged already fired with the caret still at 0, so
+                    // DetectToken bailed; re-run it now that the caret is after
+                    // the "@" — this is what actually opens the picker.
+                    Input.RefreshTokenDetection();
                     log("done");
                 }
                 catch (Exception ex)
