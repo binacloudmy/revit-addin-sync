@@ -41,10 +41,19 @@ namespace UiHarness
             // Applied command card (+ rating nudge)
             Shot(dir, "copilot-applied.png", dark: false, configure: p => { SeedThread(p, applied: true); return 500; });
 
-            // Footer meter ramp
-            Shot(dir, "copilot-meter-22.png", dark: false, configure: p => SetUsage(p, 22));
-            Shot(dir, "copilot-meter-88.png", dark: false, configure: p => SetUsage(p, 88));
-            Shot(dir, "copilot-meter-97.png", dark: false, configure: p => SetUsage(p, 97));
+            // Footer plan-name button + severity dot (no full-width meter):
+            // Free 20% (no dot) · Free 88% (amber) · Free 96% (red) · Pro 30% (no dot).
+            foreach (var dark in new[] { false, true })
+            {
+                string s = dark ? "-dark" : "";
+                Shot(dir, $"copilot-usage-free-20{s}.png", dark, configure: p => SetUsage(p, 20));
+                Shot(dir, $"copilot-usage-free-88{s}.png", dark, configure: p => SetUsage(p, 88));
+                Shot(dir, $"copilot-usage-free-96{s}.png", dark, configure: p => SetUsage(p, 96));
+                Shot(dir, $"copilot-usage-pro-30{s}.png", dark, configure: p => SetUsage(p, 30, plan: "Pro"));
+                // Usage popover (Free 88%) — a WPF Popup lives in its own window,
+                // so render its card visual directly rather than the panel frame.
+                PopoverShot(dir, $"copilot-usage-popover{s}.png", dark);
+            }
 
             // Usage-limit blocked states
             Shot(dir, "copilot-blocked-admin.png", dark: false,
@@ -58,11 +67,56 @@ namespace UiHarness
         }
 
         // Inject a stub usage snapshot and refresh; returns extra settle time.
-        private static int SetUsage(CopilotPanel panel, int pct, bool atLimit = false, bool isAdmin = true)
+        private static int SetUsage(CopilotPanel panel, int pct, bool atLimit = false, bool isAdmin = true, string plan = "Free")
         {
-            panel.ViewModel.UsageService = new StubUsageService("Free", pct, atLimit, isAdmin);
+            panel.ViewModel.UsageService = new StubUsageService(plan, pct, atLimit, isAdmin);
             _ = panel.ViewModel.RefreshUsageAsync();
             return 400;
+        }
+
+        // Render the usage popover card. The Popup is hosted in its own top-level
+        // window, so a RenderTargetBitmap of the panel frame never contains it —
+        // instead open it and render its Child visual directly.
+        private static void PopoverShot(string dir, string file, bool dark)
+        {
+            CopilotTheme.SetDark(dark);
+            var panel = new CopilotPanel();
+            var frame = new Frame { Content = panel };
+            var win = new Window
+            {
+                Width = 430, Height = 860, Content = frame,
+                WindowStyle = WindowStyle.None, ShowInTaskbar = false,
+                Left = -4000, Top = -4000, ResizeMode = ResizeMode.NoResize,
+            };
+            win.Show();
+            Settle(250);
+            SetUsage(panel, 88);
+            Settle(400);
+
+            var prompt = FindDescendant<RevitWebAppSync.UI.Copilot.Controls.PromptBar>(panel);
+            var popup = prompt?.FindName("UsagePopup") as System.Windows.Controls.Primitives.Popup;
+            if (popup != null)
+            {
+                popup.IsOpen = true;
+                Settle(350);
+                if (popup.Child is FrameworkElement card) Save(card, Path.Combine(dir, file));
+                popup.IsOpen = false;
+            }
+            win.Close();
+        }
+
+        private static T FindDescendant<T>(DependencyObject root) where T : DependencyObject
+        {
+            if (root == null) return null;
+            int n = System.Windows.Media.VisualTreeHelper.GetChildrenCount(root);
+            for (int i = 0; i < n; i++)
+            {
+                var child = System.Windows.Media.VisualTreeHelper.GetChild(root, i);
+                if (child is T hit) return hit;
+                var deep = FindDescendant<T>(child);
+                if (deep != null) return deep;
+            }
+            return null;
         }
 
         private static int SeedThread(CopilotPanel panel, bool applied)

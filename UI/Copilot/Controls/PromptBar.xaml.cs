@@ -106,7 +106,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 };
                 if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
             };
-            MeterBtn.Click += (_, __) =>
+            PlanBtn.Click += (_, __) =>
             {
                 UsagePopup.IsOpen = !UsagePopup.IsOpen;
                 UsageMeterClicked?.Invoke();
@@ -178,11 +178,46 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Raised by the popover's "Upgrade plan" button; host opens the upgrade sheet.</summary>
         public event System.Action UpgradeRequested;
 
-        /// <summary>Usage meter removed from the composer footer. Kept as a no-op
-        /// so existing callers still compile; the meter row stays hidden.</summary>
+        private CopilotViewModel _usageVm;
+
+        /// <summary>Wire the footer plan-name button + usage popover to the VM's
+        /// live usage snapshot. The full-width meter is gone; this renders the
+        /// plan label, the severity dot (amber ≥80, red ≥95, hidden below 80) and
+        /// the popover's bar / %. Re-renders on every UsageChanged.</summary>
         public void BindUsage(CopilotViewModel vm)
         {
-            MeterBtn.Visibility = Visibility.Collapsed;
+            if (_usageVm != null) _usageVm.UsageChanged -= OnUsageChanged;
+            _usageVm = vm;
+            if (_usageVm != null) _usageVm.UsageChanged += OnUsageChanged;
+            RenderUsage(vm?.Usage);
+        }
+
+        private void OnUsageChanged()
+        {
+            if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke((System.Action)OnUsageChanged); return; }
+            RenderUsage(_usageVm?.Usage);
+        }
+
+        private void RenderUsage(Model.UsageState u)
+        {
+            u = u ?? new Model.UsageState();
+            int pct = System.Math.Max(0, System.Math.Min(100, u.Pct));
+
+            // Footer plan-name button: live label + severity dot.
+            PlanLabel.Text = u.PlanName;
+            if (pct >= 80)
+            {
+                PlanDot.Visibility = Visibility.Visible;
+                PlanDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, pct >= 95 ? "Cp.Red" : "Cp.Amber");
+            }
+            else PlanDot.Visibility = Visibility.Collapsed;
+
+            // Usage popover: plan, % used, and the fill bar (severity colour).
+            PopPlan.Text = u.PlanName;
+            PopPctUsed.Text = pct + "%";
+            PopFillCol.Width = new System.Windows.GridLength(pct, System.Windows.GridUnitType.Star);
+            PopRestCol.Width = new System.Windows.GridLength(100 - pct, System.Windows.GridUnitType.Star);
+            PopFill.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, Model.UsageState.MeterColorKey(pct));
         }
 
         // ─── Pasted screenshots (pending, sent with the next prompt) ─────────

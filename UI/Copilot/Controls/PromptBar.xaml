@@ -77,50 +77,54 @@
                     <ctl:MentionInput x:Name="Input" VerticalAlignment="Center" Margin="0,0,8,0"/>
                 </DockPanel>
             </Border>
-            <!-- Footer usage meter (design: plan name · progress track · pct).
-                 Bound to CopilotViewModel.Usage via BindUsage(); click opens the
-                 usage popover (UsageMeterClicked). -->
-            <Button x:Name="MeterBtn" Visibility="Collapsed" Cursor="Hand"
-                    Background="Transparent" BorderThickness="0" Padding="0"
-                    FocusVisualStyle="{x:Null}"
-                    HorizontalContentAlignment="Stretch" ToolTip="Plan usage">
-                <Button.Template>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="bd" Background="Transparent">
-                            <ContentPresenter/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bd" Property="Opacity" Value="0.82"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Button.Template>
-                <Grid Margin="4,9,4,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock x:Name="MeterPlan" Grid.Column="0" FontSize="10.5" FontWeight="SemiBold"
-                               Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
-                    <Border Grid.Column="1" Height="4" CornerRadius="2" Margin="9,0,9,0"
-                            Background="{DynamicResource Cp.Line}" VerticalAlignment="Center" ClipToBounds="True">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition x:Name="MeterFillCol" Width="88*"/>
-                                <ColumnDefinition x:Name="MeterRestCol" Width="12*"/>
-                            </Grid.ColumnDefinitions>
-                            <Border x:Name="MeterFill" Grid.Column="0" CornerRadius="2"/>
-                        </Grid>
-                    </Border>
-                    <TextBlock x:Name="MeterPct" Grid.Column="2" FontSize="10.5" FontWeight="Bold"
-                               Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
-                </Grid>
-            </Button>
-            <!-- Usage popover: plan, bar, Upgrade plan (design lines 536-548) -->
-            <Popup x:Name="UsagePopup" PlacementTarget="{Binding ElementName=MeterBtn}" Placement="Top"
-                   VerticalOffset="-8" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+            <!-- Footer: hint (left, truncates) + plan-name button (right).
+                 The full-width usage meter row was removed; the plan name is now
+                 the only ambient usage affordance. A severity dot (amber ≥80, red
+                 ≥95, none below 80) sits left of the label; clicking the label
+                 opens the usage popover. All bound via BindUsage(). -->
+            <Grid Margin="0,8,0,1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <!-- Single line; truncates with ellipsis on narrow widths so it
+                     always yields to the plan button on the right. -->
+                <TextBlock x:Name="PlaceholderHint" Grid.Column="0" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" Margin="2,0,8,0"
+                           FontSize="10" Foreground="{DynamicResource Cp.Faint}">
+                    <Run Text="Type "/><Run Text="/" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" for tools · "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to reference a level, view or selection"/>
+                </TextBlock>
+                <!-- Plan-name button: muted text (same size as the hint), subtle
+                     hover. Label is the live plan name — never hardcoded. -->
+                <Button x:Name="PlanBtn" Grid.Column="1" Cursor="Hand" Padding="6,2,6,2"
+                        Background="Transparent" BorderThickness="0" FocusVisualStyle="{x:Null}"
+                        ToolTip="Plan usage">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="Transparent" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Ellipse x:Name="PlanDot" Width="6" Height="6" Margin="0,0,5,0"
+                                 VerticalAlignment="Center" Visibility="Collapsed"/>
+                        <TextBlock x:Name="PlanLabel" FontSize="10" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+            </Grid>
+            <!-- Usage popover: plan, bar, Upgrade plan — anchored above the
+                 plan-name button. Populated by BindUsage(); StaysOpen=False so a
+                 click-outside / Esc closes it. HorizontalOffset pulls the wider
+                 card left so it stays on-panel under the right-aligned button. -->
+            <Popup x:Name="UsagePopup" PlacementTarget="{Binding ElementName=PlanBtn}" Placement="Top"
+                   VerticalOffset="-8" HorizontalOffset="-188" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
                 <Border Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}"
                         BorderThickness="1" CornerRadius="13" Padding="15,15,15,14" MinWidth="228" Margin="8">
                     <Border.Effect>
@@ -169,10 +173,6 @@
                     </StackPanel>
                 </Border>
             </Popup>
-            <TextBlock x:Name="PlaceholderHint" HorizontalAlignment="Center" Margin="0,8,0,1"
-                       FontSize="10" Foreground="{DynamicResource Cp.Faint}">
-                <Run Text="Type "/><Run Text="/" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" for tools · "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to reference a level, view or selection"/>
-            </TextBlock>
         </StackPanel>
     </Border>
 </UserControl>
