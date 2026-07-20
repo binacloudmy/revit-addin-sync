@@ -478,6 +478,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // there is deliberately no Thinking case here, so the panel can
                 // never render a second loading indicator for one message.
                 case CpMsgKind.Clarify: col.Children.Add(ClarifyCard(m)); break;
+                case CpMsgKind.ConfirmActions: col.Children.Add(ConfirmActionsCard(m)); break;
                 case CpMsgKind.Proposal: col.Children.Add(ProposalCard(m)); break;
                 case CpMsgKind.Running: col.Children.Add(RunningBar(m)); break;
                 case CpMsgKind.Result:
@@ -1055,6 +1056,103 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var foot = new Border { Background = CopilotColors.From("#f3f6f9"), CornerRadius = new CornerRadius(7), Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 5, 0, 0) };
             foot.Child = new TextBlock { Text = "Or just rephrase your question with more detail.", FontSize = 11, Foreground = CopilotColors.From("#586273"), TextWrapping = TextWrapping.Wrap };
             body.Children.Add(foot);
+            sp.Children.Add(body);
+            outer.Child = sp;
+            return outer;
+        }
+
+        // ─── Mutate-confirmation (Ya/Tidak) card ─────────────────────────────
+        // The tool loop parked on a pending MUTATE batch; this card lists the
+        // proposed actions (friendly ToolLabels lines) and gates them behind
+        // [✓ Ya, teruskan] / [Tidak]. Chrome cloned from ClarifyCard, amber
+        // warning header instead of the clarify violet. Buttons render only
+        // while unresolved AND on the newest card (no dead buttons on a
+        // superseded turn); a resolved card keeps the action list as the
+        // audit trail of what was proposed.
+        private bool IsLastActionable(ChatMessage m)
+        {
+            if (Vm == null) return false;
+            for (int i = Vm.Thread.Count - 1; i >= 0; i--)
+            {
+                if (Vm.Thread[i].Kind == CpMsgKind.ConfirmActions)
+                    return ReferenceEquals(Vm.Thread[i], m);
+            }
+            return false;
+        }
+
+        private FrameworkElement ConfirmActionsCard(ChatMessage m)
+        {
+            var outer = new Border { CornerRadius = new CornerRadius(12), BorderBrush = CopilotColors.From("#140F1B2D"), BorderThickness = new Thickness(1), Background = CopilotColors.From("#ffffff"), Margin = new Thickness(0, 4, 0, 0) };
+            var sp = new StackPanel();
+
+            var head = new Border { Padding = new Thickness(12, 10, 12, 10), BorderBrush = CopilotColors.From("#140F1B2D"), BorderThickness = new Thickness(0, 0, 0, 1), CornerRadius = new CornerRadius(12, 12, 0, 0) };
+            var hg = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+            hg.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#fffbeb"), 0));
+            hg.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#fef3c7"), 1));
+            head.Background = hg;
+            head.Child = new TextBlock { Text = "Sahkan tindakan", FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#92400e"), VerticalAlignment = VerticalAlignment.Center };
+            sp.Children.Add(head);
+
+            var body = new StackPanel { Margin = new Thickness(12, 10, 12, 12) };
+            body.Children.Add(new TextBlock
+            {
+                Text = "Copilot ingin melakukan tindakan berikut pada model:",
+                FontSize = 12.5, Foreground = CopilotColors.From("#131c2b"),
+                TextWrapping = TextWrapping.Wrap, LineHeight = 18, Margin = new Thickness(0, 0, 0, 8),
+            });
+            foreach (var label in m.ActionLabels ?? new System.Collections.Generic.List<string>())
+            {
+                body.Children.Add(new TextBlock
+                {
+                    Text = "•  " + label,
+                    FontSize = 12, Foreground = CopilotColors.From("#131c2b"),
+                    TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 0, 0, 4),
+                });
+            }
+
+            if (!m.ActionsResolved && IsLastActionable(m))
+            {
+                // Same chrome as TindakanRow: accent Ya + bordered Tidak.
+                var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+
+                var yes = new Button
+                {
+                    Padding = new Thickness(12, 6, 12, 6),
+                    BorderThickness = new Thickness(0),
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                };
+                yes.SetResourceReference(BackgroundProperty, "Cp.AccentGrad");
+                var yesBorder = new FrameworkElementFactory(typeof(Border));
+                yesBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(7));
+                yesBorder.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(BackgroundProperty));
+                yesBorder.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+                var yesCp = new FrameworkElementFactory(typeof(ContentPresenter));
+                yesBorder.AppendChild(yesCp);
+                yes.Template = new ControlTemplate(typeof(Button)) { VisualTree = yesBorder };
+                var yesLabel = new TextBlock { Text = "✓ Ya, teruskan", FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+                yesLabel.SetResourceReference(TextBlock.ForegroundProperty, "Cp.AccentContrast");
+                yes.Content = yesLabel;
+                yes.Click += (_, __) => Vm?.AcceptActions(m);
+                row.Children.Add(yes);
+
+                var no = new Button
+                {
+                    Content = "Tidak",
+                    FontSize = 11.5, FontWeight = FontWeights.Medium,
+                    Padding = new Thickness(12, 6, 12, 6),
+                    BorderThickness = new Thickness(1),
+                    Margin = new Thickness(8, 0, 0, 0),
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                };
+                no.SetResourceReference(Control.ForegroundProperty, "Cp.Muted");
+                no.SetResourceReference(Button.BorderBrushProperty, "Cp.Muted");
+                FlatButton.Apply(no, 7, withBorder: true);
+                no.Click += (_, __) => Vm?.DeclineActions(m);
+                row.Children.Add(no);
+
+                body.Children.Add(row);
+            }
+
             sp.Children.Add(body);
             outer.Child = sp;
             return outer;

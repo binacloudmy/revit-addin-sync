@@ -115,6 +115,21 @@ namespace RevitWebAppSync.UI.Copilot
         }
         private PendingHitl _pendingHitl;
 
+        // Mutate-confirmation pause carried between turns: the loop parked on a
+        // pending MUTATE batch and the pane is showing the Ya/Tidak card. Ya/Tidak
+        // resolves via ResolvePendingActionsAsync; a NEW user message instead
+        // auto-rejects the stale batch in the background (the paused run must be
+        // resumed so session history stays coherent) and routes normally.
+        private sealed class PendingConfirm
+        {
+            public string RunId;
+            public string SessionId;
+            public List<PendingToolCall> Pending;
+            public string Narration;
+            public IReadOnlyList<ProgressStep> Steps;
+        }
+        private PendingConfirm _pendingConfirm;
+
         /// <summary>True while a /generate/stream request is in flight — lets
         /// the pane show/enable the Cancel button only when there's something
         /// to cancel.</summary>
@@ -178,6 +193,31 @@ namespace RevitWebAppSync.UI.Copilot
                     ToolId = "ai-generated",
                     NeedsClarification = true,
                     ClarifyingQuestion = ComposeClarifyQuestion(outcome),
+                    IsQuery = true,
+                    Steps = outcome.Steps,
+                };
+            }
+            if (outcome.AwaitingConfirmation)
+            {
+                _pendingConfirm = new PendingConfirm
+                {
+                    RunId = outcome.RunId,
+                    SessionId = outcome.SessionId,
+                    Pending = outcome.PendingActions,
+                    Narration = outcome.NarrationSoFar,
+                    Steps = outcome.Steps,
+                };
+                var labels = new List<string>();
+                foreach (var c in outcome.PendingActions ?? new List<PendingToolCall>())
+                    labels.Add(ToolLabels.Label(c.Tool, c.Args));
+                return new RouteResult
+                {
+                    ToolId = "ai-generated",
+                    NeedsActionConfirmation = true,
+                    ActionLabels = labels,
+                    // Whatever the agent narrated before pausing (may be empty —
+                    // the card carries the action list either way).
+                    Reply = outcome.Reply ?? "",
                     IsQuery = true,
                     Steps = outcome.Steps,
                 };
@@ -249,6 +289,54 @@ namespace RevitWebAppSync.UI.Copilot
             return new List<ProgressStep>(trail);
         }
 
+        /// <summary>Resolve the parked mutate-confirmation card. Ya (approve=true)
+        /// executes the batch in Revit and keeps driving the loop; Tidak resumes
+        /// the run with rejected results so the agent acknowledges. Returns the
+        /// follow-on RouteResult (done / another confirm card / clarify), or null
+        /// when no confirmation is pending (double-click, stale card).</summary>
+        public async Task<RouteResult> ResolvePendingActionsAsync(bool approve)
+        {
+            var pc = _pendingConfirm;
+            if (pc == null) return null;
+            _pendingConfirm = null;
+
+            var cfg = BinaConfig.Load();
+            var token = cfg?.AccessToken ?? "";
+            EmitProgress(approve ? "Menjalankan tindakan…" : "Thinking…");
+            CancellationTokenSource ccts = new CancellationTokenSource();
+            lock (_cancelLock)
+            {
+                try { _streamCts?.Dispose(); } catch { }
+                _streamCts = ccts;
+            }
+            ToolLoopOutcome co = null;
+            bool ccanceled = false;
+            try
+            {
+                co = await _toolLoop.ResumeWithConfirmationAsync(
+                    pc.RunId, pc.SessionId, pc.Pending, approve, pc.Narration, pc.Steps,
+                    token, EmitProgress, ccts.Token,
+                    onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
+                    onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } }
+                    ).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { ccanceled = true; }
+            catch (Exception ex) { co = new ToolLoopOutcome { Success = false, Error = ex.Message }; }
+            finally
+            {
+                if (ccts.IsCancellationRequested) ccanceled = true;
+                ClearProgress();
+                lock (_cancelLock)
+                {
+                    if (ReferenceEquals(_streamCts, ccts)) _streamCts = null;
+                }
+                try { ccts.Dispose(); } catch { }
+            }
+            if (ccanceled)
+                return new RouteResult { ToolId = "ai-generated", Reply = "Interrupted.", IsQuery = true, Interrupted = true };
+            return ToolOutcomeToRoute(co);
+        }
+
         public async Task<RouteResult> RouteAsync(string message, string fallbackToolId)
         {
             // Phase timing — pinpoint where post-send wall-clock goes. Correlate
@@ -269,6 +357,28 @@ namespace RevitWebAppSync.UI.Copilot
             // never leak into the next route).
             var images = PendingImages;
             PendingImages = null;
+
+            // ─── Stale mutate-confirmation ───────────────────────────────────
+            // The user typed a NEW message instead of answering the Ya/Tidak
+            // card. Auto-reject the parked batch in the background (fire-and-
+            // forget, outcome discarded) so the paused run resumes and the
+            // session history the next turn reads is complete — then route the
+            // new message normally. The VM kills the stale card's buttons.
+            var staleConfirm = _pendingConfirm;
+            if (staleConfirm != null)
+            {
+                _pendingConfirm = null;
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _toolLoop.ResumeWithConfirmationAsync(
+                            staleConfirm.RunId, staleConfirm.SessionId, staleConfirm.Pending,
+                            approve: false, staleConfirm.Narration, null, token).ConfigureAwait(false);
+                    }
+                    catch { /* best-effort: abandoned batch, agent reply discarded */ }
+                });
+            }
 
             // ─── HITL clarify continuation ───────────────────────────────────
             // The previous turn paused on get_user_input — THIS message is the

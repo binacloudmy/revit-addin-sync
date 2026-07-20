@@ -47,6 +47,16 @@ namespace RevitWebAppSync.Services
         public string RunId { get; set; }
         public string SessionId { get; set; }
         public List<ClarifyRequirement> Clarify { get; set; }
+        // Mutate-confirmation pause: the pending batch would MODIFY the model,
+        // so the loop parks BEFORE executing and the pane renders the Ya/Tidak
+        // card. Re-enter via ResumeWithConfirmationAsync (approve executes the
+        // batch and keeps driving; decline resumes the run with rejected
+        // results so the agent acknowledges without retrying).
+        public bool AwaitingConfirmation { get; set; }
+        public List<PendingToolCall> PendingActions { get; set; }
+        // Completed-rounds narration carried across the confirm pause so the
+        // resumed loop keeps streaming ONE growing bubble.
+        public string NarrationSoFar { get; set; } = "";
     }
 
     public sealed class ToolLoopRunner
@@ -153,18 +163,82 @@ namespace RevitWebAppSync.Services
             return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply, narration, trail, ct, onSteps).ConfigureAwait(false);
         }
 
+        /// <summary>Re-enter the loop after a mutate-confirmation (Ya/Tidak) pause.
+        ///
+        /// Approve: rebuild the parked turn and drive it with the gate pre-approved —
+        /// the batch executes in Revit and the normal execute/resume ping-pong
+        /// continues (later mutate batches gate again).
+        /// Decline: POST /tool/resume with a rejected result per pending call
+        /// (ok=true + status "rejected" — a user decision, not an error) so the
+        /// agent acknowledges instead of retrying, then keep driving its
+        /// acknowledgement turn (which could itself pause again).</summary>
+        public async Task<ToolLoopOutcome> ResumeWithConfirmationAsync(
+            string runId, string sessionId, IReadOnlyList<PendingToolCall> pending, bool approve,
+            string narrationSoFar, IReadOnlyList<ProgressStep> priorSteps,
+            string accessToken, Action<string> onProgress = null,
+            CancellationToken ct = default, Action<string> onReply = null,
+            Action<IReadOnlyList<ProgressStep>> onSteps = null)
+        {
+            // Reconstitute the one-bubble/trail state carried across the pause so
+            // the resumed rounds keep appending to the SAME answer and step trail.
+            var trail = priorSteps != null
+                ? new ObservableCollection<ProgressStep>(priorSteps)
+                : new ObservableCollection<ProgressStep>();
+            var narration = new System.Text.StringBuilder(narrationSoFar ?? "");
+            var calls = pending != null ? new List<PendingToolCall>(pending) : new List<PendingToolCall>();
+
+            if (approve)
+            {
+                // Synthetic awaiting_revit turn: DriveAsync's execute loop runs the
+                // approved batch exactly as if the pause never surfaced. Reply is
+                // empty — the pre-pause narration is already in `narration`.
+                var turn = new ToolTurn
+                {
+                    Status = "awaiting_revit",
+                    RunId = runId,
+                    SessionId = sessionId,
+                    Pending = calls,
+                };
+                return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply,
+                                        narration, trail, ct, onSteps, firstBatchApproved: true)
+                             .ConfigureAwait(false);
+            }
+
+            var wrapped = Wrap(onReply, narration);
+            var results = new List<ToolResultDto>(calls.Count);
+            foreach (var call in calls) results.Add(ConfirmGate.Rejected(call));
+            ToolTurn resumed;
+            try
+            {
+                resumed = await _svc.ResumeStreamAsync(runId, sessionId, results,
+                                                       accessToken, onProgress, trail, wrapped, ct, onSteps)
+                                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                return new ToolLoopOutcome { Success = false, Error = $"tool/resume failed: {ex.Message}" };
+            }
+            return await DriveAsync(resumed, sessionId, accessToken, onProgress, onReply,
+                                    narration, trail, ct, onSteps).ConfigureAwait(false);
+        }
+
         // Shared execute/resume driver: takes the latest turn and loops until
-        // done / clarify pause / error / round cap.
+        // done / clarify pause / confirm pause / error / round cap.
+        // `firstBatchApproved` is true only on re-entry from an approved
+        // Ya/Tidak card: the just-approved batch executes without re-gating,
+        // then the gate re-arms so every LATER mutate batch gets its own card.
         private async Task<ToolLoopOutcome> DriveAsync(
             ToolTurn turn, string sessionFallback, string accessToken,
             Action<string> onProgress, Action<string> onReply,
             System.Text.StringBuilder narration,
             ObservableCollection<ProgressStep> trail, CancellationToken ct,
-            Action<IReadOnlyList<ProgressStep>> onSteps = null)
+            Action<IReadOnlyList<ProgressStep>> onSteps = null,
+            bool firstBatchApproved = false)
         {
             var wrapped = Wrap(onReply, narration);
             var outcome = new ToolLoopOutcome();
             var turnWatch = System.Diagnostics.Stopwatch.StartNew();
+            bool approvedOnce = firstBatchApproved;
 
             for (int round = 0; round < MaxRounds; round++)
             {
@@ -243,6 +317,28 @@ namespace RevitWebAppSync.Services
                 // resume, so the next round streams as ONE growing bubble (this round's
                 // completed line + the next round's live text).
                 AppendRound(narration, turn.Reply);
+
+                // Mutate-confirmation gate: the batch would MODIFY the model, so
+                // park the loop BEFORE executing anything and hand the pending
+                // calls up to the pane for the Ya/Tidak card. The pane re-enters
+                // via ResumeWithConfirmationAsync. (Skipped exactly once when
+                // re-entering with an already-approved batch.)
+                if (!approvedOnce && ConfirmGate.RequiresConfirmation(turn.Pending))
+                {
+                    outcome.AwaitingConfirmation = true;
+                    outcome.RunId = turn.RunId;
+                    outcome.SessionId = string.IsNullOrEmpty(turn.SessionId) ? sessionFallback : turn.SessionId;
+                    outcome.PendingActions = new List<PendingToolCall>(turn.Pending);
+                    outcome.Reply = narration.ToString();
+                    outcome.NarrationSoFar = narration.ToString();
+                    ProgressReducer.CompleteRunning(trail);
+                    // Push the finalized trail so a live view never keeps showing
+                    // a ▶ row while the loop is parked waiting for the user.
+                    try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
+                    outcome.Steps = new List<ProgressStep>(trail);
+                    return outcome;
+                }
+                approvedOnce = false;   // gate re-arms for every subsequent round
 
                 // Execute each pending tool in Revit, collect results. Each ticks
                 // the SAME trail: a ▶ row on start (keyed by tool_call_id, which

@@ -18,6 +18,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Tindakan;          // one-tap "next step" offer parsed from the reply; empty = no offer
         public RevitWebAppSync.Models.ReviewerVerdict Verdict;
         public bool Interrupted;         // user hit Stop — renders as the italic "Interrupted." line
+        public bool NeedsActionConfirmation;  // pending MUTATE batch parked behind the Ya/Tidak card
+        public List<string> ActionLabels;     // friendly per-action lines for the confirmation card
     }
 
     /// <summary>
