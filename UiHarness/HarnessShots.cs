@@ -53,6 +53,9 @@ namespace UiHarness
                 // Usage popover (Free 88%) — a WPF Popup lives in its own window,
                 // so render its card visual directly rather than the panel frame.
                 PopoverShot(dir, $"copilot-usage-popover{s}.png", dark);
+                // Kebab menu (Rate · Report · WhatsApp · divider · Version) — also
+                // a Popup, so render its card directly.
+                KebabShot(dir, $"copilot-kebab{s}.png", dark);
             }
 
             // Usage-limit blocked states
@@ -95,6 +98,33 @@ namespace UiHarness
 
             var prompt = FindDescendant<RevitWebAppSync.UI.Copilot.Controls.PromptBar>(panel);
             var popup = prompt?.FindName("UsagePopup") as System.Windows.Controls.Primitives.Popup;
+            if (popup != null)
+            {
+                popup.IsOpen = true;
+                Settle(350);
+                if (popup.Child is FrameworkElement card) Save(card, Path.Combine(dir, file));
+                popup.IsOpen = false;
+            }
+            win.Close();
+        }
+
+        // Render the kebab (⋮) menu card. Like the usage popover it is a Popup in
+        // its own window, so open it and render its Child visual directly.
+        private static void KebabShot(string dir, string file, bool dark)
+        {
+            CopilotTheme.SetDark(dark);
+            var panel = new CopilotPanel();
+            var frame = new Frame { Content = panel };
+            var win = new Window
+            {
+                Width = 430, Height = 860, Content = frame,
+                WindowStyle = WindowStyle.None, ShowInTaskbar = false,
+                Left = -4000, Top = -4000, ResizeMode = ResizeMode.NoResize,
+            };
+            win.Show();
+            Settle(250);
+
+            var popup = panel.FindName("MenuPopup") as System.Windows.Controls.Primitives.Popup;
             if (popup != null)
             {
                 popup.IsOpen = true;

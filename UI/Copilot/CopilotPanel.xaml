@@ -141,6 +141,14 @@
                                     <TextBlock Text="Get help on WhatsApp" VerticalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
+                            <!-- Hairline divider + version line. Non-interactive:
+                                 IsHitTestVisible/Focusable off, so no hover, no
+                                 focus, cursor stays default. Text is set in code
+                                 from AppInfo (never hardcoded). -->
+                            <Border Height="1" Background="{DynamicResource Cp.Line}" Margin="5,6,5,0"/>
+                            <TextBlock x:Name="VersionLine" Margin="12,8,12,3" FontSize="10.5"
+                                       Foreground="{DynamicResource Cp.Faint}"
+                                       IsHitTestVisible="False" Focusable="False"/>
                         </StackPanel>
                         </Border>
                     </Grid>

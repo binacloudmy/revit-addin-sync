@@ -94,6 +94,9 @@ namespace RevitWebAppSync.UI.Copilot
 
             UpdateThemeIcon();
             UpdateBody();
+
+            // Kebab version line — single source (AppInfo), never hardcoded.
+            VersionLine.Text = "Version " + AppInfo.ShortVersion;
         }
 
         private ResourceDictionary _localTheme;
