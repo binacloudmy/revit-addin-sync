@@ -101,5 +101,23 @@ namespace UiHarness
                 Height = 800,
                 Content = new Frame { Content = new RevitWebAppSync.UI.Copilot.CopilotPanel() },
             });
+
+        // The upgrade sheet's only in-product entry point is the at-limit blocked
+        // view, which needs a live usage API. Call it directly so the sheet (and
+        // its real Process.Start redirect) can be exercised without one.
+        private void OpenUpgradeSheet(object sender, RoutedEventArgs e) =>
+            Open(() =>
+            {
+                var panel = new RevitWebAppSync.UI.Copilot.CopilotPanel();
+                var win = new Window
+                {
+                    Title = "Upgrade Sheet",
+                    Width = 420,
+                    Height = 800,
+                    Content = new Frame { Content = panel },
+                };
+                win.Loaded += (_, __) => panel.ShowUpgradeSheet();
+                return win;
+            });
     }
 }
