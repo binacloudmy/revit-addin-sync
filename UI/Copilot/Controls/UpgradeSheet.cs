@@ -9,8 +9,8 @@ using System.Windows.Shapes;
 namespace RevitWebAppSync.UI.Copilot.Controls
 {
     /// <summary>
-    /// "Choose your plan" bottom-sheet body: a peek carousel of the three plan
-    /// cards (Free / Basic / Pro) with drag, arrows and animated dots — the
+    /// "Choose your plan" bottom-sheet body: a peek carousel of the four plan
+    /// cards (Free / Plus / Pro / Pro Max) with drag, arrows and animated dots — the
     /// design's upgrade sheet. Animations use BeginAnimation on transforms
     /// (never XAML Storyboards, which crash in Revit dockable panes).
     /// </summary>
@@ -35,11 +35,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private static readonly PlanDef[] Plans =
         {
             new PlanDef { Name = "Free", Price = "$0", IncLabel = "WHAT'S INCLUDED", CtaLabel = "Get started", Solid = false,
-                Features = new[] { "Limited usage", "Core Revit commands", "Chat history" } },
-            new PlanDef { Name = "Plus", Price = "$20", IncLabel = "WHAT'S INCLUDED", CtaLabel = "Upgrade to Plus", Solid = true, Recommended = true,
-                Features = new[] { "Everything in Free", "Full daily usage allowance", "All-day use + checks throughout", "Bring-your-own family library", "Email support" } },
-            new PlanDef { Name = "Power", Price = "$99", IncLabel = "EVERYTHING IN PLUS, AND", CtaLabel = "Upgrade to Power", Solid = true,
-                Features = new[] { "Everything in Plus", "6× the usage of Plus", "Full single-source family library", "Largest models", "Priority support" } },
+                Features = new[] { "500k tokens / month", "Core Revit commands", "Chat history" } },
+            new PlanDef { Name = "Plus", Price = "$25", IncLabel = "WHAT'S INCLUDED", CtaLabel = "Upgrade to Plus", Solid = true, Recommended = true,
+                Features = new[] { "Everything in Free", "10M tokens / month", "Bring-your-own family library", "Email support" } },
+            new PlanDef { Name = "Pro", Price = "$99", IncLabel = "EVERYTHING IN PLUS, AND", CtaLabel = "Upgrade to Pro", Solid = true,
+                Features = new[] { "Everything in Plus", "50M tokens / month", "Full single-source family library", "Priority support" } },
+            new PlanDef { Name = "Pro Max", Price = "$199", IncLabel = "EVERYTHING IN PRO, AND", CtaLabel = "Upgrade to Pro Max", Solid = true,
+                Features = new[] { "Everything in Pro", "100M tokens / month", "Built for heavy days and busy practices", "Priority support" } },
         };
 
         /// <summary>Build the sheet BODY (the panel wraps it in its sheet chrome).</summary>

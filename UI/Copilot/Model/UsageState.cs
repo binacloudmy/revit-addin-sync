@@ -18,7 +18,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         public static UsageState FromCredits(bool unlimited, int used, int limit)
         {
-            if (unlimited) return new UsageState { PlanName = "Power", Pct = 0, AtLimit = false };
+            // NOTE: pricing v2 (CU 86eyaxj1v) caps every tier — no plan is unlimited.
+            // Kept for backward compat with backends still sending the flag; labelled
+            // as the top tier so a retired name ("Power") never renders.
+            if (unlimited) return new UsageState { PlanName = "Pro Max", Pct = 0, AtLimit = false };
             // AtLimit is the REAL count — you're only blocked when credits are
             // actually exhausted, not when the rounded percent reaches 100. A
             // 999,000/1,000,000 balance (~1k left) must NOT trip the upgrade wall.
