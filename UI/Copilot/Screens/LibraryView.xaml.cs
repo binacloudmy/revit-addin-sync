@@ -7,12 +7,13 @@ using RevitWebAppSync.UI.Copilot.Model;
 
 namespace RevitWebAppSync.UI.Copilot.Screens
 {
-    /// <summary>Library tab — a curated, backend-configurable list of starter
-    /// prompts grouped by section (Modeling · Documentation · QA &amp; Coordination).
-    /// Tapping a row drops its prompt into the Chat composer (switch + focus, no
-    /// auto-send) — the same rule the empty-state suggestions follow. Rows are
-    /// built in code-behind from <see cref="CopilotPromptLibrary"/>, mirroring
-    /// HistoryView's RowsHost construction.</summary>
+    /// <summary>Library tab — the curated prompt library fetched from the
+    /// backend (GET /agents/revit-ai/library) and cached for the session in
+    /// <see cref="CopilotPromptLibrary"/>. Tapping a row drops its prompt
+    /// (a universal template with [placeholders] the drafter edits) into the
+    /// Chat composer (switch + focus, no auto-send) — the same rule the
+    /// empty-state suggestions follow. Rows are built in code-behind,
+    /// mirroring HistoryView's RowsHost construction.</summary>
     public partial class LibraryView : UserControl
     {
         /// <summary>Raised with the chosen prompt text when a row is tapped. The
@@ -23,12 +24,40 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         public LibraryView()
         {
             InitializeComponent();
-            Loaded += (_, __) => Build();
+            Loaded += async (_, __) => await BuildAsync();
         }
 
-        private void Build()
+        private bool _loading;
+
+        private async System.Threading.Tasks.Task BuildAsync()
         {
-            if (ListHost == null || ListHost.Children.Count > 0) return;  // built once (static catalogue)
+            if (ListHost == null || _loading) return;
+
+            var sections = CopilotPromptLibrary.Cached;
+            if (sections == null)
+            {
+                _loading = true;
+                ListHost.Children.Clear();
+                ListHost.Children.Add(Note("Loading prompt library…"));
+                try
+                {
+                    var fetched = await new Services.AIService()
+                        .GetPromptLibraryAsync(BinaConfig.Load().AccessToken);
+                    if (fetched != null && fetched.Count > 0)
+                        CopilotPromptLibrary.Cached = sections = fetched;
+                }
+                finally { _loading = false; }
+            }
+
+            ListHost.Children.Clear();
+            if (sections == null)
+            {
+                // Backend unreachable or not signed in. Re-fetch on next tab
+                // visit (Loaded fires again) — no local fallback by design.
+                ListHost.Children.Add(Note(
+                    "Couldn't load the prompt library. Check your connection and sign-in, then reopen this tab."));
+                return;
+            }
 
             // Top hint.
             var hint = new TextBlock
@@ -40,7 +69,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             hint.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
             ListHost.Children.Add(hint);
 
-            foreach (var section in CopilotPromptLibrary.Sections)
+            foreach (var section in sections)
             {
                 ListHost.Children.Add(SectionHeader(section.Section));
 
@@ -52,6 +81,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 }
                 ListHost.Children.Add(rows);
             }
+        }
+
+        // Muted status line (loading / failure states).
+        private static FrameworkElement Note(string text)
+        {
+            var tb = new TextBlock
+            {
+                Text = text, FontSize = 11, TextWrapping = TextWrapping.Wrap,
+                Padding = new Thickness(6, 10, 6, 10),
+            };
+            tb.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            return tb;
         }
 
         // Uppercase muted section header (letter-spacing isn't available on a

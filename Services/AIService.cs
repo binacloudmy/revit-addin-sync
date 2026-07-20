@@ -448,6 +448,35 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// GET /agents/revit-ai/library — the curated prompt library for the
+        /// Library tab, grouped by section. Cloud base (like credits): the local
+        /// engine mounts no library route. Returns null on ANY failure so the
+        /// tab can show a retry hint instead of crashing.
+        /// </summary>
+        public async Task<List<UI.Copilot.Model.LibrarySection>> GetPromptLibraryAsync(
+            string accessToken, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                var cloudBase = BinaConfig.Load().ResolvedCloudBaseUrl;
+                using var req = new HttpRequestMessage(HttpMethod.Get, $"{cloudBase}/agents/revit-ai/library");
+                if (!string.IsNullOrEmpty(accessToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                var resp = await _httpClient.SendAsync(req, cancellationToken);
+                if (!resp.IsSuccessStatusCode) return null;
+                var body = await resp.Content.ReadAsStringAsync();
+                return JsonConvert.DeserializeObject<LibraryResponse>(body)?.Sections;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>Wire shape of GET /agents/revit-ai/library.</summary>
+        private class LibraryResponse
+        {
+            [JsonProperty("sections")] public List<UI.Copilot.Model.LibrarySection> Sections { get; set; }
+        }
+
+        /// <summary>
         /// Wire shape of GET /credits/balance.
         /// <see cref="Remaining"/> is null when <see cref="Unlimited"/> is true.
         /// </summary>
