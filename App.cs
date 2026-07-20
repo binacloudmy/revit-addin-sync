@@ -181,6 +181,22 @@ namespace RevitWebAppSync
                 // Build stamp first — closes the "which build am I testing?"
                 // gap (rounds 31-32: crash reports without a verifiable hash).
                 UI.Copilot.PanelDebugLog.WriteBuildStamp();
+
+                // Last-words hooks: when Revit dies on an unhandled exception,
+                // panel-debug.log gets the stack Event Viewer never yielded
+                // (rounds 29-33 crash hunt). IsTerminating=false entries are
+                // survivable exceptions worth reading too.
+                AppDomain.CurrentDomain.UnhandledException += (s, e) =>
+                {
+                    var ex = e.ExceptionObject as Exception;
+                    UI.Copilot.PanelDebugLog.Write("UNHANDLED",
+                        "terminating=" + e.IsTerminating + " " +
+                        (ex == null ? e.ExceptionObject?.ToString() ?? "?" : ex.ToString()));
+                };
+                System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (s, e) =>
+                    UI.Copilot.PanelDebugLog.Write("UNOBSERVED-TASK", e.Exception?.ToString() ?? "?");
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.UnhandledException += (s, e) =>
+                    UI.Copilot.PanelDebugLog.Write("DISPATCHER", e.Exception?.ToString() ?? "?");
                 // Idle-gap heartbeat (diagnostic): Revit raises Idling whenever
                 // its UI thread is free. If two consecutive Idling events are
                 // >2s apart, the UI thread was BLOCKED that long ("Not
