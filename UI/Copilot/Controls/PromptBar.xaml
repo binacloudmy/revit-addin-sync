@@ -74,6 +74,28 @@
                               StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                               Data="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
                     </Button>
+                    <!-- prompt library button -->
+                    <Button x:Name="LibBtn" DockPanel.Dock="Right" Width="30" Height="30" Cursor="Hand"
+                            Background="Transparent" BorderThickness="0" VerticalAlignment="Bottom"
+                            FocusVisualStyle="{x:Null}"
+                            Margin="0,0,2,1" ToolTip="Prompt library">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="bd" Background="Transparent" CornerRadius="8">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                        <Path Width="13" Height="15" Stretch="Uniform" Fill="Transparent"
+                              Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.9"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                              Data="M19,21 l-7,-5 -7,5 V5 a2,2 0 0 1 2,-2 h10 a2,2 0 0 1 2,2 z"/>
+                    </Button>
                     <ctl:MentionInput x:Name="Input" VerticalAlignment="Center" Margin="0,0,8,0"/>
                 </DockPanel>
             </Border>
@@ -167,6 +189,19 @@
                             </StackPanel>
                         </Button>
                     </StackPanel>
+                </Border>
+            </Popup>
+            <!-- Prompt library popover: save current text, My prompts, curated by category -->
+            <Popup x:Name="LibPopup" PlacementTarget="{Binding ElementName=LibBtn}" Placement="Top"
+                   VerticalOffset="-8" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                <Border Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}"
+                        BorderThickness="1" CornerRadius="13" Padding="6" Width="276" Margin="8">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.14" Color="#000000"/>
+                    </Border.Effect>
+                    <ScrollViewer MaxHeight="340" VerticalScrollBarVisibility="Auto">
+                        <StackPanel x:Name="LibList"/>
+                    </ScrollViewer>
                 </Border>
             </Popup>
             <TextBlock x:Name="PlaceholderHint" HorizontalAlignment="Center" Margin="0,8,0,1"

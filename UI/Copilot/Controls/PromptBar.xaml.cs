@@ -106,6 +106,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 };
                 if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
             };
+            LibBtn.Click += (_, __) =>
+            {
+                if (LibPopup.IsOpen) { LibPopup.IsOpen = false; return; }
+                BuildLibList();
+                LibPopup.IsOpen = true;
+            };
             MeterBtn.Click += (_, __) =>
             {
                 UsagePopup.IsOpen = !UsagePopup.IsOpen;
@@ -116,6 +122,133 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 UsagePopup.IsOpen = false;
                 UpgradeRequested?.Invoke();
             };
+        }
+
+        // ─── Prompt library (popover: save current, My prompts, curated) ─────
+        private void BuildLibList()
+        {
+            LibList.Children.Clear();
+
+            var current = Input?.Editor?.Text;
+            if (!string.IsNullOrWhiteSpace(current))
+                LibList.Children.Add(LibSaveRow(current.Trim()));
+
+            if (Model.PromptLibrary.User.Count > 0)
+            {
+                LibList.Children.Add(LibHeader("My prompts"));
+                foreach (var p in System.Linq.Enumerable.ToList(Model.PromptLibrary.User))
+                    LibList.Children.Add(LibRow(p, deletable: true));
+            }
+
+            string cat = null;
+            foreach (var p in Model.PromptLibrary.Curated)
+            {
+                if (p.Category != cat) { cat = p.Category; LibList.Children.Add(LibHeader(cat)); }
+                LibList.Children.Add(LibRow(p, deletable: false));
+            }
+        }
+
+        private Brush LibBrush(string key) => TryFindResource(key) as Brush ?? Brushes.Gray;
+
+        private FrameworkElement LibHeader(string text) => new TextBlock
+        {
+            Text = text.ToUpperInvariant(), FontSize = 9.5, FontWeight = FontWeights.Bold,
+            Foreground = LibBrush("Cp.Faint"), Margin = new Thickness(10, 9, 10, 3),
+        };
+
+        private static ControlTemplate _libRowTemplate;
+        private static ControlTemplate LibRowTemplate()
+        {
+            if (_libRowTemplate != null) return _libRowTemplate;
+            var bd = new FrameworkElementFactory(typeof(System.Windows.Controls.Border), "bd");
+            bd.SetValue(System.Windows.Controls.Border.CornerRadiusProperty, new CornerRadius(8));
+            bd.SetValue(System.Windows.Controls.Border.BackgroundProperty, Brushes.Transparent);
+            bd.SetBinding(System.Windows.Controls.Border.PaddingProperty,
+                new System.Windows.Data.Binding("Padding") { RelativeSource = System.Windows.Data.RelativeSource.TemplatedParent });
+            bd.AppendChild(new FrameworkElementFactory(typeof(System.Windows.Controls.ContentPresenter)));
+            var t = new ControlTemplate(typeof(System.Windows.Controls.Button)) { VisualTree = bd };
+            var hover = new Trigger { Property = IsMouseOverProperty, Value = true };
+            hover.Setters.Add(new Setter(System.Windows.Controls.Border.BackgroundProperty,
+                new DynamicResourceExtension("Cp.Hover"), "bd"));
+            t.Triggers.Add(hover);
+            return _libRowTemplate = t;
+        }
+
+        private FrameworkElement LibSaveRow(string text)
+        {
+            var btn = new System.Windows.Controls.Button
+            {
+                Cursor = Cursors.Hand, Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(10, 8, 10, 8),
+                FocusVisualStyle = null, Template = LibRowTemplate(),
+            };
+            var sp = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal };
+            sp.Children.Add(new System.Windows.Shapes.Path
+            {
+                Width = 12, Height = 12, Stretch = Stretch.Uniform, Fill = Brushes.Transparent,
+                Stroke = LibBrush("Cp.Accent"), StrokeThickness = 2,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                Data = Geometry.Parse("M12,5 v14 M5,12 h14"), VerticalAlignment = VerticalAlignment.Center,
+            });
+            sp.Children.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = "Save current prompt", FontSize = 12, FontWeight = FontWeights.SemiBold,
+                Foreground = LibBrush("Cp.Accent"), Margin = new Thickness(8, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+            });
+            btn.Content = sp;
+            btn.Click += (_, __) => { Model.PromptLibrary.SaveUser(text); BuildLibList(); };
+            return btn;
+        }
+
+        private FrameworkElement LibRow(Model.PromptDef p, bool deletable)
+        {
+            var btn = new System.Windows.Controls.Button
+            {
+                Cursor = Cursors.Hand, Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(10, 7, 6, 7),
+                FocusVisualStyle = null, Template = LibRowTemplate(),
+                ToolTip = p.Text,
+            };
+            var g = new System.Windows.Controls.Grid();
+            g.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new System.Windows.Controls.ColumnDefinition { Width = GridLength.Auto });
+            var col = new System.Windows.Controls.StackPanel();
+            col.Children.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = p.Title, FontSize = 12, FontWeight = FontWeights.Medium, Foreground = LibBrush("Cp.Ink"),
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            col.Children.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = p.Text, FontSize = 10.5, Foreground = LibBrush("Cp.Faint"),
+                TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 0),
+            });
+            System.Windows.Controls.Grid.SetColumn(col, 0);
+            g.Children.Add(col);
+            if (deletable)
+            {
+                var del = new System.Windows.Controls.Button
+                {
+                    Content = "×", FontSize = 13, Cursor = Cursors.Hand, Width = 20, Height = 20,
+                    Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+                    Foreground = LibBrush("Cp.Faint"), FocusVisualStyle = null, Padding = new Thickness(0),
+                    VerticalAlignment = VerticalAlignment.Center, ToolTip = "Delete prompt",
+                };
+                del.Click += (s, e) => { e.Handled = true; Model.PromptLibrary.DeleteUser(p.Id); BuildLibList(); };
+                System.Windows.Controls.Grid.SetColumn(del, 1);
+                g.Children.Add(del);
+            }
+            btn.Content = g;
+            btn.Click += (_, __) =>
+            {
+                // Library pick replaces the composer text (unlike InsertStarterPrompt,
+                // which leaves typed text alone) — picking a prompt is an explicit choice.
+                Input.Editor.Text = p.Text;
+                Input.Editor.CaretIndex = Input.Editor.Text.Length;
+                Input.Editor.Focus();
+                LibPopup.IsOpen = false;
+            };
+            return btn;
         }
 
         // ─── Slash command (pending, sent as the next turn) ──────────────────
