@@ -18,10 +18,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         public static UsageState FromCredits(bool unlimited, int used, int limit)
         {
-            // NOTE: pricing v2 (CU 86eyaxj1v) caps every tier — no plan is unlimited.
-            // Kept for backward compat with backends still sending the flag; labelled
-            // as the top tier so a retired name ("Power") never renders.
-            if (unlimited) return new UsageState { PlanName = "Pro Max", Pct = 0, AtLimit = false };
+            // Pricing v2 (CU 86eyaxj1v) caps EVERY tier — no purchasable plan is
+            // unlimited. An uncapped wallet therefore isn't a tier at all: it's an
+            // internal/admin override (POST /credits/set-unlimited). Label it as such
+            // rather than aliasing it to "Pro Max", which would imply the account is
+            // paying $199/mo. Agrees with CreditBadge/MessageText, which describe the
+            // same flag as unlimited QUOTA, and with the web usage page.
+            if (unlimited) return new UsageState { PlanName = "Unlimited (internal)", Pct = 0, AtLimit = false };
             // AtLimit is the REAL count — you're only blocked when credits are
             // actually exhausted, not when the rounded percent reaches 100. A
             // 999,000/1,000,000 balance (~1k left) must NOT trip the upgrade wall.
