@@ -803,3 +803,14 @@ Beat-Revit-AI iteration additions:
 - [ ] OTA: feed a new-layout zip → staged, next Revit start loads the right subfolder; `UpdateService` version gate still compares correctly (GetCurrentVersion walks up from the subfolder)
 - [ ] Installer registrations: Addins\2025/2026/2027 get the net8 loader; Addins\2024 only exists when a net48 payload shipped
 - [ ] (Phase B) Revit 2023 + 2024: net48 loader in Addins\2023/2024 picks `net48\` (2023-ref build), pane works on BOTH; purge_unused reports "needs Revit 2025+" honestly
+
+## 22. Download CSV under AI tables (feat/csv-table-download)
+- [ ] Unit tests: `dotnet test Tests/Tests.csproj --filter TableCsv` — all green (escaping, unicode, ragged rows, filename slug)
+- [ ] Ask "berikan door schedule" (or anything that renders a `| table |`) → small "Download CSV" button appears right-aligned UNDER the table, flat/ghost style, both light + dark theme
+- [ ] Click → Windows save dialog opens; default filename comes from the nearest heading above the table (slugified), else `bina-schedule.csv`
+- [ ] Save → file opens in Excel: correct columns, Malay/unicode text intact (UTF-8 BOM), commas/quotes in cells not splitting columns
+- [ ] Element-id column exports bare ids (no link markup); values match displayed units exactly
+- [ ] Cancel dialog → nothing happens, pane responsive
+- [ ] Save to a locked/readonly location → button relabels "Save failed — try another location", NO crash, Revit fine
+- [ ] Header-only table (no data rows) → no button
+- [ ] History view: old replies with tables also show the button and it works
