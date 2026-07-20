@@ -96,7 +96,8 @@ namespace RevitWebAppSync.UI.Copilot
             UpdateBody();
 
             // Kebab version line — single source (AppInfo), never hardcoded.
-            VersionLine.Text = "Version " + AppInfo.ShortVersion;
+            // major.minor.patch (3 parts) so a "0.0.20"-style patch reads fully.
+            VersionLine.Text = "Version " + AppInfo.Version;
         }
 
         private ResourceDictionary _localTheme;
