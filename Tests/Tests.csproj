@@ -44,6 +44,10 @@
     <!-- ToolLabels: single tool-name -> readable-label map, used by the parser's
          tool-event fallback (and ToolLoopRunner). Pure (Dictionary + System.Text.Json). -->
     <Compile Include="..\Services\ToolLabels.cs" Link="ToolLabels.cs" />
+    <!-- Tool-loop wire DTOs + the mutate-confirmation gate: pure shapes split
+         out of ToolLoopService.cs precisely so they compile here. -->
+    <Compile Include="..\Services\ToolLoopDtos.cs" Link="ToolLoopDtos.cs" />
+    <Compile Include="..\Services\ConfirmGate.cs" Link="ConfirmGate.cs" />
     <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
     <Compile Include="..\Services\VettedToolCode.cs" Link="VettedToolCode.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotModels.cs" Link="CopilotModels.cs" />
@@ -62,8 +66,14 @@
       constructor reference Autodesk.Revit.DB — this source link therefore
       requires Revit SDK assemblies to compile. Build succeeds on Windows
       with Revit installed; expected to fail on macOS (no Revit DLLs).
+      On a machine without the Revit assemblies, skip it (and its tests) with:
+        dotnet test -p:SkipRevitSources=true
     -->
-    <Compile Include="..\BinaVibe\Indexer\DEPRECATED_DocumentChangedIndexer.cs" Link="DocumentChangedIndexer.cs" />
+    <Compile Include="..\BinaVibe\Indexer\DEPRECATED_DocumentChangedIndexer.cs" Link="DocumentChangedIndexer.cs" Condition="'$(SkipRevitSources)' != 'true'" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(SkipRevitSources)' == 'true'">
+    <Compile Remove="DocumentChangedIndexerTests.cs" />
   </ItemGroup>
 
 </Project>

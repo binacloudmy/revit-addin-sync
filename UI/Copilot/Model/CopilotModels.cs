@@ -6,7 +6,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     // ─── Enums (mirror the prototype state machine) ──────────────────────────
     public enum CpScreen { Home, ToolForm, ToolReview, Running, Result }
     public enum CpTab { Chat, Library, History, Saved }
-    public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, AiReply }
+    public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, AiReply, ConfirmActions }
     // AiReply = plain-text AI response (no card, no Save/Copy/Undo). Used
     // when the backend marks is_query=true: code is auto-run and the
     // structured result is reformulated as one conversational sentence.
@@ -194,6 +194,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // with a stale offer fall back to plain text.
         public string Tindakan;
         public bool TindakanResolved;
+        // ConfirmActions card: friendly one-line labels of the pending MUTATE
+        // batch awaiting the user's Ya/Tidak. Buttons render only while
+        // unresolved AND the card is last in the thread; a resolved card keeps
+        // the action list as an audit trail.
+        public List<string> ActionLabels;
+        public bool ActionsResolved;
     }
 
     /// <summary>A text file attached to a prompt. Content is sent to the backend
