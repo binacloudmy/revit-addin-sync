@@ -25,24 +25,32 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             InitializeComponent();
             Loaded += async (_, __) => await BuildAsync();
+            Unloaded += (_, __) => _cts?.Cancel();
         }
 
         private bool _loading;
+        private System.Threading.CancellationTokenSource _cts;
 
         private async System.Threading.Tasks.Task BuildAsync()
         {
             if (ListHost == null || _loading) return;
+            // Already rendered from cache — nothing changes between tab visits.
+            if (ListHost.Children.Count > 0 && CopilotPromptLibrary.Cached != null) return;
 
             var sections = CopilotPromptLibrary.Cached;
             if (sections == null)
             {
                 _loading = true;
+                _cts?.Dispose();
+                _cts = new System.Threading.CancellationTokenSource();
+                var token = _cts.Token;
                 ListHost.Children.Clear();
                 ListHost.Children.Add(Note("Loading prompt library…"));
                 try
                 {
                     var fetched = await new RevitWebAppSync.Services.AIService()
-                        .GetPromptLibraryAsync(BinaConfig.Load().AccessToken);
+                        .GetPromptLibraryAsync(BinaConfig.Load().AccessToken, token);
+                    if (token.IsCancellationRequested) return;  // pane closed mid-fetch
                     if (fetched != null && fetched.Count > 0)
                         CopilotPromptLibrary.Cached = sections = fetched;
                 }
