@@ -287,6 +287,12 @@ namespace BinaVibe.Auth
     <p>%%MESSAGE%%</p>
     <div class="hint">You can close this tab</div>
   </div>
+  <script>
+    // Strip ?code=... from the address bar (cosmetic + keeps the one-time,
+    // already-exchanged PKCE code out of history). No reload — the loopback
+    // listener has already stopped, so a real navigation would 404.
+    try { history.replaceState(null, "", location.pathname); } catch (e) {}
+  </script>
 </body>
 </html>
 """;
