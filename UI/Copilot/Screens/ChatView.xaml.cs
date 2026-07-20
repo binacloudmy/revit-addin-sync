@@ -210,6 +210,27 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             Rebuild();
         }
 
+        // "+ New chat": direct Click handler instead of a Command binding —
+        // testers reported the link dead across many sessions (single clicks
+        // never registering). A Click handler rules out binding/CanExecute
+        // paths, and the breadcrumbs split "click never arrived" (something
+        // overlays the subheader) from "clicked but VM didn't clear".
+        private void OnNewChatClick(object sender, RoutedEventArgs e)
+        {
+            RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("new-chat", "click");
+            try
+            {
+                var vm = Vm;
+                if (vm == null) { RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("new-chat", "NO-VM"); return; }
+                vm.ClearChatCommand.Execute(null);
+                RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("new-chat", "executed thread=" + vm.Thread.Count);
+            }
+            catch (Exception ex)
+            {
+                RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("new-chat", "EXCEPTION " + ex.GetType().Name + ": " + ex.Message);
+            }
+        }
+
         // True while the view is pinned to the newest message. Cleared when the user
         // scrolls up; restored when they scroll back to the bottom.
         private bool _stick = true;

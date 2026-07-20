@@ -15,8 +15,8 @@
                 Padding="14,7" Visibility="Collapsed">
             <Grid>
                 <TextBlock x:Name="ConvCount" FontSize="11.5" Foreground="{DynamicResource Cp.Text}" VerticalAlignment="Center"/>
-                <Button HorizontalAlignment="Right" Background="Transparent" BorderThickness="0" Cursor="Hand"
-                        Foreground="{DynamicResource Cp.Muted}" FontSize="11.5" Command="{Binding ClearChatCommand}"
+                <Button x:Name="NewChatLink" HorizontalAlignment="Right" Background="Transparent" BorderThickness="0" Cursor="Hand"
+                        Foreground="{DynamicResource Cp.Muted}" FontSize="11.5" Click="OnNewChatClick"
                         Content="+ New chat"/>
             </Grid>
         </Border>
