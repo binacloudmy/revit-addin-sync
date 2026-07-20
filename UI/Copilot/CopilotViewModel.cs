@@ -793,6 +793,9 @@ namespace RevitWebAppSync.UI.Copilot
             return await new AIService().GetCreditsAsync(cfg.AccessToken);
         }
 
+        // NOTE: BadgeText/MessageText describe the QUOTA, not the plan — "Unlimited"
+        // here means an uncapped wallet (an internal/admin override; pricing v2 has no
+        // unlimited tier), which is what UsageState reports as "Unlimited (internal)".
         private static string BadgeText(AIService.CreditInfo c)
         {
             if (c.Unlimited) return "Unlimited";
