@@ -41,7 +41,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 ListHost.Children.Add(Note("Loading prompt library…"));
                 try
                 {
-                    var fetched = await new Services.AIService()
+                    var fetched = await new RevitWebAppSync.Services.AIService()
                         .GetPromptLibraryAsync(BinaConfig.Load().AccessToken);
                     if (fetched != null && fetched.Count > 0)
                         CopilotPromptLibrary.Cached = sections = fetched;
