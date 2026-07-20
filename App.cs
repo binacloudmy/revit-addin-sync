@@ -184,6 +184,15 @@ namespace RevitWebAppSync
                 Services.TelemetryService.Init(application.ControlledApplication.VersionNumber);
                 Services.TelemetryService.Track("startup", "started");
 
+                // Self-heal legacy direct-load installs (stale RevitWebAppSync
+                // manifest + DLL in Addins collide with the loader path — the
+                // "assembly with same name is already loaded" dialog). The
+                // telemetry event counts affected machines fleet-wide.
+                int cleaned = Services.DirectLoadCleanup.Run();
+                if (cleaned > 0)
+                    Services.TelemetryService.Track("startup", "directload_cleaned",
+                        new { files_removed = cleaned });
+
                 // Idle-gap heartbeat (diagnostic): Revit raises Idling whenever
                 // its UI thread is free. If two consecutive Idling events are
                 // >2s apart, the UI thread was BLOCKED that long ("Not
