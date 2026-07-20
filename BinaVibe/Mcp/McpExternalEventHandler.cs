@@ -1,12 +1,18 @@
-// McpExternalEventHandler — drains queued McpJobs and runs each tool
+// McpExternalEventHandler — owns the McpJob queue and runs each tool
 // implementation on Revit's main thread.
 //
-// Raising the ExternalEvent schedules Execute() to run once on Revit's UI
-// thread; we drain the whole pending queue in that single callback. (An
-// earlier experiment re-raised the ExternalEvent from inside Execute() to
-// process one job per idle cycle — but re-raising from within the handler
-// can keep it firing and monopolise the UI thread, hard-freezing Revit.
-// Reverted to this simple, tested drain.)
+// Two drivers share this one queue + DrainOnce:
+//   - McpJobPump (primary): a permanently-subscribed Idling handler that drains
+//     and forces continuous idling via SetRaiseWithoutDelay until the queue is
+//     empty. This is what guarantees prompt execution from the modeless pane.
+//   - This ExternalEvent (Execute, below): a one-shot drain of the same queue,
+//     retained for any caller that raises it. NOTE: McpServer no longer uses
+//     this path — it enqueues via McpJobPump.Enqueue (shared pump + watchdog);
+//     the private handler McpServer used to construct was never pump-drained.
+//
+// Job completion goes through McpJob.SetResult / SetError (idempotent, CAS-
+// guarded) so a late drain that dequeues an already-timed-out / watchdog-failed
+// job is a safe no-op.
 
 using System;
 using System.Collections.Concurrent;
@@ -26,34 +32,61 @@ namespace BinaVibe.Mcp
 
         public string GetName() => "BinaVibe.Mcp.ExternalEventHandler";
 
-        public void Execute(UIApplication app)
+        // ExternalEvent path (gated inbound MCP / tunnel): one-shot drain.
+        public void Execute(UIApplication app) => McpJobPump.DrainViaExternalEvent(app);
+
+        /// <summary>Drain every queued job once, on the Revit UI thread. Returns
+        /// the number completed (so the pump can decrement its in-flight count).
+        /// Skips jobs already completed by the watchdog/timeout, and abandoned
+        /// (cancelled) jobs.</summary>
+        public int DrainOnce(UIApplication app)
         {
+            int n = 0;
             while (Pending.TryDequeue(out var job))
             {
-                // Cancelled before execution — drain WITHOUT running. The
-                // waiter is gone; complete it as an error so nothing blocks.
+                if (job.IsCompleted) { n++; continue; }   // watchdog/timeout already finished it
+
                 if (job.Abandoned)
                 {
-                    job.Error = "abandoned: request was cancelled before execution";
-                    job.Completed.Set();
+                    job.SetError("abandoned: request was cancelled before execution");
+                    n++;
                     continue;
                 }
+
                 job.TStarted = System.Diagnostics.Stopwatch.GetTimestamp();   // t1
                 try
                 {
-                    job.Result = ToolRegistry.Invoke(app, job.Tool, job.Args);
+                    var result = ToolRegistry.Invoke(app, job.Tool, job.Args);
+                    job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();   // t2
+                    LogTimings(job);
+                    job.SetResult(result);
                 }
                 catch (Exception ex)
                 {
-                    job.Error = ex.Message;
-                }
-                finally
-                {
-                    job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();   // t2
+                    job.TFinished = System.Diagnostics.Stopwatch.GetTimestamp();
                     LogTimings(job);
-                    job.Completed.Set();
+                    job.SetError(ex.Message);
+                    RevitWebAppSync.Services.TelemetryService.Track("tool_exec", "failed",
+                        new { tool = job.Tool, error_class = ex.GetType().Name });
                 }
+                n++;
             }
+            return n;
+        }
+
+        /// <summary>Fast-fail every still-pending job with one message (idle
+        /// watchdog: Revit can't service the queue — busy or modal dialog).
+        /// Safe to call off the UI thread; never touches the Revit API.</summary>
+        public int FailAllPending(string error)
+        {
+            int n = 0;
+            while (Pending.TryDequeue(out var job))
+            {
+                if (job.IsCompleted) continue;
+                job.SetError(error);
+                n++;
+            }
+            return n;
         }
 
         // A-vs-B split: idle(t1-t0) = time Revit took to reach idle and start

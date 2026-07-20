@@ -27,7 +27,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             InitializeComponent();
             DataContextChanged += (_, __) => Hook();
-            Loaded += (_, __) => Rebuild();
+            // Re-render on theme flip — rows are drawn from code-behind with colours
+            // snapshotted via CopilotColors, so (like ChatView) they don't repaint on
+            // their own. Without this the session titles keep the old theme's colour
+            // until the view is rebuilt (e.g. by switching to Chat and back).
+            Loaded += (_, __) => { CopilotTheme.ThemeChanged += OnThemeChanged; Rebuild(); };
+            Unloaded += (_, __) => { CopilotTheme.ThemeChanged -= OnThemeChanged; };
+        }
+
+        private void OnThemeChanged()
+        {
+            if (_detailEntry != null) ShowDetail(_detailEntry);
+            else Rebuild();
         }
 
         private void Hook()
@@ -66,6 +77,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (Vm == null || RowsHost == null) return;
             Sub.Text = $"{Vm.History.Count} session{(Vm.History.Count == 1 ? "" : "s")}";
             RowsHost.Children.Clear();
+            // Design list header (line 294): caps section label above the rows.
+            RowsHost.Children.Add(new TextBlock
+            {
+                Text = "RECENT CONVERSATIONS", FontSize = 10.5, FontWeight = FontWeights.SemiBold,
+                Foreground = CopilotColors.From("#99a3b3"),
+                Margin = new Thickness(16, 12, 16, 4),
+            });
             foreach (var h in Vm.History)
                 RowsHost.Children.Add(Row(h));
         }
@@ -75,7 +93,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (MessagesHost == null) return;
             _detailEntry = h;
             MessagesHost.Children.Clear();
-            HeaderTitle.Text = h.Label ?? h.Summary ?? "Run";
+            HeaderTitle.Text = RowTitle(h);
             ListPanel.Visibility = Visibility.Collapsed;
             DetailPanel.Visibility = Visibility.Visible;
             BackBtn.Visibility = Visibility.Visible;
@@ -84,16 +102,53 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             foreach (var msg in h.History)
             {
                 MessagesHost.Children.Add(MessageBubble(msg));
-                if (msg.Sender == "bot" && msg.Tools != null)
-                {
-                    foreach (var tid in msg.Tools)
-                    {
-                        var card = ToolReviewCard(tid);
-                        if (card != null) MessagesHost.Children.Add(card);
-                    }
-                }
+                // Disable tools view
+                // if (msg.Sender == "bot" && msg.Tools != null)
+                // {
+                //     foreach (var tid in msg.Tools)
+                //     {
+                //         var card = ToolReviewCard(tid);
+                //         if (card != null) MessagesHost.Children.Add(card);
+                //     }
+                // }
             }
         }
+
+        /// <summary>The text shown as a history row's title: the user-set label if
+        /// any, otherwise the first user message of the session (not the auto
+        /// "N messages" summary). Newlines from Shift+Enter are collapsed so the
+        /// title stays on one line.</summary>
+        private static string RowTitle(HistoryEntry h)
+        {
+            string raw = !string.IsNullOrWhiteSpace(h.Label)
+                ? h.Label
+                : FirstUserMessage(h) ?? h.Summary;
+            string clean = CleanTitle(raw);
+            return string.IsNullOrEmpty(clean) ? "Run" : clean;
+        }
+
+        private static string FirstUserMessage(HistoryEntry h)
+        {
+            var first = h.History?.FirstOrDefault(m => m.Sender == "user");
+            return first?.Text;
+        }
+
+        /// <summary>Collapse any run of whitespace (including the \r\n that
+        /// Shift+Enter inserts) into a single space, then trim.</summary>
+        private static string CleanTitle(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return s;
+            s = s.Replace("\r\n", " ").Replace('\r', ' ').Replace('\n', ' ').Replace('\t', ' ');
+            while (s.Contains("  ")) s = s.Replace("  ", " ");
+            return s.Trim();
+        }
+
+        /// <summary>Tooltip showing the full (untruncated) title, wrapped to a
+        /// sane width so long first-messages stay readable.</summary>
+        private static ToolTip MakeTitleTooltip(string text) => new ToolTip
+        {
+            Content = new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, MaxWidth = 320 },
+        };
 
         private FrameworkElement Row(HistoryEntry h)
         {
@@ -109,29 +164,37 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             var editBox = new TextBox
             {
-                Text = h.Label ?? h.Summary ?? "",
+                Text = RowTitle(h),
                 FontSize = 12.5,
                 Visibility = Visibility.Collapsed,
                 Margin = new Thickness(0, 0, 6, 0),
                 VerticalAlignment = VerticalAlignment.Center,
-                Background = Brushes.White,
-                BorderBrush = CopilotColors.From("#6d28d9"),
+                Background = CopilotColors.From("#ffffff"),
+                Foreground = CopilotColors.From("#131c2b"),
+                CaretBrush = CopilotColors.From("#131c2b"),
+                BorderBrush = CopilotColors.From("#1d4ed8"),
                 BorderThickness = new Thickness(1),
                 Padding = new Thickness(4, 2, 4, 2),
             };
 
+            string rowTitle = RowTitle(h);
             var titleBlock = new TextBlock
             {
-                Text = h.Label ?? h.Summary ?? "Run",
+                // History session label — the first user message (or a user-set
+                // label), forced to a single line with an ellipsis so it trims to
+                // the row width; full text is shown on hover via the tooltip.
+                Text = rowTitle,
                 FontSize = 12.5,
-                FontWeight = FontWeights.Medium,
-                Foreground = CopilotColors.From("#0b0d12"),
+                FontWeight = FontWeights.SemiBold,
+                Foreground = CopilotColors.From("#131c2b"),
                 TextTrimming = TextTrimming.CharacterEllipsis,
+                TextWrapping = TextWrapping.NoWrap,
+                ToolTip = MakeTitleTooltip(rowTitle),
             };
 
             Action BeginRename = () =>
             {
-                editBox.Text = h.Label ?? h.Summary ?? "";
+                editBox.Text = RowTitle(h);
                 titleBlock.Visibility = Visibility.Collapsed;
                 editBox.Visibility = Visibility.Visible;
                 editBox.Focus();
@@ -141,7 +204,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             CommitRename = () =>
             {
                 Vm.RenameHistoryEntry(h, editBox.Text);
-                titleBlock.Text = h.Label ?? h.Summary ?? "Run";
+                string t = RowTitle(h);
+                titleBlock.Text = t;
+                titleBlock.ToolTip = MakeTitleTooltip(t);
                 editBox.Visibility = Visibility.Collapsed;
                 titleBlock.Visibility = Visibility.Visible;
             };
@@ -165,34 +230,30 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
-            string statusColor = h.Status == "ok" ? "#16a34a" : h.Status == "warn" ? "#d97706" : "#9ca3af";
-            var dot = new Ellipse
+            // Design row (lines 296-300): a plain 30×30 chat-bubble icon tile — no
+            // status dot, no colored background.
+            var tile = new Border { Width = 30, Height = 30, VerticalAlignment = VerticalAlignment.Top };
+            var chatIcon = new Path
             {
-                Width = 6, Height = 6,
-                Fill = CopilotColors.From(statusColor),
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 7, 10, 0),
+                Width = 16, Height = 16, Stretch = Stretch.Uniform, StrokeThickness = 1.8,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
+                Stroke = CopilotColors.From("#99a3b3"),
+                Data = Geometry.Parse("M21,15 a2,2 0 0 1 -2,2 H8 l-4,4 V5 a2,2 0 0 1 2,-2 h13 a2,2 0 0 1 2,2 Z"),
+                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
             };
-            Grid.SetColumn(dot, 0);
-
-            var tile = new IconTile
-            {
-                Glyph = "sparkles",
-                TileBg = "#ede9fe", TileFg = "#6d28d9",
-                TileSize = 22, GlyphSize = 11, Corner = 5,
-                VerticalAlignment = VerticalAlignment.Top,
-            };
+            tile.Child = chatIcon;
             Grid.SetColumn(tile, 1);
 
             int msgCount = h.History?.Count ?? 0;
             var col = new StackPanel { Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
             col.Children.Add(titleBlock);
             col.Children.Add(editBox);
+            // Add history session block
             col.Children.Add(new TextBlock
             {
                 Text = h.Time + (msgCount > 0 ? $" · {msgCount / 2} message{(msgCount / 2 == 1 ? "" : "s")}" : ""),
                 FontSize = 11,
-                Foreground = CopilotColors.From("#6b7280"),
+                Foreground = CopilotColors.From("#99a3b3"),
                 Margin = new Thickness(0, 2, 0, 0),
                 TextWrapping = TextWrapping.Wrap,
             });
@@ -201,7 +262,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var dotsPath = new Path
             {
                 Width = 13, Height = 13, Stretch = Stretch.Uniform,
-                Fill = CopilotColors.From("#9ca3af"),
+                Fill = CopilotColors.From("#99a3b3"),
                 Data = Geometry.Parse(
                     "M12,5 m-1.5,0 a1.5,1.5,0,1,0,3,0 a1.5,1.5,0,1,0,-3,0 " +
                     "M12,12 m-1.5,0 a1.5,1.5,0,1,0,3,0 a1.5,1.5,0,1,0,-3,0 " +
@@ -210,14 +271,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var dotsBtn = new Button
             {
                 Content = dotsPath,
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                Cursor = Cursors.Hand,
-                Padding = new Thickness(4, 0, 4, 0),
+                Style = (Style)TryFindResource("Cp.IconButton"),
                 VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(0, 4, 0, 0),
             };
-            dotsBtn.Template = TransparentButtonTemplate();
 
             var menu = new ContextMenu();
             var renameItem = new MenuItem { Header = "Rename" };
@@ -241,19 +297,23 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var chev = new Path
             {
                 Width = 13, Height = 13, Stretch = Stretch.Uniform,
-                Stroke = CopilotColors.From("#9ca3af"),
+                Stroke = CopilotColors.From("#99a3b3"),
                 StrokeThickness = 1.6,
                 Data = CopilotIcons.Get("chevronRight"),
-                VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(8, 4, 0, 0),
             };
-            Grid.SetColumn(chev, 4);
+            var chevBtn = new Button
+            {
+                Content = chev,
+                Style = (Style)TryFindResource("Cp.IconButton"),
+                VerticalAlignment = VerticalAlignment.Top,
+            };
+            chevBtn.Click += (_, e2) => { e2.Handled = true; ShowDetail(h); };
+            Grid.SetColumn(chevBtn, 4);
 
-            g.Children.Add(dot);
             g.Children.Add(tile);
             g.Children.Add(col);
             g.Children.Add(dotsBtn);
-            g.Children.Add(chev);
+            g.Children.Add(chevBtn);
 
             btn.Content = g;
             btn.Click += (_, e2) =>
@@ -264,6 +324,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return btn;
         }
 
+        // Render history messages with the same bubbles as the live chat: user
+        // messages as a plain bubble (with file chips), bot replies as markdown.
         // ─── Report export ───────────────────────────────────────────────────
 
         private static readonly (string label, ReportFormat fmt)[] FormatChoices =
@@ -315,36 +377,38 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
             catch (Exception ex)
             {
+                // Show the whole inner-exception chain — the outer message often
+                // hides the real cause (e.g. a native-load failure behind a
+                // TypeInitializationException).
+                var detail = ex.Message;
+                for (var inner = ex.InnerException; inner != null; inner = inner.InnerException)
+                    detail += "\n→ " + inner.Message;
                 MessageBox.Show(
-                    $"Could not save the report:\n\n{ex.Message}",
+                    $"Could not save the report:\n\n{detail}",
                     "Export failed", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
         }
 
         private FrameworkElement MessageBubble(Model.History msg)
         {
-            bool isUser = msg.Sender == "user";
-            var outer = new Border
-            {
-                Margin = new Thickness(12, 4, 12, 4),
-                HorizontalAlignment = isUser ? HorizontalAlignment.Right : HorizontalAlignment.Left,
-                MaxWidth = 280,
-            };
-            var inner = new Border
-            {
-                Background = isUser ? CopilotColors.From("#6d28d9") : CopilotColors.From("#f3f4f6"),
-                CornerRadius = new CornerRadius(isUser ? 12 : 4, isUser ? 4 : 12, 12, 12),
-                Padding = new Thickness(10, 7, 10, 7),
-            };
-            inner.Child = new TextBlock
-            {
-                Text = msg.Text,
-                FontSize = 12,
-                Foreground = isUser ? Brushes.White : CopilotColors.From("#111827"),
-                TextWrapping = TextWrapping.Wrap,
-            };
-            outer.Child = inner;
-            return outer;
+            var wrap = new StackPanel { Margin = new Thickness(14, 0, 14, 0) };
+            if (msg.Sender == "user")
+                wrap.Children.Add(CopilotMessageBubble.User(
+                    msg.Text, Vm?.UserFirstName, null,
+                    msg.Files?.Select(f => (f.Name, f.Lines)), DetailMaxWidth()));
+            else
+                wrap.Children.Add(CopilotMessageBubble.Ai(msg.Text, DetailMaxWidth()));
+            return wrap;
+        }
+
+        /// <summary>Message column width for the detail view — mirrors
+        /// ChatView.BubbleMaxWidth so bubbles track the panel. Narrow default
+        /// pre-layout.</summary>
+        private double DetailMaxWidth()
+        {
+            double w = MessagesHost != null ? MessagesHost.ActualWidth : 0;
+            if (w <= 0) return 360;
+            return System.Math.Max(320, w * 0.85 - 44);
         }
 
         private FrameworkElement ToolReviewCard(string toolId)
@@ -355,10 +419,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var outer = new Border
             {
                 Margin = new Thickness(12, 2, 12, 8),
-                BorderBrush = CopilotColors.From("#ddd6fe"),
+                BorderBrush = CopilotColors.From("#bfdbfe"),
                 BorderThickness = new Thickness(1),
                 CornerRadius = new CornerRadius(8),
-                Background = CopilotColors.From("#faf5ff"),
+                Background = CopilotColors.From("#eff6ff"),
                 Padding = new Thickness(10, 8, 10, 8),
             };
 
@@ -368,7 +432,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             header.Children.Add(new Path
             {
                 Width = 11, Height = 11, Stretch = Stretch.Uniform,
-                Fill = CopilotColors.From("#7c3aed"),
+                Fill = CopilotColors.From("#1d4ed8"),
                 Data = CopilotIcons.Get("sparkleSolid"),
                 Margin = new Thickness(0, 0, 5, 0),
                 VerticalAlignment = VerticalAlignment.Center,
@@ -378,7 +442,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 Text = tool.Title,
                 FontSize = 11.5,
                 FontWeight = FontWeights.SemiBold,
-                Foreground = CopilotColors.From("#5b21b6"),
+                Foreground = CopilotColors.From("#1e40af"),
             });
             sp.Children.Add(header);
 
@@ -389,7 +453,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 {
                     Text = $"{i++}. {step}",
                     FontSize = 11,
-                    Foreground = CopilotColors.From("#374151"),
+                    Foreground = CopilotColors.From("#3d4a5f"),
                     TextWrapping = TextWrapping.Wrap,
                     Margin = new Thickness(0, 0, 0, 2),
                 });
@@ -403,7 +467,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     FontSize = 11,
                     Background = Brushes.Transparent,
                     BorderThickness = new Thickness(0),
-                    Foreground = CopilotColors.From("#7c3aed"),
+                    Foreground = CopilotColors.From("#1d4ed8"),
                     Cursor = Cursors.Hand,
                     Margin = new Thickness(0, 4, 0, 0),
                     HorizontalAlignment = HorizontalAlignment.Left,
@@ -412,7 +476,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 var codeBorder = new Border
                 {
                     Visibility = Visibility.Collapsed,
-                    Background = CopilotColors.From("#1e1b4b"),
+                    Background = CopilotColors.From("#f3f6f9"),
                     CornerRadius = new CornerRadius(6),
                     Padding = new Thickness(10, 8, 10, 8),
                     Margin = new Thickness(0, 4, 0, 0),
@@ -422,7 +486,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     Text = tool.Code,
                     FontFamily = new FontFamily("Consolas, Courier New"),
                     FontSize = 10.5,
-                    Foreground = CopilotColors.From("#c4b5fd"),
+                    Foreground = CopilotColors.From("#1e40af"),
                     Background = Brushes.Transparent,
                     BorderThickness = new Thickness(0),
                     IsReadOnly = true,
@@ -444,25 +508,23 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             if (_rowTemplate != null) return _rowTemplate;
             var border = new FrameworkElementFactory(typeof(Border));
-            border.SetValue(Border.BorderBrushProperty, CopilotColors.From("#f1f3f5"));
+            border.Name = "bd";
+            // DynamicResource (not a baked From() brush): this template is static-
+            // cached and built once, so a concrete brush would freeze the first
+            // theme. Cp.LineSoft re-resolves on every light/dark swap.
+            border.SetResourceReference(Border.BorderBrushProperty, "Cp.LineSoft");
             border.SetValue(Border.BorderThicknessProperty, new Thickness(0, 0, 0, 1));
             border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
             var cp = new FrameworkElementFactory(typeof(ContentPresenter));
             border.AppendChild(cp);
             _rowTemplate = new ControlTemplate(typeof(Button)) { VisualTree = border };
+            // Hover wash — the design's --hover surface. Live DynamicResource (cached
+            // template) so it swaps with the theme instead of freezing to the first-
+            // rendered one (the black-hover-in-light bug after a dark toggle).
+            var hover = new Trigger { Property = Button.IsMouseOverProperty, Value = true };
+            hover.Setters.Add(new Setter(Border.BackgroundProperty, new System.Windows.DynamicResourceExtension("Cp.Hover"), "bd"));
+            _rowTemplate.Triggers.Add(hover);
             return _rowTemplate;
-        }
-
-        private static ControlTemplate _transparentBtnTemplate;
-        private static ControlTemplate TransparentButtonTemplate()
-        {
-            if (_transparentBtnTemplate != null) return _transparentBtnTemplate;
-            var border = new FrameworkElementFactory(typeof(Border));
-            border.SetValue(Border.BackgroundProperty, Brushes.Transparent);
-            var cp = new FrameworkElementFactory(typeof(ContentPresenter));
-            border.AppendChild(cp);
-            _transparentBtnTemplate = new ControlTemplate(typeof(Button)) { VisualTree = border };
-            return _transparentBtnTemplate;
         }
 
         private static ControlTemplate _codeToggleTemplate;

@@ -29,80 +29,9 @@ using RevitWebAppSync.UI.Copilot.Model;
 
 namespace RevitWebAppSync.Services
 {
-    // ─── wire DTOs (System.Text.Json so `args` deserialises straight to a
-    //     JsonElement, which is exactly what McpJob.Args / ToolRegistry want) ──
-    public sealed class ToolTurn
-    {
-        [JsonPropertyName("status")] public string Status { get; set; } = "";
-        [JsonPropertyName("run_id")] public string RunId { get; set; } = "";
-        [JsonPropertyName("session_id")] public string SessionId { get; set; } = "";
-        [JsonPropertyName("reply")] public string Reply { get; set; } = "";
-        // When the tool agent fell back to codegen (no tool fit), the done turn
-        // carries the C# to run; empty when it answered in prose / via tools.
-        [JsonPropertyName("code")] public string Code { get; set; } = "";
-        [JsonPropertyName("is_query")] public bool IsQuery { get; set; } = true;
-        [JsonPropertyName("error")] public string Error { get; set; }
-        [JsonPropertyName("success")] public bool Success { get; set; } = true;
-        [JsonPropertyName("pending_tool_calls")] public List<PendingToolCall> Pending { get; set; } = new();
-        // Tools the agent ran SERVER-SIDE this turn (list_views, find_elements_by_filter,
-        // …). These never come back as pending (they don't execute in Revit), so without
-        // this the trace would be empty for any read/codegen request. Drives the step chips.
-        [JsonPropertyName("tool_calls")] public List<ServerToolCall> ToolCalls { get; set; } = new();
-        // Clarify requirements when the agent paused to ask the user (HITL).
-        [JsonPropertyName("clarify")] public List<ClarifyRequirement> Clarify { get; set; } = new();
-
-        public bool AwaitingRevit =>
-            Status == "awaiting_revit" && Pending != null && Pending.Count > 0;
-
-        public bool AwaitingUserInput =>
-            Status == "awaiting_user_input" && Clarify != null && Clarify.Count > 0;
-    }
-
-    public sealed class ServerToolCall
-    {
-        [JsonPropertyName("tool")] public string Tool { get; set; } = "";
-    }
-
-    // ─── Clarify (HITL get_user_input pause) wire DTOs ──────────────────────
-    // Backend pauses with status "awaiting_user_input" + clarify requirements;
-    // the pane asks the user, answers POST back via /tool/resume-input keyed by
-    // requirement_id. Field shape mirrors agno's UserInputField.
-    public sealed class ClarifyField
-    {
-        [JsonPropertyName("name")] public string Name { get; set; } = "";
-        [JsonPropertyName("field_type")] public string FieldType { get; set; } = "";
-        [JsonPropertyName("description")] public string Description { get; set; } = "";
-        [JsonPropertyName("value")] public object Value { get; set; }
-    }
-
-    public sealed class ClarifyRequirement
-    {
-        [JsonPropertyName("requirement_id")] public string RequirementId { get; set; } = "";
-        [JsonPropertyName("tool_call_id")] public string ToolCallId { get; set; }
-        [JsonPropertyName("fields")] public List<ClarifyField> Fields { get; set; } = new();
-    }
-
-    public sealed class ClarifyAnswerDto
-    {
-        [JsonPropertyName("requirement_id")] public string RequirementId { get; set; } = "";
-        [JsonPropertyName("values")] public Dictionary<string, object> Values { get; set; } = new();
-    }
-
-    public sealed class PendingToolCall
-    {
-        [JsonPropertyName("tool_call_id")] public string ToolCallId { get; set; } = "";
-        [JsonPropertyName("tool")] public string Tool { get; set; } = "";
-        [JsonPropertyName("args")] public JsonElement Args { get; set; }
-        [JsonPropertyName("idempotency_key")] public string IdempotencyKey { get; set; } = "";
-    }
-
-    public sealed class ToolResultDto
-    {
-        [JsonPropertyName("tool_call_id")] public string ToolCallId { get; set; } = "";
-        [JsonPropertyName("ok")] public bool Ok { get; set; } = true;
-        [JsonPropertyName("result")] public object Result { get; set; }
-        [JsonPropertyName("error")] public string Error { get; set; }
-    }
+    // Wire DTOs (ToolTurn, PendingToolCall, ToolResultDto, clarify shapes) live
+    // in ToolLoopDtos.cs — pure System.Text.Json types, split out so the test
+    // project can compile them without this file's HttpClient/BinaConfig deps.
 
     public sealed class ToolLoopService
     {
@@ -119,6 +48,15 @@ namespace RevitWebAppSync.Services
         {
             _http = http;
             _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedAIBaseUrl;
+            // The dev/local bina-ai backend is multi-tenant and requires an
+            // X-Tenant-Id header on /agents/revit-ai/* (missing it → HTTP 400
+            // "X-Tenant-Id header required"); cloud staging ignores it. Send the
+            // per-machine tenant (vibe.json, default "default") on every tool-loop
+            // call — same value the MCP tunnel already forwards.
+            var tenant = BinaVibe.Policy.VibeFlags.Load().TenantId;
+            if (_http != null && !string.IsNullOrEmpty(tenant)
+                && !_http.DefaultRequestHeaders.Contains("X-Tenant-Id"))
+                _http.DefaultRequestHeaders.Add("X-Tenant-Id", tenant);
         }
 
         /// <summary>START a tool-calling turn. Body matches the codegen AIRequest
@@ -141,12 +79,12 @@ namespace RevitWebAppSync.Services
         public async Task<ToolTurn> GenerateStreamAsync(
             AIRequest request, string accessToken, Action<string> onProgress,
             ObservableCollection<ProgressStep> trail = null, CancellationToken ct = default,
-            Action<string> onReply = null)
+            Action<string> onReply = null, Action<IReadOnlyList<ProgressStep>> onSteps = null)
         {
             var bodyJson = Newtonsoft.Json.JsonConvert.SerializeObject(request);
             return await StreamTurnAsync(
                 AiUrl.Build(_baseUrl, "tool/generate/stream"),
-                bodyJson, accessToken, onProgress, trail, onReply, ct).ConfigureAwait(false);
+                bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps).ConfigureAwait(false);
         }
 
         /// <summary>RESUME a paused run over SSE — the resume leg is where the
@@ -160,13 +98,14 @@ namespace RevitWebAppSync.Services
             string runId, string sessionId, IReadOnlyList<ToolResultDto> results,
             string accessToken, Action<string> onProgress,
             ObservableCollection<ProgressStep> trail = null,
-            Action<string> onReply = null, CancellationToken ct = default)
+            Action<string> onReply = null, CancellationToken ct = default,
+            Action<IReadOnlyList<ProgressStep>> onSteps = null)
         {
             var body = new ToolResumeBody { RunId = runId, SessionId = sessionId, ToolResults = results };
             var bodyJson = JsonSerializer.Serialize(body, _json);
             var turn = await StreamTurnAsync(
                 AiUrl.Build(_baseUrl, "tool/resume/stream"),
-                bodyJson, accessToken, onProgress, trail, onReply, ct).ConfigureAwait(false);
+                bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps).ConfigureAwait(false);
             // Older backend without the streaming twin → transparent fallback.
             if (turn != null && turn.Status == "error" && (turn.Error ?? "").StartsWith("HTTP 404"))
                 return await ResumeAsync(runId, sessionId, results, accessToken, ct).ConfigureAwait(false);
@@ -179,7 +118,8 @@ namespace RevitWebAppSync.Services
         // onReply (cumulative), and returns the terminal ToolTurn.
         private async Task<ToolTurn> StreamTurnAsync(
             string url, string bodyJson, string accessToken, Action<string> onProgress,
-            ObservableCollection<ProgressStep> trail, Action<string> onReply, CancellationToken ct)
+            ObservableCollection<ProgressStep> trail, Action<string> onReply, CancellationToken ct,
+            Action<IReadOnlyList<ProgressStep>> onSteps = null)
         {
             // Accumulate phase/tool events into a step trail (BIMLogiq-style)
             // and push the rendered trail through onProgress, instead of a
@@ -226,7 +166,7 @@ namespace RevitWebAppSync.Services
                 void Flush()
                 {
                     if (ev != null && data.Length > 0)
-                        final = HandleStreamEvent(ev, data.ToString(), onProgress, trail, onReply, replySb) ?? final;
+                        final = HandleStreamEvent(ev, data.ToString(), onProgress, trail, onReply, replySb, onSteps) ?? final;
                     data.Clear();
                 }
                 while (!reader.EndOfStream)
@@ -257,7 +197,8 @@ namespace RevitWebAppSync.Services
         // done/awaiting_revit deserialize to the terminal ToolTurn; error becomes
         // an error ToolTurn.
         private ToolTurn HandleStreamEvent(string ev, string raw, Action<string> onProgress,
-            ObservableCollection<ProgressStep> trail, Action<string> onReply, StringBuilder replySb)
+            ObservableCollection<ProgressStep> trail, Action<string> onReply, StringBuilder replySb,
+            Action<IReadOnlyList<ProgressStep>> onSteps = null)
         {
             switch (ev)
             {
@@ -310,7 +251,7 @@ namespace RevitWebAppSync.Services
                             label = string.IsNullOrEmpty(tool)
                                 ? "Working…"
                                 : "Running " + tool.Replace('_', ' ').Trim() + "…";
-                        ReduceAndEmit(trail, onProgress, stepId, phase, label, detail, state);
+                        ReduceAndEmit(trail, onProgress, onSteps, stepId, phase, label, detail, state);
                     }
                     catch { }
                     return null;
@@ -330,7 +271,7 @@ namespace RevitWebAppSync.Services
                         if (string.IsNullOrEmpty(stepId))
                             stepId = string.IsNullOrEmpty(label) ? Guid.NewGuid().ToString("N") : "status:" + label;
                         if (!string.IsNullOrEmpty(label) || !string.IsNullOrEmpty(detail))
-                            ReduceAndEmit(trail, onProgress, stepId, phase, label, detail, state);
+                            ReduceAndEmit(trail, onProgress, onSteps, stepId, phase, label, detail, state);
                     }
                     catch { }
                     return null;
@@ -361,11 +302,13 @@ namespace RevitWebAppSync.Services
         // rendered multi-row trail through onProgress. Pure reuse of the same
         // ProgressReducer/ProgressTrail the codegen path uses.
         private static void ReduceAndEmit(ObservableCollection<ProgressStep> trail, Action<string> onProgress,
+            Action<IReadOnlyList<ProgressStep>> onSteps,
             string stepId, string phase, string label, string detail, string state)
         {
             if (trail == null) return;
             ProgressReducer.Apply(trail, stepId, phase, label, detail, ProgressTrail.StateFrom(state));
             try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* UI hiccup */ }
+            try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* UI hiccup — snapshot, caller may enumerate later */ }
         }
 
         // Read a string property tolerantly (missing / non-string -> "").

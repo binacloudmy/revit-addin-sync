@@ -2,8 +2,9 @@
 //
 //   1. POST /tool/generate.
 //   2. While the backend says "awaiting_revit": run each pending tool in real
-//      Revit (enqueue an McpJob on App.McpToolHandler, raise the ExternalEvent,
-//      wait for the UI thread to finish), collect results, POST /tool/resume.
+//      Revit (enqueue an McpJob via McpJobPump, which drains it from the Idling
+//      event and fast-fails if Revit is busy / has a dialog open), await the
+//      result, collect, POST /tool/resume.
 //   3. Stop when the backend says "done" (or the round cap is hit) and return
 //      the final reply.
 //
@@ -26,6 +27,9 @@ namespace RevitWebAppSync.Services
     {
         public bool Success { get; set; } = true;
         public string Reply { get; set; } = "";
+        // One-tap "next step" offer parsed server-side from the reply's trailing
+        // "Tindakan:" line (empty when the turn made no offer / older backend).
+        public string Tindakan { get; set; } = "";
         // Set when the tool agent fell back to codegen — the addin runs it via
         // its normal executor (compile-gate + transaction wrap), same as /generate.
         public string Code { get; set; } = "";
@@ -43,6 +47,16 @@ namespace RevitWebAppSync.Services
         public string RunId { get; set; }
         public string SessionId { get; set; }
         public List<ClarifyRequirement> Clarify { get; set; }
+        // Mutate-confirmation pause: the pending batch would MODIFY the model,
+        // so the loop parks BEFORE executing and the pane renders the Ya/Tidak
+        // card. Re-enter via ResumeWithConfirmationAsync (approve executes the
+        // batch and keeps driving; decline resumes the run with rejected
+        // results so the agent acknowledges without retrying).
+        public bool AwaitingConfirmation { get; set; }
+        public List<PendingToolCall> PendingActions { get; set; }
+        // Completed-rounds narration carried across the confirm pause so the
+        // resumed loop keeps streaming ONE growing bubble.
+        public string NarrationSoFar { get; set; } = "";
     }
 
     public sealed class ToolLoopRunner
@@ -52,21 +66,41 @@ namespace RevitWebAppSync.Services
         // Cap addin↔backend ping-pong so a model that keeps emitting tools can't
         // loop forever. Each round = one external batch we execute.
         private const int MaxRounds = 8;
-        // A single tool's Revit execution can be slow on a cold/large model
-        // (open + first regen). Match the tunnel's generous ceiling.
-        private static readonly TimeSpan JobMaxWait = TimeSpan.FromSeconds(600);
+        // EXECUTION ceiling for a tool that actually started running in Revit
+        // (commit + regen on a cold/large model). The old 600s was really an
+        // "idle never came" wait — that hazard is now handled fast by the
+        // McpJobPump idle-watchdog, so this can be a sane execution bound.
+        private static readonly TimeSpan JobMaxWait = TimeSpan.FromSeconds(45);
 
         public ToolLoopRunner(ToolLoopService svc) => _svc = svc;
 
-        private static string Prettify(string tool) =>
-            string.IsNullOrWhiteSpace(tool) ? "a step" : tool.Replace('_', ' ').Trim();
+        // ONE-BUBBLE accumulation helpers. `narration` holds the text of COMPLETED
+        // rounds; `Wrap` prepends it to the live round's streamed text so onReply
+        // always carries the full running answer.
+        private static Action<string> Wrap(Action<string> onReply, System.Text.StringBuilder narration)
+        {
+            if (onReply == null) return null;
+            return t =>
+            {
+                var prefix = narration.Length > 0 ? narration.ToString() + "\n\n" : "";
+                onReply(prefix + (t ?? ""));
+            };
+        }
+
+        private static void AppendRound(System.Text.StringBuilder narration, string reply)
+        {
+            if (string.IsNullOrWhiteSpace(reply)) return;
+            if (narration.Length > 0) narration.Append("\n\n");
+            narration.Append(reply.Trim());
+        }
 
         // onProgress receives a READY-TO-SHOW label ("Generating…", "Running list
         // levels…") — the streaming first turn pushes the agent's live steps
         // through it, and each pending Revit execution pushes its own.
         public async Task<ToolLoopOutcome> RunAsync(
             AIRequest request, string accessToken, Action<string> onProgress = null,
-            CancellationToken ct = default, Action<string> onReply = null)
+            CancellationToken ct = default, Action<string> onReply = null,
+            Action<IReadOnlyList<ProgressStep>> onSteps = null)
         {
             // One trail spans the whole loop: the streamed first turn AND every
             // Revit-execution round reduce into it, so the addin shows a single
@@ -76,19 +110,31 @@ namespace RevitWebAppSync.Services
             // tool_call_id) tick to ✓ when Revit finishes them.
             var trail = new ObservableCollection<ProgressStep>();
 
+            // ONE growing bubble (Claude-style): accumulate every round's reply so the
+            // pane streams a single continuous answer instead of a fresh reply per
+            // round. `narration` holds the COMPLETED rounds; `Wrap` prepends it to the
+            // live round's text on every onReply tick.
+            var narration = new System.Text.StringBuilder();
+            var wrapped = Wrap(onReply, narration);
+
             ToolTurn turn;
             try
             {
                 // Stream the first turn so the agent's steps appear live instead
                 // of a static "Thinking…". Returns the same ToolTurn (done OR
                 // awaiting_revit) the non-streaming path did.
-                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct, onReply).ConfigureAwait(false);
+                turn = await _svc.GenerateStreamAsync(request, accessToken, onProgress, trail, ct, wrapped, onSteps).ConfigureAwait(false);
             }
             catch (Exception ex)
             {
+                // User-initiated cancel is not a failure — tracking it would
+                // pollute the fleet ai_request error rate with stop-button noise.
+                if (!ct.IsCancellationRequested)
+                    TelemetryService.Track("ai_request", "failed",
+                        new { op = "generate", error_class = ex.GetType().Name });
                 return new ToolLoopOutcome { Success = false, Error = $"tool/generate failed: {ex.Message}" };
             }
-            return await DriveAsync(turn, request?.SessionId, accessToken, onProgress, onReply, trail, ct).ConfigureAwait(false);
+            return await DriveAsync(turn, request?.SessionId, accessToken, onProgress, onReply, narration, trail, ct, onSteps).ConfigureAwait(false);
         }
 
         /// <summary>Re-enter the loop after a clarify pause: POST the user's
@@ -97,9 +143,11 @@ namespace RevitWebAppSync.Services
         public async Task<ToolLoopOutcome> ResumeWithInputAsync(
             string runId, string sessionId, IReadOnlyList<ClarifyAnswerDto> answers,
             string accessToken, Action<string> onProgress = null,
-            CancellationToken ct = default, Action<string> onReply = null)
+            CancellationToken ct = default, Action<string> onReply = null,
+            Action<IReadOnlyList<ProgressStep>> onSteps = null)
         {
             var trail = new ObservableCollection<ProgressStep>();
+            var narration = new System.Text.StringBuilder();
             ToolTurn turn;
             try
             {
@@ -107,24 +155,102 @@ namespace RevitWebAppSync.Services
             }
             catch (Exception ex)
             {
+                if (!ct.IsCancellationRequested)
+                    TelemetryService.Track("ai_request", "failed",
+                        new { op = "resume_input", error_class = ex.GetType().Name });
                 return new ToolLoopOutcome { Success = false, Error = $"tool/resume-input failed: {ex.Message}" };
             }
-            return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply, trail, ct).ConfigureAwait(false);
+            return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply, narration, trail, ct, onSteps).ConfigureAwait(false);
+        }
+
+        /// <summary>Re-enter the loop after a mutate-confirmation (Ya/Tidak) pause.
+        ///
+        /// Approve: rebuild the parked turn and drive it with the gate pre-approved —
+        /// the batch executes in Revit and the normal execute/resume ping-pong
+        /// continues (later mutate batches gate again).
+        /// Decline: POST /tool/resume with a rejected result per pending call
+        /// (ok=true + status "rejected" — a user decision, not an error) so the
+        /// agent acknowledges instead of retrying, then keep driving its
+        /// acknowledgement turn (which could itself pause again).</summary>
+        public async Task<ToolLoopOutcome> ResumeWithConfirmationAsync(
+            string runId, string sessionId, IReadOnlyList<PendingToolCall> pending, bool approve,
+            string narrationSoFar, IReadOnlyList<ProgressStep> priorSteps,
+            string accessToken, Action<string> onProgress = null,
+            CancellationToken ct = default, Action<string> onReply = null,
+            Action<IReadOnlyList<ProgressStep>> onSteps = null)
+        {
+            // Reconstitute the one-bubble/trail state carried across the pause so
+            // the resumed rounds keep appending to the SAME answer and step trail.
+            var trail = priorSteps != null
+                ? new ObservableCollection<ProgressStep>(priorSteps)
+                : new ObservableCollection<ProgressStep>();
+            var narration = new System.Text.StringBuilder(narrationSoFar ?? "");
+            var calls = pending != null ? new List<PendingToolCall>(pending) : new List<PendingToolCall>();
+
+            if (approve)
+            {
+                // Synthetic awaiting_revit turn: DriveAsync's execute loop runs the
+                // approved batch exactly as if the pause never surfaced. Reply is
+                // empty — the pre-pause narration is already in `narration`.
+                var turn = new ToolTurn
+                {
+                    Status = "awaiting_revit",
+                    RunId = runId,
+                    SessionId = sessionId,
+                    Pending = calls,
+                };
+                return await DriveAsync(turn, sessionId, accessToken, onProgress, onReply,
+                                        narration, trail, ct, onSteps, firstBatchApproved: true)
+                             .ConfigureAwait(false);
+            }
+
+            var wrapped = Wrap(onReply, narration);
+            var results = new List<ToolResultDto>(calls.Count);
+            foreach (var call in calls) results.Add(ConfirmGate.Rejected(call));
+            ToolTurn resumed;
+            try
+            {
+                resumed = await _svc.ResumeStreamAsync(runId, sessionId, results,
+                                                       accessToken, onProgress, trail, wrapped, ct, onSteps)
+                                    .ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                return new ToolLoopOutcome { Success = false, Error = $"tool/resume failed: {ex.Message}" };
+            }
+            return await DriveAsync(resumed, sessionId, accessToken, onProgress, onReply,
+                                    narration, trail, ct, onSteps).ConfigureAwait(false);
         }
 
         // Shared execute/resume driver: takes the latest turn and loops until
-        // done / clarify pause / error / round cap.
+        // done / clarify pause / confirm pause / error / round cap.
+        // `firstBatchApproved` is true only on re-entry from an approved
+        // Ya/Tidak card: the just-approved batch executes without re-gating,
+        // then the gate re-arms so every LATER mutate batch gets its own card.
         private async Task<ToolLoopOutcome> DriveAsync(
             ToolTurn turn, string sessionFallback, string accessToken,
             Action<string> onProgress, Action<string> onReply,
-            ObservableCollection<ProgressStep> trail, CancellationToken ct)
+            System.Text.StringBuilder narration,
+            ObservableCollection<ProgressStep> trail, CancellationToken ct,
+            Action<IReadOnlyList<ProgressStep>> onSteps = null,
+            bool firstBatchApproved = false)
         {
+            var wrapped = Wrap(onReply, narration);
             var outcome = new ToolLoopOutcome();
+            var turnWatch = System.Diagnostics.Stopwatch.StartNew();
+            bool approvedOnce = firstBatchApproved;
 
             for (int round = 0; round < MaxRounds; round++)
             {
                 if (turn == null || turn.Status == "error" || !turn.Success)
+                {
+                    // Backend answered with an error turn (no exception thrown
+                    // client-side) — without this the failure would be invisible
+                    // to the fleet counters.
+                    TelemetryService.Track("ai_request", "failed",
+                        new { op = "turn_error", error_class = "BackendErrorTurn" });
                     return new ToolLoopOutcome { Success = false, Error = turn?.Error ?? "tool turn failed" };
+                }
 
                 // Clarify pause (HITL): hand the question up to the pane. The
                 // loop ends here; the pane re-enters via ResumeWithInputAsync
@@ -137,6 +263,9 @@ namespace RevitWebAppSync.Services
                     outcome.Clarify = turn.Clarify;
                     outcome.Reply = turn.Reply ?? "";
                     ProgressReducer.CompleteRunning(trail);
+                    // Push the finalized trail so a live view never keeps showing
+                    // a ▶ row while the loop is parked waiting for the user.
+                    try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
                     outcome.Steps = new List<ProgressStep>(trail);
                     return outcome;
                 }
@@ -145,7 +274,11 @@ namespace RevitWebAppSync.Services
                 {
                     // "done" — the agent finished (answered, ran tools, OR fell
                     // back to codegen). Carry any code so the addin runs it.
-                    outcome.Reply = turn.Reply ?? "";
+                    // The final reply is the WHOLE accumulated narration (all rounds),
+                    // so the committed message keeps the full one-bubble answer.
+                    AppendRound(narration, turn.Reply);
+                    outcome.Reply = narration.Length > 0 ? narration.ToString() : (turn.Reply ?? "");
+                    outcome.Tindakan = turn.Tindakan ?? "";
                     outcome.Code = turn.Code ?? "";
                     outcome.IsQuery = turn.IsQuery;
                     // Fold in the server-side tools the agent ran this turn
@@ -165,9 +298,47 @@ namespace RevitWebAppSync.Services
                     // Revit tool rows are appended in the resume round).
                     ProgressReducer.MoveStepToEnd(trail, "review");
                     ProgressReducer.CompleteRunning(trail);
+                    // Final typed push mirrors the finalized snapshot below so the
+                    // live view's last frame matches the persisted trail (all ✓).
+                    try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
+                    outcome.Steps = new List<ProgressStep>(trail);
+                    // Quality signals no exception ever throws: a done frame with
+                    // nothing in it (the "Done." empty-bubble class), and turns
+                    // that finish but took abnormally long (provider degrading).
+                    if (string.IsNullOrWhiteSpace(outcome.Reply) && string.IsNullOrWhiteSpace(outcome.Code))
+                        TelemetryService.Track("ai_request", "empty_reply");
+                    else if (turnWatch.Elapsed > TimeSpan.FromMinutes(5))
+                        TelemetryService.Track("ai_request", "slow_turn",
+                            new { seconds = (int)turnWatch.Elapsed.TotalSeconds });
+                    return outcome;
+                }
+
+                // Fold this round's reply into the running narration BEFORE the next
+                // resume, so the next round streams as ONE growing bubble (this round's
+                // completed line + the next round's live text).
+                AppendRound(narration, turn.Reply);
+
+                // Mutate-confirmation gate: the batch would MODIFY the model, so
+                // park the loop BEFORE executing anything and hand the pending
+                // calls up to the pane for the Ya/Tidak card. The pane re-enters
+                // via ResumeWithConfirmationAsync. (Skipped exactly once when
+                // re-entering with an already-approved batch.)
+                if (!approvedOnce && ConfirmGate.RequiresConfirmation(turn.Pending))
+                {
+                    outcome.AwaitingConfirmation = true;
+                    outcome.RunId = turn.RunId;
+                    outcome.SessionId = string.IsNullOrEmpty(turn.SessionId) ? sessionFallback : turn.SessionId;
+                    outcome.PendingActions = new List<PendingToolCall>(turn.Pending);
+                    outcome.Reply = narration.ToString();
+                    outcome.NarrationSoFar = narration.ToString();
+                    ProgressReducer.CompleteRunning(trail);
+                    // Push the finalized trail so a live view never keeps showing
+                    // a ▶ row while the loop is parked waiting for the user.
+                    try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
                     outcome.Steps = new List<ProgressStep>(trail);
                     return outcome;
                 }
+                approvedOnce = false;   // gate re-arms for every subsequent round
 
                 // Execute each pending tool in Revit, collect results. Each ticks
                 // the SAME trail: a ▶ row on start (keyed by tool_call_id, which
@@ -181,17 +352,34 @@ namespace RevitWebAppSync.Services
                     // given this row a (richer) one — empty label preserves it.
                     bool known = false;
                     foreach (var s in trail) { if (s.StepId == call.ToolCallId) { known = true; break; } }
-                    string runLabel = known ? "" : "Running " + Prettify(call.Tool) + "…";
+                    // Human-friendly label from the single ToolLabels map (with a
+                    // key arg where useful). Empty when the backend already gave this
+                    // row a richer label (preserve it).
+                    string runLabel = known ? "" : ToolLabels.Label(call.Tool, call.Args) + "…";
                     ProgressReducer.Apply(trail, call.ToolCallId, "executing", runLabel, "", StepState.Running);
                     try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* best-effort UI */ }
+                    try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
 
                     var res = await ExecuteOneAsync(call, ct).ConfigureAwait(false);
 
                     ProgressReducer.Apply(trail, call.ToolCallId, "executing", "", "",
                         res.Ok ? StepState.Done : StepState.Error);
                     try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* best-effort UI */ }
+                    try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
                     results.Add(res);
                 }
+
+                // The resume leg is the longest decode in the loop, and the backend
+                // can be silent until the first reply token (reasoning models emit
+                // no events while thinking) — without a ▶ row the trail sits all-✓
+                // for 7-15s and reads as a crash. Re-open the writing phase NOW so
+                // the spinner stays honest; step_id "run" matches the backend's
+                // "Generating answer" events so they coalesce onto this row, and
+                // MoveStepToEnd keeps the trail chronological (after the tool rows).
+                ProgressReducer.MoveStepToEnd(trail, "run");
+                ProgressReducer.Apply(trail, "run", "writing", "Generating answer", "", StepState.Running);
+                try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* best-effort UI */ }
+                try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
 
                 try
                 {
@@ -200,15 +388,19 @@ namespace RevitWebAppSync.Services
                     // reply text live instead of a blocking 7-15s POST. Falls back
                     // to the blocking endpoint on older backends (404) internally.
                     turn = await _svc.ResumeStreamAsync(turn.RunId, turn.SessionId ?? sessionFallback, results,
-                                                        accessToken, onProgress, trail, onReply, ct)
+                                                        accessToken, onProgress, trail, wrapped, ct, onSteps)
                                      .ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
+                    if (!ct.IsCancellationRequested)
+                        TelemetryService.Track("ai_request", "failed",
+                            new { op = "resume", error_class = ex.GetType().Name });
                     return new ToolLoopOutcome { Success = false, Error = $"tool/resume failed: {ex.Message}" };
                 }
             }
 
+            TelemetryService.Track("ai_request", "round_cap");
             return new ToolLoopOutcome
             {
                 Success = false,
@@ -217,56 +409,48 @@ namespace RevitWebAppSync.Services
             };
         }
 
-        /// <summary>Run ONE pending tool on Revit's UI thread via the always-on
-        /// McpExternalEventHandler, and map the outcome to the wire result shape.</summary>
+        /// <summary>Run ONE pending tool on Revit's UI thread via the Idling-driven
+        /// McpJobPump, and map the outcome to the wire result shape.
+        ///
+        /// TAP, not block-wait: we enqueue and AWAIT the job's TaskCompletionSource.
+        /// The pump drains it on a Revit idle (forcing continuous idling via
+        /// SetRaiseWithoutDelay), and its idle-watchdog fast-fails the job within
+        /// seconds if Revit can't service the queue (busy / modal dialog) — so this
+        /// never hangs. JobMaxWait is the EXECUTION ceiling for a tool that did
+        /// start, not the old 600s "hope an idle comes" wait.</summary>
         private static async Task<ToolResultDto> ExecuteOneAsync(PendingToolCall call, CancellationToken ct)
         {
-            var handler = RevitWebAppSync.App.McpToolHandler;
-            var evt = RevitWebAppSync.App.McpToolEvent;
-            if (handler == null || evt == null)
-            {
-                return new ToolResultDto
-                {
-                    ToolCallId = call.ToolCallId, Ok = false,
-                    Error = "tool execution handler not initialised",
-                };
-            }
-
             var job = new McpJob
             {
                 Tool = call.Tool,
                 Args = call.Args,                 // JsonElement straight through to ToolRegistry
                 IdempotencyKey = call.IdempotencyKey ?? "",
             };
-            job.TEnqueued = System.Diagnostics.Stopwatch.GetTimestamp();
-            handler.Pending.Enqueue(job);
-            evt.Raise();
+            McpJobPump.Enqueue(job);   // sets TEnqueued, queues, kicks, arms the watchdog
 
-            // Block on a threadpool thread so we don't pin the caller; the handler
-            // signals Completed from the Revit UI thread.
-            bool completed;
-            try
+            // Await completion with a bounded execution timeout. Task.WhenAny +
+            // Task.Delay (not Task.WaitAsync) so this compiles on .NET Framework
+            // Revit targets too.
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var delay = Task.Delay(JobMaxWait, timeoutCts.Token);
+            var winner = await Task.WhenAny(job.Done.Task, delay).ConfigureAwait(false);
+            timeoutCts.Cancel();                       // stop the delay if the job won
+            try { await delay.ConfigureAwait(false); } catch { /* observe the cancelled delay */ }
+
+            if (winner != job.Done.Task)
             {
-                completed = await Task.Run(() => job.Completed.Wait(JobMaxWait), ct).ConfigureAwait(false);
-            }
-            catch (System.OperationCanceledException)
-            {
-                // User hit Stop. Revit can't abort a job mid-execution, but
-                // marking it abandoned makes the handler skip it if it's still
-                // queued — so cancelled work can't jam the turns that follow.
+                // Timed out or the user hit Stop. Mark abandoned so a late drain
+                // skips it and can't jam later turns.
                 job.Abandoned = true;
-                throw;
-            }
-
-            if (!completed)
-            {
-                job.Abandoned = true;   // same drain rule on timeout
+                if (ct.IsCancellationRequested)
+                    throw new System.OperationCanceledException(ct);
                 return new ToolResultDto
                 {
                     ToolCallId = call.ToolCallId, Ok = false,
-                    Error = $"Revit did not finish {call.Tool} within {JobMaxWait.TotalSeconds:F0}s",
+                    Error = $"Revit did not finish {call.Tool} within {JobMaxWait.TotalSeconds:F0}s — it may be busy or have a dialog open.",
                 };
             }
+
             if (job.Error != null)
                 return new ToolResultDto { ToolCallId = call.ToolCallId, Ok = false, Error = job.Error };
 

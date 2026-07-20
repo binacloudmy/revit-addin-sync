@@ -46,6 +46,14 @@ namespace RevitWebAppSync.Models
         [JsonProperty("selectedElementIds")]
         public List<int> SelectedElementIds { get; set; }
 
+        /// <summary>Phase 2 scene digest: placement facts for the working set
+        /// so the agent SEES where things are (xyz/facing/room/host) without a
+        /// query_geometry round-trip. Each entry {id, xyz, facing, room, hostId}.
+        /// Bounded in BuildContext. Serialised as "sceneDigest" to match the
+        /// backend RevitModelContext.scene_digest field.</summary>
+        [JsonProperty("sceneDigest")]
+        public List<Dictionary<string, object>> SceneDigest { get; set; }
+
         /// <summary>Real view list (id + name + type) so the agent resolves
         /// "open Aras 01" to the exact view instead of guessing. Bounded by
         /// BuildContext to avoid dumping thousands of views.</summary>
@@ -61,7 +69,7 @@ namespace RevitWebAppSync.Models
         /// <summary>
         /// Identifies the backend snapshot namespace for this project.
         /// Must match the {project} segment used by DocumentChangedIndexer
-        /// when POSTing to /vibe/snapshot/{tenant}/{project} so the backend
+        /// when POSTing to /revit-copilot/snapshot/{tenant}/{project} so the backend
         /// can read the mirror for this specific model.
         /// Serialised as "project_id" to match the backend RevitModelContext field.
         /// </summary>

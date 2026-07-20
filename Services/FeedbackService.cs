@@ -44,7 +44,8 @@ namespace RevitWebAppSync.Services
         /// </summary>
         public async Task SubmitFeedbackAsync(
             string prompt, string rating, string originalPrompt, string sessionId, int? userId,
-            string accessToken, CancellationToken cancellationToken = default)
+            string accessToken, CancellationToken cancellationToken = default,
+            string reason = null, string note = null, string context = null)
         {
             try
             {
@@ -54,7 +55,12 @@ namespace RevitWebAppSync.Services
                     rating = rating,
                     original_prompt = string.IsNullOrEmpty(originalPrompt) ? (prompt ?? string.Empty) : originalPrompt,
                     session_id = sessionId,
-                    user_id = userId
+                    user_id = userId,
+                    // Downvote detail (design's "What was off?" panel) + auto-attached
+                    // version context. Optional; the backend may ignore them.
+                    reason = reason,
+                    note = note,
+                    context = context
                 };
                 var json = JsonConvert.SerializeObject(body);
                 using var request = new HttpRequestMessage(HttpMethod.Post, AiUrl.Build(_baseUrl, "feedback"))

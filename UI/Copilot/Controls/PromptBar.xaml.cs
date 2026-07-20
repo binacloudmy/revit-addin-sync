@@ -12,8 +12,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     /// </summary>
     public partial class PromptBar : UserControl
     {
-        // Play triangle (send) vs. square (stop), drawn in the 24×24 icon viewbox.
-        private static readonly Geometry SendGeom = Geometry.Parse("M6,4 l14,8 -14,8 V4 z");
+        // Up arrow (send) vs. square (stop), drawn in the 24×24 icon viewbox.
+        private static readonly Geometry SendGeom = Geometry.Parse("M12,4 L19,11.5 L14.4,11.5 L14.4,19 L9.6,19 L9.6,11.5 L5,11.5 Z");
         private static readonly Geometry StopGeom = Geometry.Parse("M6,6 H18 V18 H6 Z");
 
         public PromptBar()
@@ -31,40 +31,51 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 }
                 Input.TriggerSubmit();
             };
+            Input.ToolPicked += OnToolPicked;
             Input.Submitted += (text, mentions) =>
             {
                 // Enter while a reply streams must not queue another prompt.
                 if (Busy) return;
-                // Prepend attached file contents as labelled blocks before the user text.
-                if (_files.Count > 0)
+                // A pending slash command takes the turn: raise it (with any typed
+                // args) and skip the normal text/attachment submit path. UI-only.
+                if (_pendingTool != null)
                 {
-                    var sb = new System.Text.StringBuilder();
-                    foreach (var (fname, fcontent) in _files)
-                    {
-                        sb.Append("[Attached: ").Append(fname).AppendLine("]");
-                        sb.AppendLine(fcontent);
-                        sb.AppendLine("---");
-                    }
-                    sb.Append(text);
-                    text = sb.ToString();
-                    _files.Clear();
-                    RebuildThumbStrip();
+                    var tool = _pendingTool;
+                    ClearPendingTool();
+                    SlashToolSubmitted?.Invoke(tool, text);
+                    return;
                 }
-                // With screenshots attached, submit a composed payload (text +
-                // base64 PNGs) and clear the strip; plain text otherwise so the
-                // other PromptBar hosts (Result/Library follow-ups) see no change.
+                // With screenshots and/or files attached, submit a composed payload
+                // (text + base64 PNGs + file attachments) and clear the strip; plain
+                // text otherwise so the other PromptBar hosts (Result/Library
+                // follow-ups) see no change. File CONTENTS are carried separately —
+                // not concatenated into the text — so the chat bubble and history
+                // show the user's message, not the file dump (the backend route text
+                // re-embeds them in CopilotViewModel.BuildRouteText).
                 object payload = text;
-                if (_images.Count > 0)
+                if (_images.Count > 0 || _files.Count > 0)
                 {
-                    var encoded = new System.Collections.Generic.List<string>();
-                    foreach (var img in _images)
+                    var pp = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text };
+                    if (_images.Count > 0)
                     {
-                        var b64 = EncodePng(img);
-                        if (!string.IsNullOrEmpty(b64)) encoded.Add(b64);
+                        var encoded = new System.Collections.Generic.List<string>();
+                        foreach (var img in _images)
+                        {
+                            var b64 = EncodePng(img);
+                            if (!string.IsNullOrEmpty(b64)) encoded.Add(b64);
+                        }
+                        if (encoded.Count > 0) pp.ImagesBase64 = encoded;
+                        _images.Clear();
                     }
-                    if (encoded.Count > 0)
-                        payload = new RevitWebAppSync.UI.Copilot.Model.PromptPayload { Text = text, ImagesBase64 = encoded };
-                    _images.Clear();
+                    if (_files.Count > 0)
+                    {
+                        var files = new System.Collections.Generic.List<RevitWebAppSync.UI.Copilot.Model.FileAttachment>();
+                        foreach (var (fname, fcontent) in _files)
+                            files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment(fname, fcontent));
+                        pp.Files = files;
+                        _files.Clear();
+                    }
+                    payload = pp;
                     RebuildThumbStrip();
                 }
                 if (SubmitCommand != null && SubmitCommand.CanExecute(payload))
@@ -72,6 +83,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             };
             Input.ImagePasted += AddImage;
             Input.FileDropped += AddFiles;
+            // Send button visual state: gray circle while empty, accent gradient
+            // once there's text (or while a reply streams and it acts as Stop).
+            Input.Editor.TextChanged += (_, __) => UpdateSendVisual();
+            UpdateSendVisual();
+            // @ button: append an @ (with a leading space when needed) and focus
+            // the editor — the mention picker opens from the editor's own logic.
+            AtBtn.Click += (_, __) =>
+            {
+                var t = Input.Editor.Text ?? "";
+                Input.Editor.Text = t.Length > 0 && !char.IsWhiteSpace(t[t.Length - 1]) ? t + " @" : t + "@";
+                Input.Editor.CaretIndex = Input.Editor.Text.Length;
+                Input.Editor.Focus();
+            };
             AttachBtn.Click += (_, __) =>
             {
                 var dlg = new Microsoft.Win32.OpenFileDialog
@@ -82,6 +106,83 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 };
                 if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
             };
+            MeterBtn.Click += (_, __) =>
+            {
+                UsagePopup.IsOpen = !UsagePopup.IsOpen;
+                UsageMeterClicked?.Invoke();
+            };
+            PopUpgradeBtn.Click += (_, __) =>
+            {
+                UsagePopup.IsOpen = false;
+                UpgradeRequested?.Invoke();
+            };
+        }
+
+        // ─── Slash command (pending, sent as the next turn) ──────────────────
+        /// <summary>Raised when a message is sent with a slash command active —
+        /// the picked tool plus any typed args. UI-only for now.</summary>
+        public event System.Action<Model.SlashTool, string> SlashToolSubmitted;
+
+        private Model.SlashTool _pendingTool;
+
+        /// <summary>Host the "/" palette overlay for this composer (ChatView owns the
+        /// in-panel layer; the editor drives it). See MentionInput.AttachSlashPalette.</summary>
+        public void AttachSlashPalette(CommandPalette palette, System.Action<bool> setVisible)
+            => Input.AttachSlashPalette(palette, setVisible);
+
+        /// <summary>Close the palette from the host (scrim click-outside).</summary>
+        public void CloseSlashPalette() => Input.CloseSlashExternal();
+
+        /// <summary>Drop a starter prompt into the composer for the user to edit —
+        /// does NOT send. If the user has already typed something, leave it alone
+        /// (just focus) rather than overwrite. Caret goes to the end so they can
+        /// type over the placeholders immediately.</summary>
+        public void InsertStarterPrompt(string text)
+        {
+            if (Input?.Editor == null) return;
+            if (!string.IsNullOrWhiteSpace(Input.Editor.Text)) { Input.Editor.Focus(); return; }
+            Input.Editor.Text = text ?? "";
+            Input.Editor.CaretIndex = Input.Editor.Text.Length;
+            Input.Editor.Focus();
+        }
+
+        private void OnToolPicked(Model.SlashTool tool)
+        {
+            _pendingTool = tool;
+            Input.AllowEmptySubmit = true;   // a bare "/tool" turn can be sent
+            RebuildCommandStrip();
+            UpdateSendVisual();
+            Input.Editor.Focus();
+        }
+
+        private void ClearPendingTool()
+        {
+            _pendingTool = null;
+            Input.AllowEmptySubmit = false;
+            RebuildCommandStrip();
+            UpdateSendVisual();
+        }
+
+        private void RebuildCommandStrip()
+        {
+            CommandStrip.Children.Clear();
+            if (_pendingTool == null) { CommandStrip.Visibility = Visibility.Collapsed; return; }
+            CommandStrip.Children.Add(CommandChip.Build(_pendingTool, ClearPendingTool));
+            CommandStrip.Visibility = Visibility.Visible;
+        }
+
+        // ─── Footer usage meter ───────────────────────────────────────────────
+        /// <summary>Raised when the meter row is clicked (popover opens itself).</summary>
+        public event System.Action UsageMeterClicked;
+
+        /// <summary>Raised by the popover's "Upgrade plan" button; host opens the upgrade sheet.</summary>
+        public event System.Action UpgradeRequested;
+
+        /// <summary>Usage meter removed from the composer footer. Kept as a no-op
+        /// so existing callers still compile; the meter row stays hidden.</summary>
+        public void BindUsage(CopilotViewModel vm)
+        {
+            MeterBtn.Visibility = Visibility.Collapsed;
         }
 
         // ─── Pasted screenshots (pending, sent with the next prompt) ─────────
@@ -130,71 +231,26 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private void RebuildThumbStrip()
         {
             ThumbStrip.Children.Clear();
-            ThumbStrip.Visibility = (_images.Count > 0 || _files.Count > 0) ? Visibility.Visible : Visibility.Collapsed;
+            ThumbStrip.Visibility = (_images.Count > 0 || _files.Count > 0)
+                ? Visibility.Visible : Visibility.Collapsed;
 
-            // image thumbnail chips
             foreach (var img in _images)
             {
-                var chip = new Grid { Margin = new Thickness(0, 0, 6, 0) };
-                var frame = new Border
-                {
-                    Width = 56, Height = 56, CornerRadius = new CornerRadius(8),
-                    BorderThickness = new Thickness(1),
-                    BorderBrush = (Brush)FindResource("Cp.Line"),
-                    ClipToBounds = true,
-                };
-                frame.Child = new Image { Source = img, Stretch = Stretch.UniformToFill };
-                chip.Children.Add(frame);
-
-                var close = new Button
-                {
-                    Content = "✕", FontSize = 8, Width = 16, Height = 16, Cursor = Cursors.Hand,
-                    HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
-                    Margin = new Thickness(0, -4, -4, 0), Padding = new Thickness(0),
-                    Background = Brushes.White, BorderThickness = new Thickness(1),
-                    BorderBrush = (Brush)FindResource("Cp.Line"), IsTabStop = false,
-                    ToolTip = "Remove screenshot",
-                };
                 var captured = img;
-                close.Click += (_, __) => RemoveImage(captured);
-                chip.Children.Add(close);
+                var chip = AttachmentChip.ForImage(img, () => RemoveImage(captured));
+                chip.Margin = new Thickness(0, 0, 6, 0);
                 ThumbStrip.Children.Add(chip);
             }
 
-            // file name chips
-            foreach (var (name, _) in _files)
+            foreach (var (name, content) in _files)
             {
-                var chip = new Border
-                {
-                    CornerRadius = new CornerRadius(8), Padding = new Thickness(8, 4, 4, 4),
-                    BorderThickness = new Thickness(1), BorderBrush = (Brush)FindResource("Cp.Line"),
-                    Background = Brushes.White, Margin = new Thickness(0, 0, 6, 0),
-                    VerticalAlignment = VerticalAlignment.Center,
-                };
-                var row = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-                row.Children.Add(new TextBlock { Text = "📄", FontSize = 13, Margin = new Thickness(0, 0, 4, 0), VerticalAlignment = VerticalAlignment.Center });
-                row.Children.Add(new TextBlock
-                {
-                    Text = name, FontSize = 11, MaxWidth = 100,
-                    TextTrimming = TextTrimming.CharacterEllipsis,
-                    VerticalAlignment = VerticalAlignment.Center,
-                });
-                var closeFile = new Button
-                {
-                    Content = "✕", FontSize = 8, Width = 16, Height = 16, Cursor = Cursors.Hand,
-                    Padding = new Thickness(0), Background = Brushes.Transparent,
-                    BorderThickness = new Thickness(0), IsTabStop = false,
-                    Margin = new Thickness(4, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
-                    ToolTip = "Remove file",
-                };
                 var capturedName = name;
-                closeFile.Click += (_, __) =>
+                var chip = AttachmentChip.ForFile(name, content, () =>
                 {
                     _files.RemoveAll(f => f.Name == capturedName);
                     RebuildThumbStrip();
-                };
-                row.Children.Add(closeFile);
-                chip.Child = row;
+                });
+                chip.Margin = new Thickness(0, 0, 6, 0);
                 ThumbStrip.Children.Add(chip);
             }
         }
@@ -245,11 +301,33 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             bool busy = (bool)e.NewValue;
             if (pb.SendIcon != null) pb.SendIcon.Data = busy ? StopGeom : SendGeom;
             if (pb.SendBtn != null) pb.SendBtn.ToolTip = busy ? "Stop" : "Send";
+            pb.UpdateSendVisual();
+        }
+
+        // Idle (no text): transparent circle + faint arrow. Armed (text present)
+        // or Busy (stop): accent-gradient circle + white glyph.
+        private void UpdateSendVisual()
+        {
+            if (SendBtn == null || SendIcon == null || Input?.Editor == null) return;
+            bool armed = Busy || _pendingTool != null || !string.IsNullOrWhiteSpace(Input.Editor.Text);
+            if (armed)
+            {
+                SendBtn.Background = TryFindResource("Cp.AccentGrad") as System.Windows.Media.Brush ?? Brushes.RoyalBlue;
+                // Always white — NOT Cp.AccentContrast (which is near-black in dark theme,
+                // giving a black glyph on the blue button). A send/stop glyph reads best
+                // white on the accent gradient in both themes.
+                SendIcon.Fill = Brushes.White;
+            }
+            else
+            {
+                SendBtn.Background = Brushes.Transparent;
+                SendIcon.Fill = TryFindResource("Cp.Faint") as System.Windows.Media.Brush ?? Brushes.Gray;
+            }
         }
 
         public static readonly DependencyProperty PlaceholderProperty = DependencyProperty.Register(
             nameof(Placeholder), typeof(string), typeof(PromptBar),
-            new PropertyMetadata("Describe a task or ask anything…", OnPlaceholderChanged));
+            new PropertyMetadata("Ask Copilot…", OnPlaceholderChanged));
         public string Placeholder { get => (string)GetValue(PlaceholderProperty); set => SetValue(PlaceholderProperty, value); }
 
         private static void OnPlaceholderChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)

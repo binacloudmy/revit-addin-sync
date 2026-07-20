@@ -13,6 +13,13 @@
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!--
+      Reference-only Revit API, version-matched to this project's TFM the same
+      way RevitWebAppSync.csproj matches its own (2027.* -> net10). Needed by
+      the DocumentChangedIndexer source link below, which pulls in
+      Autodesk.Revit.DB. From NuGet, so it builds with no local Revit install.
+    -->
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.*" />
   </ItemGroup>
 
   <ItemGroup>
@@ -26,10 +33,30 @@
     <Compile Include="..\UI\Jkr\JkrTheme.cs" Link="JkrTheme.cs" />
     <Compile Include="..\Services\JkrCodeParser.cs" Link="JkrCodeParser.cs" />
     <Compile Include="..\Services\AiUrl.cs" Link="AiUrl.cs" />
+    <Compile Include="..\Services\UrlResolution.cs" Link="UrlResolution.cs" />
+    <Compile Include="..\Services\TelemetryEvent.cs" Link="TelemetryEvent.cs" />
     <Compile Include="..\Services\AIServiceStreamParser.cs" Link="AIServiceStreamParser.cs" />
+    <!-- SelfHeal: pure retry policy (using System only). ExecutionResult is its
+         return type — a dependency-free DTO split out of CodeExecutor.cs, which
+         can't be linked here because it references Revit + Roslyn. -->
+    <Compile Include="..\Services\SelfHeal.cs" Link="SelfHeal.cs" />
+    <Compile Include="..\Services\ExecutionResult.cs" Link="ExecutionResult.cs" />
+    <!-- ToolLabels: single tool-name -> readable-label map, used by the parser's
+         tool-event fallback (and ToolLoopRunner). Pure (Dictionary + System.Text.Json). -->
+    <Compile Include="..\Services\ToolLabels.cs" Link="ToolLabels.cs" />
+    <!-- Tool-loop wire DTOs + the mutate-confirmation gate: pure shapes split
+         out of ToolLoopService.cs precisely so they compile here. -->
+    <Compile Include="..\Services\ToolLoopDtos.cs" Link="ToolLoopDtos.cs" />
+    <Compile Include="..\Services\ConfirmGate.cs" Link="ConfirmGate.cs" />
     <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
     <Compile Include="..\Services\VettedToolCode.cs" Link="VettedToolCode.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotModels.cs" Link="CopilotModels.cs" />
+    <!-- ToolCatalog defines SlashTool, referenced by ChatMessage.SlashCommand in
+         CopilotModels. Pure (WPF Geometry only, no Revit). -->
+    <Compile Include="..\UI\Copilot\Model\ToolCatalog.cs" Link="ToolCatalog.cs" />
+    <Compile Include="..\UI\Copilot\Model\CopilotContext.cs" Link="CopilotContext.cs" />
+    <Compile Include="..\UI\Copilot\Model\UsageState.cs" Link="UsageState.cs" />
+    <Compile Include="..\UI\Copilot\Model\FriendlyStep.cs" Link="FriendlyStep.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotCatalog.cs" Link="CopilotCatalog.cs" />
     <Compile Include="..\UI\Copilot\Model\ProgressStep.cs" Link="ProgressStep.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\BatchRefResolver.cs" Link="BatchRefResolver.cs" />
@@ -39,8 +66,14 @@
       constructor reference Autodesk.Revit.DB — this source link therefore
       requires Revit SDK assemblies to compile. Build succeeds on Windows
       with Revit installed; expected to fail on macOS (no Revit DLLs).
+      On a machine without the Revit assemblies, skip it (and its tests) with:
+        dotnet test -p:SkipRevitSources=true
     -->
-    <Compile Include="..\BinaVibe\Indexer\DEPRECATED_DocumentChangedIndexer.cs" Link="DocumentChangedIndexer.cs" />
+    <Compile Include="..\BinaVibe\Indexer\DEPRECATED_DocumentChangedIndexer.cs" Link="DocumentChangedIndexer.cs" Condition="'$(SkipRevitSources)' != 'true'" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(SkipRevitSources)' == 'true'">
+    <Compile Remove="DocumentChangedIndexerTests.cs" />
   </ItemGroup>
 
 </Project>

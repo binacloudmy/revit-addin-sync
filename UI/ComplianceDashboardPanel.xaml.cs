@@ -972,14 +972,14 @@ namespace RevitWebAppSync.UI
             return card;
         }
 
-        private void SelectElementInRevit(int elementId)
+        private void SelectElementInRevit(long elementId)
         {
             try
             {
                 if (_uiApp?.ActiveUIDocument == null) return;
                 var uidoc = _uiApp.ActiveUIDocument;
                 var doc = uidoc.Document;
-                var elemId = new ElementId(elementId);
+                var elemId = ElemIds.From(elementId);
                 var elem = doc.GetElement(elemId);
                 if (elem == null) return;
 
@@ -1158,7 +1158,7 @@ namespace RevitWebAppSync.UI
         public string Issue { get; set; }
         public string Bylaws { get; set; }
         public double Similarity { get; set; }
-        public int ElementId { get; set; }
+        public long ElementId { get; set; }
         public string TableSource { get; set; } // Actual UKBS table data
         public string RequiredValue { get; set; }
         public string ActualValue { get; set; }

@@ -55,7 +55,13 @@ namespace RevitWebAppSync.UI.Copilot
             UnpinCommand = new RelayCommand(p => Unpin(p as string));
             RunCommand = new RelayCommand(_ => Run());
             CancelRunCommand = new RelayCommand(_ => CancelRun());
-            ClearChatCommand = new RelayCommand(_ => Thread.Clear());
+            ClearChatCommand = new RelayCommand(_ =>
+            {
+                Thread.Clear();
+                _currentSession = null;
+                (Router as RevitChatRouter)?.ResetSession();
+                Tab = CpTab.Chat;   // "+" from the History tab must land on the new empty chat
+            });
             ClearHighlightsCommand = new RelayCommand(_ => Highlights.Clear());
             ChatSendCommand = new RelayCommand(ChatSendAny);
             FollowUpCommand = new RelayCommand(ChatSendAny);
@@ -70,6 +76,13 @@ namespace RevitWebAppSync.UI.Copilot
         public IChatRouter Router { get; set; }
         public string UserFirstName { get; set; } = "there";
         public string ModelName { get; set; } = "Main Model";
+
+        /// <summary>Raised when the user taps the inline "rate" nudge under a
+        /// reply. The panel listens and slides up the Rate sheet (which owns the
+        /// star UI + persistence). Kept as an event so screens don't reach up
+        /// into the panel's chrome directly.</summary>
+        public event Action RateRequested;
+        public void RequestRate() => RateRequested?.Invoke();
 
         // ─── State ───────────────────────────────────────────────────────────
         private CpScreen _screen = CpScreen.Home;
@@ -301,7 +314,7 @@ namespace RevitWebAppSync.UI.Copilot
         private HistoryEntry _currentSession = null;
 
         private void AppendToCurrentSession(string userText, string botText,
-            string status = "ok", List<string> toolIds = null)
+            string status = "ok", List<string> toolIds = null, List<HistoryFile> userFiles = null)
         {
             string time = DateTime.Now.ToString("h:mm tt");
             if (_currentSession == null)
@@ -311,7 +324,7 @@ namespace RevitWebAppSync.UI.Copilot
                     new List<History>());
                 History.Insert(0, _currentSession);
             }
-            _currentSession.History.Add(new History("user", userText, time));
+            _currentSession.History.Add(new History("user", userText, time) { Files = userFiles });
             _currentSession.History.Add(new History("bot", botText, time, toolIds));
             if (status == "warn") _currentSession.Status = "warn";
             int exchanges = _currentSession.History.Count(m => m.Sender == "user");
@@ -320,6 +333,12 @@ namespace RevitWebAppSync.UI.Copilot
             if (idx >= 0) History[idx] = _currentSession;
             CopilotStateStore.Save(_pinned, History);
             Raise(nameof(RecentEntry));
+        }
+
+        private void StartNewChat()
+        {
+            Thread.Clear();
+            _currentSession = null; // next exchange begins a fresh HistoryEntry
         }
 
         public void RenameHistoryEntry(HistoryEntry entry, string newLabel)
@@ -398,6 +417,19 @@ namespace RevitWebAppSync.UI.Copilot
         // to cancel the prompt mid-reply.
         private bool _isSending;
         public bool IsSending { get => _isSending; set { _isSending = value; Raise(); } }
+
+        // Live step trail state for the CURRENT turn. _lastSteps is the latest
+        // typed-steps snapshot from RevitChatRouter.OnSteps (null until the
+        // backend emits at least one steps frame — older backends never set
+        // this, which is how the legacy OnProgress fallback below detects it
+        // should keep driving the trail). _streamText mirrors whatever reply
+        // prose OnCodeStream has accumulated so far, so OnSteps can keep the
+        // growing answer visible under the trail instead of blanking it.
+        // Both reset at the start of every turn (ChatSend) — never mid-turn,
+        // so a late OnProgress tick from an old-style backend can't clobber
+        // a newer OnSteps-driven trail once one has arrived this turn.
+        private IReadOnlyList<ProgressStep> _lastSteps;
+        private string _streamText;
 
         /// <summary>User clicked Stop — abort the streaming reply. The router's
         /// RouteAsync then returns a "Cancelled." result which resolves the bubble;
@@ -580,11 +612,11 @@ namespace RevitWebAppSync.UI.Copilot
         /// screenshots are attached; chips/follow-ups still send a plain string.</summary>
         private void ChatSendAny(object p)
         {
-            if (p is PromptPayload pp) ChatSend(pp.Text, pp.ImagesBase64);
+            if (p is PromptPayload pp) ChatSend(pp.Text, pp.ImagesBase64, pp.Files);
             else ChatSend(p as string);
         }
 
-        public void ChatSend(string text, List<string> images = null)
+        public void ChatSend(string text, List<string> images = null, List<FileAttachment> files = null)
         {
             text = (text ?? "").Trim();
             if (text.Length == 0) return;
@@ -601,7 +633,42 @@ namespace RevitWebAppSync.UI.Copilot
             Tab = CpTab.Chat;
             Screen = CpScreen.Home;
             ToolId = null;
-            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images });
+
+            // The user typed past a pending Ya/Tidak card — its buttons die here
+            // (the router auto-rejects the parked batch in the background when
+            // this message routes; see RevitChatRouter.RouteAsync stale-confirm).
+            for (int k = 0; k < Thread.Count; k++)
+            {
+                var msg = Thread[k];
+                if (msg.Kind == CpMsgKind.ConfirmActions && !msg.ActionsResolved)
+                {
+                    msg.ActionsResolved = true;
+                    Thread[k] = Thread[k];   // item-replace redraw trick
+                }
+            }
+
+            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images, Files = files, Time = System.DateTime.Now.ToString("h:mm tt") });
+
+            // The chat bubble + history use `text` (what the user typed). The
+            // backend route text re-embeds any attached file contents — there's no
+            // separate file channel, so files ride along inside the prompt string.
+            string routeText = BuildRouteText(text, files);
+
+            // Lightweight projection persisted with the run history so the chip can
+            // be redrawn in the History tab (name + line count; contents not stored).
+            List<HistoryFile> historyFiles = files == null || files.Count == 0
+                ? null
+                : files.Select(f => new HistoryFile(f.Name, LineCount(f.Content))).ToList();
+
+            // Intent detection runs on the user's text only, so file contents can't
+            // falsely match tool keywords in PickResponseTool. NO early-return here:
+            // the local keyword clarify-intercept was disabled 2026-06-12 (see the
+            // commented block below) but a merge resurrected a live copy ABOVE the
+            // auth gate — it hijacked any prompt lacking a known verb ("audit …
+            // walls") with canned tool chips and never reached the backend
+            // (BINAXONE CatA finding, 2026-07-12). The interpreter still runs
+            // silently to supply the fallback ToolId the router expects.
+            var interp = QueryInterpreter.Interpret(text);
 
             // Auth gate: BINA Copilot needs a signed-in BINA Cloud session. Show a friendly
             // prompt instead of letting the request 401 at the backend.
@@ -628,8 +695,56 @@ namespace RevitWebAppSync.UI.Copilot
             //     return;
             // }
 
-            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Drafting a command for that…" });
-            _ = ResolveProposalAsync(text, QueryInterpreter.PickResponseTool(text).Id, images);
+            _lastSteps = null;
+            _streamText = null;
+            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Menganalisis permintaan…" });
+            _ = ResolveProposalAsync(routeText, text, interp.ToolId, images, historyFiles);
+        }
+
+        /// <summary>Slash command sent from the composer. UI-only for now: adds the
+        /// user's turn (a command chip, plus any typed args) and a placeholder reply
+        /// — running tools from chat is wired later.</summary>
+        public void ChatSendSlashCommand(SlashTool tool, string args)
+        {
+            if (tool == null) return;
+            Tab = CpTab.Chat;
+            Screen = CpScreen.Home;
+            ToolId = null;
+            string time = System.DateTime.Now.ToString("h:mm tt");
+            Thread.Add(new ChatMessage
+            {
+                Role = "user", Kind = CpMsgKind.User, SlashCommand = tool,
+                Text = (args ?? "").Trim(), Time = time,
+            });
+            Thread.Add(new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.AiReply, Time = time,
+                Text = $"**/{tool.Name}** is ready. Running tools directly from chat is coming soon — "
+                     + "for now this is a placeholder so you can preview the flow.",
+            });
+        }
+
+        /// <summary>Line count matching AttachmentChip's "N ln" display.</summary>
+        private static int LineCount(string content) =>
+            string.IsNullOrEmpty(content) ? 0 : content.Count(c => c == '\n') + 1;
+
+        /// <summary>Compose the prompt string sent to the backend: each attached
+        /// file's contents prepended as a labelled block, then the user's text.
+        /// Returns `text` unchanged when nothing is attached. Format is kept
+        /// byte-for-byte identical to the legacy PromptBar concatenation so the
+        /// backend sees exactly the same input.</summary>
+        private static string BuildRouteText(string text, List<FileAttachment> files)
+        {
+            if (files == null || files.Count == 0) return text;
+            var sb = new System.Text.StringBuilder();
+            foreach (var f in files)
+            {
+                sb.Append("[Attached: ").Append(f.Name).AppendLine("]");
+                sb.AppendLine(f.Content);
+                sb.AppendLine("---");
+            }
+            sb.Append(text);
+            return sb.ToString();
         }
 
         // Persistent header badge: "27 / 30 credits" or "Unlimited". Empty string hides the pill.
@@ -651,7 +766,7 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 var credits = await FetchCreditsAsync();
                 if (credits == null) return;
-                SetCreditBadge(BadgeText(credits));
+                SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit));
                 Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = MessageText(credits) });
             }
             catch { /* best-effort — never block login on the credits read */ }
@@ -702,7 +817,41 @@ namespace RevitWebAppSync.UI.Copilot
             else CreditBadge = text;
         }
 
-        private async System.Threading.Tasks.Task ResolveProposalAsync(string text, string fallbackToolId, List<string> images = null)
+        // ── Usage / plan (footer meter, popover, upgrade, blocked state) ─────
+        /// <summary>Override for the credits-backed default — harness/tests inject a
+        /// StubUsageService; a real billing adapter can replace it later.</summary>
+        public Services.IUsageService UsageService { get; set; }
+
+        private UsageState _usage = new UsageState();
+        public UsageState Usage
+        {
+            get => _usage;
+            private set { _usage = value ?? new UsageState(); Raise(); UsageChanged?.Invoke(); }
+        }
+        public event System.Action UsageChanged;
+
+        /// <summary>Refresh the usage snapshot — from UsageService when injected,
+        /// else from the credits balance. Best-effort; the meter never blocks chat.</summary>
+        public async System.Threading.Tasks.Task RefreshUsageAsync()
+        {
+            try
+            {
+                if (UsageService != null) { SetUsage(await UsageService.GetAsync()); return; }
+                var credits = await FetchCreditsAsync();
+                if (credits != null)
+                    SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit));
+            }
+            catch { /* best-effort */ }
+        }
+
+        private void SetUsage(UsageState u)
+        {
+            var disp = System.Windows.Application.Current?.Dispatcher;
+            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => Usage = u);
+            else Usage = u;
+        }
+
+        private async System.Threading.Tasks.Task ResolveProposalAsync(string routeText, string displayText, string fallbackToolId, List<string> images = null, List<HistoryFile> historyFiles = null)
         {
             // Keep the session fresh before the backend call: silently refresh an
             // expired access token from the refresh token (bina-ai rotates it). The
@@ -723,13 +872,41 @@ namespace RevitWebAppSync.UI.Copilot
             RouteResult rr = null;
             if (Router != null)
             {
-                // Hook streaming if the concrete router supports it. The
-                // backend's /generate/stream endpoint emits code chunks
-                // every ~80 chars so the user sees code fill in token by
-                // token instead of waiting for the full response.
                 var revitRouter = Router as RevitChatRouter;
-                if (revitRouter != null)
+                HookStreaming(revitRouter);
+                // Pasted screenshots ride along with this route only — the router
+                // consumes and clears them when it builds the request (same
+                // per-call pattern as OnProgress).
+                if (revitRouter != null) revitRouter.PendingImages = images;
+                IsSending = true;   // send button shows Stop until the reply resolves
+                try { rr = await Router.RouteAsync(routeText, fallbackToolId); }
+                catch { rr = null; }
+                finally
                 {
+                    IsSending = false;
+                    UnhookStreaming(revitRouter);
+                }
+            }
+
+            // The credit was consumed by the backend during RouteAsync — refresh the
+            // footer meter so usage ticks up live (best-effort).
+            _ = RefreshUsageAsync();
+
+            RenderRouteResult(rr, routeText, displayText, fallbackToolId, historyFiles);
+        }
+
+        /// <summary>Wire the live-streaming callbacks (progress line, typed step
+        /// trail, growing reply text) onto the router for ONE turn. Shared by the
+        /// normal send path and the Ya/Tidak confirm resolvers so a resumed loop
+        /// streams into the pane exactly like a fresh send.</summary>
+        private void HookStreaming(RevitChatRouter revitRouter)
+        {
+            // Hook streaming if the concrete router supports it. The
+            // backend's /generate/stream endpoint emits code chunks
+            // every ~80 chars so the user sees code fill in token by
+            // token instead of waiting for the full response.
+            if (revitRouter != null)
+            {
                     // Live step trail in the thinking bubble (▶ running, ✓ done,
                     // ✗ error) — backend-authored, BIMLogiq-style. Replaces the
                     // old "Drafting…" code preview: the step trail is the progress
@@ -739,48 +916,78 @@ namespace RevitWebAppSync.UI.Copilot
                     // takes over the bubble — late trail re-renders (review ticks,
                     // resume rounds) must not stomp the text the user is reading.
                     bool replyStreaming = false;
+                    // ONE growing bubble (Claude-style). The backend streams a fresh
+                    // reply per tool-loop round, but ToolLoopRunner ACCUMULATES them
+                    // (round1 \n\n round2 \n\n …) so `cumulative` here is always the
+                    // full running answer — we just render it into the single bubble.
+                    // Legacy plain-text trail — only drives the bubble when this
+                    // turn never got a typed steps frame (older backend). Once
+                    // OnSteps has fired once, _lastSteps is non-null and this
+                    // fallback goes quiet for the rest of the turn.
                     revitRouter.OnProgress = (trail) =>
                     {
-                        if (replyStreaming) return;
+                        if (replyStreaming || _lastSteps != null) return;
                         ReplaceLastThinking(new ChatMessage
                         {
                             Role = "ai", Kind = CpMsgKind.Thinking,
                             Text = string.IsNullOrEmpty(trail) ? "Thinking…" : trail,
                         });
                     };
+                    // Typed live step trail (▶ running, ✓ done, ✗ error) — the
+                    // multi-row trail rendered by ProgressTrailView. Marshaled the
+                    // same way as ReplaceLastThinking itself (see its dispatcher
+                    // check): ProgressStep objects are shared/mutable, but we only
+                    // ever pass the reference along here — ProgressTrailView reads
+                    // their current values synchronously on the UI thread inside
+                    // Update, never binds to their INPC.
+                    revitRouter.OnSteps = steps =>
+                    {
+                        _lastSteps = steps;
+                        ReplaceLastThinking(new ChatMessage
+                        {
+                            Role = "ai", Kind = CpMsgKind.Thinking,
+                            Text = _streamText ?? "",
+                            StreamingReply = !string.IsNullOrEmpty(_streamText),
+                            LiveSteps = steps,
+                        });
+                    };
                     revitRouter.OnCodeStream = (cumulative) =>
                     {
                         if (string.IsNullOrWhiteSpace(cumulative)) return;
                         replyStreaming = true;
+                        _streamText = cumulative;
+                        // StreamingReply: still Kind=Thinking so ReplaceLastThinking
+                        // keeps growing THIS bubble, but flagged so ChatView renders
+                        // the prose as the reply (markdown) — not the steps trail.
+                        // LiveSteps carries along whatever trail has arrived so far
+                        // so the ticking rows stay visible ABOVE the growing answer
+                        // instead of disappearing the moment prose starts.
                         ReplaceLastThinking(new ChatMessage
                         {
                             Role = "ai", Kind = CpMsgKind.Thinking,
                             Text = cumulative,
+                            StreamingReply = true,
+                            LiveSteps = _lastSteps,
                         });
                     };
                 }
-                // Pasted screenshots ride along with this route only — the router
-                // consumes and clears them when it builds the request (same
-                // per-call pattern as OnProgress).
-                if (revitRouter != null) revitRouter.PendingImages = images;
-                IsSending = true;   // send button shows Stop until the reply resolves
-                try { rr = await Router.RouteAsync(text, fallbackToolId); }
-                catch { rr = null; }
-                finally
-                {
-                    IsSending = false;
-                    if (revitRouter != null)
-                    {
-                        revitRouter.OnProgress = null;
-                        revitRouter.OnCodeStream = null;
-                    }
-                }
-            }
+        }
 
-            // The credit was consumed by the backend during RouteAsync — refresh the
-            // header badge so the balance ticks down live (best-effort, badge only).
-            _ = RefreshCreditBadgeAsync();
+        private void UnhookStreaming(RevitChatRouter revitRouter)
+        {
+            if (revitRouter == null) return;
+            revitRouter.OnProgress = null;
+            revitRouter.OnCodeStream = null;
+            revitRouter.OnSteps = null;
+        }
 
+        /// <summary>Render a resolved RouteResult into the thread — clarify card,
+        /// mutate-confirmation card, plain reply, auto-run codegen, or proposal.
+        /// Shared tail of ResolveProposalAsync and the confirm resolvers (whose
+        /// follow-on outcome can be ANY of these again — another confirm card,
+        /// a clarify question, or the final reply).</summary>
+        private void RenderRouteResult(RouteResult rr, string routeText, string displayText, string fallbackToolId, List<HistoryFile> historyFiles)
+        {
             // HITL clarify pause: the agent needs an answer before acting. Render
             // the question as a Clarify card; the user's NEXT message is routed
             // back into the paused run by the router (resume-input), so no
@@ -794,6 +1001,28 @@ namespace RevitWebAppSync.UI.Copilot
                     Options = new List<ClarifyOption>(),
                     Steps = rr.Steps,
                 });
+                // Persist the clarify turn — without this the early return drops
+                // both the user's message and the question from History/Export
+                // (the user side is only ever saved paired with a bot reply).
+                AppendToCurrentSession(displayText, rr.ClarifyingQuestion, "ok", null, historyFiles);
+                return;
+            }
+
+            // Mutate-confirmation pause: the pending batch would MODIFY the model,
+            // so the loop parked BEFORE executing. Render the Ya/Tidak card listing
+            // the proposed actions; AcceptActions/DeclineActions resolve it via the
+            // router's ResolvePendingActionsAsync.
+            if (rr != null && rr.NeedsActionConfirmation)
+            {
+                ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.ConfirmActions,
+                    Text = rr.Reply ?? "",   // agent narration above the card, may be empty
+                    ActionLabels = rr.ActionLabels ?? new List<string>(),
+                    Steps = rr.Steps,
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
+                });
+                AppendToCurrentSession(displayText, "Menunggu pengesahan tindakan", "ok", null, historyFiles);
                 return;
             }
 
@@ -820,9 +1049,12 @@ namespace RevitWebAppSync.UI.Copilot
                     ToolCallTrace = rr.ToolCallTrace,
                     Steps = rr.Steps,
                     Verdict = rr.Verdict,
+                    Interrupted = rr.Interrupted,
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
+                    Tindakan = rr.Tindakan ?? "",
                 });
                 var replyToolIds = (rr.ToolCallTrace != null && rr.ToolCallTrace.Count > 0) ? rr.ToolCallTrace : new List<string> { tool.Id };
-                AppendToCurrentSession(text, rr.Reply ?? "Done", "ok", replyToolIds);
+                AppendToCurrentSession(displayText, rr.Reply ?? "Done", "ok", replyToolIds, historyFiles);
                 return;
             }
 
@@ -832,7 +1064,7 @@ namespace RevitWebAppSync.UI.Copilot
             // and runs automatically — no Run button.
             if (rr != null && !string.IsNullOrWhiteSpace(rr.Code))
             {
-                ExecuteAsChatReply(tool, rr.Code, text);
+                ExecuteAsChatReply(tool, rr.Code, routeText, displayText, historyFiles, rr.Reply, rr.Tindakan);
                 return;
             }
 
@@ -847,10 +1079,10 @@ namespace RevitWebAppSync.UI.Copilot
                 Role = "ai", Kind = CpMsgKind.Proposal, ToolId = tool.Id,
                 Text = text2, PlanSteps = new List<string>(plan ?? new List<string>()), Code = code,
             });
-            AppendToCurrentSession(text, text2, "ok", new List<string> { tool.Id });
+            AppendToCurrentSession(displayText, text2, "ok", new List<string> { tool.Id }, historyFiles);
         }
 
-        private void ExecuteAsChatReply(ToolDef tool, string code, string prompt = null)
+        private void ExecuteAsChatReply(ToolDef tool, string code, string routePrompt = null, string displayPrompt = null, List<HistoryFile> historyFiles = null, string streamedReply = null, string tindakan = null)
         {
             ToolId = tool.Id;
             _runClock = System.Diagnostics.Stopwatch.StartNew();
@@ -861,7 +1093,7 @@ namespace RevitWebAppSync.UI.Copilot
             // the catalog tool title and the fix loses context.
             if (Executor != null)
             {
-                Executor.PromptProvider = () => prompt ?? tool?.Title ?? "";
+                Executor.PromptProvider = () => routePrompt ?? tool?.Title ?? "";
                 Executor.OnRetryProgress = attempt => ReplaceLastThinking(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.Thinking,
@@ -872,18 +1104,112 @@ namespace RevitWebAppSync.UI.Copilot
             void Done(ExecOutcome outcome)
             {
                 var result = BuildResult(tool, outcome);
-                var reply = FormatResultAsText(result, outcome);
+                var resultText = FormatResultAsText(result, outcome);
+                // ONE growing bubble: keep the model's streamed narration ("Tingkap
+                // diasingkan… Sekarang warnakan…") and APPEND the code's result under
+                // it, instead of REPLACING the narration with the result.
+                var reply = (!string.IsNullOrWhiteSpace(streamedReply)
+                             && streamedReply.Trim() != resultText.Trim())
+                    ? streamedReply.Trim() + "\n\n" + resultText
+                    : resultText;
                 ReplaceLastThinking(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
                     Text = reply,
+                    // Carry the offer through the codegen path too — without this
+                    // a done frame with BOTH code and tindakan dropped the offer
+                    // and the Ya/Tidak row never rendered (the reply-only branch
+                    // already set it).
+                    Tindakan = tindakan ?? "",
                 });
-                AppendToCurrentSession(prompt ?? tool.Title, reply, "ok", new List<string> { tool.Id });
+                AppendToCurrentSession(displayPrompt ?? tool.Title, reply, "ok", new List<string> { tool.Id }, historyFiles);
                 PopulateHighlights(tool.Id);
             }
 
             if (Executor != null) Executor.Run(tool, new Dictionary<string, object>(), code, Done);
             else Done(new ExecOutcome { Success = true });
+        }
+
+        // ─── Tindakan (one-tap next-step offer) ────────────────────────────────
+        // The agent's reply can end with a "next step" offer ("Nak saya
+        // lanjutkan?"); the pane renders it as [✓ Ya, teruskan] / [Tidak] under
+        // the LAST AiReply while unresolved (ChatView gates the buttons — see
+        // IsLastAiReply). Ya re-sends the offer text as if the drafter typed it
+        // — SAME path as a normal ChatSend, so it goes through the tool loop,
+        // history, feedback, everything unchanged. Tidak just dismisses.
+        public void AcceptTindakan(ChatMessage m)
+        {
+            if (m == null || string.IsNullOrWhiteSpace(m.Tindakan) || m.TindakanResolved) return;
+            m.TindakanResolved = true;
+            ChatSend("Ya, teruskan: " + m.Tindakan);
+        }
+
+        public void DeclineTindakan(ChatMessage m)
+        {
+            if (m == null) return;
+            m.TindakanResolved = true;
+            // Item-replace trick: setting the SAME item back into the indexer
+            // still raises ObservableCollection's CollectionChanged (Replace),
+            // which ChatView's Thread.CollectionChanged hook uses to Rebuild() —
+            // there's no separate "refresh" method, this is how every other
+            // in-place mutation (m.Dismissed = true, etc.) forces a redraw.
+            int i = Thread.IndexOf(m);
+            if (i >= 0) Thread[i] = Thread[i];
+        }
+
+        // ─── Mutate-confirmation (Ya/Tidak card) ───────────────────────────────
+        // The tool loop parked on a pending MUTATE batch; the ConfirmActions card
+        // lists the proposed actions. Ya executes the batch in Revit and keeps
+        // driving the loop; Tidak resumes the run with rejected results so the
+        // agent acknowledges without retrying. Either way the follow-on outcome
+        // renders through RenderRouteResult — which may be the final reply,
+        // ANOTHER confirm card (multi-round run), or a clarify question.
+        public void AcceptActions(ChatMessage m) => ResolveActions(m, approve: true);
+
+        public void DeclineActions(ChatMessage m) => ResolveActions(m, approve: false);
+
+        private async void ResolveActions(ChatMessage m, bool approve)
+        {
+            if (m == null || m.ActionsResolved) return;
+            m.ActionsResolved = true;
+            int i = Thread.IndexOf(m);
+            if (i >= 0) Thread[i] = Thread[i];   // redraw: kill the card's buttons
+
+            var revitRouter = Router as RevitChatRouter;
+            if (revitRouter == null) return;
+
+            _lastSteps = null;
+            _streamText = null;
+            Thread.Add(new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.Thinking,
+                Text = approve ? "Menjalankan tindakan…" : "Membatalkan…",
+            });
+            HookStreaming(revitRouter);
+            IsSending = true;
+            RouteResult rr = null;
+            try { rr = await revitRouter.ResolvePendingActionsAsync(approve); }
+            catch { rr = null; }
+            finally
+            {
+                IsSending = false;
+                UnhookStreaming(revitRouter);
+            }
+            _ = RefreshUsageAsync();
+            if (rr == null)
+            {
+                // Nothing pending (stale/double resolve) — drop the Thinking bubble.
+                ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = approve ? "Tiada tindakan tertunda." : "Baik, tindakan itu dibatalkan.",
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
+                });
+                return;
+            }
+            // displayText: the user's side of this turn is the button click, not a
+            // typed prompt — persist it as the Malay Ya/Tidak line.
+            RenderRouteResult(rr, LastPrompt, approve ? "Ya, teruskan" : "Tidak", "ai-generated", null);
         }
 
         // ─── Feedback (👍/👎) ───────────────────────────────────────────────────
@@ -900,7 +1226,12 @@ namespace RevitWebAppSync.UI.Copilot
         /// Chat reply bubbles pass their own source prompt so rating an older
         /// bubble isn't mis-attributed to whatever prompt is newest (LastPrompt).
         /// Best-effort; never throws.</summary>
-        public void SubmitFeedback(string rating, string prompt)
+        public void SubmitFeedback(string rating, string prompt) =>
+            SubmitFeedback(rating, prompt, null, null);
+
+        /// <summary>Thumbs feedback with the downvote panel's optional reason/note
+        /// and the auto-attached version context. Best-effort; never throws.</summary>
+        public void SubmitFeedback(string rating, string prompt, string reason, string note)
         {
             if (string.IsNullOrWhiteSpace(prompt)) return;
 
@@ -910,7 +1241,8 @@ namespace RevitWebAppSync.UI.Copilot
             string token = cfg?.AccessToken ?? "";
 
             // Detached — never await on the UI thread; failures are swallowed inside.
-            _ = _feedback.SubmitFeedbackAsync(prompt, rating, prompt, sessionId, userId, token);
+            _ = _feedback.SubmitFeedbackAsync(prompt, rating, prompt, sessionId, userId, token,
+                reason: reason, note: note, context: CopilotContext.ShortLabel);
         }
 
         /// <summary>Reformulate the structured result as one conversational line for the

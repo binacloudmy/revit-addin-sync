@@ -31,12 +31,16 @@ namespace RevitWebAppSync.UI.Copilot
         private readonly Func<UIApplication> _getApp;
         private readonly AIService _ai;
         private readonly ToolLoopRunner _toolLoop;
-        private readonly string _sessionId = Guid.NewGuid().ToString();
+        private string _sessionId = Guid.NewGuid().ToString();
 
         /// <summary>The session id stamped on every backend call this router makes
         /// (route/generate/tool-loop). Exposed so feedback (👍/👎) can carry the
         /// same session the rated response was produced under.</summary>
         public string SessionId => _sessionId;
+
+        /// <summary>Generates a fresh session id so the backend treats the next
+        /// request as a brand-new conversation with no prior history.</summary>
+        public void ResetSession() => _sessionId = Guid.NewGuid().ToString();
 
         // Shared HttpClient for the tool-loop (long timeout — a tool's Revit
         // execution can run minutes on a cold/large model).
@@ -77,6 +81,15 @@ namespace RevitWebAppSync.UI.Copilot
         /// so the existing "Drafting…" card still updates.</summary>
         public Action<string> OnProgress { get; set; }
 
+        /// <summary>Optional callback for the TYPED step trail — fires alongside
+        /// OnProgress on every reducer application (server-streamed tool/status
+        /// events AND local Revit-execution ticks), carrying a snapshot
+        /// (new List copy) of the live ProgressStep trail instead of a
+        /// pre-rendered string. UI consumers that want structured rows (icons,
+        /// timestamps, per-row state) should use this instead of parsing
+        /// OnProgress's rendered text.</summary>
+        public Action<IReadOnlyList<ProgressStep>> OnSteps { get; set; }
+
         /// <summary>Screenshots pasted with the NEXT prompt (base64 PNG). Set by
         /// the viewmodel right before RouteAsync, consumed and cleared by the
         /// route that builds the request — same per-call pattern as OnProgress.</summary>
@@ -101,6 +114,21 @@ namespace RevitWebAppSync.UI.Copilot
             public List<ClarifyRequirement> Clarify;
         }
         private PendingHitl _pendingHitl;
+
+        // Mutate-confirmation pause carried between turns: the loop parked on a
+        // pending MUTATE batch and the pane is showing the Ya/Tidak card. Ya/Tidak
+        // resolves via ResolvePendingActionsAsync; a NEW user message instead
+        // auto-rejects the stale batch in the background (the paused run must be
+        // resumed so session history stays coherent) and routes normally.
+        private sealed class PendingConfirm
+        {
+            public string RunId;
+            public string SessionId;
+            public List<PendingToolCall> Pending;
+            public string Narration;
+            public IReadOnlyList<ProgressStep> Steps;
+        }
+        private PendingConfirm _pendingConfirm;
 
         /// <summary>True while a /generate/stream request is in flight — lets
         /// the pane show/enable the Cancel button only when there's something
@@ -169,6 +197,31 @@ namespace RevitWebAppSync.UI.Copilot
                     Steps = outcome.Steps,
                 };
             }
+            if (outcome.AwaitingConfirmation)
+            {
+                _pendingConfirm = new PendingConfirm
+                {
+                    RunId = outcome.RunId,
+                    SessionId = outcome.SessionId,
+                    Pending = outcome.PendingActions,
+                    Narration = outcome.NarrationSoFar,
+                    Steps = outcome.Steps,
+                };
+                var labels = new List<string>();
+                foreach (var c in outcome.PendingActions ?? new List<PendingToolCall>())
+                    labels.Add(ToolLabels.Label(c.Tool, c.Args));
+                return new RouteResult
+                {
+                    ToolId = "ai-generated",
+                    NeedsActionConfirmation = true,
+                    ActionLabels = labels,
+                    // Whatever the agent narrated before pausing (may be empty —
+                    // the card carries the action list either way).
+                    Reply = outcome.Reply ?? "",
+                    IsQuery = true,
+                    Steps = outcome.Steps,
+                };
+            }
             return new RouteResult
             {
                 ToolId = "ai-generated",
@@ -182,6 +235,7 @@ namespace RevitWebAppSync.UI.Copilot
                 IsQuery = string.IsNullOrWhiteSpace(outcome.Code) || outcome.IsQuery,
                 ToolCallTrace = outcome.ToolsUsed.Count > 0 ? outcome.ToolsUsed : null,
                 Steps = outcome.Steps,
+                Tindakan = outcome.Tindakan ?? "",
             };
         }
 
@@ -235,6 +289,54 @@ namespace RevitWebAppSync.UI.Copilot
             return new List<ProgressStep>(trail);
         }
 
+        /// <summary>Resolve the parked mutate-confirmation card. Ya (approve=true)
+        /// executes the batch in Revit and keeps driving the loop; Tidak resumes
+        /// the run with rejected results so the agent acknowledges. Returns the
+        /// follow-on RouteResult (done / another confirm card / clarify), or null
+        /// when no confirmation is pending (double-click, stale card).</summary>
+        public async Task<RouteResult> ResolvePendingActionsAsync(bool approve)
+        {
+            var pc = _pendingConfirm;
+            if (pc == null) return null;
+            _pendingConfirm = null;
+
+            var cfg = BinaConfig.Load();
+            var token = cfg?.AccessToken ?? "";
+            EmitProgress(approve ? "Menjalankan tindakan…" : "Thinking…");
+            CancellationTokenSource ccts = new CancellationTokenSource();
+            lock (_cancelLock)
+            {
+                try { _streamCts?.Dispose(); } catch { }
+                _streamCts = ccts;
+            }
+            ToolLoopOutcome co = null;
+            bool ccanceled = false;
+            try
+            {
+                co = await _toolLoop.ResumeWithConfirmationAsync(
+                    pc.RunId, pc.SessionId, pc.Pending, approve, pc.Narration, pc.Steps,
+                    token, EmitProgress, ccts.Token,
+                    onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
+                    onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } }
+                    ).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { ccanceled = true; }
+            catch (Exception ex) { co = new ToolLoopOutcome { Success = false, Error = ex.Message }; }
+            finally
+            {
+                if (ccts.IsCancellationRequested) ccanceled = true;
+                ClearProgress();
+                lock (_cancelLock)
+                {
+                    if (ReferenceEquals(_streamCts, ccts)) _streamCts = null;
+                }
+                try { ccts.Dispose(); } catch { }
+            }
+            if (ccanceled)
+                return new RouteResult { ToolId = "ai-generated", Reply = "Interrupted.", IsQuery = true, Interrupted = true };
+            return ToolOutcomeToRoute(co);
+        }
+
         public async Task<RouteResult> RouteAsync(string message, string fallbackToolId)
         {
             // Phase timing — pinpoint where post-send wall-clock goes. Correlate
@@ -256,6 +358,28 @@ namespace RevitWebAppSync.UI.Copilot
             var images = PendingImages;
             PendingImages = null;
 
+            // ─── Stale mutate-confirmation ───────────────────────────────────
+            // The user typed a NEW message instead of answering the Ya/Tidak
+            // card. Auto-reject the parked batch in the background (fire-and-
+            // forget, outcome discarded) so the paused run resumes and the
+            // session history the next turn reads is complete — then route the
+            // new message normally. The VM kills the stale card's buttons.
+            var staleConfirm = _pendingConfirm;
+            if (staleConfirm != null)
+            {
+                _pendingConfirm = null;
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _toolLoop.ResumeWithConfirmationAsync(
+                            staleConfirm.RunId, staleConfirm.SessionId, staleConfirm.Pending,
+                            approve: false, staleConfirm.Narration, null, token).ConfigureAwait(false);
+                    }
+                    catch { /* best-effort: abandoned batch, agent reply discarded */ }
+                });
+            }
+
             // ─── HITL clarify continuation ───────────────────────────────────
             // The previous turn paused on get_user_input — THIS message is the
             // user's ANSWER, not a new command. Resume the paused run with it.
@@ -276,7 +400,8 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     ho = await _toolLoop.ResumeWithInputAsync(
                         hitl.RunId, hitl.SessionId, BuildAnswers(hitl, message), token, EmitProgress,
-                        hcts.Token, onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } }
+                        hcts.Token, onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
+                        onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } }
                         ).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) { hcanceled = true; }
@@ -292,7 +417,7 @@ namespace RevitWebAppSync.UI.Copilot
                     try { hcts.Dispose(); } catch { }
                 }
                 if (hcanceled)
-                    return new RouteResult { ToolId = "ai-generated", Reply = "Stopped — if Revit was mid-operation (e.g. opening a view), it may still finish that step.", IsQuery = true };
+                    return new RouteResult { ToolId = "ai-generated", Reply = "Interrupted.", IsQuery = true, Interrupted = true };
                 return ToolOutcomeToRoute(ho);
             }
 
@@ -339,7 +464,8 @@ namespace RevitWebAppSync.UI.Copilot
                     // streaming path uses).
                     outcome = await _toolLoop.RunAsync(
                         treq, token, EmitProgress, cts.Token,
-                        onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } }
+                        onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
+                        onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } }
                         ).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)
@@ -367,7 +493,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // User hit Stop — clean message, not the raw "tool/generate failed:
                 // The operation was canceled." internal error.
                 if (canceled)
-                    return new RouteResult { ToolId = "ai-generated", Reply = "Stopped — if Revit was mid-operation (e.g. opening a view), it may still finish that step.", IsQuery = true };
+                    return new RouteResult { ToolId = "ai-generated", Reply = "Interrupted.", IsQuery = true, Interrupted = true };
                 System.Diagnostics.Debug.WriteLine(
                     $"[BinaVibe][timing] tool-loop total={__swRoute.ElapsedMilliseconds}ms tools={string.Join(",", outcome.ToolsUsed)} ok={outcome.Success}");
                 return ToolOutcomeToRoute(outcome);
@@ -610,7 +736,7 @@ namespace RevitWebAppSync.UI.Copilot
             };
 
             // Set the project id that matches the snapshot namespace the
-            // DocumentChangedIndexer uses for /vibe/snapshot/{tenant}/{project}.
+            // DocumentChangedIndexer uses for /revit-copilot/snapshot/{tenant}/{project}.
             // BinaConfig.ProjectId is the integer project id from bina-be,
             // stored in the same config that the indexer reads at startup.
             try
@@ -635,6 +761,32 @@ namespace RevitWebAppSync.UI.Copilot
                 if (view != null) { ctx.ActiveViewName = view.Name; ctx.ActiveViewType = view.ViewType.ToString(); }
                 ctx.SelectedElementIds = uidoc.Selection.GetElementIds().Select(id => (int)id.Value).ToList();
                 ctx.Phases = new FilteredElementCollector(doc).OfClass(typeof(Phase)).Cast<Phase>().Select(p => p.Name).ToList();
+
+                // Phase 2 scene digest: placement facts for the working set
+                // (the current selection) so the agent SEES where things are
+                // without a query_geometry round-trip. Reuses the same
+                // PlacementFacts helper query_geometry uses. Cap 40; best-effort
+                // per element (a phase-less or odd element must not break context).
+                var __digest = new List<Dictionary<string, object>>();
+                foreach (var selId in uidoc.Selection.GetElementIds().Take(40))
+                {
+                    try
+                    {
+                        var selEl = doc.GetElement(selId);
+                        if (selEl == null) continue;
+                        var facts = BinaVibe.Mcp.Tools.QueryGeometry.PlacementFacts(doc, selEl);
+                        __digest.Add(new Dictionary<string, object>
+                        {
+                            ["id"] = (int)selId.Value,
+                            ["xyz"] = facts.TryGetValue("xyz", out var xyz) ? xyz : null,
+                            ["facing"] = facts.TryGetValue("facing", out var fac) ? fac : null,
+                            ["room"] = facts.TryGetValue("room", out var rm) ? rm : null,
+                            ["hostId"] = facts.TryGetValue("host_id", out var h) ? h : null,
+                        });
+                    }
+                    catch { /* skip this element, keep the rest */ }
+                }
+                if (__digest.Count > 0) ctx.SceneDigest = __digest;
 
                 // Real view list (id+name+type) — lets the agent resolve
                 // "open Aras 01" to the exact view instead of guessing. Bounded.

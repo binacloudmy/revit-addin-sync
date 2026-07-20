@@ -25,7 +25,22 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Detail { get => _detail; set { _detail = value; Raise(nameof(Detail)); } }
 
         private StepState _state = StepState.Running;
-        public StepState State { get => _state; set { _state = value; Raise(nameof(State)); } }
+        public StepState State { get => _state; set { _state = value; Raise(nameof(State)); Raise(nameof(ElapsedText)); } }
+
+        public DateTime StartedUtc { get; set; } = DateTime.UtcNow;
+
+        private DateTime? _endedUtc = null;
+        public DateTime? EndedUtc { get => _endedUtc; set { _endedUtc = value; Raise(nameof(EndedUtc)); Raise(nameof(ElapsedText)); } }
+
+        public string ElapsedText
+        {
+            get
+            {
+                if (EndedUtc == null) return "";
+                var s = (EndedUtc.Value - StartedUtc).TotalSeconds;
+                return s < 0.05 ? "0.0s" : s.ToString("0.0") + "s";
+            }
+        }
 
         public event PropertyChangedEventHandler PropertyChanged;
         private void Raise(string n) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(n));
@@ -50,19 +65,36 @@ namespace RevitWebAppSync.UI.Copilot.Model
             }
             if (existing == null)
             {
-                steps.Add(new ProgressStep
+                var newStep = new ProgressStep
                 {
                     StepId = stepId,
                     Phase = phase,
                     Label = label,
                     Detail = detail,
                     State = state,
-                });
+                };
+                if (state == StepState.Done || state == StepState.Error)
+                {
+                    newStep.EndedUtc = DateTime.UtcNow;
+                }
+                steps.Add(newStep);
             }
             else
             {
                 if (!string.IsNullOrEmpty(label)) existing.Label = label;
                 if (!string.IsNullOrEmpty(detail)) existing.Detail = detail;
+                if (state == StepState.Running && existing.State != StepState.Running)
+                {
+                    // Row re-opened (the writing phase runs once per tool-loop
+                    // round) — restart its clock so the elapsed time reflects
+                    // the live leg, not the first bracket.
+                    existing.StartedUtc = DateTime.UtcNow;
+                    existing.EndedUtc = null;
+                }
+                if ((state == StepState.Done || state == StepState.Error) && existing.EndedUtc == null)
+                {
+                    existing.EndedUtc = DateTime.UtcNow;
+                }
                 existing.State = state;
             }
         }
@@ -76,7 +108,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         {
             if (steps == null) return;
             foreach (var s in steps)
-                if (s.State == StepState.Running) s.State = StepState.Done;
+            {
+                if (s.State == StepState.Running)
+                {
+                    if (s.EndedUtc == null) s.EndedUtc = DateTime.UtcNow;
+                    s.State = StepState.Done;
+                }
+            }
         }
 
         /// <summary>Move the row with this step id to the end of the trail (no-op if
@@ -131,6 +169,33 @@ namespace RevitWebAppSync.UI.Copilot.Model
                   .Append(string.IsNullOrEmpty(s.Label) ? s.StepId : s.Label);
             }
             return sb.ToString();
+        }
+
+        /// <summary>Summary text for a completed run: count of steps and total elapsed time.
+        /// Returns empty string if steps is null or empty. Pure — unit-testable.</summary>
+        public static string Summary(IReadOnlyList<ProgressStep> steps)
+        {
+            if (steps == null || steps.Count == 0) return "";
+            var start = steps[0].StartedUtc;
+            DateTime end = start;
+            foreach (var s in steps)
+            {
+                if (s.EndedUtc != null && s.EndedUtc.Value > end)
+                    end = s.EndedUtc.Value;
+            }
+            // If any step is still running, use current time if it's later than the max end
+            foreach (var s in steps)
+            {
+                if (s.EndedUtc == null)
+                {
+                    var now = DateTime.UtcNow;
+                    if (now > end)
+                        end = now;
+                    break;
+                }
+            }
+            var total = (end - start).TotalSeconds;
+            return "✓ " + steps.Count + " langkah · " + total.ToString("0.#") + "s";
         }
     }
 }

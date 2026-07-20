@@ -26,7 +26,7 @@ namespace BinaVibe.Preview
             var ids = new List<ElementId>();
             foreach (var raw in elementIds)
             {
-                var id = new ElementId(raw);
+                var id = ElemIds.From(raw);
                 if (doc.GetElement(id) != null) ids.Add(id);
             }
             uidoc.Selection.SetElementIds(ids);

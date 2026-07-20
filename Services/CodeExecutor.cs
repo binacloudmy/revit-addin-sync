@@ -7,7 +7,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+#if !NETFRAMEWORK
 using System.Runtime.Loader;
+#endif
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -80,6 +82,25 @@ namespace RevitWebAppSync.Services
                     };
                 }
 
+                // Guard branches exit with `SetResult(...); return null;` — the
+                // early return skips the wrapper tail that hands __result back, so
+                // the stored card was silently lost ("Ran, but no result was
+                // reported" even though the snippet DID report). Recover it (and
+                // any ShowMessage output) from the instance before giving up.
+                if (result == null)
+                {
+                    var __rf = type.GetField("__result",
+                        System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                    result = __rf?.GetValue(instance);
+                    if (result == null)
+                    {
+                        var __of = type.GetField("__aiOutput",
+                            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                        var __sb = __of?.GetValue(instance) as StringBuilder;
+                        if (__sb != null && __sb.Length > 0) result = __sb.ToString().TrimEnd();
+                    }
+                }
+
                 // A string return is a status message; any other object/array is structured
                 // model data — capture it as JSON so the Copilot card renders real numbers.
                 string message;
@@ -95,7 +116,13 @@ namespace RevitWebAppSync.Services
                 }
                 else
                 {
-                    message = "Executed successfully";
+                    // A null return means the snippet ended without reporting a
+                    // structured result (e.g. a guard did `return null;` on an
+                    // empty match). Do NOT claim success — that's the confusing
+                    // "Executed successfully but nothing happened" case. Mutations
+                    // are contracted to SetResult({matched, changed, nothing,
+                    // headline}) instead of returning silently (spec 2026-07-01).
+                    message = "Ran, but no result was reported — nothing may have changed.";
                 }
 
                 return new ExecutionResult
@@ -108,6 +135,8 @@ namespace RevitWebAppSync.Services
             catch (TargetInvocationException ex)
             {
                 var innerEx = ex.InnerException ?? ex;
+                Services.TelemetryService.Track("tool_exec", "failed",
+                    new { tool = "codegen", error_class = innerEx.GetType().Name });
                 return new ExecutionResult
                 {
                     Success = false,
@@ -118,6 +147,8 @@ namespace RevitWebAppSync.Services
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"[BinaVibe][timing] codegen COMPILE FAILED — {ex.Message}");
+                Services.TelemetryService.Track("tool_exec", "failed",
+                    new { tool = "codegen", error_class = "CompilationException" });
                 return new ExecutionResult
                 {
                     Success = false,
@@ -126,6 +157,8 @@ namespace RevitWebAppSync.Services
             }
             catch (Exception ex)
             {
+                Services.TelemetryService.Track("tool_exec", "failed",
+                    new { tool = "codegen", error_class = ex.GetType().Name });
                 return new ExecutionResult
                 {
                     Success = false,
@@ -518,15 +551,39 @@ namespace RevitWebAppSync.Services
         {
             var references = new List<MetadataReference>();
 
-            // Add references from all currently loaded assemblies that have a location
+            // De-dup by SIMPLE assembly name. Roslyn throws CS1703 ("an assembly with
+            // the same simple name has already been imported") and aborts the ENTIRE
+            // compile if two references share a simple name. Revit 2027 loads several
+            // stock Autodesk add-ins that each ship their own copy of
+            // Autodesk.Http.JsonApi.dll / Autodesk.Http.DevPortal.dll, so the raw
+            // GetAssemblies() list contains same-simple-name duplicates. Keep exactly
+            // one reference per simple name (newest version wins, first-seen tie-break).
+            var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            var newestByName = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
             foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
             {
                 try
                 {
-                    if (!assembly.IsDynamic && !string.IsNullOrEmpty(assembly.Location))
-                    {
-                        references.Add(MetadataReference.CreateFromFile(assembly.Location));
-                    }
+                    if (assembly.IsDynamic || string.IsNullOrEmpty(assembly.Location)) continue;
+                    var name = assembly.GetName().Name;
+                    if (string.IsNullOrEmpty(name)) continue;
+                    if (newestByName.TryGetValue(name, out var existing)
+                        && (existing.GetName().Version ?? new Version(0, 0)) >= (assembly.GetName().Version ?? new Version(0, 0)))
+                        continue;
+                    newestByName[name] = assembly;
+                }
+                catch
+                {
+                    // Skip assemblies whose name/version can't be read
+                }
+            }
+            foreach (var kv in newestByName)
+            {
+                try
+                {
+                    references.Add(MetadataReference.CreateFromFile(kv.Value.Location));
+                    seenNames.Add(kv.Key);
                 }
                 catch
                 {
@@ -534,13 +591,16 @@ namespace RevitWebAppSync.Services
                 }
             }
 
-            // Helper: make sure a specific assembly is in the reference set.
+            // Helper: make sure a specific assembly is in the reference set — de-dup by
+            // simple name (same rule as the bulk loop) so an explicit add can't
+            // re-introduce a CS1703 duplicate.
             void EnsureRef(Assembly asm, string nameHint)
             {
                 try
                 {
                     if (asm == null || string.IsNullOrEmpty(asm.Location)) return;
-                    if (references.Any(r => r.Display != null && r.Display.IndexOf(nameHint, StringComparison.OrdinalIgnoreCase) >= 0)) return;
+                    var name = asm.GetName().Name ?? nameHint;
+                    if (!seenNames.Add(name)) return;   // already referenced
                     references.Add(MetadataReference.CreateFromFile(asm.Location));
                 }
                 catch { }
@@ -591,16 +651,8 @@ namespace RevitWebAppSync.Services
         }
     }
 
-    public class ExecutionResult
-    {
-        public bool Success { get; set; }
-        public string Message { get; set; }
-        public string Error { get; set; }
-
-        /// <summary>JSON of the snippet's structured return value (real model data), when it
-        /// returned an object/array rather than a status string. Drives the Copilot result card.</summary>
-        public string Data { get; set; }
-    }
+    // ExecutionResult lives in ExecutionResult.cs — it is a dependency-free DTO,
+    // and this file pulls in Revit + Roslyn, which the unit tests can't reference.
 
     public class CompilationException : Exception
     {

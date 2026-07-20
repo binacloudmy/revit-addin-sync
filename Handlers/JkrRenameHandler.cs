@@ -17,7 +17,7 @@ namespace RevitWebAppSync.Handlers
         /// <summary>
         /// List of (ElementId, newName) pairs to rename.
         /// </summary>
-        public List<(int ElementId, string NewName)> RenameQueue { get; set; } = new List<(int, string)>();
+        public List<(long ElementId, string NewName)> RenameQueue { get; set; } = new List<(long, string)>();
 
         /// <summary>
         /// List of parameter fixes to apply after renames.
@@ -26,177 +26,294 @@ namespace RevitWebAppSync.Handlers
 
         public Action<RenameResult> OnCompleted { get; set; }
 
-        /// <summary>Label used for the outer TransactionGroup — surfaces in Revit's
+        /// <summary>Label used for the per-chunk Transactions — surfaces in Revit's
         /// undo history. Defaults to "JKR Quick Fix All"; the Reset path overrides
         /// it to "JKR Reset" so the user can tell the two apart in Edit > Undo.</summary>
         public string TransactionGroupName { get; set; } = "JKR Quick Fix All";
 
+        /// <summary>Optional live-progress callback: (done, total). Fired once per
+        /// chunk so the UI can animate a progress bar while the batch applies.</summary>
+        public Action<int, int> OnProgress { get; set; }
+
+        // ── Chunked-apply state (Idling-driven; only touched on Revit's UI thread) ──
+        private enum WorkKind { Rename, Param }
+        private struct WorkItem
+        {
+            public WorkKind Kind;
+            public long ElemId;
+            public string NewName;
+            public JkrFixAction Fix;
+        }
+        private UIApplication _uiApp;
+        private UIDocument _uidoc;
+        private Document _doc;
+        private View _restoreView;
+        private Queue<WorkItem> _work;
+        private JkrFixApplicator _applicator;
+        private RenameResult _result;
+        private List<string> _failReasons;
+        private int _done;
+        private int _total;
+        private bool _finished;
+        private bool _inTick;
+
+        // Time budget per Idling tick. Kept well under Windows' ~5s "Not Responding"
+        // threshold so the window keeps pumping messages and the progress bar animates.
+        private const long SliceMs = 120;
+
         public void Execute(UIApplication app)
         {
-            var result = new RenameResult();
-            var failReasons = new List<string>();
+            // Chunked, Idling-driven apply so Revit never blocks long enough to show
+            // "(Not Responding)": each Idling tick applies fixes for a short time slice,
+            // commits, updates progress, then yields so Windows pumps messages (see
+            // OnIdling / ApplyOne / FinishBatch). Reset is unaffected — every committed
+            // fix is still counted into _result, which the panel turns into _appliedFixes
+            // exactly as the old one-shot path did.
+            _result = new RenameResult();
+            _failReasons = new List<string>();
+            _restoreView = null;
+            _uidoc = null;
+            _doc = null;
+            _uiApp = app;
+            _done = 0;
+            _total = 0;
+            _finished = false;
+            _inTick = false;
+
             try
             {
-                var doc = app.ActiveUIDocument?.Document;
+                _uidoc = app.ActiveUIDocument;
+                var doc = _uidoc?.Document;
                 if (doc == null)
                 {
-                    result.Error = "No active document.";
-                    OnCompleted?.Invoke(result);
+                    _result.Error = "No active document.";
+                    FinishBatch();
                     return;
                 }
+                _doc = doc;
 
                 if (!RenameQueue.Any() && !ParamFixQueue.Any())
                 {
-                    OnCompleted?.Invoke(result);
+                    FinishBatch();
                     return;
                 }
 
-                System.Diagnostics.Debug.WriteLine(
-                    $"[BINA Handler] '{TransactionGroupName}' starting: " +
-                    $"renames={RenameQueue.Count} paramFixes={ParamFixQueue.Count}");
-
-                // Wrap renames + param fixes in a single TransactionGroup so the user
-                // gets ONE undo step for the whole "Quick Fix All" batch instead of
-                // 100+ entries. Assimilate() collapses the inner transactions on
-                // success; RollBack() unwinds everything if we hit a fatal error.
-                using (var tg = new TransactionGroup(doc, TransactionGroupName))
+                // Perf guard: if a 3D / rendered / perspective view is active, every
+                // model regen forces an expensive re-render. Switch to a lightweight
+                // drafting/plan view for the batch; restored in FinishBatch.
+                try
                 {
-                    tg.Start();
-                    try
+                    if (_uidoc.ActiveView is View3D)
                     {
-                        // Phase 1: Renames — batched into one inner Transaction.
-                        if (RenameQueue.Any())
+                        var light = FindLightweightView(doc);
+                        if (light != null)
                         {
-                            using (var tx = new Transaction(doc, "JKR Renames"))
-                            {
-                                tx.Start();
-                                int renamesBefore = result.Renamed;
-                                int failsBefore = result.Failed + result.Skipped;
-                                foreach (var (elemId, newName) in RenameQueue)
-                                {
-                                    int rB = result.Renamed, fB = result.Failed + result.Skipped;
-                                    ApplyRename(doc, elemId, newName, result, failReasons);
-                                    if (result.Renamed > rB)
-                                        System.Diagnostics.Debug.WriteLine(
-                                            $"[BINA Rename] OK elem={elemId} → '{newName}'");
-                                    else if (result.Failed + result.Skipped > fB)
-                                        System.Diagnostics.Debug.WriteLine(
-                                            $"[BINA Rename] FAIL elem={elemId} → '{newName}'");
-                                }
-                                tx.Commit();
-                                System.Diagnostics.Debug.WriteLine(
-                                    $"[BINA Handler] Phase 1 done: renamed={result.Renamed - renamesBefore} " +
-                                    $"failed={(result.Failed + result.Skipped) - failsBefore}");
-                            }
+                            _restoreView = _uidoc.ActiveView;
+                            _uidoc.ActiveView = light;
                         }
-
-                        // Phase 2: Parameter fixes — batched into one inner Transaction,
-                        // sorted by priority so classification params land before
-                        // material params and rename-derived fixes.
-                        if (ParamFixQueue.Any())
-                        {
-                            var applicator = new JkrFixApplicator(doc);
-                            using (var tx = new Transaction(doc, "JKR Parameter Fixes"))
-                            {
-                                tx.Start();
-                                foreach (var fix in ParamFixQueue.OrderBy(f => f.Priority))
-                                {
-                                    // Each fix runs inside its own SubTransaction so a failure
-                                    // (e.g. the param turned out read-only after JkrFixApplicator
-                                    // bound a fresh shared-parameter to the element's category)
-                                    // can be cleanly rolled back. Without this, the binding
-                                    // side-effect persisted, the next scan saw a now-empty
-                                    // parameter instead of a missing one, which downgraded the
-                                    // rule from "value invalid" (fixable) to "empty parameter"
-                                    // (often unfixable on Grids/Levels) — silently dropping
-                                    // affected elements out of FixableCount post-Reset.
-                                    using (var subTx = new SubTransaction(doc))
-                                    {
-                                        subTx.Start();
-                                        FixResult fixResult;
-                                        try
-                                        {
-                                            fixResult = applicator.ApplyFixInExistingTx(fix);
-                                        }
-                                        catch
-                                        {
-                                            subTx.RollBack();
-                                            throw;
-                                        }
-                                        if (fixResult.Success)
-                                        {
-                                            subTx.Commit();
-                                            result.ParamFixed++;
-                                            System.Diagnostics.Debug.WriteLine(
-                                                $"[BINA ParamFix] OK elem={fix.ElementId} param='{fix.ParameterName}' " +
-                                                $"value='{fix.Value}' (was '{fix.OldValue}') target={fix.Target}");
-                                        }
-                                        else
-                                        {
-                                            subTx.RollBack();
-                                            result.Failed++;
-                                            result.FailedElementIds.Add(fix.ElementId);
-                                            result.FailedFixKeys.Add(RenameResult.MakeFixKey("set_parameter", fix.ElementId, fix.ParameterName));
-                                            failReasons.Add($"{fix.ParameterName} on {fix.ElementId}: {fixResult.Message}");
-                                            System.Diagnostics.Debug.WriteLine(
-                                                $"[BINA ParamFix] FAIL elem={fix.ElementId} param='{fix.ParameterName}' " +
-                                                $"reason='{fixResult.Message}'");
-                                        }
-                                    }
-                                }
-                                tx.Commit();
-                            }
-                        }
-
-                        // Collapse all inner transactions into a single undo step.
-                        tg.Assimilate();
-                    }
-                    catch
-                    {
-                        // Unwind the whole batch on a fatal error so the model isn't
-                        // left semi-fixed (the previous two-Transaction layout could
-                        // commit renames then fail params, leaving partial state).
-                        if (tg.HasStarted() && !tg.HasEnded()) tg.RollBack();
-                        throw;
                     }
                 }
+                catch { _restoreView = null; }
 
-                if (failReasons.Count > 0)
-                    result.FailDetails = string.Join("\n", failReasons.Take(5));
+                // One ordered work list: renames first, then param fixes by priority —
+                // the same order the old two-phase path used.
+                _work = new Queue<WorkItem>();
+                foreach (var (elemId, newName) in RenameQueue)
+                    _work.Enqueue(new WorkItem { Kind = WorkKind.Rename, ElemId = elemId, NewName = newName });
+                foreach (var fix in ParamFixQueue.OrderBy(f => f.Priority))
+                    _work.Enqueue(new WorkItem { Kind = WorkKind.Param, Fix = fix });
+
+                _total = _work.Count;
+                _applicator = new JkrFixApplicator(doc);
+
+                // Snapshot taken — clear the public queues so a stray re-raise can't
+                // double-apply; the batch now runs off _work.
+                RenameQueue.Clear();
+                ParamFixQueue.Clear();
 
                 System.Diagnostics.Debug.WriteLine(
-                    $"[BINA Handler] '{TransactionGroupName}' completed: " +
-                    $"renamed={result.Renamed} paramFixed={result.ParamFixed} " +
-                    $"failed={result.Failed} skipped={result.Skipped}");
-                if (failReasons.Count > 0)
+                    $"[BINA Handler] '{TransactionGroupName}' starting (chunked): items={_total}");
+                OnProgress?.Invoke(0, _total);
+
+                // Drive the batch from Idling so the UI thread yields between slices.
+                app.Idling += OnIdling;
+            }
+            catch (Exception ex)
+            {
+                _result.Error = ex.Message;
+                FinishBatch();
+            }
+        }
+
+        private void OnIdling(object sender, Autodesk.Revit.UI.Events.IdlingEventArgs e)
+        {
+            if (_finished || _inTick) return;
+            _inTick = true;
+            try
+            {
+                var doc = _doc;
+                if (doc == null) { _result.Error = "Document is no longer available."; FinishBatch(); return; }
+
+                // Apply a time-boxed slice inside ONE transaction (one regen at commit),
+                // then yield. Always processes at least one item so we can't stall.
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                using (var tx = new Transaction(doc, TransactionGroupName))
                 {
+                    tx.Start();
+                    while (_work.Count > 0 && sw.ElapsedMilliseconds < SliceMs)
+                    {
+                        ApplyOne(doc, _work.Dequeue());
+                        _done++;
+                    }
+                    tx.Commit();
+                }
+
+                OnProgress?.Invoke(_done, _total);
+
+                if (_work.Count > 0)
+                    e.SetRaiseWithoutDelay(); // keep Idling firing back-to-back until drained
+                else
+                    FinishBatch();
+            }
+            catch (Exception ex)
+            {
+                _result.Error = ex.Message;
+                FinishBatch();
+            }
+            finally
+            {
+                _inTick = false;
+            }
+        }
+
+        /// <summary>Apply a single work item inside the caller's open Transaction.
+        /// Per-item try/catch so one bad fix is recorded as a failure and the batch
+        /// keeps going (committed fixes stay reversible via Reset) instead of aborting
+        /// the whole run.</summary>
+        private void ApplyOne(Document doc, WorkItem item)
+        {
+            try
+            {
+                if (item.Kind == WorkKind.Rename)
+                {
+                    int rB = _result.Renamed, fB = _result.Failed + _result.Skipped;
+                    ApplyRename(doc, item.ElemId, item.NewName, _result, _failReasons);
+                    if (_result.Renamed > rB)
+                        System.Diagnostics.Debug.WriteLine($"[BINA Rename] OK elem={item.ElemId} → '{item.NewName}'");
+                    else if (_result.Failed + _result.Skipped > fB)
+                        System.Diagnostics.Debug.WriteLine($"[BINA Rename] FAIL elem={item.ElemId} → '{item.NewName}'");
+                    return;
+                }
+
+                var fix = item.Fix;
+                FixResult fixResult;
+                // Only fixes that may bind a fresh shared parameter need SubTransaction
+                // isolation (so a read-only write failure after a binding leaves no
+                // residue). Plain writes run directly in the chunk transaction.
+                if (_applicator.FixNeedsIsolation(fix))
+                {
+                    using (var subTx = new SubTransaction(doc))
+                    {
+                        subTx.Start();
+                        try { fixResult = _applicator.ApplyFixInExistingTx(fix); }
+                        catch (Exception ex) { subTx.RollBack(); fixResult = new FixResult { Success = false, Message = ex.Message }; }
+                        if (fixResult.Success) subTx.Commit();
+                        else subTx.RollBack();
+                    }
+                }
+                else
+                {
+                    fixResult = _applicator.ApplyFixInExistingTx(fix);
+                }
+
+                if (fixResult.Success)
+                {
+                    _result.ParamFixed++;
                     System.Diagnostics.Debug.WriteLine(
-                        $"[BINA Handler] failure reasons ({failReasons.Count}):");
-                    foreach (var r in failReasons)
-                        System.Diagnostics.Debug.WriteLine($"  • {r}");
+                        $"[BINA ParamFix] OK elem={fix.ElementId} param='{fix.ParameterName}' " +
+                        $"value='{fix.Value}' (was '{fix.OldValue}') target={fix.Target}");
+                }
+                else
+                {
+                    _result.Failed++;
+                    _result.FailedElementIds.Add(fix.ElementId);
+                    _result.FailedFixKeys.Add(RenameResult.MakeFixKey("set_parameter", fix.ElementId, fix.ParameterName));
+                    _failReasons.Add($"{fix.ParameterName} on {fix.ElementId}: {fixResult.Message}");
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA ParamFix] FAIL elem={fix.ElementId} param='{fix.ParameterName}' reason='{fixResult.Message}'");
                 }
             }
             catch (Exception ex)
             {
-                result.Error = ex.Message;
-            }
-            finally
-            {
-                OnCompleted?.Invoke(result);
-                RenameQueue.Clear();
-                ParamFixQueue.Clear();
-                // Reset to default so a stale Reset-label doesn't leak into the
-                // next Fix All if the caller forgets to set it.
-                TransactionGroupName = "JKR Quick Fix All";
+                // Never let one item abort the batch.
+                _result.Failed++;
+                if (item.Kind == WorkKind.Param && item.Fix != null)
+                {
+                    _result.FailedElementIds.Add(item.Fix.ElementId);
+                    _result.FailedFixKeys.Add(RenameResult.MakeFixKey("set_parameter", item.Fix.ElementId, item.Fix.ParameterName));
+                    _failReasons.Add($"{item.Fix.ParameterName} on {item.Fix.ElementId}: {ex.Message}");
+                }
+                else
+                {
+                    _result.FailedElementIds.Add(item.ElemId);
+                    _failReasons.Add($"rename {item.ElemId}: {ex.Message}");
+                }
             }
         }
 
-        private static void ApplyRename(Document doc, int elemId, string newName,
+        /// <summary>Finish the batch: unsubscribe Idling, restore the view, then fire
+        /// OnCompleted exactly once with the accumulated result.</summary>
+        private void FinishBatch()
+        {
+            if (_finished) return;
+            _finished = true;
+
+            try { if (_uiApp != null) _uiApp.Idling -= OnIdling; } catch { }
+            try { if (_restoreView != null && _uidoc != null) _uidoc.ActiveView = _restoreView; } catch { }
+
+            if (_failReasons != null && _failReasons.Count > 0)
+                _result.FailDetails = string.Join("\n", _failReasons.Take(5));
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[BINA Handler] '{TransactionGroupName}' completed (chunked): " +
+                $"renamed={_result.Renamed} paramFixed={_result.ParamFixed} " +
+                $"failed={_result.Failed} skipped={_result.Skipped}");
+
+            var completed = OnCompleted;
+            var result = _result;
+
+            // Reset transient state before firing the callback so a re-entrant Fix All
+            // (or the Reset path) started from within OnCompleted begins clean.
+            _work = null;
+            _applicator = null;
+            _doc = null;
+            OnProgress = null; // don't let a stale Fix All progress closure fire during Reset
+            RenameQueue.Clear();
+            ParamFixQueue.Clear();
+            TransactionGroupName = "JKR Quick Fix All";
+
+            completed?.Invoke(result);
+        }
+
+        /// <summary>Find a cheap-to-activate view (empty drafting view, else a plan)
+        /// to host a Fix All batch so model regenerations don't re-render a 3D view.</summary>
+        private static View FindLightweightView(Document doc)
+        {
+            var drafting = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewDrafting)).Cast<View>()
+                .FirstOrDefault(v => v != null && !v.IsTemplate);
+            if (drafting != null) return drafting;
+            return new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewPlan)).Cast<View>()
+                .FirstOrDefault(v => v != null && !v.IsTemplate);
+        }
+
+        private static void ApplyRename(Document doc, long elemId, string newName,
                                         RenameResult result, List<string> failReasons)
         {
             try
             {
-                var elem = doc.GetElement(new ElementId(elemId));
+                var elem = doc.GetElement(ElemIds.From(elemId));
                 if (elem == null)
                 {
                     result.Skipped++;
@@ -331,7 +448,7 @@ namespace RevitWebAppSync.Handlers
         /// element-level granularity. Don't use this when an element can have multiple
         /// fixes (rename + several param fixes) and you need to distinguish which
         /// specific fix failed; use FailedFixKeys instead.</summary>
-        public HashSet<int> FailedElementIds { get; set; } = new HashSet<int>();
+        public HashSet<long> FailedElementIds { get; set; } = new HashSet<long>();
 
         /// <summary>Per-fix failure keys — distinguishes "this rename failed" from
         /// "this Sistem param fix failed" on the same element. Format:
@@ -344,7 +461,7 @@ namespace RevitWebAppSync.Handlers
         public HashSet<string> FailedFixKeys { get; set; } = new HashSet<string>();
 
         /// <summary>Compute a fix key matching the format used by FailedFixKeys.</summary>
-        public static string MakeFixKey(string action, int elementId, string parameterName)
+        public static string MakeFixKey(string action, long elementId, string parameterName)
         {
             if (string.Equals(action, "rename_type", System.StringComparison.OrdinalIgnoreCase))
                 return $"r:{elementId}";

@@ -23,10 +23,10 @@
                     <Path Width="16" Height="16" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M15,6 l-6,6 6,6"/>
                 </Button>
-                <Border Grid.Column="2" CornerRadius="999" Background="#dcfce7" Padding="8,3">
+                <Border Grid.Column="2" CornerRadius="999" Background="{DynamicResource Cp.OkBg}" Padding="8,3">
                     <StackPanel Orientation="Horizontal">
-                        <Ellipse Width="5" Height="5" Fill="#16a34a" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                        <TextBlock FontSize="11" Foreground="#16a34a" FontWeight="Medium">
+                        <Ellipse Width="5" Height="5" Fill="{DynamicResource Cp.Green}" VerticalAlignment="Center" Margin="0,0,5,0"/>
+                        <TextBlock FontSize="11" Foreground="{DynamicResource Cp.Green}" FontWeight="Medium">
                             <Run Text="Done · "/><Run Text="{Binding LastRunElapsed, Mode=OneWay}"/>
                         </TextBlock>
                     </StackPanel>

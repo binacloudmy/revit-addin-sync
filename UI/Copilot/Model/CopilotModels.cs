@@ -6,7 +6,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     // ─── Enums (mirror the prototype state machine) ──────────────────────────
     public enum CpScreen { Home, ToolForm, ToolReview, Running, Result }
     public enum CpTab { Chat, Library, History, Saved }
-    public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, AiReply }
+    public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, AiReply, ConfirmActions }
     // AiReply = plain-text AI response (no card, no Save/Copy/Undo). Used
     // when the backend marks is_query=true: code is auto-run and the
     // structured result is reformulated as one conversational sentence.
@@ -101,9 +101,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Text;
         public string Time;
         public List<string> Tools;  // bot messages only — tool IDs used in the reply
+        public List<HistoryFile> Files;  // user messages only — files attached to the prompt (name + line count, content not persisted)
         public History() { }
         public History(string sender, string text, string time, List<string> tools = null)
         { Sender = sender; Text = text; Time = time; Tools = tools; }
+    }
+
+    /// <summary>A file attachment as persisted in run history — just the name and
+    /// line count (enough to redraw the chip). The contents are deliberately not
+    /// stored, to keep copilot-state.json small.</summary>
+    public class HistoryFile
+    {
+        public string Name;
+        public int Lines;
+        public HistoryFile() { }
+        public HistoryFile(string name, int lines) { Name = name; Lines = lines; }
     }
 
     public class HistoryEntry
@@ -142,6 +154,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public CpMsgKind Kind;
         public string Text;
         public string ToolId;        // proposal/running/result target tool
+        public SlashTool SlashCommand;  // slash-command chip shown atop a user bubble (UI-only)
         public List<Mention> Mentions = new List<Mention>();
         public string Question;      // clarify
         public List<ClarifyOption> Options = new List<ClarifyOption>();  // clarify
@@ -150,17 +163,64 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English
         public List<string> ToolCallTrace; // tool-calling agent: ordered tool names called
         public IReadOnlyList<ProgressStep> Steps; // full phased trail; ChatView prefers this over ToolCallTrace
+        // Transient live trail for the CURRENT turn's Thinking bubble (set by
+        // CopilotViewModel's OnSteps/OnCodeStream handlers, cleared per-turn).
+        // Unlike Steps (persisted with a resolved message), LiveSteps only ever
+        // rides on the in-flight Thinking message — ChatView renders it via the
+        // cached ProgressTrailView instead of the single-line ThinkingTrail.
+        public IReadOnlyList<ProgressStep> LiveSteps;
+        // A Thinking-kind message whose Text is the ACCUMULATING reply prose
+        // (not a step trail). The VM reuses Kind=Thinking during reply streaming
+        // so ReplaceLastThinking keeps targeting the same growing bubble; this
+        // flag tells ChatView to render it as the reply (markdown) instead of the
+        // thinking-steps trail, so the trail collapses the moment prose arrives.
+        public bool StreamingReply;
+        // Cancelled generation: rendered as the design's italic faint
+        // "Interrupted." line (stop icon, no bubble, no feedback row).
+        public bool Interrupted;
+        // Proposal card status ("proposed" default / "dismissed") — the design's
+        // "· Proposed / · Applied / · Dismissed" header suffix. Applied state is
+        // carried by the Result message, so only dismissal is stored here.
+        public bool Dismissed;
+        // Send timestamp ("2:25 PM") shown under user bubbles / in AI feedback rows.
+        public string Time;
         public List<string> ImagesBase64;  // screenshots pasted with this prompt (base64 PNG) — rendered as thumbnails
+        public List<FileAttachment> Files;  // text files attached with this prompt — rendered as chips (content lives only in the backend route text)
         public RevitWebAppSync.Models.ReviewerVerdict Verdict; // attached to AiReply messages
+        // One-tap "next step" offer parsed server-side from the reply's trailing
+        // "Tindakan:" line. Empty/null = no offer (old backend or plain reply) —
+        // ChatView must render no buttons in that case. Rendered ONLY on the
+        // LAST AiReply in the thread and only while unresolved; older messages
+        // with a stale offer fall back to plain text.
+        public string Tindakan;
+        public bool TindakanResolved;
+        // ConfirmActions card: friendly one-line labels of the pending MUTATE
+        // batch awaiting the user's Ya/Tidak. Buttons render only while
+        // unresolved AND the card is last in the thread; a resolved card keeps
+        // the action list as an audit trail.
+        public List<string> ActionLabels;
+        public bool ActionsResolved;
+    }
+
+    /// <summary>A text file attached to a prompt. Content is sent to the backend
+    /// (embedded in the route text) but never shown as raw text in the chat bubble.</summary>
+    public class FileAttachment
+    {
+        public string Name;
+        public string Content;
+        public FileAttachment() { }
+        public FileAttachment(string name, string content) { Name = name; Content = content; }
     }
 
     /// <summary>Composed prompt-bar submission: text plus any screenshots the user
-    /// pasted (base64 PNG). The PromptBar sends this object through ChatSendCommand
-    /// when images are attached; plain string when not (chips, follow-ups).</summary>
+    /// pasted (base64 PNG) and any text files attached. The PromptBar sends this
+    /// object through ChatSendCommand when images or files are attached; plain
+    /// string when not (chips, follow-ups).</summary>
     public class PromptPayload
     {
         public string Text;
         public List<string> ImagesBase64;
+        public List<FileAttachment> Files;
     }
 
     /// <summary>Floating viewport marker (Task 15). Coordinates are % of the active view rect.</summary>

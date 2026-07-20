@@ -3,51 +3,176 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
              FontFamily="{DynamicResource Cp.Font}">
-    <Border BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,1,0,0" Background="White" Padding="12">
+    <Border BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,1,0,0"
+            Background="{DynamicResource Cp.Bg}" Padding="14,12,14,11">
         <StackPanel>
             <!-- pending pasted screenshots (thumbnail chips with an × to remove) -->
             <StackPanel x:Name="ThumbStrip" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,8"/>
-            <Border BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1" CornerRadius="12" Padding="12,8,10,8">
+            <!-- pending slash command (accent chip with an × to clear) -->
+            <StackPanel x:Name="CommandStrip" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,8"/>
+            <!-- Slate composer: sunken rounded container, borderless input,
+                 ghost attach button, accent-gradient send/stop button. -->
+            <Border Background="{DynamicResource Cp.Sunken}" CornerRadius="13" Padding="13,8,8,8">
                 <DockPanel LastChildFill="True">
-                    <!-- AI pill -->
-                    <Border DockPanel.Dock="Right" CornerRadius="999" Background="{DynamicResource Cp.PurpleSoft}"
-                            Padding="6,2" Margin="6,0,6,0" VerticalAlignment="Center">
-                        <TextBlock Text="AI" FontSize="10" Foreground="{DynamicResource Cp.Purple}"/>
-                    </Border>
-                    <!-- attach file button (pink) -->
-                    <Button x:Name="AttachBtn" DockPanel.Dock="Right" Width="26" Height="26" Cursor="Hand"
-                            Background="{DynamicResource Cp.BotGradient}" BorderThickness="0" VerticalAlignment="Center"
-                            Margin="0,0,4,0" ToolTip="Attach a file (.txt, .csv, .md, .log, .json, .xml)">
+                    <!-- send / stop: circular; gray while idle, accent gradient once
+                         there is text; stop square while a reply streams -->
+                    <Button x:Name="SendBtn" DockPanel.Dock="Right" Width="32" Height="32" Cursor="Hand"
+                            Background="Transparent" BorderThickness="0" VerticalAlignment="Bottom"
+                            FocusVisualStyle="{x:Null}" ToolTip="Send">
                         <Button.Template>
                             <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}" CornerRadius="6">
+                                <Border Background="{TemplateBinding Background}" CornerRadius="9">
                                     <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                             </ControlTemplate>
                         </Button.Template>
-                        <Path Width="12" Height="12" Stretch="Uniform" Fill="White"
+                        <Path x:Name="SendIcon" Width="14" Height="14" Stretch="Uniform"
+                              Fill="{DynamicResource Cp.Faint}"
+                              Data="M12,4 L19,11.5 L14.4,11.5 L14.4,19 L9.6,19 L9.6,11.5 L5,11.5 Z"/>
+                    </Button>
+                    <!-- @ mention button -->
+                    <Button x:Name="AtBtn" DockPanel.Dock="Right" Width="30" Height="30" Cursor="Hand"
+                            Background="Transparent" BorderThickness="0" VerticalAlignment="Bottom"
+                            FocusVisualStyle="{x:Null}"
+                            Margin="0,0,4,1" ToolTip="Reference a level, category, view, or selection">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="bd" Background="Transparent" CornerRadius="8">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                        <Path Width="16" Height="16" Stretch="Uniform" Fill="Transparent"
+                              Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.9"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                              Data="M16,8 v5 a3,3 0 0 0 6,0 v-1 a10,10 0 1 0 -4,8 M12,8 a4,4 0 1 0 0,8 a4,4 0 1 0 0,-8"/>
+                    </Button>
+                    <!-- attach file button -->
+                    <Button x:Name="AttachBtn" DockPanel.Dock="Right" Width="30" Height="30" Cursor="Hand"
+                            Background="Transparent" BorderThickness="0" VerticalAlignment="Bottom"
+                            FocusVisualStyle="{x:Null}"
+                            Margin="0,0,2,1" ToolTip="Attach a file (.txt, .csv, .md, .log, .json, .xml)">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="bd" Background="Transparent" CornerRadius="8">
+                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                        <Path Width="14" Height="14" Stretch="Uniform" Fill="Transparent"
+                              Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.9"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                               Data="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
                     </Button>
-                    <!-- send / stop (icon swaps to a stop square while a reply streams) -->
-                    <Button x:Name="SendBtn" DockPanel.Dock="Right" Width="26" Height="26" Cursor="Hand"
-                            Background="{DynamicResource Cp.Ink}" BorderThickness="0" VerticalAlignment="Center"
-                            ToolTip="Send" Margin="0,0,4,0">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}" CornerRadius="6">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                            </ControlTemplate>
-                        </Button.Template>
-                        <Path x:Name="SendIcon" Width="11" Height="11" Stretch="Uniform" Fill="White"
-                              Data="M6,4 l14,8 -14,8 V4 z"/>
-                    </Button>
-                    <ctl:MentionInput x:Name="Input" VerticalAlignment="Center"/>
+                    <ctl:MentionInput x:Name="Input" VerticalAlignment="Center" Margin="0,0,8,0"/>
                 </DockPanel>
             </Border>
-            <TextBlock x:Name="PlaceholderHint" HorizontalAlignment="Center" Margin="0,6,0,0"
-                       FontSize="10.5" Foreground="{DynamicResource Cp.Faint}"
-                       Text="Type @ to reference a level, category, view, or selection"/>
+            <!-- Footer usage meter (design: plan name · progress track · pct).
+                 Bound to CopilotViewModel.Usage via BindUsage(); click opens the
+                 usage popover (UsageMeterClicked). -->
+            <Button x:Name="MeterBtn" Visibility="Collapsed" Cursor="Hand"
+                    Background="Transparent" BorderThickness="0" Padding="0"
+                    FocusVisualStyle="{x:Null}"
+                    HorizontalContentAlignment="Stretch" ToolTip="Plan usage">
+                <Button.Template>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="Transparent">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Opacity" Value="0.82"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Button.Template>
+                <Grid Margin="4,9,4,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="MeterPlan" Grid.Column="0" FontSize="10.5" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
+                    <Border Grid.Column="1" Height="4" CornerRadius="2" Margin="9,0,9,0"
+                            Background="{DynamicResource Cp.Line}" VerticalAlignment="Center" ClipToBounds="True">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition x:Name="MeterFillCol" Width="88*"/>
+                                <ColumnDefinition x:Name="MeterRestCol" Width="12*"/>
+                            </Grid.ColumnDefinitions>
+                            <Border x:Name="MeterFill" Grid.Column="0" CornerRadius="2"/>
+                        </Grid>
+                    </Border>
+                    <TextBlock x:Name="MeterPct" Grid.Column="2" FontSize="10.5" FontWeight="Bold"
+                               Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
+                </Grid>
+            </Button>
+            <!-- Usage popover: plan, bar, Upgrade plan (design lines 536-548) -->
+            <Popup x:Name="UsagePopup" PlacementTarget="{Binding ElementName=MeterBtn}" Placement="Top"
+                   VerticalOffset="-8" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
+                <Border Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}"
+                        BorderThickness="1" CornerRadius="13" Padding="15,15,15,14" MinWidth="228" Margin="8">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.14" Color="#000000"/>
+                    </Border.Effect>
+                    <StackPanel>
+                        <TextBlock x:Name="PopPlan" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource Cp.Ink}"/>
+                        <TextBlock Text="Plan usage" FontSize="10.5" Foreground="{DynamicResource Cp.Faint}" Margin="0,2,0,0"/>
+                        <Grid Margin="0,13,0,7">
+                            <TextBlock Text="Usage" FontSize="11" Foreground="{DynamicResource Cp.Muted}" HorizontalAlignment="Left"/>
+                            <TextBlock x:Name="PopPctUsed" FontSize="11.5" FontWeight="Bold" Foreground="{DynamicResource Cp.Ink}" HorizontalAlignment="Right"/>
+                        </Grid>
+                        <Border Height="6" CornerRadius="2" Background="{DynamicResource Cp.Line}" ClipToBounds="True">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition x:Name="PopFillCol" Width="88*"/>
+                                    <ColumnDefinition x:Name="PopRestCol" Width="12*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border x:Name="PopFill" Grid.Column="0" CornerRadius="2"/>
+                            </Grid>
+                        </Border>
+                        <Button x:Name="PopUpgradeBtn" Height="32" Margin="0,13,0,0" Cursor="Hand"
+                                Background="{DynamicResource Cp.AccentGrad}" BorderThickness="0"
+                                FocusVisualStyle="{x:Null}">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="9">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.AccentGradHover}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                            <StackPanel Orientation="Horizontal">
+                                <Path Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center"
+                                      Fill="Transparent" Stroke="{DynamicResource Cp.AccentContrast}" StrokeThickness="2.1"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                      Data="M13,2 4.5,13.5 H11 l-1,8.5 8.5,-11.5 H12 Z"/>
+                                <TextBlock Text="Upgrade plan" FontSize="11.5" FontWeight="SemiBold"
+                                           Foreground="{DynamicResource Cp.AccentContrast}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </Border>
+            </Popup>
+            <TextBlock x:Name="PlaceholderHint" HorizontalAlignment="Center" Margin="0,8,0,1"
+                       FontSize="10" Foreground="{DynamicResource Cp.Faint}">
+                <Run Text="Type "/><Run Text="/" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" for tools · "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to reference a level, view or selection"/>
+            </TextBlock>
         </StackPanel>
     </Border>
 </UserControl>

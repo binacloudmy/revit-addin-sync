@@ -257,7 +257,7 @@ namespace RevitWebAppSync.Services
         [JsonProperty("description")] public string Description { get; set; } = "";
         [JsonProperty("element_name")] public string ElementName { get; set; } = "";
         [JsonProperty("element_id_label")] public string ElementIdLabel { get; set; } = "—";
-        [JsonProperty("revit_element_id")] public int RevitElementId { get; set; }
+        [JsonProperty("revit_element_id")] public long RevitElementId { get; set; }
         [JsonProperty("required")] public string Required { get; set; } = "";
         [JsonProperty("actual")] public string Actual { get; set; } = "";
         [JsonProperty("example")] public string Example { get; set; } = "";
@@ -336,7 +336,10 @@ namespace RevitWebAppSync.Services
                 FixOldValue = FixOldValue ?? "",
                 FixPriority = FixPriority,
                 FixTarget = string.IsNullOrEmpty(FixTarget) ? "instance" : FixTarget,
-                Locatable = Locatable,
+                // AND with RevitElementId>0 — same desync guard as IssueMapper.FromDto.
+                // Audit snapshots written before that fix may still have Locatable=true
+                // with RevitElementId==0; don't resurrect a dead Locate button on restore.
+                Locatable = Locatable && RevitElementId > 0,
                 FixReference = FixReference ?? "",
                 AutoFixable = false, // already fixed — don't re-offer the button
             };

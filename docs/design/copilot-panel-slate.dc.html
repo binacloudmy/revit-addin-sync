@@ -1,0 +1,1311 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<template id="__bundler_thumbnail" data-bg-color="#131d2b">
+  <svg viewBox="0 0 1200 800" xmlns="http://www.w3.org/2000/svg">
+    <rect width="1200" height="800" fill="#131d2b"/>
+    <path d="M600 240 C617 470 730 583 960 600 C730 617 617 730 600 960 C583 730 470 617 240 600 C470 583 583 470 600 240 Z" fill="#60a5fa"/>
+  </svg>
+</template>
+<x-dc>
+<helmet>
+<style>
+*{box-sizing:border-box;}
+#bina-input::placeholder{color:var(--text3);}
+#bina-input{scrollbar-width:thin;}
+@keyframes msgRise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+@keyframes thinkOut{from{opacity:1;max-height:48px;transform:translateY(0)}to{opacity:0;max-height:0;transform:translateY(-3px)}}
+@keyframes menuPop{from{opacity:0;transform:translateY(7px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes blink{0%,70%,100%{opacity:.28}35%{opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes starPop{0%{transform:scale(1)}40%{transform:scale(1.32)}70%{transform:scale(.92)}100%{transform:scale(1)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes stepIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+@keyframes sheetUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+@keyframes swapUp{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+@keyframes popCheck{0%{opacity:0;transform:scale(.4)}60%{opacity:1;transform:scale(1.18)}100%{opacity:1;transform:scale(1)}}
+@keyframes shimmerText{0%{background-position:140% 0}100%{background-position:-140% 0}}
+.bina-thread::-webkit-scrollbar{width:7px}
+.bina-thread::-webkit-scrollbar-thumb{background:var(--hair2);border-radius:99px}
+.bina-thread::-webkit-scrollbar-track{background:transparent}
+</style>
+</helmet>
+
+<div style="{{ rootStyle }}">
+  <div style="width:360px;height:min(720px,90vh);background:var(--bg);border:1px solid var(--hair);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;color:var(--text);position:relative;">
+
+    <sc-if value="{{ showUsage }}" hint-placeholder-val="{{ false }}">
+      <div onClick="{{ closeUsage }}" style="position:absolute;inset:0;z-index:8;"></div>
+    </sc-if>
+
+    <!-- ===== Header ===== -->
+    <div style="flex:none;display:flex;align-items:center;gap:9px;padding:15px 14px 13px;">
+      <div style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;flex:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" style="filter:drop-shadow(0 2px 5px rgba(37,99,235,.5));">
+          <defs>
+            <linearGradient id="gstarLogo" x1="3.5" y1="2.5" x2="20.5" y2="21.5" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#7dd6ff"/><stop offset=".45" stop-color="#3b8ef7"/><stop offset="1" stop-color="#1d5fe0"/></linearGradient>
+            <radialGradient id="gstarLogoSheen" cx="0.36" cy="0.3" r="0.55"><stop offset="0" stop-color="rgba(255,255,255,.9)"/><stop offset=".55" stop-color="rgba(255,255,255,.06)"/><stop offset="1" stop-color="rgba(255,255,255,0)"/></radialGradient>
+          </defs>
+          <path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarLogo)"></path>
+          <path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarLogoSheen)" opacity=".7"></path>
+        </svg>
+      </div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:14px;font-weight:680;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">BINA AI Copilot</div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none;"></span><span style="font-size:11px;color:var(--text2);line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Connected Â· Main Model</span></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:2px;flex:none;">
+      <sc-if value="{{ showHeaderMeter }}" hint-placeholder-val="{{ true }}">
+        <div style="position:relative;flex:none;">
+          <button onClick="{{ toggleUsage }}" title="Usage" style="display:flex;align-items:center;gap:4px;height:26px;padding:0 8px 0 5px;border:1px solid var(--hair);border-radius:13px;background:var(--sunken);cursor:pointer;" style-hover="background:var(--hover);">
+            <svg width="16" height="16" viewBox="0 0 20 20" style="flex:none;">
+              <circle cx="10" cy="10" r="7.4" fill="none" stroke="var(--hair2)" stroke-width="2.6"></circle>
+              <circle cx="10" cy="10" r="7.4" fill="none" stroke="{{ meterColor }}" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="{{ meterDash }}" transform="rotate(-90 10 10)"></circle>
+            </svg>
+            <span style="font-size:11px;font-weight:680;color:var(--text);letter-spacing:-.01em;">{{ usagePct }}%</span>
+          </button>
+          <sc-if value="{{ showHeaderUsagePop }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;top:calc(100% + 9px);right:0;width:228px;background:var(--menu);border:1px solid var(--hair);border-radius:13px;box-shadow:var(--shadow);padding:15px 15px 14px;z-index:9;animation:menuPop .16s ease forwards;">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                <span style="font-size:13px;font-weight:680;letter-spacing:-.01em;">{{ planName }}</span>
+              </div>
+              <div style="font-size:10.5px;color:var(--text3);margin-top:2px;">Plan usage</div>
+              <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:13px;margin-bottom:7px;">
+                <span style="font-size:11px;color:var(--text2);">Usage</span>
+                <span style="font-size:11.5px;font-weight:700;color:var(--text);white-space:nowrap;">{{ usagePct }}% used</span>
+              </div>
+              <div style="height:6px;border-radius:99px;background:var(--hair);overflow:hidden;"><div style="height:100%;width:{{ usageWidth }};background:{{ meterColor }};border-radius:99px;"></div></div>
+              <button onClick="{{ openUpgrade }}" style="width:100%;height:32px;margin-top:13px;border:0;border-radius:9px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:11.5px;font-weight:640;letter-spacing:-.01em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;" style-hover="filter:brightness(1.07);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/></svg>Upgrade plan</button>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+      <button onClick="{{ toggleTheme }}" title="Toggle theme" style="width:26px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:var(--hover);color:var(--text2);">
+        <sc-if value="{{ isDark }}" hint-placeholder-val="{{ false }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg></sc-if>
+        <sc-if value="{{ isLight }}" hint-placeholder-val="{{ true }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"/></svg></sc-if>
+      </button>
+      <button onClick="{{ newChat }}" title="New chat" style="width:26px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:var(--hover);color:var(--text2);">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+      <div style="position:relative;flex:none;">
+        <button onClick="{{ toggleMacroMenu }}" title="More" style="width:26px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;" style-hover="background:var(--hover);color:var(--text2);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
+        </button>
+        <sc-if value="{{ macroMenuOpen }}" hint-placeholder-val="{{ false }}">
+          <div onClick="{{ closeMacroMenu }}" style="position:fixed;inset:0;z-index:8;"></div>
+          <div style="position:absolute;top:calc(100% + 7px);right:0;width:188px;background:var(--menu);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:5px;z-index:9;animation:menuPop .16s ease forwards;">
+            <button onClick="{{ openRating }}" style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:0;border-radius:8px;background:transparent;color:var(--text);text-align:left;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:550;" style-hover="background:var(--hover);">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text2);flex:none;"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1Z"/></svg>
+              <span style="line-height:1;">Rate Copilot</span>
+            </button>
+            <button onClick="{{ openMacroBug }}" style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:0;border-radius:8px;background:transparent;color:var(--text);text-align:left;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:550;" style-hover="background:var(--hover);">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text2);flex:none;"><path d="M8 2.5 9.5 5M16 2.5 14.5 5"/><rect x="6" y="6" width="12" height="13" rx="6"/><path d="M3 11h3M18 11h3M3 16h3.2M17.8 16H21M12 6v13"/></svg>
+              <span style="line-height:1;">Report a bug</span>
+            </button>
+          </div>
+        </sc-if>
+      </div>
+      </div>
+    </div>
+
+    <!-- ===== Tabs ===== -->
+    <div style="flex:none;display:flex;gap:20px;padding:0 16px;border-bottom:1px solid var(--hair);">
+      <button onClick="{{ goChat }}" style="{{ chatTabStyle }}">Chat</button>
+      <button onClick="{{ goHistory }}" style="{{ histTabStyle }}">History<span style="font-size:10.5px;font-weight:600;color:var(--text3);">{{ historyCount }}</span></button>
+    </div>
+
+    <!-- ===== Empty state ===== -->
+    <sc-if value="{{ showEmpty }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px 26px;">
+        <div style="position:relative;width:54px;height:54px;display:flex;align-items:center;justify-content:center;margin-bottom:22px;">
+          <svg width="50" height="50" viewBox="0 0 24 24" style="position:relative;filter:drop-shadow(0 0 7px rgba(59,142,247,.55)) drop-shadow(0 0 3px rgba(59,142,247,.4));">
+            <defs>
+              <linearGradient id="gstarHero" x1="3.5" y1="2.5" x2="20.5" y2="21.5" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#7dd6ff"/><stop offset=".45" stop-color="#3b8ef7"/><stop offset="1" stop-color="#1d5fe0"/></linearGradient>
+              <radialGradient id="gstarHeroSheen" cx="0.36" cy="0.3" r="0.55"><stop offset="0" stop-color="rgba(255,255,255,.9)"/><stop offset=".55" stop-color="rgba(255,255,255,.08)"/><stop offset="1" stop-color="rgba(255,255,255,0)"/></radialGradient>
+            </defs>
+            <path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarHero)"></path>
+            <path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarHeroSheen)" opacity=".7"></path>
+          </svg>
+          <svg width="17" height="17" viewBox="0 0 24 24" style="position:absolute;top:-7px;right:-9px;filter:drop-shadow(0 0 4px rgba(59,142,247,.55)) drop-shadow(0 0 2px rgba(59,142,247,.4));"><path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarHero)"></path></svg>
+          <svg width="13" height="13" viewBox="0 0 24 24" style="position:absolute;bottom:-2px;right:-10px;filter:drop-shadow(0 0 3px rgba(59,142,247,.55)) drop-shadow(0 0 2px rgba(59,142,247,.4));"><path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarHero)"></path></svg>
+        </div>
+        <div style="font-size:19px;font-weight:700;letter-spacing:-.02em;line-height:1.2;">How can I help with your model?</div>
+        <div style="font-size:12.5px;line-height:1.55;color:var(--text2);margin-top:9px;max-width:268px;">Describe what you need in plain words â€” I'll turn it into a Revit command you can review and apply.</div>
+        <div style="display:flex;flex-direction:column;width:100%;margin-top:22px;border-top:1px solid var(--hair);">
+          <button onClick="{{ sugWalls }}" style="display:flex;align-items:center;gap:12px;padding:13px 4px;border:0;border-bottom:1px solid var(--hair);background:transparent;text-align:left;cursor:pointer;color:var(--text);" style-hover="background:var(--hover);">
+            <span style="color:var(--text);display:flex;flex:none;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3 9.5h18M3 14.5h18M8 4.5v5M14 9.5v5M10 14.5v5"/></svg></span>
+            <span style="flex:1;font-size:13px;font-weight:550;">Create walls</span>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+          <button onClick="{{ sugSchedule }}" style="display:flex;align-items:center;gap:12px;padding:13px 4px;border:0;border-bottom:1px solid var(--hair);background:transparent;text-align:left;cursor:pointer;color:var(--text);" style-hover="background:var(--hover);">
+            <span style="color:var(--text);display:flex;flex:none;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><path d="M3.5 9h17M9 9v11.5"/><path d="M13 13h4M13 16.5h4"/></svg></span>
+            <span style="flex:1;font-size:13px;font-weight:550;">Generate schedule</span>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+          <button onClick="{{ sugTag }}" style="display:flex;align-items:center;gap:12px;padding:13px 4px;border:0;background:transparent;text-align:left;cursor:pointer;color:var(--text);" style-hover="background:var(--hover);">
+            <span style="color:var(--text);display:flex;flex:none;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 11.3V4.5a1 1 0 0 1 1-1h6.8a1 1 0 0 1 .7.3l8 8a1 1 0 0 1 0 1.4l-6.8 6.8a1 1 0 0 1-1.4 0l-8-8a1 1 0 0 1-.3-.7Z"/><circle cx="8" cy="8" r="1.4"/></svg></span>
+            <span style="flex:1;font-size:13px;font-weight:550;">Tag rooms</span>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ===== Chat thread ===== -->
+    <sc-if value="{{ showThread }}" hint-placeholder-val="{{ false }}">
+      <div class="bina-thread" ref="{{ threadRef }}" style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:16px 16px;display:flex;flex-direction:column;gap:15px;">
+        <sc-for list="{{ messages }}" as="msg" hint-placeholder-count="0">
+
+          <sc-if value="{{ msg.isUser }}">
+            <div style="align-self:flex-end;max-width:84%;display:flex;flex-direction:column;align-items:flex-end;animation:msgRise .34s .04s cubic-bezier(.2,.7,.3,1) forwards;">
+              <div style="background:var(--user);color:var(--user-text);padding:9px 13px;border-radius:14px 14px 4px 14px;font-size:13px;line-height:1.5;max-width:100%;display:flex;flex-direction:column;align-items:flex-start;">
+                <div ref="{{ msg.setTextRef }}" style="{{ msg.textWrapStyle }}">{{ msg.text }}</div>
+                <sc-if value="{{ msg.needsToggle }}" hint-placeholder-val="{{ false }}">
+                  <button onClick="{{ msg.toggleExpand }}" style="margin-top:5px;display:inline-flex;align-items:center;gap:5px;padding:0;border:0;background:transparent;color:var(--user-text);font-family:inherit;font-size:12px;font-weight:650;letter-spacing:-.01em;white-space:nowrap;cursor:pointer;transition:opacity .15s ease;" style-hover="opacity:.78;" style-active="opacity:.6;">
+                    <span>{{ msg.toggleLabel }}</span>
+                    <sc-if value="{{ msg.collapsedState }}" hint-placeholder-val="{{ true }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></sc-if>
+                    <sc-if value="{{ msg.expandedState }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"/></svg></sc-if>
+                  </button>
+                </sc-if>
+              </div>
+              <div style="font-size:10px;color:var(--text3);text-align:right;margin-top:4px;">{{ msg.time }}</div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ msg.interrupted }}" hint-placeholder-val="{{ false }}">
+            <div style="align-self:flex-start;display:flex;align-items:center;gap:6px;padding:2px 0;margin:1px 0;font-size:13px;line-height:1.6;font-style:italic;color:var(--text3);animation:msgRise .34s .04s cubic-bezier(.2,.7,.3,1) forwards;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;"><circle cx="12" cy="12" r="9"/><rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" stroke="none"/></svg>
+              <span>{{ msg.text }}</span>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{ msg.isAIAnswer }}">
+            <div style="align-self:flex-start;width:100%;animation:msgRise .34s .04s cubic-bezier(.2,.7,.3,1) forwards;">
+              <div style="font-size:13px;line-height:1.6;color:var(--text);">{{ msg.text }}</div>
+
+              <sc-if value="{{ msg.hasCommand }}">
+                <div style="margin-top:11px;padding-top:12px;border-top:1px solid var(--hair);">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;">
+                    <span style="font-size:12.5px;font-weight:680;color:var(--text);">{{ msg.cmd.name }}</span>
+                    <sc-if value="{{ msg.cmd.isProposed }}"><span style="font-size:10px;color:var(--accent);font-weight:600;">Â· Proposed</span></sc-if>
+                    <sc-if value="{{ msg.cmd.isApplied }}"><span style="font-size:10px;color:var(--green);font-weight:600;">Â· Applied</span></sc-if>
+                    <sc-if value="{{ msg.cmd.isDismissed }}"><span style="font-size:10px;color:var(--text3);font-weight:600;">Â· Dismissed</span></sc-if>
+                  </div>
+                  <sc-for list="{{ msg.cmd.params }}" as="p" hint-placeholder-count="3">
+                    <div style="display:flex;justify-content:space-between;gap:14px;padding:5px 0;align-items:baseline;">
+                      <span style="font-size:11.5px;color:var(--text3);white-space:nowrap;flex:none;">{{ p.k }}</span>
+                      <span style="font-size:11.5px;font-weight:550;color:var(--text2);text-align:right;flex:1;min-width:0;">{{ p.v }}</span>
+                    </div>
+                  </sc-for>
+
+                  <sc-if value="{{ msg.cmd.isProposed }}">
+                    <div style="display:flex;gap:9px;margin-top:13px;align-items:center;">
+                      <button onClick="{{ msg.apply }}" style="padding:8px 14px;border:0;border-radius:8px;background:var(--accent-grad);color:var(--accent-contrast);font-size:11.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;" style-hover="filter:brightness(1.06);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Apply to model</button>
+                      <button onClick="{{ msg.dismiss }}" style="padding:8px 6px;border:0;background:transparent;color:var(--text3);font-size:11.5px;font-weight:550;cursor:pointer;" style-hover="color:var(--text2);">Dismiss</button>
+                    </div>
+                  </sc-if>
+                  <sc-if value="{{ msg.cmd.isApplied }}">
+                    <div style="display:flex;align-items:center;gap:7px;margin-top:13px;font-size:12px;font-weight:600;color:var(--green);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Applied to the model</div>
+                    <sc-if value="{{ msg.showRatingNudge }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 11px;border-radius:10px;background:var(--sunken);">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#F5A623" stroke="none" style="flex:none;"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1Z"/></svg>
+                        <span style="font-size:11.5px;color:var(--text2);flex:1;line-height:1.4;">How's Copilot doing?</span>
+                        <button onClick="{{ openRating }}" style="border:0;background:transparent;color:var(--accent);font-family:inherit;font-size:11.5px;font-weight:640;cursor:pointer;padding:2px 3px;white-space:nowrap;" style-hover="text-decoration:underline;">Rate</button>
+                        <button onClick="{{ msg.dismissNudge }}" title="Dismiss" style="width:20px;height:20px;border:0;border-radius:6px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:var(--hover);color:var(--text2);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+                      </div>
+                    </sc-if>
+                  </sc-if>
+                </div>
+              </sc-if>
+
+              <!-- MICRO: per-response feedback -->
+              <div style="display:flex;align-items:center;gap:3px;margin-top:11px;">
+                <span style="font-size:10px;color:var(--text3);">{{ msg.time }}</span>
+                <span style="flex:1;"></span>
+                <sc-if value="{{ msg.fb.showPrompt }}" hint-placeholder-val="{{ true }}">
+                  <span style="font-size:10.5px;color:var(--text3);margin-right:4px;white-space:nowrap;">Was this helpful?</span>
+                </sc-if>
+                <button onClick="{{ msg.fb.voteUp }}" title="Helpful" style="{{ msg.fb.upStyle }}" style-hover="background:var(--hover);">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+                </button>
+                <button onClick="{{ msg.fb.voteDown }}" title="Not helpful" style="{{ msg.fb.downStyle }}" style-hover="background:var(--hover);">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>
+                </button>
+                <button onClick="{{ msg.fb.copy }}" title="Copy" style="{{ msg.fb.copyStyle }}" style-hover="background:var(--hover);">
+                  <sc-if value="{{ msg.fb.copied }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></sc-if>
+                  <sc-if value="{{ msg.fb.notCopied }}" hint-placeholder-val="{{ true }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></sc-if>
+                </button>
+              </div>
+
+              <sc-if value="{{ msg.fb.panelOpen }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:9px;background:var(--sunken);border:1px solid var(--hair);border-radius:11px;padding:11px 11px 10px;animation:menuPop .16s ease forwards;">
+                  <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px;">What was off?</div>
+                  <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                    <sc-for list="{{ msg.fb.reasons }}" as="r" hint-placeholder-count="4">
+                      <button onClick="{{ r.pick }}" style="{{ r.chipStyle }}">{{ r.label }}</button>
+                    </sc-for>
+                  </div>
+                  <textarea onChange="{{ msg.fb.setNote }}" value="{{ msg.fb.note }}" rows="2" placeholder="Add details (optional)" style="width:100%;margin-top:9px;border:1px solid var(--hair);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:11.5px;line-height:1.5;padding:7px 9px;resize:none;outline:none;box-sizing:border-box;" style-focus="border-color:var(--accent);"></textarea>
+                  <div style="display:flex;align-items:center;gap:8px;margin-top:9px;">
+                    <button onClick="{{ msg.fb.submit }}" style="padding:7px 13px;border:0;border-radius:8px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;" style-hover="filter:brightness(1.06);">Send feedback</button>
+                    <button onClick="{{ msg.fb.closePanel }}" style="padding:7px 6px;border:0;background:transparent;color:var(--text3);font-family:inherit;font-size:11px;font-weight:550;cursor:pointer;" style-hover="color:var(--text2);">Cancel</button>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:5px;margin-top:10px;padding-top:9px;border-top:1px solid var(--hair);font-size:9.5px;color:var(--text3);">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ msg.fb.contextLabel }}</span>
+                  </div>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ msg.fb.submitted }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:9px;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:550;color:var(--accent);animation:msgRise .26s ease forwards;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>Thanks â€” your feedback helps improve BINA.</div>
+              </sc-if>
+            </div>
+          </sc-if>
+
+        </sc-for>
+
+        <sc-if value="{{ thinking }}" hint-placeholder-val="{{ false }}">
+          <div style="align-self:flex-start;flex:none;width:100%;overflow:hidden;animation:{{ thinkAnim }};">
+            <div style="display:flex;gap:10px;align-items:center;">
+              <span style="width:24px;height:24px;flex:none;display:flex;align-items:center;justify-content:center;">
+                <svg width="19" height="19" viewBox="0 0 24 24" style="filter:drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 45%, transparent));"><path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarLogo)"></path></svg>
+              </span>
+              <div style="flex:1;min-width:0;background:transparent;border:0;padding:0;height:24px;display:flex;align-items:center;gap:9px;overflow:hidden;">
+                <span style="width:16px;height:16px;flex:none;display:flex;align-items:center;justify-content:center;">
+                  <sc-if value="{{ thinkDone }}" hint-placeholder-val="{{ false }}">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round" style="animation:popCheck .34s cubic-bezier(.34,1.56,.64,1) forwards;"><path d="M20 6 9 17l-5-5"/></svg>
+                  </sc-if>
+                  <sc-if value="{{ thinkWorking }}" hint-placeholder-val="{{ true }}">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round" style="animation:spin .7s linear infinite;"><path d="M21 12a9 9 0 1 1-6.2-8.5"/></svg>
+                  </sc-if>
+                </span>
+                <span style="flex:1;min-width:0;position:relative;height:18px;">{{ thinkLineEl }}</span>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ===== History ===== -->
+    <sc-if value="{{ showHistory }}" hint-placeholder-val="{{ false }}">
+      <div class="bina-thread" style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:10px 10px;">
+        <div style="font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);padding:8px 6px 6px;">Recent conversations</div>
+        <sc-for list="{{ historyList }}" as="conv" hint-placeholder-count="5">
+          <button onClick="{{ conv.open }}" style="display:flex;align-items:center;gap:11px;width:100%;padding:11px 6px;border:0;border-radius:9px;background:transparent;text-align:left;cursor:pointer;color:var(--text);" style-hover="background:var(--hover);">
+            <span style="width:30px;height:30px;border-radius:8px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2Z"/></svg></span>
+            <span style="flex:1;min-width:0;"><span style="display:block;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ conv.title }}</span><span style="display:block;font-size:10.5px;color:var(--text3);margin-top:2px;">{{ conv.meta }}</span></span>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);flex:none;"><path d="m9 6 6 6-6 6"/></svg>
+          </button>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <!-- ===== Limit reached (replaces composer) ===== -->
+    <sc-if value="{{ showBlocked }}" hint-placeholder-val="{{ false }}">
+      <div style="{{ blockedWrapStyle }}">
+        <span style="width:74px;height:74px;display:flex;align-items:center;justify-content:center;flex:none;filter:drop-shadow(0 12px 16px rgba(59,130,246,.32));"><svg width="68" height="68" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <linearGradient id="lk-shk" x1="20" y1="14" x2="44" y2="32" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#9cc6ff"/><stop offset="1" stop-color="#4f8ef0"/></linearGradient>
+            <linearGradient id="lk-body" x1="16" y1="28" x2="50" y2="60" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#7cb4ff"/><stop offset=".55" stop-color="#4a8bf0"/><stop offset="1" stop-color="#2766d6"/></linearGradient>
+            <linearGradient id="lk-sheen" x1="32" y1="29" x2="32" y2="45" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff" stop-opacity=".55"/><stop offset="1" stop-color="#ffffff" stop-opacity="0"/></linearGradient>
+            <linearGradient id="lk-key" x1="32" y1="37" x2="32" y2="51" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#dbe9ff"/></linearGradient>
+          </defs>
+          <!-- shackle -->
+          <path d="M21 31 V22 a11 11 0 0 1 22 0 V31" fill="none" stroke="#3f74d6" stroke-width="7.5" stroke-linecap="round"/>
+          <path d="M21 31 V22 a11 11 0 0 1 22 0 V31" fill="none" stroke="url(#lk-shk)" stroke-width="6" stroke-linecap="round"/>
+          <path d="M23.4 30 V22 a8.6 8.6 0 0 1 6.2-8.3" fill="none" stroke="#ffffff" stroke-opacity=".55" stroke-width="1.7" stroke-linecap="round"/>
+          <!-- body -->
+          <rect x="14" y="29" width="36" height="29" rx="8.5" fill="url(#lk-body)"/>
+          <rect x="14" y="29" width="36" height="14" rx="8.5" fill="url(#lk-sheen)"/>
+          <ellipse cx="23" cy="35" rx="5.5" ry="2.4" fill="#ffffff" fill-opacity=".5"/>
+          <!-- keyhole -->
+          <circle cx="32" cy="41" r="4.6" fill="url(#lk-key)"/>
+          <path d="M29.7 43 L34.3 43 L33.1 51 L30.9 51 Z" fill="url(#lk-key)"/>
+        </svg></span>
+        <div style="font-size:14px;font-weight:680;letter-spacing:-.01em;line-height:1.32;max-width:248px;">You've reached your usage limit</div>
+        <div style="font-size:12px;color:var(--text2);line-height:1.45;max-width:248px;">Upgrade your plan to keep using Copilot.</div>
+
+        <!-- Admin: upgrade -->
+        <sc-if value="{{ showBlockedAdmin }}" hint-placeholder-val="{{ true }}">
+          <button onClick="{{ openUpgrade }}" style="width:100%;height:38px;margin-top:4px;border:0;border-radius:10px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:13px;font-weight:660;letter-spacing:-.01em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;" style-hover="filter:brightness(1.07);"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/></svg>Upgrade plan</button>
+        </sc-if>
+
+        <!-- Member: notify admin -->
+        <sc-if value="{{ showBlockedMember }}" hint-placeholder-val="{{ false }}">
+          <div style="width:100%;margin-top:3px;display:flex;flex-direction:column;gap:10px;">
+            <div style="font-size:11.5px;color:var(--text2);line-height:1.45;">Your plan is managed by your workspace admin.</div>
+            <div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--hair);border-radius:11px;background:var(--sunken);text-align:left;">
+              <span style="width:30px;height:30px;border-radius:50%;background:var(--accent-grad);color:var(--accent-contrast);display:flex;align-items:center;justify-content:center;flex:none;font-size:12px;font-weight:700;">SR</span>
+              <div style="min-width:0;flex:1;">
+                <div style="font-size:12px;font-weight:640;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Sara Rahman</div>
+                <div style="font-size:10.5px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Workspace admin Â· sara@bina.cloud</div>
+              </div>
+            </div>
+            <sc-if value="{{ showNotifyBtn }}" hint-placeholder-val="{{ true }}">
+              <button onClick="{{ notifyAdmin }}" style="width:100%;height:38px;border:0;border-radius:10px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:13px;font-weight:660;letter-spacing:-.01em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;" style-hover="filter:brightness(1.07);"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>Notify admin to upgrade</button>
+            </sc-if>
+            <sc-if value="{{ showNotifiedNote }}" hint-placeholder-val="{{ false }}">
+              <div style="border-radius:10px;background:var(--sunken);padding:11px 13px;display:flex;align-items:flex-start;gap:9px;text-align:left;"><span style="width:18px;height:18px;border-radius:50%;background:var(--accent-grad);color:var(--accent-contrast);display:flex;align-items:center;justify-content:center;flex:none;margin-top:1px;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span><span style="font-size:11.5px;line-height:1.45;color:var(--text2);"><b style="color:var(--text);font-weight:660;">Request sent.</b> Sara has been asked to upgrade your plan.</span></div>
+            </sc-if>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ===== Upgrade card (bottom sheet) ===== -->
+    <sc-if value="{{ showUpgrade }}" hint-placeholder-val="{{ false }}">
+      <div onClick="{{ closeUpgrade }}" style="position:absolute;inset:0;background:rgba(6,10,18,.5);z-index:10;animation:fadeIn .18s ease forwards;"></div>
+      <div style="position:absolute;left:0;right:0;bottom:0;z-index:11;background:var(--menu);border-top:1px solid var(--hair2);border-radius:18px 18px 16px 16px;box-shadow:0 -18px 50px rgba(6,10,18,.32);padding:15px 15px 14px;max-height:calc(100% - 8px);overflow-y:auto;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1) forwards;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:14px;">
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            <span style="font-size:15px;font-weight:720;letter-spacing:-.015em;">Choose your plan</span>
+            <span style="font-size:11.5px;color:var(--text3);font-weight:500;">Swipe to compare</span>
+          </div>
+          <button onClick="{{ closeUpgrade }}" title="Close" style="width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;margin:-2px -2px 0 0;" style-hover="background:var(--hover);color:var(--text2);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>
+
+        <!-- ===== Peek carousel ===== -->
+        <div ref="{{ carViewRef }}" onPointerDown="{{ carDown }}" onPointerMove="{{ carMove }}" onPointerUp="{{ carUp }}" onPointerLeave="{{ carUp }}" style="position:relative;overflow:hidden;margin:0 -15px;padding:9px 0 11px;touch-action:pan-y;cursor:grab;padding-bottom:30px;margin-bottom:-19px;">
+          <div style="{{ carTrackStyle }}">
+            <sc-for list="{{ carPlans }}" as="p" hint-placeholder-count="3">
+              <div style="{{ p.cardStyle }}">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:20px;">
+                  <span style="font-size:14px;font-weight:720;letter-spacing:-.01em;">{{ p.name }}</span>
+                  <sc-if value="{{ p.badge }}" hint-placeholder-val="{{ false }}">
+                    <span style="font-size:8.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--accent-contrast);background:var(--accent-grad);padding:3px 9px;border-radius:20px;flex:none;">Recommended</span>
+                  </sc-if>
+                </div>
+                <div style="display:flex;align-items:baseline;gap:3px;margin:8px 0 13px;"><span style="font-size:25px;font-weight:780;letter-spacing:-.02em;">{{ p.price }}</span><span style="font-size:11.5px;color:var(--text3);">/month</span></div>
+                <div style="font-size:9.5px;font-weight:680;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);margin-bottom:10px;">{{ p.incLabel }}</div>
+                <div style="display:flex;flex-direction:column;gap:9px;">
+                  <sc-for list="{{ p.features }}" as="f" hint-placeholder-count="4">
+                    <div style="display:flex;align-items:center;gap:8px;"><span style="{{ p.checkStyle }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span><span style="{{ p.featStyle }}">{{ f.label }}</span></div>
+                  </sc-for>
+                </div>
+                <div style="flex:1;min-height:14px;"></div>
+                <button onClick="{{ p.onCta }}" style="{{ p.ctaStyle }}">{{ p.ctaLabel }}<sc-if value="{{ p.ctaArrow }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"/></svg></sc-if></button>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+
+        <!-- ===== Carousel controls ===== -->
+        <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:15px;">
+          <button onClick="{{ carPrev }}" title="Previous" style="{{ carPrevStyle }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <sc-for list="{{ carDots }}" as="d" hint-placeholder-count="3">
+              <button onClick="{{ d.go }}" title="Go to plan" style="{{ d.style }}"></button>
+            </sc-for>
+          </div>
+          <button onClick="{{ carNext }}" title="Next" style="{{ carNextStyle }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg></button>
+        </div>
+
+        <div style="display:flex;align-items:center;justify-content:center;margin-top:14px;">
+          <button onClick="{{ seePlans }}" style="border:0;background:transparent;color:var(--text2);font-family:inherit;font-size:11.5px;font-weight:550;cursor:pointer;padding:3px 2px;white-space:nowrap;" style-hover="color:var(--text);">See all plans</button>
+        </div>
+      </div>
+    </sc-if>
+
+    <!-- ===== MACRO: general feedback form (bottom sheet) ===== -->
+    <sc-if value="{{ macroFormOpen }}" hint-placeholder-val="{{ false }}">
+      <div onClick="{{ closeMacroForm }}" style="position:absolute;inset:0;background:rgba(6,10,18,.5);z-index:12;animation:fadeIn .18s ease forwards;"></div>
+      <div style="position:absolute;left:0;right:0;bottom:0;z-index:13;background:var(--menu);border-top:1px solid var(--hair2);border-radius:18px 18px 16px 16px;box-shadow:0 -18px 50px rgba(6,10,18,.32);padding:15px 15px 14px;max-height:calc(100% - 8px);overflow-y:auto;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1) forwards;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:13px;">
+          <span style="font-size:15px;font-weight:720;letter-spacing:-.015em;">{{ macroFormTitle }}</span>
+          <button onClick="{{ closeMacroForm }}" title="Close" style="width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;margin:-2px -2px 0 0;" style-hover="background:var(--hover);color:var(--text2);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>
+
+        <sc-if value="{{ macroSubmitted }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:11px;padding:18px 10px 22px;">
+            <div style="font-size:14px;font-weight:680;letter-spacing:-.01em;">Thanks for letting us know</div>
+            <div style="font-size:12px;color:var(--text2);line-height:1.5;max-width:250px;">Your report was sent to the BINA team with the current model context attached.</div>
+            <button onClick="{{ closeMacroForm }}" style="margin-top:4px;padding:9px 20px;border:0;border-radius:10px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:12.5px;font-weight:640;cursor:pointer;" style-hover="filter:brightness(1.07);">Done</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ macroFormActive }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <div style="font-size:10.5px;font-weight:680;letter-spacing:.04em;text-transform:uppercase;color:var(--text3);margin-bottom:8px;">Type</div>
+            <div style="display:flex;gap:6px;margin-bottom:14px;">
+              <sc-for list="{{ macroTypes }}" as="t" hint-placeholder-count="3">
+                <button onClick="{{ t.pick }}" style="{{ t.style }}">{{ t.label }}</button>
+              </sc-for>
+            </div>
+            <div style="font-size:10.5px;font-weight:680;letter-spacing:.04em;text-transform:uppercase;color:var(--text3);margin-bottom:8px;">Details</div>
+            <textarea onChange="{{ setMacroText }}" value="{{ macroText }}" rows="4" placeholder="Describe what happened or what you'd like to seeâ€¦" style="width:100%;border:1px solid var(--hair);border-radius:10px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px;line-height:1.55;padding:10px 11px;resize:none;outline:none;box-sizing:border-box;" style-focus="border-color:var(--accent);"></textarea>
+            <div style="display:flex;align-items:center;gap:7px;margin-top:11px;padding:9px 11px;border-radius:10px;background:var(--sunken);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);flex:none;"><rect x="3" y="3" width="18" height="18" rx="2.5"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="m21 15-5-5L5 21"/></svg>
+              <span style="font-size:10.5px;color:var(--text3);line-height:1.4;overflow:hidden;text-overflow:ellipsis;">{{ macroContextLabel }}</span>
+            </div>
+            <button onClick="{{ submitMacroForm }}" style="width:100%;height:40px;margin-top:13px;border:0;border-radius:10px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:13px;font-weight:660;letter-spacing:-.01em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;" style-hover="filter:brightness(1.07);"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4Z"/></svg>Submit</button>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ===== Star rating sheet ===== -->
+    <sc-if value="{{ ratingOpen }}" hint-placeholder-val="{{ false }}">
+      <div onClick="{{ closeRating }}" style="position:absolute;inset:0;background:rgba(6,10,18,.5);z-index:12;animation:fadeIn .18s ease forwards;"></div>
+      <div style="position:absolute;left:0;right:0;bottom:0;z-index:13;background:var(--menu);border-top:1px solid var(--hair2);border-radius:18px 18px 16px 16px;box-shadow:0 -18px 50px rgba(6,10,18,.32);padding:15px 15px 16px;max-height:calc(100% - 8px);overflow-y:auto;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1) forwards;">
+        <div style="display:flex;align-items:flex-start;justify-content:flex-end;">
+          <button onClick="{{ closeRating }}" title="Close" style="width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;margin:-2px -2px 0 0;" style-hover="background:var(--hover);color:var(--text2);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+        </div>
+
+        <sc-if value="{{ ratingSubmitted }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:11px;padding:6px 10px 20px;">
+            <div style="font-size:14.5px;font-weight:700;letter-spacing:-.01em;">Thanks for the feedback</div>
+            <div style="font-size:12px;color:var(--text2);line-height:1.5;max-width:250px;">Your rating helps us make Copilot better.</div>
+            <button onClick="{{ closeRating }}" style="margin-top:4px;padding:9px 22px;border:0;border-radius:10px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:12.5px;font-weight:640;cursor:pointer;" style-hover="filter:brightness(1.07);">Done</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ ratingActive }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;align-items:center;text-align:center;margin-top:-2px;">
+            <div style="font-size:15.5px;font-weight:720;letter-spacing:-.015em;">How's Copilot working for you?</div>
+            <div style="font-size:12px;color:var(--text2);margin-top:5px;">Your rating helps us improve.</div>
+
+            <div onMouseLeave="{{ clearRatingHover }}" style="display:flex;align-items:center;gap:6px;margin-top:18px;">
+              <svg width="0" height="0" style="position:absolute;"><defs><linearGradient id="gstarGold" x1="4" y1="2" x2="20" y2="22" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFE07A"/><stop offset=".5" stop-color="#FBB72B"/><stop offset="1" stop-color="#E8941A"/></linearGradient></defs></svg>
+              <sc-for list="{{ ratingStars }}" as="s" hint-placeholder-count="5">
+                <button onMouseEnter="{{ s.enter }}" onClick="{{ s.click }}" style="background:none;border:0;padding:2px;cursor:pointer;display:flex;transition:transform .12s ease;{{ s.anim }}{{ s.shine }}" style-hover="transform:scale(1.18);">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="{{ s.fill }}" stroke="{{ s.stroke }}" stroke-width="1.5" stroke-linejoin="round"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1Z"/></svg>
+                </button>
+              </sc-for>
+            </div>
+
+            <sc-if value="{{ ratingHasReaction }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:13px;font-weight:660;color:#E0941A;margin-top:11px;height:18px;animation:fadeIn .2s ease forwards;">{{ ratingReaction }}</div>
+            </sc-if>
+            <sc-if value="{{ ratingNoReaction }}" hint-placeholder-val="{{ true }}">
+              <div style="height:18px;margin-top:11px;"></div>
+            </sc-if>
+
+            <textarea onChange="{{ setRatingNote }}" value="{{ ratingNote }}" rows="3" placeholder="What worked well, or what could be better?" style="width:100%;margin-top:14px;border:1px solid var(--hair);border-radius:10px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px;line-height:1.55;padding:10px 11px;resize:none;outline:none;box-sizing:border-box;text-align:left;" style-focus="border-color:var(--accent);"></textarea>
+
+            <div style="display:flex;align-items:center;gap:7px;margin-top:11px;padding:9px 11px;border-radius:10px;background:var(--sunken);width:100%;box-sizing:border-box;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);flex:none;"><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2Z"/><path d="M9 21h6M10 17v4M14 17v4"/></svg>
+              <span style="font-size:10.5px;color:var(--text3);line-height:1.4;">{{ ratingContextLabel }}</span>
+            </div>
+
+            <button onClick="{{ submitRating }}" disabled="{{ ratingSubmitDisabled }}" style="{{ ratingSubmitStyle }}" style-hover="filter:brightness(1.07);">Submit rating</button>
+          </div>
+        </sc-if>
+      </div>
+    </sc-if>
+
+    <!-- ===== Composer ===== -->
+    <sc-if value="{{ showComposer }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:none;padding:12px 14px 11px;border-top:1px solid var(--hair);position:relative;">
+
+        <sc-if value="{{ showMention }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;left:14px;right:14px;bottom:calc(100% - 2px);background:var(--menu);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:6px;z-index:6;animation:menuPop .16s .02s ease forwards;">
+            <div style="font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);padding:5px 8px 6px;">Reference</div>
+            <sc-for list="{{ mentionItems }}" as="m" hint-placeholder-count="4">
+              <button onClick="{{ m.pick }}" style="display:flex;align-items:center;gap:9px;width:100%;padding:8px 9px;border:0;border-radius:8px;background:transparent;text-align:left;cursor:pointer;color:var(--text);" style-hover="background:var(--hover);">
+                <span style="width:22px;height:22px;border-radius:6px;background:var(--sunken);color:var(--accent);display:flex;align-items:center;justify-content:center;flex:none;font-size:12px;font-weight:700;">@</span>
+                <span style="flex:1;font-size:12.5px;font-weight:550;">{{ m.label }}</span>
+                <span style="font-size:10px;color:var(--text3);">{{ m.type }}</span>
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+        <div style="display:flex;align-items:flex-end;gap:8px;background:var(--sunken);border-radius:13px;padding:8px 8px 8px 13px;">
+          <textarea id="bina-input" rows="1" value="{{ input }}" onChange="{{ onInput }}" onKeyDown="{{ onKey }}" placeholder="Ask Copilotâ€¦" style="flex:1;border:0;outline:none;resize:none;background:transparent;color:var(--text);font-size:13px;line-height:1.5;font-family:inherit;max-height:96px;padding:4px 0;"></textarea>
+          <button onClick="{{ atBtn }}" title="Mention" style="width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--text2);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:var(--hover);color:var(--accent);">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/><circle cx="12" cy="12" r="4"/></svg>
+          </button>
+          <sc-if value="{{ showSendLoading }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ stopGen }}" title="Stop generating" style="width:32px;height:32px;border:0;border-radius:9px;background:var(--accent-grad);color:var(--accent-contrast);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;box-shadow:0 2px 6px rgba(37,99,235,.4);" style-hover="filter:brightness(1.07);"><svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="5" y="5" width="14" height="14" rx="3.5"/></svg></button>
+          </sc-if>
+          <sc-if value="{{ showSendActive }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ sendBtn }}" style="width:32px;height:32px;border:0;border-radius:9px;background:var(--accent-grad);color:var(--accent-contrast);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="filter:brightness(1.07);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+          </sc-if>
+          <sc-if value="{{ showSendIdle }}" hint-placeholder-val="{{ true }}">
+            <span style="width:32px;height:32px;border-radius:9px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></span>
+          </sc-if>
+        </div>
+        <sc-if value="{{ showFooterMeter }}" hint-placeholder-val="{{ false }}">
+          <div style="position:relative;">
+            <button onClick="{{ toggleUsage }}" style="display:flex;align-items:center;gap:9px;width:100%;padding:9px 4px 3px;border:0;background:transparent;cursor:pointer;color:var(--text);" style-hover="opacity:.82;">
+              <span style="font-size:10.5px;font-weight:600;color:var(--text2);flex:none;white-space:nowrap;">{{ planName }}</span>
+              <span style="flex:1;height:4px;border-radius:99px;background:var(--hair);overflow:hidden;"><span style="display:block;height:100%;width:{{ usageWidth }};background:{{ meterColor }};border-radius:99px;"></span></span>
+              <span style="font-size:10.5px;font-weight:680;color:var(--text2);flex:none;letter-spacing:-.01em;">{{ usagePct }}%</span>
+            </button>
+            <sc-if value="{{ showFooterUsagePop }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:0;right:0;bottom:calc(100% + 8px);background:var(--menu);border:1px solid var(--hair);border-radius:13px;box-shadow:var(--shadow);padding:15px 15px 14px;z-index:9;animation:menuPop .16s ease forwards;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                  <span style="font-size:13px;font-weight:680;letter-spacing:-.01em;">{{ planName }}</span>
+                </div>
+                <div style="font-size:10.5px;color:var(--text3);margin-top:2px;">Plan usage</div>
+                <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:13px;margin-bottom:7px;">
+                  <span style="font-size:11px;color:var(--text2);">Usage</span>
+                  <span style="font-size:11.5px;font-weight:700;color:var(--text);white-space:nowrap;">{{ usagePct }}% used</span>
+                </div>
+                <div style="height:6px;border-radius:99px;background:var(--hair);overflow:hidden;"><div style="height:100%;width:{{ usageWidth }};background:{{ meterColor }};border-radius:99px;"></div></div>
+                <button onClick="{{ openUpgrade }}" style="width:100%;height:32px;margin-top:13px;border:0;border-radius:9px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:11.5px;font-weight:640;letter-spacing:-.01em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;" style-hover="filter:brightness(1.07);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/></svg>Upgrade plan</button>
+                </div>
+            </sc-if>
+          </div>
+        </sc-if>
+        <div style="text-align:center;font-size:10px;color:var(--text3);padding:8px 0 1px;">Type <b style="color:var(--text2);">@</b> to reference a level, category, view, or selection</div>
+      </div>
+    </sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:420,&quot;height&quot;:780},&quot;defaultTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#1d4ed8&quot;,&quot;options&quot;:[&quot;#2563eb&quot;,&quot;#1d4ed8&quot;,&quot;#3b82f6&quot;,&quot;#0ea5e9&quot;,&quot;#0284c7&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;userBubble&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;gradient&quot;,&quot;gray&quot;],&quot;default&quot;:&quot;gray&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;plan&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;free&quot;,&quot;pro&quot;],&quot;default&quot;:&quot;pro&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Plan&quot;},&quot;meterPlacement&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;header&quot;,&quot;footer&quot;],&quot;default&quot;:&quot;footer&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Usage meter&quot;},&quot;usage&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:88,&quot;min&quot;:0,&quot;max&quot;:100,&quot;step&quot;:1,&quot;unit&quot;:&quot;%&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Usage meter&quot;},&quot;atLimit&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Limit &amp;amp; upgrade&quot;}}">
+class Component extends DCLogic {
+  constructor(props){
+    super(props);
+    this.threadRef = React.createRef();
+    this.carViewRef = React.createRef();
+    this._aiEls = {};
+    this._aiOverflow = {};
+    this._aiHeight = {};
+    this._everToggled = {};
+    this._clampPx = 80;
+    this._copiedId = null;
+    // Auto-attached context for any feedback â€” user never types these.
+    this.MODEL_VERSION = 'Copilot 2.4.1';
+    this.REVIT_VERSION = 'Revit 2024.2';
+    this.state = {
+      theme: (props.defaultTheme === 'dark' ? 'dark' : 'light'),
+      tab: 'chat',
+      messages: [],
+      input: '',
+      typing: false,
+      thinkPhase: 'idle',
+      thinkLabel: '',
+      thinkVisible: false,
+      thinkExiting: false,
+      showMention: false,
+      showUsage: false,
+      showUpgrade: false,
+      planIdx: 1,
+      panelW: 0,
+      carDragging: false,
+      carDragDX: 0,
+      notified: false,
+      portalOpening: false,
+      warnDismissed: false,
+      expanded: {},
+      feedback: {},
+      macroOpen: false,
+      macroForm: null,
+      rating: null,
+      ratingDismissed: {},
+      _id: 1,
+    };
+  }
+
+  componentDidMount(){
+    this._measure();
+    // Pin the thread to the bottom on ANY height change while generating â€” the
+    // long-message "Show more" clamp re-measures asynchronously and would
+    // otherwise leave the thinking line below the fold.
+    try {
+      this._ro = new ResizeObserver(() => {
+        if (this._stick){ const e = this.threadRef.current; if (e) e.scrollTop = e.scrollHeight; }
+      });
+      const el = this.threadRef.current;
+      if (el){ this._ro.observe(el); for (const c of el.children) this._ro.observe(c); }
+    } catch(e){}
+  }
+
+  // Detect which AI messages overflow the clamp so the toggle only shows when needed.
+  _measure(){
+    let changed = false;
+    for (const id in this._aiEls){
+      const el = this._aiEls[id];
+      if (!el) continue;
+      this._aiHeight[id] = el.scrollHeight;
+      const over = el.scrollHeight > (this._clampPx + 8);
+      if (!!this._aiOverflow[id] !== over){ this._aiOverflow[id] = over; changed = true; }
+    }
+    if (changed) this.forceUpdate();
+  }
+
+  componentDidUpdate(){
+    // Measure the carousel viewport width so the peek transforms are exact.
+    if (this.state.showUpgrade && this.carViewRef && this.carViewRef.current){
+      const w = this.carViewRef.current.clientWidth;
+      if (w && w !== this.state.panelW) this.setState({ panelW: w });
+    }
+    const el = this.threadRef.current;
+    if (!el) return;
+    // Re-observe children so the ResizeObserver tracks newly-added messages.
+    if (this._ro){ try { this._ro.disconnect(); this._ro.observe(el); for (const c of el.children) this._ro.observe(c); } catch(e){} }
+    const n = this.state.messages.length;
+    // "Stick to bottom" while a generation is active (or a new message just
+    // arrived) so async height changes keep the thinking line in view.
+    this._stick = this.state.typing || this.state.thinkVisible || n !== this._lastN;
+    if (n !== this._lastN || this.state.typing !== this._lastTyping || this.state.thinkLabel !== this._lastLabel || this.state.thinkPhase !== this._lastPhase){
+      el.scrollTop = el.scrollHeight;
+      cancelAnimationFrame(this._scrollRaf);
+      this._scrollRaf = requestAnimationFrame(() => {
+        const e = this.threadRef.current; if (e) e.scrollTop = e.scrollHeight;
+        this._scrollRaf2 = requestAnimationFrame(() => { const e2 = this.threadRef.current; if (e2) e2.scrollTop = e2.scrollHeight; });
+      });
+    }
+    this._lastN = n;
+    this._lastTyping = this.state.typing;
+    this._lastLabel = this.state.thinkLabel;
+    this._lastPhase = this.state.thinkPhase;
+    this._measure();
+  }
+
+  componentWillUnmount(){ this._clearThink(); cancelAnimationFrame(this._scrollRaf); cancelAnimationFrame(this._scrollRaf2); if (this._ro) try { this._ro.disconnect(); } catch(e){} }
+  _clearThink(){ (this._thinkTimers || []).forEach(clearTimeout); this._thinkTimers = []; }
+
+  now(){
+    const d = new Date();
+    let h = d.getHours();
+    const m = String(d.getMinutes()).padStart(2,'0');
+    const ap = h >= 12 ? 'PM' : 'AM';
+    h = h % 12 || 12;
+    return h + ':' + m + ' ' + ap;
+  }
+
+  nextId(){ const id = this.state._id; this.setState(s => ({ _id: s._id + 1 })); return id; }
+
+  answerFor(text){
+    const t = text.toLowerCase();
+    if (/wall/.test(t)) return "Done â€” I created the walls on Level 2 running along grid A â†’ F using the Generic 200 mm wall type. You'll see them in the active view now.";
+    if (/schedule/.test(t)) return "I've generated the door schedule, sorted by level with the Mark, Level and Width fields. It's been added to your project's schedules.";
+    if (/tag/.test(t)) return "All rooms on Level 1 are now tagged with name and number, placed horizontally. Let me know if you'd like a different tag family.";
+    if (/window/.test(t)) return "Windows are placed along the south facade at 2,400 mm spacing using the Fixed 1200Ã—1500 family. Adjust the spacing anytime and I'll update them.";
+    if (/door/.test(t)) return "I placed a Single-Flush 900Ã—2100 door on the selected wall at Level 1. Tell me if you'd like it mirrored or moved.";
+    if (/section|view/.test(t)) return "I created a section view at grid 4 (6,000 mm depth, 1:50 scale). It's open in your views list.";
+    return "I can help with that. Tell me a level, category, or selection to act on â€” or type @ to reference one directly.";
+  }
+
+  // â”€â”€ Thinking / progress â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // â”€â”€ Thinking / progress â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ONE status line, driven by progress EVENTS (not a fixed timer). Only the
+  // CURRENT step is shown; each event replaces the line. In production, replace
+  // _simulateBackend() with a real subscription that calls this._emit(ev) for
+  // each event streamed from the server:
+  //   { type:'thinking' }                  â†’ line shows "Thinking" + spinner
+  //   { type:'step_started', label }       â†’ line swaps to this step's label
+  //   { type:'step_completed' }            â†’ no visual change (next step swaps it)
+  //   { type:'done' }                      â†’ spinner â†’ check, line shows "Done"
+  // Step count and labels vary per request; the line always shows just the
+  // current one â€” the panel never grows taller.
+
+  // Map known backend step keys to friendly wording; unknown keys are
+  // humanised (snake/camel â†’ Title case) and shown as-is.
+  friendlyStep(label){
+    if (!label) return '';
+    const map = {
+      thinking: 'Thinking',
+      understand: 'Understanding your request',
+      parse_request: 'Understanding your request',
+      retrieve_context: 'Looking through the model',
+      search_model: 'Looking through the model',
+      read_model: 'Looking through the model',
+      plan: 'Planning the approach',
+      reason: 'Reasoning it through',
+      generate: 'Putting together a response',
+      compose: 'Putting together a response',
+      build_command: 'Preparing the command',
+      validate: 'Double-checking the result',
+      verify: 'Double-checking the result',
+    };
+    const key = String(label).trim().toLowerCase().replace(/[\s-]+/g, '_');
+    if (map[key]) return map[key];
+    // humanise an unmapped custom label
+    return String(label)
+      .replace(/[_-]+/g, ' ')
+      .replace(/([a-z])([A-Z])/g, '$1 $2')
+      .replace(/^./, c => c.toUpperCase());
+  }
+
+  // Apply ONE backend event â€” only the current line changes.
+  _emit(ev){
+    this.setState(() => {
+      if (ev.type === 'thinking') return { thinkPhase:'working', thinkLabel:'Thinking' };
+      if (ev.type === 'step_started') return { thinkPhase:'working', thinkLabel: this.friendlyStep(ev.label) };
+      if (ev.type === 'done') return { thinkPhase:'done', thinkLabel:'Done' };
+      return {}; // step_completed: no visual change for a single-line indicator
+    });
+  }
+
+  // DEMO ONLY â€” fakes a backend stream so the motion is visible in the mockup.
+  // Production must delete this and bind _emit() to real server events.
+  _simulateBackend(onDone){
+    const scenarios = [
+      ['parse_request', 'generate'],
+      ['parse_request', 'retrieve_context', 'generate', 'validate'],
+      ['parse_request', 'retrieve_context', 'plan', 'generate', 'optimize_layout', 'validate'],
+      ['parse_request', 'search_model', 'build_command'],
+    ];
+    const pick = scenarios[Math.floor(Math.random() * scenarios.length)];
+    // Each generation carries an id; any timer whose id is stale (because the
+    // user sent again, stopped, or started a new chat) becomes a no-op. This is
+    // what keeps the thinking line reliable across rapid / interrupted sends.
+    const gen = this._genId;
+    const tm = []; let at = 0;
+    const fire = (fn, d) => { at += d; tm.push(setTimeout(() => { if (this._genId === gen) fn(); }, at)); };
+    fire(() => this._emit({ type:'thinking' }), 500);
+    pick.forEach((label) => {
+      fire(() => this._emit({ type:'step_started', label }), 900 + Math.random() * 200);
+      fire(() => this._emit({ type:'step_completed' }), 10);
+    });
+    fire(() => this._emit({ type:'done' }), 700);
+    fire(() => onDone(), 650);
+    this._thinkTimers = tm;
+  }
+
+  send(text){
+    const raw = (text != null ? text : this.state.input);
+    const t = (raw || '').trim();
+    if (!t || this.state.typing) return;
+    const uid = Date.now();
+    const userMsg = { id: uid, role:'user', text: t, time: this.now() };
+    this._genId = (this._genId || 0) + 1;
+    const gen = this._genId;
+    this.setState(s => ({ messages: [...s.messages, userMsg], input:'', showMention:false, typing:true, thinkVisible:true, thinkExiting:false, thinkPhase: 'working', thinkLabel: 'Thinking' }));
+    this._clearThink();
+    this._simulateBackend(() => {
+      const ai = {
+        id: uid + 1,
+        role:'ai',
+        text: this.answerFor(t),
+        time: this.now(),
+      };
+      // Cross-fade: drop typing (send button reverts) and add the answer, but keep
+      // the thinking line mounted in an exit animation so it fades out as the
+      // answer fades in â€” then unmount it once the fade completes.
+      this.setState(s => ({ messages: [...s.messages, ai], typing:false, thinkExiting:true }));
+      this._thinkTimers.push(setTimeout(() => {
+        if (this._genId === gen) this.setState({ thinkVisible:false, thinkExiting:false, thinkPhase:'idle', thinkLabel:'' });
+      }, 260));
+    });
+  }
+
+  setStatus(id, status){
+    this.setState(s => ({ messages: s.messages.map(m => (m.id === id && m.command) ? { ...m, command: { ...m.command, status } } : m) }));
+  }
+
+  toggleTheme(){ this.setState(s => ({ theme: s.theme === 'dark' ? 'light' : 'dark' })); }
+  toggleUsage(){ this.setState(s => ({ showUsage: !s.showUsage })); }
+  closeUsage(){ this.setState({ showUsage: false }); }
+  openUpgrade(){ this.setState({ showUpgrade: true, showUsage: false, planIdx: 1, carDragDX: 0, carDragging: false }); }
+  closeUpgrade(){ this.setState({ showUpgrade: false, portalOpening: false }); }
+
+  // ===== Peek carousel =====
+  carGo(i){ const n = Math.max(0, Math.min(2, i)); this.setState({ planIdx: n, carDragDX: 0 }); }
+  carPrev(){ this.carGo((this.state.planIdx ?? 1) - 1); }
+  carNext(){ this.carGo((this.state.planIdx ?? 1) + 1); }
+  carDown(e){ this._carX0 = e.clientX; this._carMoved = false; this.setState({ carDragging: true, carDragDX: 0 }); try { e.currentTarget.setPointerCapture(e.pointerId); } catch(_){} }
+  carMove(e){ if (!this.state.carDragging) return; const dx = e.clientX - this._carX0; if (Math.abs(dx) > 3) this._carMoved = true; this.setState({ carDragDX: dx }); }
+  carUp(){ if (!this.state.carDragging) return; const dx = this.state.carDragDX || 0; const W = this.state.panelW || 320; const thresh = W * 0.16; let idx = this.state.planIdx ?? 1; if (dx <= -thresh) idx += 1; else if (dx >= thresh) idx -= 1; this.carGo(idx); this.setState({ carDragging: false }); }
+  notifyAdmin(){ this.setState({ notified: true }); }
+  dismissWarn(){ this.setState({ warnDismissed: true }); }
+
+  // ---- MICRO: per-response feedback ----
+  _fb(id){ return this.state.feedback[id] || {}; }
+  _setFb(id, patch){
+    this.setState(s => ({ feedback: { ...s.feedback, [id]: { ...(s.feedback[id] || {}), ...patch } } }));
+  }
+  voteUp(id){
+    const cur = this._fb(id);
+    // Silent: toggle highlight only, close any open downvote panel.
+    this._setFb(id, { vote: cur.vote === 'up' ? null : 'up', panelOpen: false });
+  }
+  voteDown(id){
+    const cur = this._fb(id);
+    if (cur.vote === 'down'){ this._setFb(id, { vote: null, panelOpen: false }); return; }
+    this._setFb(id, { vote: 'down', panelOpen: true, submitted: false });
+  }
+  closeFeedbackPanel(id){ this._setFb(id, { panelOpen: false }); }
+  pickReason(id, reason){
+    const cur = this._fb(id);
+    this._setFb(id, { reason: cur.reason === reason ? null : reason });
+  }
+  setFeedbackNote(id, text){ this._setFb(id, { note: text }); }
+  submitMicroFeedback(id){ this._setFb(id, { panelOpen: false, submitted: true }); }
+  copyMessage(id, text){
+    try { if (navigator.clipboard) navigator.clipboard.writeText(text || ''); } catch(e){}
+    this._copiedId = id; this.forceUpdate();
+    clearTimeout(this._copyTimer);
+    this._copyTimer = setTimeout(() => { this._copiedId = null; this.forceUpdate(); }, 1600);
+  }
+
+  // ---- MACRO: general feedback (header kebab) ----
+  toggleMacroMenu(){ this.setState(s => ({ macroOpen: !s.macroOpen, showUsage: false })); }
+  closeMacroMenu(){ this.setState({ macroOpen: false }); }
+  openMacroForm(mode){
+    this.setState({ macroOpen: false, macroForm: { mode, type: mode === 'bug' ? 'bug' : 'suggestion', text: '', submitted: false } });
+  }
+  closeMacroForm(){ this.setState({ macroForm: null }); }
+
+  // ---- Star rating (separate from bug report) ----
+  openRating(){ this.setState({ macroOpen:false, macroForm:null, rating: { value:0, hover:0, pop:0, note:'', submitted:false } }); }
+  closeRating(){ this.setState({ rating: null }); }
+  setRatingHover(n){ this.setState(s => s.rating ? ({ rating: { ...s.rating, hover:n } }) : null); }
+  pickRating(n){
+    this.setState(s => s.rating ? ({ rating: { ...s.rating, value:n, pop:n } }) : null);
+    clearTimeout(this._popTimer);
+    this._popTimer = setTimeout(() => this.setState(s => s.rating ? ({ rating: { ...s.rating, pop:0 } }) : null), 360);
+  }
+  setRatingNote(text){ this.setState(s => s.rating ? ({ rating: { ...s.rating, note:text } }) : null); }
+  submitRating(){ this.setState(s => (s.rating && s.rating.value) ? ({ rating: { ...s.rating, submitted:true } }) : null); }
+  dismissNudge(id){ this.setState(s => ({ ratingDismissed: { ...s.ratingDismissed, [id]: true } })); }
+  setMacroType(type){ this.setState(s => ({ macroForm: { ...s.macroForm, type } })); }
+  setMacroText(text){ this.setState(s => ({ macroForm: { ...s.macroForm, text } })); }
+  submitMacroForm(){ this.setState(s => ({ macroForm: { ...s.macroForm, submitted: true } })); }
+  upgradeNow(){ try { window.open('https://billing.bina.cloud/upgrade', '_blank'); } catch(e){} this.setState({ portalOpening: true }); }
+  seePlans(){ try { window.open('https://bina.cloud/pricing', '_blank'); } catch(e){} }  newChat(){ this._genId = (this._genId || 0) + 1; this._clearThink(); this.setState({ messages: [], tab:'chat', input:'', showMention:false, showUpgrade:false, notified:false, portalOpening:false, typing:false, thinkPhase:'idle', thinkLabel:'', thinkVisible:false, thinkExiting:false, expanded:{}, feedback:{}, macroOpen:false, macroForm:null, rating:null, ratingDismissed:{} }); }
+  setTab(tab){ this.setState({ tab }); }
+
+  stopGen(){
+    this._genId = (this._genId || 0) + 1;
+    this._clearThink();
+    const note = { id: Date.now(), role:'ai', text: "Interrupted.", interrupted: true, time: this.now() };
+    this.setState(s => ({ messages: [...s.messages, note], typing:false, thinkPhase:'idle', thinkLabel:'', thinkVisible:false, thinkExiting:false }));
+  }
+
+  toggleExpand(id){ this._everToggled[id] = true; this.setState(s => ({ expanded: { ...s.expanded, [id]: !s.expanded[id] } })); }
+
+  onInput(e){
+    const v = e.target.value;
+    this.setState({ input: v, showMention: /(^|\s)@\w*$/.test(v) });
+  }
+  onKey(e){
+    if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); this.send(); }
+    if (e.key === 'Escape'){ this.setState({ showMention:false }); }
+  }
+  focusInput(){ setTimeout(() => { const el = document.getElementById('bina-input'); if (el) el.focus(); }, 0); }
+  atBtn(){
+    const v = this.state.input || '';
+    const nv = v && !/\s$/.test(v) ? v + ' @' : v + '@';
+    this.setState({ input: nv, showMention: true });
+    this.focusInput();
+  }
+  pickMention(label){
+    const v = (this.state.input || '').replace(/@\w*$/, '@' + label + ' ');
+    this.setState({ input: v, showMention: false });
+    this.focusInput();
+  }
+
+  loadHistory(conv){
+    const base = Date.now();
+    const messages = conv.thread.map((m, i) => ({
+      id: base + i,
+      role: m.role,
+      text: m.text,
+      time: m.time || conv.time,
+      command: m.command ? { ...m.command, params: m.command.params.slice() } : undefined,
+    }));
+    this.setState({ messages, tab:'chat', input:'', showMention:false });
+  }
+
+  themeVars(isDark){
+    const accent = this.props.accent;
+    const gray = this.props.userBubble === 'gray';
+    const base = "font-family:-apple-system,'Segoe UI',system-ui,Roboto,sans-serif;-webkit-font-smoothing:antialiased;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:28px;";
+    if (!isDark){
+      const a = accent || '#2563eb';
+      const user = gray ? "--user:#eef1f5;--user-text:#131c2b;" : "--user:linear-gradient(135deg,#84c5ff 0%,#4d88ef 52%,#7a78f3 100%);--user-text:#ffffff;";
+      return "--bg:#ffffff;--sunken:#f3f6f9;--text:#131c2b;--text2:#586273;--text3:#99a3b3;--hair:rgba(15,27,45,.08);--hair2:rgba(15,27,45,.16);--accent:" + a + ";--accent-grad:linear-gradient(135deg, color-mix(in srgb, " + a + " 60%, #ffffff), " + a + ");--accent-contrast:#ffffff;" + user + "--logo:#131c2b;--menu:#ffffff;--green:#10b981;--hover:#f3f6f9;--lift:0 1px 3px rgba(15,27,45,.08), 0 1px 2px rgba(15,27,45,.04);--lift-hover:0 2px 6px rgba(15,27,45,.12), 0 1px 3px rgba(15,27,45,.06);--shadow:0 24px 60px rgba(15,27,45,.16);background:linear-gradient(160deg,#eef2f6,#e2e7ee);" + base;
+    }
+    const a = accent || '#60a5fa';
+    const userD = gray ? "--user:#222e40;--user-text:#e8eef6;" : "--user:linear-gradient(135deg,#84c5ff 0%,#4d88ef 52%,#7a78f3 100%);--user-text:#ffffff;";
+    return "--bg:#131d2b;--sunken:#0c1420;--text:#e8eef6;--text2:#8a94a6;--text3:#6b768a;--hair:rgba(255,255,255,.07);--hair2:rgba(255,255,255,.14);--accent:" + a + ";--accent-grad:linear-gradient(135deg, color-mix(in srgb, " + a + " 78%, #ffffff), " + a + ");--accent-contrast:#0c1420;" + userD + "--logo:#0c1420;--menu:#1a2433;--green:#34d399;--hover:rgba(255,255,255,.05);--lift:0 1px 3px rgba(0,0,0,.45), 0 1px 2px rgba(0,0,0,.3);--lift-hover:0 3px 8px rgba(0,0,0,.55), 0 1px 3px rgba(0,0,0,.35);--shadow:0 24px 60px rgba(5,9,16,.6);background:linear-gradient(160deg,#0b1119,#060a11);" + base;
+  }
+
+  renderVals(){
+    const isDark = this.state.theme === 'dark';
+    const tab = this.state.tab;
+    const isChat = tab === 'chat';
+    const hasMessages = this.state.messages.length > 0;
+    const canSend = (this.state.input || '').trim().length > 0;
+
+    const usagePct = Math.max(0, Math.min(100, Math.round(this.props.usage != null ? this.props.usage : 22)));
+    const meterColor = usagePct >= 95 ? '#ef4444' : usagePct >= 80 ? '#f59e0b' : 'var(--accent)';
+    const C = 2 * Math.PI * 7.4;
+    const meterDash = (C * usagePct / 100).toFixed(2) + ' ' + C.toFixed(2);
+    const placement = this.props.meterPlacement === 'footer' ? 'footer' : 'header';
+    const atLimit = (this.props.atLimit === true) || usagePct >= 100;
+    const isAdmin = true;
+    const isFree = (this.props.plan || 'pro') === 'free';
+    // Always show all three plans (Free Â· Basic Â· Pro) in the sheet.
+    const planCfg = {
+      meterName: 'Free', badge: 'Free',
+      curName: 'Free', curPrice: '$0',
+      curFeatures: [ { label:'Limited usage' }, { label:'Core Revit commands' }, { label:'Chat history' } ],
+      recoName: 'Basic', recoPrice: '$20',
+      recoFeatures: [ { label:'10Ã— higher usage limit' }, { label:'Faster responses' }, { label:'Full Revit command library' }, { label:'Chat history & exports' }, { label:'Email support' } ],
+      proName: 'Pro', proPrice: '$40',
+      proFeatures: [ { label:'Everything in Basic' }, { label:'5Ã— higher usage limit' }, { label:'Priority responses' }, { label:'Batch commands & automation' }, { label:'Priority support' } ],
+      cta: 'Upgrade to Basic',
+    };
+    const typing = this.state.typing;
+    const thinkExiting = this.state.thinkExiting;
+    const thinkAnim = thinkExiting ? 'thinkOut .26s ease forwards' : 'msgRise .3s ease forwards';
+    const phase = this.state.thinkPhase;
+    const thinkWorking = phase === 'working';
+    const thinkDone = phase === 'done';
+    const thinkLabel = this.state.thinkLabel || '';
+    // Single-line status: a keyed span so each label change remounts and
+    // replays the fade-up swap; shimmer overlay while working.
+    let thinkLineEl = null;
+    if (thinkWorking || thinkDone){
+      const baseStyle = {
+        position:'absolute', left:0, top:0, whiteSpace:'nowrap',
+        fontSize:'12.5px', letterSpacing:'-.005em', lineHeight:'18px',
+        fontWeight: thinkWorking ? 600 : 560,
+        animation:'swapUp .34s cubic-bezier(.2,.7,.3,1)',
+      };
+      if (thinkWorking){
+        Object.assign(baseStyle, {
+          backgroundImage:'linear-gradient(90deg, var(--text2) 38%, var(--accent) 50%, var(--text2) 62%)',
+          backgroundSize:'220% 100%',
+          WebkitBackgroundClip:'text', backgroundClip:'text',
+          WebkitTextFillColor:'transparent', color:'transparent',
+          animation:'swapUp .34s cubic-bezier(.2,.7,.3,1), shimmerText 2s linear .34s infinite',
+        });
+      } else {
+        baseStyle.color = 'var(--text2)';
+      }
+      thinkLineEl = React.createElement('span', { key: thinkLabel + ':' + phase, style: baseStyle }, thinkLabel);
+    }
+    const showBlocked = isChat && atLimit && !typing && !this.state.showUpgrade;
+    const showComposerNow = isChat && (!atLimit || typing);
+    const pctLeft = Math.max(0, 100 - usagePct);
+    const showWarn80 = isChat && !atLimit && usagePct >= 80 && usagePct < 95 && !this.state.warnDismissed;
+    const showWarn95 = isChat && !atLimit && usagePct >= 95 && usagePct < 100;
+
+    const tabBase = "height:38px;display:flex;align-items:center;gap:6px;border:0;background:transparent;cursor:pointer;font-size:13px;font-family:inherit;";
+    const tabActive = tabBase + "font-weight:620;color:var(--text);border-bottom:2px solid var(--accent);";
+    const tabIdle = tabBase + "font-weight:500;color:var(--text3);border-bottom:2px solid transparent;";
+
+    const lastAiId = (() => { for (let i = this.state.messages.length - 1; i >= 0; i--){ const m = this.state.messages[i]; if (m.role === 'ai' && !m.interrupted) return m.id; } return null; })();
+    const messages = this.state.messages.map(m => ({
+      id: m.id,
+      text: m.text,
+      time: m.time,
+      isUser: m.role === 'user',
+      isAI: m.role === 'ai',
+      interrupted: !!m.interrupted,
+      isAIAnswer: m.role === 'ai' && !m.interrupted,
+      hasCommand: !!m.command,
+      cmd: m.command ? {
+        name: m.command.name,
+        params: m.command.params,
+        isProposed: m.command.status === 'proposed',
+        isApplied: m.command.status === 'applied',
+        isDismissed: m.command.status === 'dismissed',
+      } : null,
+      apply: () => this.setStatus(m.id, 'applied'),
+      dismiss: () => this.setStatus(m.id, 'dismissed'),
+      showRatingNudge: m.role === 'ai' && !m.interrupted && m.id === lastAiId
+        && this.state.messages.length > 1
+        && !this.state.ratingDismissed[m.id]
+        && !(this.state.rating && this.state.rating.submitted),
+      dismissNudge: () => this.dismissNudge(m.id),
+      setTextRef: (el) => { if (el) this._aiEls[m.id] = el; },
+      needsToggle: !!this._aiOverflow[m.id],
+      collapsedState: !this.state.expanded[m.id],
+      expandedState: !!this.state.expanded[m.id],
+      toggleLabel: this.state.expanded[m.id] ? 'Show less' : 'Show more',
+      textWrapStyle: (() => {
+        const ov = !!this._aiOverflow[m.id];
+        if (!ov) return 'overflow:hidden;';
+        const exp = !!this.state.expanded[m.id];
+        const full = (this._aiHeight[m.id] || 1200);
+        return 'overflow:hidden;max-height:' + (exp ? full + 'px' : this._clampPx + 'px') + ';'
+          + (exp ? '' : '-webkit-mask-image:linear-gradient(to bottom,#000 58%,transparent);mask-image:linear-gradient(to bottom,#000 58%,transparent);');
+      })(),
+      toggleExpand: () => this.toggleExpand(m.id),
+      fb: (() => {
+        if (m.role !== 'ai') return null;
+        const f = this.state.feedback[m.id] || {};
+        const cmdName = m.command ? m.command.name : null;
+        const ctxBits = [];
+        if (cmdName) ctxBits.push(cmdName);
+        ctxBits.push(this.MODEL_VERSION, this.REVIT_VERSION);
+        const copied = this._copiedId === m.id;
+        const btnBase = 'width:27px;height:27px;border:0;border-radius:7px;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;transition:background .15s ease,color .15s ease;';
+        const idle = 'background:transparent;color:var(--text3);';
+        const onAccent = 'background:transparent;color:var(--accent);';
+        const onGreen = 'background:transparent;color:var(--green);';
+        const chipBase = 'padding:5px 10px;border-radius:7px;font-family:inherit;font-size:11px;font-weight:550;cursor:pointer;border:1px solid var(--hair);transition:background .15s ease,color .15s ease,border-color .15s ease;';
+        return {
+          votedUp: f.vote === 'up',
+          votedDown: f.vote === 'down',
+          showPrompt: !f.vote && !f.submitted,
+          panelOpen: !!f.panelOpen,
+          submitted: !!f.submitted,
+          note: f.note || '',
+          copied, notCopied: !copied,
+          upStyle: btnBase + (f.vote === 'up' ? onAccent : idle),
+          downStyle: btnBase + (f.vote === 'down' ? onAccent : idle),
+          copyStyle: btnBase + (copied ? onGreen : idle),
+          contextLabel: 'Auto-attached Â· ' + ctxBits.join(' Â· '),
+          reasons: ['Not accurate','Wrong elements','Too slow','Other'].map(r => ({
+            label: r, active: f.reason === r, pick: () => this.pickReason(m.id, r),
+            chipStyle: chipBase + (f.reason === r ? 'background:color-mix(in srgb, var(--accent) 15%, transparent);color:var(--accent);border-color:transparent;' : 'background:transparent;color:var(--text2);'),
+          })),
+          voteUp: () => this.voteUp(m.id),
+          voteDown: () => this.voteDown(m.id),
+          closePanel: () => this.closeFeedbackPanel(m.id),
+          setNote: (e) => this.setFeedbackNote(m.id, e.target.value),
+          submit: () => this.submitMicroFeedback(m.id),
+          copy: () => this.copyMessage(m.id, m.text),
+        };
+      })(),
+    }));
+
+    const mentions = [
+      { label:'Level 2', type:'Level' },
+      { label:'Level 1', type:'Level' },
+      { label:'Walls', type:'Category' },
+      { label:'Doors', type:'Category' },
+      { label:'Floor Plan: L2', type:'View' },
+      { label:'Current Selection', type:'Selection' },
+    ].map(m => ({ ...m, pick: () => this.pickMention(m.label) }));
+
+    const history = [
+      { title:'Exterior walls â€” Level 2', time:'2:25 PM', meta:'2:25 PM Â· 3 messages', thread:[
+        { role:'user', text:'Create exterior walls on Level 2 along grid Aâ€“F' },
+        { role:'ai', text:"Done â€” I created the walls on Level 2 running along grid A â†’ F using the Generic 200 mm wall type. You'll see them in the active view now." },
+      ]},
+      { title:'Door schedule for Block A', time:'11:31 AM', meta:'11:31 AM Â· 3 messages', thread:[
+        { role:'user', text:'Generate a door schedule for Block A' },
+        { role:'ai', text:"I've generated the door schedule, sorted by level with the Mark, Level and Width fields. It's been added to your project's schedules." },
+      ]},
+      { title:'Section view at grid 4', time:'Yesterday', meta:'Yesterday Â· 2 messages', thread:[
+        { role:'user', text:'Create a section view at grid 4' },
+        { role:'ai', text:"I created a section view at grid 4 (6,000 mm depth, 1:50 scale). It's open in your views list." },
+      ]},
+      { title:'Tag all rooms on Level 1', time:'Yesterday', meta:'Yesterday Â· 3 messages', thread:[
+        { role:'user', text:'Tag all rooms on Level 1 with name and number' },
+        { role:'ai', text:"All rooms on Level 1 are now tagged with name and number, placed horizontally. Let me know if you'd like a different tag family." },
+      ]},
+      { title:'Window placement â€” south facade', time:'2 days ago', meta:'2 days ago Â· 4 messages', thread:[
+        { role:'user', text:'Place windows on the south facade' },
+        { role:'ai', text:"Windows are placed along the south facade at 2,400 mm spacing using the Fixed 1200Ã—1500 family. Adjust the spacing anytime and I'll update them." },
+      ]},
+    ].map(c => ({ title:c.title, meta:c.meta, open: () => this.loadHistory(c) }));
+
+    // ===== Peek carousel geometry =====
+    const carActive = this.state.planIdx ?? 1;
+    const carW = this.state.panelW || 320;
+    const cardW = Math.round(carW * 0.82);
+    const carGap = 12;
+    const carStep = cardW + carGap;
+    const carDrag = this.state.carDragging ? (this.state.carDragDX || 0) : 0;
+    const trackX = Math.round(carW / 2 - cardW / 2 - carActive * carStep + carDrag);
+    const carTrackStyle = 'display:flex;align-items:stretch;gap:' + carGap + 'px;'
+      + 'transform:translateX(' + trackX + 'px);'
+      + 'transition:' + (this.state.carDragging ? 'none' : 'transform .32s cubic-bezier(.2,.8,.2,1)') + ';'
+      + 'will-change:transform;';
+    const planData = [
+      { name:'Free', price:'$0', badge:false, incLabel:"What's included", ctaLabel:'Get started', kind:'outline', arrow:false,
+        features:[ {label:'Limited usage'}, {label:'Core Revit commands'}, {label:'Chat history'} ] },
+      { name:'Basic', price:'$20', badge:true, incLabel:"What's included", ctaLabel:'Upgrade to Basic', kind:'solid', arrow:true,
+        features:[ {label:'10Ã— higher usage limit'}, {label:'Faster responses'}, {label:'Full Revit command library'}, {label:'Chat history & exports'}, {label:'Email support'} ] },
+      { name:'Pro', price:'$40', badge:false, incLabel:'Everything in Basic, plus', ctaLabel:'Upgrade to Pro', kind:'solid', arrow:true,
+        features:[ {label:'Everything in Basic'}, {label:'5Ã— higher usage limit'}, {label:'Priority responses'}, {label:'Batch commands & automation'}, {label:'Priority support'} ] },
+    ];
+    const carPlans = planData.map((p, i) => {
+      const isActive = i === carActive;
+      const origin = isActive ? 'center' : (i < carActive ? 'right center' : 'left center');
+      const cardStyle = 'box-sizing:border-box;flex:0 0 ' + cardW + 'px;'
+        + 'position:relative;z-index:' + (isActive ? 3 : 1) + ';'
+        + 'display:flex;flex-direction:column;'
+        + 'border-radius:15px;padding:15px 15px 15px;background:var(--bg);'
+        + 'border:' + (p.badge ? '1.5px solid var(--accent)' : '1px solid var(--hair)') + ';'
+        + 'box-shadow:' + (isActive ? '0 8px 22px rgba(6,10,18,.10)' : 'none') + ';'
+        + 'opacity:' + (isActive ? 1 : 0.45) + ';'
+        + 'transform:scale(' + (isActive ? 1 : 0.9) + ');transform-origin:' + origin + ';'
+        + 'transition:transform .32s cubic-bezier(.2,.8,.2,1), opacity .32s ease, box-shadow .32s ease;';
+      const useAccent = p.badge;
+      const checkStyle = 'display:flex;flex:none;color:' + (useAccent ? 'var(--accent)' : 'var(--text3)') + ';';
+      const featStyle = 'font-size:12px;color:' + (useAccent ? 'var(--text)' : 'var(--text2)') + ';font-weight:' + (useAccent ? 550 : 400) + ';';
+      const ctaStyle = 'width:100%;height:38px;margin-top:2px;border-radius:10px;font-family:inherit;font-size:12.5px;font-weight:650;letter-spacing:-.01em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:background .3s ease, color .3s ease, border-color .3s ease;'
+        + (!isActive
+            ? 'border:1px solid var(--hair);background:var(--sunken);color:var(--text3);'
+            : (p.kind === 'solid'
+                ? 'border:1px solid transparent;background:var(--accent-grad);color:var(--accent-contrast);'
+                : 'border:1px solid var(--accent);background:transparent;color:var(--accent);'));
+      return { name:p.name, price:p.price, badge:p.badge, incLabel:p.incLabel, features:p.features,
+        ctaLabel:p.ctaLabel, ctaArrow:p.arrow, cardStyle, checkStyle, featStyle, ctaStyle,
+        onCta: () => this.upgradeNow() };
+    });
+    const carDots = planData.map((p, i) => {
+      const on = i === carActive;
+      const style = 'height:6px;border-radius:99px;border:0;cursor:pointer;padding:0;'
+        + 'width:' + (on ? '18px' : '6px') + ';'
+        + 'background:' + (on ? 'var(--accent)' : 'var(--hair2)') + ';'
+        + 'transition:width .28s cubic-bezier(.2,.8,.2,1), background .2s ease;';
+      return { style, go: () => this.carGo(i) };
+    });
+    const carArrowBase = 'width:30px;height:30px;border-radius:9px;display:flex;align-items:center;justify-content:center;flex:none;font-family:inherit;background:transparent;border:0;';
+    const carPrevStyle = carArrowBase + (carActive <= 0
+      ? 'color:var(--text3);opacity:.35;cursor:default;pointer-events:none;'
+      : 'color:var(--text2);cursor:pointer;');
+    const carNextStyle = carArrowBase + (carActive >= 2
+      ? 'color:var(--text3);opacity:.35;cursor:default;pointer-events:none;'
+      : 'color:var(--text2);cursor:pointer;');
+
+    return {
+      rootStyle: this.themeVars(isDark),
+      isDark, isLight: !isDark,
+      historyCount: history.length,
+      chatTabStyle: isChat ? tabActive : tabIdle,
+      histTabStyle: !isChat ? tabActive : tabIdle,
+      showEmpty: isChat && !hasMessages && !atLimit,
+      showThread: isChat && hasMessages,
+      showHistory: !isChat,
+      showComposer: showComposerNow,
+      showBlocked,
+      blockedWrapStyle: hasMessages
+        ? "flex:none;padding:18px 18px;border-top:1px solid var(--hair);display:flex;flex-direction:column;align-items:center;text-align:center;gap:9px;"
+        : "flex:1;min-height:0;padding:22px 22px 90px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:9px;",
+      showBlockedAdmin: isAdmin,
+      showBlockedMember: !isAdmin,
+      showWarn80, showWarn95, pctLeft,
+      dismissWarn: () => this.dismissWarn(),
+      showUpgrade: this.state.showUpgrade && isChat,
+      currentName: planCfg.curName, currentPrice: planCfg.curPrice, currentFeatures: planCfg.curFeatures,
+      recoName: planCfg.recoName, recoPrice: planCfg.recoPrice, recoFeatures: planCfg.recoFeatures,
+      proName: planCfg.proName, proPrice: planCfg.proPrice, proFeatures: planCfg.proFeatures,
+      ctaLabel: planCfg.cta,
+      upgradeBenefits: [
+        { label: '5Ã— higher usage limit' },
+        { label: 'Priority responses' },
+        { label: 'Advanced model access' },
+      ],
+      showUpgradeBtn: isAdmin && !this.state.portalOpening,
+      showPortalNote: isAdmin && this.state.portalOpening,
+      showNotifyBtn: !isAdmin && !this.state.notified,
+      showNotifiedNote: !isAdmin && this.state.notified,
+      openUpgrade: () => this.openUpgrade(),
+      closeUpgrade: () => this.closeUpgrade(),
+      upgradeNow: () => this.upgradeNow(),
+      carViewRef: this.carViewRef,
+      carTrackStyle, carPlans, carDots, carPrevStyle, carNextStyle,
+      carPrev: () => this.carPrev(),
+      carNext: () => this.carNext(),
+      carDown: (e) => this.carDown(e),
+      carMove: (e) => this.carMove(e),
+      carUp: () => this.carUp(),
+      notifyAdmin: () => this.notifyAdmin(),
+      seePlans: () => this.seePlans(),
+      messages, typing: this.state.typing,
+      thinking: this.state.thinkVisible, thinkWorking, thinkDone, thinkLineEl, thinkAnim,
+      input: this.state.input,
+      showMention: this.state.showMention,
+      mentionItems: mentions,
+      historyList: history,
+      threadRef: this.threadRef,
+      showSendLoading: this.state.typing,
+      showSendActive: !this.state.typing && canSend,
+      showSendIdle: !this.state.typing && !canSend,
+      usagePct, usageWidth: usagePct + '%', meterColor, meterDash,
+      planName: planCfg.meterName, planBadge: planCfg.badge,
+      showUsage: this.state.showUsage,
+      showHeaderMeter: placement === 'header',
+      showFooterMeter: placement === 'footer' && isChat,
+      showHeaderUsagePop: this.state.showUsage && placement === 'header',
+      showFooterUsagePop: this.state.showUsage && placement === 'footer',
+      toggleUsage: () => this.toggleUsage(),
+      closeUsage: () => this.closeUsage(),
+      goChat: () => this.setTab('chat'),
+      goHistory: () => this.setTab('history'),
+      sendBtn: () => this.send(),
+      stopGen: () => this.stopGen(),
+      onInput: (e) => this.onInput(e),
+      onKey: (e) => this.onKey(e),
+      atBtn: () => this.atBtn(),
+      toggleTheme: () => this.toggleTheme(),
+      newChat: () => this.newChat(),
+      macroMenuOpen: this.state.macroOpen,
+      toggleMacroMenu: () => this.toggleMacroMenu(),
+      closeMacroMenu: () => this.closeMacroMenu(),
+      openMacroFeedback: () => this.openMacroForm('feedback'),
+      openMacroBug: () => this.openMacroForm('bug'),
+      openRating: () => this.openRating(),
+      closeRating: () => this.closeRating(),
+      clearRatingHover: () => this.setRatingHover(0),
+      setRatingNote: (e) => this.setRatingNote(e && e.target ? e.target.value : ''),
+      submitRating: () => this.submitRating(),
+      ratingOpen: !!this.state.rating,
+      ratingActive: !!(this.state.rating && !this.state.rating.submitted),
+      ratingSubmitted: !!(this.state.rating && this.state.rating.submitted),
+      ratingNote: this.state.rating ? this.state.rating.note : '',
+      ratingContextLabel: this.MODEL_VERSION + ' Â· ' + this.REVIT_VERSION,
+      ratingValueLabel: (this.state.rating ? this.state.rating.value : 0) + '-star',
+      ratingStars: (() => {
+        const r = this.state.rating || { value:0, hover:0, pop:0 };
+        const level = r.hover || r.value;
+        const out = [];
+        for (let i = 0; i < 5; i++) {
+          const on = i < level;
+          out.push({
+            on,
+            fill: on ? 'url(#gstarGold)' : 'none',
+            stroke: on ? '#E8941A' : 'var(--hair2)',
+            shine: on ? 'filter:drop-shadow(0 1px 2px rgba(232,148,26,.5));' : '',
+            anim: (r.pop === i + 1) ? 'animation:starPop .36s ease;' : '',
+            enter: () => this.setRatingHover(i + 1),
+            click: () => this.pickRating(i + 1),
+          });
+        }
+        return out;
+      })(),
+      ratingReaction: (() => {
+        const r = this.state.rating; if (!r) return '';
+        const level = r.hover || r.value;
+        return ['', 'Not great', 'Could be better', "It's okay", 'Pretty good', 'Love it!'][level] || '';
+      })(),
+      ratingHasReaction: !!(this.state.rating && (this.state.rating.hover || this.state.rating.value)),
+      ratingNoReaction: !(this.state.rating && (this.state.rating.hover || this.state.rating.value)),
+      ratingSubmitDisabled: !(this.state.rating && this.state.rating.value),
+      ratingSubmitStyle: (() => {
+        const can = !!(this.state.rating && this.state.rating.value);
+        const base = 'width:100%;height:40px;margin-top:14px;border:0;border-radius:10px;font-family:inherit;font-size:13px;font-weight:660;letter-spacing:-.01em;';
+        return base + (can
+          ? 'background:var(--accent-grad);color:var(--accent-contrast);cursor:pointer;'
+          : 'background:var(--sunken);color:var(--text3);cursor:not-allowed;');
+      })(),
+      macroFormOpen: !!this.state.macroForm,
+      macroFormActive: !!(this.state.macroForm && !this.state.macroForm.submitted),
+      macroFormTitle: this.state.macroForm ? (this.state.macroForm.mode === 'bug' ? 'Report a bug' : 'Send feedback') : '',
+      macroSubmitted: !!(this.state.macroForm && this.state.macroForm.submitted),
+      macroText: this.state.macroForm ? this.state.macroForm.text : '',
+      macroTypes: (() => {
+        const cur = this.state.macroForm ? this.state.macroForm.type : 'suggestion';
+        const base = 'flex:1;padding:9px 6px;border-radius:9px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;transition:background .15s ease,color .15s ease,border-color .15s ease;';
+        const mk = (key, label) => ({
+          key, label, active: cur === key, pick: () => this.setMacroType(key),
+          style: base + (cur === key
+            ? 'background:color-mix(in srgb, var(--accent) 15%, transparent);color:var(--accent);border:1px solid transparent;'
+            : 'background:transparent;color:var(--text2);border:1px solid var(--hair);'),
+        });
+        return [ mk('bug','Bug'), mk('suggestion','Suggestion'), mk('other','Other') ];
+      })(),
+      macroContextLabel: 'Auto-attached Â· ' + this.MODEL_VERSION + ' Â· ' + this.REVIT_VERSION + ' Â· current view',
+      closeMacroForm: () => this.closeMacroForm(),
+      setMacroText: (e) => this.setMacroText(e.target.value),
+      submitMacroForm: () => this.submitMacroForm(),
+      sugWalls: () => this.send('Create exterior walls on Level 2 along grid Aâ€“F'),
+      sugSchedule: () => this.send('Generate a door schedule for Block A'),
+      sugTag: () => this.send('Tag all rooms on Level 1 with name and number'),
+    };
+  }
+}
+</script>
+</body>
+</html>

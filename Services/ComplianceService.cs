@@ -18,7 +18,8 @@ namespace RevitWebAppSync.Services
 
         public ComplianceService(string baseUrl = null)
         {
-            _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedAIBaseUrl;
+            // Cloud base: the local engine serves no /v1/compliance routes.
+            _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedCloudBaseUrl;
             _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
         }
 
@@ -200,7 +201,7 @@ namespace RevitWebAppSync.Services
     public class ModelCheckElement
     {
         [JsonProperty("element_id")]
-        public int ElementId { get; set; }
+        public long ElementId { get; set; }
 
         [JsonProperty("category")]
         public string Category { get; set; }
@@ -260,8 +261,17 @@ namespace RevitWebAppSync.Services
         [JsonProperty("issue_id")]
         public string IssueId { get; set; } = "";
 
+        // Backend V2 check_id + domain — round-tripped by the JKR AI auto-fix
+        // request so returned fixes key back to their originating checks.
+        // Empty for fire-compliance (V1) responses.
+        [JsonProperty("check_id")]
+        public string CheckId { get; set; } = "";
+
+        [JsonProperty("domain")]
+        public string Domain { get; set; } = "";
+
         [JsonProperty("element_id")]
-        public int ElementId { get; set; }
+        public long ElementId { get; set; }
 
         [JsonProperty("category")]
         public string Category { get; set; }
@@ -329,7 +339,7 @@ namespace RevitWebAppSync.Services
     public class AIRecommendationDto
     {
         [JsonProperty("element_id")]
-        public int ElementId { get; set; }
+        public long ElementId { get; set; }
 
         [JsonProperty("fix_suggestion")]
         public string FixSuggestion { get; set; }

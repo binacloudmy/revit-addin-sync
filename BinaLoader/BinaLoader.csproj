@@ -1,26 +1,39 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- Must match the host plugin's target: Revit 2025+ ships .NET 8. -->
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- One shim per host runtime: net48 goes into Addins\2024 (Revit 2024 =
+         .NET Framework 4.8), net8.0-windows into Addins\2025-2027 (a net8
+         assembly loads fine on Revit 2027's .NET 10 host). -->
+    <TargetFrameworks>net48;net8.0-windows</TargetFrameworks>
     <PlatformTarget>x64</PlatformTarget>
     <OutputType>Library</OutputType>
     <AssemblyName>BinaLoader</AssemblyName>
-    <Version Condition="'$(Version)' == ''">0.0.14</Version>
+    <Version Condition="'$(Version)' == ''">0.0.19</Version>
     <!-- Lets the loader build on macOS/Linux CI and dev machines. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <Nullable>enable</Nullable>
+    <!-- net48 defaults to C# 7.3 — the shim uses nullable annotations etc. -->
+    <LangVersion>latest</LangVersion>
 
 	<!--Suppress auto-generation since generation is declared manually -->
 	<GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
 	<GenerateAssemblyInfo>false</GenerateAssemblyInfo>
   </PropertyGroup>
 
-  <ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
     <!-- Reference-only Revit API packages (no Revit install needed to build).
-         Compiled against 2025 so the loader runs on every net8 Revit (2025+). -->
+         Compiled against 2025 so the loader runs on every net8+ Revit (2025+). -->
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2025.*" />
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2025.*" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2024.*" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2024.*" />
+    <!-- In-box on net8; package on .NET Framework. -->
+    <PackageReference Include="System.Text.Json" Version="8.0.*" />
+    <!-- Compile net48 without a local .NET Framework install (mac/Linux CI). -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.*" PrivateAssets="all" />
   </ItemGroup>
 
 </Project>

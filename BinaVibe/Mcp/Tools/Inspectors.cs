@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
 
@@ -26,7 +27,8 @@ namespace BinaVibe.Mcp.Tools
                 {
                     ["id"] = l.Id.Value,
                     ["name"] = l.Name,
-                    ["elevation"] = l.Elevation,
+                    ["elevation"] = l.Elevation,               // legacy (feet) — kept
+                    ["elevation_mm"] = Math.Round(l.Elevation * 304.8, 0),
                 })
                 .ToList<object>();
             return new Dictionary<string, object?> { ["levels"] = levels };
@@ -52,7 +54,7 @@ namespace BinaVibe.Mcp.Tools
         {
             var category = TryGetString(args, "category") ?? "OST_Doors";
             var nameContains = TryGetString(args, "name_contains");
-            var bic = ResolveBuiltInCategory(category);
+            var bic = CategoryResolve.Resolve(category);
             if (!bic.HasValue)
             {
                 // Unknown category must FAIL LOUDLY — running unfiltered used to
@@ -156,7 +158,7 @@ namespace BinaVibe.Mcp.Tools
             long id = TryGetLong(args, "element_id") ?? 0;
             if (id == 0) throw new System.ArgumentException("missing element_id");
 
-            var el = doc.GetElement(new ElementId(id));
+            var el = doc.GetElement(ElemIds.From(id));
             if (el == null) throw new System.ArgumentException($"element {id} not found");
 
             var typeEl = el.GetTypeId().Value != ElementId.InvalidElementId.Value
@@ -188,7 +190,7 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> FindElementsByFilter(Document doc, JsonElement args)
         {
             var category = TryGetString(args, "category") ?? "Walls";
-            var bic = ResolveBuiltInCategory(category);
+            var bic = CategoryResolve.Resolve(category);
             var predicate = TryGetString(args, "predicate");
             if (!bic.HasValue)
             {
@@ -207,12 +209,19 @@ namespace BinaVibe.Mcp.Tools
             IEnumerable<Element> q = col;
 
             bool isRooms = bic == BuiltInCategory.OST_Rooms;
-            const double ft2ToM2 = 0.092903;
+            const double ft2ToM2 = 0.09290304;
 
-            var matches = new List<object>();
-            foreach (var el in q.Take(50))
+            const int Cap = 100;
+            var matched = new List<Element>();
+            foreach (var el in q)
             {
                 if (!PredicateMatches(el, doc, predicate)) continue;
+                matched.Add(el);
+            }
+
+            var matches = new List<object>();
+            foreach (var el in matched.Take(Cap))
+            {
                 var typeEl = el.GetTypeId().Value != ElementId.InvalidElementId.Value
                     ? doc.GetElement(el.GetTypeId()) : null;
                 var lvl = el.LevelId.Value != ElementId.InvalidElementId.Value
@@ -222,7 +231,7 @@ namespace BinaVibe.Mcp.Tools
                 var paramsDict = new Dictionary<string, object?>();
                 if (isRooms && el is SpatialElement room)
                 {
-                    // Revit stores room Area in ft² (×0.092903 → m²). Skip
+                    // Revit stores room Area in ft² (×0.09290304 → m²). Skip
                     // unplaced/unbounded rooms (Area <= 0) — they have no area.
                     double areaFt2 = room.Area;
                     if (areaFt2 > 0)
@@ -237,14 +246,18 @@ namespace BinaVibe.Mcp.Tools
                     ["level"] = lvl?.Name,
                     ["params"] = paramsDict,
                 });
-                if (matches.Count >= 20) break;
             }
-            return new Dictionary<string, object?>
+
+            var result = new Dictionary<string, object?>
             {
                 ["category"] = category,
                 ["predicate"] = predicate,
                 ["matches"] = matches,
             };
+            if (matched.Count > Cap)
+                result["truncated"] = $"showing {Cap} of {matched.Count} matches — narrow the predicate";
+
+            return result;
         }
 
         // ─── get_current_selection ──────────────────────────────────────
@@ -436,7 +449,7 @@ namespace BinaVibe.Mcp.Tools
             if (suppliedIds.Count > 0)
             {
                 elements = suppliedIds
-                    .Select(id => doc.GetElement(new ElementId(id)))
+                    .Select(id => doc.GetElement(ElemIds.From(id)))
                     .Where(el => el != null);
             }
             else
@@ -498,31 +511,63 @@ namespace BinaVibe.Mcp.Tools
         /// <summary>
         /// Returns the model's open Revit warnings: description + the element ids involved.
         /// Uses Document.GetWarnings() (available Revit 2015+). Capped at 500 warnings.
-        /// Returns {ok, warnings:[{description, element_ids:[...]}], count}.
+        /// Returns {ok, warnings:[{description, element_ids:[...]}], count,
+        /// by_type:[{type, count, element_ids:[...]}]}.
+        /// by_type is the CANONICAL grouping for "summarise/group warnings by type"
+        /// asks — group by w.GetDescriptionText(), the real Revit warning-type
+        /// string (do not invent categories or group by an invented "priority"
+        /// bucket instead). Ordered by count desc; element_ids is the union of
+        /// failing-element ids across every warning in that type's group.
+        /// The flat `warnings` list is kept EXACTLY as before — callers depend on it.
         /// </summary>
         public static Dictionary<string, object?> GetModelWarnings(Document doc)
         {
             const int cap = 500;
             var warnings = doc.GetWarnings();
             var result = new List<object>();
+            var byType = new Dictionary<string, (int Count, List<long> ElementIds)>();
 
             foreach (var w in warnings.Take(cap))
             {
                 var eids = w.GetFailingElements()
                     .Select(eid => (object)eid.Value)
                     .ToList<object>();
+                var description = w.GetDescriptionText();
                 result.Add(new Dictionary<string, object?>
                 {
-                    ["description"] = w.GetDescriptionText(),
+                    ["description"] = description,
                     ["element_ids"] = eids,
                 });
+
+                if (!byType.TryGetValue(description, out var group))
+                {
+                    group = (0, new List<long>());
+                }
+                group.Count++;
+                foreach (var eid in w.GetFailingElements())
+                {
+                    if (!group.ElementIds.Contains(eid.Value))
+                        group.ElementIds.Add(eid.Value);
+                }
+                byType[description] = group;
             }
+
+            var byTypeList = byType
+                .OrderByDescending(kv => kv.Value.Count)
+                .Select(kv => (object)new Dictionary<string, object?>
+                {
+                    ["type"] = kv.Key,
+                    ["count"] = kv.Value.Count,
+                    ["element_ids"] = kv.Value.ElementIds.Cast<object>().ToList(),
+                })
+                .ToList<object>();
 
             return new Dictionary<string, object?>
             {
                 ["ok"] = true,
                 ["warnings"] = result,
                 ["count"] = result.Count,
+                ["by_type"] = byTypeList,
             };
         }
 
@@ -608,18 +653,17 @@ namespace BinaVibe.Mcp.Tools
                 }
             }
 
-            var bic = ResolveBuiltInCategory(category);
+            var bic = CategoryResolve.Resolve(category);
             var col = new FilteredElementCollector(doc).WhereElementIsNotElementType();
             if (bic.HasValue) col = col.OfCategory(bic.Value);
             IEnumerable<Element> q = col;
 
-            const int cap = 50;
+            const int cap = 100;
             var elements = new List<object>();
+            var matchedTotal = 0;
 
             foreach (var el in q)
             {
-                if (elements.Count >= cap) break;
-
                 bool passes = conditions.Count == 0
                     ? true
                     : matchAll
@@ -627,6 +671,8 @@ namespace BinaVibe.Mcp.Tools
                         : conditions.Any(c => EvaluateCondition(el, doc, c.param, c.op, c.value));
 
                 if (!passes) continue;
+                matchedTotal++;
+                if (elements.Count >= cap) continue;   // keep counting, stop shaping
 
                 var typeEl = el.GetTypeId().Value != ElementId.InvalidElementId.Value
                     ? doc.GetElement(el.GetTypeId()) : null;
@@ -648,29 +694,46 @@ namespace BinaVibe.Mcp.Tools
                 });
             }
 
-            return new Dictionary<string, object?>
+            var result = new Dictionary<string, object?>
             {
                 ["ok"] = true,
                 ["elements"] = elements,
                 ["count"] = elements.Count,
             };
+            if (matchedTotal > cap)
+                result["truncated"] = $"showing {cap} of {matchedTotal} matches — narrow the conditions";
+            return result;
         }
 
         // ─── condition evaluator ─────────────────────────────────────────
+        // Display-form string for a parameter: Double params render via
+        // AsValueString (project units, e.g. "3.000 m") — SafeParamValue would
+        // stringify the rich dict. Shared by EvaluateCondition + PredicateMatches.
+        private static string DisplayFormString(Parameter p)
+            => p.StorageType == StorageType.Double
+                ? (p.AsValueString() ?? "")
+                : (SafeParamValue(p)?.ToString() ?? "");
+
         private static bool EvaluateCondition(Element el, Document doc, string paramName, string op, string wantStr)
         {
             var p = el.LookupParameter(paramName);
             if (p == null) return false;
 
-            var raw = SafeParamValue(p);
-            var rawStr = raw?.ToString() ?? "";
+            // Display-form string for string ops (contains/equals). For Double
+            // params AsValueString is the project-units rendering ("3.000 m");
+            var rawStr = DisplayFormString(p);
 
             // Try numeric comparison first when both sides coerce.
             if (double.TryParse(wantStr, System.Globalization.NumberStyles.Any,
                     System.Globalization.CultureInfo.InvariantCulture, out var wantNum))
             {
                 double? actualNum = null;
-                if (p.StorageType == StorageType.Double) actualNum = p.AsDouble();
+                if (p.StorageType == StorageType.Double)
+                    // Compare in PROJECT DISPLAY UNITS: the drafter/model says
+                    // "< 3.0" meaning metres (what Revit shows), not internal
+                    // feet. This was the 2026-07 UAT wrong-answer bug: 2.6m
+                    // rooms arrived as 8.53 (ft) and passed "< 3.0" = false.
+                    actualNum = ParamUnits.ToDisplay(doc, p, p.AsDouble());
                 else if (p.StorageType == StorageType.Integer) actualNum = (double)p.AsInteger();
                 else if (double.TryParse(rawStr, System.Globalization.NumberStyles.Any,
                              System.Globalization.CultureInfo.InvariantCulture, out var parsed))
@@ -722,6 +785,60 @@ namespace BinaVibe.Mcp.Tools
             return null;
         }
 
+        // ─── Unit handling ──────────────────────────────────────────────
+        // Unit handling for parameter VALUES. Revit stores Double params in
+        // internal units (feet/ft²/ft³/radians). Two consumers:
+        //   MetricTwin  — fixed metric conversions for the value_mm/value_m2/...
+        //                 return twins (predictable keys the model can rely on).
+        //   ToDisplay   — project display units, used by numeric condition
+        //                 compares so "3.0" means what the drafter sees in Revit.
+        internal static class ParamUnits
+        {
+            public static (string suffix, double factor)? MetricTwin(Definition def)
+            {
+                ForgeTypeId? spec;
+                try { spec = def.GetDataType(); } catch { return null; }
+                if (spec == null) return null;
+                if (spec.Equals(SpecTypeId.Length)) return ("value_mm", 304.8);
+                if (spec.Equals(SpecTypeId.Area)) return ("value_m2", 0.09290304);
+                if (spec.Equals(SpecTypeId.Volume)) return ("value_m3", 0.028316846592);
+                if (spec.Equals(SpecTypeId.Angle)) return ("value_deg", 180.0 / System.Math.PI);
+                return null;
+            }
+
+            // Convert a DISPLAY-units double (what the drafter/model says: mm/m per
+        // project settings) to Revit-internal units for writes. Inverse of
+        // ToDisplay — keeps the write contract symmetric with reads/compares.
+        // (UAT 2026-07-11: set_parameter "2600" landed as 2600 FEET = 792m
+        // ceiling; the copilot itself diagnosed it from the value_mm twins.)
+        public static double ToInternal(Document doc, Parameter p, double displayVal)
+        {
+            try
+            {
+                var spec = p.Definition.GetDataType();
+                if (spec == null || !UnitUtils.IsMeasurableSpec(spec)) return displayVal;
+                var unit = doc.GetUnits().GetFormatOptions(spec).GetUnitTypeId();
+                return UnitUtils.ConvertToInternalUnits(displayVal, unit);
+            }
+            catch { return displayVal; }
+        }
+
+        // Convert an internal-units double to the PROJECT's display units for
+            // this parameter's spec (e.g. metres on JKR templates). Falls back to
+            // the raw value when the spec has no unit formatting (plain Number).
+            public static double ToDisplay(Document doc, Parameter p, double internalVal)
+            {
+                try
+                {
+                    var spec = p.Definition.GetDataType();
+                    if (spec == null || !UnitUtils.IsMeasurableSpec(spec)) return internalVal;
+                    var unit = doc.GetUnits().GetFormatOptions(spec).GetUnitTypeId();
+                    return UnitUtils.ConvertFromInternalUnits(internalVal, unit);
+                }
+                catch { return internalVal; }
+            }
+        }
+
         private static object? SafeParamValue(Parameter p)
         {
             try
@@ -730,12 +847,29 @@ namespace BinaVibe.Mcp.Tools
                 {
                     StorageType.String => p.AsString(),
                     StorageType.Integer => p.AsInteger(),
-                    StorageType.Double => p.AsDouble(),
+                    StorageType.Double => RichDouble(p),
                     StorageType.ElementId => p.AsElementId().Value,
                     _ => p.AsValueString(),
                 };
             }
             catch { return null; }
+        }
+
+        // Double params carry Revit-internal units — emit the raw value PLUS
+        // a fixed-metric twin and the project-units display string, so the
+        // model never has to guess units (the 2026-07 UAT wrong-answer class).
+        private static Dictionary<string, object?> RichDouble(Parameter p)
+        {
+            var raw = p.AsDouble();
+            var d = new Dictionary<string, object?>
+            {
+                ["value"] = raw,
+                ["display_value"] = p.AsValueString(),
+            };
+            var twin = ParamUnits.MetricTwin(p.Definition);
+            if (twin.HasValue)
+                d[twin.Value.suffix] = System.Math.Round(raw * twin.Value.factor, 4);
+            return d;
         }
 
         private static bool PredicateMatches(Element el, Document doc, string? predicate)
@@ -773,7 +907,7 @@ namespace BinaVibe.Mcp.Tools
                 var paramName = key.Substring(6);
                 var p = el.LookupParameter(paramName);
                 if (p == null) return false;
-                return string.Equals(SafeParamValue(p)?.ToString(), want, System.StringComparison.OrdinalIgnoreCase);
+                return string.Equals(DisplayFormString(p), want, System.StringComparison.OrdinalIgnoreCase);
             }
             return true;
         }
@@ -786,35 +920,10 @@ namespace BinaVibe.Mcp.Tools
                 || want.IndexOf(actual, System.StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private static BuiltInCategory? ResolveBuiltInCategory(string category)
-        {
-            // Accept either the BIC enum literal ("OST_Walls") or the
-            // friendly category name ("Walls", "Doors", "Plumbing Fixtures").
-            // The old 7-entry switch silently returned null for everything
-            // else — and callers then ran UNFILTERED collectors, handing the
-            // agent 500 junk types ("Arrowhead" as a plumbing fixture). That
-            // garbage is what forced the multi-round tool tours on every
-            // "tandas" question. Resolve generically: any friendly name maps
-            // to OST_<NameWithoutSpaces>.
-            if (string.IsNullOrWhiteSpace(category)) return null;
-            if (category.StartsWith("OST_", System.StringComparison.OrdinalIgnoreCase)
-                && System.Enum.TryParse<BuiltInCategory>(category, true, out var bic))
-                return bic;
-            var compact = "OST_" + category.Replace(" ", "").Replace("-", "");
-            if (System.Enum.TryParse<BuiltInCategory>(compact, true, out var bic2))
-                return bic2;
-            return category.ToLowerInvariant() switch
-            {
-                "walls" => BuiltInCategory.OST_Walls,
-                "doors" => BuiltInCategory.OST_Doors,
-                "windows" => BuiltInCategory.OST_Windows,
-                "floors" => BuiltInCategory.OST_Floors,
-                "rooms" => BuiltInCategory.OST_Rooms,
-                "levels" => BuiltInCategory.OST_Levels,
-                "grids" => BuiltInCategory.OST_Grids,
-                _ => null,
-            };
-        }
+        // Category-name resolution moved to CategoryResolve.Resolve (ElementFilter.cs)
+        // so filter_elements can share the same friendly-name/OST_ logic —
+        // one implementation, no copies. See that class for the original
+        // comment on why unknown categories must fail loudly.
 
         // ─── open_view ──────────────────────────────────────────────────
         // Activate a graphical view by (partial) name. UI navigation, not a
@@ -896,7 +1005,7 @@ namespace BinaVibe.Mcp.Tools
             if (args.TryGetProperty("element_ids", out var arr) && arr.ValueKind == JsonValueKind.Array)
                 foreach (var e in arr.EnumerateArray())
                     if (e.ValueKind == JsonValueKind.Number && e.TryGetInt64(out var v))
-                        ids.Add(new ElementId(v));
+                        ids.Add(ElemIds.From(v));
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no element ids given" };
 
@@ -1062,9 +1171,11 @@ namespace BinaVibe.Mcp.Tools
 
         // Robust category resolver — friendly name, OST_ enum, or live
         // Category.Name lookup (handles "Plumbing Fixtures" etc.).
-        private static BuiltInCategory? ResolveCategoryRobust(Document doc, string category)
+        // internal (was private) so Mutators.SetCategoryVisibility reuses the same
+        // friendly-name -> BuiltInCategory resolution the INSPECT tools use.
+        internal static BuiltInCategory? ResolveCategoryRobust(Document doc, string category)
         {
-            var simple = ResolveBuiltInCategory(category);
+            var simple = CategoryResolve.Resolve(category);
             if (simple != null) return simple;
             var compact = "OST_" + category.Replace(" ", "");
             foreach (BuiltInCategory c in Enum.GetValues(typeof(BuiltInCategory)))
@@ -1080,6 +1191,908 @@ namespace BinaVibe.Mcp.Tools
                 catch { /* some BICs have no category in this doc */ }
             }
             return null;
+        }
+
+        // ─── list_phases ────────────────────────────────────────────────
+        public static Dictionary<string, object?> ListPhases(Document doc)
+        {
+            var phases = new List<object>();
+            int i = 0;
+            foreach (Phase p in doc.Phases)
+            {
+                phases.Add(new Dictionary<string, object?> { ["id"] = p.Id.Value, ["name"] = p.Name, ["sequence"] = i });
+                i++;
+            }
+            return new Dictionary<string, object?> { ["ok"] = true, ["phases"] = phases, ["count"] = phases.Count };
+        }
+
+        // ─── list_design_options ────────────────────────────────────────
+        public static Dictionary<string, object?> ListDesignOptions(Document doc)
+        {
+            var options = new FilteredElementCollector(doc)
+                .OfClass(typeof(DesignOption)).Cast<DesignOption>()
+                .Select(o =>
+                {
+                    var optionSetId = o.get_Parameter(BuiltInParameter.OPTION_SET_ID)?.AsElementId();
+                    var optionSet = (optionSetId != null && optionSetId != ElementId.InvalidElementId)
+                        ? doc.GetElement(optionSetId)?.Name ?? ""
+                        : "";
+                    return new Dictionary<string, object?>
+                    {
+                        ["id"] = o.Id.Value,
+                        ["name"] = o.Name,
+                        ["is_primary"] = o.IsPrimary,
+                        ["option_set"] = optionSet,
+                    };
+                }).ToList<object>();
+            return new Dictionary<string, object?> { ["ok"] = true, ["design_options"] = options, ["count"] = options.Count };
+        }
+
+        // ─── list_rvt_links ─────────────────────────────────────────────
+        public static Dictionary<string, object?> ListRvtLinks(Document doc)
+        {
+            var links = new FilteredElementCollector(doc)
+                .OfClass(typeof(RevitLinkInstance)).Cast<RevitLinkInstance>()
+                .Select(l =>
+                {
+                    var linkDoc = l.GetLinkDocument();
+                    return new Dictionary<string, object?>
+                    {
+                        ["id"] = l.Id.Value,
+                        ["name"] = l.Name,
+                        ["loaded"] = linkDoc != null,
+                        ["path"] = linkDoc?.PathName ?? "",
+                    };
+                }).ToList<object>();
+            return new Dictionary<string, object?> { ["ok"] = true, ["links"] = links, ["count"] = links.Count };
+        }
+
+        // ─── list_revisions ─────────────────────────────────────────────
+        public static Dictionary<string, object?> ListRevisions(Document doc)
+        {
+            var revs = new FilteredElementCollector(doc)
+                .OfClass(typeof(Revision)).Cast<Revision>()
+                .OrderBy(r => r.SequenceNumber)
+                .Select(r => new Dictionary<string, object?>
+                {
+                    ["id"] = r.Id.Value,
+                    ["sequence"] = r.SequenceNumber,
+                    ["date"] = r.RevisionDate,
+                    ["description"] = r.Description,
+                    ["issued"] = r.Issued,
+                }).ToList<object>();
+            return new Dictionary<string, object?> { ["ok"] = true, ["revisions"] = revs, ["count"] = revs.Count };
+        }
+
+        // ─── list_model_groups ──────────────────────────────────────────
+        public static Dictionary<string, object?> ListModelGroups(Document doc)
+        {
+            var modelGroups = new FilteredElementCollector(doc)
+                .OfClass(typeof(Autodesk.Revit.DB.Group)).Cast<Autodesk.Revit.DB.Group>()
+                .Where(g => g.Category != null && g.Category.Id.Value == (long)BuiltInCategory.OST_IOSModelGroups)
+                .GroupBy(g => g.GroupType?.Name ?? g.Name)
+                .Select(grp => new Dictionary<string, object?>
+                {
+                    ["name"] = grp.Key,
+                    ["instances"] = grp.Count(),
+                    ["instance_details"] = grp.Select(g => new Dictionary<string, object?>
+                    {
+                        ["id"] = g.Id.Value,
+                        ["members"] = g.GetMemberIds().Count,
+                    }).ToList<object>(),
+                }).ToList<object>();
+            return new Dictionary<string, object?> { ["ok"] = true, ["model_groups"] = modelGroups, ["count"] = modelGroups.Count };
+        }
+
+        // ─── get_sheet_viewports ────────────────────────────────────────
+        // args: sheet_id (long) OR sheet_number (string) — scopes to one sheet.
+        // Omit both to return every sheet in the project.
+        public static Dictionary<string, object?> GetSheetViewports(Document doc, JsonElement args)
+        {
+            var sheetId = ArgsHelp.GetLong(args, "sheet_id");
+            var sheetNumber = ArgsHelp.GetString(args, "sheet_number");
+            List<ViewSheet> sheets;
+            if (sheetId.HasValue)
+            {
+                var sheet = doc.GetElement(ElemIds.From(sheetId.Value)) as ViewSheet;
+                if (sheet == null)
+                    throw new InvalidOperationException($"sheet {sheetId.Value} not found — use list_sheets");
+                sheets = new List<ViewSheet> { sheet };
+            }
+            else if (!string.IsNullOrEmpty(sheetNumber))
+            {
+                var sheet = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet))
+                    .Cast<ViewSheet>().FirstOrDefault(s => s.SheetNumber == sheetNumber);
+                if (sheet == null)
+                    throw new InvalidOperationException($"sheet '{sheetNumber}' not found — use list_sheets");
+                sheets = new List<ViewSheet> { sheet };
+            }
+            else
+            {
+                sheets = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>().ToList();
+            }
+
+            var sheetResults = sheets.Select(sheet => new Dictionary<string, object?>
+            {
+                ["sheet_number"] = sheet.SheetNumber,
+                ["sheet_name"] = sheet.Name,
+                ["viewports"] = sheet.GetAllViewports().Select(vpId =>
+                {
+                    var vp = (Viewport)doc.GetElement(vpId);
+                    var view = doc.GetElement(vp.ViewId) as View;
+                    var center = vp.GetBoxCenter();
+                    return new Dictionary<string, object?>
+                    {
+                        ["viewport_id"] = vp.Id.Value,
+                        ["view_id"] = vp.ViewId.Value,
+                        ["view_name"] = view?.Name ?? "",
+                        ["view_type"] = view?.ViewType.ToString() ?? "",
+                        ["center_mm"] = new[] { center.X * 304.8, center.Y * 304.8 },
+                    };
+                }).ToList<object>(),
+            }).ToList<object>();
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["sheets"] = sheetResults, ["count"] = sheetResults.Count,
+            };
+        }
+
+        // ─── list_project_parameters ────────────────────────────────────
+        public static Dictionary<string, object?> ListProjectParameters(Document doc)
+        {
+            var result = new List<object>();
+            var it = doc.ParameterBindings.ForwardIterator();
+            while (it.MoveNext())
+            {
+                var def = it.Key;
+                var binding = it.Current;
+                var cats = new List<string>();
+                var catSet = (binding as ElementBinding)?.Categories;
+                if (catSet != null)
+                    foreach (Category c in catSet) cats.Add(c.Name);
+                result.Add(new Dictionary<string, object?>
+                {
+                    ["name"] = def.Name,
+                    ["is_instance"] = binding is InstanceBinding,
+                    ["categories"] = cats,
+                    ["data_type"] = def.GetDataType()?.TypeId ?? "",
+                });
+            }
+            return new Dictionary<string, object?> { ["ok"] = true, ["project_parameters"] = result, ["count"] = result.Count };
+        }
+
+        // ─── get_type_parameters ────────────────────────────────────────
+        // args: element_id (long) — instance or type id; resolves to the type.
+        public static Dictionary<string, object?> GetTypeParameters(Document doc, JsonElement args)
+        {
+            var id = ArgsHelp.GetLong(args, "element_id")
+                ?? throw new InvalidOperationException("element_id required");
+            var el = doc.GetElement(ElemIds.From(id))
+                ?? throw new InvalidOperationException($"element {id} not found");
+            Element typeEl = el;
+            if (el is not ElementType)
+            {
+                var typeId = el.GetTypeId();
+                if (typeId != ElementId.InvalidElementId)
+                    typeEl = doc.GetElement(typeId) ?? el;
+            }
+            var parameters = new List<object>();
+            foreach (Parameter p in typeEl.Parameters)
+            {
+                parameters.Add(new Dictionary<string, object?>
+                {
+                    ["name"] = p.Definition?.Name ?? "",
+                    ["value"] = SafeParamValue(p),
+                    ["display_value"] = p.AsValueString(),
+                    ["read_only"] = p.IsReadOnly,
+                });
+            }
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["type_id"] = typeEl.Id.Value, ["type_name"] = typeEl.Name,
+                ["family_name"] = (typeEl as ElementType)?.FamilyName ?? "",
+                ["parameters"] = parameters, ["count"] = parameters.Count,
+            };
+        }
+
+        // ─── list_rooms ─────────────────────────────────────────────────
+        // adapted from mcp-servers-for-revit (MIT) — ExportRoomDataEventHandler.cs
+        // Their core returns feet-based Area/Volume/Perimeter; we convert to
+        // metric at the boundary per the mm-first units policy.
+        public static Dictionary<string, object?> ListRooms(Document doc, JsonElement args)
+        {
+            const double Ft2ToM2 = 0.09290304;
+            const double Ft3ToM3 = 0.028316846592;
+            const double FtToM = 0.3048;
+            var levelFilter = ArgsHelp.GetString(args, "level");
+            var rooms = new FilteredElementCollector(doc)
+                .OfCategory(BuiltInCategory.OST_Rooms)
+                .WhereElementIsNotElementType()
+                .Cast<Autodesk.Revit.DB.Architecture.Room>()
+                .Where(r => levelFilter == null ||
+                            string.Equals(r.Level?.Name, levelFilter, StringComparison.OrdinalIgnoreCase))
+                .Select(r => new Dictionary<string, object?>
+                {
+                    ["id"] = r.Id.Value,
+                    ["number"] = r.Number,
+                    ["name"] = r.Name,
+                    ["level"] = r.Level?.Name ?? "",
+                    ["area_m2"] = Math.Round(r.Area * Ft2ToM2, 2),
+                    ["perimeter_m"] = Math.Round(r.Perimeter * FtToM, 2),
+                    ["volume_m3"] = Math.Round(r.Volume * Ft3ToM3, 2),
+                    ["placed"] = r.Area > 0,   // unplaced/unenclosed rooms report zero area
+                }).ToList<object>();
+            return new Dictionary<string, object?> { ["ok"] = true, ["rooms"] = rooms, ["count"] = rooms.Count };
+        }
+
+        // ─── find_duplicate_walls ────────────────────────────────────────
+        /// <summary>
+        /// Deterministic duplicate/overlap classification for host walls
+        /// (Line or Arc LocationCurve). Ground truth for ClickUp P1
+        /// 86ey84zpn: Revit's "walls overlap" model warning fires for ANY
+        /// curve overlap — partial included — and the agent was reading
+        /// that warning text and self-judging "duplicate", nearly deleting
+        /// legitimately overlapping (but non-duplicate) walls. This tool
+        /// does the geometry compare itself, in C#, and returns three
+        /// CATEGORICALLY DISJOINT buckets — a given wall pair lands in
+        /// exactly one of them, never more:
+        ///   exact_duplicates              — same curve + type + level + base
+        ///                                   offset. Safe auto-delete candidates
+        ///                                   (keep the lowest element id).
+        ///   partial_overlaps              — collinear Line walls with a real
+        ///                                   but partial 1D overlap. NEVER a
+        ///                                   safe bulk-delete — stacked/joined
+        ///                                   walls are legitimate design.
+        ///   same_location_different_type  — identical curve, but different
+        ///                                   WallType or base offset (e.g. a
+        ///                                   partition redrawn in a different
+        ///                                   type on top of the original).
+        /// INVARIANT (canonicalize-to-keep, exact wins): every wall id
+        /// appears in at most one bucket, EXCEPT keep_ids, which may also
+        /// appear in partial/same-location entries — a keep_id survives the
+        /// delete, so manual-review flags on it stay meaningful. delete_ids
+        /// appear ONLY in exact_duplicates: partial and same-location
+        /// entries are emitted with every exact-group member remapped to its
+        /// group's keep_id, then deduped, with self-pairs and sub-2-member
+        /// groups dropped.
+        /// Tolerance: 5mm (converted to feet internally: 5/304.8).
+        /// Arc walls only ever land in exact_duplicates or
+        /// same_location_different_type — arc partial-overlap detection is
+        /// intentionally out of scope (YAGNI; no UAT case has needed it) and
+        /// arcs never enter the partial_overlaps pass.
+        /// Perf: walls_scanned is capped at 5000 (returns capped:true beyond
+        /// that — audit a smaller model/link, this isn't meant for a
+        /// federated master). Line walls are bucketed by (level, quantized
+        /// 1-degree direction) before the pairwise compare so a normal floor
+        /// plan doesn't do an O(n^2) sweep across the whole model — only
+        /// within same-level, near-parallel candidates (±1 bucket to absorb
+        /// bucket-boundary rounding; the actual parallel/collinear tests
+        /// below are exact, the bucket only narrows candidates).
+        /// </summary>
+        public static Dictionary<string, object?> FindDuplicateWalls(Document doc)
+        {
+            const double TolFt = 5.0 / 304.8;                 // 5mm, in feet
+            const double ParallelSin = 0.0017453283;           // sin(0.1 deg) — cross-product parallel gate
+            const int WallCap = 5000;
+
+            var rawWalls = new FilteredElementCollector(doc)
+                .OfClass(typeof(Wall)).Cast<Wall>()
+                .ToList();
+
+            bool capped = rawWalls.Count > WallCap;
+            if (capped) rawWalls = rawWalls.Take(WallCap).ToList();
+
+            // Snapshot — guard every field the classifier needs. Walls with no
+            // LocationCurve (some in-place/stacked-wall members) or a curve
+            // that's neither Line nor Arc (splines) are out of scope — skip.
+            var snaps = new List<DupWallSnap>();
+            foreach (var w in rawWalls)
+            {
+                if (!(w.Location is LocationCurve lc) || lc.Curve == null) continue;
+                var curve = lc.Curve;
+                if (!(curve is Line) && !(curve is Arc)) continue;
+
+                double baseOffset = 0;
+                try { baseOffset = w.get_Parameter(BuiltInParameter.WALL_BASE_OFFSET)?.AsDouble() ?? 0; } catch { }
+                // Captured per snapshot contract but deliberately NOT part of any
+                // equality gate below: Unconnected Height is unreliable for
+                // walls whose Top is constrained to a level ("Up to level") —
+                // Revit still reports a (stale/cached) number for it, so
+                // gating exact_duplicate on it would risk FALSE NEGATIVES
+                // (missing real duplicates) rather than the false-positive
+                // bug this tool exists to fix.
+                double unconnectedHeight = 0;
+                try { unconnectedHeight = w.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM)?.AsDouble() ?? 0; } catch { }
+
+                var typeId = w.GetTypeId();
+                var typeName = typeId.Value != ElementId.InvalidElementId.Value
+                    ? (doc.GetElement(typeId) as ElementType)?.Name ?? "" : "";
+                var levelName = w.LevelId.Value != ElementId.InvalidElementId.Value
+                    ? doc.GetElement(w.LevelId)?.Name ?? "" : "";
+
+                snaps.Add(new DupWallSnap
+                {
+                    Id = w.Id.Value,
+                    TypeId = typeId.Value,
+                    TypeName = typeName,
+                    LevelId = w.LevelId.Value,
+                    LevelName = levelName,
+                    BaseOffset = baseOffset,
+                    UnconnectedHeightFt = unconnectedHeight,
+                    Curve = curve,
+                    LengthFt = curve.Length,
+                });
+            }
+
+            int n = snaps.Count;
+            var exactParent = DsuMake(n);
+            var sameLocParent = DsuMake(n);
+            var partialPairs = new List<(int i, int j, double overlapFt)>();
+
+            // Same-level candidate scoping ("different levels = never overlap").
+            var byLevel = new Dictionary<long, List<int>>();
+            for (int i = 0; i < n; i++)
+            {
+                if (!byLevel.TryGetValue(snaps[i].LevelId, out var list))
+                { list = new List<int>(); byLevel[snaps[i].LevelId] = list; }
+                list.Add(i);
+            }
+
+            foreach (var group in byLevel.Values)
+            {
+                var arcIdxs = group.Where(i => snaps[i].Curve is Arc).ToList();
+                var lineIdxs = group.Where(i => snaps[i].Curve is Line).ToList();
+
+                // ── Arc-Arc: exact-duplicate / same-location only. ──
+                for (int a = 0; a < arcIdxs.Count; a++)
+                {
+                    for (int b = a + 1; b < arcIdxs.Count; b++)
+                    {
+                        int i = arcIdxs[a], j = arcIdxs[b];
+                        if (!ArcsEqual(snaps[i], snaps[j], TolFt)) continue;
+                        if (SameTypeAndOffset(snaps[i], snaps[j], TolFt)) DsuUnion(exactParent, i, j);
+                        else DsuUnion(sameLocParent, i, j);
+                    }
+                }
+
+                // ── Line-Line: bucket by 1-degree direction, then pairwise. ──
+                var angleDeg = new Dictionary<int, double>();
+                var buckets = new Dictionary<int, List<int>>();
+                foreach (var i in lineIdxs)
+                {
+                    var dir = ((Line)snaps[i].Curve).Direction.Normalize();
+                    double ang = Math.Atan2(dir.Y, dir.X) * 180.0 / Math.PI;
+                    if (ang < 0) ang += 180.0;
+                    if (ang >= 180.0) ang -= 180.0;
+                    angleDeg[i] = ang;
+                    int bucket = (int)Math.Floor(ang);
+                    if (!buckets.TryGetValue(bucket, out var list)) { list = new List<int>(); buckets[bucket] = list; }
+                    list.Add(i);
+                }
+
+                foreach (var i in lineIdxs)
+                {
+                    int bucket = (int)Math.Floor(angleDeg[i]);
+                    var candidates = new List<int>();
+                    for (int d = -1; d <= 1; d++)
+                    {
+                        int bk = ((bucket + d) % 180 + 180) % 180;
+                        if (buckets.TryGetValue(bk, out var list)) candidates.AddRange(list);
+                    }
+
+                    foreach (var j in candidates)
+                    {
+                        if (j <= i) continue; // undirected pair, once each
+                        if (!LinesParallel(snaps[i], snaps[j], ParallelSin)) continue;
+
+                        if (LinesEqualEndpoints(snaps[i], snaps[j], TolFt))
+                        {
+                            if (SameTypeAndOffset(snaps[i], snaps[j], TolFt)) DsuUnion(exactParent, i, j);
+                            else DsuUnion(sameLocParent, i, j);
+                            continue; // exact/same-location pairs never also count as partial
+                        }
+
+                        if (!LinesCollinear(snaps[i], snaps[j], TolFt)) continue;
+                        double overlapFt = ProjectedOverlap(snaps[i], snaps[j]);
+                        if (overlapFt > TolFt)
+                            partialPairs.Add((i, j, overlapFt));
+                    }
+                }
+            }
+
+            // ── Materialize groups ──
+            // Canonicalize-to-keep, EXACT WINS: without this, disjointness
+            // would only hold per-PAIR, not per-WALL. Failure case: walls A,B
+            // same type+curve (exact) and C same curve but different offset —
+            // the A-C and B-C pairs would put BOTH A and B into
+            // same_location_different_type, so B would simultaneously be an
+            // auto-delete candidate (delete_ids) AND "semak manual". Fix:
+            // every exact-group member id maps to its group's keep_id before
+            // partial/same-location entries are emitted; collapsed duplicates
+            // are deduped and self-pairs dropped.
+            var exactDuplicates = new List<object>();
+            var canon = new int[n];                       // snapshot idx -> exact-group keep idx (or self)
+            for (int i = 0; i < n; i++) canon[i] = i;
+            foreach (var grp in GroupByRoot(exactParent, n).Where(g => g.Count >= 2))
+            {
+                // NOTE: IEnumerable<long> has no implicit conversion to
+                // IEnumerable<object> (generic covariance excludes value
+                // types) — box each id via Select(id => (object)id) before
+                // ToList(), same as everywhere else below.
+                int keepIdx = grp.OrderBy(i => snaps[i].Id).First();
+                foreach (var m in grp) canon[m] = keepIdx;
+                var idsLong = grp.Select(i => snaps[i].Id).OrderBy(id => id).ToList();
+                var first = snaps[keepIdx];
+                exactDuplicates.Add(new Dictionary<string, object?>
+                {
+                    ["keep_id"] = idsLong[0],
+                    ["delete_ids"] = idsLong.Skip(1).Select(id => (object)id).ToList(),
+                    ["type_name"] = first.TypeName,
+                    ["level"] = first.LevelName,
+                    ["length_mm"] = Math.Round(first.LengthFt * 304.8, 0),
+                });
+            }
+
+            var sameLocationGroups = new List<object>();
+            var seenSameLoc = new HashSet<string>();       // dedupe groups that collapse identically
+            foreach (var grp in GroupByRoot(sameLocParent, n).Where(g => g.Count >= 2))
+            {
+                var canonIdxs = grp.Select(i => canon[i]).Distinct().ToList();
+                if (canonIdxs.Count < 2) continue;         // collapsed to one wall — not a group
+                var idsLong = canonIdxs.Select(i => snaps[i].Id).OrderBy(id => id).ToList();
+                var sig = string.Join(",", idsLong);
+                if (!seenSameLoc.Add(sig)) continue;
+                var typeNames = canonIdxs.Select(i => snaps[i].TypeName).Distinct().ToList<object>();
+                sameLocationGroups.Add(new Dictionary<string, object?>
+                {
+                    ["ids"] = idsLong.Select(id => (object)id).ToList(),
+                    ["type_names"] = typeNames,
+                });
+            }
+
+            // Partial pairs: canonicalize both ends, drop self-pairs (both
+            // ends collapsed into the same exact group), dedupe collapsed
+            // pairs keeping the LARGEST overlap (most conservative flag).
+            var partialByPair = new Dictionary<(int lo, int hi), double>();
+            foreach (var p in partialPairs)
+            {
+                int ci = canon[p.i], cj = canon[p.j];
+                if (ci == cj) continue;
+                var key = ci < cj ? (lo: ci, hi: cj) : (lo: cj, hi: ci);
+                if (!partialByPair.TryGetValue(key, out var best) || p.overlapFt > best)
+                    partialByPair[key] = p.overlapFt;
+            }
+            var partialOverlaps = partialByPair
+                .OrderBy(kv => snaps[kv.Key.lo].Id).ThenBy(kv => snaps[kv.Key.hi].Id)
+                .Select(kv => (object)new Dictionary<string, object?>
+                {
+                    ["ids"] = new List<long> { snaps[kv.Key.lo].Id, snaps[kv.Key.hi].Id }
+                        .OrderBy(id => id).Select(id => (object)id).ToList(),
+                    ["overlap_mm"] = Math.Round(kv.Value * 304.8, 0),
+                    ["type_names"] = new List<object> { snaps[kv.Key.lo].TypeName, snaps[kv.Key.hi].TypeName },
+                })
+                .ToList();
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["exact_duplicates"] = exactDuplicates,
+                ["partial_overlaps"] = partialOverlaps,
+                ["same_location_different_type"] = sameLocationGroups,
+                ["counts"] = new Dictionary<string, object?>
+                {
+                    ["exact_groups"] = exactDuplicates.Count,
+                    ["partial_pairs"] = partialOverlaps.Count,
+                    ["same_location_groups"] = sameLocationGroups.Count,
+                    ["walls_scanned"] = snaps.Count,
+                },
+                ["capped"] = capped,
+            };
+        }
+
+        // ─── find_duplicate_walls helpers ────────────────────────────────
+
+        private sealed class DupWallSnap
+        {
+            public long Id;
+            public long TypeId;
+            public string TypeName = "";
+            public long LevelId;
+            public string LevelName = "";
+            public double BaseOffset;
+            public double UnconnectedHeightFt; // captured, intentionally not gated — see comment at snapshot build site
+            public Curve Curve = null!;
+            public double LengthFt;
+        }
+
+        private static bool SameTypeAndOffset(DupWallSnap a, DupWallSnap b, double tolFt)
+            => a.TypeId == b.TypeId && Math.Abs(a.BaseOffset - b.BaseOffset) < tolFt;
+
+        private static bool LinesParallel(DupWallSnap a, DupWallSnap b, double parallelSin)
+        {
+            var da = ((Line)a.Curve).Direction.Normalize();
+            var db = ((Line)b.Curve).Direction.Normalize();
+            return da.CrossProduct(db).GetLength() < parallelSin;
+        }
+
+        private static bool LinesCollinear(DupWallSnap a, DupWallSnap b, double tolFt)
+        {
+            var la = (Line)a.Curve;
+            var lb = (Line)b.Curve;
+            var da = la.Direction.Normalize();
+            var v = lb.GetEndPoint(0) - la.GetEndPoint(0);
+            var perp = v - da.Multiply(v.DotProduct(da));
+            return perp.GetLength() < tolFt;
+        }
+
+        private static bool LinesEqualEndpoints(DupWallSnap a, DupWallSnap b, double tolFt)
+        {
+            var la = (Line)a.Curve;
+            var lb = (Line)b.Curve;
+            var a0 = la.GetEndPoint(0); var a1 = la.GetEndPoint(1);
+            var b0 = lb.GetEndPoint(0); var b1 = lb.GetEndPoint(1);
+            bool direct = a0.DistanceTo(b0) < tolFt && a1.DistanceTo(b1) < tolFt;
+            bool reversed = a0.DistanceTo(b1) < tolFt && a1.DistanceTo(b0) < tolFt;
+            return direct || reversed;
+        }
+
+        // Projected 1D overlap length (feet) of two collinear lines, measured
+        // along wall a's direction. Positive => real overlap; <= 0 => no
+        // overlap or corner-touching only (excluded by the TolFt> check).
+        private static double ProjectedOverlap(DupWallSnap a, DupWallSnap b)
+        {
+            var la = (Line)a.Curve;
+            var lb = (Line)b.Curve;
+            var da = la.Direction.Normalize();
+            var origin = la.GetEndPoint(0);
+            double t0 = 0.0, t1 = (la.GetEndPoint(1) - origin).DotProduct(da);
+            double s0 = (lb.GetEndPoint(0) - origin).DotProduct(da);
+            double s1 = (lb.GetEndPoint(1) - origin).DotProduct(da);
+            double tMin = Math.Min(t0, t1), tMax = Math.Max(t0, t1);
+            double sMin = Math.Min(s0, s1), sMax = Math.Max(s0, s1);
+            return Math.Min(tMax, sMax) - Math.Max(tMin, sMin);
+        }
+
+        private static bool ArcsEqual(DupWallSnap a, DupWallSnap b, double tolFt)
+        {
+            var arcA = (Arc)a.Curve;
+            var arcB = (Arc)b.Curve;
+            if (arcA.Center.DistanceTo(arcB.Center) >= tolFt) return false;
+            if (Math.Abs(arcA.Radius - arcB.Radius) >= tolFt) return false;
+            var a0 = arcA.GetEndPoint(0); var a1 = arcA.GetEndPoint(1);
+            var b0 = arcB.GetEndPoint(0); var b1 = arcB.GetEndPoint(1);
+            bool direct = a0.DistanceTo(b0) < tolFt && a1.DistanceTo(b1) < tolFt;
+            bool reversed = a0.DistanceTo(b1) < tolFt && a1.DistanceTo(b0) < tolFt;
+            return direct || reversed;
+        }
+
+        // ── tiny union-find (disjoint set) over snapshot indices ──
+        private static int[] DsuMake(int n)
+        {
+            var p = new int[n];
+            for (int i = 0; i < n; i++) p[i] = i;
+            return p;
+        }
+
+        private static int DsuFind(int[] p, int x)
+        {
+            while (p[x] != x) { p[x] = p[p[x]]; x = p[x]; }
+            return x;
+        }
+
+        private static void DsuUnion(int[] p, int a, int b)
+        {
+            int ra = DsuFind(p, a), rb = DsuFind(p, b);
+            if (ra != rb) p[ra] = rb;
+        }
+
+        private static List<List<int>> GroupByRoot(int[] p, int n)
+        {
+            var groups = new Dictionary<int, List<int>>();
+            for (int i = 0; i < n; i++)
+            {
+                int root = DsuFind(p, i);
+                if (!groups.TryGetValue(root, out var list)) { list = new List<int>(); groups[root] = list; }
+                list.Add(i);
+            }
+            return groups.Values.ToList();
+        }
+
+        // ─── audit_parameters ───────────────────────────────────────────
+        // Bulk fill-rate matrix for ALL instances of a category — the one-call
+        // answer to "check every parameter on every door" audits. Read-only.
+        public static Dictionary<string, object?> AuditParameters(Document doc, JsonElement args)
+        {
+            var category = ArgsHelp.GetString(args, "category")
+                ?? throw new InvalidOperationException("category required (e.g. Doors / OST_Doors)");
+            var bic = CategoryResolve.Resolve(category)
+                ?? throw new InvalidOperationException($"unknown category '{category}'");
+            var groupFilter = ArgsHelp.GetString(args, "group");           // e.g. "Data"
+            var nameFilter = ArgsHelp.GetStringList(args, "param_names");  // optional explicit list
+
+            var elements = new FilteredElementCollector(doc)
+                .OfCategory(bic).WhereElementIsNotElementType()
+                .ToElements();
+            if (elements.Count > 2000)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"category too large ({elements.Count} instances) — audit a more specific category, or check one parameter with find_missing_parameter",
+                };
+
+            // stats[param] = (group, filled, empty, perType[typeName] = (filled, total))
+            var stats = new Dictionary<string, (string group, int filled, int empty,
+                Dictionary<string, (int filled, int total)> perType)>();
+
+            foreach (var el in elements)
+            {
+                var typeName = (doc.GetElement(el.GetTypeId()) as ElementType)?.Name ?? "(no type)";
+                foreach (Parameter p in el.Parameters)
+                {
+                    var def = p.Definition;
+                    if (def == null) continue;
+                    string grp;
+                    try { grp = LabelUtils.GetLabelForGroup(def.GetGroupTypeId()); }
+                    catch { grp = ""; }
+                    if (groupFilter != null &&
+                        !string.Equals(grp, groupFilter, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (nameFilter.Count > 0 &&
+                        !nameFilter.Any(n => string.Equals(n, def.Name, StringComparison.OrdinalIgnoreCase))) continue;
+
+                    bool filled = p.HasValue &&
+                        !(p.StorageType == StorageType.String && string.IsNullOrWhiteSpace(p.AsString()));
+
+                    if (!stats.TryGetValue(def.Name, out var s))
+                        s = (grp, 0, 0, new Dictionary<string, (int, int)>());
+                    if (filled) s.filled++; else s.empty++;
+                    var t = s.perType.TryGetValue(typeName, out var tv) ? tv : (0, 0);
+                    s.perType[typeName] = (t.Item1 + (filled ? 1 : 0), t.Item2 + 1);
+                    stats[def.Name] = s;
+                }
+            }
+
+            var parameters = stats
+                .OrderBy(kv => kv.Value.group).ThenBy(kv => kv.Key)
+                .Select(kv =>
+                {
+                    var total = kv.Value.filled + kv.Value.empty;
+                    var entry = new Dictionary<string, object?>
+                    {
+                        ["name"] = kv.Key,
+                        ["group"] = kv.Value.group,
+                        ["filled"] = kv.Value.filled,
+                        ["empty"] = kv.Value.empty,
+                        ["fill_rate"] = total == 0 ? 0 : Math.Round((double)kv.Value.filled / total, 3),
+                    };
+                    // Per-type breakdown ONLY when partially filled — the
+                    // "Saiz_Fizikal only on D3/D11" pattern.
+                    if (kv.Value.filled > 0 && kv.Value.empty > 0)
+                        entry["partial_by_type"] = kv.Value.perType
+                            .Select(t => new Dictionary<string, object?>
+                            {
+                                ["type_name"] = t.Key,
+                                ["filled"] = t.Value.filled,
+                                ["total"] = t.Value.total,
+                            }).ToList<object>();
+                    return (object)entry;
+                }).ToList();
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["category"] = category,
+                ["total_elements"] = elements.Count,
+                ["parameters"] = parameters, ["count"] = parameters.Count,
+            };
+        }
+
+        // ─── audit_view_names ───────────────────────────────────────────
+        // Deterministic view-name compliance: the LLM must NEVER eyeball view
+        // names (measured ~88% false-positive rate + a missed seeded
+        // 'FloorPlan_final_FINAL' violation when it did). The caller supplies
+        // ONE .NET regex derived from the stated naming convention; every
+        // audited view is FULL-NAME matched — the tool wraps the pattern as
+        // ^(?:pattern)$ itself, so full-match semantics are guaranteed here
+        // and never delegated back to the (unreliable) calling model. The
+        // wrap is unconditional: ^(?:^A$)$ still matches exactly like ^A$,
+        // and detecting "already anchored" is a trap (alternation like A|B
+        // makes prefix/suffix checks wrong).
+        //
+        // Default audit scope = plans/ceilings/sections/area/engineering
+        // plans (the surfaces the ClickUp fix line calls out). Elevation /
+        // ThreeD / DraftingView / Detail are real model views but sit outside
+        // that default — they're reported separately as `other_model_views`,
+        // never counted as violations, so callers can still see them without
+        // the tool silently making a scope decision for the user.
+        //
+        // Schedules, legends, sheets and view templates are excluded
+        // entirely (they carry their own naming/numbering conventions) —
+        // only their counts are returned, never rows.
+        public static Dictionary<string, object?> AuditViewNames(Document doc, JsonElement args)
+        {
+            var pattern = ArgsHelp.GetString(args, "pattern");
+            if (string.IsNullOrEmpty(pattern))
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = "pattern is required — a .NET regex; the tool matches it against the FULL view name (anchoring is applied by the tool)",
+                };
+
+            Regex regex;
+            try
+            {
+                // Full-name match is guaranteed HERE (unconditional ^(?:...)$
+                // wrap) — never rely on the caller to anchor. 2s timeout
+                // guards against catastrophic backtracking in a
+                // caller-supplied pattern.
+                regex = new Regex("^(?:" + pattern + ")$", RegexOptions.None, TimeSpan.FromSeconds(2));
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"invalid regex: {ex.Message}" };
+            }
+
+            var includeViewTypes = ArgsHelp.GetStringList(args, "include_view_types");
+
+            var defaultScope = new HashSet<ViewType>
+            {
+                ViewType.FloorPlan, ViewType.CeilingPlan, ViewType.AreaPlan,
+                ViewType.EngineeringPlan, ViewType.Section,
+            };
+            var otherModelViewTypes = new HashSet<ViewType>
+            {
+                ViewType.Elevation, ViewType.ThreeD, ViewType.DraftingView, ViewType.Detail,
+            };
+
+            // Excluded-by-design buckets (never audited, counts only). The
+            // loop below skips these BEFORE the scope check, so an
+            // include_view_types entry naming one of them could never audit
+            // anything — validated and rejected loudly below instead of
+            // silently returning audited:0 forever.
+            var scheduleTypes = new HashSet<ViewType> { ViewType.Schedule, ViewType.ColumnSchedule, ViewType.PanelSchedule };
+            var systemTypes = new HashSet<ViewType> { ViewType.Internal, ViewType.ProjectBrowser, ViewType.SystemBrowser, ViewType.Undefined };
+            var alwaysExcluded = new HashSet<ViewType>(scheduleTypes.Concat(systemTypes))
+            {
+                ViewType.DrawingSheet, ViewType.Legend,
+            };
+            var auditableNames = string.Join(", ",
+                Enum.GetNames(typeof(ViewType))
+                    .Where(n => Enum.TryParse<ViewType>(n, out var t) && !alwaysExcluded.Contains(t))
+                    .OrderBy(n => n));
+
+            HashSet<ViewType> auditScope;
+            bool usingDefaultScope = includeViewTypes.Count == 0;
+            if (usingDefaultScope)
+            {
+                auditScope = defaultScope;
+            }
+            else
+            {
+                auditScope = new HashSet<ViewType>();
+                var unknown = new List<string>();
+                foreach (var name in includeViewTypes)
+                {
+                    if (!Enum.TryParse<ViewType>(name, ignoreCase: false, out var vt) || !Enum.IsDefined(typeof(ViewType), vt))
+                    {
+                        unknown.Add(name);
+                        continue;
+                    }
+                    if (alwaysExcluded.Contains(vt))
+                        return new Dictionary<string, object?>
+                        {
+                            ["ok"] = false,
+                            ["error"] = $"view type '{name}' is excluded from naming audits (schedules/legends/sheets/system); auditable types: {auditableNames}",
+                        };
+                    auditScope.Add(vt);
+                }
+                if (unknown.Count > 0)
+                {
+                    return new Dictionary<string, object?>
+                    {
+                        ["ok"] = false,
+                        ["error"] = $"unknown view type(s): {string.Join(", ", unknown)} — auditable types: {auditableNames}",
+                    };
+                }
+            }
+            var auditedScopeNames = auditScope.Select(v => v.ToString()).OrderBy(n => n).ToList<object>();
+
+            var allViews = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().ToList();
+
+            int excludedSchedules = 0, excludedLegends = 0, excludedSheets = 0, excludedTemplates = 0, excludedOther = 0;
+            int compliantCount = 0, auditedCount = 0;
+            var violations = new List<object>();
+            var otherModelViews = new List<object>();
+            const int OtherCap = 50;
+            bool otherCapped = false;
+
+            foreach (var v in allViews)
+            {
+                if (v.IsTemplate) { excludedTemplates++; continue; }
+
+                var vt = v.ViewType;
+                // Sheets/schedules are reachable via View subclasses (ViewSheet,
+                // ViewSchedule) as well as via ViewType — belt and suspenders.
+                if (vt == ViewType.DrawingSheet || v is ViewSheet) { excludedSheets++; continue; }
+                if (scheduleTypes.Contains(vt) || v is ViewSchedule) { excludedSchedules++; continue; }
+                if (vt == ViewType.Legend) { excludedLegends++; continue; }
+                if (systemTypes.Contains(vt)) { excludedOther++; continue; }
+
+                if (auditScope.Contains(vt))
+                {
+                    auditedCount++;
+                    bool compliant;
+                    try
+                    {
+                        compliant = regex.IsMatch(v.Name);
+                    }
+                    catch (RegexMatchTimeoutException)
+                    {
+                        // The 2s timeout fires at MATCH time, not construction —
+                        // keep the tool's {ok:false, error} contract instead of
+                        // letting the exception escape the dispatcher.
+                        return new Dictionary<string, object?>
+                        {
+                            ["ok"] = false,
+                            ["error"] = "regex timed out — simplify the pattern",
+                        };
+                    }
+                    if (compliant)
+                    {
+                        compliantCount++;
+                    }
+                    else
+                    {
+                        violations.Add(new Dictionary<string, object?>
+                        {
+                            ["id"] = v.Id.Value,
+                            ["name"] = v.Name,
+                            ["view_type"] = vt.ToString(),
+                        });
+                    }
+                }
+                else if (usingDefaultScope && otherModelViewTypes.Contains(vt))
+                {
+                    if (otherModelViews.Count < OtherCap)
+                        otherModelViews.Add(new Dictionary<string, object?>
+                        {
+                            ["id"] = v.Id.Value,
+                            ["name"] = v.Name,
+                            ["view_type"] = vt.ToString(),
+                        });
+                    else
+                        otherCapped = true;
+                }
+                else
+                {
+                    // Not in the audited scope and not a recognized
+                    // "other model view" (Rendering/Walkthrough/Report/... or,
+                    // when include_view_types narrows scope, everything else).
+                    excludedOther++;
+                }
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["audited_scope"] = auditedScopeNames,
+                ["compliant_count"] = compliantCount,
+                ["violations"] = violations,
+                ["other_model_views"] = otherModelViews,
+                ["other_model_views_capped"] = otherCapped,
+                ["excluded_counts"] = new Dictionary<string, object?>
+                {
+                    ["schedules"] = excludedSchedules,
+                    ["legends"] = excludedLegends,
+                    ["sheets"] = excludedSheets,
+                    ["templates"] = excludedTemplates,
+                    ["other"] = excludedOther,
+                },
+                ["counts"] = new Dictionary<string, object?>
+                {
+                    ["audited"] = auditedCount,
+                    ["violations"] = violations.Count,
+                },
+            };
         }
     }
 }

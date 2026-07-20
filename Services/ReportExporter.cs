@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using ClosedXML.Excel;
 using QuestPDF.Fluent;
@@ -23,7 +24,8 @@ namespace RevitWebAppSync.Services
     /// </summary>
     public static class ReportExporter
     {
-        private static bool _pdfLicenseSet;
+        private static readonly object _pdfInitLock = new object();
+        private static bool _pdfReady;
 
         /// <summary>File-dialog filter + default extension for a format.</summary>
         public static (string filter, string ext) DialogInfo(ReportFormat fmt)
@@ -76,7 +78,7 @@ namespace RevitWebAppSync.Services
             {
                 var ws = wb.Worksheets.Add("Session");
 
-                ws.Cell(1, 1).Value = "BINA Revit Copilot Report";
+                ws.Cell(1, 1).Value = "BINA AI Copilot Report";
                 ws.Cell(1, 1).Style.Font.Bold = true;
                 ws.Cell(1, 1).Style.Font.FontSize = 14;
                 ws.Range(1, 1, 1, 4).Merge();
@@ -128,7 +130,7 @@ namespace RevitWebAppSync.Services
         private static string BuildMarkdown(HistoryEntry session, string modelName)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("# BINA Revit Copilot Report");
+            sb.AppendLine("# BINA AI Copilot Report");
             sb.AppendLine();
             sb.AppendLine($"- **Model:** {modelName ?? "—"}");
             sb.AppendLine($"- **Session:** {session.Label ?? session.Summary ?? "Run"}");
@@ -179,15 +181,80 @@ namespace RevitWebAppSync.Services
         }
 
         // ─── PDF (QuestPDF) ──────────────────────────────────────────────────
+
+        // AddDllDirectory + SetDefaultDllDirectories let us extend the native DLL
+        // search path so QuestPdfSkia.dll's dependents resolve — see EnsureQuestPdfReady.
+        [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern IntPtr AddDllDirectory(string newDirectory);
+
+        [DllImport("kernel32", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetDefaultDllDirectories(uint directoryFlags);
+
+        private const uint LOAD_LIBRARY_SEARCH_DEFAULT_DIRS = 0x00001000;
+
+        /// <summary>
+        /// One-time QuestPDF init: put the bundled native folder on the DLL search
+        /// path and set the Community license, before any QuestPDF type is touched.
+        ///
+        /// QuestPDF's native engine <c>QuestPdfSkia.dll</c> (under
+        /// runtimes/&lt;rid&gt;/native next to this assembly) is MinGW-built and
+        /// depends on <c>libgcc_s_seh-1.dll</c>, <c>libstdc++-6.dll</c> and
+        /// <c>libwinpthread-1.dll</c> shipped in the same folder. QuestPDF loads
+        /// QuestPdfSkia.dll by explicit path, but Windows then resolves *its*
+        /// dependents against the host process dir (Revit.exe) + System32 + PATH —
+        /// never that native folder — so in the Revit host the load fails and
+        /// QuestPDF.Settings' static ctor throws a TypeInitializationException.
+        /// Adding the native dir to the search path fixes the dependent resolution.
+        /// </summary>
+        private static void EnsureQuestPdfReady()
+        {
+            if (_pdfReady) return;
+            lock (_pdfInitLock)
+            {
+                if (_pdfReady) return;
+
+                var asmDir = Path.GetDirectoryName(typeof(ReportExporter).Assembly.Location);
+                if (!string.IsNullOrEmpty(asmDir))
+                {
+                    var rid = Environment.Is64BitProcess ? "win-x64" : "win-x86";
+                    var nativeDir = Path.Combine(asmDir, "runtimes", rid, "native");
+                    var nativeDll = Path.Combine(nativeDir, "QuestPdfSkia.dll");
+
+                    if (!File.Exists(nativeDll))
+                        throw new FileNotFoundException(
+                            "The PDF engine's native library is missing from this build:\n" +
+                            nativeDll + "\n\n" +
+                            "The add-in was deployed without its 'runtimes' folder. Reinstall or " +
+                            "rebuild so the native PDF engine ships alongside the plugin.");
+
+                    // LOAD_LIBRARY_SEARCH_DEFAULT_DIRS makes AddDllDirectory entries
+                    // part of dependent-DLL resolution for subsequent LoadLibrary calls.
+                    SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+                    AddDllDirectory(nativeDir);
+                }
+
+                try
+                {
+                    // QuestPDF Community license — free for orgs under the revenue threshold.
+                    QuestPDF.Settings.License = LicenseType.Community;
+                }
+                catch (Exception ex)
+                {
+                    // The static ctor fired here; surface the underlying native cause.
+                    var root = ex;
+                    while (root.InnerException != null) root = root.InnerException;
+                    throw new InvalidOperationException(
+                        "The PDF engine (QuestPDF/Skia) failed to initialize: " + root.Message, ex);
+                }
+
+                _pdfReady = true;
+            }
+        }
+
         private static void ExportPdf(HistoryEntry session, string modelName, string path)
         {
-            // QuestPDF Community license — free for orgs under the revenue threshold.
-            // Set once per process before any document is generated.
-            if (!_pdfLicenseSet)
-            {
-                QuestPDF.Settings.License = LicenseType.Community;
-                _pdfLicenseSet = true;
-            }
+            EnsureQuestPdfReady();
 
             var messages = session.History ?? new List<History>();
 
@@ -201,7 +268,7 @@ namespace RevitWebAppSync.Services
 
                     page.Header().Column(col =>
                     {
-                        col.Item().Text("BINA Revit Copilot Report")
+                        col.Item().Text("BINA AI Copilot Report")
                             .FontSize(16).Bold().FontColor("#5b21b6");
                         col.Item().PaddingTop(2).Text(
                             $"Model: {modelName ?? "—"}   |   {session.Label ?? session.Summary ?? "Run"}   |   " +
@@ -234,7 +301,7 @@ namespace RevitWebAppSync.Services
 
                     page.Footer().AlignRight().Text(t =>
                     {
-                        t.Span("Generated by BINA Revit Copilot · ").FontSize(8).FontColor("#9ca3af");
+                        t.Span("Generated by BINA AI Copilot · ").FontSize(8).FontColor("#9ca3af");
                         t.Span($"{DateTime.Now:yyyy-MM-dd HH:mm}").FontSize(8).FontColor("#9ca3af");
                     });
                 });

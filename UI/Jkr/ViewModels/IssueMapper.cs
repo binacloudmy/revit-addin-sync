@@ -28,7 +28,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         private static readonly HashSet<string> _FixBlocklist = new HashSet<string>();
 
         /// <summary>Mark an element+fix combo as unfixable so future scans exclude it.</summary>
-        public static void BlockFix(int elementId, string fixAction, string parameterName)
+        public static void BlockFix(long elementId, string fixAction, string parameterName)
         {
             var key = fixAction == "rename_type"
                 ? $"{elementId}:rename_type"
@@ -39,7 +39,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         /// <summary>Clear the blocklist (e.g. on Reset).</summary>
         public static void ClearBlocklist() => _FixBlocklist.Clear();
 
-        private static bool IsBlocked(int elementId, string fixAction, string parameterName)
+        private static bool IsBlocked(long elementId, string fixAction, string parameterName)
         {
             var key = fixAction == "rename_type"
                 ? $"{elementId}:rename_type"
@@ -62,6 +62,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             return new IssueVm
             {
                 Id = dto.IssueId ?? "",
+                CheckId = dto.CheckId ?? "",
+                Domain = dto.Domain ?? "",
+                RawRule = dto.Rule ?? "",
                 Category = category,
                 Title = Humanize(dto.Rule),
                 Description = dto.Reason ?? "",
@@ -94,7 +97,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 FixPriority = dto.FixPriority,
                 FixTarget = string.IsNullOrEmpty(dto.FixTarget) ? "instance" : dto.FixTarget,
                 // UX flags from backend — control button visibility.
-                Locatable = dto.Locatable,
+                // AND with ElementId>0: backend can report Locatable=true for
+                // element-less issues (e.g. Project Base Point, element_id=0);
+                // without the element the Locate button would render and no-op.
+                Locatable = dto.Locatable && dto.ElementId > 0,
                 FixReference = dto.FixReference ?? "",
             };
         }

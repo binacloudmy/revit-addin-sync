@@ -18,18 +18,13 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="14">
             <StackPanel>
                 <!-- Plan -->
-                <Border BorderBrush="#ddd6fe" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,12">
-                    <Border.Background>
-                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                            <GradientStop Offset="0" Color="#f5f3ff"/>
-                            <GradientStop Offset="1" Color="#eff6ff"/>
-                        </LinearGradientBrush>
-                    </Border.Background>
+                <Border BorderBrush="{DynamicResource Cp.PurpleLine}" BorderThickness="1" CornerRadius="10" Padding="12" Margin="0,0,0,12"
+                        Background="{DynamicResource Cp.PurpleSoft}">
                     <StackPanel>
                         <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                            <Path Width="11" Height="11" Stretch="Uniform" Fill="#7c3aed" Margin="0,0,5,0"
+                            <Path Width="11" Height="11" Stretch="Uniform" Fill="{DynamicResource Cp.Purple}" Margin="0,0,5,0"
                                   Data="M12,2 l2.09,6.26 L20,9.27 l-5,4.87 L16.18,22 12,18.27 7.82,22 9,14.14 4,9.27 l5.91,-1.01 L12,2 z"/>
-                            <TextBlock Text="WHAT THIS WILL DO" FontSize="10.5" FontWeight="SemiBold" Foreground="#7c3aed"/>
+                            <TextBlock Text="WHAT THIS WILL DO" FontSize="10.5" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Purple}"/>
                         </StackPanel>
                         <StackPanel x:Name="PlanHost"/>
                     </StackPanel>
@@ -38,7 +33,7 @@
                 <!-- Code disclosure -->
                 <Border BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1" CornerRadius="10" Margin="0,0,0,12">
                     <StackPanel>
-                        <ToggleButton x:Name="CodeToggle" Cursor="Hand" Background="#fafafa" BorderThickness="0" Padding="12,9">
+                        <ToggleButton x:Name="CodeToggle" Cursor="Hand" Background="{DynamicResource Cp.Sunken}" BorderThickness="0" Padding="12,9">
                             <ToggleButton.Template>
                                 <ControlTemplate TargetType="ToggleButton">
                                     <Border Background="{TemplateBinding Background}" CornerRadius="10,10,0,0" Padding="{TemplateBinding Padding}">
@@ -66,13 +61,13 @@
                 </Border>
 
                 <!-- Reassurance -->
-                <Border Background="#fffbeb" BorderBrush="#fde68a" BorderThickness="1" CornerRadius="8" Padding="10,8">
+                <Border Background="{DynamicResource Cp.AmberBg}" BorderBrush="{DynamicResource Cp.AmberLn}" BorderThickness="1" CornerRadius="8" Padding="10,8">
                     <StackPanel Orientation="Horizontal">
-                        <Path Width="13" Height="13" Stretch="Uniform" Stroke="#92400e" StrokeThickness="1.6" Margin="0,1,8,0"
+                        <Path Width="13" Height="13" Stretch="Uniform" Stroke="{DynamicResource Cp.AmberFg}" StrokeThickness="1.6" Margin="0,1,8,0"
                               VerticalAlignment="Top" StrokeStartLineCap="Round"
                               Data="M12,9 v4 M12,17 v0.01 M10.3,3.86 L1.82,18 a2,2 0 0 0 1.71,3 h16.94 a2,2 0 0 0 1.71,-3 L13.71,3.86 a2,2 0 0 0 -3.42,0 z"/>
                         <TextBlock Text="This is AI-generated code. Review the plan before running. Failed runs auto-retry once with a fix."
-                                   FontSize="11.5" Foreground="#92400e" TextWrapping="Wrap" MaxWidth="340"/>
+                                   FontSize="11.5" Foreground="{DynamicResource Cp.AmberFg}" TextWrapping="Wrap" MaxWidth="340"/>
                     </StackPanel>
                 </Border>
             </StackPanel>

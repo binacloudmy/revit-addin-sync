@@ -125,7 +125,7 @@ namespace BinaVibe.Auth
             string code = GetQueryValue(query, "code");
             string rxState = GetQueryValue(query, "state");
 
-            WriteBrowserResponse(ctx, "Revit Copilot — signed in. You can return to Revit and close this tab.");
+            WriteBrowserResponse(ctx, "Return to Revit — BINA AI Copilot is ready to go.");
             listener.Stop();
 
             if (rxState != state) throw new InvalidOperationException("OAuth state mismatch — login aborted.");
@@ -224,15 +224,88 @@ namespace BinaVibe.Auth
         {
             try
             {
-                string html = $"<html><body style='font-family:sans-serif'><h3>{message}</h3></body></html>";
+                // charset=utf-8 is required — without it the browser guessed
+                // latin-1 and rendered the em dash as "â€”".
+                string html = SignedInPage.Replace("%%MESSAGE%%", WebUtility.HtmlEncode(message ?? ""));
                 byte[] bytes = Encoding.UTF8.GetBytes(html);
-                ctx.Response.ContentType = "text/html";
+                ctx.Response.ContentType = "text/html; charset=utf-8";
                 ctx.Response.ContentLength64 = bytes.Length;
                 ctx.Response.OutputStream.Write(bytes, 0, bytes.Length);
                 ctx.Response.OutputStream.Close();
             }
             catch { /* best effort — the browser tab content is cosmetic */ }
         }
+
+        // Branded sign-in confirmation, styled to match the plugins landing page
+        // (BINAXONE tokens: pear accent, warm paper, Plus Jakarta Sans, blurred
+        // orbs, 20px glass card). Self-contained — the addin's loopback listener
+        // serves it, so everything is inlined; only Google Fonts is remote.
+        private const string SignedInPage =
+"""
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Signed in — BINAXONE</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:oklch(93% 0.014 95);
+    --card:oklch(99% 0.005 95);
+    --ink:oklch(20% 0.012 250);
+    --ink-soft:oklch(20% 0.012 250 / 0.64);
+    --accent:oklch(86% 0.18 95);
+    --accent-deep:oklch(70% 0.16 95);
+    --edge:oklch(20% 0.012 250 / 0.08);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    font-family:"Plus Jakarta Sans",ui-sans-serif,system-ui,sans-serif;
+    color:var(--ink);
+    background:var(--bg);
+    display:grid;place-items:center;padding:1.5rem;
+  }
+  .card{
+    width:min(30rem,100%);text-align:center;
+    background:var(--card);
+    border:1px solid var(--edge);border-radius:20px;
+    padding:2.75rem 2.25rem;
+    box-shadow:0 20px 50px -24px oklch(20% 0.012 250 / 0.35);
+  }
+  .brand{display:inline-flex;align-items:center;justify-content:center;gap:.5rem;font-weight:700;font-size:1rem}
+  .pip{width:.7rem;height:.7rem;border-radius:50%;background:var(--accent);box-shadow:0 1px 0 0 var(--accent-deep),0 0 18px 2px oklch(86% 0.18 95 / 0.7)}
+  .check{width:4.5rem;height:4.5rem;margin:1.75rem auto 0;border-radius:50%;display:grid;place-items:center;background:var(--accent);box-shadow:0 8px 22px -8px var(--accent-deep);animation:pop .45s cubic-bezier(.2,1.3,.4,1) both}
+  .check svg{width:2.2rem;height:2.2rem;stroke:var(--ink);stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  h1{margin-top:1.25rem;font-size:1.55rem;font-weight:700}
+  p{margin-top:.6rem;color:var(--ink-soft);font-size:.98rem;line-height:1.5}
+  .hint{margin-top:1.5rem;font-family:"JetBrains Mono",monospace;font-size:.7rem;letter-spacing:.08em;color:var(--ink-soft);text-transform:uppercase}
+  @keyframes pop{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:oklch(23% 0.02 260);
+      --card:oklch(28% 0.02 260);
+      --ink:oklch(96% 0.01 95);
+      --ink-soft:oklch(96% 0.01 95 / 0.62);
+      --edge:oklch(100% 0 0 / 0.08);
+    }
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <span class="brand"><span class="pip"></span>BINAXONE</span>
+    <div class="check"><svg viewBox="0 0 24 24"><path d="M20 6 9 17l-5-5"/></svg></div>
+    <h1>You're signed in</h1>
+    <p>%%MESSAGE%%</p>
+    <div class="hint">You can close this tab</div>
+  </div>
+</body>
+</html>
+""";
 
         private static int FindFreePort()
         {

@@ -7,6 +7,9 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
+        <Grid.Resources>
+            <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource Cp.SlimScrollBar}"/>
+        </Grid.Resources>
 
         <!-- Header -->
         <Border Grid.Row="0" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1" Padding="10,12,14,12">
@@ -18,10 +21,10 @@
                 </Grid.ColumnDefinitions>
                 <Button x:Name="BackBtn" Grid.Column="0" Visibility="Collapsed"
                         Click="BackBtn_Click"
-                        Background="Transparent" BorderThickness="0"
-                        Cursor="Hand" Padding="0,0,8,0" VerticalAlignment="Center">
+                        Style="{DynamicResource Cp.IconButton}"
+                        VerticalAlignment="Center" Margin="0,0,4,0">
                     <Path Width="8" Height="13" Stretch="Uniform"
-                          Stroke="#6b7280" StrokeThickness="1.8"
+                          Stroke="{DynamicResource Cp.Faint}" StrokeThickness="1.8"
                           Data="M8,2 L2,7 L8,12"/>
                 </Button>
                 <StackPanel Grid.Column="1">
@@ -36,22 +39,24 @@
                         ToolTip="Download this session as a report">
                     <StackPanel Orientation="Horizontal">
                         <Path Width="13" Height="13" Stretch="Uniform"
-                              Stroke="#6d28d9" StrokeThickness="1.8"
+                              Stroke="{DynamicResource Cp.Accent}" StrokeThickness="1.8"
                               Data="M12,3 L12,15 M7,10 L12,15 L17,10 M4,19 L20,19"/>
                         <TextBlock Text="Download" FontSize="12" FontWeight="Medium"
-                                   Foreground="#6d28d9" Margin="5,0,0,0" VerticalAlignment="Center"/>
+                                   Foreground="{DynamicResource Cp.Accent}" Margin="5,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
             </Grid>
         </Border>
 
         <!-- Session list -->
-        <ScrollViewer x:Name="ListPanel" Grid.Row="1" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer x:Name="ListPanel" Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
             <StackPanel x:Name="RowsHost"/>
         </ScrollViewer>
 
         <!-- Session detail -->
-        <ScrollViewer x:Name="DetailPanel" Grid.Row="1" Visibility="Collapsed" VerticalScrollBarVisibility="Auto">
+        <ScrollViewer x:Name="DetailPanel" Grid.Row="1" Visibility="Collapsed" VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
             <StackPanel x:Name="MessagesHost" Margin="0,8,0,16"/>
         </ScrollViewer>
     </Grid>

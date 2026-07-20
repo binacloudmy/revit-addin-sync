@@ -1,58 +1,79 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <!-- Revit 2025+ ships .NET 8. net10.0-windows DLLs fail to load with
-         System.Runtime 0.0.0.0 FileNotFoundException at addin startup;
-         keep this on net8.0-windows until Autodesk bumps the host. -->
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <!-- Revit changed its host runtime mid-cycle: 2023 & 2024 run .NET
+         Framework 4.8, 2025 & 2026 run .NET 8, 2027 runs .NET 10 (RevitAPI
+         27.x). A single binary can't serve them — a net8 DLL loaded into 2027
+         hits "Assembly version conflict" (8.0.0.0 vs preloaded 10.0.0.0) on
+         the WPF/networking stack and crashes. So we multi-target and deploy
+         the matching build per host (see PostBuild):
+           net48           -> Revit 2023/2024   (Revit API 2023.* — lowest
+                              common; a 2023-ref build loads on 2024 the same
+                              way the 2025-ref loader serves 2025-2027)
+           net8.0-windows  -> Revit 2025/2026   (Revit API 2025.*)
+           net10.0-windows -> Revit 2027        (Revit API 2027.*) -->
+    <TargetFrameworks>net48;net8.0-windows;net10.0-windows</TargetFrameworks>
+    <!-- net48 defaults to C# 7.3; the codebase uses modern syntax. -->
+    <LangVersion>latest</LangVersion>
+    <!-- API drift guard for the .NET Framework years (#if REVIT2023_24). -->
+    <DefineConstants Condition="'$(TargetFramework)' == 'net48'">$(DefineConstants);REVIT2023_24</DefineConstants>
+    <!-- Release channels: Debug embeds .env.local, Staging embeds
+         .env.staging (UAT builds against the staging backend), Release
+         embeds .env.production (fleet, prod backend). BinaConfig.LoadEnv
+         switches on DEBUG / STAGING. -->
+    <Configurations>Debug;Staging;Release</Configurations>
+    <DefineConstants Condition="'$(Configuration)' == 'Staging'">$(DefineConstants);STAGING</DefineConstants>
+    <Optimize Condition="'$(Configuration)' == 'Staging'">true</Optimize>
     <PlatformTarget>x64</PlatformTarget>
     <OutputType>Library</OutputType>
     <AssemblyName>RevitWebAppSync</AssemblyName>
     <UseWPF>true</UseWPF>
     <!-- OTA versioning: CI overrides with -p:Version=<git tag>. The updater
          compares this against the update feed. -->
-    <Version Condition="'$(Version)' == ''">0.0.14</Version>
+    <Version Condition="'$(Version)' == ''">0.0.20</Version>
     <!-- Build net8.0-windows + WPF on macOS/Linux (CI and non-Windows dev). -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <!-- Ensure all NuGet dependencies are copied to output -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
-    <DefaultItemExcludes>$(DefaultItemExcludes);Tests\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Tests\**;BinaLoader\**;UiHarness\**</DefaultItemExcludes>
   </PropertyGroup>
 
-  <!-- Autodetect installed Revit. Override with -p:RevitPath=... if needed.
-       Picks the newest installed version; falls back through 2027→2024. -->
   <PropertyGroup>
-    <RevitPath Condition="'$(RevitPath)' == '' AND Exists('C:\Program Files\Autodesk\Revit 2027\RevitAPI.dll')">C:\Program Files\Autodesk\Revit 2027</RevitPath>
-    <RevitVersion Condition="'$(RevitPath)' == 'C:\Program Files\Autodesk\Revit 2027'">2027</RevitVersion>
-
-    <RevitPath Condition="'$(RevitPath)' == '' AND Exists('C:\Program Files\Autodesk\Revit 2026\RevitAPI.dll')">C:\Program Files\Autodesk\Revit 2026</RevitPath>
-    <RevitVersion Condition="'$(RevitPath)' == 'C:\Program Files\Autodesk\Revit 2026'">2026</RevitVersion>
-
-    <RevitPath Condition="'$(RevitPath)' == '' AND Exists('C:\Program Files\Autodesk\Revit 2025\RevitAPI.dll')">C:\Program Files\Autodesk\Revit 2025</RevitPath>
-    <RevitVersion Condition="'$(RevitPath)' == 'C:\Program Files\Autodesk\Revit 2025'">2025</RevitVersion>
-
-    <RevitPath Condition="'$(RevitPath)' == '' AND Exists('C:\Program Files\Autodesk\Revit 2024\RevitAPI.dll')">C:\Program Files\Autodesk\Revit 2024</RevitPath>
-    <RevitVersion Condition="'$(RevitPath)' == 'C:\Program Files\Autodesk\Revit 2024'">2024</RevitVersion>
-
-    <!-- Last-resort default so MSBuild always has something to evaluate
-         the HintPath against; the build will then surface a clean
-         "RevitAPI.dll not found" error rather than empty CS0246s. -->
-    <RevitPath Condition="'$(RevitPath)' == ''">C:\Program Files\Autodesk\Revit 2027</RevitPath>
-    <RevitVersion Condition="'$(RevitVersion)' == ''">2027</RevitVersion>
-    
-    <!--Suppress auto-generation since generation is declared manually -->
-    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-
+    <!-- Which Revit Addins\<year>\ folders each TFM deploys into (PostBuild).
+         net8 serves 2025 & 2026; net10 serves 2027. The copy is best-effort:
+         each year is only written if that Addins folder actually exists. -->
+    <DeployVersions Condition="'$(TargetFramework)' == 'net48'">2023;2024</DeployVersions>
+    <DeployVersions Condition="'$(TargetFramework)' == 'net8.0-windows'">2025;2026</DeployVersions>
+    <DeployVersions Condition="'$(TargetFramework)' == 'net10.0-windows'">2027</DeployVersions>
   </PropertyGroup>
 
-  <ItemGroup>
-    <!-- Reference-only Revit API from NuGet: builds anywhere (CI, macOS) with
-         no Revit install. 2025 = lowest net8 Revit, so the DLL loads on every
-         supported host (2025-2027). RevitPath above is now only used by the
-         PostBuild copy to pick the local Addins\<year>\ folder. -->
+  <!-- Reference-only Revit API from NuGet: builds anywhere (CI, macOS) with no
+       Revit install. The version MUST match the host runtime for each TFM —
+       2025.* (net8) loads on Revit 2025/2026; 2027.* (net10) loads on Revit 2027.
+       Referencing 2025 for the net10 host is exactly what caused the crash. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <!-- Dead code with zero importers, kept only for reference — they use
+         Core-only APIs (HttpUtility-free JSON auth, stream ctors) that are
+         not worth porting to .NET Framework. -->
+    <Compile Remove="BinaVibe\Auth\DEPRECATED_OidcClient.cs" />
+    <Compile Remove="BinaVibe\Bridge\DEPRECATED_VibeBridgeClient.cs" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net48'">
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2023.*" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2023.*" />
+    <!-- Compile net48 without a local .NET Framework install (mac/Linux CI). -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.*" PrivateAssets="all" />
+    <!-- In-box on net8/net10; packages on .NET Framework. -->
+    <PackageReference Include="System.Text.Json" Version="8.0.*" />
+    <PackageReference Include="System.Net.Http" Version="4.3.*" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net8.0-windows'">
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2025.*" />
     <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2025.*" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net10.0-windows'">
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.*" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2027.*" />
   </ItemGroup>
 
   <ItemGroup>
@@ -63,6 +84,14 @@
     <PackageReference Include="ClosedXML" Version="0.102.2" />
     <!-- PDF generation for Copilot session report export -->
     <PackageReference Include="QuestPDF" Version="2024.*" />
+    <!-- True-color emoji glyphs for the Copilot chat pane (MarkdownRenderer.cs)
+         — WPF has no native color-font support, so heading/body emoji ("###
+         🛠️ Tindakan") otherwise render as monochrome outline glyphs. Package
+         only ships netcoreapp3.1/net40 assets (no net8/net10-specific TFM),
+         but NuGet's framework rollforward makes netcoreapp3.1 libs consumable
+         from any newer .NET-Core-family TFM, so this resolves for both
+         net8.0-windows and net10.0-windows. -->
+    <PackageReference Include="Emoji.Wpf" Version="0.3.4" />
   </ItemGroup>
 
   <ItemGroup>
@@ -71,6 +100,7 @@
          on Release via #if DEBUG. LogicalName keeps the leading-dot filename
          from mangling the manifest resource name. -->
     <EmbeddedResource Include=".env.local" LogicalName="env.local" />
+    <EmbeddedResource Include=".env.staging" LogicalName="env.staging" />
     <EmbeddedResource Include=".env.production" LogicalName="env.production" />
 
     <EmbeddedResource Include="Resources\revitSync.png" />
@@ -94,21 +124,39 @@
     </None>
   </ItemGroup>
 
-  <!-- Post-build: Copy addin manifest and ALL DLLs to Revit folder -->
-  <Target Name="PostBuild" AfterTargets="Build">
+  <!-- Post-build: copy the addin manifest + the COMPLETE build output into the
+       matching Revit Addins\<year>\ folder(s) for THIS TFM (see DeployVersions),
+       preserving subfolders. Copying only *.dll drops deps.json, the *.dll.config
+       binding redirects, and runtimes\ native libs, which causes "Assembly version
+       conflict in some references" + a WPF load crash at runtime. %(RecursiveDir)
+       keeps runtimes\ and locale satellites in place.
+
+       This target runs once per inner (per-TFM) build. DeployItem is the cartesian
+       product of the output files x the target years, so a single Copy fans the
+       whole tree into every target year's folder; the %(Version) Condition makes
+       each year best-effort (skipped when that Addins folder isn't present). -->
+  <Target Name="PostBuild" AfterTargets="Build" Condition="'$(DeployVersions)' != ''">
     <ItemGroup>
-      <OutputDlls Include="$(TargetDir)*.dll" />
+      <DeployVersion Include="$(DeployVersions)" />
+      <!-- The COMPLETE output tree (top-level DLLs/deps.json + every subfolder:
+           runtimes\, cs\, de\, LatoFont\, …). DeployItem is the cartesian product
+           of these files x the target years so one Copy fans the whole tree,
+           %(RecursiveDir) preserving native libs at runtimes\win-x64\native\…. -->
+      <OutputFiles Include="$(TargetDir)**\*" />
+      <DeployItem Include="@(OutputFiles)">
+        <Version>%(DeployVersion.Identity)</Version>
+      </DeployItem>
     </ItemGroup>
 
     <Copy SourceFiles="$(ProjectDir)RevitWebAppSync.addin"
-          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\"
-          Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\')" />
+          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\%(DeployVersion.Identity)\"
+          Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\%(DeployVersion.Identity)\')" />
 
-    <Copy SourceFiles="@(OutputDlls)"
-          DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\"
-          Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\$(RevitVersion)\')" />
+    <Copy SourceFiles="@(DeployItem)"
+          DestinationFiles="@(DeployItem->'$(APPDATA)\Autodesk\Revit\Addins\%(Version)\%(RecursiveDir)%(Filename)%(Extension)')"
+          Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\%(Version)\')" />
 
-    <Message Text="Copied $(TargetDir)*.dll to Revit Addins folder (version $(RevitVersion))" Importance="high" />
+    <Message Text="Deployed $(TargetFramework) build to Revit Addins folder(s): $(DeployVersions)" Importance="high" />
   </Target>
 
 </Project>

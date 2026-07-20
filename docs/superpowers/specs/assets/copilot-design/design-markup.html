@@ -1,0 +1,559 @@
+
+"<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="767085dc-e2f5-4b9c-b33e-06a847fc8d13"><\u002Fscript>
+<\u002Fhead>
+<body>
+
+<x-dc>
+<helmet>
+<style>
+*{box-sizing:border-box;}
+#bina-input::placeholder{color:var(--text3);}
+#bina-input{scrollbar-width:thin;}
+@keyframes msgRise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+@keyframes thinkOut{from{opacity:1;max-height:48px;transform:translateY(0)}to{opacity:0;max-height:0;transform:translateY(-3px)}}
+@keyframes menuPop{from{opacity:0;transform:translateY(7px) scale(.98)}to{opacity:1;transform:none}}
+@keyframes blink{0%,70%,100%{opacity:.28}35%{opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes starPop{0%{transform:scale(1)}40%{transform:scale(1.32)}70%{transform:scale(.92)}100%{transform:scale(1)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes stepIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+@keyframes sheetUp{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+@keyframes swapUp{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+@keyframes popCheck{0%{opacity:0;transform:scale(.4)}60%{opacity:1;transform:scale(1.18)}100%{opacity:1;transform:scale(1)}}
+@keyframes shimmerText{0%{background-position:140% 0}100%{background-position:-140% 0}}
+.bina-thread::-webkit-scrollbar{width:7px}
+.bina-thread::-webkit-scrollbar-thumb{background:var(--hair2);border-radius:99px}
+.bina-thread::-webkit-scrollbar-track{background:transparent}
+<\u002Fstyle>
+<\u002Fhelmet>
+
+<div style="{{ rootStyle }}">
+  <div style="width:360px;height:min(720px,90vh);background:var(--bg);border:1px solid var(--hair);border-radius:16px;box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;color:var(--text);position:relative;">
+
+    <sc-if value="{{ showUsage }}" hint-placeholder-val="{{ false }}">
+      <div onclick="{{ closeUsage }}" style="position:absolute;inset:0;z-index:8;"><\u002Fdiv>
+    <\u002Fsc-if>
+
+    <!-- ===== Header ===== -->
+    <div style="flex:none;display:flex;align-items:center;gap:9px;padding:15px 14px 13px;">
+      <div style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;flex:none;">
+        <svg width="24" height="24" viewBox="0 0 24 24" style="filter:drop-shadow(0 2px 5px rgba(37,99,235,.5));">
+          <defs>
+            <linearGradient id="gstarLogo" x1="3.5" y1="2.5" x2="20.5" y2="21.5" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#7dd6ff"><\u002Fstop><stop offset=".45" stop-color="#3b8ef7"><\u002Fstop><stop offset="1" stop-color="#1d5fe0"><\u002Fstop><\u002FlinearGradient>
+            <radialGradient id="gstarLogoSheen" cx="0.36" cy="0.3" r="0.55"><stop offset="0" stop-color="rgba(255,255,255,.9)"><\u002Fstop><stop offset=".55" stop-color="rgba(255,255,255,.06)"><\u002Fstop><stop offset="1" stop-color="rgba(255,255,255,0)"><\u002Fstop><\u002FradialGradient>
+          <\u002Fdefs>
+          <path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarLogo)"><\u002Fpath>
+          <path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarLogoSheen)" opacity=".7"><\u002Fpath>
+        <\u002Fsvg>
+      <\u002Fdiv>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:14px;font-weight:680;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">BINA AI Copilot<\u002Fdiv>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none;"><\u002Fspan><span style="font-size:11px;color:var(--text2);line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Connected · Main Model<\u002Fspan><\u002Fdiv>
+      <\u002Fdiv>
+      <div style="display:flex;align-items:center;gap:2px;flex:none;">
+      <sc-if value="{{ showHeaderMeter }}" hint-placeholder-val="{{ true }}">
+        <div style="position:relative;flex:none;">
+          <button onclick="{{ toggleUsage }}" title="Usage" style="display:flex;align-items:center;gap:4px;height:26px;padding:0 8px 0 5px;border:1px solid var(--hair);border-radius:13px;background:var(--sunken);cursor:pointer;" style-hover="background:var(--hover);">
+            <svg width="16" height="16" viewBox="0 0 20 20" style="flex:none;">
+              <circle cx="10" cy="10" r="7.4" fill="none" stroke="var(--hair2)" stroke-width="2.6"><\u002Fcircle>
+              <circle cx="10" cy="10" r="7.4" fill="none" stroke="{{ meterColor }}" stroke-width="2.6" stroke-linecap="round" stroke-dasharray="{{ meterDash }}" transform="rotate(-90 10 10)"><\u002Fcircle>
+            <\u002Fsvg>
+            <span style="font-size:11px;font-weight:680;color:var(--text);letter-spacing:-.01em;">{{ usagePct }}%<\u002Fspan>
+          <\u002Fbutton>
+          <sc-if value="{{ showHeaderUsagePop }}" hint-placeholder-val="{{ false }}">
+            <div style="position:absolute;top:calc(100% + 9px);right:0;width:228px;background:var(--menu);border:1px solid var(--hair);border-radius:13px;box-shadow:var(--shadow);padding:15px 15px 14px;z-index:9;animation:menuPop .16s ease forwards;">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                <span style="font-size:13px;font-weight:680;letter-spacing:-.01em;">{{ planName }}<\u002Fspan>
+              <\u002Fdiv>
+              <div style="font-size:10.5px;color:var(--text3);margin-top:2px;">Plan usage<\u002Fdiv>
+              <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:13px;margin-bottom:7px;">
+                <span style="font-size:11px;color:var(--text2);">Usage<\u002Fspan>
+                <span style="font-size:11.5px;font-weight:700;color:var(--text);white-space:nowrap;">{{ usagePct }}% used<\u002Fspan>
+              <\u002Fdiv>
+              <div style="height:6px;border-radius:99px;background:var(--hair);overflow:hidden;"><div style="height:100%;width:{{ usageWidth }};background:{{ meterColor }};border-radius:99px;"><\u002Fdiv><\u002Fdiv>
+              <button onclick="{{ openUpgrade }}" style="width:100%;height:32px;margin-top:13px;border:0;border-radius:9px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:11.5px;font-weight:640;letter-spacing:-.01em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;" style-hover="filter:brightness(1.07);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"><\u002Fpath><\u002Fsvg>Upgrade plan<\u002Fbutton>
+            <\u002Fdiv>
+          <\u002Fsc-if>
+        <\u002Fdiv>
+      <\u002Fsc-if>
+      <button onclick="{{ toggleTheme }}" title="Toggle theme" style="width:26px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:var(--hover);color:var(--text2);">
+        <sc-if value="{{ isDark }}" hint-placeholder-val="{{ false }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"><\u002Fcircle><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"><\u002Fpath><\u002Fsvg><\u002Fsc-if>
+        <sc-if value="{{ isLight }}" hint-placeholder-val="{{ true }}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3 7 7 0 0 0 21 12.8Z"><\u002Fpath><\u002Fsvg><\u002Fsc-if>
+      <\u002Fbutton>
+      <button onclick="{{ newChat }}" title="New chat" style="width:26px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:var(--hover);color:var(--text2);">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"><\u002Fpath><\u002Fsvg>
+      <\u002Fbutton>
+      <div style="position:relative;flex:none;">
+        <button onclick="{{ toggleMacroMenu }}" title="More" style="width:26px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;" style-hover="background:var(--hover);color:var(--text2);">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="12" cy="5" r="1.7"><\u002Fcircle><circle cx="12" cy="12" r="1.7"><\u002Fcircle><circle cx="12" cy="19" r="1.7"><\u002Fcircle><\u002Fsvg>
+        <\u002Fbutton>
+        <sc-if value="{{ macroMenuOpen }}" hint-placeholder-val="{{ false }}">
+          <div onclick="{{ closeMacroMenu }}" style="position:fixed;inset:0;z-index:8;"><\u002Fdiv>
+          <div style="position:absolute;top:calc(100% + 7px);right:0;width:188px;background:var(--menu);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:5px;z-index:9;animation:menuPop .16s ease forwards;">
+            <button onclick="{{ openRating }}" style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:0;border-radius:8px;background:transparent;color:var(--text);text-align:left;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:550;" style-hover="background:var(--hover);">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text2);flex:none;"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1Z"><\u002Fpath><\u002Fsvg>
+              <span style="line-height:1;">Rate Copilot<\u002Fspan>
+            <\u002Fbutton>
+            <button onclick="{{ openMacroBug }}" style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:0;border-radius:8px;background:transparent;color:var(--text);text-align:left;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:550;" style-hover="background:var(--hover);">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text2);flex:none;"><path d="M8 2.5 9.5 5M16 2.5 14.5 5"><\u002Fpath><rect x="6" y="6" width="12" height="13" rx="6"><\u002Frect><path d="M3 11h3M18 11h3M3 16h3.2M17.8 16H21M12 6v13"><\u002Fpath><\u002Fsvg>
+              <span style="line-height:1;">Report a bug<\u002Fspan>
+            <\u002Fbutton>
+          <\u002Fdiv>
+        <\u002Fsc-if>
+      <\u002Fdiv>
+      <\u002Fdiv>
+    <\u002Fdiv>
+
+    <!-- ===== Tabs ===== -->
+    <div style="flex:none;display:flex;gap:20px;padding:0 16px;border-bottom:1px solid var(--hair);">
+      <button onclick="{{ goChat }}" style="{{ chatTabStyle }}">Chat<\u002Fbutton>
+      <button onclick="{{ goHistory }}" style="{{ histTabStyle }}">History<span style="font-size:10.5px;font-weight:600;color:var(--text3);">{{ historyCount }}<\u002Fspan><\u002Fbutton>
+    <\u002Fdiv>
+
+    <!-- ===== Empty state ===== -->
+    <sc-if value="{{ showEmpty }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:24px 26px;">
+        <div style="position:relative;width:54px;height:54px;display:flex;align-items:center;justify-content:center;margin-bottom:22px;">
+          <svg width="50" height="50" viewBox="0 0 24 24" style="position:relative;filter:drop-shadow(0 0 7px rgba(59,142,247,.55)) drop-shadow(0 0 3px rgba(59,142,247,.4));">
+            <defs>
+              <linearGradient id="gstarHero" x1="3.5" y1="2.5" x2="20.5" y2="21.5" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#7dd6ff"><\u002Fstop><stop offset=".45" stop-color="#3b8ef7"><\u002Fstop><stop offset="1" stop-color="#1d5fe0"><\u002Fstop><\u002FlinearGradient>
+              <radialGradient id="gstarHeroSheen" cx="0.36" cy="0.3" r="0.55"><stop offset="0" stop-color="rgba(255,255,255,.9)"><\u002Fstop><stop offset=".55" stop-color="rgba(255,255,255,.08)"><\u002Fstop><stop offset="1" stop-color="rgba(255,255,255,0)"><\u002Fstop><\u002FradialGradient>
+            <\u002Fdefs>
+            <path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarHero)"><\u002Fpath>
+            <path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarHeroSheen)" opacity=".7"><\u002Fpath>
+          <\u002Fsvg>
+          <svg width="17" height="17" viewBox="0 0 24 24" style="position:absolute;top:-7px;right:-9px;filter:drop-shadow(0 0 4px rgba(59,142,247,.55)) drop-shadow(0 0 2px rgba(59,142,247,.4));"><path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarHero)"><\u002Fpath><\u002Fsvg>
+          <svg width="13" height="13" viewBox="0 0 24 24" style="position:absolute;bottom:-2px;right:-10px;filter:drop-shadow(0 0 3px rgba(59,142,247,.55)) drop-shadow(0 0 2px rgba(59,142,247,.4));"><path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarHero)"><\u002Fpath><\u002Fsvg>
+        <\u002Fdiv>
+        <div style="font-size:19px;font-weight:700;letter-spacing:-.02em;line-height:1.2;">How can I help with your model?<\u002Fdiv>
+        <div style="font-size:12.5px;line-height:1.55;color:var(--text2);margin-top:9px;max-width:268px;">Describe what you need in plain words — I'll turn it into a Revit command you can review and apply.<\u002Fdiv>
+        <div style="display:flex;flex-direction:column;width:100%;margin-top:22px;border-top:1px solid var(--hair);">
+          <button onclick="{{ sugWalls }}" style="display:flex;align-items:center;gap:12px;padding:13px 4px;border:0;border-bottom:1px solid var(--hair);background:transparent;text-align:left;cursor:pointer;color:var(--text);" style-hover="background:var(--hover);">
+            <span style="color:var(--text);display:flex;flex:none;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="15" rx="2"><\u002Frect><path d="M3 9.5h18M3 14.5h18M8 4.5v5M14 9.5v5M10 14.5v5"><\u002Fpath><\u002Fsvg><\u002Fspan>
+            <span style="flex:1;font-size:13px;font-weight:550;">Create walls<\u002Fspan>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);"><path d="m9 6 6 6-6 6"><\u002Fpath><\u002Fsvg>
+          <\u002Fbutton>
+          <button onclick="{{ sugSchedule }}" style="display:flex;align-items:center;gap:12px;padding:13px 4px;border:0;border-bottom:1px solid var(--hair);background:transparent;text-align:left;cursor:pointer;color:var(--text);" style-hover="background:var(--hover);">
+            <span style="color:var(--text);display:flex;flex:none;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="2.5"><\u002Frect><path d="M3.5 9h17M9 9v11.5"><\u002Fpath><path d="M13 13h4M13 16.5h4"><\u002Fpath><\u002Fsvg><\u002Fspan>
+            <span style="flex:1;font-size:13px;font-weight:550;">Generate schedule<\u002Fspan>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);"><path d="m9 6 6 6-6 6"><\u002Fpath><\u002Fsvg>
+          <\u002Fbutton>
+          <button onclick="{{ sugTag }}" style="display:flex;align-items:center;gap:12px;padding:13px 4px;border:0;background:transparent;text-align:left;cursor:pointer;color:var(--text);" style-hover="background:var(--hover);">
+            <span style="color:var(--text);display:flex;flex:none;"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 11.3V4.5a1 1 0 0 1 1-1h6.8a1 1 0 0 1 .7.3l8 8a1 1 0 0 1 0 1.4l-6.8 6.8a1 1 0 0 1-1.4 0l-8-8a1 1 0 0 1-.3-.7Z"><\u002Fpath><circle cx="8" cy="8" r="1.4"><\u002Fcircle><\u002Fsvg><\u002Fspan>
+            <span style="flex:1;font-size:13px;font-weight:550;">Tag rooms<\u002Fspan>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);"><path d="m9 6 6 6-6 6"><\u002Fpath><\u002Fsvg>
+          <\u002Fbutton>
+        <\u002Fdiv>
+      <\u002Fdiv>
+    <\u002Fsc-if>
+
+    <!-- ===== Chat thread ===== -->
+    <sc-if value="{{ showThread }}" hint-placeholder-val="{{ false }}">
+      <div class="bina-thread" ref="{{ threadRef }}" style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:16px 16px;display:flex;flex-direction:column;gap:15px;">
+        <sc-for list="{{ messages }}" as="msg" hint-placeholder-count="0">
+
+          <sc-if value="{{ msg.isUser }}">
+            <div style="align-self:flex-end;max-width:84%;display:flex;flex-direction:column;align-items:flex-end;animation:msgRise .34s .04s cubic-bezier(.2,.7,.3,1) forwards;">
+              <div style="background:var(--user);color:var(--user-text);padding:9px 13px;border-radius:14px 14px 4px 14px;font-size:13px;line-height:1.5;max-width:100%;display:flex;flex-direction:column;align-items:flex-start;">
+                <div ref="{{ msg.setTextRef }}" style="{{ msg.textWrapStyle }}">{{ msg.text }}<\u002Fdiv>
+                <sc-if value="{{ msg.needsToggle }}" hint-placeholder-val="{{ false }}">
+                  <button onclick="{{ msg.toggleExpand }}" style="margin-top:5px;display:inline-flex;align-items:center;gap:5px;padding:0;border:0;background:transparent;color:var(--user-text);font-family:inherit;font-size:12px;font-weight:650;letter-spacing:-.01em;white-space:nowrap;cursor:pointer;transition:opacity .15s ease;" style-hover="opacity:.78;" style-active="opacity:.6;">
+                    <span>{{ msg.toggleLabel }}<\u002Fspan>
+                    <sc-if value="{{ msg.collapsedState }}" hint-placeholder-val="{{ true }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"><\u002Fpath><\u002Fsvg><\u002Fsc-if>
+                    <sc-if value="{{ msg.expandedState }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m18 15-6-6-6 6"><\u002Fpath><\u002Fsvg><\u002Fsc-if>
+                  <\u002Fbutton>
+                <\u002Fsc-if>
+              <\u002Fdiv>
+              <div style="font-size:10px;color:var(--text3);text-align:right;margin-top:4px;">{{ msg.time }}<\u002Fdiv>
+            <\u002Fdiv>
+          <\u002Fsc-if>
+
+          <sc-if value="{{ msg.interrupted }}" hint-placeholder-val="{{ false }}">
+            <div style="align-self:flex-start;display:flex;align-items:center;gap:6px;padding:2px 0;margin:1px 0;font-size:13px;line-height:1.6;font-style:italic;color:var(--text3);animation:msgRise .34s .04s cubic-bezier(.2,.7,.3,1) forwards;">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;"><circle cx="12" cy="12" r="9"><\u002Fcircle><rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" stroke="none"><\u002Frect><\u002Fsvg>
+              <span>{{ msg.text }}<\u002Fspan>
+            <\u002Fdiv>
+          <\u002Fsc-if>
+
+          <sc-if value="{{ msg.isAIAnswer }}">
+            <div style="align-self:flex-start;width:100%;animation:msgRise .34s .04s cubic-bezier(.2,.7,.3,1) forwards;">
+              <div style="font-size:13px;line-height:1.6;color:var(--text);">{{ msg.text }}<\u002Fdiv>
+
+              <sc-if value="{{ msg.hasCommand }}">
+                <div style="margin-top:11px;padding-top:12px;border-top:1px solid var(--hair);">
+                  <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px;">
+                    <span style="font-size:12.5px;font-weight:680;color:var(--text);">{{ msg.cmd.name }}<\u002Fspan>
+                    <sc-if value="{{ msg.cmd.isProposed }}"><span style="font-size:10px;color:var(--accent);font-weight:600;">· Proposed<\u002Fspan><\u002Fsc-if>
+                    <sc-if value="{{ msg.cmd.isApplied }}"><span style="font-size:10px;color:var(--green);font-weight:600;">· Applied<\u002Fspan><\u002Fsc-if>
+                    <sc-if value="{{ msg.cmd.isDismissed }}"><span style="font-size:10px;color:var(--text3);font-weight:600;">· Dismissed<\u002Fspan><\u002Fsc-if>
+                  <\u002Fdiv>
+                  <sc-for list="{{ msg.cmd.params }}" as="p" hint-placeholder-count="3">
+                    <div style="display:flex;justify-content:space-between;gap:14px;padding:5px 0;align-items:baseline;">
+                      <span style="font-size:11.5px;color:var(--text3);white-space:nowrap;flex:none;">{{ p.k }}<\u002Fspan>
+                      <span style="font-size:11.5px;font-weight:550;color:var(--text2);text-align:right;flex:1;min-width:0;">{{ p.v }}<\u002Fspan>
+                    <\u002Fdiv>
+                  <\u002Fsc-for>
+
+                  <sc-if value="{{ msg.cmd.isProposed }}">
+                    <div style="display:flex;gap:9px;margin-top:13px;align-items:center;">
+                      <button onclick="{{ msg.apply }}" style="padding:8px 14px;border:0;border-radius:8px;background:var(--accent-grad);color:var(--accent-contrast);font-size:11.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:5px;" style-hover="filter:brightness(1.06);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"><\u002Fpath><\u002Fsvg>Apply to model<\u002Fbutton>
+                      <button onclick="{{ msg.dismiss }}" style="padding:8px 6px;border:0;background:transparent;color:var(--text3);font-size:11.5px;font-weight:550;cursor:pointer;" style-hover="color:var(--text2);">Dismiss<\u002Fbutton>
+                    <\u002Fdiv>
+                  <\u002Fsc-if>
+                  <sc-if value="{{ msg.cmd.isApplied }}">
+                    <div style="display:flex;align-items:center;gap:7px;margin-top:13px;font-size:12px;font-weight:600;color:var(--green);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"><\u002Fpath><\u002Fsvg>Applied to the model<\u002Fdiv>
+                    <sc-if value="{{ msg.showRatingNudge }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:flex;align-items:center;gap:8px;margin-top:10px;padding:8px 11px;border-radius:10px;background:var(--sunken);">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#F5A623" stroke="none" style="flex:none;"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1Z"><\u002Fpath><\u002Fsvg>
+                        <span style="font-size:11.5px;color:var(--text2);flex:1;line-height:1.4;">How's Copilot doing?<\u002Fspan>
+                        <button onclick="{{ openRating }}" style="border:0;background:transparent;color:var(--accent);font-family:inherit;font-size:11.5px;font-weight:640;cursor:pointer;padding:2px 3px;white-space:nowrap;" style-hover="text-decoration:underline;">Rate<\u002Fbutton>
+                        <button onclick="{{ msg.dismissNudge }}" title="Dismiss" style="width:20px;height:20px;border:0;border-radius:6px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:var(--hover);color:var(--text2);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"><\u002Fpath><\u002Fsvg><\u002Fbutton>
+                      <\u002Fdiv>
+                    <\u002Fsc-if>
+                  <\u002Fsc-if>
+                <\u002Fdiv>
+              <\u002Fsc-if>
+
+              <!-- MICRO: per-response feedback -->
+              <div style="display:flex;align-items:center;gap:3px;margin-top:11px;">
+                <span style="font-size:10px;color:var(--text3);">{{ msg.time }}<\u002Fspan>
+                <span style="flex:1;"><\u002Fspan>
+                <sc-if value="{{ msg.fb.showPrompt }}" hint-placeholder-val="{{ true }}">
+                  <span style="font-size:10.5px;color:var(--text3);margin-right:4px;white-space:nowrap;">Was this helpful?<\u002Fspan>
+                <\u002Fsc-if>
+                <button onclick="{{ msg.fb.voteUp }}" title="Helpful" style="{{ msg.fb.upStyle }}" style-hover="background:var(--hover);">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"><\u002Fpath><\u002Fsvg>
+                <\u002Fbutton>
+                <button onclick="{{ msg.fb.voteDown }}" title="Not helpful" style="{{ msg.fb.downStyle }}" style-hover="background:var(--hover);">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"><\u002Fpath><\u002Fsvg>
+                <\u002Fbutton>
+                <button onclick="{{ msg.fb.copy }}" title="Copy" style="{{ msg.fb.copyStyle }}" style-hover="background:var(--hover);">
+                  <sc-if value="{{ msg.fb.copied }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"><\u002Fpath><\u002Fsvg><\u002Fsc-if>
+                  <sc-if value="{{ msg.fb.notCopied }}" hint-placeholder-val="{{ true }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"><\u002Frect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"><\u002Fpath><\u002Fsvg><\u002Fsc-if>
+                <\u002Fbutton>
+              <\u002Fdiv>
+
+              <sc-if value="{{ msg.fb.panelOpen }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:9px;background:var(--sunken);border:1px solid var(--hair);border-radius:11px;padding:11px 11px 10px;animation:menuPop .16s ease forwards;">
+                  <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px;">What was off?<\u002Fdiv>
+                  <div style="display:flex;flex-wrap:wrap;gap:6px;">
+                    <sc-for list="{{ msg.fb.reasons }}" as="r" hint-placeholder-count="4">
+                      <button onclick="{{ r.pick }}" style="{{ r.chipStyle }}">{{ r.label }}<\u002Fbutton>
+                    <\u002Fsc-for>
+                  <\u002Fdiv>
+                  <textarea onchange="{{ msg.fb.setNote }}" value="{{ msg.fb.note }}" rows="2" placeholder="Add details (optional)" style="width:100%;margin-top:9px;border:1px solid var(--hair);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:11.5px;line-height:1.5;padding:7px 9px;resize:none;outline:none;box-sizing:border-box;" style-focus="border-color:var(--accent);"><\u002Ftextarea>
+                  <div style="display:flex;align-items:center;gap:8px;margin-top:9px;">
+                    <button onclick="{{ msg.fb.submit }}" style="padding:7px 13px;border:0;border-radius:8px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;" style-hover="filter:brightness(1.06);">Send feedback<\u002Fbutton>
+                    <button onclick="{{ msg.fb.closePanel }}" style="padding:7px 6px;border:0;background:transparent;color:var(--text3);font-family:inherit;font-size:11px;font-weight:550;cursor:pointer;" style-hover="color:var(--text2);">Cancel<\u002Fbutton>
+                  <\u002Fdiv>
+                  <div style="display:flex;align-items:center;gap:5px;margin-top:10px;padding-top:9px;border-top:1px solid var(--hair);font-size:9.5px;color:var(--text3);">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"><\u002Fpath><\u002Fsvg>
+                    <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ msg.fb.contextLabel }}<\u002Fspan>
+                  <\u002Fdiv>
+                <\u002Fdiv>
+              <\u002Fsc-if>
+
+              <sc-if value="{{ msg.fb.submitted }}" hint-placeholder-val="{{ false }}">
+                <div style="margin-top:9px;display:flex;align-items:center;gap:6px;font-size:11px;font-weight:550;color:var(--accent);animation:msgRise .26s ease forwards;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"><\u002Fpath><\u002Fsvg>Thanks — your feedback helps improve BINA.<\u002Fdiv>
+              <\u002Fsc-if>
+            <\u002Fdiv>
+          <\u002Fsc-if>
+
+        <\u002Fsc-for>
+
+        <sc-if value="{{ thinking }}" hint-placeholder-val="{{ false }}">
+          <div style="align-self:flex-start;flex:none;width:100%;overflow:hidden;animation:{{ thinkAnim }};">
+            <div style="display:flex;gap:10px;align-items:center;">
+              <span style="width:24px;height:24px;flex:none;display:flex;align-items:center;justify-content:center;">
+                <svg width="19" height="19" viewBox="0 0 24 24" style="filter:drop-shadow(0 0 4px color-mix(in srgb, var(--accent) 45%, transparent));"><path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarLogo)"><\u002Fpath><\u002Fsvg>
+              <\u002Fspan>
+              <div style="flex:1;min-width:0;background:transparent;border:0;padding:0;height:24px;display:flex;align-items:center;gap:9px;overflow:hidden;">
+                <span style="width:16px;height:16px;flex:none;display:flex;align-items:center;justify-content:center;">
+                  <sc-if value="{{ thinkDone }}" hint-placeholder-val="{{ false }}">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.7" stroke-linecap="round" stroke-linejoin="round" style="animation:popCheck .34s cubic-bezier(.34,1.56,.64,1) forwards;"><path d="M20 6 9 17l-5-5"><\u002Fpath><\u002Fsvg>
+                  <\u002Fsc-if>
+                  <sc-if value="{{ thinkWorking }}" hint-placeholder-val="{{ true }}">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round" style="animation:spin .7s linear infinite;"><path d="M21 12a9 9 0 1 1-6.2-8.5"><\u002Fpath><\u002Fsvg>
+                  <\u002Fsc-if>
+                <\u002Fspan>
+                <span style="flex:1;min-width:0;position:relative;height:18px;">{{ thinkLineEl }}<\u002Fspan>
+              <\u002Fdiv>
+            <\u002Fdiv>
+          <\u002Fdiv>
+        <\u002Fsc-if>
+      <\u002Fdiv>
+    <\u002Fsc-if>
+
+    <!-- ===== History ===== -->
+    <sc-if value="{{ showHistory }}" hint-placeholder-val="{{ false }}">
+      <div class="bina-thread" style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:10px 10px;">
+        <div style="font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);padding:8px 6px 6px;">Recent conversations<\u002Fdiv>
+        <sc-for list="{{ historyList }}" as="conv" hint-placeholder-count="5">
+          <button onclick="{{ conv.open }}" style="display:flex;align-items:center;gap:11px;width:100%;padding:11px 6px;border:0;border-radius:9px;background:transparent;text-align:left;cursor:pointer;color:var(--text);" style-hover="background:var(--hover);">
+            <span style="width:30px;height:30px;border-radius:8px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2Z"><\u002Fpath><\u002Fsvg><\u002Fspan>
+            <span style="flex:1;min-width:0;"><span style="display:block;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ conv.title }}<\u002Fspan><span style="display:block;font-size:10.5px;color:var(--text3);margin-top:2px;">{{ conv.meta }}<\u002Fspan><\u002Fspan>
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);flex:none;"><path d="m9 6 6 6-6 6"><\u002Fpath><\u002Fsvg>
+          <\u002Fbutton>
+        <\u002Fsc-for>
+      <\u002Fdiv>
+    <\u002Fsc-if>
+
+    <!-- ===== Limit reached (replaces composer) ===== -->
+    <sc-if value="{{ showBlocked }}" hint-placeholder-val="{{ false }}">
+      <div style="{{ blockedWrapStyle }}">
+        <span style="width:74px;height:74px;display:flex;align-items:center;justify-content:center;flex:none;filter:drop-shadow(0 12px 16px rgba(59,130,246,.32));"><svg width="68" height="68" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <linearGradient id="lk-shk" x1="20" y1="14" x2="44" y2="32" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#9cc6ff"><\u002Fstop><stop offset="1" stop-color="#4f8ef0"><\u002Fstop><\u002FlinearGradient>
+            <linearGradient id="lk-body" x1="16" y1="28" x2="50" y2="60" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#7cb4ff"><\u002Fstop><stop offset=".55" stop-color="#4a8bf0"><\u002Fstop><stop offset="1" stop-color="#2766d6"><\u002Fstop><\u002FlinearGradient>
+            <linearGradient id="lk-sheen" x1="32" y1="29" x2="32" y2="45" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff" stop-opacity=".55"><\u002Fstop><stop offset="1" stop-color="#ffffff" stop-opacity="0"><\u002Fstop><\u002FlinearGradient>
+            <linearGradient id="lk-key" x1="32" y1="37" x2="32" y2="51" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#ffffff"><\u002Fstop><stop offset="1" stop-color="#dbe9ff"><\u002Fstop><\u002FlinearGradient>
+          <\u002Fdefs>
+          <!-- shackle -->
+          <path d="M21 31 V22 a11 11 0 0 1 22 0 V31" fill="none" stroke="#3f74d6" stroke-width="7.5" stroke-linecap="round"><\u002Fpath>
+          <path d="M21 31 V22 a11 11 0 0 1 22 0 V31" fill="none" stroke="url(#lk-shk)" stroke-width="6" stroke-linecap="round"><\u002Fpath>
+          <path d="M23.4 30 V22 a8.6 8.6 0 0 1 6.2-8.3" fill="none" stroke="#ffffff" stroke-opacity=".55" stroke-width="1.7" stroke-linecap="round"><\u002Fpath>
+          <!-- body -->
+          <rect x="14" y="29" width="36" height="29" rx="8.5" fill="url(#lk-body)"><\u002Frect>
+          <rect x="14" y="29" width="36" height="14" rx="8.5" fill="url(#lk-sheen)"><\u002Frect>
+          <ellipse cx="23" cy="35" rx="5.5" ry="2.4" fill="#ffffff" fill-opacity=".5"><\u002Fellipse>
+          <!-- keyhole -->
+          <circle cx="32" cy="41" r="4.6" fill="url(#lk-key)"><\u002Fcircle>
+          <path d="M29.7 43 L34.3 43 L33.1 51 L30.9 51 Z" fill="url(#lk-key)"><\u002Fpath>
+        <\u002Fsvg><\u002Fspan>
+        <div style="font-size:14px;font-weight:680;letter-spacing:-.01em;line-height:1.32;max-width:248px;">You've reached your usage limit<\u002Fdiv>
+        <div style="font-size:12px;color:var(--text2);line-height:1.45;max-width:248px;">Upgrade your plan to keep using Copilot.<\u002Fdiv>
+
+        <!-- Admin: upgrade -->
+        <sc-if value="{{ showBlockedAdmin }}" hint-placeholder-val="{{ true }}">
+          <button onclick="{{ openUpgrade }}" style="width:100%;height:38px;margin-top:4px;border:0;border-radius:10px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:13px;font-weight:660;letter-spacing:-.01em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;" style-hover="filter:brightness(1.07);"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"><\u002Fpath><\u002Fsvg>Upgrade plan<\u002Fbutton>
+        <\u002Fsc-if>
+
+        <!-- Member: notify admin -->
+        <sc-if value="{{ showBlockedMember }}" hint-placeholder-val="{{ false }}">
+          <div style="width:100%;margin-top:3px;display:flex;flex-direction:column;gap:10px;">
+            <div style="font-size:11.5px;color:var(--text2);line-height:1.45;">Your plan is managed by your workspace admin.<\u002Fdiv>
+            <div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border:1px solid var(--hair);border-radius:11px;background:var(--sunken);text-align:left;">
+              <span style="width:30px;height:30px;border-radius:50%;background:var(--accent-grad);color:var(--accent-contrast);display:flex;align-items:center;justify-content:center;flex:none;font-size:12px;font-weight:700;">SR<\u002Fspan>
+              <div style="min-width:0;flex:1;">
+                <div style="font-size:12px;font-weight:640;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Sara Rahman<\u002Fdiv>
+                <div style="font-size:10.5px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Workspace admin · sara@bina.cloud<\u002Fdiv>
+              <\u002Fdiv>
+            <\u002Fdiv>
+            <sc-if value="{{ showNotifyBtn }}" hint-placeholder-val="{{ true }}">
+              <button onclick="{{ notifyAdmin }}" style="width:100%;height:38px;border:0;border-radius:10px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:13px;font-weight:660;letter-spacing:-.01em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;" style-hover="filter:brightness(1.07);"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"><\u002Fpath><path d="M13.7 21a2 2 0 0 1-3.4 0"><\u002Fpath><\u002Fsvg>Notify admin to upgrade<\u002Fbutton>
+            <\u002Fsc-if>
+            <sc-if value="{{ showNotifiedNote }}" hint-placeholder-val="{{ false }}">
+              <div style="border-radius:10px;background:var(--sunken);padding:11px 13px;display:flex;align-items:flex-start;gap:9px;text-align:left;"><span style="width:18px;height:18px;border-radius:50%;background:var(--accent-grad);color:var(--accent-contrast);display:flex;align-items:center;justify-content:center;flex:none;margin-top:1px;"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"><\u002Fpath><\u002Fsvg><\u002Fspan><span style="font-size:11.5px;line-height:1.45;color:var(--text2);"><b style="color:var(--text);font-weight:660;">Request sent.<\u002Fb> Sara has been asked to upgrade your plan.<\u002Fspan><\u002Fdiv>
+            <\u002Fsc-if>
+          <\u002Fdiv>
+        <\u002Fsc-if>
+      <\u002Fdiv>
+    <\u002Fsc-if>
+
+    <!-- ===== Upgrade card (bottom sheet) ===== -->
+    <sc-if value="{{ showUpgrade }}" hint-placeholder-val="{{ false }}">
+      <div onclick="{{ closeUpgrade }}" style="position:absolute;inset:0;background:rgba(6,10,18,.5);z-index:10;animation:fadeIn .18s ease forwards;"><\u002Fdiv>
+      <div style="position:absolute;left:0;right:0;bottom:0;z-index:11;background:var(--menu);border-top:1px solid var(--hair2);border-radius:18px 18px 16px 16px;box-shadow:0 -18px 50px rgba(6,10,18,.32);padding:15px 15px 14px;max-height:calc(100% - 8px);overflow-y:auto;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1) forwards;">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:14px;">
+          <div style="display:flex;flex-direction:column;gap:2px;">
+            <span style="font-size:15px;font-weight:720;letter-spacing:-.015em;">Choose your plan<\u002Fspan>
+            <span style="font-size:11.5px;color:var(--text3);font-weight:500;">Swipe to compare<\u002Fspan>
+          <\u002Fdiv>
+          <button onclick="{{ closeUpgrade }}" title="Close" style="width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;margin:-2px -2px 0 0;" style-hover="background:var(--hover);color:var(--text2);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"><\u002Fpath><\u002Fsvg><\u002Fbutton>
+        <\u002Fdiv>
+
+        <!-- ===== Peek carousel ===== -->
+        <div ref="{{ carViewRef }}" onpointerdown="{{ carDown }}" onpointermove="{{ carMove }}" onpointerup="{{ carUp }}" onpointerleave="{{ carUp }}" style="position:relative;overflow:hidden;margin:0 -15px;padding:9px 0 11px;touch-action:pan-y;cursor:grab;padding-bottom:30px;margin-bottom:-19px;">
+          <div style="{{ carTrackStyle }}">
+            <sc-for list="{{ carPlans }}" as="p" hint-placeholder-count="3">
+              <div style="{{ p.cardStyle }}">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:20px;">
+                  <span style="font-size:14px;font-weight:720;letter-spacing:-.01em;">{{ p.name }}<\u002Fspan>
+                  <sc-if value="{{ p.badge }}" hint-placeholder-val="{{ false }}">
+                    <span style="font-size:8.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--accent-contrast);background:var(--accent-grad);padding:3px 9px;border-radius:20px;flex:none;">Recommended<\u002Fspan>
+                  <\u002Fsc-if>
+                <\u002Fdiv>
+                <div style="display:flex;align-items:baseline;gap:3px;margin:8px 0 13px;"><span style="font-size:25px;font-weight:780;letter-spacing:-.02em;">{{ p.price }}<\u002Fspan><span style="font-size:11.5px;color:var(--text3);">/month<\u002Fspan><\u002Fdiv>
+                <div style="font-size:9.5px;font-weight:680;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);margin-bottom:10px;">{{ p.incLabel }}<\u002Fdiv>
+                <div style="display:flex;flex-direction:column;gap:9px;">
+                  <sc-for list="{{ p.features }}" as="f" hint-placeholder-count="4">
+                    <div style="display:flex;align-items:center;gap:8px;"><span style="{{ p.checkStyle }}"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"><\u002Fpath><\u002Fsvg><\u002Fspan><span style="{{ p.featStyle }}">{{ f.label }}<\u002Fspan><\u002Fdiv>
+                  <\u002Fsc-for>
+                <\u002Fdiv>
+                <div style="flex:1;min-height:14px;"><\u002Fdiv>
+                <button onclick="{{ p.onCta }}" style="{{ p.ctaStyle }}">{{ p.ctaLabel }}<sc-if value="{{ p.ctaArrow }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M9 7h8v8"><\u002Fpath><\u002Fsvg><\u002Fsc-if><\u002Fbutton>
+              <\u002Fdiv>
+            <\u002Fsc-for>
+          <\u002Fdiv>
+        <\u002Fdiv>
+
+        <!-- ===== Carousel controls ===== -->
+        <div style="display:flex;align-items:center;justify-content:center;gap:12px;margin-top:15px;">
+          <button onclick="{{ carPrev }}" title="Previous" style="{{ carPrevStyle }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"><\u002Fpath><\u002Fsvg><\u002Fbutton>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <sc-for list="{{ carDots }}" as="d" hint-placeholder-count="3">
+              <button onclick="{{ d.go }}" title="Go to plan" style="{{ d.style }}"><\u002Fbutton>
+            <\u002Fsc-for>
+          <\u002Fdiv>
+          <button onclick="{{ carNext }}" title="Next" style="{{ carNextStyle }}"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"><\u002Fpath><\u002Fsvg><\u002Fbutton>
+        <\u002Fdiv>
+
+        <div style="display:flex;align-items:center;justify-content:center;margin-top:14px;">
+          <button onclick="{{ seePlans }}" style="border:0;background:transparent;color:var(--text2);font-family:inherit;font-size:11.5px;font-weight:550;cursor:pointer;padding:3px 2px;white-space:nowrap;" style-hover="color:var(--text);">See all plans<\u002Fbutton>
+        <\u002Fdiv>
+      <\u002Fdiv>
+    <\u002Fsc-if>
+
+    <!-- ===== MACRO: general feedback form (bottom sheet) ===== -->
+    <sc-if value="{{ macroFormOpen }}" hint-placeholder-val="{{ false }}">
+      <div onclick="{{ closeMacroForm }}" style="position:absolute;inset:0;background:rgba(6,10,18,.5);z-index:12;animation:fadeIn .18s ease forwards;"><\u002Fdiv>
+      <div style="position:absolute;left:0;right:0;bottom:0;z-index:13;background:var(--menu);border-top:1px solid var(--hair2);border-radius:18px 18px 16px 16px;box-shadow:0 -18px 50px rgba(6,10,18,.32);padding:15px 15px 14px;max-height:calc(100% - 8px);overflow-y:auto;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1) forwards;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:13px;">
+          <span style="font-size:15px;font-weight:720;letter-spacing:-.015em;">{{ macroFormTitle }}<\u002Fspan>
+          <button onclick="{{ closeMacroForm }}" title="Close" style="width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;margin:-2px -2px 0 0;" style-hover="background:var(--hover);color:var(--text2);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"><\u002Fpath><\u002Fsvg><\u002Fbutton>
+        <\u002Fdiv>
+
+        <sc-if value="{{ macroSubmitted }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:11px;padding:18px 10px 22px;">
+            <div style="font-size:14px;font-weight:680;letter-spacing:-.01em;">Thanks for letting us know<\u002Fdiv>
+            <div style="font-size:12px;color:var(--text2);line-height:1.5;max-width:250px;">Your report was sent to the BINA team with the current model context attached.<\u002Fdiv>
+            <button onclick="{{ closeMacroForm }}" style="margin-top:4px;padding:9px 20px;border:0;border-radius:10px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:12.5px;font-weight:640;cursor:pointer;" style-hover="filter:brightness(1.07);">Done<\u002Fbutton>
+          <\u002Fdiv>
+        <\u002Fsc-if>
+
+        <sc-if value="{{ macroFormActive }}" hint-placeholder-val="{{ true }}">
+          <div>
+            <div style="font-size:10.5px;font-weight:680;letter-spacing:.04em;text-transform:uppercase;color:var(--text3);margin-bottom:8px;">Type<\u002Fdiv>
+            <div style="display:flex;gap:6px;margin-bottom:14px;">
+              <sc-for list="{{ macroTypes }}" as="t" hint-placeholder-count="3">
+                <button onclick="{{ t.pick }}" style="{{ t.style }}">{{ t.label }}<\u002Fbutton>
+              <\u002Fsc-for>
+            <\u002Fdiv>
+            <div style="font-size:10.5px;font-weight:680;letter-spacing:.04em;text-transform:uppercase;color:var(--text3);margin-bottom:8px;">Details<\u002Fdiv>
+            <textarea onchange="{{ setMacroText }}" value="{{ macroText }}" rows="4" placeholder="Describe what happened or what you'd like to see…" style="width:100%;border:1px solid var(--hair);border-radius:10px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px;line-height:1.55;padding:10px 11px;resize:none;outline:none;box-sizing:border-box;" style-focus="border-color:var(--accent);"><\u002Ftextarea>
+            <div style="display:flex;align-items:center;gap:7px;margin-top:11px;padding:9px 11px;border-radius:10px;background:var(--sunken);">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);flex:none;"><rect x="3" y="3" width="18" height="18" rx="2.5"><\u002Frect><circle cx="8.5" cy="8.5" r="1.6"><\u002Fcircle><path d="m21 15-5-5L5 21"><\u002Fpath><\u002Fsvg>
+              <span style="font-size:10.5px;color:var(--text3);line-height:1.4;overflow:hidden;text-overflow:ellipsis;">{{ macroContextLabel }}<\u002Fspan>
+            <\u002Fdiv>
+            <button onclick="{{ submitMacroForm }}" style="width:100%;height:40px;margin-top:13px;border:0;border-radius:10px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:13px;font-weight:660;letter-spacing:-.01em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;" style-hover="filter:brightness(1.07);"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4Z"><\u002Fpath><\u002Fsvg>Submit<\u002Fbutton>
+          <\u002Fdiv>
+        <\u002Fsc-if>
+      <\u002Fdiv>
+    <\u002Fsc-if>
+
+    <!-- ===== Star rating sheet ===== -->
+    <sc-if value="{{ ratingOpen }}" hint-placeholder-val="{{ false }}">
+      <div onclick="{{ closeRating }}" style="position:absolute;inset:0;background:rgba(6,10,18,.5);z-index:12;animation:fadeIn .18s ease forwards;"><\u002Fdiv>
+      <div style="position:absolute;left:0;right:0;bottom:0;z-index:13;background:var(--menu);border-top:1px solid var(--hair2);border-radius:18px 18px 16px 16px;box-shadow:0 -18px 50px rgba(6,10,18,.32);padding:15px 15px 16px;max-height:calc(100% - 8px);overflow-y:auto;animation:sheetUp .24s cubic-bezier(.2,.8,.2,1) forwards;">
+        <div style="display:flex;align-items:flex-start;justify-content:flex-end;">
+          <button onclick="{{ closeRating }}" title="Close" style="width:28px;height:28px;border:0;border-radius:8px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;margin:-2px -2px 0 0;" style-hover="background:var(--hover);color:var(--text2);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"><\u002Fpath><\u002Fsvg><\u002Fbutton>
+        <\u002Fdiv>
+
+        <sc-if value="{{ ratingSubmitted }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;flex-direction:column;align-items:center;text-align:center;gap:11px;padding:6px 10px 20px;">
+            <div style="font-size:14.5px;font-weight:700;letter-spacing:-.01em;">Thanks for the feedback<\u002Fdiv>
+            <div style="font-size:12px;color:var(--text2);line-height:1.5;max-width:250px;">Your rating helps us make Copilot better.<\u002Fdiv>
+            <button onclick="{{ closeRating }}" style="margin-top:4px;padding:9px 22px;border:0;border-radius:10px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:12.5px;font-weight:640;cursor:pointer;" style-hover="filter:brightness(1.07);">Done<\u002Fbutton>
+          <\u002Fdiv>
+        <\u002Fsc-if>
+
+        <sc-if value="{{ ratingActive }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;flex-direction:column;align-items:center;text-align:center;margin-top:-2px;">
+            <div style="font-size:15.5px;font-weight:720;letter-spacing:-.015em;">How's Copilot working for you?<\u002Fdiv>
+            <div style="font-size:12px;color:var(--text2);margin-top:5px;">Your rating helps us improve.<\u002Fdiv>
+
+            <div onmouseleave="{{ clearRatingHover }}" style="display:flex;align-items:center;gap:6px;margin-top:18px;">
+              <svg width="0" height="0" style="position:absolute;"><defs><linearGradient id="gstarGold" x1="4" y1="2" x2="20" y2="22" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#FFE07A"><\u002Fstop><stop offset=".5" stop-color="#FBB72B"><\u002Fstop><stop offset="1" stop-color="#E8941A"><\u002Fstop><\u002FlinearGradient><\u002Fdefs><\u002Fsvg>
+              <sc-for list="{{ ratingStars }}" as="s" hint-placeholder-count="5">
+                <button onmouseenter="{{ s.enter }}" onclick="{{ s.click }}" style="background:none;border:0;padding:2px;cursor:pointer;display:flex;transition:transform .12s ease;{{ s.anim }}{{ s.shine }}" style-hover="transform:scale(1.18);">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="{{ s.fill }}" stroke="{{ s.stroke }}" stroke-width="1.5" stroke-linejoin="round"><path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1Z"><\u002Fpath><\u002Fsvg>
+                <\u002Fbutton>
+              <\u002Fsc-for>
+            <\u002Fdiv>
+
+            <sc-if value="{{ ratingHasReaction }}" hint-placeholder-val="{{ false }}">
+              <div style="font-size:13px;font-weight:660;color:#E0941A;margin-top:11px;height:18px;animation:fadeIn .2s ease forwards;">{{ ratingReaction }}<\u002Fdiv>
+            <\u002Fsc-if>
+            <sc-if value="{{ ratingNoReaction }}" hint-placeholder-val="{{ true }}">
+              <div style="height:18px;margin-top:11px;"><\u002Fdiv>
+            <\u002Fsc-if>
+
+            <textarea onchange="{{ setRatingNote }}" value="{{ ratingNote }}" rows="3" placeholder="What worked well, or what could be better?" style="width:100%;margin-top:14px;border:1px solid var(--hair);border-radius:10px;background:var(--bg);color:var(--text);font-family:inherit;font-size:12.5px;line-height:1.55;padding:10px 11px;resize:none;outline:none;box-sizing:border-box;text-align:left;" style-focus="border-color:var(--accent);"><\u002Ftextarea>
+
+            <div style="display:flex;align-items:center;gap:7px;margin-top:11px;padding:9px 11px;border-radius:10px;background:var(--sunken);width:100%;box-sizing:border-box;">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);flex:none;"><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2Z"><\u002Fpath><path d="M9 21h6M10 17v4M14 17v4"><\u002Fpath><\u002Fsvg>
+              <span style="font-size:10.5px;color:var(--text3);line-height:1.4;">{{ ratingContextLabel }}<\u002Fspan>
+            <\u002Fdiv>
+
+            <button onclick="{{ submitRating }}" disabled="{{ ratingSubmitDisabled }}" style="{{ ratingSubmitStyle }}" style-hover="filter:brightness(1.07);">Submit rating<\u002Fbutton>
+          <\u002Fdiv>
+        <\u002Fsc-if>
+      <\u002Fdiv>
+    <\u002Fsc-if>
+
+    <!-- ===== Composer ===== -->
+    <sc-if value="{{ showComposer }}" hint-placeholder-val="{{ true }}">
+      <div style="flex:none;padding:12px 14px 11px;border-top:1px solid var(--hair);position:relative;">
+
+        <sc-if value="{{ showMention }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;left:14px;right:14px;bottom:calc(100% - 2px);background:var(--menu);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:6px;z-index:6;animation:menuPop .16s .02s ease forwards;">
+            <div style="font-size:10px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text3);padding:5px 8px 6px;">Reference<\u002Fdiv>
+            <sc-for list="{{ mentionItems }}" as="m" hint-placeholder-count="4">
+              <button onclick="{{ m.pick }}" style="display:flex;align-items:center;gap:9px;width:100%;padding:8px 9px;border:0;border-radius:8px;background:transparent;text-align:left;cursor:pointer;color:var(--text);" style-hover="background:var(--hover);">
+                <span style="width:22px;height:22px;border-radius:6px;background:var(--sunken);color:var(--accent);display:flex;align-items:center;justify-content:center;flex:none;font-size:12px;font-weight:700;">@<\u002Fspan>
+                <span style="flex:1;font-size:12.5px;font-weight:550;">{{ m.label }}<\u002Fspan>
+                <span style="font-size:10px;color:var(--text3);">{{ m.type }}<\u002Fspan>
+              <\u002Fbutton>
+            <\u002Fsc-for>
+          <\u002Fdiv>
+        <\u002Fsc-if>
+        <div style="display:flex;align-items:flex-end;gap:8px;background:var(--sunken);border-radius:13px;padding:8px 8px 8px 13px;">
+          <textarea id="bina-input" rows="1" value="{{ input }}" onchange="{{ onInput }}" onkeydown="{{ onKey }}" placeholder="Ask Copilot…" style="flex:1;border:0;outline:none;resize:none;background:transparent;color:var(--text);font-size:13px;line-height:1.5;font-family:inherit;max-height:96px;padding:4px 0;"><\u002Ftextarea>
+          <button onclick="{{ atBtn }}" title="Mention" style="width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--text2);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:var(--hover);color:var(--accent);">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"><\u002Fpath><circle cx="12" cy="12" r="4"><\u002Fcircle><\u002Fsvg>
+          <\u002Fbutton>
+          <sc-if value="{{ showSendLoading }}" hint-placeholder-val="{{ false }}">
+            <button onclick="{{ stopGen }}" title="Stop generating" style="width:32px;height:32px;border:0;border-radius:9px;background:var(--accent-grad);color:var(--accent-contrast);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;box-shadow:0 2px 6px rgba(37,99,235,.4);" style-hover="filter:brightness(1.07);"><svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="5" y="5" width="14" height="14" rx="3.5"><\u002Frect><\u002Fsvg><\u002Fbutton>
+          <\u002Fsc-if>
+          <sc-if value="{{ showSendActive }}" hint-placeholder-val="{{ false }}">
+            <button onclick="{{ sendBtn }}" style="width:32px;height:32px;border:0;border-radius:9px;background:var(--accent-grad);color:var(--accent-contrast);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="filter:brightness(1.07);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"><\u002Fpath><\u002Fsvg><\u002Fbutton>
+          <\u002Fsc-if>
+          <sc-if value="{{ showSendIdle }}" hint-placeholder-val="{{ true }}">
+            <span style="width:32px;height:32px;border-radius:9px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"><\u002Fpath><\u002Fsvg><\u002Fspan>
+          <\u002Fsc-if>
+        <\u002Fdiv>
+        <sc-if value="{{ showFooterMeter }}" hint-placeholder-val="{{ false }}">
+          <div style="position:relative;">
+            <button onclick="{{ toggleUsage }}" style="display:flex;align-items:center;gap:9px;width:100%;padding:9px 4px 3px;border:0;background:transparent;cursor:pointer;color:var(--text);" style-hover="opacity:.82;">
+              <span style="font-size:10.5px;font-weight:600;color:var(--text2);flex:none;white-space:nowrap;">{{ planName }}<\u002Fspan>
+              <span style="flex:1;height:4px;border-radius:99px;background:var(--hair);overflow:hidden;"><span style="display:block;height:100%;width:{{ usageWidth }};background:{{ meterColor }};border-radius:99px;"><\u002Fspan><\u002Fspan>
+              <span style="font-size:10.5px;font-weight:680;color:var(--text2);flex:none;letter-spacing:-.01em;">{{ usagePct }}%<\u002Fspan>
+            <\u002Fbutton>
+            <sc-if value="{{ showFooterUsagePop }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:0;right:0;bottom:calc(100% + 8px);background:var(--menu);border:1px solid var(--hair);border-radius:13px;box-shadow:var(--shadow);padding:15px 15px 14px;z-index:9;animation:menuPop .16s ease forwards;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                  <span style="font-size:13px;font-weight:680;letter-spacing:-.01em;">{{ planName }}<\u002Fspan>
+                <\u002Fdiv>
+                <div style="font-size:10.5px;color:var(--text3);margin-top:2px;">Plan usage<\u002Fdiv>
+                <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:13px;margin-bottom:7px;">
+                  <span style="font-size:11px;color:var(--text2);">Usage<\u002Fspan>
+                  <span style="font-size:11.5px;font-weight:700;color:var(--text);white-space:nowrap;">{{ usagePct }}% used<\u002Fspan>
+                <\u002Fdiv>
+                <div style="height:6px;border-radius:99px;background:var(--hair);overflow:hidden;"><div style="height:100%;width:{{ usageWidth }};background:{{ meterColor }};border-radius:99px;"><\u002Fdiv><\u002Fdiv>
+                <button onclick="{{ openUpgrade }}" style="width:100%;height:32px;margin-top:13px;border:0;border-radius:9px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:11.5px;font-weight:640;letter-spacing:-.01em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;" style-hover="filter:brightness(1.07);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"><\u002Fpath><\u002Fsvg>Upgrade plan<\u002Fbutton>
+                <\u002Fdiv>
+            <\u002Fsc-if>
+          <\u002Fdiv>
+        <\u002Fsc-if>
+        <div style="text-align:center;font-size:10px;color:var(--text3);padding:8px 0 1px;">Type <b style="color:var(--text2);">@<\u002Fb> to reference a level, category, view, or selection<\u002Fdiv>
+      <\u002Fdiv>
+    <\u002Fsc-if>
+
+  <\u002Fdiv>
+<\u002Fdiv>
+<\u002Fx-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:420,&quot;height&quot;:780},&quot;defaultTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#1d4ed8&quot;,&quot;options&quot;:[&quot;#2563eb&quot;,&quot;#1d4ed8&quot;,&quot;#3b82f6&quot;,&quot;#0ea5e9&quot;,&quot;#0284c7&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;userBubble&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;gradient&quot;,&quot;gray&quot;],&quot;default&quot;:&quot;gray&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;plan&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;free&quot;,&quot;pro&quot;],&quot;default&quot;:&quot;pro&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Plan&quot;},&quot;meterPlacement&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;header&quot;,&quot;footer&quot;],&quot;default&quot;:&quot;footer&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Usage meter&quot;},&quot;usage&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:88,&quot;min&quot;:0,&quot;max&quot;:100,&quot;step&quot;:1,&quot;unit&quot;:&quot;%&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Usage meter&quot;},&quot;atLimit&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Limit &amp;amp; upgrade&quot;}}">

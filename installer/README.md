@@ -39,14 +39,50 @@ EV code-signing cert from DigiCert / Sectigo — ~$300/yr, ~1 week procurement
 (MY procurement may need attestation). Without it the install still works but
 Windows SmartScreen shows an "unknown publisher" warning.
 
+## Build with the engine bundle
+
+> The sections above describe an older WiX/MSI build. The installer is
+> actually built today by `RevitCopilot.iss` via Inno Setup (see
+> `build-installer.ps1`), producing `RevitCopilot-<ver>-setup.exe`, not an
+> `.msi`. Kept above for reference; the commands below are the current ones.
+
+The addin can spawn a colocated Copilot Engine (bina-ai's `app/engine`,
+packaged by bina-ai's `scripts/build-engine-bundle.ps1` into
+`dist/bina-engine-<ver>.zip`). Pass the zip to seed it alongside the addin:
+
+```powershell
+installer\build-installer.ps1 -Version 0.0.8 -EngineZip dist\bina-engine-1.0.0.zip
+```
+
+Omit `-EngineZip` and the installer ships addin-only — byte-identical output
+to a build without this flag.
+
+## Sign (current build script)
+
+`build-installer.ps1` signs both the setup EXE and the embedded uninstaller
+in one pass via Inno Setup's native `SignTool` mechanism. Cert material is
+never committed — pass it as a parameter or an env var:
+
+```powershell
+# cert-store thumbprint
+installer\build-installer.ps1 -Version 0.0.8 -SignCert <cert-thumbprint>
+
+# PFX file + password
+installer\build-installer.ps1 -Version 0.0.8 -SignCert C:\path\cert.pfx -SignPassword <pw>
+
+# keep the password off the command line entirely (e.g. a CI secret):
+$env:SIGNTOOL_ARGS = '/f C:\path\cert.pfx /p <pw> /fd SHA256 /tr http://timestamp.digicert.com /td SHA256'
+installer\build-installer.ps1 -Version 0.0.8
+```
+
 ## Install
 
 ```powershell
-# Per-user, no admin (drafter double-clicks the .msi, or:)
-msiexec /i RevitCopilot.msi
+# Per-user, no admin (drafter double-clicks the setup exe, or:)
+RevitCopilot-<ver>-setup.exe
 
 # Silent (enterprise IT push)
-msiexec /i RevitCopilot.msi /qn
+RevitCopilot-<ver>-setup.exe /VERYSILENT
 ```
 
 ## Done

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
+using System.Security.Cryptography;
 using Newtonsoft.Json;
 
 namespace RevitWebAppSync
@@ -43,22 +44,83 @@ namespace RevitWebAppSync
         // bina-ai backend during development). Default false = unchanged behavior.
         public bool AllowNgrokAIBaseUrl { get; set; }
 
+        // UAT opt-in: by default a config.json override pointing at one of OUR
+        // *.azurewebsites.net hosts follows the embedded .env (that is how the
+        // fleet migrates across backend cutovers). Set this true in config.json
+        // to deliberately steer THIS machine at a specific backend (e.g. a
+        // Release build against staging during UAT). Default false = env wins.
+        public bool AllowBackendOverride { get; set; }
+
         // OTA update feed (version.json). Empty default = updater disabled
         // until a host is chosen; overridable via config.json like the URLs
         // above, so enabling updates later needs no rebuild.
         public string UpdateFeedUrl { get; set; }
+
+        // BINA Copilot Engine mode: the agent loop runs as a LOCAL process
+        // (bina-ai's app/engine) that calls back into this add-in's local tool
+        // server over 127.0.0.1. When true, App.cs starts McpServer (the local
+        // tool server) and does NOT start the cloud WSS tunnel. Off by default
+        // = cloud ping-pong transport, unchanged. Set in config.json.
+        public bool EngineMode { get; set; }
+
+        // Port this add-in's local tool server listens on in Engine mode. The
+        // HttpListener prefix stays "localhost" (Windows non-admin URL-ACL
+        // rule — an explicit 127.0.0.1 prefix needs netsh urlacl/elevation).
+        public int EnginePort { get; set; } = 48820;
+
+        // Shared loopback secret; every /mcp/tools request must present it in
+        // the X-Bina-Secret header. Interim channel (Phases 1-3): the engine
+        // process and this add-in both read the same value from their configs.
+        // Phase 4 replaces this with a per-boot spawn secret.
+        public string EngineSecret { get; set; }
+
+        // Phase 4: when true, the add-in auto-spawns the packaged engine
+        // (bina-engine.exe) via EngineManager and hands it the secret + port.
+        // When false (default), the engine is started manually (the Phase 1-3
+        // UAT flow). Opt-in so manual-start validation is never broken.
+        public bool EngineAutoSpawn { get; set; }
+
+        // Port the engine's own HTTP API (the pane's turn endpoint) listens on
+        // — must match AIBaseUrl's port. EngineManager spawns the engine here.
+        // Distinct from EnginePort (this add-in's local tool server).
+        public int EngineHostPort { get; set; } = 48810;
+
+        // Colocate deployment pipeline (Task 4 wires the device-pairing flow
+        // that populates these): the cloud gateway's base URL and this
+        // device's bearer token, handed to the local engine process via
+        // BINA_GATEWAY_URL / BINA_ENGINE_TOKEN env vars (EngineManager).
+        // Nullable/plain — no other behavior; whichever task lands first
+        // carries them, do not duplicate.
+        public string GatewayUrl { get; set; }
+        public string DeviceToken { get; set; }
+        // Unix epoch SECONDS the DeviceToken expires at (from the gateway's
+        // expires_at). Nullable: absent on configs whose token was minted
+        // before expiry persistence landed. BrowserLoginCommand re-mints when
+        // this is within 3 days of now (proactive refresh, no scheduler).
+        public long? DeviceTokenExpiresAt { get; set; }
 
         // Full sign-in endpoint. Defaults to BASE_URL/api/auth/user/sign-in, but
         // can be pinned independently via the LOGIN_URL env key or config.json
         // (e.g. auth split onto its own host).
         public string LoginUrl { get; set; }
 
+        // Zero-config release (setup exe -> Login -> works, no hand-edited
+        // config.json): stamped the first time ApplyDefaults() runs so it
+        // never re-runs on subsequent Load() calls. Nullable, not a bool —
+        // Newtonsoft can't tell "absent from JSON" from "explicitly false"
+        // for a plain bool, which would make an idempotence/overwrite gate
+        // built on a bool ambiguous on configs written before this field
+        // existed. A null DateTime is unambiguous either way (missing key
+        // deserializes to null, same as an explicit `null` in the file), so
+        // it doubles as both the one-time gate AND an audit timestamp.
+        public DateTime? AutoConfiguredAt { get; set; }
+
         // Defaults now come from the embedded .env (.env.local on Debug,
         // .env.production on Release). The string literals below are last-resort
         // fallbacks if the key is missing from the env file. API + AI + login all
         // share BASE_URL — they're the same host. config.json still overrides.
         public static string DEFAULT_AI_BASE_URL =>
-            Env("BASE_URL") ?? "https://bina-ai-staging.azurewebsites.net";
+            Env("BASE_URL") ?? "https://bina-ai-prod.azurewebsites.net";
         public static string DEFAULT_API_BASE_URL => DEFAULT_AI_BASE_URL;
         // BINA web login origin for the desktop OAuth browser flow. Override via
         // the LOGIN_WEB_URL env key or config.json once the real origin is known.
@@ -90,6 +152,8 @@ namespace RevitWebAppSync
         {
 #if DEBUG
             const string resource = "env.local";
+#elif STAGING
+            const string resource = "env.staging";
 #else
             const string resource = "env.production";
 #endif
@@ -117,45 +181,54 @@ namespace RevitWebAppSync
             return map;
         }
 
+        // --- Env-first resolution -------------------------------------------
+        // Rules live in Services/UrlResolution.cs (pure, unit-tested): a
+        // persisted override pointing at one of OUR *.azurewebsites.net hosts
+        // follows the embedded .env; only genuinely custom values (self-
+        // hosted, dev tunnel, localhost engine) are honored from config.json.
+        // This is what moves an already-configured fleet across a backend
+        // cutover with nothing but a new build.
+
         [JsonIgnore]
-        public string ResolvedAIBaseUrl
-        {
-            // Ignore stale ngrok overrides left in config.json — the addin now
-            // targets the cloud (DEFAULT_AI_BASE_URL = staging). A leftover ngrok
-            // AIBaseUrl points at a dead local tunnel (HTTP 502 / ERR_NGROK_8012),
-            // so by default we honor only a real, non-ngrok custom override.
-            // Devs can opt in to a live ngrok tunnel via AllowNgrokAIBaseUrl=true.
-            get
-            {
-                if (string.IsNullOrWhiteSpace(AIBaseUrl)) return DEFAULT_AI_BASE_URL;
-                bool isNgrok = AIBaseUrl.IndexOf("ngrok", StringComparison.OrdinalIgnoreCase) >= 0;
-                if (isNgrok && !AllowNgrokAIBaseUrl) return DEFAULT_AI_BASE_URL;
-                return AIBaseUrl;
-            }
-        }
+        public string ResolvedAIBaseUrl =>
+            Services.UrlResolution.ResolveAIBase(
+                AIBaseUrl, AllowNgrokAIBaseUrl, DEFAULT_AI_BASE_URL,
+                AllowBackendOverride);
+
+        // Gateway base the engine + device-token flows must use. Empty stays
+        // empty (gateway features are gated on it being configured at all).
+        [JsonIgnore]
+        public string ResolvedGatewayUrl =>
+            Services.UrlResolution.ResolveGateway(
+                GatewayUrl, DEFAULT_AI_BASE_URL, AllowBackendOverride);
+
+        [JsonIgnore]
+        public string ResolvedCloudBaseUrl =>
+            // The CLOUD bina-ai host, for features the local engine does not
+            // serve. In engine mode AIBaseUrl points at the LOCAL engine
+            // (localhost:48810), which mounts ONLY the tool loop + feedback —
+            // auth (PKCE 404, first zero-config UAT 2026-07-13), JKR/fire
+            // compliance ("Scan failed: NotFound", same day), cost analysis
+            // and /credits/balance all live cloud-side only.
+            Services.UrlResolution.ResolveCloudBase(
+                ResolvedGatewayUrl, ResolvedAIBaseUrl, DEFAULT_AI_BASE_URL);
+
+        // Token-issuing base (login page api= param, /auth/*). Named alias so
+        // auth call sites read as auth; it IS the cloud base.
+        [JsonIgnore]
+        public string ResolvedAuthBaseUrl => ResolvedCloudBaseUrl;
 
         [JsonIgnore]
         public string ResolvedApiBaseUrl =>
-            !string.IsNullOrWhiteSpace(ApiBaseUrl) ? ApiBaseUrl : DEFAULT_API_BASE_URL;
+            Services.UrlResolution.ResolveApiBase(
+                ApiBaseUrl, DEFAULT_API_BASE_URL, AllowBackendOverride);
 
+        // Login must open the real web origin (plugins.jkrbinaxone.com),
+        // never a dead local page left by dev testing.
         [JsonIgnore]
-        public string ResolvedLoginWebUrl
-        {
-            // Ignore stale localhost/loopback overrides left in config.json from dev
-            // testing — login must open the real web origin (plugins.jkrbinaxone.com),
-            // never a dead local page. A leftover "http://localhost:..." LoginWebUrl
-            // would otherwise hijack the browser sign-in. Honor only a real,
-            // non-loopback custom override.
-            get
-            {
-                if (string.IsNullOrWhiteSpace(LoginWebUrl)) return DEFAULT_LOGIN_WEB_URL;
-                bool isLoopback =
-                    LoginWebUrl.IndexOf("localhost", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    LoginWebUrl.IndexOf("127.0.0.1", StringComparison.OrdinalIgnoreCase) >= 0;
-                if (isLoopback) return DEFAULT_LOGIN_WEB_URL;
-                return LoginWebUrl;
-            }
-        }
+        public string ResolvedLoginWebUrl =>
+            Services.UrlResolution.ResolveLoginWeb(
+                LoginWebUrl, DEFAULT_LOGIN_WEB_URL, AllowBackendOverride);
 
         [JsonIgnore]
         public string ResolvedLoginWebPath =>
@@ -163,7 +236,8 @@ namespace RevitWebAppSync
 
         [JsonIgnore]
         public string ResolvedUpdateFeedUrl =>
-            !string.IsNullOrWhiteSpace(UpdateFeedUrl) ? UpdateFeedUrl : DEFAULT_UPDATE_FEED_URL;
+            Services.UrlResolution.ResolveUpdateFeed(
+                UpdateFeedUrl, DEFAULT_UPDATE_FEED_URL, AllowBackendOverride);
 
         // Sign-in URL. config.json LoginUrl > LOGIN_URL env > base + default path.
         [JsonIgnore]
@@ -180,19 +254,131 @@ namespace RevitWebAppSync
 
         public static BinaConfig Load()
         {
+            BinaConfig cfg = null;
             try
             {
                 if (File.Exists(ConfigPath))
                 {
                     string json = File.ReadAllText(ConfigPath);
-                    return JsonConvert.DeserializeObject<BinaConfig>(json);
+                    cfg = JsonConvert.DeserializeObject<BinaConfig>(json);
                 }
             }
             catch (Exception ex)
             {
             }
 
-            return new BinaConfig();
+            cfg = cfg ?? new BinaConfig();
+
+            // Zero-config release: fill blank/absent values ONCE (see
+            // ApplyDefaults' own doc comment for the exact rules + the
+            // one-time gate). Runs for both a brand-new config.json (fresh
+            // install) and a pre-existing one that predates this field.
+            cfg.ApplyDefaults();
+
+            return cfg;
+        }
+
+        /// <summary>
+        /// Zero-config first-run self-configuration (drafter runs the setup
+        /// exe -> opens Revit -> clicks Login -> everything works, no hand
+        /// edits to config.json). Fills ONLY blank/absent values and never
+        /// touches anything the user (or a prior run) already set — see
+        /// AutoConfiguredAt's doc comment for why the gate is a nullable
+        /// timestamp rather than a bool. Saves at most once per config file.
+        /// </summary>
+        private void ApplyDefaults()
+        {
+            if (AutoConfiguredAt.HasValue) return;   // already ran once — never re-run
+
+            if (string.IsNullOrWhiteSpace(EngineSecret))
+            {
+                EngineSecret = GenerateEngineSecret();
+            }
+
+            if (EngineHostPort <= 0)
+            {
+                EngineHostPort = 48810;
+            }
+
+            if (string.IsNullOrWhiteSpace(GatewayUrl))
+            {
+                var fromDefaultsFile = ReadGatewayUrlFromDefaultsFile();
+                if (!string.IsNullOrWhiteSpace(fromDefaultsFile))
+                {
+                    GatewayUrl = fromDefaultsFile;
+                }
+            }
+
+            // Auto-enable Engine mode ONLY when BOTH an engine bundle is
+            // actually installed on disk AND a gateway is configured (just
+            // resolved above, either from a prior manual config.json or from
+            // the installer's bina-defaults.json). A cloud-only install (no
+            // engine bundle shipped) must never flip these — EngineMode stays
+            // false and the addin behaves exactly as it does today.
+            if (!EngineMode &&
+                !string.IsNullOrWhiteSpace(GatewayUrl) &&
+                !string.IsNullOrEmpty(Services.EngineManager.NewestEngineLauncher()))
+            {
+                EngineMode = true;
+                EngineAutoSpawn = true;
+            }
+
+            // Once Engine mode is on, AI calls must target the local engine,
+            // not the cloud. Only steer AIBaseUrl away from blank or an
+            // obvious cloud default (bina.cloud / any https:// URL) — a
+            // custom localhost value a developer already set is left alone.
+            if (EngineMode && IsBlankOrCloudDefault(AIBaseUrl))
+            {
+                AIBaseUrl = "http://localhost:" + EngineHostPort;
+            }
+
+            AutoConfiguredAt = DateTime.UtcNow;
+            Save();
+        }
+
+        private static bool IsBlankOrCloudDefault(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url)) return true;
+            if (url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return true;
+            if (url.IndexOf("bina.cloud", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+            return false;
+        }
+
+        private static string GenerateEngineSecret()
+        {
+            // 32 random hex chars (16 bytes) — matches the shared-secret
+            // shape EngineManager/McpServer already validate elsewhere.
+#if NETFRAMEWORK
+            var bytes = new byte[16];
+            using (var rng = RandomNumberGenerator.Create()) rng.GetBytes(bytes);
+#else
+            var bytes = RandomNumberGenerator.GetBytes(16);
+#endif
+            return Services.RuntimeCompat.ToHexString(bytes).ToLowerInvariant();
+        }
+
+        // Installer-carried default (build-installer.ps1 -GatewayUrl writes
+        // this file next to the addin DLLs; see installer/RevitCopilot.iss).
+        // Read from the EXECUTING assembly's own directory so it tracks
+        // whichever version the OTA updater staged, not a hardcoded path.
+        // Tolerates a missing file or bad JSON — silently no-ops either way.
+        private static string ReadGatewayUrlFromDefaultsFile()
+        {
+            try
+            {
+                var asmDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                if (string.IsNullOrEmpty(asmDir)) return null;
+
+                var path = Path.Combine(asmDir, "bina-defaults.json");
+                if (!File.Exists(path)) return null;
+
+                var json = File.ReadAllText(path);
+                var map = JsonConvert.DeserializeObject<Dictionary<string, string>>(json);
+                if (map != null && map.TryGetValue("GatewayUrl", out var v) && !string.IsNullOrWhiteSpace(v))
+                    return v;
+            }
+            catch { /* missing/bad defaults file is never fatal */ }
+            return null;
         }
 
         public void Save()

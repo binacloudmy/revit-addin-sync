@@ -32,12 +32,26 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     public class IssueVm : INotifyPropertyChanged
     {
         public string Id { get; set; } = "";
+
+        /// <summary>Backend V2 check_id — keys the AI auto-fix round-trip.
+        /// Distinct from Id (addin-computed audit hash).</summary>
+        public string CheckId { get; set; } = "";
+
+        /// <summary>Backend V2 domain (element, project_setup, ...). Sent back
+        /// with AI auto-fix requests.</summary>
+        public string Domain { get; set; } = "";
+
+        /// <summary>Verbatim backend rule string (Title is the humanized copy).
+        /// Round-tripped with AI auto-fix requests so the backend can match the
+        /// rule exactly.</summary>
+        public string RawRule { get; set; } = "";
+
         public string Category { get; set; } = "";
         public string Title { get; set; } = "";
         public string Description { get; set; } = "";
 
         public ElementRef Element { get; set; } = new ElementRef();
-        public int RevitElementId { get; set; }
+        public long RevitElementId { get; set; }
         public string Required { get; set; } = "";
         public string Actual { get; set; } = "";
         public string Example { get; set; } = "";

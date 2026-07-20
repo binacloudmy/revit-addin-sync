@@ -27,6 +27,18 @@ namespace RevitWebAppSync.Services
             Timeout = TimeSpan.FromSeconds(90)
         };
 
+        // The dev/local bina-ai backend is multi-tenant and requires an
+        // X-Tenant-Id header on /agents/revit-ai/* and /credits/* (missing it →
+        // HTTP 400 / a "login required" 401); cloud staging ignores it. Send the
+        // per-machine tenant (vibe.json, default "default") on every call from the
+        // shared client — same value the MCP tunnel already forwards.
+        static AIService()
+        {
+            var tenant = BinaVibe.Policy.VibeFlags.Load().TenantId;
+            if (!string.IsNullOrEmpty(tenant))
+                _httpClient.DefaultRequestHeaders.Add("X-Tenant-Id", tenant);
+        }
+
         private readonly string _baseUrl;
 
         // AI Agent backend (ngrok tunnel to Mac running bina-ai FastAPI).
@@ -40,11 +52,11 @@ namespace RevitWebAppSync.Services
         }
 
         // ─── Cloud model-mirror seeding (Copilot "Indexing model…" flow) ──────
-        // These hit /vibe/* (not /agents/revit-ai), so they build the URL
+        // These hit /revit-copilot/* (not /agents/revit-ai), so they build the URL
         // directly instead of via AiUrl. Best-effort: any failure returns
         // null / swallows — reads just fall back to the tunnel.
 
-        /// <summary>GET /vibe/seed/status — is the cloud model mirror warm for
+        /// <summary>GET /revit-copilot/seed/status — is the cloud model mirror warm for
         /// this project? Drives the pane's "Indexing model…" indicator.</summary>
         public async Task<SeedStatus> GetSeedStatusAsync(
             int projectId, string accessToken, CancellationToken cancellationToken = default)
@@ -52,7 +64,7 @@ namespace RevitWebAppSync.Services
             try
             {
                 using var req = new HttpRequestMessage(
-                    HttpMethod.Get, $"{_baseUrl}/vibe/seed/status?project_id={projectId}");
+                    HttpMethod.Get, $"{_baseUrl}/revit-copilot/seed/status?project_id={projectId}");
                 if (!string.IsNullOrEmpty(accessToken))
                     req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
                 var resp = await _httpClient.SendAsync(req, cancellationToken);
@@ -63,7 +75,7 @@ namespace RevitWebAppSync.Services
             catch { return null; }
         }
 
-        /// <summary>POST /vibe/seed — kick off a background mirror seed. Idempotent
+        /// <summary>POST /revit-copilot/seed — kick off a background mirror seed. Idempotent
         /// server-side; returns immediately (the caller polls GetSeedStatusAsync).</summary>
         public async Task StartSeedAsync(
             int projectId, int userId, string accessToken, CancellationToken cancellationToken = default)
@@ -75,7 +87,7 @@ namespace RevitWebAppSync.Services
                     project_id = projectId.ToString(),
                     user_id = userId > 0 ? userId.ToString() : null,
                 });
-                using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/vibe/seed")
+                using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/revit-copilot/seed")
                 {
                     Content = new StringContent(payload, Encoding.UTF8, "application/json"),
                 };
@@ -86,7 +98,7 @@ namespace RevitWebAppSync.Services
             catch { /* best-effort; 409 = no tunnel / already seeding */ }
         }
 
-        /// <summary>Wire shape of GET /vibe/seed/status.</summary>
+        /// <summary>Wire shape of GET /revit-copilot/seed/status.</summary>
         public class SeedStatus
         {
             [JsonProperty("warm")] public bool Warm { get; set; }
@@ -149,7 +161,7 @@ namespace RevitWebAppSync.Services
                 }
 
                 // 429 — burst limit; the addin should back off and retry shortly.
-                if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                if ((int)response.StatusCode == 429) // TooManyRequests (member absent on net48)
                 {
                     return new AIResponse
                     {
@@ -420,7 +432,11 @@ namespace RevitWebAppSync.Services
         {
             try
             {
-                using var req = new HttpRequestMessage(HttpMethod.Get, $"{_baseUrl}/credits/balance");
+                // Cloud base, not _baseUrl: in engine mode _baseUrl is the local
+                // engine, which mounts no /credits route — this 404'd and the
+                // catch below silently blanked the quota display.
+                var creditsBase = BinaConfig.Load().ResolvedCloudBaseUrl;
+                using var req = new HttpRequestMessage(HttpMethod.Get, $"{creditsBase}/credits/balance");
                 if (!string.IsNullOrEmpty(accessToken))
                     req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
                 var resp = await _httpClient.SendAsync(req, cancellationToken);

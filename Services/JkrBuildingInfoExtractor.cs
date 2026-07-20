@@ -118,7 +118,7 @@ namespace RevitWebAppSync.Services
 
                 result.Elements.Add(new JkrElementData
                 {
-                    ElementId = (int)elem.Id.Value,
+                    ElementId = elem.Id.Value,
                     Category = category,
                     TypeName = typeName,
                     ElementName = elementName,
@@ -255,7 +255,11 @@ namespace RevitWebAppSync.Services
                     try
                     {
                         var gn = g?.Name ?? "";
-                        if (!string.IsNullOrEmpty(gn)) result.GridNames.Add(gn);
+                        if (!string.IsNullOrEmpty(gn))
+                        {
+                            result.GridNames.Add(gn);
+                            result.GridIds.Add(g.Id.Value);
+                        }
                     }
                     catch { /* one bad grid shouldn't drop the rest */ }
                 }
@@ -281,6 +285,7 @@ namespace RevitWebAppSync.Services
                         if (string.IsNullOrEmpty(lname)) continue;
                         result.LevelNames.Add(lname);
                         result.LevelElevations.Add(lvl.ProjectElevation * 0.3048);
+                        result.LevelIds.Add(lvl.Id.Value);
                     }
                     catch { /* one bad level shouldn't drop the rest */ }
                 }
@@ -393,8 +398,10 @@ namespace RevitWebAppSync.Services
         public double? BasePointN { get; set; }
         public double? BasePointElev { get; set; }
         public List<string> GridNames { get; set; } = new List<string>();
+        public List<long> GridIds { get; set; } = new List<long>();
         public List<string> LevelNames { get; set; } = new List<string>();
         public List<double> LevelElevations { get; set; } = new List<double>();
+        public List<long> LevelIds { get; set; } = new List<long>();
 
         public int TotalElements => Elements.Count;
         public int ElementsWithJkrParams => Elements.Count(e => e.Parameters.Count > 0);
@@ -423,6 +430,7 @@ namespace RevitWebAppSync.Services
                     BasePointN = BasePointN,
                     BasePointElev = BasePointElev,
                     GridNames = GridNames,
+                    GridIds = GridIds,
                 },
                 Model = new JkrModelMetadata
                 {
@@ -430,6 +438,7 @@ namespace RevitWebAppSync.Services
                     LinkedModelNames = LinkedModelNames,
                     Levels = LevelNames,
                     LevelElevations = LevelElevations,
+                    LevelIds = LevelIds,
                 },
                 Elements = Elements,
             };

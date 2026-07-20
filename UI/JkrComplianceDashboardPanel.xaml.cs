@@ -18,7 +18,7 @@ using RevitWebAppSync.UI.Jkr.ViewModels;
 
 namespace RevitWebAppSync.UI
 {
-    public partial class JkrComplianceDashboardPanel : Page
+    public partial class JkrComplianceDashboardPanel : UserControl
     {
         private UIApplication _uiApp;
         private readonly PanelVm _vm = new PanelVm();
@@ -41,6 +41,11 @@ namespace RevitWebAppSync.UI
         // same JkrRenameHandler path with values swapped, so it's symmetric and
         // appears in Revit's undo history as a single "JKR Reset" step.
         private readonly List<JkrFixAction> _appliedFixes = new List<JkrFixAction>();
+
+        // Snapshot of the last scan request — AI Fix reuses its project/model
+        // metadata and element data so the backend fixer sees exactly what the
+        // failing checks were computed from.
+        private JkrComplianceRequestV2 _lastScanRequest;
 
         // LOD level is selectable via the LOD ComboBox in the hero header.
         // Default is 300; user can change to 100/200/300/400/500 before scanning.
@@ -137,9 +142,15 @@ namespace RevitWebAppSync.UI
             HiPill.Count = _vm.HighOpen;
             MdPill.Count = _vm.MedOpen;
             LoPill.Count = _vm.LowOpen;
+            // Dim the non-selected severity pills when a severity filter is active.
+            var sev = _vm.ActiveSeverity;
+            HiPill.Opacity = (sev == null || sev == IssuePriority.High) ? 1.0 : 0.4;
+            MdPill.Opacity = (sev == null || sev == IssuePriority.Medium) ? 1.0 : 0.4;
+            LoPill.Opacity = (sev == null || sev == IssuePriority.Low) ? 1.0 : 0.4;
 
-            // Fix All badge count
-            var fc = _vm.FixableCount;
+            // Fix All badge count — deterministic fixes plus issues the AI fixer
+            // can attempt (Fix All fetches those from /jkr-autofix before the batch).
+            var fc = _vm.FixableCount + _vm.AiFixableCount;
             FixCountText.Text = fc.ToString();
             FixCountBadge.Visibility = fc > 0 ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
 
@@ -181,10 +192,47 @@ namespace RevitWebAppSync.UI
             {
                 EmptyState.Visibility = System.Windows.Visibility.Visible;
                 IssuesScroll.Visibility = System.Windows.Visibility.Collapsed;
-                EmptyIcon.Glyph = _vm.IsOpenTab ? "check" : "clipboard";
-                EmptyMessage.Text = _vm.IsOpenTab && _vm.ActiveCategory != null
-                    ? $"No open {_vm.ActiveCategory.ToLower()} issues — nice!"
-                    : _vm.IsOpenTab ? "All clear — no open issues." : "No resolved issues yet.";
+
+                // A zero-result list can mean "genuinely clean" OR "a filter zeroed it
+                // out" — those need different copy so the drafter isn't told the model
+                // is clean when it's really their search/severity/category chip hiding
+                // everything. Priority mirrors how Refresh() applies filters: tab first,
+                // then search, then severity, then category.
+                bool hasSearch = _vm.HasSearch;
+                bool hasSeverity = _vm.ActiveSeverity != null;
+                bool hasCategory = _vm.ActiveCategory != null;
+
+                if (!_vm.IsOpenTab)
+                {
+                    EmptyIcon.Glyph = "clipboard";
+                    EmptyMessage.Text = "No resolved issues yet.";
+                }
+                else if (hasSearch)
+                {
+                    EmptyIcon.Glyph = "search";
+                    EmptyMessage.Text = $"No open issues match \"{_vm.Search}\".";
+                }
+                else if (hasSeverity)
+                {
+                    EmptyIcon.Glyph = "search";
+                    EmptyMessage.Text = $"No open {_vm.ActiveSeverity} issues.";
+                }
+                else if (hasCategory)
+                {
+                    EmptyIcon.Glyph = "search";
+                    EmptyMessage.Text = $"No open {_vm.ActiveCategory.ToLower()} issues — nice!";
+                }
+                else
+                {
+                    EmptyIcon.Glyph = "check";
+                    EmptyMessage.Text = "All clear — no open issues.";
+                }
+
+                // "Clear filters" is only meaningful when a filter is actually
+                // responsible for the empty state.
+                EmptyClearFilters.Visibility = (hasSearch || hasSeverity || hasCategory)
+                    ? System.Windows.Visibility.Visible
+                    : System.Windows.Visibility.Collapsed;
             }
             else
             {
@@ -269,7 +317,13 @@ namespace RevitWebAppSync.UI
 
         private void Rescan_Click(object sender, RoutedEventArgs e) => _ = RunScanAsync();
 
-        private void FixAll_Click(object sender, RoutedEventArgs e)
+        // Severity filter — clicking a High/Med/Low pill toggles that severity on the
+        // issue list (composes with category chip, status tab, and search).
+        private void HiPill_Click(object s, RoutedEventArgs e) => _vm.ToggleSeverity(IssuePriority.High);
+        private void MdPill_Click(object s, RoutedEventArgs e) => _vm.ToggleSeverity(IssuePriority.Medium);
+        private void LoPill_Click(object s, RoutedEventArgs e) => _vm.ToggleSeverity(IssuePriority.Low);
+
+        private async void FixAll_Click(object sender, RoutedEventArgs e)
         {
             if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
             {
@@ -282,10 +336,52 @@ namespace RevitWebAppSync.UI
                 return;
             }
 
+            // Manual entries are retried too: a fix that failed for an
+            // environmental reason (e.g. shared-param definition missing before
+            // the definition-creation applicator landed) succeeds on a later
+            // attempt. A fix that fails again just returns to Manual.
+            bool Retryable(IssueVm i) =>
+                i.IsActionable || i.Status == IssueStatus.ManualFixNeeded;
+
             var fixable = _vm.Issues
-                .Where(i => i.IsActionable && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction))
-                .OrderBy(i => i.FixPriority)
+                .Where(i => Retryable(i) && i.AutoFixable && !string.IsNullOrEmpty(i.FixAction))
                 .ToList();
+
+            // Issues without a deterministic fix: ask the backend's AI fixer
+            // (/jkr-autofix) for validated FixActions before the batch runs, so
+            // one Fix All click covers both. Failure here degrades to the
+            // deterministic-only set — it never blocks Fix All.
+            var aiCandidates = _vm.Issues
+                .Where(i => Retryable(i) && !i.AutoFixable && i.RevitElementId > 0
+                            && !string.IsNullOrEmpty(i.CheckId))
+                .ToList();
+
+            if (aiCandidates.Count > 0 && _lastScanRequest != null)
+            {
+                _fixInFlight = true;   // block re-entry while the AI request is in flight
+                FixAllBtn.IsEnabled = false;
+                FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
+                FixProgressLabel.Text = $"AI analysing {aiCandidates.Count} issue{(aiCandidates.Count == 1 ? "" : "s")}…";
+                FixProgressCount.Text = "";
+                FixProgressBar.Width = 0;
+                try
+                {
+                    var aiFixed = await FetchAiFixesAsync(aiCandidates);
+                    fixable.AddRange(aiFixed);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA AiFix] failed: {ex.Message}");
+                    _vm.ShowToast("AI fixes unavailable — applying standard fixes only.");
+                }
+                finally
+                {
+                    _fixInFlight = false;   // ApplyFixBatch re-takes the lock below
+                    FixAllBtn.IsEnabled = true;
+                }
+            }
+
+            fixable = fixable.OrderBy(i => i.FixPriority).ToList();
 
             // Diagnostic: confirm what the badge said vs. what got queued. If these
             // don't match the user's expectation, we know the drop is upstream.
@@ -293,14 +389,105 @@ namespace RevitWebAppSync.UI
                 $"[BINA FixAll] queueing — total Issues={_vm.Issues.Count} " +
                 $"actionable={_vm.Issues.Count(i => i.IsActionable)} " +
                 $"autoFixable={_vm.Issues.Count(i => i.IsActionable && i.AutoFixable)} " +
-                $"withFixAction={fixable.Count}");
+                $"aiCandidates={aiCandidates.Count} withFixAction={fixable.Count}");
 
             if (fixable.Count == 0)
             {
+                FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
                 _vm.ShowToast("No auto-fixable issues found.");
                 return;
             }
 
+            try
+            {
+                ApplyFixBatch(fixable);
+            }
+            catch (Exception ex)
+            {
+                // ApplyFixBatch takes the in-flight lock before raising the event;
+                // if it throws mid-way, release the lock and UI state it left behind.
+                _fixInFlight = false;
+                FixAllBtn.IsEnabled = true;
+                FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
+                TaskDialog.Show("BINA JKR Compliance", $"Fix All error:\n\n{ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Ask /v1/compliance/jkr-autofix for fixes on issues the scan couldn't fix
+        /// deterministically, and map the returned (backend-validated) FixActions
+        /// onto the issues so they ride the normal Fix All batch. Returns the
+        /// issues that received a fix; declined ones are left untouched.
+        /// </summary>
+        private async Task<List<IssueVm>> FetchAiFixesAsync(List<IssueVm> candidates)
+        {
+            var elementIds = new HashSet<long>(candidates.Select(c => c.RevitElementId));
+            var request = new JkrAutoFixRequest
+            {
+                Project = _lastScanRequest.Project,
+                Model = _lastScanRequest.Model,
+                Elements = _lastScanRequest.Elements
+                    .Where(el => elementIds.Contains(el.ElementId)).ToList(),
+                Issues = candidates.Select(c => new JkrAutoFixIssue
+                {
+                    CheckId = c.CheckId,
+                    Rule = string.IsNullOrEmpty(c.RawRule) ? c.Title : c.RawRule,
+                    Domain = string.IsNullOrEmpty(c.Domain) ? "element" : c.Domain,
+                    Status = "fail",
+                    ElementId = c.RevitElementId,
+                    Category = c.Category,
+                    TypeName = c.Element?.Name ?? "",
+                    ActualValue = c.Actual,
+                    ExpectedValue = c.Required,
+                    Reason = c.Description,
+                }).ToList(),
+            };
+
+            var response = await _jkrService.RequestAiFixesAsync(request);
+            if (!string.IsNullOrEmpty(response?.Error))
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA AiFix] backend error: {response.Error}");
+                _vm.ShowToast("AI fixes unavailable — applying standard fixes only.");
+                return new List<IssueVm>();
+            }
+
+            // Map validated fixes back onto their issues by check_id.
+            var byId = (response.Fixes ?? new List<JkrAutoFixProposal>())
+                .Where(f => f.FixAction != null && !string.IsNullOrEmpty(f.CheckId))
+                .GroupBy(f => f.CheckId)
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var aiFixed = new List<IssueVm>();
+            foreach (var issue in candidates)
+            {
+                if (!byId.TryGetValue(issue.CheckId, out var proposal)) continue;
+                var fix = proposal.FixAction;
+                issue.FixAction = fix.Action ?? "";
+                issue.FixParameterName = fix.ParameterName ?? "";
+                issue.FixValue = fix.Value ?? "";
+                issue.FixOldValue = fix.OldValue ?? "";
+                issue.FixPriority = fix.Priority;
+                issue.FixTarget = string.IsNullOrEmpty(fix.Target) ? "instance" : fix.Target;
+                issue.FixReference = fix.Reference ?? "";
+                issue.Example = fix.Value ?? "";
+                issue.AutoFixable = true;
+                aiFixed.Add(issue);
+            }
+
+            System.Diagnostics.Debug.WriteLine(
+                $"[BINA AiFix] model={response.ModelUsed} fixes={aiFixed.Count} " +
+                $"unfixed={response.UnfixedCheckIds?.Count ?? 0}");
+            return aiFixed;
+        }
+
+        /// <summary>
+        /// Queue a batch of fix-carrying issues into JkrRenameHandler and fire the
+        /// ExternalEvent. Fix All calls this with the merged set: deterministic
+        /// fixes from the scan plus AI fixes fetched from /jkr-autofix.
+        /// Caller guarantees: handler initialised, !_fixInFlight, fixable non-empty.
+        /// </summary>
+        private void ApplyFixBatch(List<IssueVm> fixable)
+        {
             // Captured before any status mutations so the post-fix toast can report a truthful delta.
             var openBeforeFix = _vm.OpenCount;
 
@@ -342,7 +529,7 @@ namespace RevitWebAppSync.UI
             // Update progress to "applying"
             Dispatcher.InvokeAsync(() =>
             {
-                FixProgressLabel.Text = "Applying fixes in Revit...";
+                FixProgressLabel.Text = $"Applying {totalToFix} fixes…";
                 FixProgressCount.Text = $"0/{totalToFix}";
             });
 
@@ -472,6 +659,23 @@ namespace RevitWebAppSync.UI
                 });
             };
 
+            // Live progress: the chunked handler fires this once per Idling slice, so
+            // the bar animates 0→N while Revit stays responsive (no "Not Responding").
+            handler.OnProgress = (done, total) =>
+            {
+                Dispatcher.InvokeAsync(() =>
+                {
+                    FixProgressCount.Text = $"{done}/{total}";
+                    try
+                    {
+                        var bp = FixProgressBar.Parent as FrameworkElement;
+                        if (bp != null && bp.ActualWidth > 0 && total > 0)
+                            FixProgressBar.Width = bp.ActualWidth * ((double)done / total);
+                    }
+                    catch { }
+                });
+            };
+
             App.JkrRenameEvent.Raise();
         }
 
@@ -592,6 +796,7 @@ namespace RevitWebAppSync.UI
 
             var request = extraction.ToV2Request(lodLevel: SelectedLodLevel);
             request.Project.Discipline = _vm.SelectedDiscipline;  // scope the scan to the chosen discipline
+            _lastScanRequest = request;  // AI Fix reuses this snapshot
 
             var response = isRecheck
                 ? await _jkrService.RecheckJkrComplianceAsync(request)
@@ -693,6 +898,19 @@ namespace RevitWebAppSync.UI
             _vm.Search = "";
         }
 
+        /// <summary>
+        /// "Clear filters" link in the filtered-empty state (see RenderAll). Resets
+        /// search/severity/category through the VM setters — not private fields —
+        /// so Refresh()/RebuildAll() fire and the list/category chips resync.
+        /// </summary>
+        private void EmptyClearFilters_Click(object sender, MouseButtonEventArgs e)
+        {
+            SearchInput.Text = "";
+            _vm.Search = "";
+            _vm.ActiveSeverity = null;
+            _vm.ActiveCategory = null;
+        }
+
         private void Pill_Picked(object sender, EventArgs e)
         {
             if (sender is CategoryPill p && p.DataContext is CategoryVm c)
@@ -737,18 +955,33 @@ namespace RevitWebAppSync.UI
         /// <summary>Deep-link the current issue into the Revit 3D view.</summary>
         internal void LocateInRevit(IssueVm issue)
         {
-            if (issue == null || issue.RevitElementId <= 0) return;
+            if (issue == null || issue.RevitElementId <= 0)
+            {
+                _vm.ShowToast("This issue has no linked element to locate.");
+                return;
+            }
             var uiDoc = UiAppLive?.ActiveUIDocument;
-            if (uiDoc == null) return;
+            if (uiDoc == null)
+            {
+                _vm.ShowToast("No active Revit document — open a model and try again.");
+                return;
+            }
             try
             {
-                var ids = new List<ElementId> { new ElementId(issue.RevitElementId) };
+                var id = ElemIds.From(issue.RevitElementId);
+                if (uiDoc.Document.GetElement(id) == null)
+                {
+                    _vm.ShowToast("Element no longer exists in the model — try re-scanning.");
+                    return;
+                }
+                var ids = new List<ElementId> { id };
                 uiDoc.ShowElements(ids);
                 uiDoc.Selection.SetElementIds(ids);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[BINA] locate failed: {ex.Message}");
+                _vm.ShowToast($"Couldn't locate element in view — {ex.Message}");
             }
         }
 
@@ -941,10 +1174,14 @@ namespace RevitWebAppSync.UI
                 }
                 _appliedFixes.Clear();
 
-                await RunScanInner(clearAudit: true);
+                // No auto re-scan: the reverse already put the model back to its pre-fix
+                // state, so restore the UI locally (clear the audit + flip everything to
+                // Open) and let the user press Re-scan for fresh backend verification.
+                // Avoids a full model extraction + backend round-trip on every Reset.
+                RestoreToOpenLocally();
                 _vm.ShowToast(fixCount > 0
-                    ? $"Reset complete — reverted {fixCount} fix{(fixCount == 1 ? "" : "es")} and cleared all decisions."
-                    : "Reset complete — all decisions cleared.");
+                    ? $"Reset complete — reverted {fixCount} fix{(fixCount == 1 ? "" : "es")}. Click Re-scan to refresh."
+                    : "Reset complete — decisions cleared. Click Re-scan to refresh.");
             }
             catch (Exception ex)
             {
@@ -954,6 +1191,24 @@ namespace RevitWebAppSync.UI
             {
                 _vm.Scanning = false;
             }
+        }
+
+        /// <summary>Restore the panel to a clean "all Open" state after a Reset without
+        /// hitting the backend: drop the persisted audit and flip every issue back to
+        /// Open (Reset clears all decisions and reverts all fixes). The user clicks
+        /// Re-scan when they want the model re-verified against the backend.</summary>
+        private void RestoreToOpenLocally()
+        {
+            var doc = UiAppLive?.ActiveUIDocument?.Document;
+            if (doc != null)
+            {
+                var auditPath = JkrAuditStore.AuditPath(doc.PathName ?? "");
+                try { if (System.IO.File.Exists(auditPath)) System.IO.File.Delete(auditPath); } catch { }
+            }
+
+            var restored = _vm.Issues.ToList();
+            foreach (var i in restored) i.Status = IssueStatus.Open;
+            _vm.ReplaceIssues(restored);
         }
 
         /// <summary>
@@ -1014,6 +1269,7 @@ namespace RevitWebAppSync.UI
                 Dispatcher.Invoke(() =>
                 {
                     _fixInFlight = false;
+                    FixProgressPanel.Visibility = System.Windows.Visibility.Collapsed;
                     if (!string.IsNullOrEmpty(result.Error))
                     {
                         System.Diagnostics.Debug.WriteLine(
@@ -1024,6 +1280,30 @@ namespace RevitWebAppSync.UI
                         $"reverted {result.Renamed + result.ParamFixed} of {_appliedFixes.Count}, " +
                         $"failed={result.Failed}, skipped={result.Skipped}");
                     tcs.TrySetResult(true);
+                });
+            };
+
+            // B: live progress bar during the reverse (same chunked handler as Fix All).
+            var totalToRevert = handler.RenameQueue.Count + handler.ParamFixQueue.Count;
+            Dispatcher.InvokeAsync(() =>
+            {
+                FixProgressPanel.Visibility = System.Windows.Visibility.Visible;
+                FixProgressLabel.Text = $"Reverting {totalToRevert} fixes…";
+                FixProgressCount.Text = $"0/{totalToRevert}";
+                FixProgressBar.Width = 0;
+            });
+            handler.OnProgress = (done, total) =>
+            {
+                Dispatcher.InvokeAsync(() =>
+                {
+                    FixProgressCount.Text = $"{done}/{total}";
+                    try
+                    {
+                        var bp = FixProgressBar.Parent as FrameworkElement;
+                        if (bp != null && bp.ActualWidth > 0 && total > 0)
+                            FixProgressBar.Width = bp.ActualWidth * ((double)done / total);
+                    }
+                    catch { }
                 });
             };
 

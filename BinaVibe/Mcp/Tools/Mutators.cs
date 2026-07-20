@@ -16,6 +16,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using Autodesk.Revit.DB;
@@ -34,7 +35,7 @@ namespace BinaVibe.Mcp.Tools
                 ?? throw new ArgumentException("missing param/parameter");
             var value = ArgsHelp.GetValueRaw(args, "value");
 
-            var el = doc.GetElement(new ElementId(id)) ?? throw new ArgumentException($"element {id} not found");
+            var el = doc.GetElement(ElemIds.From(id)) ?? throw new ArgumentException($"element {id} not found");
             var p = el.LookupParameter(paramName) ?? throw new ArgumentException($"parameter {paramName} not on element");
             if (p.IsReadOnly) throw new InvalidOperationException($"parameter {paramName} is read-only");
 
@@ -77,7 +78,7 @@ namespace BinaVibe.Mcp.Tools
             {
                 foreach (var id in ids)
                 {
-                    var el = doc.GetElement(new ElementId(id));
+                    var el = doc.GetElement(ElemIds.From(id));
                     if (el == null) { skippedMissing++; continue; }
                     if (el.GroupId.Value != ElementId.InvalidElementId.Value) { skippedGroups++; continue; }
                     var p = el.LookupParameter(paramName);
@@ -110,7 +111,7 @@ namespace BinaVibe.Mcp.Tools
         {
             var id = ArgsHelp.GetLong(args, "element_id") ?? throw new ArgumentException("missing element_id");
             var typeName = ArgsHelp.GetString(args, "type_name") ?? throw new ArgumentException("missing type_name");
-            var el = doc.GetElement(new ElementId(id)) ?? throw new ArgumentException($"element {id} not found");
+            var el = doc.GetElement(ElemIds.From(id)) ?? throw new ArgumentException($"element {id} not found");
 
             // Find a type with that name in the same category.
             var newType = new FilteredElementCollector(doc).WhereElementIsElementType()
@@ -118,6 +119,7 @@ namespace BinaVibe.Mcp.Tools
                 .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
                 ?? throw new ArgumentException($"type '{typeName}' not found in category {el.Category.Name}");
 
+            long? _changeTypeNewId = null;
             using var tx = new Transaction(doc, $"BinaVibe: change_type {typeName}");
             TxGuard.StartSwallowing(tx);
             try
@@ -127,7 +129,7 @@ namespace BinaVibe.Mcp.Tools
                 // Place a fresh instance preserving placement, then delete.
                 if (el is FamilyInstance fiX && newType is FamilySymbol symX
                     && fiX.Symbol.Family.Id != symX.Family.Id)
-                    ReplaceCrossFamily(doc, fiX, symX);
+                    _changeTypeNewId = ReplaceCrossFamily(doc, fiX, symX)?.Value;
                 else
                     el.ChangeTypeId(newType.Id);
                 tx.Commit();
@@ -137,6 +139,9 @@ namespace BinaVibe.Mcp.Tools
             return new Dictionary<string, object?>
             {
                 ["ok"] = true,
+                // new_id set only for a cross-family replace (fresh instance);
+                // null for an in-place ChangeTypeId (the id is unchanged).
+                ["new_id"] = _changeTypeNewId,
                 ["element_id"] = id,
                 ["new_type"] = typeName,
             };
@@ -150,9 +155,11 @@ namespace BinaVibe.Mcp.Tools
         // family's own vertical (matched from an existing sibling, never copied
         // from the source), then delete the source. Caller must wrap in a
         // Transaction. Returns false if the source has no usable location point.
-        private static bool ReplaceCrossFamily(Document doc, FamilyInstance src, FamilySymbol sym)
+        // Returns the NEW instance's id on success (the agent needs it for any
+        // follow-up — the src id is deleted), or null when it can't place.
+        private static ElementId? ReplaceCrossFamily(Document doc, FamilyInstance src, FamilySymbol sym)
         {
-            if (!(src.Location is LocationPoint lp)) return false;
+            if (!(src.Location is LocationPoint lp)) return null;
             if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
 
             XYZ pt = lp.Point;
@@ -190,7 +197,7 @@ namespace BinaVibe.Mcp.Tools
             }
 
             doc.Delete(src.Id);
-            return true;
+            return nw.Id;
         }
 
         private static XYZ BBoxCenter(Element e)
@@ -198,6 +205,21 @@ namespace BinaVibe.Mcp.Tools
             var bb = e.get_BoundingBox(null);
             if (bb != null) return (bb.Min + bb.Max) * 0.5;
             return (e.Location as LocationPoint)?.Point ?? XYZ.Zero;
+        }
+
+        // Average centre of the given elements (their location point, else bbox
+        // centre) — the sensible default pivot for "spin in place".
+        private static XYZ ElementsCenter(Document doc, IList<ElementId> ids)
+        {
+            double sx = 0, sy = 0, sz = 0; int n = 0;
+            foreach (var id in ids)
+            {
+                var e = doc.GetElement(id);
+                if (e == null) continue;
+                XYZ p = (e.Location as LocationPoint)?.Point ?? BBoxCenter(e);
+                sx += p.X; sy += p.Y; sz += p.Z; n++;
+            }
+            return n == 0 ? XYZ.Zero : new XYZ(sx / n, sy / n, sz / n);
         }
 
         private static string Fmt(XYZ p) =>
@@ -216,7 +238,7 @@ namespace BinaVibe.Mcp.Tools
         {
             var refId = ArgsHelp.GetLong(args, "reference_id") ?? throw new ArgumentException("missing reference_id");
             var targetIds = ArgsHelp.GetLongList(args, "target_ids");
-            var reference = doc.GetElement(new ElementId(refId)) as FamilyInstance
+            var reference = doc.GetElement(ElemIds.From(refId)) as FamilyInstance
                 ?? throw new ArgumentException($"reference {refId} is not a family instance");
 
             XYZ refCenter = BBoxCenter(reference);
@@ -224,8 +246,14 @@ namespace BinaVibe.Mcp.Tools
             XYZ refFacing = reference.FacingOrientation;
 
             int replaced = 0;
+            int facingBad = 0;
             var failures = new List<object>();
             var dbg = new List<object>();
+            // The new element ids created by this replace, in target order. The
+            // agent MUST use these for any follow-up (rotate/verify) — without
+            // them it cannot know which elements it just made (the old ids are
+            // deleted) and wastes the turn hunting for its own output.
+            var newIds = new List<object>();
 
             using var tx = new Transaction(doc, $"BinaVibe: replace_with_reference ({targetIds.Count})");
             TxGuard.StartSwallowing(tx);
@@ -236,40 +264,67 @@ namespace BinaVibe.Mcp.Tools
                     try
                     {
                         if (tid == refId) continue;  // never replace the reference itself
-                        var target = doc.GetElement(new ElementId(tid)) as FamilyInstance;
+                        var target = doc.GetElement(ElemIds.From(tid)) as FamilyInstance;
                         if (target == null) { failures.Add(new { id = tid, error = "not a family instance" }); continue; }
 
                         XYZ tgtCenter = BBoxCenter(target);
                         XYZ tgtLoc = (target.Location as LocationPoint)?.Point ?? tgtCenter;
-                        // Align by INSERTION POINT (LocationPoint), NOT bbox-centre.
-                        // The two families have different footprints, so aligning
-                        // bbox-centres leaves a constant offset (the squat pan vs
-                        // sitting WC footprint diff). Both families insert at the
-                        // same stall anchor, so insertion-point alignment is 1:1.
-                        // XY only — the clone keeps the reference's correct vertical.
-                        XYZ shift = new XYZ(tgtLoc.X - refLoc.X, tgtLoc.Y - refLoc.Y, 0);
+                        XYZ tgtFacing = target.FacingOrientation;  // capture before delete
+                        // POSITION by VISIBLE bbox-centre (rotate-then-recentre), NOT
+                        // by insertion point. A family's LocationPoint can sit ~270mm
+                        // off its visible pan, so aligning insertion points across two
+                        // different families — or rotating about that point — flings the
+                        // fixture into the wall. Instead: copy the reference, rotate it to
+                        // the target's facing about its OWN centre, then translate so its
+                        // visible centre lands exactly on the target's. XY only — the
+                        // clone keeps the reference family's correct vertical.
+                        XYZ shift = new XYZ(tgtCenter.X - refCenter.X, tgtCenter.Y - refCenter.Y, 0);
 
                         var copied = ElementTransformUtils.CopyElement(doc, reference.Id, shift);
                         doc.Regenerate();
                         var clone = copied.Count > 0 ? doc.GetElement(copied.First()) as FamilyInstance : null;
 
-                        // Flip 180° if the target faces the opposite way.
-                        if (clone != null && target.FacingOrientation.DotProduct(refFacing) < 0)
+                        bool facingOk = true;
+                        if (clone != null)
                         {
-                            XYZ c = BBoxCenter(clone);
-                            ElementTransformUtils.RotateElement(
-                                doc, clone.Id, Line.CreateBound(c, c + XYZ.BasisZ), Math.PI);
-                            doc.Regenerate();
+                            // 1. Match the TARGET's facing EXACTLY (any angle, not just a
+                            //    0/180 flip), rotating about the clone's OWN centre so it
+                            //    spins in place instead of swinging on an off-centre pivot.
+                            double ang = refFacing.AngleTo(tgtFacing);
+                            if (ang > 1e-9)
+                            {
+                                XYZ cross = refFacing.CrossProduct(tgtFacing);
+                                if (cross.Z < 0) ang = -ang;
+                                XYZ c0 = BBoxCenter(clone);
+                                ElementTransformUtils.RotateElement(
+                                    doc, clone.Id, Line.CreateBound(c0, c0 + XYZ.BasisZ), ang);
+                                doc.Regenerate();
+                            }
+                            // 2. Recentre: land the clone's visible centre on the target's
+                            //    (XY only — keep the reference family's vertical).
+                            XYZ cc = BBoxCenter(clone);
+                            XYZ delta = new XYZ(tgtCenter.X - cc.X, tgtCenter.Y - cc.Y, 0);
+                            if (delta.GetLength() > 1e-9)
+                            {
+                                ElementTransformUtils.MoveElement(doc, clone.Id, delta);
+                                doc.Regenerate();
+                            }
+                            // Verify the clone now points the way the target did.
+                            facingOk = clone.FacingOrientation.DotProduct(tgtFacing) > 0.99;
                         }
+                        if (!facingOk) facingBad++;
 
                         doc.Delete(target.Id);
                         replaced++;
+                        if (clone != null) newIds.Add(clone.Id.Value);
                         dbg.Add(new
                         {
                             target = tid,
+                            new_id = clone?.Id.Value,
                             refLoc = Fmt(refLoc), tgtLoc = Fmt(tgtLoc),
                             refCenter = Fmt(refCenter), tgtCenter = Fmt(tgtCenter),
                             shift = Fmt(shift),
+                            facing_ok = facingOk,
                         });
                     }
                     catch (Exception ex)
@@ -285,6 +340,12 @@ namespace BinaVibe.Mcp.Tools
             {
                 ["ok"] = true,
                 ["replaced"] = replaced,
+                // The ids created by this replace — use these directly for any
+                // follow-up (rotate/verify). NEVER re-search for the swapped
+                // elements; the old ids no longer exist.
+                ["new_ids"] = newIds,
+                ["facing_ok"] = facingBad == 0,
+                ["facing_mismatches"] = facingBad,
                 ["failures"] = failures,
                 ["debug"] = dbg,
             };
@@ -304,7 +365,7 @@ namespace BinaVibe.Mcp.Tools
                 {
                     try
                     {
-                        var del = doc.Delete(new ElementId(id));
+                        var del = doc.Delete(ElemIds.From(id));
                         deleted += del?.Count ?? 0;
                     }
                     catch (Exception ex)
@@ -404,7 +465,7 @@ namespace BinaVibe.Mcp.Tools
             {
                 foreach (var vid in viewIds)
                 {
-                    var v = doc.GetElement(new ElementId(vid)) as View;
+                    var v = doc.GetElement(ElemIds.From(vid)) as View;
                     if (v == null || v.IsTemplate) continue;
                     v.ViewTemplateId = template.Id;
                     applied++;
@@ -432,11 +493,11 @@ namespace BinaVibe.Mcp.Tools
         // ─── create_wall ────────────────────────────────────────────────
         public static Dictionary<string, object?> CreateWall(Document doc, JsonElement args)
         {
-            var p1 = ArgsHelp.GetXyz(args, "start") ?? throw new ArgumentException("missing start [x,y,z]");
-            var p2 = ArgsHelp.GetXyz(args, "end") ?? throw new ArgumentException("missing end [x,y,z]");
+            var p1 = ArgsHelp.GetPointMm(args, "start_mm") ?? ArgsHelp.GetXyz(args, "start") ?? throw new ArgumentException("missing start [x,y,z]");
+            var p2 = ArgsHelp.GetPointMm(args, "end_mm") ?? ArgsHelp.GetXyz(args, "end") ?? throw new ArgumentException("missing end [x,y,z]");
             var levelName = ArgsHelp.GetString(args, "level") ?? throw new ArgumentException("missing level");
             var typeName = ArgsHelp.GetString(args, "type_name");
-            double height = ArgsHelp.GetDouble(args, "height_ft") ?? 10.0;
+            double height = ArgsHelp.GetLengthMm(args, "height_mm", "height_ft") ?? (3000.0 / 304.8);
 
             var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
                 .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
@@ -479,9 +540,10 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> PlaceFamilyInstance(Document doc, JsonElement args)
         {
             var familyType = ArgsHelp.GetString(args, "family_type") ?? throw new ArgumentException("missing family_type");
-            double x = ArgsHelp.GetDouble(args, "x") ?? throw new ArgumentException("missing x");
-            double y = ArgsHelp.GetDouble(args, "y") ?? throw new ArgumentException("missing y");
-            double z = ArgsHelp.GetDouble(args, "z") ?? throw new ArgumentException("missing z");
+            var xyzMm = ArgsHelp.GetPointMm(args, "xyz_mm");
+            double x = xyzMm?.X ?? ArgsHelp.GetDouble(args, "x") ?? throw new ArgumentException("missing x");
+            double y = xyzMm?.Y ?? ArgsHelp.GetDouble(args, "y") ?? throw new ArgumentException("missing y");
+            double z = xyzMm?.Z ?? ArgsHelp.GetDouble(args, "z") ?? throw new ArgumentException("missing z");
             var levelName = ArgsHelp.GetString(args, "level");
 
             // Resolve FamilySymbol by name across all loadable family categories.
@@ -535,18 +597,183 @@ namespace BinaVibe.Mcp.Tools
             catch { tx.RollBack(); throw; }
         }
 
+        // ─── load_family ────────────────────────────────────────────────
+        // Fetch a family from the BINA cloud library and load it into the
+        // open project. Backend enriches the call with download_url (short-
+        // lived signed URL), file_type ('rfa'|'rvt'), family_name and
+        // source_names. rvt is the container path for SYSTEM families
+        // (wall/floor types can't exist as .rfa): background-open the
+        // project, EditFamily-load the loadable families and CopyElements
+        // the system types named in source_names.
+        public static Dictionary<string, object?> LoadFamily(UIApplication app, JsonElement args)
+        {
+            var doc = app.ActiveUIDocument?.Document
+                ?? throw new InvalidOperationException("no active document");
+            var url = ArgsHelp.GetString(args, "download_url") ?? throw new ArgumentException("missing download_url");
+            var fileType = ArgsHelp.GetString(args, "file_type") ?? throw new ArgumentException("missing file_type");
+            var familyName = ArgsHelp.GetString(args, "family_name") ?? throw new ArgumentException("missing family_name");
+            var sourceNames = ArgsHelp.GetStringList(args, "source_names");
+
+            // Idempotent: already loaded → report existing types, no download.
+            var existing = FamilyTypesOf(doc, familyName);
+            if (existing.Count > 0)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["family_name"] = familyName,
+                    ["loaded_types"] = existing,
+                    ["already_loaded"] = true,
+                };
+
+            var tempDir = Path.Combine(Path.GetTempPath(), "BinaVibe", "families");
+            Directory.CreateDirectory(tempDir);
+            var safeName = string.Concat(familyName.Split(Path.GetInvalidFileNameChars()));
+            var tempPath = Path.Combine(tempDir, $"{safeName}.{fileType}");
+            using (var http = new System.Net.Http.HttpClient())
+            {
+                var bytes = http.GetByteArrayAsync(url).GetAwaiter().GetResult();
+                File.WriteAllBytes(tempPath, bytes);
+            }
+
+            try
+            {
+                return fileType == "rvt"
+                    ? LoadFromRvtContainer(app, doc, tempPath, familyName, sourceNames)
+                    : LoadFromRfa(doc, tempPath, familyName);
+            }
+            finally
+            {
+                try { File.Delete(tempPath); } catch { /* temp cleanup only */ }
+            }
+        }
+
+        private static Dictionary<string, object?> LoadFromRfa(Document doc, string path, string familyName)
+        {
+            using var tx = new Transaction(doc, "BinaVibe: load_family");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                if (!doc.LoadFamily(path, new OverwriteFamilyLoadOptions(), out var family))
+                    throw new InvalidOperationException(
+                        $"Revit rejected family file for '{familyName}' (corrupt or newer Revit version?)");
+                doc.Regenerate();
+                tx.Commit();
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["family_name"] = family.Name,
+                    ["loaded_types"] = FamilyTypesOf(doc, family.Name),
+                    ["already_loaded"] = false,
+                };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
+        private static Dictionary<string, object?> LoadFromRvtContainer(
+            UIApplication app, Document doc, string path, string familyName, List<string> sourceNames)
+        {
+            var wanted = new HashSet<string>(
+                sourceNames.Count > 0 ? sourceNames : new List<string> { familyName },
+                StringComparer.OrdinalIgnoreCase);
+
+            var sourceDoc = app.Application.OpenDocumentFile(path);
+            var famDocs = new List<Document>();
+            try
+            {
+                // Loadable families → EditFamily BEFORE the target transaction
+                // (EditFamily is illegal while any document is modifiable).
+                var systemTypeIds = new List<ElementId>();
+                foreach (var name in wanted)
+                {
+                    var fam = new FilteredElementCollector(sourceDoc).OfClass(typeof(Family))
+                        .Cast<Family>()
+                        .FirstOrDefault(f => string.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase));
+                    if (fam != null) { famDocs.Add(sourceDoc.EditFamily(fam)); continue; }
+
+                    // Not a loadable family → treat as a system family type
+                    // (WallType / FloorType / ...) and copy the type element.
+                    var sysType = new FilteredElementCollector(sourceDoc)
+                        .WhereElementIsElementType()
+                        .Cast<ElementType>()
+                        .FirstOrDefault(t =>
+                            string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals(t.FamilyName, name, StringComparison.OrdinalIgnoreCase));
+                    if (sysType != null) systemTypeIds.Add(sysType.Id);
+                }
+                if (famDocs.Count == 0 && systemTypeIds.Count == 0)
+                    throw new ArgumentException(
+                        $"none of [{string.Join(", ", wanted)}] found in library container '{Path.GetFileName(path)}'");
+
+                var loaded = new List<string>();
+                using var tx = new Transaction(doc, "BinaVibe: load_family");
+                TxGuard.StartSwallowing(tx);
+                try
+                {
+                    foreach (var famDoc in famDocs)
+                    {
+                        var family = famDoc.LoadFamily(doc, new OverwriteFamilyLoadOptions());
+                        if (family != null) loaded.AddRange(FamilyTypesOf(doc, family.Name));
+                    }
+                    if (systemTypeIds.Count > 0)
+                    {
+                        var copied = ElementTransformUtils.CopyElements(
+                            sourceDoc, systemTypeIds, doc, null, new CopyPasteOptions());
+                        loaded.AddRange(copied
+                            .Select(id => doc.GetElement(id))
+                            .OfType<ElementType>()
+                            .Select(t => $"{t.FamilyName} : {t.Name}"));
+                    }
+                    doc.Regenerate();
+                    tx.Commit();
+                }
+                catch { tx.RollBack(); throw; }
+
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["family_name"] = familyName,
+                    ["loaded_types"] = loaded,
+                    ["already_loaded"] = false,
+                };
+            }
+            finally
+            {
+                foreach (var fd in famDocs) { try { fd.Close(false); } catch { } }
+                try { sourceDoc.Close(false); } catch { }
+            }
+        }
+
+        private static List<string> FamilyTypesOf(Document doc, string familyName) =>
+            new FilteredElementCollector(doc)
+                .WhereElementIsElementType()
+                .OfClass(typeof(FamilySymbol))
+                .Cast<FamilySymbol>()
+                .Where(fs => string.Equals(fs.FamilyName, familyName, StringComparison.OrdinalIgnoreCase))
+                .Select(fs => $"{fs.FamilyName} : {fs.Name}")
+                .ToList();
+
+        private sealed class OverwriteFamilyLoadOptions : IFamilyLoadOptions
+        {
+            public bool OnFamilyFound(bool familyInUse, out bool overwriteParameterValues)
+            { overwriteParameterValues = true; return true; }
+
+            public bool OnSharedFamilyFound(Family sharedFamily, bool familyInUse,
+                out FamilySource source, out bool overwriteParameterValues)
+            { source = FamilySource.Family; overwriteParameterValues = true; return true; }
+        }
+
         // ─── move_elements ──────────────────────────────────────────────
         public static Dictionary<string, object?> MoveElements(Document doc, JsonElement args)
         {
             var ids = ArgsHelp.GetLongList(args, "element_ids");
-            double dx = ArgsHelp.GetDouble(args, "dx") ?? throw new ArgumentException("missing dx");
-            double dy = ArgsHelp.GetDouble(args, "dy") ?? throw new ArgumentException("missing dy");
-            double dz = ArgsHelp.GetDouble(args, "dz") ?? throw new ArgumentException("missing dz");
+            double dx = ArgsHelp.GetLengthMm(args, "dx_mm", "dx") ?? throw new ArgumentException("missing dx");
+            double dy = ArgsHelp.GetLengthMm(args, "dy_mm", "dy") ?? throw new ArgumentException("missing dy");
+            double dz = ArgsHelp.GetLengthMm(args, "dz_mm", "dz") ?? throw new ArgumentException("missing dz");
 
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = true, ["moved"] = 0 };
 
-            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+            var elementIds = ids.Select(id => ElemIds.From(id)).ToList();
             var translation = new XYZ(dx, dy, dz);
 
             using var tx = new Transaction(doc, $"BinaVibe: move_elements ({ids.Count})");
@@ -618,8 +845,9 @@ namespace BinaVibe.Mcp.Tools
         {
             var viewName = ArgsHelp.GetString(args, "view_name") ?? throw new ArgumentException("missing view_name");
             var sheetNumber = ArgsHelp.GetString(args, "sheet_number") ?? throw new ArgumentException("missing sheet_number");
-            double x = ArgsHelp.GetDouble(args, "x") ?? 0.0;
-            double y = ArgsHelp.GetDouble(args, "y") ?? 0.0;
+            var pointMm = ArgsHelp.GetPointMm(args, "point_mm");
+            double x = pointMm?.X ?? ArgsHelp.GetDouble(args, "x") ?? 0.0;
+            double y = pointMm?.Y ?? ArgsHelp.GetDouble(args, "y") ?? 0.0;
 
             var view = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
                 .FirstOrDefault(v => !v.IsTemplate && string.Equals(v.Name, viewName, StringComparison.OrdinalIgnoreCase))
@@ -738,7 +966,7 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> CreateLevel(Document doc, JsonElement args)
         {
             var name = ArgsHelp.GetString(args, "name") ?? throw new ArgumentException("missing name");
-            double elevation = ArgsHelp.GetDouble(args, "elevation") ?? throw new ArgumentException("missing elevation");
+            double elevation = ArgsHelp.GetLengthMm(args, "elevation_mm", "elevation") ?? throw new ArgumentException("missing elevation");
 
             using var tx = new Transaction(doc, "BinaVibe: create_level");
             TxGuard.StartSwallowing(tx);
@@ -762,10 +990,12 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> CreateGrid(Document doc, JsonElement args)
         {
             var name = ArgsHelp.GetString(args, "name") ?? throw new ArgumentException("missing name");
-            double startX = ArgsHelp.GetDouble(args, "start_x") ?? throw new ArgumentException("missing start_x");
-            double startY = ArgsHelp.GetDouble(args, "start_y") ?? throw new ArgumentException("missing start_y");
-            double endX = ArgsHelp.GetDouble(args, "end_x") ?? throw new ArgumentException("missing end_x");
-            double endY = ArgsHelp.GetDouble(args, "end_y") ?? throw new ArgumentException("missing end_y");
+            var startMm = ArgsHelp.GetPointMm(args, "start_mm");
+            var endMm = ArgsHelp.GetPointMm(args, "end_mm");
+            double startX = startMm?.X ?? ArgsHelp.GetDouble(args, "start_x") ?? throw new ArgumentException("missing start_x");
+            double startY = startMm?.Y ?? ArgsHelp.GetDouble(args, "start_y") ?? throw new ArgumentException("missing start_y");
+            double endX = endMm?.X ?? ArgsHelp.GetDouble(args, "end_x") ?? throw new ArgumentException("missing end_x");
+            double endY = endMm?.Y ?? ArgsHelp.GetDouble(args, "end_y") ?? throw new ArgumentException("missing end_y");
 
             var line = Line.CreateBound(new XYZ(startX, startY, 0), new XYZ(endX, endY, 0));
 
@@ -790,8 +1020,9 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> CreateRoomXY(Document doc, JsonElement args)
         {
             var levelName = ArgsHelp.GetString(args, "level") ?? throw new ArgumentException("missing level");
-            double x = ArgsHelp.GetDouble(args, "x") ?? throw new ArgumentException("missing x");
-            double y = ArgsHelp.GetDouble(args, "y") ?? throw new ArgumentException("missing y");
+            var pointMm = ArgsHelp.GetPointMm(args, "point_mm");
+            double x = pointMm?.X ?? ArgsHelp.GetDouble(args, "x") ?? throw new ArgumentException("missing x");
+            double y = pointMm?.Y ?? ArgsHelp.GetDouble(args, "y") ?? throw new ArgumentException("missing y");
             var name = ArgsHelp.GetString(args, "name");
 
             var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
@@ -854,7 +1085,7 @@ namespace BinaVibe.Mcp.Tools
             {
                 foreach (var id in ids)
                 {
-                    var eid = new ElementId(id);
+                    var eid = ElemIds.From(id);
                     targetView.SetElementOverrides(eid, ogs);
                     colored++;
                 }
@@ -892,6 +1123,10 @@ namespace BinaVibe.Mcp.Tools
 
             int swapped = 0;
             var failures = new List<object>();
+            // ids created by cross-family replaces (fresh instances). For an
+            // in-place ChangeTypeId the id is unchanged, so we echo the original.
+            // Either way the agent gets the CURRENT id to act on — no hunting.
+            var newIds = new List<object>();
 
             using var tx = new Transaction(doc, $"BinaVibe: swap_element_type ({ids.Count})");
             TxGuard.StartSwallowing(tx);
@@ -901,7 +1136,7 @@ namespace BinaVibe.Mcp.Tools
                 {
                     try
                     {
-                        var el = doc.GetElement(new ElementId(id));
+                        var el = doc.GetElement(ElemIds.From(id));
                         if (el == null) continue;
                         // Cross-family → place + delete (preserve placement).
                         // ChangeTypeId across families misaligns (keeps source
@@ -909,12 +1144,14 @@ namespace BinaVibe.Mcp.Tools
                         if (el is FamilyInstance fiX && newType is FamilySymbol symX
                             && fiX.Symbol.Family.Id != symX.Family.Id)
                         {
-                            if (ReplaceCrossFamily(doc, fiX, symX)) swapped++;
+                            var nid = ReplaceCrossFamily(doc, fiX, symX);
+                            if (nid != null) { swapped++; newIds.Add(nid.Value); }
                             else failures.Add(new { id, error = "cross-family replace failed (no location point)" });
                             continue;
                         }
                         el.ChangeTypeId(newType.Id);
                         swapped++;
+                        newIds.Add(id);   // in-place: id unchanged
                     }
                     catch (Exception ex)
                     {
@@ -929,6 +1166,9 @@ namespace BinaVibe.Mcp.Tools
             {
                 ["ok"] = true,
                 ["swapped"] = swapped,
+                // Current ids of the swapped elements — use these for follow-up
+                // (rotate/verify). NEVER re-search for the swapped elements.
+                ["new_ids"] = newIds,
                 ["new_type"] = newTypeName,
                 ["failures"] = failures,
             };
@@ -938,8 +1178,9 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> PlaceTextNote(Document doc, JsonElement args)
         {
             var viewName = ArgsHelp.GetString(args, "view_name") ?? throw new ArgumentException("missing view_name");
-            double x = ArgsHelp.GetDouble(args, "x") ?? throw new ArgumentException("missing x");
-            double y = ArgsHelp.GetDouble(args, "y") ?? throw new ArgumentException("missing y");
+            var pointMm = ArgsHelp.GetPointMm(args, "point_mm");
+            double x = pointMm?.X ?? ArgsHelp.GetDouble(args, "x") ?? throw new ArgumentException("missing x");
+            double y = pointMm?.Y ?? ArgsHelp.GetDouble(args, "y") ?? throw new ArgumentException("missing y");
             var text = ArgsHelp.GetString(args, "text") ?? throw new ArgumentException("missing text");
 
             var view = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
@@ -993,7 +1234,7 @@ namespace BinaVibe.Mcp.Tools
                 targetView = doc.ActiveView ?? throw new InvalidOperationException("no active view and no view_name supplied");
             }
 
-            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+            var elementIds = ids.Select(id => ElemIds.From(id)).ToList();
 
             using var tx = new Transaction(doc, $"BinaVibe: hide_isolate_elements ({mode}, {ids.Count})");
             TxGuard.StartSwallowing(tx);
@@ -1015,6 +1256,96 @@ namespace BinaVibe.Mcp.Tools
             };
         }
 
+        // ─── set_category_visibility ─────────────────────────────────────
+        /// <summary>Hide / show / isolate whole CATEGORIES in a view (one
+        /// SetCategoryHidden op per category — no element enumeration).
+        /// mode: hide | show | isolate (isolate = show ONLY the listed cats,
+        /// hide every other hideable model category in the view).</summary>
+        public static Dictionary<string, object?> SetCategoryVisibility(Document doc, JsonElement args)
+        {
+            var catNames = ArgsHelp.GetStringList(args, "categories");
+            var mode = (ArgsHelp.GetString(args, "mode") ?? "hide").ToLowerInvariant();
+            var viewName = ArgsHelp.GetString(args, "view_name");
+
+            if (catNames == null || catNames.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no categories supplied" };
+
+            // Resolve target view — named or active (same rule as HideIsolateElements).
+            View view;
+            if (!string.IsNullOrEmpty(viewName))
+            {
+                view = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                    .FirstOrDefault(v => !v.IsTemplate && string.Equals(v.Name, viewName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"view '{viewName}' not found");
+            }
+            else
+            {
+                view = doc.ActiveView ?? throw new InvalidOperationException("no active view and no view_name supplied");
+            }
+
+            // Resolve the requested category names -> BuiltInCategory (reuses the
+            // robust resolver the INSPECT tools use). Collect misses to report.
+            var targetIds = new HashSet<ElementId>();
+            var resolved = new List<string>();
+            var unknown = new List<string>();
+            foreach (var name in catNames)
+            {
+                var bic = Inspectors.ResolveCategoryRobust(doc, name);
+                if (bic == null) { unknown.Add(name); continue; }
+                var cat = Category.GetCategory(doc, bic.Value);
+                if (cat == null) { unknown.Add(name); continue; }
+                targetIds.Add(cat.Id);
+                resolved.Add(cat.Name);
+            }
+            if (targetIds.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"no known categories in [{string.Join(", ", catNames)}]" };
+
+            int changed = 0;
+            using var tx = new Transaction(doc, $"BinaVibe: set_category_visibility ({mode}, {resolved.Count})");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                if (mode == "isolate")
+                {
+                    // Show ONLY the listed categories: walk every hideable model
+                    // category in the doc, hide those not requested, show those that are.
+                    foreach (Category c in doc.Settings.Categories)
+                    {
+                        if (c == null || c.CategoryType != CategoryType.Model) continue;
+                        if (!view.CanCategoryBeHidden(c.Id)) continue;
+                        bool keep = targetIds.Contains(c.Id);
+                        if (view.GetCategoryHidden(c.Id) == keep)   // needs to flip
+                        {
+                            view.SetCategoryHidden(c.Id, !keep);
+                            changed++;
+                        }
+                    }
+                }
+                else
+                {
+                    bool hidden = mode != "show";   // hide (default) => true; show => false
+                    foreach (var id in targetIds)
+                    {
+                        if (!view.CanCategoryBeHidden(id)) continue;
+                        view.SetCategoryHidden(id, hidden);
+                        changed++;
+                    }
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["mode"] = mode,
+                ["categories"] = resolved,
+                ["unknown"] = unknown,
+                ["changed"] = changed,
+                ["view"] = view.Name,
+            };
+        }
+
         // ─── rotate_elements ────────────────────────────────────────────
         /// <summary>
         /// args: { element_ids:[long], angle_deg:double, axis_x?:double, axis_y?:double }
@@ -1025,14 +1356,29 @@ namespace BinaVibe.Mcp.Tools
         {
             var ids = ArgsHelp.GetLongList(args, "element_ids");
             double angleDeg = ArgsHelp.GetDouble(args, "angle_deg") ?? throw new ArgumentException("missing angle_deg");
-            double axisX = ArgsHelp.GetDouble(args, "axis_x") ?? 0.0;
-            double axisY = ArgsHelp.GetDouble(args, "axis_y") ?? 0.0;
+            double? axisXArg = ArgsHelp.GetLengthMm(args, "axis_x_mm", "axis_x");
+            double? axisYArg = ArgsHelp.GetLengthMm(args, "axis_y_mm", "axis_y");
 
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = true, ["rotated"] = 0 };
 
-            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+            var elementIds = ids.Select(id => ElemIds.From(id)).ToList();
             double angleRad = angleDeg * Math.PI / 180.0;
+
+            // Axis: use the caller's (axis_x, axis_y) when given; otherwise spin
+            // IN PLACE about the elements' own centre — NEVER default to the
+            // project origin (0,0), which would fling them across the model.
+            double axisX, axisY;
+            if (axisXArg.HasValue || axisYArg.HasValue)
+            {
+                axisX = axisXArg ?? 0.0;
+                axisY = axisYArg ?? 0.0;
+            }
+            else
+            {
+                XYZ ctr = ElementsCenter(doc, elementIds);
+                axisX = ctr.X; axisY = ctr.Y;
+            }
 
             // Vertical axis through (axisX, axisY): two points along Z.
             var axisLine = Line.CreateBound(
@@ -1065,14 +1411,14 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> CopyElements(Document doc, JsonElement args)
         {
             var ids = ArgsHelp.GetLongList(args, "element_ids");
-            double dx = ArgsHelp.GetDouble(args, "dx") ?? throw new ArgumentException("missing dx");
-            double dy = ArgsHelp.GetDouble(args, "dy") ?? throw new ArgumentException("missing dy");
-            double dz = ArgsHelp.GetDouble(args, "dz") ?? throw new ArgumentException("missing dz");
+            double dx = ArgsHelp.GetLengthMm(args, "dx_mm", "dx") ?? throw new ArgumentException("missing dx");
+            double dy = ArgsHelp.GetLengthMm(args, "dy_mm", "dy") ?? throw new ArgumentException("missing dy");
+            double dz = ArgsHelp.GetLengthMm(args, "dz_mm", "dz") ?? throw new ArgumentException("missing dz");
 
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = true, ["created_ids"] = new List<object>() };
 
-            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+            var elementIds = ids.Select(id => ElemIds.From(id)).ToList();
             var translation = new XYZ(dx, dy, dz);
 
             using var tx = new Transaction(doc, $"BinaVibe: copy_elements ({ids.Count})");
@@ -1095,10 +1441,10 @@ namespace BinaVibe.Mcp.Tools
 
         // ─── mirror_elements ─────────────────────────────────────────────
         /// <summary>
-        /// args: { element_ids:[long], plane:"x"|"y", origin_x?:double, origin_y?:double, copy?:bool }
+        /// args: { element_ids:[long], plane:"x"|"y", origin_x_mm?:double, origin_y_mm?:double, copy?:bool }
         /// Mirrors elements across a vertical plane.
-        ///   plane="x" → mirror plane normal along X at x=origin_x  (the YZ plane shifted to origin_x).
-        ///   plane="y" → mirror plane normal along Y at y=origin_y  (the XZ plane shifted to origin_y).
+        ///   plane="x" → mirror plane normal along X at x=origin_x_mm  (the YZ plane shifted to origin_x_mm).
+        ///   plane="y" → mirror plane normal along Y at y=origin_y_mm  (the XZ plane shifted to origin_y_mm).
         /// copy=true (default) keeps originals; copy=false moves them.
         /// Uses ElementTransformUtils.MirrorElements (Revit 2015+).
         /// </summary>
@@ -1106,14 +1452,14 @@ namespace BinaVibe.Mcp.Tools
         {
             var ids = ArgsHelp.GetLongList(args, "element_ids");
             var planeName = ArgsHelp.GetString(args, "plane") ?? "x";
-            double originX = ArgsHelp.GetDouble(args, "origin_x") ?? 0.0;
-            double originY = ArgsHelp.GetDouble(args, "origin_y") ?? 0.0;
+            double originX = ArgsHelp.GetLengthMm(args, "origin_x_mm", "origin_x") ?? 0.0;
+            double originY = ArgsHelp.GetLengthMm(args, "origin_y_mm", "origin_y") ?? 0.0;
             bool copy = ArgsHelp.GetBool(args, "copy") ?? true;
 
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = true, ["mirrored"] = 0 };
 
-            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+            var elementIds = ids.Select(id => ElemIds.From(id)).ToList();
 
             // Build the mirror plane (vertical, Z is the out-of-plane axis).
             Plane mirrorPlane;
@@ -1252,7 +1598,7 @@ namespace BinaVibe.Mcp.Tools
             if (ids.Count == 0)
                 throw new ArgumentException("element_ids must not be empty");
 
-            var elementIds = ids.Select(id => new ElementId(id)).ToList();
+            var elementIds = ids.Select(id => ElemIds.From(id)).ToList();
 
             using var tx = new Transaction(doc, "BinaVibe: group_elements");
             TxGuard.StartSwallowing(tx);
@@ -1305,7 +1651,7 @@ namespace BinaVibe.Mcp.Tools
                 {
                     try
                     {
-                        var el = doc.GetElement(new ElementId(id));
+                        var el = doc.GetElement(ElemIds.From(id));
                         if (el == null) continue;
                         el.Pinned = pinned;
                         affected++;
@@ -1340,8 +1686,8 @@ namespace BinaVibe.Mcp.Tools
             var idA = ArgsHelp.GetLong(args, "element_id_a") ?? throw new ArgumentException("missing element_id_a");
             var idB = ArgsHelp.GetLong(args, "element_id_b") ?? throw new ArgumentException("missing element_id_b");
 
-            var elA = doc.GetElement(new ElementId(idA)) ?? throw new ArgumentException($"element {idA} not found");
-            var elB = doc.GetElement(new ElementId(idB)) ?? throw new ArgumentException($"element {idB} not found");
+            var elA = doc.GetElement(ElemIds.From(idA)) ?? throw new ArgumentException($"element {idA} not found");
+            var elB = doc.GetElement(ElemIds.From(idB)) ?? throw new ArgumentException($"element {idB} not found");
 
             using var tx = new Transaction(doc, "BinaVibe: join_geometry");
             TxGuard.StartSwallowing(tx);
@@ -1573,9 +1919,9 @@ namespace BinaVibe.Mcp.Tools
                 }
                 else if (hasColor)
                 {
-                    byte r = (byte)Math.Clamp((int)rRaw!.Value, 0, 255);
-                    byte g = (byte)Math.Clamp((int)gRaw!.Value, 0, 255);
-                    byte b = (byte)Math.Clamp((int)bRaw!.Value, 0, 255);
+                    byte r = (byte)RevitWebAppSync.Services.RuntimeCompat.Clamp((int)rRaw!.Value, 0, 255);
+                    byte g = (byte)RevitWebAppSync.Services.RuntimeCompat.Clamp((int)gRaw!.Value, 0, 255);
+                    byte b = (byte)RevitWebAppSync.Services.RuntimeCompat.Clamp((int)bRaw!.Value, 0, 255);
 
                     var color = new Color(r, g, b);
                     var ogs = new OverrideGraphicSettings();
@@ -1614,8 +1960,9 @@ namespace BinaVibe.Mcp.Tools
             var levelName = ArgsHelp.GetString(args, "level") ?? throw new ArgumentException("missing level");
             var typeName = ArgsHelp.GetString(args, "type_name");
 
-            // Parse boundary: array of [x,y] pairs.
-            var points = ParseBoundary2D(args, "boundary");
+            // Parse boundary: mm-preferred [[x,y,z]...] array, legacy feet fallback.
+            var pointsMm = ArgsHelp.GetPointListMm(args, "boundary_mm");
+            var points = pointsMm.Count > 0 ? pointsMm : ParseBoundary2D(args, "boundary");
             if (points.Count < 3)
                 throw new ArgumentException("boundary must have at least 3 points");
 
@@ -1661,6 +2008,63 @@ namespace BinaVibe.Mcp.Tools
             catch { tx.RollBack(); throw; }
         }
 
+        // ─── create_roof ────────────────────────────────────────────────
+        /// <summary>
+        /// args: { boundary_mm:[[x,y],...], level:string, roof_type_name?:string, offset_mm?:number }
+        /// Creates a flat (non-sloped) roof from a closed 2D boundary on a level.
+        /// Adapted from mcp-servers-for-revit (MIT) — CreateSurfaceElementEventHandler.cs
+        /// OST_Roofs case. FLAT footprint roof only: every edge DefinesSlope=false.
+        ///
+        /// Returns {ok, new_ids, roof_type, level}.
+        /// </summary>
+        public static Dictionary<string, object?> CreateRoof(Document doc, JsonElement args)
+        {
+            var boundary = ArgsHelp.GetPointListMm(args, "boundary_mm");
+            if (boundary.Count < 3)
+                throw new InvalidOperationException("boundary_mm needs at least 3 [x,y] points (closed loop, mm)");
+            var levelName = ArgsHelp.GetString(args, "level")
+                ?? throw new InvalidOperationException("level required");
+            var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException($"level '{levelName}' not found (use list_levels)");
+            var typeName = ArgsHelp.GetString(args, "roof_type_name");
+            var roofType = new FilteredElementCollector(doc)
+                .OfClass(typeof(RoofType)).OfCategory(BuiltInCategory.OST_Roofs).Cast<RoofType>()
+                .FirstOrDefault(t => typeName == null
+                    || string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException(typeName != null
+                    ? $"roof type '{typeName}' not found" : "no roof types in project");
+            var offsetFt = ArgsHelp.GetLengthMm(args, "offset_mm") ?? 0;
+
+            var curves = new CurveArray();
+            for (int i = 0; i < boundary.Count; i++)
+            {
+                var a = new XYZ(boundary[i].X, boundary[i].Y, level.Elevation);
+                var next = boundary[(i + 1) % boundary.Count];
+                var b = new XYZ(next.X, next.Y, level.Elevation);
+                if (a.DistanceTo(b) < 1e-6) continue;   // skip duplicate closing point
+                curves.Append(Line.CreateBound(a, b));
+            }
+
+            using var tx = new Transaction(doc, "BINA: create roof");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                var roof = doc.Create.NewFootPrintRoof(curves, level, roofType, out ModelCurveArray modelCurves);
+                foreach (ModelCurve mc in modelCurves)
+                    roof.set_DefinesSlope(mc, false);       // flat roof
+                if (Math.Abs(offsetFt) > 1e-9)
+                    roof.get_Parameter(BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM)?.Set(offsetFt);
+                tx.Commit();
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["new_ids"] = new List<long> { roof.Id.Value },
+                    ["roof_type"] = roofType.Name, ["level"] = level.Name,
+                };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
         // ─── create_ceiling ──────────────────────────────────────────────
         /// <summary>
         /// args: { boundary:[[x,y],...], level:string, type_name?:string }
@@ -1679,7 +2083,8 @@ namespace BinaVibe.Mcp.Tools
             var levelName = ArgsHelp.GetString(args, "level") ?? throw new ArgumentException("missing level");
             var typeName = ArgsHelp.GetString(args, "type_name");
 
-            var points = ParseBoundary2D(args, "boundary");
+            var pointsMm = ArgsHelp.GetPointListMm(args, "boundary_mm");
+            var points = pointsMm.Count > 0 ? pointsMm : ParseBoundary2D(args, "boundary");
             if (points.Count < 3)
                 throw new ArgumentException("boundary must have at least 3 points");
 
@@ -1887,9 +2292,9 @@ namespace BinaVibe.Mcp.Tools
         {
             var hostId = ArgsHelp.GetLong(args, "host_wall_id") ?? throw new ArgumentException("missing host_wall_id");
             var typeName = ArgsHelp.GetString(args, "type_name") ?? throw new ArgumentException("missing type_name");
-            var loc = ArgsHelp.GetXyz(args, "location") ?? throw new ArgumentException("missing location [x,y,z]");
+            var loc = ArgsHelp.GetPointMm(args, "location_mm") ?? ArgsHelp.GetXyz(args, "location") ?? throw new ArgumentException("missing location [x,y,z]");
 
-            var host = doc.GetElement(new ElementId(hostId)) as Wall
+            var host = doc.GetElement(ElemIds.From(hostId)) as Wall
                 ?? throw new ArgumentException($"host wall {hostId} not found");
 
             var symbol = new FilteredElementCollector(doc).WhereElementIsElementType()
@@ -1930,11 +2335,18 @@ namespace BinaVibe.Mcp.Tools
                     else throw new ArgumentException($"value '{value}' is not Integer");
                     break;
                 case StorageType.Double:
-                    if (double.TryParse(value.ToString(), out var d)) p.Set(d);
+                    if (double.TryParse(value.ToString(), out var d))
+                    {
+                        // Measurable params (length/area/...): the caller speaks
+                        // PROJECT DISPLAY UNITS (mm on JKR templates) — convert
+                        // to internal. Non-measurable Doubles pass through.
+                        var pdoc = p.Element?.Document;
+                        p.Set(pdoc != null ? Inspectors.ParamUnits.ToInternal(pdoc, p, d) : d);
+                    }
                     else throw new ArgumentException($"value '{value}' is not Double");
                     break;
                 case StorageType.ElementId:
-                    if (long.TryParse(value.ToString(), out var eid)) p.Set(new ElementId(eid));
+                    if (long.TryParse(value.ToString(), out var eid)) p.Set(ElemIds.From(eid));
                     else throw new ArgumentException($"value '{value}' is not ElementId");
                     break;
                 default: throw new NotSupportedException($"unsupported StorageType {p.StorageType}");
@@ -1964,7 +2376,7 @@ namespace BinaVibe.Mcp.Tools
             if (ids.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no element ids given" };
             var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
-            var eids = ids.Select(id => new ElementId(id)).ToList();
+            var eids = ids.Select(id => ElemIds.From(id)).ToList();
             using var tx = new Transaction(doc, "BinaVibe: isolate_elements");
             TxGuard.StartSwallowing(tx);
             try { view.IsolateElementsTemporary(eids); tx.Commit(); }
@@ -2014,7 +2426,7 @@ namespace BinaVibe.Mcp.Tools
             string scopedTo;
             if (ids.Count > 0)
             {
-                targets = ids.Select(i => new ElementId(i)).ToList();
+                targets = ids.Select(i => ElemIds.From(i)).ToList();
                 scopedTo = ids.Count + " element(s)";
             }
             else if (!string.IsNullOrWhiteSpace(level))
@@ -2195,7 +2607,7 @@ namespace BinaVibe.Mcp.Tools
             var roomIds = new HashSet<long>(new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_Rooms)
                 .WhereElementIsNotElementType().Cast<Room>()
                 .Where(r => r.Area > 0 && (r.Name ?? "").IndexOf(inRooms, StringComparison.OrdinalIgnoreCase) >= 0)
-                .Select(r => r.Id.Value));
+                .Select(r => (long)r.Id.Value));
             if (roomIds.Count == 0)
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"no rooms matching '{inRooms}'" };
 
@@ -2241,7 +2653,11 @@ namespace BinaVibe.Mcp.Tools
                         if (int.TryParse(value, out var iv)) return p.Set(iv);
                         return p.Set(value.Trim().ToLowerInvariant() == "yes" || value.Trim() == "1" || value.Trim().ToLowerInvariant() == "true" ? 1 : 0);
                     case StorageType.Double:
-                        if (double.TryParse(value, out var dv)) return p.Set(dv);
+                        if (double.TryParse(value, out var dv))
+                        {
+                            var pdoc2 = p.Element?.Document;
+                            return p.Set(pdoc2 != null ? Inspectors.ParamUnits.ToInternal(pdoc2, p, dv) : dv);
+                        }
                         return false;
                     default: return false;
                 }
@@ -2419,6 +2835,13 @@ namespace BinaVibe.Mcp.Tools
         // ─── purge_unused ────────────────────────────────────────────────
         public static Dictionary<string, object?> PurgeUnused(Document doc, JsonElement args)
         {
+#if REVIT2023_24
+            // Document.GetUnusedElements is Revit 2024+ API; this payload is
+            // compiled against 2023 refs (serves 2023+2024) — report the
+            // capability honestly instead of half-purging.
+            return new Dictionary<string, object?> { ["ok"] = false,
+                ["error"] = "purge_unused needs Revit 2025 or newer" };
+#else
             int purged = 0;
             using var tx = new Transaction(doc, "BinaVibe: purge_unused");
             TxGuard.StartSwallowing(tx);
@@ -2436,6 +2859,7 @@ namespace BinaVibe.Mcp.Tools
             }
             catch { tx.RollBack(); throw; }
             return new Dictionary<string, object?> { ["ok"] = true, ["purged"] = purged };
+#endif
         }
 
         // ─── crop_view_to_elements ──────────────────────────────────────
@@ -2454,7 +2878,7 @@ namespace BinaVibe.Mcp.Tools
             XYZ? wMin = null, wMax = null;
             foreach (var id in ids)
             {
-                var el = doc.GetElement(new ElementId(id));
+                var el = doc.GetElement(ElemIds.From(id));
                 if (el == null) continue;
                 var bb = el.get_BoundingBox(view) ?? el.get_BoundingBox(null);
                 if (bb == null) continue;
@@ -2789,6 +3213,65 @@ namespace BinaVibe.Mcp.Tools
                 JsonValueKind.Null => null,
                 _ => v.GetRawText(),
             };
+        }
+
+        private const double MmPerFoot = 304.8;
+
+        // Reads a length arg in mm (preferred) with optional legacy-ft fallback.
+        // RETURNS FEET — callers pass the result straight to the Revit API.
+        public static double? GetLengthMm(JsonElement el, string mmName, string? legacyFtName = null)
+        {
+            var mm = GetDouble(el, mmName);
+            if (mm.HasValue) return mm.Value / MmPerFoot;
+            if (legacyFtName != null)
+            {
+                var ft = GetDouble(el, legacyFtName);
+                if (ft.HasValue) return ft.Value;
+            }
+            return null;
+        }
+
+        // Parses one point given in mm — accepts [x,y,z] array or {x,y,z} object.
+        // RETURNS an XYZ in FEET.
+        public static XYZ? GetPointMm(JsonElement el, string name)
+        {
+            if (el.ValueKind != JsonValueKind.Object) return null;
+            if (!el.TryGetProperty(name, out var v)) return null;
+            double? x = null, y = null, z = 0;
+            if (v.ValueKind == JsonValueKind.Array)
+            {
+                var items = new List<double>();
+                foreach (var item in v.EnumerateArray())
+                    if (item.ValueKind == JsonValueKind.Number && item.TryGetDouble(out var d)) items.Add(d);
+                if (items.Count >= 2) { x = items[0]; y = items[1]; z = items.Count > 2 ? items[2] : 0; }
+            }
+            else if (v.ValueKind == JsonValueKind.Object)
+            {
+                if (v.TryGetProperty("x", out var xv) && xv.ValueKind == JsonValueKind.Number && xv.TryGetDouble(out var xd)) x = xd;
+                if (v.TryGetProperty("y", out var yv) && yv.ValueKind == JsonValueKind.Number && yv.TryGetDouble(out var yd)) y = yd;
+                if (v.TryGetProperty("z", out var zv) && zv.ValueKind == JsonValueKind.Number && zv.TryGetDouble(out var zd)) z = zd;
+            }
+            if (!x.HasValue || !y.HasValue) return null;
+            return new XYZ(x.Value / MmPerFoot, y.Value / MmPerFoot, (z ?? 0) / MmPerFoot);
+        }
+
+        // Parses [[x,y,z], ...] in mm. RETURNS XYZs in FEET.
+        public static List<XYZ> GetPointListMm(JsonElement el, string name)
+        {
+            var pts = new List<XYZ>();
+            if (el.ValueKind != JsonValueKind.Object) return pts;
+            if (!el.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Array) return pts;
+            foreach (var item in v.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Array) continue;
+                var items = new List<double>();
+                foreach (var n in item.EnumerateArray())
+                    if (n.ValueKind == JsonValueKind.Number && n.TryGetDouble(out var d)) items.Add(d);
+                if (items.Count >= 2)
+                    pts.Add(new XYZ(items[0] / MmPerFoot, items[1] / MmPerFoot,
+                                    (items.Count > 2 ? items[2] : 0) / MmPerFoot));
+            }
+            return pts;
         }
     }
 }

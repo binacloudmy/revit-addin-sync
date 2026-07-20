@@ -736,3 +736,70 @@ For a fast pre-demo check, run these eight in order:
    error-explainer card.
 
 If all eight pass, the demo path is solid.
+
+---
+
+## 18. OSS tool port — Windows smoke (feat/oss-tool-port)
+
+Build the addin, open a test model with levels + a beam family + duct/pipe types, then via the engine or pane run each and check the result in Revit. Every mutate must return new_ids and the elements must be SELECTED/visible when done.
+
+Happy path / failure case per tool:
+
+- [ ] list_phases / list_design_options / list_rvt_links / list_revisions / list_model_groups — each returns ok + plausible counts (failure: none — read-only)
+- [ ] get_sheet_viewports (a real sheet_number) / (failure: bogus sheet_number → clear error)
+- [ ] list_project_parameters / get_type_parameters (a wall type id) / (failure: bad element_id)
+- [ ] list_rooms — area_m2 matches Revit room schedule to 0.01 (failure: none)
+- [ ] filter_elements category=Walls visible_in_current_view=true / bbox query around a known wall (failure: no criteria → clear error)
+- [ ] create_beam_system 6000x8000mm bay, spacing_mm=1500 — beams appear, actual_spacing_mm ≈1500 (failure: bogus beam_type_name)
+- [ ] create_beam between two grid intersections (failure: bogus level)
+- [ ] create_duct + create_pipe 3000mm straight run (failure: no MEP types loaded → clear error)
+- [ ] create_roof over a 4-point rectangle — flat roof on level (failure: 2-point boundary)
+- [ ] create_dimensions on 3 parallel walls, direction perpendicular — dim string appears (failure: 1 element id)
+- [ ] create_dimensions in a SECTION view — expect wrong/degenerate result (known plan-view-only scope; verify the T13 docstring warns about it)
+- [ ] create_point_element category=Doors → routes to place_door (check McpCallLog shows both names)
+- [ ] create_line_element category=Walls / create_surface_element category=Floors
+- [ ] store_data key=test → query_data key=test roundtrip; second doc gets its own store
+- [ ] store_data with two UNSAVED docs open (both "Project X") — check %APPDATA%/BINA/scratch/ for hash collision (known limitation)
+- [ ] UNITS: create_wall with height_mm=3000 → wall is 3000mm; legacy height_ft=10 still works; place_family_instance with legacy x/y/z (feet) still places correctly
+
+Beat-Revit-AI iteration additions:
+- [ ] find_elements_by_parameter Tinggi_Siling < 3.0 → returns the 2.6m rooms AND the 0.30m outlier (display-units compare)
+- [ ] get_element_parameters on a room → length params carry value_mm + display_value
+- [ ] audit_parameters category=Doors group=Data → fill matrix matches manual spot-check; partial_by_type appears for mixed params
+- [ ] filter_elements/find_elements_by_filter on a category with >50 elements → matches beyond #50 found (predicate-before-cap)
+- [ ] get_project_base_point with architect link loaded → host PBP + link offset in mm
+- [ ] check_grid_alignment → per-grid delta_mm sensible; unlink model → clear error
+- [ ] UAT REPLAY: the 6 prompts from "REVIT CO PILOT.docx" — clearance answer lists 7 rooms; door audit covers custom jkr params; room list 63/63; no "(N dipapar)"; no internal names
+
+## 19. Pane UX upgrades (feat/oss-tool-port + feat/copilot-engine)
+- [ ] Streaming: long Malay prompt — spinner replaced by growing text at first delta; last word completes
+- [ ] Trail live: multi-tool prompt — rows tick ✓ with elapsed times while running
+- [ ] Trail collapse: after the answer, pill "✓ N langkah · Xs ▸" — tap expands/collapses; survives scroll
+- [ ] Tindakan buttons: audit prompt → [Ya, teruskan][Tidak] under the answer; Ya sends the offer + runs act-and-verify; buttons vanish after tap; older messages show no buttons
+- [ ] No tindakan → no buttons (plain reply unchanged)
+- [ ] Clickable ids: audit table → id underlined; click selects + zooms the element in Revit; non-id numbers (areas, counts) NOT clickable
+- [ ] Regression: copy/select text in replies still works; user bubbles unchanged; history tab renders old messages
+
+## 20. Colocate deployment (engine bundle + supervisor)
+- [ ] Bundle: `pwsh scripts/build-engine-bundle.ps1 -Version 0.9.0 -Smoke` → smoke OK
+- [ ] Cold spawn: place bundle under %LocalAppData%\Bina\RevitSync\engine\0.9.0\, start Revit, open pane → engine healthy, turn works
+- [ ] Attach: second Revit instance → no second engine process
+- [ ] Crash respawn: kill python.exe → engine back within ~25s; kill 3× fast → pane error state + log link
+- [ ] Version gate: set min_addin_version above the addin version → error banner, no spawn
+- [ ] Login token: login in addin → config.json gains DeviceToken; engine env has BINA_ENGINE_TOKEN (Process Explorer)
+- [ ] Poison-pill: set DEEPSEEK_API_KEY + GatewayUrl → engine refuses, log names the key
+- [ ] Update channel: feed with EngineVersion/EngineUrl/EngineSha256 → new dir appears; corrupt sha → rejected, current kept
+- [ ] Installer: build with -EngineZip → fresh machine install → cold-spawn checklist passes
+- [ ] Signed build: build-installer.ps1 -SignCert <pfx> -SignPassword <pw> — signtool quoting survives ISCC (the /Sbinasign mechanism); installer + uninstaller both signed (signtool verify /pa)
+- [ ] OTA feed: version.json with flat engineVersion/engineUrl/engineSha256 fields (NOT the old nested {engine:{...}} shape)
+
+## 21. Multi-year payloads (one installer, Revit 2024–2027)
+- [ ] Build: `installer\build-installer.ps1 -Version <v>` → `artifacts\plugin\` has `net8.0\` + `net10.0\` (+ `net48\` once Phase B lands), root `manifest.json` with targets map, `.complete`; both loader dirs published
+- [ ] Revit 2026: install → loader.log shows `loaded ... from '...\versions\<v>\net8.0' (Revit 2026)`, pane works
+- [ ] Revit 2027 (or preview): loader picks `net10.0\`
+- [ ] Wrong-year probe: delete `net8.0\` from the version dir → Revit 2026 skips that version and falls to the previous complete one; if none, dialog says "installed but failed to load" / "no payload" — NEVER the bare "reinstall" text when a version dir existed
+- [ ] Honest dialog: corrupt the newest payload's DLL (truncate) with no older version present → dialog names the exception type + loader.log path, not "No installed version found"
+- [ ] Legacy compat: hand-stage an old FLAT-layout version dir (payload at root, no targets key) newer than installed → loader loads it from the root
+- [ ] OTA: feed a new-layout zip → staged, next Revit start loads the right subfolder; `UpdateService` version gate still compares correctly (GetCurrentVersion walks up from the subfolder)
+- [ ] Installer registrations: Addins\2025/2026/2027 get the net8 loader; Addins\2024 only exists when a net48 payload shipped
+- [ ] (Phase B) Revit 2023 + 2024: net48 loader in Addins\2023/2024 picks `net48\` (2023-ref build), pane works on BOTH; purge_unused reports "needs Revit 2025+" honestly

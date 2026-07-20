@@ -399,7 +399,7 @@ namespace RevitWebAppSync
                 response.EnsureSuccessStatusCode();
                 
                 byte[] fileBytes = await response.Content.ReadAsByteArrayAsync();
-                await File.WriteAllBytesAsync(filePath, fileBytes);
+                await Services.RuntimeCompat.WriteAllBytesAsync(filePath, fileBytes);
                 
                 LogToFile($"✅ File downloaded successfully: {filePath} ({fileBytes.Length} bytes)");
                 return filePath;

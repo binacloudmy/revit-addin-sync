@@ -73,11 +73,21 @@ namespace RevitWebAppSync.Services
                     // Idling hook only toasts. Mandatory ones wait for the
                     // Idling hook to raise the blocking UpdateWindow.
                     if (_pending != null && !_pending.Mandatory)
-                        await StageAsync(null);
+                    {
+                        // Own catch: StageCoreAsync already Tracks stage_failed;
+                        // letting it bubble would double-report as check_failed.
+                        try { await StageAsync(null); }
+                        catch (Exception stageEx)
+                        {
+                            Log($"silent stage failed: {stageEx.GetType().Name}");
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
                     Log($"update check failed: {ex}");
+                    TelemetryService.Track("update", "check_failed",
+                        new { error_class = ex.GetType().Name });
                 }
             });
         }
@@ -143,6 +153,7 @@ namespace RevitWebAppSync.Services
             if (feed?.Version == null || feed.Url == null)
             {
                 Log($"malformed feed at {feedUrl}");
+                TelemetryService.Track("update", "feed_malformed");
                 return;
             }
 
@@ -151,6 +162,10 @@ namespace RevitWebAppSync.Services
                 Log($"unparseable feed version '{feed.Version}'");
                 return;
             }
+
+            // Stage the engine payload independently of the add-in version — the
+            // engine can update on its own cadence. Best-effort, never blocks.
+            await CheckEngineAsync(feed);
 
             var current = GetCurrentVersion();
             if (remote <= current)
@@ -167,6 +182,8 @@ namespace RevitWebAppSync.Services
 
             Log($"update available: {remote} (current {current}, mandatory {feed.Mandatory})");
             _pending = feed;
+            TelemetryService.Track("update", "available",
+                new { to_version = remote.ToString() });
         }
 
         private static async Task StageCoreAsync(UpdateFeed feed,
@@ -192,15 +209,15 @@ namespace RevitWebAppSync.Services
                 {
                     response.EnsureSuccessStatusCode();
                     var total = response.Content.Headers.ContentLength ?? -1L;
-                    await using var download = await response.Content.ReadAsStreamAsync();
-                    await using var zipStream = File.Create(zipPath);
+                    using var download = await response.Content.ReadAsStreamAsync();
+                    using var zipStream = File.Create(zipPath);
 
                     var buffer = new byte[81920];
                     long done = 0;
                     int read;
-                    while ((read = await download.ReadAsync(buffer)) > 0)
+                    while ((read = await download.ReadAsync(buffer, 0, buffer.Length)) > 0)
                     {
-                        await zipStream.WriteAsync(buffer.AsMemory(0, read));
+                        await zipStream.WriteAsync(buffer, 0, read);
                         done += read;
                         if (total > 0)
                             progress?.Report(((double)done / total * 0.9,
@@ -212,7 +229,7 @@ namespace RevitWebAppSync.Services
                 if (!string.IsNullOrWhiteSpace(feed.Sha256))
                 {
                     using var file = File.OpenRead(zipPath);
-                    var actual = Convert.ToHexString(await SHA256.HashDataAsync(file));
+                    var actual = RuntimeCompat.ToHexString(await RuntimeCompat.Sha256Async(file));
                     if (!actual.Equals(feed.Sha256, StringComparison.OrdinalIgnoreCase))
                         throw new InvalidOperationException(
                             $"download corrupted (SHA256 mismatch) — try again");
@@ -236,6 +253,15 @@ namespace RevitWebAppSync.Services
                 Log($"staged {remote} → {targetDir}");
                 _staged = true;
                 progress?.Report((1.0, "Done"));
+                TelemetryService.Track("update", "staged",
+                    new { to_version = remote.ToString() });
+            }
+            catch (Exception ex)
+            {
+                Log($"stage {remote} failed: {ex}");
+                TelemetryService.Track("update", "stage_failed",
+                    new { to_version = remote.ToString(), error_class = ex.GetType().Name });
+                throw;   // UpdateWindow still surfaces the failure to the user
             }
             finally
             {
@@ -249,14 +275,20 @@ namespace RevitWebAppSync.Services
 
         /// <summary>Effective running version. Prefer the versions\&lt;ver&gt;\ folder
         /// name we were loaded from (survives builds that forget to bump
-        /// AssemblyVersion); fall back to the assembly version.</summary>
+        /// AssemblyVersion); fall back to the assembly version. Handles both
+        /// layouts: flat legacy (versions\&lt;ver&gt;\*.dll) and multi-year
+        /// (versions\&lt;ver&gt;\net8.0\*.dll) — walk up until the parent is
+        /// versions\ and the folder name parses as a version.</summary>
         private static Version GetCurrentVersion()
         {
-            var dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
-            var parent = Path.GetDirectoryName(dir);
-            if (string.Equals(parent, VersionsDir, StringComparison.OrdinalIgnoreCase)
-                && Version.TryParse(Path.GetFileName(dir), out var fromDir))
-                return fromDir;
+            for (var dir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location);
+                 !string.IsNullOrEmpty(dir);
+                 dir = Path.GetDirectoryName(dir))
+            {
+                if (string.Equals(Path.GetDirectoryName(dir), VersionsDir, StringComparison.OrdinalIgnoreCase)
+                    && Version.TryParse(Path.GetFileName(dir), out var fromDir))
+                    return fromDir;
+            }
 
             return Assembly.GetExecutingAssembly().GetName().Version ?? new Version(0, 0, 0);
         }
@@ -282,6 +314,113 @@ namespace RevitWebAppSync.Services
             // Missing flag = mandatory: the backend and addin move together,
             // so a stale client is broken by default unless the feed opts out.
             [JsonProperty("mandatory")] public bool Mandatory { get; set; } = true;
+
+            // Optional Copilot Engine bundle channel, shipped as flat fields in
+            // the SAME version.json as the addin payload above. All three are
+            // OPTIONAL and independent of the addin version fields — old feeds
+            // that omit any of them leave this channel entirely inert (see
+            // CheckEngineAsync). Staged into engine\<EngineVersion>\, hot-safe,
+            // same restart-to-apply UX as the addin's own update.
+            [JsonProperty("engineVersion")] public string EngineVersion { get; set; }
+            [JsonProperty("engineUrl")] public string EngineUrl { get; set; }
+            [JsonProperty("engineSha256")] public string EngineSha256 { get; set; }
+        }
+
+        private static readonly string EngineDir = Path.Combine(Root, "engine");
+
+        /// <summary>Stage the engine bundle if the feed carries one and it is
+        /// newer than the newest installed engine\&lt;ver&gt;\ dir. Self-contained
+        /// (does not touch the add-in staging path); never overwrites a
+        /// running engine — the new version is only picked up at the next
+        /// <c>EnsureRunningAsync()</c> (next Revit start). Best-effort — a
+        /// failed engine stage never blocks the add-in update. Skips entirely
+        /// when any of the three feed fields is missing (old feeds — channel
+        /// inert).</summary>
+        private static async Task CheckEngineAsync(UpdateFeed feed)
+        {
+            if (string.IsNullOrWhiteSpace(feed?.EngineVersion)
+                || string.IsNullOrWhiteSpace(feed.EngineUrl)
+                || string.IsNullOrWhiteSpace(feed.EngineSha256))
+                return;
+
+            if (!Version.TryParse(feed.EngineVersion, out var remote))
+            {
+                Log($"engine: unparseable version '{feed.EngineVersion}'");
+                return;
+            }
+
+            var newestInstalled = NewestInstalledEngineVersion();
+            if (remote <= newestInstalled)
+            {
+                Log($"engine up to date (installed {newestInstalled}, feed {remote})");
+                return;
+            }
+
+            Log($"staging engine {remote} from {feed.EngineUrl}");
+            Directory.CreateDirectory(StagingDir);
+            var zipPath = Path.Combine(StagingDir, $"engine-{remote}.zip");
+            var extractDir = Path.Combine(StagingDir, $"engine-{remote}");
+            var targetDir = Path.Combine(EngineDir, remote.ToString());
+
+            try
+            {
+                using (var http = NewHttp())
+                using (var response = await http.GetAsync(feed.EngineUrl, HttpCompletionOption.ResponseHeadersRead))
+                {
+                    response.EnsureSuccessStatusCode();
+                    using var download = await response.Content.ReadAsStreamAsync();
+                    using (var zipStream = File.Create(zipPath))
+                    {
+                        await download.CopyToAsync(zipStream);
+                    }
+                }
+
+                using (var file = File.OpenRead(zipPath))
+                {
+                    var actual = RuntimeCompat.ToHexString(await RuntimeCompat.Sha256Async(file));
+                    if (!actual.Equals(feed.EngineSha256.Trim(), StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log($"engine {remote} sha256 mismatch — refused, keeping current");
+                        return;
+                    }
+                }
+
+                if (Directory.Exists(extractDir))
+                    Directory.Delete(extractDir, recursive: true);
+                ZipFile.ExtractToDirectory(zipPath, extractDir);
+
+                Directory.CreateDirectory(EngineDir);
+                if (Directory.Exists(targetDir))
+                    Directory.Delete(targetDir, recursive: true); // stale incomplete leftover
+                Directory.Move(extractDir, targetDir);            // never extract into the live dir
+
+                Log($"engine {remote} staged → {targetDir} — EngineManager picks it up next Revit start");
+            }
+            catch (Exception ex)
+            {
+                Log($"engine {remote} stage failed (non-blocking): {ex.Message}");
+                TelemetryService.Track("update", "engine_stage_failed",
+                    new { to_version = remote.ToString(), error_class = ex.GetType().Name });
+            }
+            finally
+            {
+                try { if (File.Exists(zipPath)) File.Delete(zipPath); } catch { }
+                try { if (Directory.Exists(extractDir)) Directory.Delete(extractDir, recursive: true); } catch { }
+            }
+        }
+
+        /// <summary>Newest engine\&lt;ver&gt;\ dir currently on disk, by folder
+        /// name (mirrors EngineManager's own scan); 0.0.0.0 when none.</summary>
+        private static Version NewestInstalledEngineVersion()
+        {
+            var newest = new Version(0, 0, 0, 0);
+            if (!Directory.Exists(EngineDir)) return newest;
+            foreach (var dir in Directory.GetDirectories(EngineDir))
+            {
+                if (Version.TryParse(Path.GetFileName(dir), out var v) && v > newest)
+                    newest = v;
+            }
+            return newest;
         }
     }
 }
