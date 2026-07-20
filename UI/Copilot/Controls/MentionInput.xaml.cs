@@ -212,8 +212,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // rows — sunken @-tile, label, right-aligned type — no per-group headers.
         private void BuildPicker(string query)
         {
+            RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("picker", "build-start q='" + query + "'");
             PickerHost.Children.Clear();
             var groups = Provider?.GetGroups() ?? new List<MentionGroup>();
+            RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("picker", "groups=" + groups.Count);
             bool any = false;
 
             PickerHost.Children.Add(new TextBlock
@@ -255,7 +257,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 }
             }
 
+            RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("picker", "opening any=" + any);
             Picker.IsOpen = any;
+            RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("picker", "opened");
         }
 
         private void InsertMention(string item)

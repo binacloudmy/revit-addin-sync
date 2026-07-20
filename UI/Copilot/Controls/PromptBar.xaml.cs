@@ -91,10 +91,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // the editor — the mention picker opens from the editor's own logic.
             AtBtn.Click += (_, __) =>
             {
+                RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("at-btn", "click");
                 var t = Input.Editor.Text ?? "";
                 Input.Editor.Text = t.Length > 0 && !char.IsWhiteSpace(t[t.Length - 1]) ? t + " @" : t + "@";
                 Input.Editor.CaretIndex = Input.Editor.Text.Length;
                 Input.Editor.Focus();
+                RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("at-btn", "done");
             };
             AttachBtn.Click += (_, __) =>
             {

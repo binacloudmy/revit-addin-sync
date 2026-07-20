@@ -32,6 +32,7 @@ namespace RevitWebAppSync.UI.Copilot
         public List<MentionGroup> GetGroups()
         {
             var c = _cache;
+            PanelDebugLog.Write("mention-provider", c != null && c.Count > 0 ? "cache-hit" : "cache-MISS-fallback");
             return c != null && c.Count > 0 ? c : _fallback.GetGroups();
         }
 

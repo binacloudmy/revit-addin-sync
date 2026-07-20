@@ -178,6 +178,9 @@ namespace RevitWebAppSync
         {
             try
             {
+                // Build stamp first — closes the "which build am I testing?"
+                // gap (rounds 31-32: crash reports without a verifiable hash).
+                UI.Copilot.PanelDebugLog.WriteBuildStamp();
                 // Idle-gap heartbeat (diagnostic): Revit raises Idling whenever
                 // its UI thread is free. If two consecutive Idling events are
                 // >2s apart, the UI thread was BLOCKED that long ("Not
@@ -197,8 +200,16 @@ namespace RevitWebAppSync
                     // from the WPF thread crashed Revit (round-29 CIDB repro).
                     if (s is UIApplication __mua)
                     {
+                        // Timed: if these ever block the UI thread they must
+                        // confess in panel-debug.log, not hide behind Idling.
+                        var __swRef = System.Diagnostics.Stopwatch.StartNew();
                         UI.Copilot.RevitMentionProvider.RefreshCache(__mua);
+                        var __msMention = __swRef.ElapsedMilliseconds;
+                        __swRef.Restart();
                         UI.Copilot.CopilotContextSnapshot.Refresh(__mua);
+                        if (__msMention > 250 || __swRef.ElapsedMilliseconds > 250)
+                            UI.Copilot.PanelDebugLog.Write("idling-refresh",
+                                "SLOW mention=" + __msMention + "ms snapshot=" + __swRef.ElapsedMilliseconds + "ms");
                     }
                     var now = System.Diagnostics.Stopwatch.GetTimestamp();
                     double freq = System.Diagnostics.Stopwatch.Frequency;
