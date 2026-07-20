@@ -96,7 +96,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 // "[at-btn] click" then process death; the typed-@ path is fine).
                 // Per-statement breadcrumbs + catch-log until the culprit line
                 // confesses; a caught exception here must never take Revit down.
-                var log = new Action<string>(s => RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("at-btn", s));
+                // Instance hash distinguishes THIS bar from the Result/Library
+                // hosts' bars and from a rebuilt bar after "+ New chat" —
+                // round 37: three clicks all read len=0, which is only
+                // explainable if the text lands in a different/reset instance.
+                var log = new Action<string>(s => RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("at-btn", "bar#" + GetHashCode() + " " + s));
                 log("click");
                 try
                 {

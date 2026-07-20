@@ -66,6 +66,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             InitializeComponent();
             Editor.TextChanged += OnTextChanged;
             Editor.PreviewKeyDown += OnPreviewKeyDown;
+            // Dismissal evidence: StaysOpen=False closes the popup outside our
+            // code — without this line a silently-dismissed picker logs
+            // "opened" and nothing else (round-37 rendering-gap hunt).
+            Picker.Closed += (_, __) => RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("picker", "closed");
             DataObject.AddPastingHandler(Editor, OnPaste);
             Loaded += (_, __) => UpdatePlaceholder();
             Editor.DragOver += (_, e) =>
@@ -198,8 +202,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Re-run token detection after the host mutates Text/caret
         /// programmatically (the @-button sets Text then CaretIndex; TextChanged
         /// fired between the two with a stale caret, so the picker never opened
-        /// for the button path — round-34 UX note).</summary>
-        public void RefreshTokenDetection() => DetectToken();
+        /// for the button path — round-34 UX note).
+        ///
+        /// DEFERRED to Background priority (round 37): opening the StaysOpen=False
+        /// popup synchronously inside the button's click processing gets it
+        /// dismissed by that same click's mouse transaction — the log said
+        /// "opened" while the screen showed nothing. Deferring lets the click
+        /// finish first; the popup then opens into a quiet dispatcher.</summary>
+        public void RefreshTokenDetection()
+            => Dispatcher.BeginInvoke(new Action(() =>
+            {
+                RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("picker",
+                    "deferred-detect editor#" + Editor.GetHashCode() + " len=" + (Editor.Text ?? "").Length);
+                DetectToken();
+            }), System.Windows.Threading.DispatcherPriority.Background);
 
         // Picked from the palette (click or Enter): strip the "/query" from the
         // editor, close, and hand the tool up to the PromptBar for the chip.
