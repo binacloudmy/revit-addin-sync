@@ -98,6 +98,13 @@ namespace RevitWebAppSync.UI.Copilot
             // Kebab version line — single source (AppInfo), never hardcoded.
             // major.minor.patch (3 parts) so a "0.0.20"-style patch reads fully.
             VersionLine.Text = "Version " + AppInfo.Version;
+
+            // Re-fetch plan/usage when the pane regains visibility (switched back
+            // to it). Usage is otherwise only fetched on first ChatView load,
+            // after each prompt, and at login — so an upgrade done elsewhere would
+            // stay stale until one of those. See StartUsagePollAfterCheckout for
+            // the return-from-billing case.
+            IsVisibleChanged += (_, e) => { if (e.NewValue is bool v && v) RefreshUsageNow(); };
         }
 
         private ResourceDictionary _localTheme;
@@ -350,7 +357,39 @@ namespace RevitWebAppSync.UI.Copilot
 
         /// <summary>Open the "Choose your plan" sheet (usage popover, blocked state, harness).</summary>
         public void ShowUpgradeSheet() =>
-            ShowSheet(SheetChrome("Choose your plan", "Swipe to compare", Controls.UpgradeSheet.Build()));
+            ShowSheet(SheetChrome("Choose your plan", "Swipe to compare",
+                Controls.UpgradeSheet.Build(StartUsagePollAfterCheckout)));
+
+        // ── Live plan/usage refresh ─────────────────────────────────────────
+        private System.Windows.Threading.DispatcherTimer _usagePoll;
+
+        /// <summary>Re-fetch the plan/usage snapshot + credit badge now
+        /// (best-effort; the VM marshals to the UI thread and swallows failures).</summary>
+        private void RefreshUsageNow()
+        {
+            _ = _vm.RefreshUsageAsync();
+            _ = _vm.RefreshCreditBadgeAsync();
+        }
+
+        /// <summary>The billing page opens in the browser, which has no callback,
+        /// so after the user leaves for checkout we poll a few times — a completed
+        /// upgrade flips the plan (e.g. to "Pro") within seconds of returning to
+        /// Revit, no restart. Bounded to ~30s and self-cancelling; restarting the
+        /// poll (e.g. reopening the sheet) resets the window.</summary>
+        private void StartUsagePollAfterCheckout()
+        {
+            RefreshUsageNow();               // optimistic immediate refresh
+            _usagePoll?.Stop();
+            int ticks = 0;
+            _usagePoll = new System.Windows.Threading.DispatcherTimer
+            { Interval = TimeSpan.FromSeconds(3) };
+            _usagePoll.Tick += (_, __) =>
+            {
+                RefreshUsageNow();
+                if (++ticks >= 10) _usagePoll.Stop();   // ~30s budget
+            };
+            _usagePoll.Start();
+        }
 
         // ══════════ Sheet content builders ══════════
 

@@ -54,6 +54,7 @@
     <!-- ToolCatalog defines SlashTool, referenced by ChatMessage.SlashCommand in
          CopilotModels. Pure (WPF Geometry only, no Revit). -->
     <Compile Include="..\UI\Copilot\Model\ToolCatalog.cs" Link="ToolCatalog.cs" />
+    <Compile Include="..\AppInfo.cs" Link="AppInfo.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotContext.cs" Link="CopilotContext.cs" />
     <Compile Include="..\UI\Copilot\Model\UsageState.cs" Link="UsageState.cs" />
     <Compile Include="..\UI\Copilot\Model\FriendlyStep.cs" Link="FriendlyStep.cs" />

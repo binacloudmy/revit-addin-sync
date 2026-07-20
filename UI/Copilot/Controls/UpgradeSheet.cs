@@ -44,8 +44,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Features = new[] { "Everything in Pro", "100M tokens / month", "Built for heavy days and busy practices", "Priority support" } },
         };
 
-        /// <summary>Build the sheet BODY (the panel wraps it in its sheet chrome).</summary>
-        public static FrameworkElement Build()
+        /// <summary>Build the sheet BODY (the panel wraps it in its sheet chrome).
+        /// <paramref name="onCheckoutOpened"/> fires right after the billing page
+        /// is launched in the browser, so the panel can start polling for a plan
+        /// change (the browser round-trip has no callback of its own).</summary>
+        public static FrameworkElement Build(System.Action onCheckoutOpened = null)
         {
             var root = new StackPanel();
 
@@ -73,6 +76,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             for (int i = 0; i < Plans.Length; i++)
             {
                 var card = BuildCard(Plans[i], out var cta, out var shadow);
+                // A disabled CTA (current plan) doesn't raise Click, so the guard
+                // on the OpenUrl handler still holds; this only fires on a real
+                // checkout, letting the panel poll for the plan change.
+                cta.Click += (_, __) => onCheckoutOpened?.Invoke();
                 card.HorizontalAlignment = HorizontalAlignment.Center;
                 card.VerticalAlignment = VerticalAlignment.Top;
                 card.RenderTransformOrigin = new Point(0.5, 0.5);
@@ -201,7 +208,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Cursor = Cursors.Hand,
             };
             seeAll.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
-            seeAll.MouseLeftButtonDown += (_, __) => OpenUrl(SubscriptionUrl);
+            seeAll.MouseLeftButtonDown += (_, __) => { OpenUrl(SubscriptionUrl); onCheckoutOpened?.Invoke(); };
             root.Children.Add(seeAll);
 
             root.Loaded += (_, __) =>

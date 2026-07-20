@@ -457,6 +457,10 @@ namespace RevitWebAppSync.Services
             [JsonProperty("used")] public int Used { get; set; }
             [JsonProperty("monthly_limit")] public int Limit { get; set; }
             [JsonProperty("unlimited")] public bool Unlimited { get; set; }
+            // Plan/tier name (pricing v2: Free / Basic / Plus / Pro / Pro Max).
+            // Absent on older backends → UsageState.FromCredits falls back to
+            // inferring Free / Pro Max from the usage counts.
+            [JsonProperty("plan")] public string Plan { get; set; }
             [JsonProperty("remaining")] public int? Remaining { get; set; }
             [JsonProperty("resets_at")] public string ResetsAt { get; set; }
         }
