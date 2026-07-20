@@ -68,6 +68,12 @@ namespace RevitWebAppSync.Helpers
             {
                 Document = doc,
                 IsReadOnly = true,
+                // Without this, WPF renders every UIElement embedded in the
+                // document (table grids, the Download-CSV button) and every
+                // Hyperlink (bina://select element-id links) as DISABLED —
+                // visible but dead to clicks. Read-only text selection is
+                // unaffected.
+                IsDocumentEnabled = true,
                 IsTabStop = false,
                 BorderThickness = new Thickness(0),
                 Background = Brushes.Transparent,
