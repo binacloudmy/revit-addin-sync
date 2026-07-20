@@ -198,6 +198,9 @@ namespace RevitWebAppSync.UI.Copilot
                     chat.Prompt.UpgradeRequested += ShowUpgradeSheet;
                     chat.UpgradeRequested += ShowUpgradeSheet;
                 }
+                // Library rows fill the Chat composer + switch tabs (no auto-send).
+                if (cache is Screens.LibraryView lib)
+                    lib.PromptChosen += StartPromptInChat;
             }
             return cache;
         }
@@ -231,6 +234,29 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         private void OnOpenMenu(object sender, RoutedEventArgs e) => MenuPopup.IsOpen = true;
+
+        // Library row tapped: switch to Chat, then drop the prompt into the
+        // composer for the user to edit and send. InsertStarterPrompt owns the
+        // "don't overwrite existing user text" rule (just focuses if non-empty),
+        // same as the empty-state suggestions. Deferred to Background priority so
+        // the ChatView is laid out (and its PromptBar realized) before we focus.
+        private void StartPromptInChat(string prompt)
+        {
+            _vm.GoTab(CpTab.Chat);                 // swaps BodyHost → ChatView
+            var chat = View(ref _chat);            // ensure the view exists
+            Dispatcher.BeginInvoke(
+                new Action(() => chat.Prompt.InsertStarterPrompt(prompt)),
+                System.Windows.Threading.DispatcherPriority.Background);
+        }
+
+        // Kebab → Get help on WhatsApp: open the support chat in the default browser.
+        private void OnWhatsApp(object sender, RoutedEventArgs e)
+        {
+            MenuPopup.IsOpen = false;
+            const string url = "https://wa.me/60129000742";
+            try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(url) { UseShellExecute = true }); }
+            catch { /* no default browser / launch blocked — best-effort */ }
+        }
 
         private void OnRate(object sender, RoutedEventArgs e)
         {

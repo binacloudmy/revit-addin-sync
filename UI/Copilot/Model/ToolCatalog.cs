@@ -111,6 +111,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             ["ti-star"]                = "M12,2.5 l2.9,6.1 6.6,0.6 -5,4.4 1.5,6.5 L12,17.3 6,20.6 l1.5,-6.5 -5,-4.4 6.6,-0.6 z",
             ["ti-star-filled"]         = "M12,2.5 l2.9,6.1 6.6,0.6 -5,4.4 1.5,6.5 L12,17.3 6,20.6 l1.5,-6.5 -5,-4.4 6.6,-0.6 z",
             ["ti-search-off"]          = "M3,11 a8,8 0 1 0 16,0 a8,8 0 1 0 -16,0 M21,21 l-4.3,-4.3 M8,8 l6,6",
+            ["ti-tag"]                 = "M9,5 H5 a2,2 0 0 0 -2,2 v4 l9,9 a1.5,1.5 0 0 0 2.1,0 l4,-4 a1.5,1.5 0 0 0 0,-2.1 L9,5 z M7.5,8.5 h0.01",
         };
 
         private static readonly Dictionary<string, Geometry> _geo = new Dictionary<string, Geometry>();
