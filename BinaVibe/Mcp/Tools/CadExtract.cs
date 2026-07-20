@@ -285,8 +285,103 @@ namespace BinaVibe.Mcp.Tools
                 ["truncated"] = truncated,
                 ["skipped_entities"] = skippedEntities,
                 ["import_location"] = ImportLocation(doc, chosen),
+                // TEXT/MTEXT read straight from the linked DXF FILE — the Revit
+                // API cannot expose CAD text (TextNode is dead in 2026), which
+                // blocked DEV-16's per-size beam mapping for the whole campaign.
+                // The source file can: parse it directly.
+                ["text_labels"] = ReadDxfTextLabels(doc, chosen),
                 ["units_note"] = "*_ft fields are FEET (use directly in C# XYZ); start_mm/end_mm/point_mm are MILLIMETER triplets — pass them UNCHANGED as the *_mm args of mm-based tools (create_beam, create_pipe, place_family). NEVER convert units yourself: ft to mm is x304.8 and a x30.48 slip has already shipped 1/10-scale beams.",
             };
+        }
+
+        // TEXT/MTEXT entities parsed from the linked DXF's source file. The
+        // Revit API gives no access to CAD text, but the file on disk does.
+        // DXF is code/value line pairs: in ENTITIES, "0/TEXT|MTEXT" starts an
+        // entity, 1 = text (MTEXT continues in 3), 10/20 = insertion X/Y,
+        // 8 = layer. $INSUNITS scales raw units to mm. With Origin-to-Origin
+        // linking these mm coordinates live in the same space as start_mm/
+        // point_mm, so labels can be matched to segments by distance.
+        private static Dictionary<string, object?> ReadDxfTextLabels(Document doc, ImportInstance im)
+        {
+            try
+            {
+                string path = null;
+                var extRef = ExternalFileUtils.GetExternalFileReference(doc, im.GetTypeId());
+                if (extRef != null)
+                    path = ModelPathUtils.ConvertModelPathToUserVisiblePath(extRef.GetAbsolutePath());
+                if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path))
+                    return new Dictionary<string, object?> { ["available"] = false, ["note"] = "source file not found on disk (imported, not linked, or moved)" };
+                if (!path.EndsWith(".dxf", StringComparison.OrdinalIgnoreCase))
+                    return new Dictionary<string, object?> { ["available"] = false, ["note"] = "source is not a DXF (DWG is binary; text not parseable here)" };
+
+                var lines = System.IO.File.ReadAllLines(path);
+                double unitToMm = 1.0; string unitNote = "assumed mm ($INSUNITS absent)";
+                var labels = new List<Dictionary<string, object?>>();
+                bool inEntities = false; bool truncatedText = false;
+
+                string curType = null, curText = null, curLayer = null;
+                double curX = 0, curY = 0;
+                void Flush()
+                {
+                    if (curType != null && !string.IsNullOrWhiteSpace(curText))
+                    {
+                        if (labels.Count < 200)
+                            labels.Add(new Dictionary<string, object?>
+                            {
+                                ["text"] = curText.Trim(),
+                                ["x_mm"] = Math.Round(curX * unitToMm, 1),
+                                ["y_mm"] = Math.Round(curY * unitToMm, 1),
+                                ["layer"] = curLayer ?? "0",
+                            });
+                        else truncatedText = true;
+                    }
+                    curType = null; curText = null; curLayer = null; curX = 0; curY = 0;
+                }
+
+                for (int i = 0; i + 1 < lines.Length; i += 2)
+                {
+                    var code = lines[i].Trim();
+                    var val = lines[i + 1].Trim();
+                    if (code == "9" && val == "$INSUNITS" && i + 3 < lines.Length)
+                    {
+                        var u = lines[i + 3].Trim();
+                        if (u == "1") { unitToMm = 25.4; unitNote = "inches"; }
+                        else if (u == "2") { unitToMm = 304.8; unitNote = "feet"; }
+                        else if (u == "4") { unitToMm = 1.0; unitNote = "millimeters"; }
+                        else if (u == "5") { unitToMm = 10.0; unitNote = "centimeters"; }
+                        else if (u == "6") { unitToMm = 1000.0; unitNote = "meters"; }
+                        continue;
+                    }
+                    if (code == "0")
+                    {
+                        if (val == "SECTION" && i + 3 < lines.Length && lines[i + 3].Trim() == "ENTITIES") inEntities = true;
+                        else if (val == "ENDSEC") { Flush(); inEntities = false; }
+                        else if (inEntities) { Flush(); if (val == "TEXT" || val == "MTEXT") curType = val; }
+                        continue;
+                    }
+                    if (!inEntities || curType == null) continue;
+                    if (code == "1") curText = (curText ?? "") + val;
+                    else if (code == "3") curText = (curText ?? "") + val;   // MTEXT continuation
+                    else if (code == "10") double.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out curX);
+                    else if (code == "20") double.TryParse(val, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out curY);
+                    else if (code == "8") curLayer = val;
+                }
+                Flush();
+
+                return new Dictionary<string, object?>
+                {
+                    ["available"] = true,
+                    ["labels"] = labels,
+                    ["count"] = labels.Count,
+                    ["truncated"] = truncatedText,
+                    ["file_units"] = unitNote,
+                    ["note"] = "read from the DXF source file (Revit API cannot see CAD text). x_mm/y_mm are file coordinates in mm - with Origin-to-Origin linking they match the segment/point *_mm space; match each label to its nearest segment.",
+                };
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object?> { ["available"] = false, ["note"] = "text parse failed: " + ex.Message };
+            }
         }
 
         // Where the chosen CAD instance actually sits — placements land HERE.
