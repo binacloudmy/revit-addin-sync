@@ -24,8 +24,9 @@ namespace BinaVibe.Policy
         /// addin_version}) on /tool/generate and the agent gathers scene sight
         /// on demand via READ tools (get_scene_overview, list_*, query_geometry)
         /// instead of receiving a pushed ModelContext snapshot every turn.
-        /// Default OFF until the bina-ai prompt/tooling side lands.</summary>
-        public bool LeanContext { get; init; } = false;
+        /// Default ON (bina-ai prompt/tooling side landed). Rollback per
+        /// machine: {"LeanContext": false} in vibe.json.</summary>
+        public bool LeanContext { get; init; } = true;
 
         public static VibeFlags Load()
         {

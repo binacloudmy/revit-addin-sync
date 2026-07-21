@@ -1,8 +1,8 @@
 // Lean-context wire contract (VibeFlags.LeanContext, pull-based scene sight).
 //
 // Locks two things:
-//  1. VibeFlags json: LeanContext parses when present, defaults false when
-//     absent — the default-off guarantee for the staged rollout.
+//  1. VibeFlags json: LeanContext defaults true (pull-based is the shipping
+//     path) and {"LeanContext": false} in vibe.json is the rollback lever.
 //  2. The lean ModelContext body serializes to ONLY the env-header keys
 //     ({project_id, projectName, revitVersion, addin_version}) and OMITS every
 //     scene key entirely (not null-studded) — the sparse shape the staging
@@ -24,26 +24,28 @@ namespace RevitAddinSync.Tests
         // ─── VibeFlags ──────────────────────────────────────────────────
 
         [Fact]
-        public void LeanContext_DefaultsFalse_WhenAbsentFromJson()
+        public void LeanContext_DefaultsTrue_WhenAbsentFromJson()
         {
             var flags = System.Text.Json.JsonSerializer.Deserialize<VibeFlags>("{}");
-            Assert.NotNull(flags);
-            Assert.False(flags.LeanContext);
-        }
-
-        [Fact]
-        public void LeanContext_ParsesTrue()
-        {
-            var flags = System.Text.Json.JsonSerializer.Deserialize<VibeFlags>(
-                "{\"LeanContext\": true}");
             Assert.NotNull(flags);
             Assert.True(flags.LeanContext);
         }
 
         [Fact]
-        public void LeanContext_FreshDefaults_False()
+        public void LeanContext_RollbackParsesFalse()
         {
-            Assert.False(new VibeFlags().LeanContext);
+            // The per-machine rollback documented on the flag:
+            // {"LeanContext": false} in vibe.json restores the legacy push.
+            var flags = System.Text.Json.JsonSerializer.Deserialize<VibeFlags>(
+                "{\"LeanContext\": false}");
+            Assert.NotNull(flags);
+            Assert.False(flags.LeanContext);
+        }
+
+        [Fact]
+        public void LeanContext_FreshDefaults_True()
+        {
+            Assert.True(new VibeFlags().LeanContext);
         }
 
         // ─── lean ModelContext serialization ────────────────────────────
