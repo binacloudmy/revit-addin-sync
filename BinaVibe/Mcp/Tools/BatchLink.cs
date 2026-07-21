@@ -80,10 +80,10 @@ namespace BinaVibe.Mcp.Tools
             var files = new List<string>();
             try { files.AddRange(Directory.GetFiles(folder!, "*.rvt", SearchOption.TopDirectoryOnly)); }
             catch (Exception ex) { return Err($"cannot read folder: {ex.Message}"); }
-            foreach (var sub in SafeDirs(folder!))
+            foreach (var subDir in SafeDirs(folder!))
             {
-                scanned.Add(sub);
-                try { files.AddRange(Directory.GetFiles(sub, "*.rvt", SearchOption.TopDirectoryOnly)); }
+                scanned.Add(subDir);
+                try { files.AddRange(Directory.GetFiles(subDir, "*.rvt", SearchOption.TopDirectoryOnly)); }
                 catch { /* skip unreadable subfolder */ }
             }
 
@@ -152,18 +152,26 @@ namespace BinaVibe.Mcp.Tools
                     }
 
                     int before = InstanceCount();
-                    var res = RevitLinkType.Create(doc, mp, new RevitLinkOptions(false));
-                    if (res.LoadResult != LinkLoadResultType.LinkLoaded)
-                    {
-                        failed++;
-                        var reason = res.LoadResult.ToString();
-                        firstFailReason ??= $"{fileName}: {reason}";
-                        details.Add($"{fileName} [{disc}] -> FAILED ({reason})");
-                        continue;
-                    }
+                    // The tool executor runs us WITHOUT an ambient transaction, and
+                    // in that context RevitLinkType.Create throws "Modifying is
+                    // forbidden because the document has no open transaction"
+                    // (round 52 — the tool surfaced its own bug via the failure
+                    // reason). Both Create and the instance placement go inside
+                    // ONE transaction.
+                    LinkLoadResult res;
                     using (var tx = new Transaction(doc, $"Link {fileName}"))
                     {
                         tx.Start();
+                        res = RevitLinkType.Create(doc, mp, new RevitLinkOptions(false));
+                        if (res.LoadResult != LinkLoadResultType.LinkLoaded)
+                        {
+                            tx.RollBack();
+                            failed++;
+                            var reason = res.LoadResult.ToString();
+                            firstFailReason ??= $"{fileName}: {reason}";
+                            details.Add($"{fileName} [{disc}] -> FAILED ({reason})");
+                            continue;
+                        }
                         var inst = RevitLinkInstance.Create(doc, res.ElementId);
                         if (pin && inst != null) inst.Pinned = true;
                         tx.Commit();
