@@ -18,8 +18,6 @@
 *{box-sizing:border-box;}
 #bina-input::placeholder{color:var(--text3);}
 #bina-input{scrollbar-width:thin;}
-a{color:var(--accent);}
-a:hover{color:var(--accent);opacity:.8;}
 @keyframes msgRise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
 @keyframes thinkOut{from{opacity:1;max-height:48px;transform:translateY(0)}to{opacity:0;max-height:0;transform:translateY(-3px)}}
 @keyframes menuPop{from{opacity:0;transform:translateY(7px) scale(.98)}to{opacity:1;transform:none}}
@@ -32,9 +30,6 @@ a:hover{color:var(--accent);opacity:.8;}
 @keyframes swapUp{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
 @keyframes popCheck{0%{opacity:0;transform:scale(.4)}60%{opacity:1;transform:scale(1.18)}100%{opacity:1;transform:scale(1)}}
 @keyframes shimmerText{0%{background-position:140% 0}100%{background-position:-140% 0}}
-.binacmd-list::-webkit-scrollbar{width:7px}
-.binacmd-list::-webkit-scrollbar-thumb{background:var(--hair2);border-radius:99px}
-.binacmd-list::-webkit-scrollbar-track{background:transparent}
 .bina-thread::-webkit-scrollbar{width:7px}
 .bina-thread::-webkit-scrollbar-thumb{background:var(--hair2);border-radius:99px}
 .bina-thread::-webkit-scrollbar-track{background:transparent}
@@ -62,7 +57,7 @@ a:hover{color:var(--accent);opacity:.8;}
       </div>
       <div style="flex:1;min-width:0;">
         <div style="font-size:14px;font-weight:680;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">BINA AI Copilot</div>
-        <div style="display:flex;align-items:center;gap:6px;margin-top:2px;"><span style="width:6px;height:6px;border-radius:50%;background:{{ authDotColor }};flex:none;"></span><span style="font-size:11px;color:var(--text2);line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ authStatusText }}</span></div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:2px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none;"></span><span style="font-size:11px;color:var(--text2);line-height:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Connected Â· Main Model</span></div>
       </div>
       <div style="display:flex;align-items:center;gap:2px;flex:none;">
       <sc-if value="{{ showHeaderMeter }}" hint-placeholder-val="{{ true }}">
@@ -84,7 +79,7 @@ a:hover{color:var(--accent);opacity:.8;}
                 <span style="font-size:11px;color:var(--text2);">Usage</span>
                 <span style="font-size:11.5px;font-weight:700;color:var(--text);white-space:nowrap;">{{ usagePct }}% used</span>
               </div>
-              <div style="height:6px;border-radius:3px;background:var(--hair);overflow:hidden;"><div style="height:100%;width:{{ usageWidth }};background:{{ meterColor }};border-radius:3px;"></div></div>
+              <div style="height:6px;border-radius:99px;background:var(--hair);overflow:hidden;"><div style="height:100%;width:{{ usageWidth }};background:{{ meterColor }};border-radius:99px;"></div></div>
               <button onClick="{{ openUpgrade }}" style="width:100%;height:32px;margin-top:13px;border:0;border-radius:9px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:11.5px;font-weight:640;letter-spacing:-.01em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;" style-hover="filter:brightness(1.07);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/></svg>Upgrade plan</button>
             </div>
           </sc-if>
@@ -112,11 +107,6 @@ a:hover{color:var(--accent);opacity:.8;}
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text2);flex:none;"><path d="M8 2.5 9.5 5M16 2.5 14.5 5"/><rect x="6" y="6" width="12" height="13" rx="6"/><path d="M3 11h3M18 11h3M3 16h3.2M17.8 16H21M12 6v13"/></svg>
               <span style="line-height:1;">Report a bug</span>
             </button>
-            <button onClick="{{ openWhatsApp }}" style="display:flex;align-items:center;gap:10px;width:100%;padding:9px 10px;border:0;border-radius:8px;background:transparent;color:var(--text);text-align:left;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:550;" style-hover="background:var(--hover);">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" stroke="none" style="color:#25D366;flex:none;"><path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91c0 1.71.45 3.38 1.3 4.85L2 22l5.38-1.41a9.9 9.9 0 0 0 4.66 1.19h.01c5.46 0 9.9-4.45 9.9-9.91 0-2.65-1.03-5.14-2.9-7.01A9.87 9.87 0 0 0 12.04 2Zm5.8 14.14c-.24.68-1.4 1.3-1.93 1.38-.5.08-1.11.11-1.79-.11a16.6 16.6 0 0 1-1.6-.6c-2.83-1.23-4.67-4.08-4.81-4.27-.14-.19-1.15-1.53-1.15-2.92 0-1.39.73-2.07.99-2.35.26-.28.57-.35.76-.35h.55c.17 0 .41-.03.63.48.24.57.81 1.97.88 2.11.07.14.12.31.02.5-.09.19-.14.31-.28.47-.14.17-.29.37-.42.5-.14.14-.28.29-.12.57.16.28.71 1.18 1.53 1.91 1.05.94 1.94 1.23 2.22 1.37.28.14.44.12.6-.07.17-.19.7-.81.89-1.09.19-.28.38-.23.63-.14.26.09 1.64.78 1.92.92.28.14.47.21.53.33.07.12.07.68-.17 1.36Z"/></svg>
-              <span style="line-height:1;">Get help on WhatsApp</span>
-            </button>
-            <div style="padding:8px 10px 4px;font-size:10.5px;color:var(--text3);border-top:1px solid var(--hair);margin-top:4px;">Version {{ versionNumber }}</div>
           </div>
         </sc-if>
       </div>
@@ -124,65 +114,10 @@ a:hover{color:var(--accent);opacity:.8;}
     </div>
 
     <!-- ===== Tabs ===== -->
-    <sc-if value="{{ showTabs }}" hint-placeholder-val="{{ true }}">
-      <div style="flex:none;display:flex;gap:20px;padding:0 16px;border-bottom:1px solid var(--hair);">
-        <button onClick="{{ goChat }}" style="{{ chatTabStyle }}">Chat</button>
-        <button onClick="{{ goHistory }}" style="{{ histTabStyle }}">History<span style="font-size:10.5px;font-weight:600;color:var(--text3);">{{ historyCount }}</span></button>
-        <button onClick="{{ goLibrary }}" style="{{ libTabStyle }}">Library</button>
-      </div>
-    </sc-if>
-
-    <!-- ===== Signed-out screen ===== -->
-    <sc-if value="{{ showSignedOutScreen }}" hint-placeholder-val="{{ false }}">
-      <div style="flex:1;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:18px 26px 20px;overflow-y:auto;">
-        <div style="position:relative;width:44px;height:44px;display:flex;align-items:center;justify-content:center;margin-bottom:8px;margin-top:-40px;flex:none;">
-          <svg width="38" height="38" viewBox="0 0 24 24" style="position:relative;filter:drop-shadow(0 0 7px rgba(59,142,247,.55)) drop-shadow(0 0 3px rgba(59,142,247,.4));">
-            <defs>
-              <linearGradient id="gstarLoginLogo" x1="3.5" y1="2.5" x2="20.5" y2="21.5" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#7dd6ff"/><stop offset=".45" stop-color="#3b8ef7"/><stop offset="1" stop-color="#1d5fe0"/></linearGradient>
-              <radialGradient id="gstarLoginSheen" cx="0.36" cy="0.3" r="0.55"><stop offset="0" stop-color="rgba(255,255,255,.9)"/><stop offset=".55" stop-color="rgba(255,255,255,.08)"/><stop offset="1" stop-color="rgba(255,255,255,0)"/></radialGradient>
-            </defs>
-            <path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarLoginLogo)"></path>
-            <path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarLoginSheen)" opacity=".7"></path>
-          </svg>
-          <svg width="14" height="14" viewBox="0 0 24 24" style="position:absolute;top:-6px;right:-7px;filter:drop-shadow(0 0 4px rgba(59,142,247,.55)) drop-shadow(0 0 2px rgba(59,142,247,.4));"><path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarLoginLogo)"></path></svg>
-          <svg width="11" height="11" viewBox="0 0 24 24" style="position:absolute;bottom:-2px;right:-8px;filter:drop-shadow(0 0 3px rgba(59,142,247,.55)) drop-shadow(0 0 2px rgba(59,142,247,.4));"><path d="M12 1.1 C12.45 7.05 16.95 11.55 22.9 12 C16.95 12.45 12.45 16.95 12 22.9 C11.55 16.95 7.05 12.45 1.1 12 C7.05 11.55 11.55 7.05 12 1.1 Z" fill="url(#gstarLoginLogo)"></path></svg>
-        </div>
-        <div style="font-size:16px;font-weight:720;letter-spacing:-.01em;line-height:1.3;max-width:260px;margin-bottom:6px;">Sign in to get started</div>
-        <div style="font-size:11.5px;color:var(--text2);line-height:1.45;max-width:270px;margin-bottom:15px;">Copilot uses your BINAXONE ID â€” the same account as your other BINA plugins. Sign-in opens in your browser.</div>
-
-        <div style="width:100%;max-width:280px;">
-          <sc-if value="{{ showSignInIdle }}" hint-placeholder-val="{{ true }}">
-            <button onClick="{{ submitSignIn }}" style="width:100%;height:48px;border:0;border-radius:14px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:13.5px;font-weight:660;letter-spacing:-.01em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:9px;box-shadow:0 10px 24px -8px color-mix(in srgb, var(--accent) 70%, transparent), inset 0 1px 0 rgba(255,255,255,.2);transition:filter .15s,transform .15s,box-shadow .15s;" style-hover="filter:brightness(1.1);transform:translateY(-1.5px);box-shadow:0 14px 28px -8px color-mix(in srgb, var(--accent) 75%, transparent), inset 0 1px 0 rgba(255,255,255,.25);">
-              Sign in with BINAXONE
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
-            </button>
-          </sc-if>
-          <sc-if value="{{ showSignInBusy }}" hint-placeholder-val="{{ false }}">
-            <div style="width:100%;display:flex;flex-direction:column;gap:10px;align-items:center;">
-              <div style="width:100%;height:44px;border-radius:11px;background:var(--sunken);border:1px solid var(--hair);display:flex;align-items:center;justify-content:center;gap:9px;font-size:12px;font-weight:600;color:var(--text2);text-align:center;padding:0 10px;">
-                <span style="width:15px;height:15px;border-radius:50%;border:2px solid var(--hair2);border-top-color:var(--accent);flex:none;animation:spin .8s linear infinite;"></span>
-                Waiting for sign-in in your browserâ€¦
-              </div>
-              <button onClick="{{ cancelSignIn }}" style="border:0;background:transparent;color:var(--text3);font-family:inherit;font-size:11.5px;font-weight:600;cursor:pointer;padding:2px;" style-hover="color:var(--text2);">Cancel</button>
-            </div>
-          </sc-if>
-
-          <div style="display:flex;flex-direction:column;gap:10px;width:100%;margin-top:16px;padding-top:15px;border-top:1px solid var(--hair);text-align:left;">
-            <sc-for list="{{ benefitRows }}" as="b" hint-placeholder-count="3">
-              <div style="display:flex;align-items:center;gap:10px;">
-                <span style="width:24px;height:24px;border-radius:7px;background:transparent;color:var(--text);display:flex;align-items:center;justify-content:center;flex:none;">{{ b.icon }}</span>
-                <span style="font-size:11.5px;color:var(--text2);line-height:1.4;">{{ b.label }}</span>
-              </div>
-            </sc-for>
-          </div>
-        </div>
-
-        <div style="flex:none;min-height:0;"></div>
-        <div style="display:flex;flex-direction:column;align-items:center;gap:4px;padding-top:34px;font-size:10.5px;color:var(--text3);flex:none;">
-          <span style="text-decoration:underline;text-underline-offset:2px;cursor:default;">Terms & Conditions</span>
-        </div>
-      </div>
-    </sc-if>
+    <div style="flex:none;display:flex;gap:20px;padding:0 16px;border-bottom:1px solid var(--hair);">
+      <button onClick="{{ goChat }}" style="{{ chatTabStyle }}">Chat</button>
+      <button onClick="{{ goHistory }}" style="{{ histTabStyle }}">History<span style="font-size:10.5px;font-weight:600;color:var(--text3);">{{ historyCount }}</span></button>
+    </div>
 
     <!-- ===== Empty state ===== -->
     <sc-if value="{{ showEmpty }}" hint-placeholder-val="{{ true }}">
@@ -226,68 +161,9 @@ a:hover{color:var(--accent);opacity:.8;}
       <div class="bina-thread" ref="{{ threadRef }}" style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:16px 16px;display:flex;flex-direction:column;gap:15px;">
         <sc-for list="{{ messages }}" as="msg" hint-placeholder-count="0">
 
-          <sc-if value="{{ msg.isCmdUser }}">
-            <div style="align-self:flex-end;max-width:84%;display:flex;flex-direction:column;align-items:flex-end;animation:msgRise .34s .04s cubic-bezier(.2,.7,.3,1) forwards;">
-              <div style="background:var(--user);color:var(--user-text);padding:8px 9px 9px;border-radius:14px 14px 4px 14px;font-size:13px;line-height:1.5;max-width:100%;display:flex;flex-direction:column;align-items:stretch;gap:7px;">
-                <span style="display:inline-flex;align-items:center;gap:5px;align-self:flex-start;white-space:nowrap;background:rgba(255,255,255,.9);color:var(--accent);box-shadow:0 1px 2px rgba(15,23,42,.12);padding:3px 9px 3px 7px;border-radius:8px;font-weight:680;font-size:11.5px;letter-spacing:.01em;">{{ msg.cmdIconEl }}<span style="opacity:.55;font-weight:800;margin-left:-1px;">/</span>{{ msg.cmdName }}</span>
-                <sc-if value="{{ msg.cmdUserHasOpt }}" hint-placeholder-val="{{ false }}">
-                  <span style="display:inline-flex;align-items:center;gap:5px;align-self:flex-start;white-space:nowrap;background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);padding:2px 9px;border-radius:7px;font-weight:600;font-size:12px;"><span style="width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.55;"></span>{{ msg.cmdUserOpt }}</span>
-                </sc-if>
-                <sc-if value="{{ msg.cmdUserHasText }}" hint-placeholder-val="{{ false }}"><span style="padding:0 4px;">{{ msg.text }}</span></sc-if>
-              </div>
-              <div style="font-size:10px;color:var(--text3);text-align:right;margin-top:4px;">{{ msg.time }}</div>
-            </div>
-          </sc-if>
-
-          <sc-if value="{{ msg.isParam }}">
-            <div style="align-self:flex-start;width:100%;animation:msgRise .34s .04s cubic-bezier(.2,.7,.3,1) forwards;">
-              <div style="border:1px solid var(--hair);border-radius:13px;overflow:hidden;background:var(--bg);box-shadow:var(--lift);max-width:290px;">
-                <div style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--sunken);border-bottom:1px solid var(--hair);">
-                  <span style="display:inline-flex;align-items:center;gap:4px;font-family:'Cascadia Code',ui-monospace,monospace;font-size:11.5px;font-weight:640;color:var(--accent);"><span style="opacity:.6;">/</span>{{ msg.paramName }}</span>
-                  <span style="flex:1;"></span>
-                  <span style="font-size:10px;color:var(--text3);font-weight:600;">Step 1 of 2</span>
-                </div>
-                <div style="padding:12px 12px 13px;">
-                  <div style="font-size:13px;font-weight:600;color:var(--text);line-height:1.4;margin-bottom:11px;">{{ msg.paramQ }}</div>
-                  <div style="display:flex;flex-direction:column;gap:7px;">
-                    <sc-for list="{{ msg.paramOpts }}" as="opt" hint-placeholder-count="3">
-                      <button onClick="{{ opt.pick }}" style="{{ opt.optStyle }}" style-hover="border-color:var(--accent);">
-                        <span>{{ opt.label }}</span>
-                        <sc-if value="{{ opt.picked }}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="flex:none;"><path d="M20 6 9 17l-5-5"/></svg></sc-if>
-                      </button>
-                    </sc-for>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </sc-if>
-
-          <sc-if value="{{ msg.isResult }}">
-            <div style="align-self:flex-start;width:100%;animation:msgRise .34s .04s cubic-bezier(.2,.7,.3,1) forwards;">
-              <div style="border:1px solid var(--hair);border-radius:13px;overflow:hidden;background:var(--bg);box-shadow:var(--lift);max-width:290px;">
-                <div style="display:flex;align-items:center;gap:8px;padding:11px 12px 10px;">
-                  <sc-if value="{{ msg.resultOk }}" hint-placeholder-val="{{ true }}"><span style="width:22px;height:22px;border-radius:7px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;background:var(--green);"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span></sc-if>
-                  <sc-if value="{{ msg.resultWarn }}" hint-placeholder-val="{{ false }}"><span style="width:22px;height:22px;border-radius:7px;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;background:#f59e0b;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></span></sc-if>
-                  <span style="font-size:12.5px;font-weight:680;color:var(--text);flex:1;">{{ msg.resultTitle }}</span>
-                  <span style="font-size:9px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--text3);background:var(--sunken);padding:2px 6px;border-radius:5px;">{{ msg.resultTag }}</span>
-                </div>
-                <div style="padding:0 12px 12px;">{{ msg.resultEl }}</div>
-                <div style="display:flex;flex-wrap:wrap;gap:7px;padding:0 12px 12px;">
-                  <sc-if value="{{ msg.resultShowCsv }}" hint-placeholder-val="{{ false }}"><button onClick="{{ msg.doCsv }}" style="display:inline-flex;align-items:center;gap:5px;padding:6px 11px;border:0;border-radius:8px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;" style-hover="filter:brightness(1.06);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>Export .csv</button></sc-if>
-                  <sc-if value="{{ msg.resultShowLegend }}" hint-placeholder-val="{{ false }}"><button onClick="{{ msg.doLegend }}" style="display:inline-flex;align-items:center;gap:5px;padding:6px 11px;border:0;border-radius:8px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;" style-hover="filter:brightness(1.06);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>View legend</button></sc-if>
-                  <sc-if value="{{ msg.resultShowUndo }}" hint-placeholder-val="{{ true }}"><button onClick="{{ msg.doUndo }}" style="display:inline-flex;align-items:center;gap:5px;padding:6px 11px;border:1px solid var(--hair2);border-radius:8px;background:transparent;color:var(--text2);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;" style-hover="background:var(--hover);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-1"/></svg>Undo</button></sc-if>
-                  <button onClick="{{ msg.doNext }}" style="display:inline-flex;align-items:center;gap:5px;padding:6px 11px;border:1px solid var(--hair2);border-radius:8px;background:transparent;color:var(--text2);font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;" style-hover="background:var(--hover);"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>Next tool</button>
-                </div>
-              </div>
-            </div>
-          </sc-if>
-
           <sc-if value="{{ msg.isUser }}">
             <div style="align-self:flex-end;max-width:84%;display:flex;flex-direction:column;align-items:flex-end;animation:msgRise .34s .04s cubic-bezier(.2,.7,.3,1) forwards;">
-              <div style="background:var(--user);color:var(--user-text);padding:9px 13px;border-radius:14px 14px 4px 14px;font-size:13px;line-height:1.5;max-width:100%;display:flex;flex-direction:column;align-items:flex-start;gap:6px;">
-                <sc-if value="{{ msg.cmdUserHasOpt }}" hint-placeholder-val="{{ false }}">
-                  <span style="display:inline-flex;align-items:center;gap:5px;align-self:flex-start;white-space:nowrap;background:rgba(255,255,255,.9);color:var(--accent);box-shadow:0 1px 2px rgba(15,23,42,.12);padding:3px 9px 3px 8px;border-radius:8px;font-weight:680;font-size:11.5px;"><span style="width:5px;height:5px;border-radius:50%;background:currentColor;"></span>{{ msg.cmdUserOpt }}</span>
-                </sc-if>
+              <div style="background:var(--user);color:var(--user-text);padding:9px 13px;border-radius:14px 14px 4px 14px;font-size:13px;line-height:1.5;max-width:100%;display:flex;flex-direction:column;align-items:flex-start;">
                 <div ref="{{ msg.setTextRef }}" style="{{ msg.textWrapStyle }}">{{ msg.text }}</div>
                 <sc-if value="{{ msg.needsToggle }}" hint-placeholder-val="{{ false }}">
                   <button onClick="{{ msg.toggleExpand }}" style="margin-top:5px;display:inline-flex;align-items:center;gap:5px;padding:0;border:0;background:transparent;color:var(--user-text);font-family:inherit;font-size:12px;font-weight:650;letter-spacing:-.01em;white-space:nowrap;cursor:pointer;transition:opacity .15s ease;" style-hover="opacity:.78;" style-active="opacity:.6;">
@@ -427,23 +303,6 @@ a:hover{color:var(--accent);opacity:.8;}
             <span style="flex:1;min-width:0;"><span style="display:block;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ conv.title }}</span><span style="display:block;font-size:10.5px;color:var(--text3);margin-top:2px;">{{ conv.meta }}</span></span>
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);flex:none;"><path d="m9 6 6 6-6 6"/></svg>
           </button>
-        </sc-for>
-      </div>
-    </sc-if>
-
-    <!-- ===== Library ===== -->
-    <sc-if value="{{ showLibrary }}" hint-placeholder-val="{{ false }}">
-      <div class="bina-thread" style="flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:10px 10px;">
-        <div style="font-size:11px;color:var(--text2);line-height:1.5;padding:6px 6px 10px;">Tap a prompt to start a new chat with it.</div>
-        <sc-for list="{{ libraryList }}" as="grp" hint-placeholder-count="3">
-          <div style="font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text3);padding:10px 6px 6px;">{{ grp.section }}</div>
-          <sc-for list="{{ grp.items }}" as="item" hint-placeholder-count="3">
-            <button onClick="{{ item.use }}" style="display:flex;align-items:center;gap:11px;width:100%;padding:11px 6px;border:0;border-radius:9px;background:transparent;text-align:left;cursor:pointer;color:var(--text);" style-hover="background:var(--hover);">
-              <span style="width:30px;height:30px;border-radius:8px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;flex:none;">{{ item.iconEl }}</span>
-              <span style="flex:1;min-width:0;"><span style="display:block;font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ item.title }}</span><span style="display:block;font-size:10.5px;color:var(--text3);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ item.desc }}</span></span>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);flex:none;"><path d="m9 6 6 6-6 6"/></svg>
-            </button>
-          </sc-for>
         </sc-for>
       </div>
     </sc-if>
@@ -641,18 +500,9 @@ a:hover{color:var(--accent);opacity:.8;}
       </div>
     </sc-if>
 
-    <!-- ===== Session expired banner ===== -->
-    <sc-if value="{{ showExpiredBanner }}" hint-placeholder-val="{{ false }}">
-      <div style="flex:none;display:flex;align-items:center;gap:9px;padding:10px 14px;border-top:1px solid var(--hair);background:color-mix(in srgb, #f59e0b 12%, transparent);">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
-        <span style="flex:1;min-width:0;font-size:11.5px;color:var(--text);line-height:1.35;">Session expired \u2014 sign in to continue</span>
-        <button onClick="{{ startSignIn }}" style="flex:none;height:28px;padding:0 12px;border:0;border-radius:8px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:11.5px;font-weight:640;cursor:pointer;" style-hover="filter:brightness(1.07);">Sign in</button>
-      </div>
-    </sc-if>
-
     <!-- ===== Composer ===== -->
     <sc-if value="{{ showComposer }}" hint-placeholder-val="{{ true }}">
-      <div ref="{{ composerRef }}" style="flex:none;padding:12px 14px 11px;border-top:1px solid var(--hair);position:relative;">
+      <div style="flex:none;padding:12px 14px 11px;border-top:1px solid var(--hair);position:relative;">
 
         <sc-if value="{{ showMention }}" hint-placeholder-val="{{ false }}">
           <div style="position:absolute;left:14px;right:14px;bottom:calc(100% - 2px);background:var(--menu);border:1px solid var(--hair);border-radius:12px;box-shadow:var(--shadow);padding:6px;z-index:6;animation:menuPop .16s .02s ease forwards;">
@@ -666,77 +516,57 @@ a:hover{color:var(--accent);opacity:.8;}
             </sc-for>
           </div>
         </sc-if>
-        <div style="position:relative;">
-          <sc-if value="{{ showSlash }}" hint-placeholder-val="{{ false }}">{{ slashMenuEl }}</sc-if>
-          <div style="display:flex;flex-direction:column;gap:7px;background:var(--sunken);border-radius:13px;padding:8px 8px 8px 13px;">
-            <sc-if value="{{ showChipRow }}" hint-placeholder-val="{{ false }}">
-              <div style="display:flex;flex-wrap:wrap;gap:6px;">
-                <sc-if value="{{ showCmdChip }}" hint-placeholder-val="{{ false }}">
-                  <span style="{{ cmdChipStyle }}">
-                    {{ activeCmdIconEl }}
-                    <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ activeCmdName }}</span>
-                    <button onClick="{{ clearCmd }}" title="Remove" style="width:17px;height:17px;border:0;border-radius:5px;background:transparent;color:inherit;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:color-mix(in srgb, var(--accent) 22%, transparent);"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
-                  </span>
-                </sc-if>
-                <sc-if value="{{ showOptChip }}" hint-placeholder-val="{{ false }}">
-                  <span style="{{ optChipStyle }}">
-                    <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ activeOptText }}</span>
-                    <button onClick="{{ clearOpt }}" title="Remove" style="width:17px;height:17px;border:0;border-radius:5px;background:transparent;color:inherit;display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:var(--hover);"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
-                  </span>
-                </sc-if>
-              </div>
-            </sc-if>
-            <div style="display:flex;align-items:flex-end;gap:8px;">
-              <textarea id="bina-input" rows="1" value="{{ input }}" onChange="{{ onInput }}" onKeyDown="{{ onKey }}" placeholder="{{ composerPlaceholder }}" style="flex:1;min-width:0;border:0;outline:none;resize:none;background:transparent;color:var(--text);font-size:13px;line-height:1.5;font-family:inherit;max-height:96px;padding:4px 0;"></textarea>
-              <button onClick="{{ atBtn }}" title="Mention" style="width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--text2);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:var(--hover);color:var(--accent);">
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/><circle cx="12" cy="12" r="4"/></svg>
-              </button>
-              <sc-if value="{{ showSendLoading }}" hint-placeholder-val="{{ false }}">
-                <button onClick="{{ stopGen }}" title="Stop generating" style="width:32px;height:32px;border:0;border-radius:9px;background:var(--accent-grad);color:var(--accent-contrast);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;box-shadow:0 2px 6px rgba(37,99,235,.4);" style-hover="filter:brightness(1.07);"><svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="5" y="5" width="14" height="14" rx="3.5"/></svg></button>
-              </sc-if>
-              <sc-if value="{{ showSendActive }}" hint-placeholder-val="{{ false }}">
-                <button onClick="{{ sendBtn }}" style="width:32px;height:32px;border:0;border-radius:9px;background:var(--accent-grad);color:var(--accent-contrast);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="filter:brightness(1.07);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
-              </sc-if>
-              <sc-if value="{{ showSendIdle }}" hint-placeholder-val="{{ true }}">
-                <span style="width:32px;height:32px;border-radius:9px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></span>
-              </sc-if>
-            </div>
-          </div>
-          <div style="display:flex;align-items:center;gap:8px;padding:7px 2px 0;">
-            <div style="flex:1;min-width:0;font-size:10.5px;color:var(--text3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Type <b style="color:var(--text2);">/</b> for tools Â· <b style="color:var(--text2);">@</b> to reference a level, view or selection</div>
-            <button onClick="{{ toggleUsage }}" style="flex:none;display:flex;align-items:center;gap:5px;border:0;background:transparent;padding:2px 3px;cursor:pointer;font-family:inherit;font-size:10.5px;font-weight:600;color:var(--text3);" style-hover="color:var(--text2);">
-              <sc-if value="{{ showUsageDot }}" hint-placeholder-val="{{ false }}"><span style="width:6px;height:6px;border-radius:99px;background:{{ usageDotColor }};flex:none;"></span></sc-if>
-              <span style="font-weight:600;color:var(--text);">Free</span>
-            </button>
-          </div>
-          <sc-if value="{{ showFooterUsagePop }}" hint-placeholder-val="{{ false }}">
-            <div style="{{ usagePopStyle }}">
-              <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
-                <span style="font-size:13px;font-weight:680;letter-spacing:-.01em;">{{ planName }}</span>
-              </div>
-              <div style="font-size:10.5px;color:var(--text3);margin-top:2px;">Plan usage</div>
-              <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:13px;margin-bottom:7px;">
-                <span style="font-size:11px;color:var(--text2);">Usage</span>
-                <span style="font-size:11.5px;font-weight:700;color:var(--text);white-space:nowrap;">{{ usagePct }}% used</span>
-              </div>
-              <div style="height:6px;border-radius:99px;background:var(--hair);overflow:hidden;"><div style="height:100%;width:{{ usageWidth }};background:{{ meterColor }};border-radius:99px;"></div></div>
-              <button onClick="{{ openUpgrade }}" style="width:100%;height:32px;margin-top:13px;border:0;border-radius:9px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:11.5px;font-weight:640;letter-spacing:-.01em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;" style-hover="filter:brightness(1.07);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/></svg>Upgrade plan</button>
-            </div>
+        <div style="display:flex;align-items:flex-end;gap:8px;background:var(--sunken);border-radius:13px;padding:8px 8px 8px 13px;">
+          <textarea id="bina-input" rows="1" value="{{ input }}" onChange="{{ onInput }}" onKeyDown="{{ onKey }}" placeholder="Ask Copilotâ€¦" style="flex:1;border:0;outline:none;resize:none;background:transparent;color:var(--text);font-size:13px;line-height:1.5;font-family:inherit;max-height:96px;padding:4px 0;"></textarea>
+          <button onClick="{{ atBtn }}" title="Mention" style="width:30px;height:30px;border:0;border-radius:8px;background:transparent;color:var(--text2);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="background:var(--hover);color:var(--accent);">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8"/><circle cx="12" cy="12" r="4"/></svg>
+          </button>
+          <sc-if value="{{ showSendLoading }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ stopGen }}" title="Stop generating" style="width:32px;height:32px;border:0;border-radius:9px;background:var(--accent-grad);color:var(--accent-contrast);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;box-shadow:0 2px 6px rgba(37,99,235,.4);" style-hover="filter:brightness(1.07);"><svg width="19" height="19" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="5" y="5" width="14" height="14" rx="3.5"/></svg></button>
+          </sc-if>
+          <sc-if value="{{ showSendActive }}" hint-placeholder-val="{{ false }}">
+            <button onClick="{{ sendBtn }}" style="width:32px;height:32px;border:0;border-radius:9px;background:var(--accent-grad);color:var(--accent-contrast);display:flex;align-items:center;justify-content:center;cursor:pointer;flex:none;" style-hover="filter:brightness(1.07);"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+          </sc-if>
+          <sc-if value="{{ showSendIdle }}" hint-placeholder-val="{{ true }}">
+            <span style="width:32px;height:32px;border-radius:9px;background:transparent;color:var(--text3);display:flex;align-items:center;justify-content:center;flex:none;"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M6 11l6-6 6 6"/></svg></span>
           </sc-if>
         </div>
+        <sc-if value="{{ showFooterMeter }}" hint-placeholder-val="{{ false }}">
+          <div style="position:relative;">
+            <button onClick="{{ toggleUsage }}" style="display:flex;align-items:center;gap:9px;width:100%;padding:9px 4px 3px;border:0;background:transparent;cursor:pointer;color:var(--text);" style-hover="opacity:.82;">
+              <span style="font-size:10.5px;font-weight:600;color:var(--text2);flex:none;white-space:nowrap;">{{ planName }}</span>
+              <span style="flex:1;height:4px;border-radius:99px;background:var(--hair);overflow:hidden;"><span style="display:block;height:100%;width:{{ usageWidth }};background:{{ meterColor }};border-radius:99px;"></span></span>
+              <span style="font-size:10.5px;font-weight:680;color:var(--text2);flex:none;letter-spacing:-.01em;">{{ usagePct }}%</span>
+            </button>
+            <sc-if value="{{ showFooterUsagePop }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute;left:0;right:0;bottom:calc(100% + 8px);background:var(--menu);border:1px solid var(--hair);border-radius:13px;box-shadow:var(--shadow);padding:15px 15px 14px;z-index:9;animation:menuPop .16s ease forwards;">
+                <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+                  <span style="font-size:13px;font-weight:680;letter-spacing:-.01em;">{{ planName }}</span>
+                </div>
+                <div style="font-size:10.5px;color:var(--text3);margin-top:2px;">Plan usage</div>
+                <div style="display:flex;align-items:baseline;justify-content:space-between;margin-top:13px;margin-bottom:7px;">
+                  <span style="font-size:11px;color:var(--text2);">Usage</span>
+                  <span style="font-size:11.5px;font-weight:700;color:var(--text);white-space:nowrap;">{{ usagePct }}% used</span>
+                </div>
+                <div style="height:6px;border-radius:99px;background:var(--hair);overflow:hidden;"><div style="height:100%;width:{{ usageWidth }};background:{{ meterColor }};border-radius:99px;"></div></div>
+                <button onClick="{{ openUpgrade }}" style="width:100%;height:32px;margin-top:13px;border:0;border-radius:9px;background:var(--accent-grad);color:var(--accent-contrast);font-family:inherit;font-size:11.5px;font-weight:640;letter-spacing:-.01em;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;" style-hover="filter:brightness(1.07);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z"/></svg>Upgrade plan</button>
+                </div>
+            </sc-if>
+          </div>
+        </sc-if>
+        <div style="text-align:center;font-size:10px;color:var(--text3);padding:8px 0 1px;">Type <b style="color:var(--text2);">@</b> to reference a level, category, view, or selection</div>
       </div>
     </sc-if>
 
   </div>
 </div>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:420,&quot;height&quot;:780},&quot;defaultTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#1d4ed8&quot;,&quot;options&quot;:[&quot;#2563eb&quot;,&quot;#1d4ed8&quot;,&quot;#3b82f6&quot;,&quot;#0ea5e9&quot;,&quot;#0284c7&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;userBubble&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;gradient&quot;,&quot;gray&quot;],&quot;default&quot;:&quot;gray&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;plan&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;free&quot;,&quot;pro&quot;],&quot;default&quot;:&quot;pro&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Plan&quot;},&quot;meterPlacement&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;header&quot;,&quot;footer&quot;],&quot;default&quot;:&quot;footer&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Usage meter&quot;},&quot;usage&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:88,&quot;min&quot;:0,&quot;max&quot;:100,&quot;step&quot;:1,&quot;unit&quot;:&quot;%&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Usage meter&quot;},&quot;atLimit&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Limit &amp; upgrade&quot;},&quot;version&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;2.4.0&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;App&quot;},&quot;authState&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;signedIn&quot;,&quot;signedOut&quot;,&quot;signingIn&quot;,&quot;error&quot;,&quot;expired&quot;],&quot;default&quot;:&quot;signedIn&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Auth (demo)&quot;}}">
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:420,&quot;height&quot;:780},&quot;defaultTheme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;light&quot;,&quot;dark&quot;],&quot;default&quot;:&quot;light&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#1d4ed8&quot;,&quot;options&quot;:[&quot;#2563eb&quot;,&quot;#1d4ed8&quot;,&quot;#3b82f6&quot;,&quot;#0ea5e9&quot;,&quot;#0284c7&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;userBubble&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;gradient&quot;,&quot;gray&quot;],&quot;default&quot;:&quot;gray&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Appearance&quot;},&quot;plan&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;free&quot;,&quot;pro&quot;],&quot;default&quot;:&quot;pro&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Plan&quot;},&quot;meterPlacement&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;header&quot;,&quot;footer&quot;],&quot;default&quot;:&quot;footer&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Usage meter&quot;},&quot;usage&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:88,&quot;min&quot;:0,&quot;max&quot;:100,&quot;step&quot;:1,&quot;unit&quot;:&quot;%&quot;,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Usage meter&quot;},&quot;atLimit&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Limit &amp;amp; upgrade&quot;}}">
 class Component extends DCLogic {
   constructor(props){
     super(props);
     this.threadRef = React.createRef();
     this.carViewRef = React.createRef();
-    this.composerRef = React.createRef();
     this._aiEls = {};
     this._aiOverflow = {};
     this._aiHeight = {};
@@ -749,10 +579,6 @@ class Component extends DCLogic {
     this.state = {
       theme: (props.defaultTheme === 'dark' ? 'dark' : 'light'),
       tab: 'chat',
-      email: '',
-      password: '',
-      passwordVisible: false,
-      rememberMe: false,
       messages: [],
       input: '',
       typing: false,
@@ -776,173 +602,8 @@ class Component extends DCLogic {
       macroForm: null,
       rating: null,
       ratingDismissed: {},
-      slashOpen: false,
-      slashQ: '',
-      slashActive: 0,
-      pinned: this._loadArr('bina_slash_pinned'),
-      recent: this._loadArr('bina_slash_recent'),
-      activeCmdId: null,
-      activeOpt: null,
       _id: 1,
     };
-  }
-
-  _loadArr(k){ try { return JSON.parse(localStorage.getItem(k)) || []; } catch(e){ return []; } }
-
-  // ===== Slash command catalogue (20 tools) =====
-  cmds(){
-    if (this._CMDS) return this._CMDS;
-    this._CMDS = [
-      {id:'level-vis',tab:'General',name:'Level Visualiser',ds:'Compare levels host vs linked \u2192 .csv',badge:'rep',ic:'ti-git-compare',kw:'level elevation compare align link csv qa',run:'Reading levels from Main Model + 2 linked models\u2026',res:'12 levels compared \u00b7 <b>9 matched</b>, 2 mismatched elevation, 1 missing in ST link.',art:'csv',warn:true},
-      {id:'level-filter',tab:'General',name:'Level View Filter',ds:'Filter / highlight elements by level',badge:'det',ic:'ti-filter',kw:'level filter view highlight isolate element',run:'Applying level filter to active view\u2026',res:'Isolated <b>318 elements</b> on Level 3. Others dimmed.',art:'undo'},
-      {id:'level-build',tab:'General',name:'Level Builder',ds:'Batch-generate levels by name / spacing',badge:'det',ic:'ti-stack-2',kw:'level create generate build floor storey spacing batch',param:{q:'How many levels, and at what spacing?',opts:['5 levels @ 3500mm','10 @ 3000mm','Custom\u2026']},run:'Generating levels\u2026',res:'Created <b>5 new levels</b> (L1\u2013L5) at 3500mm spacing, named consistently.',art:'undo'},
-      {id:'batch-link',tab:'General',name:'Batch Link',ds:'Load / reload / relink models in bulk',badge:'det',ic:'ti-link',kw:'link batch reload relink model consultant reference load',run:'Loading linked files with shared coordinates\u2026',res:'Linked <b>4 models</b> (AR, ST, ACMV, EL) \u00b7 origin-to-origin.',art:'undo'},
-      {id:'cad-family',tab:'General',name:'CAD Block to Family',ds:'CAD block \u2192 native Revit family',badge:'ai',ic:'ti-transform',kw:'cad block family symbol convert import native map',param:{q:'I found 6 unique CAD blocks. Map them to families?',opts:['Auto-map all (review after)','Map one by one','Pick blocks\u2026']},run:'Interpreting CAD blocks and matching families\u2026',res:'Placed <b>142 family instances</b> from 6 mapped blocks. 4 blocks unmatched \u2014 flagged.',art:'undo',warn:true},
-      {id:'skata',tab:'General',name:'SKATA Code',ds:'Apply / audit project coding \u2192 .csv',badge:'rep',ic:'ti-hash',kw:'skata code standard audit classification parameter compliance csv',run:'Auditing element codes against SKATA standard\u2026',res:'<b>1,204 elements</b> checked \u00b7 96% compliant, 48 missing codes listed.',art:'csv',warn:true},
-      {id:'lightvent',tab:'Architecture',name:'Light / Ventilation Report',ds:'Room daylight + airflow check \u2192 schedule + .csv',badge:'rep',ic:'ti-sun',kw:'light ventilation daylight window opening room compliance report schedule csv',run:'Extracting room areas, openings and window ratios\u2026',res:'42 rooms checked \u00b7 <b>38 pass</b>, 4 below 10% opening ratio. Schedule added to sheet.',art:'csv',warn:true},
-      {id:'door-sched',tab:'Architecture',name:'Graphical Door Schedule',ds:'Auto graphical door schedule + sheet',badge:'det',ic:'ti-door',kw:'door schedule graphical documentation sheet view elevation',run:'Generating graphical door schedule\u2026',res:'Built schedule for <b>67 doors</b> across 4 types \u00b7 placed on sheet A-401.',art:'undo'},
-      {id:'win-sched',tab:'Architecture',name:'Graphical Window Schedule',ds:'Auto graphical window schedule + sheet',badge:'det',ic:'ti-window',kw:'window schedule graphical documentation sheet view elevation',run:'Generating graphical window schedule\u2026',res:'Built schedule for <b>39 windows</b> across 5 types \u00b7 placed on sheet A-402.',art:'undo'},
-      {id:'room-views',tab:'Architecture',name:'Room View / Plan / 3D',ds:'Auto room views, plans & 3D per room',badge:'det',ic:'ti-box-multiple',kw:'room view plan 3d documentation generate template naming',run:'Creating room views with template + consistent naming\u2026',res:'Generated <b>28 room plans</b> + 28 3D views, named by room number.',art:'undo'},
-      {id:'walls-cad',tab:'Architecture',name:'Walls from CAD',ds:'CAD lines \u2192 native parametric walls',badge:'det',ic:'ti-wall',kw:'wall cad line convert native parametric layout dwg',param:{q:'Which wall family should I use?',opts:['W1 \u00b7 100mm Bata','W2 \u00b7 200mm Concrete','Pick from list\u2026']},run:'Tracing CAD layer A-WALL and generating walls\u2026',res:'Generated <b>47 walls</b> from layer A-WALL \u00b7 3 segments skipped (incomplete CAD).',art:'undo',warn:true},
-      {id:'walls-slab',tab:'Architecture',name:'Walls from Slab Edge',ds:'Slab edge \u2192 perimeter walls (incl. sloped)',badge:'det',ic:'ti-border-corners',kw:'wall slab edge perimeter boundary sloped uneven parapet',run:'Reading slab boundary and placing perimeter walls\u2026',res:'Placed <b>18 perimeter walls</b> along slab edge, following 2 sloped sections.',art:'undo'},
-      {id:'sloped-floor',tab:'Architecture',name:'Sloped Floor from Floor',ds:'Flat floor \u2192 sloped floor / ramp',badge:'det',ic:'ti-stairs',kw:'floor slope sloped ramp gradient elevation fall drainage',param:{q:'Set the slope \u2014 start & end elevation?',opts:['0 \u2192 -150mm (1:40 fall)','0 \u2192 -300mm','Custom\u2026']},run:'Rebuilding floor with slope\u2026',res:'Converted floor to <b>1:40 fall</b> toward drain point. Boundary preserved.',art:'undo'},
-      {id:'floor-align',tab:'Architecture',name:'Floor Edge Align',ds:'Align & clean floor boundary edges',badge:'det',ic:'ti-frame',kw:'floor edge align boundary sketch clean tidy adjacent',run:'Aligning adjacent floor sketch edges\u2026',res:'Aligned <b>6 floor edges</b> to reference \u00b7 sketch cleaned.',art:'undo'},
-      {id:'col-cad',tab:'Structure',name:'Column from CAD',ds:'CAD \u2192 native structural columns',badge:'det',ic:'ti-building',kw:'column cad structural grid convert native family tiang',param:{q:'Which column family for the CAD references?',opts:['RC 300\u00d7300','RC 400\u00d7400','Steel UC \u00b7 pick\u2026']},run:'Locating column marks in CAD and placing columns\u2026',res:'Placed <b>36 structural columns</b> from CAD grid intersections.',art:'undo'},
-      {id:'beam-cad',tab:'Structure',name:'Beam from CAD',ds:'CAD \u2192 structural framing + legend',badge:'ai',ic:'ti-ruler-2',kw:'beam cad structural framing legend size text layer rasuk mapping',run:'Reading CAD lines + text layer to interpret beam sizes\u2026',res:'Placed <b>84 beams</b> \u00b7 sizes read from text layer. Reference legend generated for QA.',art:'legend',warn:true},
-      {id:'split-floor',tab:'Structure',name:'Split Floor by Beams',ds:'Split slab into panels by beam layout',badge:'det',ic:'ti-layout-grid',kw:'split floor slab beam panel divide structural pour zone',run:'Splitting slab along beam centrelines\u2026',res:'Split slab into <b>12 panels</b> by beam layout \u00b7 floor type preserved.',art:'undo'},
-      {id:'ff-net',tab:'MEP',name:'FF Network from CAD',ds:'Fire-protection CAD \u2192 pipes + sprinklers + legend',badge:'det',ic:'ti-flame',kw:'ff fire fighting sprinkler pipe network cad mep legend wet riser',run:'Converting fire-protection layout from CAD\u2026',res:'Modelled <b>96 pipe segments + 54 sprinklers</b> \u00b7 reference legend generated.',art:'legend'},
-      {id:'ff-pick',tab:'MEP',name:'FF from Picked CAD',ds:'Convert selected FF branch only',badge:'det',ic:'ti-hand-finger',kw:'ff fire pick selected branch partial sprinkler pipe cad section',param:{q:'Pipe only, or connect the picked sprinklers too?',opts:['Pipe only','Pipe + sprinklers']},run:'Converting picked CAD branch\u2026',res:'Modelled <b>1 branch</b> \u00b7 14 pipes + 8 sprinklers connected.',art:'undo'},
-      {id:'light-cad',tab:'MEP',name:'Lighting from CAD',ds:'CAD blocks \u2192 native lighting fixtures',badge:'ai',ic:'ti-bulb',kw:'lighting light fixture cad block lamp mep convert family lampu',run:'Matching CAD lighting blocks to fixture families\u2026',res:'Placed <b>128 light fixtures</b> from 3 block types \u00b7 5 unmatched flagged.',art:'undo',warn:true},
-    ];
-    return this._CMDS;
-  }
-  cmdById(id){ return this.cmds().find(c => c.id === id); }
-  badgeLabel(b){ return b === 'det' ? 'deterministic' : b === 'ai' ? 'ai-assisted' : 'report'; }
-  badgeColor(b){ return b === 'det' ? '#0d9488' : b === 'ai' ? '#7c3aed' : '#d97706'; }
-  iconSVG(name, size){
-    const P = this._ICONS || (this._ICONS = {
-      'ti-git-compare':'<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/>',
-      'ti-filter':'<path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z"/>',
-      'ti-stack-2':'<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 17.65-9.17 4.16a2 2 0 0 1-1.66 0L2 17.65"/><path d="m22 12.65-9.17 4.16a2 2 0 0 1-1.66 0L2 12.65"/>',
-      'ti-link':'<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
-      'ti-transform':'<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
-      'ti-hash':'<line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/>',
-      'ti-sun':'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
-      'ti-door':'<path d="M18 20V6a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v14"/><path d="M2 20h20"/><path d="M14 12v.01"/>',
-      'ti-window':'<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18M12 3v18"/>',
-      'ti-box-multiple':'<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M4 16V4a2 2 0 0 1 2-2h10"/>',
-      'ti-wall':'<rect x="3" y="4" width="18" height="16" rx="1"/><path d="M3 9h18M3 14h18M9 4v5M15 9v5M9 14v6M15 14v6"/>',
-      'ti-border-corners':'<path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/>',
-      'ti-stairs':'<path d="M3 20v-4h4v-4h4v-4h4v-4h5"/>',
-      'ti-frame':'<line x1="22" x2="2" y1="6" y2="6"/><line x1="22" x2="2" y1="18" y2="18"/><line x1="6" x2="6" y1="2" y2="22"/><line x1="18" x2="18" y1="2" y2="22"/>',
-      'ti-building':'<rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9 22v-4h6v4M8 6h.01M16 6h.01M8 10h.01M16 10h.01M8 14h.01M16 14h.01"/>',
-      'ti-ruler-2':'<path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2M11.5 9.5l2-2M8.5 6.5l2-2M17.5 15.5l2-2"/>',
-      'ti-layout-grid':'<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>',
-      'ti-flame':'<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
-      'ti-hand-finger':'<path d="m9 11 5 12 1.8-5.2L21 15Z"/><path d="M7.2 2.2 8 5.1M5.1 8 2.2 7.2M14 4.1 12 6M6 12l-1.9 2"/>',
-      'ti-bulb':'<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6M10 22h4"/>',
-      'ti-search-off':'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3M8 8l6 6"/>',
-      'ti-clock-bolt':'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
-      'ti-adjustments':'<line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="2" x2="6" y1="14" y2="14"/><line x1="10" x2="14" y1="8" y2="8"/><line x1="18" x2="22" y1="16" y2="16"/>',
-      'ti-building-arch':'<rect width="16" height="20" x="4" y="2" rx="2"/><path d="M9 22v-4h6v4M8 6h.01M16 6h.01M8 10h.01M16 10h.01M8 14h.01M16 14h.01"/>',
-      'ti-building-skyscraper':'<path d="M3 21h18M5 21V5l7-3v19M19 21V9l-7-4M9 9h.01M9 13h.01M9 17h.01"/>',
-      'ti-plug':'<path d="M12 22v-5M9 8V2M15 8V2M18 8v3a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/>',
-      'ti-command':'<path d="M18 3a3 3 0 0 0-3 3v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3Z"/>',
-      'ti-tag':'<path d="M12.59 2.59a2 2 0 0 1 1.41-.59H20a2 2 0 0 1 2 2v6a2 2 0 0 1-.59 1.41l-9 9a2 2 0 0 1-2.82 0l-6-6a2 2 0 0 1 0-2.82Z"/><circle cx="16.5" cy="7.5" r="1.2"/>',
-      'ti-star':'<path d="M12 2.5l2.9 6.1 6.6.6-5 4.4 1.5 6.5L12 17.3 6 20.6l1.5-6.5-5-4.4 6.6-.6z"/>',
-      'ti-star-filled':'<path d="M12 2.5l2.9 6.1 6.6.6-5 4.4 1.5 6.5L12 17.3 6 20.6l1.5-6.5-5-4.4 6.6-.6z"/>',
-    });
-    const inner = P[name] || P['ti-command'];
-    const filled = name === 'ti-star-filled';
-    return React.createElement('svg', { width:size, height:size, viewBox:'0 0 24 24', fill: filled ? 'currentColor' : 'none', stroke: filled ? 'none' : 'currentColor', strokeWidth:1.9, strokeLinecap:'round', strokeLinejoin:'round', dangerouslySetInnerHTML:{ __html: inner } });
-  }
-
-  // ===== recent + pinned persistence =====
-  _saveArr(k, arr){ try { localStorage.setItem(k, JSON.stringify(arr)); } catch(e){} }
-  pushRecent(id){
-    const recent = [id, ...this.state.recent.filter(x => x !== id)].slice(0, 4);
-    this._saveArr('bina_slash_recent', recent);
-    this.setState({ recent });
-  }
-  togglePin(id){
-    const has = this.state.pinned.includes(id);
-    const pinned = has ? this.state.pinned.filter(x => x !== id) : [id, ...this.state.pinned];
-    this._saveArr('bina_slash_pinned', pinned);
-    this.setState({ pinned });
-  }
-
-  // ===== slash query detection =====
-  slashQuery(v){
-    const m = (v || '').match(/(?:^|\s)\/([\w-]*)$/);
-    return m ? m[1] : null;
-  }
-  // Filtered + grouped visible list for the current query.
-  slashList(){
-    const q = (this.state.slashQ || '').toLowerCase().trim();
-    const match = this.cmds().filter(c => !q || (c.name + ' ' + c.ds + ' ' + c.kw).toLowerCase().includes(q));
-    const groups = [];
-    const flat = [];
-    if (!q){
-      const quickIds = [...this.state.pinned, ...this.state.recent.filter(id => !this.state.pinned.includes(id))].filter(id => this.cmdById(id)).slice(0, 5);
-      if (quickIds.length){
-        const items = quickIds.map(id => this.cmdById(id));
-        groups.push({ tab:'Quick access', items });
-        items.forEach(c => flat.push(c));
-      }
-    }
-    ['General','Architecture','Structure','MEP'].forEach(t => {
-      const g = match.filter(c => c.tab === t);
-      if (g.length){ groups.push({ tab:t, items:g }); g.forEach(c => flat.push(c)); }
-    });
-    return { groups, flat, count: match.length, q };
-  }
-
-  openSlash(q){ this.setState({ slashOpen:true, slashQ:q, slashActive:0 }); }
-  closeSlash(){ this.setState({ slashOpen:false }); }
-
-  pickCmd(c){
-    // strip the trailing /token from the input
-    const cleaned = (this.state.input || '').replace(/(^|\s)\/[\w-]*$/, '$1').trim();
-    this.pushRecent(c.id);
-    this.setState({ slashOpen:false, activeCmdId:c.id, activeOpt:null, input:cleaned });
-    this.focusInput();
-  }
-  clearCmd(){ this.setState({ activeCmdId:null, activeOpt:null }); this.focusInput(); }
-
-  pickParamOpt(msgId, opt){
-    const clean = opt.replace(/\u2026$/, '').trim();
-    const isCustom = /\u2026$/.test(opt) || /pick|custom|one by one/i.test(opt);
-    this.setState(s => ({
-      messages: s.messages.map(m => m.id === msgId ? { ...m, picked:opt, done:!isCustom } : m),
-      activeOpt: isCustom ? null : clean,
-    }));
-    this.focusInput();
-  }
-
-  runCommand(c, uid){
-    const gen = this._genId;
-    this._simulateBackend(() => {
-      if (this._genId !== gen) return;
-      const rmsg = {
-        id: uid + 1, role:'ai', kind:'result',
-        ok: !c.warn, title: c.warn ? 'Done with warnings' : 'Done',
-        res: c.res, tag: this.badgeLabel(c.badge), art: c.art || 'undo', cmdName: c.name,
-        time: this.now(),
-      };
-      this.setState(s => ({ messages:[...s.messages, rmsg], typing:false, thinkExiting:true }));
-      this._thinkTimers.push(setTimeout(() => {
-        if (this._genId === gen) this.setState({ thinkVisible:false, thinkExiting:false, thinkPhase:'idle', thinkLabel:'' });
-      }, 260));
-    });
-  }
-  resultAction(kind){
-    if (kind === 'next'){ this.setState({ input:'/' }); this.openSlash(''); this.focusInput(); return; }
-    let text = '';
-    if (kind === 'undo') text = 'Reverted the last operation. Model restored to previous state.';
-    else if (kind === 'csv') text = 'Exported to KTPC-audit.csv \u2014 ready for your QA record.';
-    else if (kind === 'legend') text = 'Opened the Reference Legend view \u2014 CAD ref \u2194 Revit family mapping, ready to check before sign-off.';
-    const ai = { id: Date.now()+1, role:'ai', text, time:this.now() };
-    this.setState(s => ({ messages:[...s.messages, ai] }));
   }
 
   componentDidMount(){
@@ -1106,23 +767,12 @@ class Component extends DCLogic {
   send(text){
     const raw = (text != null ? text : this.state.input);
     const t = (raw || '').trim();
-    const cmd = this.state.activeCmdId ? this.cmdById(this.state.activeCmdId) : null;
-    if (cmd){
-      if (this.state.typing) return;
-      const uid = Date.now();
-      const userMsg = { id: uid, role:'user', kind:'cmduser', opt: this.state.activeOpt || null, text: t, cmdName: cmd.name, cmdIc: cmd.ic, time: this.now() };
-      this._genId = (this._genId || 0) + 1;
-      this.setState(s => ({ messages:[...s.messages, userMsg], input:'', activeCmdId:null, activeOpt:null, showMention:false, slashOpen:false, typing:true, thinkVisible:true, thinkExiting:false, thinkPhase:'working', thinkLabel:'Thinking' }));
-      this._clearThink();
-      this.runCommand(cmd, uid);
-      return;
-    }
     if (!t || this.state.typing) return;
     const uid = Date.now();
-    const userMsg = { id: uid, role:'user', text: t, opt: this.state.activeOpt || null, time: this.now() };
+    const userMsg = { id: uid, role:'user', text: t, time: this.now() };
     this._genId = (this._genId || 0) + 1;
     const gen = this._genId;
-    this.setState(s => ({ messages: [...s.messages, userMsg], input:'', activeOpt:null, showMention:false, typing:true, thinkVisible:true, thinkExiting:false, thinkPhase: 'working', thinkLabel: 'Thinking' }));
+    this.setState(s => ({ messages: [...s.messages, userMsg], input:'', showMention:false, typing:true, thinkVisible:true, thinkExiting:false, thinkPhase: 'working', thinkLabel: 'Thinking' }));
     this._clearThink();
     this._simulateBackend(() => {
       const ai = {
@@ -1146,32 +796,7 @@ class Component extends DCLogic {
   }
 
   toggleTheme(){ this.setState(s => ({ theme: s.theme === 'dark' ? 'light' : 'dark' })); }
-  startSignIn(){
-    clearTimeout(this._signInTimer);
-    this.setState({ authOverride: 'signedOut' });
-  }
-  submitSignIn(){
-    clearTimeout(this._signInTimer);
-    try { window.open('https://plugins.jkrbinaxone.com/login/?redirect_uri=http%3A%2F%2F127.0.0.1%3A51093%2Fcallback%2F&code_challenge=4IwbsAMQxGZKQWCSmprzZFgXR2Pr5YZoRYFLniSdseU&code_challenge_method=S256&state=66f5b914b0284aebab7421a1c6bb5a74&api=https%3A%2F%2Fberry-phlebotomic-semipurposively.ngrok-free.dev', '_blank'); } catch(e){}
-    this.setState({ authOverride: 'signingIn' });
-    this._signInTimer = setTimeout(() => this.setState({ authOverride: 'signedIn' }), 1800);
-  }
-  cancelSignIn(){
-    clearTimeout(this._signInTimer);
-    this.setState({ authOverride: 'signedOut' });
-  }
-  openSignUp(){ try { window.open('https://binaxone.com/signup', '_blank'); } catch(e){} }
-  toggleUsage(){
-    this.setState(s => {
-      const next = !s.showUsage;
-      let rect = s.usagePopRect;
-      if (next && this.composerRef.current){
-        const r = this.composerRef.current.getBoundingClientRect();
-        rect = { top: r.bottom + 8, left: r.left, width: r.width };
-      }
-      return { showUsage: next, usagePopRect: rect };
-    });
-  }
+  toggleUsage(){ this.setState(s => ({ showUsage: !s.showUsage })); }
   closeUsage(){ this.setState({ showUsage: false }); }
   openUpgrade(){ this.setState({ showUpgrade: true, showUsage: false, planIdx: 1, carDragDX: 0, carDragging: false }); }
   closeUpgrade(){ this.setState({ showUpgrade: false, portalOpening: false }); }
@@ -1239,23 +864,8 @@ class Component extends DCLogic {
   setMacroText(text){ this.setState(s => ({ macroForm: { ...s.macroForm, text } })); }
   submitMacroForm(){ this.setState(s => ({ macroForm: { ...s.macroForm, submitted: true } })); }
   upgradeNow(){ try { window.open('https://billing.bina.cloud/upgrade', '_blank'); } catch(e){} this.setState({ portalOpening: true }); }
-  seePlans(){ try { window.open('https://bina.cloud/pricing', '_blank'); } catch(e){} }  newChat(){ this._genId = (this._genId || 0) + 1; this._clearThink(); this.setState({ messages: [], tab:'chat', input:'', showMention:false, showUpgrade:false, notified:false, portalOpening:false, typing:false, thinkPhase:'idle', thinkLabel:'', thinkVisible:false, thinkExiting:false, expanded:{}, feedback:{}, macroOpen:false, macroForm:null, rating:null, ratingDismissed:{}, slashOpen:false, slashQ:'', activeCmdId:null, activeOpt:null }); }
+  seePlans(){ try { window.open('https://bina.cloud/pricing', '_blank'); } catch(e){} }  newChat(){ this._genId = (this._genId || 0) + 1; this._clearThink(); this.setState({ messages: [], tab:'chat', input:'', showMention:false, showUpgrade:false, notified:false, portalOpening:false, typing:false, thinkPhase:'idle', thinkLabel:'', thinkVisible:false, thinkExiting:false, expanded:{}, feedback:{}, macroOpen:false, macroForm:null, rating:null, ratingDismissed:{} }); }
   setTab(tab){ this.setState({ tab }); }
-
-  useLibraryPrompt(text){
-    this._genId = (this._genId || 0) + 1;
-    this._clearThink();
-    this.setState({ messages: [], tab:'chat', input:text, showMention:false, showUpgrade:false, notified:false, portalOpening:false, typing:false, thinkPhase:'idle', thinkLabel:'', thinkVisible:false, thinkExiting:false, expanded:{}, feedback:{}, macroOpen:false, macroForm:null, rating:null, ratingDismissed:{}, slashOpen:false, slashQ:'', activeCmdId:null, activeOpt:null }, () => { const el = document.getElementById('bina-input'); if (el) { el.focus(); const len = el.value.length; el.setSelectionRange(len, len); } });
-  }
-
-  fillInput(text){
-    this.setState({ input: text }, () => { const el = document.getElementById('bina-input'); if (el) { el.focus(); const len = el.value.length; el.setSelectionRange(len, len); } });
-  }
-
-  openWhatsApp(){
-    try { window.open('https://wa.me/60129000742?text=' + encodeURIComponent('Hi, I need help with BINA AI Copilot'), '_blank'); } catch(e){}
-    this.closeMacroMenu();
-  }
 
   stopGen(){
     this._genId = (this._genId || 0) + 1;
@@ -1268,26 +878,11 @@ class Component extends DCLogic {
 
   onInput(e){
     const v = e.target.value;
-    const sq = this.slashQuery(v);
-    if (sq !== null){
-      this.setState({ input:v, showMention:false, slashOpen:true, slashQ:sq, slashActive:0 });
-    } else {
-      this.setState({ input:v, showMention: /(^|\s)@\w*$/.test(v), slashOpen:false });
-    }
+    this.setState({ input: v, showMention: /(^|\s)@\w*$/.test(v) });
   }
   onKey(e){
-    if (this.state.slashOpen){
-      const { flat } = this.slashList();
-      const n = flat.length;
-      if (e.key === 'ArrowDown'){ e.preventDefault(); if (n) this.setState(s => ({ slashActive:(s.slashActive+1)%n })); return; }
-      if (e.key === 'ArrowUp'){ e.preventDefault(); if (n) this.setState(s => ({ slashActive:(s.slashActive-1+n)%n })); return; }
-      if (e.key === 'Enter' || e.key === 'Tab'){ e.preventDefault(); if (n) this.pickCmd(flat[this.state.slashActive] || flat[0]); return; }
-      if (e.key === 'Escape'){ e.preventDefault(); this.closeSlash(); return; }
-      return;
-    }
-    if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); this.send(); return; }
+    if (e.key === 'Enter' && !e.shiftKey){ e.preventDefault(); this.send(); }
     if (e.key === 'Escape'){ this.setState({ showMention:false }); }
-    if (this.state.activeCmdId && e.key === 'Backspace' && e.target.selectionStart === 0 && e.target.selectionEnd === 0){ e.preventDefault(); this.clearCmd(); }
   }
   focusInput(){ setTimeout(() => { const el = document.getElementById('bina-input'); if (el) el.focus(); }, 0); }
   atBtn(){
@@ -1330,14 +925,10 @@ class Component extends DCLogic {
 
   renderVals(){
     const isDark = this.state.theme === 'dark';
-    const authState = this.state.authOverride || this.props.authState || 'signedIn';
-    const appUsable = authState === 'signedIn' || authState === 'expired';
     const tab = this.state.tab;
     const isChat = tab === 'chat';
     const hasMessages = this.state.messages.length > 0;
-    const activeCmd = this.state.activeCmdId ? this.cmdById(this.state.activeCmdId) : null;
-    const activeOpt = this.state.activeOpt;
-    const canSend = ((this.state.input || '').trim().length > 0) || !!activeCmd;
+    const canSend = (this.state.input || '').trim().length > 0;
 
     const usagePct = Math.max(0, Math.min(100, Math.round(this.props.usage != null ? this.props.usage : 22)));
     const meterColor = usagePct >= 95 ? '#ef4444' : usagePct >= 80 ? '#f59e0b' : 'var(--accent)';
@@ -1403,41 +994,10 @@ class Component extends DCLogic {
       id: m.id,
       text: m.text,
       time: m.time,
-      isUser: m.role === 'user' && m.kind !== 'cmduser',
-      isCmdUser: m.kind === 'cmduser',
-      cmdUserOpt: m.opt || null,
-      cmdName: m.cmdName || '',
-      cmdIconEl: this.iconSVG(m.cmdIc || 'ti-command', 12),
-      cmdUserHasOpt: !!m.opt,
-      cmdUserHasText: !!(m.text && m.text.trim()),
-      isParam: m.kind === 'param',
-      isResult: m.kind === 'result',
+      isUser: m.role === 'user',
       isAI: m.role === 'ai',
       interrupted: !!m.interrupted,
-      isAIAnswer: m.role === 'ai' && !m.interrupted && !m.kind,
-      // param prompt card
-      paramName: m.cmdName,
-      paramQ: m.q,
-      paramOpts: (m.opts || []).map(o => ({
-        label: o,
-        picked: m.picked === o,
-        optStyle: 'width:100%;text-align:left;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid ' + (m.picked === o ? 'var(--accent)' : 'var(--hair2)') + ';border-radius:10px;background:' + (m.picked === o ? 'color-mix(in srgb, var(--accent) 9%, transparent)' : 'transparent') + ';color:var(--text);font-family:inherit;font-size:12.5px;font-weight:550;cursor:pointer;',
-        pick: () => this.pickParamOpt(m.id, o),
-      })),
-      paramDone: !!m.done,
-      // result card
-      resultOk: !!m.ok,
-      resultWarn: m.kind === 'result' && !m.ok,
-      resultTitle: m.title,
-      resultTag: m.tag,
-      resultEl: m.kind === 'result' ? React.createElement('div', { style:{ fontSize:'12.5px', lineHeight:'1.55', color:'var(--text)' }, dangerouslySetInnerHTML:{ __html: m.res } }) : null,
-      resultShowCsv: m.art === 'csv',
-      resultShowLegend: m.art === 'legend',
-      resultShowUndo: m.art !== 'none',
-      doUndo: () => this.resultAction('undo'),
-      doCsv: () => this.resultAction('csv'),
-      doLegend: () => this.resultAction('legend'),
-      doNext: () => this.resultAction('next'),
+      isAIAnswer: m.role === 'ai' && !m.interrupted,
       hasCommand: !!m.command,
       cmd: m.command ? {
         name: m.command.name,
@@ -1538,27 +1098,6 @@ class Component extends DCLogic {
       ]},
     ].map(c => ({ title:c.title, meta:c.meta, open: () => this.loadHistory(c) }));
 
-    const libraryData = [
-      { section:'Modeling', items:[
-        { title:'Create exterior walls', desc:'Generate walls along a grid range', icon:'ti-wall', prompt:'Create exterior walls along grid A\u2013F on Level 2 using a 200mm generic wall type.' },
-        { title:'Place windows on facade', desc:'Even spacing along a building face', icon:'ti-window', prompt:'Place windows on the south facade at 2400mm spacing using a Fixed 1200x1500 family.' },
-        { title:'Generate sloped floor', desc:'Convert a flat floor into a ramp', icon:'ti-stairs', prompt:'Convert the selected flat floor into a sloped floor with a 5% fall to the north.' },
-      ]},
-      { section:'Documentation', items:[
-        { title:'Door schedule', desc:'Auto-build a graphical door schedule', icon:'ti-door', prompt:'Generate a graphical door schedule for Block A, sorted by level, with Mark, Level and Width fields.' },
-        { title:'Room views (plan + 3D)', desc:'Batch-create views per room', icon:'ti-box-multiple', prompt:'Create a plan and 3D view for every room on Level 1 using the standard room view template.' },
-        { title:'Tag all rooms', desc:'Name + number tags in one pass', icon:'ti-tag', prompt:'Tag all rooms on Level 1 with name and number, placed horizontally.' },
-      ]},
-      { section:'QA & Coordination', items:[
-        { title:'Compare levels vs. linked model', desc:'Export mismatches to .csv', icon:'ti-git-compare', prompt:'Compare levels between the host and linked structural model and export any mismatches to a .csv.' },
-        { title:'Batch link / reload models', desc:'Reload or relink in bulk', icon:'ti-link', prompt:'Reload all linked consultant models and report any that failed to load.' },
-      ]},
-    ];
-    const libraryList = libraryData.map(g => ({
-      section: g.section,
-      items: g.items.map(it => ({ ...it, iconEl: this.iconSVG(it.icon, 15), use: () => this.useLibraryPrompt(it.prompt) })),
-    }));
-
     // ===== Peek carousel geometry =====
     const carActive = this.state.planIdx ?? 1;
     const carW = this.state.panelW || 320;
@@ -1620,112 +1159,17 @@ class Component extends DCLogic {
       ? 'color:var(--text3);opacity:.35;cursor:default;pointer-events:none;'
       : 'color:var(--text2);cursor:pointer;');
 
-    // ===== Slash command menu (React element overlay) =====
-    const h = React.createElement;
-    const sList = this.slashList();
-    const slashOpen = this.state.slashOpen && isChat;
-    let slashMenuEl = null;
-    if (slashOpen){
-      const rows = [];
-      let flatIdx = 0;
-      const tabIcon = { 'Quick access':'ti-clock-bolt', General:'ti-adjustments', Architecture:'ti-building-arch', Structure:'ti-building-skyscraper', MEP:'ti-plug' };
-      if (!sList.groups.length){
-        rows.push(h('div', { key:'empty', style:{ padding:'22px 14px', textAlign:'center', color:'var(--text3)', fontSize:'12px', lineHeight:'1.5' } },
-          h('div', { style:{ display:'flex', justifyContent:'center', marginBottom:'6px', opacity:.7 } }, this.iconSVG('ti-search-off', 20)),
-          'No tools match \u201c' + sList.q + '\u201d'));
-      } else {
-        sList.groups.forEach(g => {
-          rows.push(h('div', { key:'g-'+g.tab, style:{ display:'flex', alignItems:'center', gap:'7px', padding:'9px 12px 5px', fontSize:'10px', fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--text3)' } },
-            this.iconSVG(tabIcon[g.tab], 13),
-            g.tab,
-            h('span', { style:{ flex:1, height:'1px', background:'var(--hair)' } })));
-          g.items.forEach(c => {
-            const idx = flatIdx++;
-            const sel = idx === this.state.slashActive;
-            const pinned = this.state.pinned.includes(c.id);
-            const bc = this.badgeColor(c.badge);
-            rows.push(h('div', {
-              key: g.tab + '-' + c.id, 'data-i': idx,
-              onMouseMove: () => { if (this.state.slashActive !== idx) this.setState({ slashActive: idx }); },
-              onClick: (e) => { if (e.target.closest && e.target.closest('[data-pin]')) return; this.pickCmd(c); },
-              style:{ display:'flex', alignItems:'center', gap:'10px', padding:'8px 10px 8px 12px', margin:'0 5px', borderRadius:'9px', cursor:'pointer', background: sel ? 'var(--hover)' : 'transparent' },
-            },
-              h('span', { style:{ width:'30px', height:'30px', borderRadius:'8px', flex:'none', display:'flex', alignItems:'center', justifyContent:'center', color:'#fff', background:bc, boxShadow:'0 1px 2px rgba(0,0,0,.18)' } },
-                this.iconSVG(c.ic, 16)),
-              h('span', { style:{ flex:1, minWidth:0 } },
-                h('span', { style:{ display:'flex', alignItems:'center', gap:'7px' } },
-                  h('span', { style:{ fontSize:'12.5px', fontWeight:620, color:'var(--text)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } }, c.name),
-                  h('span', { style:{ fontSize:'8.5px', fontWeight:700, letterSpacing:'.03em', textTransform:'uppercase', color:bc, background:'color-mix(in srgb, ' + bc + ' 13%, transparent)', padding:'1px 5px', borderRadius:'5px', flex:'none' } }, this.badgeLabel(c.badge))),
-                h('span', { style:{ display:'block', fontSize:'11px', color:'var(--text3)', marginTop:'1px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' } }, c.ds)),
-              h('button', {
-                'data-pin': c.id, title: pinned ? 'Unpin' : 'Pin to top',
-                onClick: (e) => { e.stopPropagation(); this.togglePin(c.id); },
-                style:{ width:'26px', height:'26px', flex:'none', border:0, background:'transparent', borderRadius:'7px', cursor:'pointer', color: pinned ? '#f5a623' : 'var(--text3)', display:'flex', alignItems:'center', justifyContent:'center' },
-              }, this.iconSVG(pinned ? 'ti-star-filled' : 'ti-star', 14))
-            ));
-          });
-        });
-      }
-      slashMenuEl = h('div', {
-        style:{ position:'absolute', left:0, right:0, bottom:'calc(100% + 8px)', background:'var(--menu)', border:'1px solid var(--hair)', borderRadius:'13px', boxShadow:'var(--shadow)', overflow:'hidden', zIndex:20, animation:'menuPop .16s ease forwards' },
-      },
-        h('div', { style:{ display:'flex', alignItems:'center', gap:'8px', padding:'10px 12px', borderBottom:'1px solid var(--hair)' } },
-          h('span', { style:{ width:'20px', height:'20px', borderRadius:'6px', background:'var(--sunken)', display:'flex', alignItems:'center', justifyContent:'center', flex:'none', color:'var(--text2)' } }, this.iconSVG('ti-command', 12)),
-          h('span', { style:{ flex:1, fontFamily:"'Cascadia Code',ui-monospace,monospace", fontSize:'12px', color:'var(--text)' } },
-            h('span', { style:{ color:'var(--accent)', fontWeight:700 } }, '/'),
-            sList.q ? h('span', {}, sList.q) : h('span', { style:{ color:'var(--text3)' } }, 'search tools\u2026')),
-          h('span', { style:{ fontSize:'10.5px', color:'var(--text3)', flex:'none' } }, sList.count + (sList.count === 1 ? ' result' : ' results'))),
-        h('div', { className:'binacmd-list', style:{ maxHeight:'268px', overflowY:'auto', overflowX:'hidden', padding:'4px 0 6px' } }, rows),
-        h('div', { style:{ display:'flex', alignItems:'center', gap:'12px', padding:'8px 12px', borderTop:'1px solid var(--hair)', fontSize:'9.5px', color:'var(--text3)' } },
-          h('span', { style:{ display:'flex', alignItems:'center', gap:'4px' } }, h('span', { style:{ width:'7px', height:'7px', borderRadius:'2px', background:this.badgeColor('det') } }), 'deterministic'),
-          h('span', { style:{ display:'flex', alignItems:'center', gap:'4px' } }, h('span', { style:{ width:'7px', height:'7px', borderRadius:'2px', background:this.badgeColor('ai') } }), 'ai-assisted'),
-          h('span', { style:{ display:'flex', alignItems:'center', gap:'4px' } }, h('span', { style:{ width:'7px', height:'7px', borderRadius:'2px', background:this.badgeColor('rep') } }), 'report'),
-          h('span', { style:{ flex:1 } }),
-          h('span', { style:{ fontFamily:"'Cascadia Code',monospace" } }, '\u2191\u2193 \u21b5 esc')));
-    }
-    const cmdChipStyle = 'display:inline-flex;align-items:center;gap:5px;flex:none;background:color-mix(in srgb, var(--accent) 12%, transparent);border:1px solid color-mix(in srgb, var(--accent) 40%, transparent);color:var(--accent);padding:3px 4px 3px 8px;border-radius:8px;font-size:11.5px;font-weight:640;max-width:260px;';
-    const optChipStyle = 'display:inline-flex;align-items:center;gap:5px;flex:none;background:var(--bg);border:1px solid var(--hair2);color:var(--text2);padding:3px 4px 3px 9px;border-radius:8px;font-size:11px;font-weight:600;max-width:240px;';
-
     return {
-      slashMenuEl, showSlash: slashOpen,
-      activeCmdName: activeCmd ? activeCmd.name : '',
-      activeCmdIconEl: this.iconSVG(activeCmd ? activeCmd.ic : 'ti-command', 13),
-      showCmdChip: !!activeCmd,
-      showChipRow: !!activeCmd || !!activeOpt,
-      activeOptText: activeOpt || '',
-      showOptChip: !!activeOpt,
-      cmdChipStyle, optChipStyle,
-      clearCmd: () => this.clearCmd(),
-      clearOpt: () => this.setState({ activeOpt:null }),
-      composerPlaceholder: activeCmd ? (activeCmd.param ? 'Add a note or question\u2026 then Send' : ('Describe what you want for ' + activeCmd.name + '\u2026')) : 'Message Copilot or type / for a tool\u2026',
       rootStyle: this.themeVars(isDark),
       isDark, isLight: !isDark,
       historyCount: history.length,
       chatTabStyle: isChat ? tabActive : tabIdle,
-      histTabStyle: tab === 'history' ? tabActive : tabIdle,
-      libTabStyle: tab === 'library' ? tabActive : tabIdle,
-      showEmpty: isChat && !hasMessages && !atLimit && appUsable,
-      showThread: isChat && hasMessages && appUsable,
-      showHistory: tab === 'history' && appUsable,
-      showLibrary: tab === 'library' && appUsable,
-      showComposer: showComposerNow && authState === 'signedIn',
-      showBlocked: showBlocked && appUsable,
-      showTabs: appUsable,
-      showSignedOutScreen: !appUsable,
-      showSignInIdle: authState === 'signedOut',
-      showSignInBusy: authState === 'signingIn',
-      showExpiredBanner: isChat && authState === 'expired',
-      startSignIn: () => this.startSignIn(),
-      submitSignIn: () => this.submitSignIn(),
-      cancelSignIn: () => this.cancelSignIn(),
-      openSignUp: () => this.openSignUp(),
-      authDotColor: authState === 'signedIn' ? 'var(--accent)' : authState === 'expired' ? '#f59e0b' : 'var(--text3)',
-      authStatusText: authState === 'signedIn' ? 'Connected \u00b7 Main Model' : authState === 'expired' ? 'Session expired' : authState === 'signingIn' ? 'Signing in\u2026' : 'Not signed in',
-      benefitRows: [
-        { label: 'Type commands in English or Bahasa Malaysia', icon: this.iconSVG('ti-command', 13) },
-        { label: 'Automation tools for walls, schedules, CAD conversion', icon: this.iconSVG('ti-stack-2', 13) },
-        { label: 'One ID for every BINA plugin', icon: this.iconSVG('ti-tag', 13) },
-      ],
+      histTabStyle: !isChat ? tabActive : tabIdle,
+      showEmpty: isChat && !hasMessages && !atLimit,
+      showThread: isChat && hasMessages,
+      showHistory: !isChat,
+      showComposer: showComposerNow,
+      showBlocked,
       blockedWrapStyle: hasMessages
         ? "flex:none;padding:18px 18px;border-top:1px solid var(--hair);display:flex;flex-direction:column;align-items:center;text-align:center;gap:9px;"
         : "flex:1;min-height:0;padding:22px 22px 90px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:9px;",
@@ -1765,7 +1209,6 @@ class Component extends DCLogic {
       showMention: this.state.showMention,
       mentionItems: mentions,
       historyList: history,
-      libraryList,
       threadRef: this.threadRef,
       showSendLoading: this.state.typing,
       showSendActive: !this.state.typing && canSend,
@@ -1773,20 +1216,14 @@ class Component extends DCLogic {
       usagePct, usageWidth: usagePct + '%', meterColor, meterDash,
       planName: planCfg.meterName, planBadge: planCfg.badge,
       showUsage: this.state.showUsage,
-      showHeaderMeter: placement === 'header' && appUsable,
+      showHeaderMeter: placement === 'header',
+      showFooterMeter: placement === 'footer' && isChat,
       showHeaderUsagePop: this.state.showUsage && placement === 'header',
       showFooterUsagePop: this.state.showUsage && placement === 'footer',
-      usagePopStyle: 'position:absolute;right:0;left:0;bottom:calc(100% + 8px);background:var(--menu);border:1px solid var(--hair);border-radius:13px;box-shadow:var(--shadow);padding:15px 15px 14px;z-index:9;animation:menuPop .16s ease forwards;',
-      composerRef: this.composerRef,
-      versionNumber: this.props.version || '2.4.0',
-      appVersion: 'v' + (this.props.version || '2.4.0'),
-      showUsageDot: usagePct >= 80,
-      usageDotColor: usagePct >= 95 ? '#ef4444' : '#f59e0b',
       toggleUsage: () => this.toggleUsage(),
       closeUsage: () => this.closeUsage(),
       goChat: () => this.setTab('chat'),
       goHistory: () => this.setTab('history'),
-      goLibrary: () => this.setTab('library'),
       sendBtn: () => this.send(),
       stopGen: () => this.stopGen(),
       onInput: (e) => this.onInput(e),
@@ -1797,7 +1234,6 @@ class Component extends DCLogic {
       macroMenuOpen: this.state.macroOpen,
       toggleMacroMenu: () => this.toggleMacroMenu(),
       closeMacroMenu: () => this.closeMacroMenu(),
-      openWhatsApp: () => this.openWhatsApp(),
       openMacroFeedback: () => this.openMacroForm('feedback'),
       openMacroBug: () => this.openMacroForm('bug'),
       openRating: () => this.openRating(),
@@ -1864,9 +1300,9 @@ class Component extends DCLogic {
       closeMacroForm: () => this.closeMacroForm(),
       setMacroText: (e) => this.setMacroText(e.target.value),
       submitMacroForm: () => this.submitMacroForm(),
-      sugWalls: () => this.fillInput('Create exterior walls on Level 2 along grid Aâ€“F'),
-      sugSchedule: () => this.fillInput('Generate a door schedule for Block A'),
-      sugTag: () => this.fillInput('Tag all rooms on Level 1 with name and number'),
+      sugWalls: () => this.send('Create exterior walls on Level 2 along grid Aâ€“F'),
+      sugSchedule: () => this.send('Generate a door schedule for Block A'),
+      sugTag: () => this.send('Tag all rooms on Level 1 with name and number'),
     };
   }
 }

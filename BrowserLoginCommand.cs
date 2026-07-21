@@ -34,14 +34,11 @@ namespace RevitWebAppSync
                         if (userInfoWindow.LoggedOut)
                         {
                             loggedOut = true;
-                            // Save() deletes the Credential Manager entry once
-                            // ClearSession has emptied the token set.
                             config.ClearSession();
                             config.Save();
-                            // Clear the credit badge in the (still-open) Copilot pane
-                            // and send it back to the signed-out gate.
+                            SecureTokenStore.Clear();
+                            // Clear the credit badge in the (still-open) Copilot pane.
                             _ = App.CopilotPaneHost?.Panel?.ViewModel?.RefreshCreditBadgeAsync();
-                            App.CopilotPaneHost?.Panel?.OnSignedOut();
                             TaskDialog.Show("Logged Out", "You have been logged out successfully.");
                         }
                         else if (userInfoWindow.SwitchProject)
@@ -94,8 +91,9 @@ namespace RevitWebAppSync
                     return Result.Failed;
                 }
 
-                // config.AccessToken/RefreshToken write through to the Credential
-                // Manager; the config.Save() below is what commits both.
+                // Secure copy first, then mirror into config for the existing readers.
+                try { SecureTokenStore.Save(tokens); } catch { /* fall back to config-only */ }
+
                 config.AccessToken = tokens.AccessToken;
                 config.RefreshToken = tokens.RefreshToken;
                 config.UserId = tokens.UserId;

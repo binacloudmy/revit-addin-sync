@@ -28,13 +28,9 @@ namespace RevitWebAppSync
                     {
                         if (userInfoWindow.LoggedOut)
                         {
-                            // ClearSession empties the token set and Save deletes the
-                            // Credential Manager entry — both are required, or the
-                            // Copilot pane's silent restore would resurrect the
-                            // session the user just logged out of.
+                            // Clear session and save
                             config.ClearSession();
                             config.Save();
-                            App.CopilotPaneHost?.Panel?.OnSignedOut();
                             TaskDialog.Show("Logged Out", "You have been logged out successfully.");
                         }
                         else if (userInfoWindow.SwitchProject)

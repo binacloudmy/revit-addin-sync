@@ -45,15 +45,11 @@
 
                 <StackPanel Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center">
                     <TextBlock Text="BINA AI Copilot" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
-                    <!-- Status: accent dot + "Connected · <model>" when signed in;
-                         gray dot + "Not signed in" / "Signing in…" behind the gate.
-                         Dot brush is set in code (AuthDot) since the colour is
-                         state-driven, not a single theme token. -->
                     <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
-                        <Ellipse x:Name="AuthDot" Width="6" Height="6" Fill="{DynamicResource Cp.Accent}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBlock FontSize="11" Foreground="{DynamicResource Cp.Muted}"
-                                   TextTrimming="CharacterEllipsis"
-                                   Text="{Binding AuthStatusText, Mode=OneWay}"/>
+                        <Ellipse Width="6" Height="6" Fill="{DynamicResource Cp.Accent}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBlock FontSize="11" Foreground="{DynamicResource Cp.Muted}">
+                            <Run Text="Connected · "/><Run Text="{Binding ModelName, Mode=OneWay}"/>
+                        </TextBlock>
                     </StackPanel>
                     <!-- Live tool activity: "applying create_wall…" while a mutation
                          runs on Revit's main thread (a slow cold-model build reads as
@@ -162,7 +158,7 @@
 
         <!-- ═══ Tabs (hidden on sub-screens) ═══ -->
         <Border Grid.Row="1" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1" Padding="16,0,16,0"
-                Visibility="{Binding ShowTabs, Converter={StaticResource BoolVis}}">
+                Visibility="{Binding IsSubScreen, Converter={StaticResource BoolVis}, ConverterParameter=Invert}">
             <StackPanel Orientation="Horizontal">
                 <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Chat"
                               IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Chat}"
