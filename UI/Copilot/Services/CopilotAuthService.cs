@@ -21,10 +21,9 @@ namespace RevitWebAppSync.UI.Copilot.Services
     ///     so reopening Revit does NOT require signing in again.
     ///
     /// Storage is <see cref="SecureTokenStore"/> (Windows Credential Manager,
-    /// per-user OS encryption). NOTE: the repo still mirrors the tokens into
-    /// config.json in plaintext because every other reader in the addin goes
-    /// through BinaConfig.AccessToken — removing that mirror is a separate,
-    /// wider change and is intentionally out of scope here.
+    /// per-user OS encryption). BinaConfig.AccessToken/RefreshToken are backed by
+    /// that store rather than serialized into config.json, so tokens never touch
+    /// the plaintext config file.
     /// </summary>
     public sealed class CopilotAuthService
     {
@@ -68,12 +67,10 @@ namespace RevitWebAppSync.UI.Copilot.Services
                 var cfg = BinaConfig.Load();
                 if (cfg == null) return false;
 
-                // Credential Manager is the source of truth. Fall back to whatever
-                // config.json holds so sessions created before the secure store
-                // existed (or when CredWrite failed) still restore.
-                var tokens = SecureTokenStore.Load();
-                string refresh = tokens?.RefreshToken;
-                if (string.IsNullOrEmpty(refresh)) refresh = cfg.RefreshToken;
+                // cfg.RefreshToken reads through to the Credential Manager, and a
+                // config.json written by an older build has already been migrated
+                // into it by BinaConfig.Load.
+                string refresh = cfg.RefreshToken;
 
                 bool accessUsable = !string.IsNullOrEmpty(cfg.AccessToken)
                                     && cfg.TokenExpiry > DateTime.Now.Add(RefreshSkew);
@@ -162,11 +159,10 @@ namespace RevitWebAppSync.UI.Copilot.Services
             try { cts?.Cancel(); } catch { /* already disposed */ }
         }
 
-        /// <summary>Clear the session everywhere: secure store first, then the
-        /// config mirror. Both must go or the next restore resurrects the session.</summary>
+        /// <summary>Clear the session. ClearSession() empties the token set and the
+        /// Save() deletes the credential, so this is the whole logout.</summary>
         public void SignOut()
         {
-            try { SecureTokenStore.Clear(); } catch { /* not present is fine */ }
             try
             {
                 var cfg = BinaConfig.Load();
@@ -177,13 +173,13 @@ namespace RevitWebAppSync.UI.Copilot.Services
             SessionChanged?.Invoke();
         }
 
-        /// <summary>Secure copy first, then the BinaConfig mirror the rest of the
-        /// addin reads. Mirrors BrowserLoginCommand's persistence exactly, including
-        /// the Demo project defaults that make IsLoggedIn() true.</summary>
+        /// <summary>Persist the session. BinaConfig.AccessToken/RefreshToken are
+        /// backed by SecureTokenStore, so cfg.Save() is the single writer for both
+        /// the credential and the config file. Mirrors BrowserLoginCommand's
+        /// persistence, including the Demo project defaults that make
+        /// IsLoggedIn() true.</summary>
         private static void Persist(BinaTokenSet tokens, BinaConfig cfg)
         {
-            try { SecureTokenStore.Save(tokens); } catch { /* fall back to config-only */ }
-
             cfg.AccessToken = tokens.AccessToken;
             // A refresh response may omit the refresh token (non-rotating servers) —
             // keep the existing one instead of nulling out the ability to refresh.

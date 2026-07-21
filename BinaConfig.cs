@@ -18,9 +18,51 @@ namespace RevitWebAppSync
         // Session data
         public string UserName { get; set; }
         public string ProjectName { get; set; }
-        public string AccessToken { get; set; }
-        public string RefreshToken { get; set; }
+
+        // ── Tokens: Credential Manager only, never config.json ──────────────
+        // These read/write the process-wide token set backed by SecureTokenStore
+        // (Windows Credential Manager, encrypted under the signed-in user). The
+        // property names are unchanged so every existing reader keeps working, but
+        // [JsonIgnore] keeps the secrets out of the plaintext config file, and
+        // MigrateLegacyTokens() strips any copy an older build left behind.
+        [JsonIgnore]
+        public string AccessToken
+        {
+            get => Session.AccessToken;
+            set { lock (SessionLock) { Session.AccessToken = value ?? ""; } }
+        }
+
+        [JsonIgnore]
+        public string RefreshToken
+        {
+            get => Session.RefreshToken;
+            set { lock (SessionLock) { Session.RefreshToken = value ?? ""; } }
+        }
+
         public DateTime TokenExpiry { get; set; }
+
+        // One token set per process — a machine has a single BINA session, and
+        // BinaConfig.Load() is called on nearly every request, so hitting the
+        // Credential Manager per access would be needless syscalls.
+        private static readonly object SessionLock = new object();
+        private static BinaVibe.Auth.BinaTokenSet _session;
+
+        private static BinaVibe.Auth.BinaTokenSet Session
+        {
+            get
+            {
+                lock (SessionLock)
+                {
+                    if (_session == null)
+                    {
+                        try { _session = BinaVibe.Auth.SecureTokenStore.Load(); }
+                        catch { _session = null; }
+                        _session = _session ?? new BinaVibe.Auth.BinaTokenSet();
+                    }
+                    return _session;
+                }
+            }
+        }
 
         // Backend URLs — overridable via config.json so the addin doesn't need
         // a rebuild when ngrok tunnels rotate. Empty/missing values fall back
@@ -241,12 +283,13 @@ namespace RevitWebAppSync
         public static BinaConfig Load()
         {
             BinaConfig cfg = null;
+            string rawJson = null;
             try
             {
                 if (File.Exists(ConfigPath))
                 {
-                    string json = File.ReadAllText(ConfigPath);
-                    cfg = JsonConvert.DeserializeObject<BinaConfig>(json);
+                    rawJson = File.ReadAllText(ConfigPath);
+                    cfg = JsonConvert.DeserializeObject<BinaConfig>(rawJson);
                 }
             }
             catch (Exception ex)
@@ -254,6 +297,11 @@ namespace RevitWebAppSync
             }
 
             cfg = cfg ?? new BinaConfig();
+
+            // First run after this update: lift any plaintext tokens an older
+            // build wrote into the Credential Manager, then rewrite config.json
+            // without them.
+            cfg.MigrateLegacyTokens(rawJson);
 
             // Zero-config release: fill blank/absent values ONCE (see
             // ApplyDefaults' own doc comment for the exact rules + the
@@ -383,6 +431,74 @@ namespace RevitWebAppSync
             catch (Exception ex)
             {
             }
+
+            PersistTokens();
+        }
+
+        /// <summary>
+        /// Push the in-memory token set to the Credential Manager. Called by every
+        /// Save() so token writes need no separate call site; an empty set deletes
+        /// the credential outright rather than storing blanks, which is what makes
+        /// ClearSession() + Save() a real logout.
+        /// </summary>
+        private void PersistTokens()
+        {
+            try
+            {
+                BinaVibe.Auth.BinaTokenSet snapshot;
+                lock (SessionLock)
+                {
+                    var s = Session;
+                    if (string.IsNullOrEmpty(s.AccessToken) && string.IsNullOrEmpty(s.RefreshToken))
+                    {
+                        BinaVibe.Auth.SecureTokenStore.Clear();
+                        return;
+                    }
+                    // Keep the identity fields in the credential blob agreeing with
+                    // the config so a restore has everything it needs.
+                    if (UserId > 0) s.UserId = UserId;
+                    if (!string.IsNullOrWhiteSpace(UserName)) s.UserName = UserName;
+                    if (TokenExpiry > DateTime.MinValue)
+                        s.AccessTokenExpiry = new DateTimeOffset(TokenExpiry.ToUniversalTime()).ToUnixTimeSeconds();
+                    snapshot = s;
+                }
+                BinaVibe.Auth.SecureTokenStore.Save(snapshot);
+            }
+            catch { /* best-effort: a failed credential write must not fail Save() */ }
+        }
+
+        /// <summary>
+        /// One-time migration off the plaintext mirror. Older builds serialized
+        /// AccessToken/RefreshToken straight into config.json; those properties are
+        /// now [JsonIgnore]d, so deserialization drops them silently and the stale
+        /// secrets would sit in the file forever. Read them from the raw JSON, seed
+        /// the Credential Manager when it has nothing yet, and rewrite the file
+        /// without them. No-ops once config.json is clean.
+        /// </summary>
+        private void MigrateLegacyTokens(string rawJson)
+        {
+            if (string.IsNullOrWhiteSpace(rawJson)) return;
+            try
+            {
+                var o = Newtonsoft.Json.Linq.JObject.Parse(rawJson);
+                string legacyAccess = (string)o["AccessToken"];
+                string legacyRefresh = (string)o["RefreshToken"];
+                bool hasLegacy = !string.IsNullOrEmpty(legacyAccess) || !string.IsNullOrEmpty(legacyRefresh);
+                if (!hasLegacy) return;
+
+                // Only adopt the legacy values when the secure store is empty —
+                // a store written by a newer sign-in is always the fresher truth.
+                if (string.IsNullOrEmpty(AccessToken) && string.IsNullOrEmpty(RefreshToken))
+                {
+                    AccessToken = legacyAccess;
+                    RefreshToken = legacyRefresh;
+                }
+
+                // Rewrites config.json from the [JsonIgnore]d model, i.e. without
+                // the token fields, and persists the set to the Credential Manager.
+                Save();
+            }
+            catch { /* a malformed config must not block startup */ }
         }
 
         public bool IsValid()
@@ -403,6 +519,8 @@ namespace RevitWebAppSync
             Password = null;
             UserName = null;
             ProjectName = null;
+            // Empties the in-memory token set; the credential itself is deleted by
+            // the PersistTokens() call inside the Save() that follows.
             AccessToken = null;
             RefreshToken = null;
             TokenExpiry = DateTime.MinValue;
