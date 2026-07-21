@@ -30,7 +30,7 @@
     <UseWPF>true</UseWPF>
     <!-- OTA versioning: CI overrides with -p:Version=<git tag>. The updater
          compares this against the update feed. -->
-    <Version Condition="'$(Version)' == ''">0.0.21</Version>
+    <Version Condition="'$(Version)' == ''">0.0.25</Version>
     <!-- Build net8.0-windows + WPF on macOS/Linux (CI and non-Windows dev). -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <!-- Ensure all NuGet dependencies are copied to output -->
