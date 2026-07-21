@@ -5,6 +5,9 @@ namespace RevitWebAppSync.UI.Copilot.Model
 {
     // ─── Enums (mirror the prototype state machine) ──────────────────────────
     public enum CpScreen { Home, ToolForm, ToolReview, Running, Result }
+    /// <summary>Session state behind the sign-in gate. A session that dies mid-chat
+    /// resolves to SignedOut — the gate is the single signed-out surface.</summary>
+    public enum CpAuthState { SignedIn, SignedOut, SigningIn }
     public enum CpTab { Chat, Library, History, Saved }
     public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, AiReply, ConfirmActions }
     // AiReply = plain-text AI response (no card, no Save/Copy/Undo). Used

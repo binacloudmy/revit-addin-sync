@@ -92,8 +92,16 @@ namespace RevitWebAppSync.UI.Copilot
             };
             Unloaded += (_, __) => CopilotTheme.ThemeChanged -= SwapLocalTheme;
 
+            // Seed the gate synchronously from the persisted config so the pane
+            // never flashes the wrong surface, then validate/refresh in the
+            // background (RestoreSessionAsync may hit /auth/refresh).
+            _vm.Auth = (cfg != null && cfg.IsLoggedIn()) ? CpAuthState.SignedIn : CpAuthState.SignedOut;
+
             UpdateThemeIcon();
+            UpdateAuthDot();
             UpdateBody();
+
+            _ = RestoreSessionAsync();
 
             // Kebab version line — single source (AppInfo), never hardcoded.
             // major.minor.patch (3 parts) so a "0.0.20"-style patch reads fully.
@@ -167,6 +175,135 @@ namespace RevitWebAppSync.UI.Copilot
         {
             if (e.PropertyName == nameof(CopilotViewModel.Screen) || e.PropertyName == nameof(CopilotViewModel.Tab))
                 UpdateBody();
+            if (e.PropertyName == nameof(CopilotViewModel.Auth))
+            {
+                UpdateBody();
+                UpdateAuthDot();
+            }
+        }
+
+        // ── Sign-in gate ────────────────────────────────────────────────
+        private readonly Services.CopilotAuthService _auth = new Services.CopilotAuthService();
+        private Controls.SignInView _signIn;
+
+        private Controls.SignInView SignIn()
+        {
+            if (_signIn == null)
+            {
+                _signIn = new Controls.SignInView { DataContext = _vm };
+                _signIn.SignInRequested += () => _ = StartSignInAsync();
+                _signIn.CancelRequested += () =>
+                {
+                    _auth.CancelSignIn();                 // unblocks the loopback wait
+                    _vm.Auth = CpAuthState.SignedOut;
+                    _signIn.ShowIdle();
+                };
+                _signIn.TermsRequested += () => OpenUrl(TermsUrl);
+            }
+            // Re-entering the gate (sign-out, or a cancelled attempt) must always
+            // land on the idle CTA, never a stale spinner.
+            if (_vm.Auth != CpAuthState.SigningIn) _signIn.ShowIdle();
+            return _signIn;
+        }
+
+        private const string TermsUrl = "https://binaxone.com/terms";
+
+        /// <summary>Put the gate into its "Waiting for sign-in…" state without
+        /// actually opening a browser. Harness/screenshot hook only — the real flow
+        /// goes through StartSignInAsync.</summary>
+        public void ShowSignInWaiting()
+        {
+            _vm.Auth = CpAuthState.SigningIn;
+            UpdateBody();
+            SignIn().ShowWaiting();
+        }
+
+        /// <summary>
+        /// Browser sign-in from the gate. Fully async — unlike the ribbon command,
+        /// which blocks Revit's UI thread — so the waiting spinner renders and
+        /// Cancel stays clickable while the browser round-trip is outstanding.
+        /// </summary>
+        private async System.Threading.Tasks.Task StartSignInAsync()
+        {
+            _vm.Auth = CpAuthState.SigningIn;
+            _signIn?.ShowWaiting();
+
+            bool ok = false;
+            try { ok = await _auth.SignInAsync(); }
+            catch { ok = false; }
+
+            if (ok)
+            {
+                OnSignedIn();
+            }
+            else
+            {
+                // Cancel / timeout / failure all land back on the idle gate. A
+                // cancel already set SignedOut; setting it again is a no-op.
+                _vm.Auth = CpAuthState.SignedOut;
+                _signIn?.ShowIdle();
+            }
+        }
+
+        /// <summary>Session is live: refresh the greeting identity, drop straight
+        /// into the chat welcome, and seed the usage meter.</summary>
+        private void OnSignedIn()
+        {
+            var cfg = BinaConfig.Load();
+            var user = (cfg != null && cfg.IsLoggedIn()) ? cfg.UserName : null;
+            _vm.UserFirstName = string.IsNullOrWhiteSpace(user) ? "there" : user.Split(' ', '.', '@')[0];
+
+            _vm.Auth = CpAuthState.SignedIn;
+            _vm.GoTab(CpTab.Chat);
+            UpdateBody();
+            UpdateAuthDot();
+            _ = _vm.ShowCreditsAsync();
+        }
+
+        /// <summary>Session was cleared elsewhere (ribbon logout) — drop the pane
+        /// back to the gate. Safe to call from any thread and when already gated.</summary>
+        public void OnSignedOut()
+        {
+            if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke((Action)OnSignedOut); return; }
+            _auth.CancelSignIn();
+            _vm.Auth = CpAuthState.SignedOut;
+            UpdateBody();
+            UpdateAuthDot();
+        }
+
+        /// <summary>Called by the pane on startup: restore a persisted session
+        /// (silent refresh when the access token is stale) and only show the gate
+        /// when nothing usable survives. Closing and reopening Revit therefore does
+        /// not require signing in again.</summary>
+        private async System.Threading.Tasks.Task RestoreSessionAsync()
+        {
+            bool ok = false;
+            try { ok = await _auth.TryRestoreSessionAsync(); }
+            catch { ok = false; }
+            _vm.Auth = ok ? CpAuthState.SignedIn : CpAuthState.SignedOut;
+            UpdateBody();
+            UpdateAuthDot();
+        }
+
+        /// <summary>Status dot colour: accent with a live session, muted otherwise
+        /// (design authDotColor).</summary>
+        private void UpdateAuthDot()
+        {
+            if (AuthDot == null) return;
+            AuthDot.SetResourceReference(Shape.FillProperty,
+                _vm.Auth == CpAuthState.SignedIn ? "Cp.Accent" : "Cp.Faint");
+        }
+
+        private static void OpenUrl(string url)
+        {
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = url, UseShellExecute = true,
+                });
+            }
+            catch { /* no browser / blocked — nothing useful to do here */ }
         }
 
         private void OnHighlightsChanged(object sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
@@ -179,6 +316,14 @@ namespace RevitWebAppSync.UI.Copilot
 
         private void UpdateBody()
         {
+            // The gate replaces the whole body — including sub-screens, so a
+            // mid-flow expiry can't leave a tool form usable without a session.
+            if (!_vm.IsAppUsable)
+            {
+                BodyHost.Content = SignIn();
+                return;
+            }
+
             switch (_vm.Screen)
             {
                 case CpScreen.ToolForm: BodyHost.Content = View(ref _toolForm); return;
