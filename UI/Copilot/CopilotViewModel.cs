@@ -767,7 +767,7 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 var credits = await FetchCreditsAsync();
                 if (credits == null) return;
-                SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit));
+                SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit, credits.Plan));
             }
             catch { /* best-effort — never block login on the credits read */ }
         }
@@ -834,7 +834,7 @@ namespace RevitWebAppSync.UI.Copilot
                 if (UsageService != null) { SetUsage(await UsageService.GetAsync()); return; }
                 var credits = await FetchCreditsAsync();
                 if (credits != null)
-                    SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit));
+                    SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit, credits.Plan));
             }
             catch { /* best-effort */ }
         }

@@ -14,6 +14,8 @@ namespace RevitWebAppSync.UI.Copilot
         public string Message { get; set; }      // optional comment / bug description
         public string ModelName { get; set; }    // active Revit model, if known
         public string UserId { get; set; }       // BinaConfig user, if signed in
+        public string AddinVersion { get; set; } // "Copilot x.y.z" — from AppInfo
+        public string RevitVersion { get; set; } // "Revit a.b" — from AppInfo
         public string AtUtc { get; set; }        // ISO-8601 timestamp
     }
 
@@ -52,6 +54,8 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 e.ModelName = SafeGet(_modelName);
                 e.UserId = SafeGet(_userId);
+                e.AddinVersion = RevitWebAppSync.AppInfo.AddinLabel;
+                e.RevitVersion = RevitWebAppSync.AppInfo.RevitVersion;
                 e.AtUtc = DateTime.UtcNow.ToString("o");
                 File.AppendAllText(FilePath, JsonConvert.SerializeObject(e) + Environment.NewLine);
             }
