@@ -54,6 +54,9 @@
     <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
     <Compile Include="..\Services\VettedToolCode.cs" Link="VettedToolCode.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotModels.cs" Link="CopilotModels.cs" />
+    <!-- MentionToken: pure @-mention token parsing/matching (System only) split
+         out of MentionInput so the picker rules are testable without WPF. -->
+    <Compile Include="..\UI\Copilot\Model\MentionToken.cs" Link="MentionToken.cs" />
     <!-- ToolCatalog defines SlashTool, referenced by ChatMessage.SlashCommand in
          CopilotModels. Pure (WPF Geometry only, no Revit). -->
     <Compile Include="..\UI\Copilot\Model\ToolCatalog.cs" Link="ToolCatalog.cs" />

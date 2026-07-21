@@ -136,8 +136,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             // A "/" command token (at line start or after whitespace) takes
             // precedence when it sits closer to the caret than any "@".
+            // MentionToken.Find owns the "@" rules (spaces allowed in the query
+            // so "@Aras 01" matches; caret==0 during a programmatic Text set
+            // yields no token instead of a negative-length Substring throw).
             int slash = LastSlashTrigger(text, caret);
-            int at = text.LastIndexOf('@', Math.Max(0, caret - 1));
+            int at = Model.MentionToken.Find(text, caret, out string query);
             if (slash >= 0 && slash >= at)
             {
                 ClosePicker();
@@ -147,9 +150,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             CloseSlash();
 
             if (at < 0) { ClosePicker(); return; }
-
-            string query = text.Substring(at + 1, caret - at - 1);
-            if (query.Contains(' ') || query.Contains('\n')) { ClosePicker(); return; }
 
             _atIndex = at;
             BuildPicker(query);
@@ -224,7 +224,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             foreach (var g in groups)
             {
-                var matches = g.Items.Where(it => it.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+                var matches = g.Items.Where(it => Model.MentionToken.Matches(it, query)).ToList();
                 if (matches.Count == 0) continue;
                 any = true;
 
