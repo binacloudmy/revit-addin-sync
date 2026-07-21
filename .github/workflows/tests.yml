@@ -1,6 +1,7 @@
 # Unit tests (Tests/Tests.csproj, net10.0-windows) on every PR.
-# Revit API comes from the Nice3point NuGet package, so no local Revit
-# install is needed — the full suite compiles and runs on a bare runner.
+# SkipRevitSources drops the deprecated DocumentChangedIndexer link — its
+# tests construct types that load RevitAPI.dll at RUNTIME, which only a
+# machine with Revit installed has (the NuGet package is compile-only).
 name: tests
 
 on:
@@ -20,4 +21,4 @@ jobs:
             10.0.x
 
       - name: Run unit tests
-        run: dotnet test Tests/Tests.csproj -c Release --logger "console;verbosity=normal"
+        run: dotnet test Tests/Tests.csproj -c Release -p:SkipRevitSources=true --logger "console;verbosity=normal"
