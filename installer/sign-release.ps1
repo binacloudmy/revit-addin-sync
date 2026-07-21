@@ -20,6 +20,7 @@
 
 param(
     [Parameter(Mandatory = $true)][string]$Tag,   # v0.0.27 or v0.0.27-staging
+    [string]$RepoDir = "",                        # default: the repo this script sits in
     [string]$TimestampUrl = "http://time.certum.pl",
     [string]$EngineZip = "",
     [string]$GatewayUrl = "",
@@ -27,8 +28,16 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$repo = Split-Path -Parent $PSScriptRoot
+
+# Tags older than this script don't contain it, and copying it into the
+# checkout would dirty the tree — so it runs from ANYWHERE: pass -RepoDir,
+# or run the copy inside the repo (default). build-installer.ps1 is taken
+# from the CHECKED-OUT tag's tree, never from next to this script.
+$repo = if ($RepoDir) { (Resolve-Path $RepoDir).Path } else { Split-Path -Parent $PSScriptRoot }
 Set-Location $repo
+if (-not (Test-Path (Join-Path $repo "installer\build-installer.ps1"))) {
+    throw "'$repo' has no installer\build-installer.ps1 — pass -RepoDir <repo clone>"
+}
 
 if ($Tag -notmatch '^v(\d+\.\d+\.\d+)(-staging)?$') {
     throw "Tag '$Tag' — want vMAJOR.MINOR.PATCH or vMAJOR.MINOR.PATCH-staging"
@@ -63,7 +72,7 @@ if (-not $env:SIGNTOOL_ARGS) {
 $buildArgs = @{ Version = $version; Configuration = $configuration; TimestampUrl = $TimestampUrl }
 if ($EngineZip)  { $buildArgs.EngineZip  = $EngineZip }
 if ($GatewayUrl) { $buildArgs.GatewayUrl = $GatewayUrl }
-& (Join-Path $PSScriptRoot "build-installer.ps1") @buildArgs
+& (Join-Path $repo "installer\build-installer.ps1") @buildArgs
 
 $setupExe = Join-Path $repo "RevitCopilot-$version-setup.exe"
 if (-not (Test-Path $setupExe)) { throw "build-installer.ps1 did not produce $setupExe" }
