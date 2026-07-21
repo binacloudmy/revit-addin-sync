@@ -75,6 +75,26 @@ $env:SIGNTOOL_ARGS = '/f C:\path\cert.pfx /p <pw> /fd SHA256 /tr http://timestam
 installer\build-installer.ps1 -Version 0.0.8
 ```
 
+## Signed release (one command, replaces CI assets)
+
+CI has no cert, so `release.yml` assets ship **unsigned** `RevitWebAppSync.dll`
+payloads — Smart App Control / WDAC (Enforce) machines block them at load
+(`0x800711C7`). Post-signing the setup EXE does not fix the DLLs inside it or
+the OTA zip. Until CI gets a signing service (see ClickUp 86eyc61fy), release
+from a Windows box with the cert live:
+
+```powershell
+# 1. Connect SimplySign Desktop (Certum cloud cert lands in the store)
+# 2. Build at the exact tag:
+git checkout v0.0.27-staging
+powershell -ExecutionPolicy Bypass -File installer\sign-release.ps1 -Tag v0.0.27-staging
+```
+
+`sign-release.ps1` rebuilds via `build-installer.ps1` (signs loader, every
+payload DLL, EXE, uninstaller), re-creates the OTA zip from the signed tree,
+regenerates `version.json` (sha256 + url), verifies every signature, and
+`gh release upload --clobber`s the tag's assets.
+
 ## Install
 
 ```powershell
