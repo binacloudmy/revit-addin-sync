@@ -12,24 +12,14 @@ using RevitWebAppSync.UI.Copilot.Model;
 namespace RevitWebAppSync.UI.Copilot
 {
     /// <summary>
-    /// Revit-aware chat router.
-    ///
-    /// Flow:
-    ///   1. Try AIService.RouteAsync (vetted-action classifier on bina-ai)
-    ///      → if it returns code or a clarifying question, use that.
-    ///   2. Else fall through to AIService.GenerateCodeAsync (/generate)
-    ///      so the bina-ai Inspector preflight (PRD §12 Step 1) fires and
-    ///      free-form prompts get real-model codegen instead of degrading
-    ///      to a local QueryInterpreter guess (which used to pick "Doors"
-    ///      as its default category).
-    ///   3. Returns null only on hard failures (backend unreachable, not
-    ///      logged in for routes that require it). Viewmodel still has a
-    ///      local fallback for that case.
+    /// Revit-aware chat router — drives the tunnel-free tool-calling loop
+    /// (/tool/generate ↔ /tool/resume via ToolLoopRunner). The agent calls
+    /// vetted tools the addin executes in real Revit; scene context is
+    /// pull-based (READ tools) with only a lean env header pushed per turn.
     /// </summary>
     public class RevitChatRouter : IChatRouter
     {
         private readonly Func<UIApplication> _getApp;
-        private readonly AIService _ai;
         private readonly ToolLoopRunner _toolLoop;
         private string _sessionId = Guid.NewGuid().ToString();
 
@@ -50,21 +40,8 @@ namespace RevitWebAppSync.UI.Copilot
         public RevitChatRouter(Func<UIApplication> getApp)
         {
             _getApp = getApp;
-            _ai = new AIService(BinaConfig.Load().ResolvedAIBaseUrl);
             _toolLoop = new ToolLoopRunner(new ToolLoopService(_toolHttp));
         }
-
-        // Tunnel-free tool-calling: the agent calls vetted MUTATE tools the addin
-        // runs in real Revit; when no tool fits it emits codegen on the SAME tool
-        // turn (the done frame carries the C#, run via the normal executor).
-        //
-        // TOOL PATH IS NOW THE ONLY ROUTE. The legacy codegen-fallback endpoints
-        // (/generate, /generate/stream, /retry, /record-fix) were removed from the
-        // backend (drop-legacy-codegen-fallback), so the BINA_VIBE_TOOL_HTTP=0
-        // escape hatch would 404. Forced true; the /generate fall-through below is
-        // now DEAD CODE — remove GenerateCodeAsync / AIServiceStream / the
-        // post-tool block in a Windows session where the build can be verified.
-        private static bool ToolHttpEnabled => true;
 
         /// <summary>Optional callback invoked on every streamed code chunk
         /// from /generate/stream so the chat can render code as it arrives.
@@ -278,17 +255,6 @@ namespace RevitWebAppSync.UI.Copilot
             return answers;
         }
 
-        // Close any phase rows still ▶ at successful completion, then snapshot the
-        // live trail into an immutable list for the final bubble (same rule as
-        // ToolLoopRunner). A finished run has no genuinely-running step.
-        private static List<ProgressStep> SnapshotTrail(
-            System.Collections.ObjectModel.ObservableCollection<ProgressStep> trail)
-        {
-            ProgressReducer.MoveStepToEnd(trail, "review");
-            ProgressReducer.CompleteRunning(trail);
-            return new List<ProgressStep>(trail);
-        }
-
         /// <summary>Resolve the parked mutate-confirmation card. Ya (approve=true)
         /// executes the batch in Revit and keeps driving the loop; Tidak resumes
         /// the run with rejected results so the agent acknowledges. Returns the
@@ -429,10 +395,10 @@ namespace RevitWebAppSync.UI.Copilot
                 return ToolOutcomeToRoute(ho);
             }
 
-            // ─── Tunnel-free tool-calling path (opt-in: BINA_VIBE_TOOL_HTTP=1) ──
-            // The agent calls vetted MUTATE tools that the addin runs in real
-            // Revit via /tool/generate ↔ /tool/resume. No codegen, no tunnel.
-            if (ToolHttpEnabled)
+            // ─── Tunnel-free tool-calling turn — the only route ─────────────
+            // The agent calls vetted tools that the addin runs in real Revit
+            // via /tool/generate ↔ /tool/resume. (Scope block kept from the
+            // old ToolHttpEnabled gate to avoid re-indenting the whole turn.)
             {
                 var treq = new AIRequest
                 {
@@ -506,207 +472,6 @@ namespace RevitWebAppSync.UI.Copilot
                     $"[BinaVibe][timing] tool-loop total={__swRoute.ElapsedMilliseconds}ms tools={string.Join(",", outcome.ToolsUsed)} ok={outcome.Success}");
                 return ToolOutcomeToRoute(outcome);
             }
-
-            // Plan mode removed — the tool-calling agent acts directly and
-            // streams (no plan card, no approve gate). Every turn goes to
-            // /generate below.
-
-            // bina-ai (Python) only exposes /agents/revit-ai/generate.
-            // The legacy /route endpoint (NestJS bina-be) is not in this
-            // backend — calling it gets HTTP 404 which AIService
-            // synthesizes into a fake "NeedsClarification" response,
-            // poisoning the chat flow. So we skip /route entirely and
-            // go straight to /generate, which runs the Inspector
-            // preflight (PRD §12 Step 1) against the live Revit session
-            // via the WSS tunnel. Local QueryInterpreter still picks
-            // vetted tools from keywords for the viewmodel's tool form
-            // path — that's unrelated to this method.
-            try
-            {
-                var req = new AIRequest
-                {
-                    Prompt = message,
-                    Context = ctx,
-                    UserId = userId,
-                    SessionId = _sessionId,
-                    Images = images,
-                };
-
-                // Streaming path — preferred. Chunks arrive in <1s even
-                // when total codegen takes 8-12s, so the user sees the
-                // chat fill in token by token instead of waiting for a
-                // single big delivery. Falls back to one-shot on any
-                // streaming error (server returns 404 on /stream, etc).
-                if (OnCodeStream != null || OnProgress != null)
-                {
-                    // New CTS per request so the pane's Cancel button can abort
-                    // exactly this stream. Replaces any stale one (defensive —
-                    // routes are serial in practice).
-                    CancellationTokenSource cts = new CancellationTokenSource();
-                    lock (_cancelLock)
-                    {
-                        try { _streamCts?.Dispose(); } catch { }
-                        _streamCts = cts;
-                    }
-                    try
-                    {
-                        AIResponse final = null;
-                        var sb = new System.Text.StringBuilder();
-                        var replySb = new System.Text.StringBuilder();
-                        // Live step trail (BIMLogiq-style): each status/tool event
-                        // is reduced into a step row and the whole trail is
-                        // re-rendered (▶ running, ✓ done, ✗ error) into the
-                        // thinking bubble. step_id pairs running->done onto one row.
-                        var trail = new System.Collections.ObjectModel.ObservableCollection<ProgressStep>();
-                        await foreach (var chunk in _ai.GenerateCodeStreamAsync(req, token, cts.Token))
-                        {
-                            if (chunk.Kind == StreamChunkKind.Status || chunk.Kind == StreamChunkKind.Tool)
-                            {
-                                // Reduce into the trail and re-render. Absent fields
-                                // (un-upgraded backend) still render as a transient
-                                // line via the synthesized step_id + default state.
-                                ProgressReducer.Apply(trail, chunk.StepId, chunk.Phase,
-                                    chunk.StatusLabel, chunk.Detail, ProgressTrail.StateFrom(chunk.State));
-                                EmitProgress(ProgressTrail.Render(trail));
-                            }
-                            else if (chunk.Kind == StreamChunkKind.Reply)
-                            {
-                                // The user-facing MARKDOWN message streams in first;
-                                // show it live (final markdown bubble lands at done).
-                                replySb.Append(chunk.Delta);
-                                try { OnCodeStream?.Invoke(replySb.ToString()); } catch { /* UI hiccup */ }
-                            }
-                            else if (chunk.Kind == StreamChunkKind.CodePartial)
-                            {
-                                // Code accumulates silently — it RUNS, it is never
-                                // shown as chat text.
-                                sb.Append(chunk.Delta);
-                            }
-                            else if (chunk.Kind == StreamChunkKind.Done)
-                            {
-                                final = chunk.Final;
-                            }
-                            else if (chunk.Kind == StreamChunkKind.Error)
-                            {
-                                ClearProgress();   // clear the progress card on error
-                                return new RouteResult { ToolId = "ai-generated", Reply = $"Backend error: {chunk.Error}" };
-                            }
-                        }
-                        ClearProgress();   // clear the progress card on stream completion
-                        if (final != null && final.Success)
-                        {
-                            System.Diagnostics.Debug.WriteLine(
-                                $"[BinaVibe][timing] backend round-trip (stream, off-UI)={__swRoute.ElapsedMilliseconds}ms codeLen={final.Code?.Length ?? 0}");
-                            // Backend already split the response: `reply` = markdown
-                            // message (rendered via MarkdownRenderer), `code` = C#
-                            // that runs. Return even when code is empty (a pure
-                            // message / clarification) so it is NOT re-run as a
-                            // one-shot below.
-                            var replyText = !string.IsNullOrWhiteSpace(final.Reply)
-                                ? final.Reply
-                                : replySb.ToString();
-                            bool hasCode = !string.IsNullOrWhiteSpace(final.Code);
-                            if (string.IsNullOrWhiteSpace(replyText))
-                                replyText = hasCode ? "" : "Done.";
-                            return new RouteResult
-                            {
-                                ToolId = "ai-generated",
-                                Code = final.Code ?? "",
-                                Reply = replyText,
-                                PlanSteps = hasCode ? new List<string> { "Generated via bina-ai (streaming)" } : null,
-                                IsQuery = final.IsQuery,
-                                Verdict = final.ReviewerVerdict,
-                                // Close any phase rows still ▶ at successful
-                                // completion so the persisted trail shows all ✓.
-                                Steps = SnapshotTrail(trail),
-                            };
-                        }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        // User hit Cancel — clear the card and report it plainly
-                        // instead of degrading to a one-shot retry (which would
-                        // ignore the cancel and keep the model spinning).
-                        ClearProgress();
-                        return new RouteResult { ToolId = "ai-generated", Reply = "Stopped." };
-                    }
-                    catch
-                    {
-                        // Fall through to one-shot below.
-                        ClearProgress();
-                    }
-                    finally
-                    {
-                        lock (_cancelLock)
-                        {
-                            if (ReferenceEquals(_streamCts, cts)) _streamCts = null;
-                        }
-                        try { cts.Dispose(); } catch { }
-                    }
-                }
-
-                var gen = await _ai.GenerateCodeAsync(req, token);
-                if (gen != null && gen.Success)
-                {
-                    // Tool-calling agent path (VIBE_AGENT_MODE=tool):
-                    //   - gen.Reply has the natural-language answer
-                    //   - gen.Code may be empty when MUTATE tools did the
-                    //     work; populated when the agent fell back to
-                    //     raw C# for a visibility / crop override etc.
-                    //   - gen.ToolCalls carries the tool trace
-                    bool isToolMode = string.Equals(gen.AgentMode, "tool", StringComparison.OrdinalIgnoreCase);
-                    string code = gen.Code ?? "";
-                    string reply = !string.IsNullOrWhiteSpace(gen.Reply)
-                        ? gen.Reply
-                        : (gen.Explanation ?? "Generated. Review and Run when ready.");
-                    var trace = gen.ToolCalls?.Select(tc => tc?.Tool).Where(t => !string.IsNullOrEmpty(t)).ToList();
-
-                    // Return when there's code to run, a tool-mode answer, OR a
-                    // reply-only response (a clarification / answer-from-context
-                    // with no code — e.g. "which view did you mean?"). The last
-                    // case MUST return here; otherwise rr is null, the viewmodel
-                    // falls back to a catalog tool, and the user gets an empty
-                    // "0 lines" proposal that fails on Run. (The streaming path
-                    // already returns on empty code — keep this in parity.)
-                    if (isToolMode || !string.IsNullOrWhiteSpace(code)
-                        || !string.IsNullOrWhiteSpace(gen.Reply))
-                    {
-                        return new RouteResult
-                        {
-                            ToolId = "ai-generated",
-                            Code = code,
-                            Reply = reply,
-                            PlanSteps = new List<string> { isToolMode ? "Tool-calling agent (native MCP)" : "Generated via bina-ai (Inspector-preflighted)" },
-                            IsQuery = gen.IsQuery || string.IsNullOrEmpty(code),
-                            ToolCallTrace = trace != null && trace.Count > 0 ? trace : null,
-                            Verdict = gen.ReviewerVerdict,
-                        };
-                    }
-                }
-                if (gen != null && !gen.Success && !string.IsNullOrWhiteSpace(gen.Error))
-                {
-                    // Surface real backend errors to the user instead of
-                    // silently degrading — empty proposal cards are
-                    // worse than an explicit "backend said X".
-                    return new RouteResult
-                    {
-                        ToolId = "ai-generated",
-                        Code = "",
-                        Reply = $"Backend error: {gen.Error}",
-                    };
-                }
-            }
-            catch (Exception ex)
-            {
-                return new RouteResult
-                {
-                    ToolId = "ai-generated",
-                    Code = "",
-                    Reply = $"Couldn't reach bina-ai: {ex.Message}",
-                };
-            }
-
-            return null; // viewmodel uses its local catalog fallback
         }
 
 
