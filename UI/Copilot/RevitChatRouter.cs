@@ -347,7 +347,15 @@ namespace RevitWebAppSync.UI.Copilot
             var cfg = BinaConfig.Load();
             var token = cfg?.AccessToken ?? "";
             var __swCtx = System.Diagnostics.Stopwatch.StartNew();
-            var ctx = BuildContext(message);
+            // LeanContext (vibe.json): pull-based scene sight. Send only the
+            // static env header — the agent gathers levels/views/selection on
+            // demand via READ tools (get_scene_overview, list_*, query_geometry).
+            // Kills the pre-send UI-thread freeze BuildContext causes on big
+            // models AND fixes selection/active-view staleness (tools read at
+            // execution time, not send time).
+            var ctx = BinaVibe.Policy.VibeFlags.Load().LeanContext
+                ? BuildEnvContext()
+                : BuildContext(message);
             __swCtx.Stop();
             System.Diagnostics.Debug.WriteLine(
                 $"[BinaVibe][timing] BuildContext={__swCtx.ElapsedMilliseconds}ms (UI thread) views={ctx?.Views?.Count ?? 0} levels={ctx?.Levels?.Count ?? 0}");
@@ -723,6 +731,39 @@ namespace RevitWebAppSync.UI.Copilot
             if (matched.Count >= MaxViewsInContext) return matched.Take(MaxViewsInContext).ToList();
             var rest = all.Where(v => !matched.Contains(v)).Take(MaxViewsInContext - matched.Count);
             return matched.Concat(rest).ToList();
+        }
+
+        /// <summary>Lean env header (VibeFlags.LeanContext) — the Claude Code
+        /// "env block" analog. Static identity only: project_id (bina-be config
+        /// value no READ tool can supply), project name, Revit version, addin
+        /// version. NO scene state — no collectors, no PlacementFacts, O(1) on
+        /// the UI thread. The agent pulls scene sight via READ tools instead.</summary>
+        private ModelContext BuildEnvContext()
+        {
+            var ctx = new ModelContext();
+            try
+            {
+                var cfgForProject = BinaConfig.Load();
+                if ((cfgForProject?.ProjectId ?? 0) > 0)
+                    ctx.ProjectId = cfgForProject.ProjectId.ToString();
+            }
+            catch { /* best-effort */ }
+            try
+            {
+                ctx.AddinVersion = System.Reflection.Assembly
+                    .GetExecutingAssembly().GetName().Version?.ToString();
+            }
+            catch { /* best-effort */ }
+            try
+            {
+                var uidoc = _getApp()?.ActiveUIDocument;
+                var doc = uidoc?.Document;
+                if (doc == null) return ctx;
+                ctx.ProjectName = doc.Title;
+                ctx.RevitVersion = uidoc.Application.Application.VersionNumber;
+            }
+            catch { /* best-effort env header */ }
+            return ctx;
         }
 
         private ModelContext BuildContext(string prompt = "")

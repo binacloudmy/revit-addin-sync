@@ -32,6 +32,10 @@ namespace BinaVibe.Mcp.Tools
             return tool switch
             {
                 // INSPECT — 20 tools, all live
+                // One-call orientation aggregate (pull-based context): project
+                // + levels + phases + active view + selection summary + top
+                // category counts. Composes the inspectors below.
+                "get_scene_overview"            => SceneOverview.Run(uidoc, app),
                 "list_levels"                   => Inspectors.ListLevels(doc),
                 "list_wall_types"               => Inspectors.ListWallTypes(doc),
                 "list_family_types"             => Inspectors.ListFamilyTypes(doc, args),
