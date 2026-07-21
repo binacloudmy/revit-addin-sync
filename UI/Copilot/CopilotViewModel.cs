@@ -616,10 +616,13 @@ namespace RevitWebAppSync.UI.Copilot
             else ChatSend(p as string);
         }
 
-        public void ChatSend(string text, List<string> images = null, List<FileAttachment> files = null)
+        public void ChatSend(string text, List<string> images = null, List<FileAttachment> files = null,
+            SlashTool slashChip = null)
         {
             text = (text ?? "").Trim();
-            if (text.Length == 0) return;
+            // A slash command may carry no typed args (a bare "/level-builder"),
+            // so an empty text is valid when a command chip is attached.
+            if (text.Length == 0 && slashChip == null) return;
             LastPrompt = text;   // key for 👍/👎 feedback on the resulting response
             if (IsIndexing)
             {
@@ -633,7 +636,7 @@ namespace RevitWebAppSync.UI.Copilot
             Tab = CpTab.Chat;
             Screen = CpScreen.Home;
             ToolId = null;
-            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images, Files = files, Time = System.DateTime.Now.ToString("h:mm tt") });
+            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images, Files = files, SlashCommand = slashChip, Time = System.DateTime.Now.ToString("h:mm tt") });
 
             // The chat bubble + history use `text` (what the user typed). The
             // backend route text re-embeds any attached file contents — there's no
@@ -683,31 +686,28 @@ namespace RevitWebAppSync.UI.Copilot
 
             _lastSteps = null;
             _streamText = null;
+            // P2 slash command: hand the backend command id to the router BEFORE
+            // routing kicks off. The field persists until RouteAsync consumes and
+            // clears it (sends are serial, so it can't leak into another turn).
+            if (slashChip != null && Router is RevitChatRouter _rr)
+            {
+                _rr.PendingCommandId = slashChip.BackendId;
+                _rr.PendingCommandArgs = null;   // param chips (source:) land here in P2 UI follow-up
+            }
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Menganalisis permintaan…" });
             _ = ResolveProposalAsync(routeText, text, interp.ToolId, images, historyFiles);
         }
 
-        /// <summary>Slash command sent from the composer. UI-only for now: adds the
-        /// user's turn (a command chip, plus any typed args) and a placeholder reply
-        /// — running tools from chat is wired later.</summary>
+        /// <summary>Slash command sent from the composer (P2). Routes the picked
+        /// command to the backend via `command_id` — the definition's instructions
+        /// and tool allowlist are injected server-side — and renders the user turn
+        /// as a command chip plus any typed args. This is the real run, not a stub.</summary>
         public void ChatSendSlashCommand(SlashTool tool, string args)
         {
             if (tool == null) return;
-            Tab = CpTab.Chat;
-            Screen = CpScreen.Home;
-            ToolId = null;
-            string time = System.DateTime.Now.ToString("h:mm tt");
-            Thread.Add(new ChatMessage
-            {
-                Role = "user", Kind = CpMsgKind.User, SlashCommand = tool,
-                Text = (args ?? "").Trim(), Time = time,
-            });
-            Thread.Add(new ChatMessage
-            {
-                Role = "ai", Kind = CpMsgKind.AiReply, Time = time,
-                Text = $"**/{tool.Name}** is ready. Running tools directly from chat is coming soon — "
-                     + "for now this is a placeholder so you can preview the flow.",
-            });
+            // ChatSend does the routing; the chip rides on the user bubble and the
+            // backend command id is handed to the router just before RouteAsync.
+            ChatSend((args ?? "").Trim(), slashChip: tool);
         }
 
         /// <summary>Line count matching AttachmentChip's "N ln" display.</summary>
