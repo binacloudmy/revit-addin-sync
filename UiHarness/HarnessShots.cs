@@ -64,9 +64,36 @@ namespace UiHarness
             Shot(dir, "copilot-blocked-member.png", dark: false,
                 configure: p => SetUsage(p, 100, atLimit: true, isAdmin: false));
 
+            // Sign-in gate: idle CTA, the waiting spinner, and the narrow-dock
+            // layout — plus the session-expired banner over a live thread.
+            foreach (var dark in new[] { false, true })
+            {
+                string s = dark ? "-dark" : "";
+                Shot(dir, $"copilot-signin{s}.png", dark, configure: p => Auth(p, CpAuthState.SignedOut));
+                Shot(dir, $"copilot-signin-waiting{s}.png", dark, configure: p => Auth(p, CpAuthState.SigningIn));
+                Shot(dir, $"copilot-expired{s}.png", dark, configure: p =>
+                {
+                    SeedThread(p, applied: false);
+                    Settle(300);
+                    return Auth(p, CpAuthState.Expired);
+                });
+            }
+            // Narrowest dock the pane is usable at — the gate must not clip.
+            Shot(dir, "copilot-signin-narrow.png", dark: false,
+                configure: p => Auth(p, CpAuthState.SignedOut), width: 300);
+
             // Undo the persistence side-effect of SetDark so we don't silently
             // flip the user's Copilot theme just by taking screenshots.
             CopilotTheme.SetDark(userDark);
+        }
+
+        // Drive the auth gate. SigningIn additionally puts the CTA into its waiting
+        // state, which the panel normally does when the browser flow starts.
+        private static int Auth(CopilotPanel panel, CpAuthState state)
+        {
+            if (state == CpAuthState.SigningIn) panel.ShowSignInWaiting();
+            else panel.ViewModel.Auth = state;
+            return 350;
         }
 
         // Inject a stub usage snapshot and refresh; returns extra settle time.
@@ -187,17 +214,22 @@ namespace UiHarness
             return 500;
         }
 
-        private static void Shot(string dir, string file, bool dark, Func<CopilotPanel, int> configure = null)
+        private static void Shot(string dir, string file, bool dark, Func<CopilotPanel, int> configure = null,
+                                 int width = 430)
         {
             // Set the theme BEFORE constructing the panel so its constructor picks
             // the matching header icon (moon in light / sun in dark).
             CopilotTheme.SetDark(dark);
 
             var panel = new CopilotPanel();
+            // No BINA session exists on a shot runner, so the panel would open on
+            // the sign-in gate and every screenshot would show it. Default to the
+            // signed-in surface; the gate shots override this in `configure`.
+            panel.ViewModel.Auth = CpAuthState.SignedIn;
             var frame = new Frame { Content = panel };
             var win = new Window
             {
-                Width = 430, Height = 860, Content = frame,
+                Width = width, Height = 860, Content = frame,
                 WindowStyle = WindowStyle.None, ShowInTaskbar = false,
                 Left = -4000, Top = -4000, ResizeMode = ResizeMode.NoResize,
             };

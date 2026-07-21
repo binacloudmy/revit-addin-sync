@@ -28,9 +28,14 @@ namespace RevitWebAppSync
                     {
                         if (userInfoWindow.LoggedOut)
                         {
-                            // Clear session and save
+                            // Clear session and save. The Credential Manager copy MUST
+                            // go too — the Copilot pane silently restores from it on
+                            // startup, so leaving it behind would resurrect the
+                            // session the user just logged out of.
                             config.ClearSession();
                             config.Save();
+                            BinaVibe.Auth.SecureTokenStore.Clear();
+                            App.CopilotPaneHost?.Panel?.OnSignedOut();
                             TaskDialog.Show("Logged Out", "You have been logged out successfully.");
                         }
                         else if (userInfoWindow.SwitchProject)

@@ -36,6 +36,43 @@
              (centered over the body when the thread is empty). -->
         <ContentControl x:Name="BlockedHost" Grid.Row="2" Visibility="Collapsed"/>
 
+        <!-- Session expired: replaces the composer, so sending is blocked while the
+             thread above stays visible and scrollable. Sign in reopens the browser
+             flow through the panel's gate. -->
+        <Border x:Name="ExpiredBanner" Grid.Row="2" Visibility="Collapsed"
+                BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,1,0,0"
+                Background="#1FF59E0B" Padding="14,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Path Grid.Column="0" Width="15" Height="15" Stretch="Uniform" VerticalAlignment="Center"
+                      Margin="0,0,9,0" Fill="Transparent" Stroke="#f59e0b" StrokeThickness="2"
+                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                      Data="M12,9 v4 M12,17 h.01 M10.3,3.9 1.8,18 a2,2 0 0 0 1.7,3 h17 a2,2 0 0 0 1.7,-3 L13.7,3.9 a2,2 0 0 0 -3.4,0 Z"/>
+                <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="11.5" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Cp.Text}" Text="Session expired — sign in to continue"/>
+                <Button x:Name="ExpiredSignInBtn" Grid.Column="2" Height="28" Padding="12,0" Cursor="Hand"
+                        BorderThickness="0" Background="{DynamicResource Cp.AccentGrad}"
+                        Foreground="{DynamicResource Cp.AccentContrast}" FontSize="11.5" FontWeight="SemiBold"
+                        Click="OnExpiredSignIn" Content="Sign in">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border CornerRadius="8" Background="{TemplateBinding Background}">
+                                <!-- Margin, not the default no-op: without it the
+                                     button's Padding is dropped and the label sits
+                                     flush against the pill's edges. -->
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                  Margin="{TemplateBinding Padding}"/>
+                            </Border>
+                        </ControlTemplate>
+                    </Button.Template>
+                </Button>
+            </Grid>
+        </Border>
+
         <!-- Slash-command palette overlay: an IN-PANEL layer (not a Popup, which
              floats outside the pane and ignores its bounds). Lives in the body row
              so it can never cover the header/tabs, stretches to the composer width,

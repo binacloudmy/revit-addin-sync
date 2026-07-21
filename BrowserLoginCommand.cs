@@ -37,8 +37,10 @@ namespace RevitWebAppSync
                             config.ClearSession();
                             config.Save();
                             SecureTokenStore.Clear();
-                            // Clear the credit badge in the (still-open) Copilot pane.
+                            // Clear the credit badge in the (still-open) Copilot pane
+                            // and send it back to the signed-out gate.
                             _ = App.CopilotPaneHost?.Panel?.ViewModel?.RefreshCreditBadgeAsync();
+                            App.CopilotPaneHost?.Panel?.OnSignedOut();
                             TaskDialog.Show("Logged Out", "You have been logged out successfully.");
                         }
                         else if (userInfoWindow.SwitchProject)

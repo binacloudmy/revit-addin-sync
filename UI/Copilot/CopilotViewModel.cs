@@ -75,7 +75,14 @@ namespace RevitWebAppSync.UI.Copilot
         public ICopilotExecutor Executor { get; set; }
         public IChatRouter Router { get; set; }
         public string UserFirstName { get; set; } = "there";
-        public string ModelName { get; set; } = "Main Model";
+        // Raises so the header's auth status line ("Connected · <model>") updates
+        // when SetRevitContext pushes the real document name after the pane opens.
+        private string _modelName = "Main Model";
+        public string ModelName
+        {
+            get => _modelName;
+            set { if (_modelName == value) return; _modelName = value; Raise(); Raise(nameof(AuthStatusText)); }
+        }
 
         /// <summary>Raised when the user taps the inline "rate" nudge under a
         /// reply. The panel listens and slides up the Rate sheet (which owns the
@@ -89,7 +96,7 @@ namespace RevitWebAppSync.UI.Copilot
         public CpScreen Screen
         {
             get => _screen;
-            set { if (_screen == value) return; _screen = value; Raise(); Raise(nameof(IsSubScreen)); Raise(nameof(ShowBreadcrumb)); }
+            set { if (_screen == value) return; _screen = value; Raise(); Raise(nameof(IsSubScreen)); Raise(nameof(ShowTabs)); Raise(nameof(ShowBreadcrumb)); }
         }
 
         private CpTab _tab = CpTab.Chat;
@@ -367,12 +374,61 @@ namespace RevitWebAppSync.UI.Copilot
         private string _category = "all";
         public string Category { get => _category; set { _category = value ?? "all"; Raise(); RaiseLibrary(); } }
 
+        // ─── Auth gate ───────────────────────────────────────────────────────
+        // Drives the signed-out screen, the header status line, tab visibility and
+        // the session-expired banner. Set by CopilotPanel, which owns the actual
+        // session (CopilotAuthService); the VM only reflects it so every screen can
+        // bind without reaching into the auth path.
+        private CpAuthState _auth = CpAuthState.SignedIn;
+        public CpAuthState Auth
+        {
+            get => _auth;
+            set
+            {
+                if (_auth == value) return;
+                _auth = value;
+                Raise();
+                Raise(nameof(IsSignedIn));
+                Raise(nameof(IsAppUsable));
+                Raise(nameof(ShowTabs));
+                Raise(nameof(ShowExpiredBanner));
+                Raise(nameof(AuthStatusText));
+                AuthChanged?.Invoke();
+            }
+        }
+        public event System.Action AuthChanged;
+
+        /// <summary>Raised when a send is refused because the session died. The
+        /// panel listens so the header dot and banner update together.</summary>
+        public event System.Action SessionExpired;
+
+        /// <summary>Only a live session may send. Expired keeps the thread readable
+        /// but blocks the composer.</summary>
+        public bool IsSignedIn => Auth == CpAuthState.SignedIn;
+
+        /// <summary>Chat/History/Library and the tab strip render for a live OR an
+        /// expired session — expired must not wipe the visible conversation.</summary>
+        public bool IsAppUsable => Auth == CpAuthState.SignedIn || Auth == CpAuthState.Expired;
+
+        public bool ShowExpiredBanner => Auth == CpAuthState.Expired;
+
+        /// <summary>Header line under the title, replacing "Connected · <model>".</summary>
+        public string AuthStatusText =>
+            Auth == CpAuthState.SignedIn ? "Connected · " + ModelName
+            : Auth == CpAuthState.Expired ? "Session expired"
+            : Auth == CpAuthState.SigningIn ? "Signing in…"
+            : "Not signed in";
+
         // ─── Derived ─────────────────────────────────────────────────────────
         public bool IsSubScreen =>
             Screen == CpScreen.ToolForm || Screen == CpScreen.ToolReview ||
             Screen == CpScreen.Running || Screen == CpScreen.Result;
 
         public bool ShowBreadcrumb => Screen == CpScreen.ToolForm || Screen == CpScreen.ToolReview;
+
+        /// <summary>Tab strip hides on sub-screens (as before) AND behind the
+        /// sign-in gate — History and Library are gated with Chat.</summary>
+        public bool ShowTabs => !IsSubScreen && IsAppUsable;
 
         public string BreadcrumbRoot => Prev == CpScreen.Home && Tab == CpTab.Chat ? "Chat" : "Library";
 
@@ -670,16 +726,16 @@ namespace RevitWebAppSync.UI.Copilot
             // silently to supply the fallback ToolId the router expects.
             var interp = QueryInterpreter.Interpret(text);
 
-            // Auth gate: BINA Copilot needs a signed-in BINA Cloud session. Show a friendly
-            // prompt instead of letting the request 401 at the backend.
+            // Auth gate: BINA Copilot needs a signed-in BINA Cloud session. Catch it
+            // here instead of letting the request 401 at the backend. Reaching this
+            // point at all means the session died mid-chat (the pane is gated when
+            // signed out), so surface the expired banner rather than a chat message —
+            // the thread stays readable and only sending is blocked.
             var authCfg = BinaConfig.Load();
-            if (authCfg == null || !authCfg.IsLoggedIn())
+            if (authCfg == null || !authCfg.IsLoggedIn() || authCfg.TokenExpiry <= DateTime.Now)
             {
-                Thread.Add(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.AiReply,
-                    Text = "Please sign in to use BINA Copilot — click BINA Cloud → Login in the ribbon, then try again.",
-                });
+                Auth = CpAuthState.Expired;
+                SessionExpired?.Invoke();
                 return;
             }
 

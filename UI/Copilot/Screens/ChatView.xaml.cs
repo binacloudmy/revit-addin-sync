@@ -169,7 +169,14 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private void OnVmProp(object s, System.ComponentModel.PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(CopilotViewModel.IsSending)) UpdateBlocked();
+            if (e.PropertyName == nameof(CopilotViewModel.Auth)) UpdateBlocked();
         }
+
+        /// <summary>Raised by the expired banner's Sign in button. The panel owns
+        /// the auth path, so the banner only forwards the intent upward.</summary>
+        public event System.Action SignInRequested;
+
+        private void OnExpiredSignIn(object sender, RoutedEventArgs e) => SignInRequested?.Invoke();
 
         /// <summary>At 100% usage the composer is replaced by the blocked state —
         /// centered over the empty body, or a bottom section under a thread.</summary>
@@ -181,6 +188,19 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 return;
             }
             var vm = Vm;
+
+            // Expired outranks the usage state: without a session the composer must
+            // go regardless of how many credits are left.
+            bool expired = vm != null && vm.ShowExpiredBanner;
+            ExpiredBanner.Visibility = expired ? Visibility.Visible : Visibility.Collapsed;
+            if (expired)
+            {
+                BlockedHost.Visibility = Visibility.Collapsed;
+                BlockedHost.Content = null;
+                Prompt.Visibility = Visibility.Collapsed;
+                return;
+            }
+
             bool blocked = vm != null && vm.Usage != null && vm.Usage.AtLimit && !vm.IsSending;
             if (!blocked)
             {
