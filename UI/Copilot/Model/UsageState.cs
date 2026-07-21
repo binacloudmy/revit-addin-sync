@@ -29,9 +29,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
             if (pct >= 100 && !atLimit) pct = 99;
             // Prefer the backend-reported plan/tier (pricing v2: Free / Basic /
             // Plus / Pro / Pro Max) so a fresh upgrade shows "Pro" on the next
-            // refresh. Fall back to inferring from the usage counts when the
-            // field is absent (older backends): unlimited → top tier, else Free.
-            string name = !string.IsNullOrWhiteSpace(plan) ? plan : (unlimited ? "Pro Max" : "Free");
+            // refresh. Fall back to inferring when the field is absent (older
+            // backends). Pricing v2 caps EVERY tier, so an uncapped wallet isn't a
+            // tier at all — it's an internal/admin override (POST /credits/set-unlimited).
+            // Label it as such rather than aliasing it to "Pro Max", which would imply
+            // the account is paying $199/mo.
+            string name = !string.IsNullOrWhiteSpace(plan) ? plan
+                : (unlimited ? "Unlimited (internal)" : "Free");
             return new UsageState { PlanName = name, Pct = pct, AtLimit = atLimit };
         }
     }

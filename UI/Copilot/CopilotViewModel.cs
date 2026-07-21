@@ -756,8 +756,9 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         /// <summary>
-        /// Fetch the signed-in user's monthly AI credit balance, post it as a chat message
-        /// (the login greeting) AND set the persistent header badge. Called right after login.
+        /// Fetch the signed-in user's monthly AI credit balance and seed the usage
+        /// meter (footer) + header badge. Called right after login. No chat message —
+        /// the quota lives in the meter, not the thread (ClickUp 86eybn4vz).
         /// Best-effort: silently no-ops when not signed in or the backend is unavailable.
         /// </summary>
         public async System.Threading.Tasks.Task ShowCreditsAsync()
@@ -767,7 +768,6 @@ namespace RevitWebAppSync.UI.Copilot
                 var credits = await FetchCreditsAsync();
                 if (credits == null) return;
                 SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit, credits.Plan));
-                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = MessageText(credits) });
             }
             catch { /* best-effort — never block login on the credits read */ }
         }
@@ -793,20 +793,15 @@ namespace RevitWebAppSync.UI.Copilot
             return await new AIService().GetCreditsAsync(cfg.AccessToken);
         }
 
+        // NOTE: BadgeText describes the QUOTA, not the plan — "Unlimited"
+        // here means an uncapped wallet (an internal/admin override; pricing v2 has no
+        // unlimited tier), which is what UsageState reports as "Unlimited (internal)".
         private static string BadgeText(AIService.CreditInfo c)
         {
             if (c.Unlimited) return "Unlimited";
             if (c.Limit <= 0) return "";
             int remaining = c.Remaining ?? System.Math.Max(0, c.Limit - c.Used);
-            return $"{remaining} / {c.Limit} credits";
-        }
-
-        private static string MessageText(AIService.CreditInfo c)
-        {
-            if (c.Unlimited) return "You have unlimited AI requests.";
-            int remaining = c.Remaining ?? System.Math.Max(0, c.Limit - c.Used);
-            string resets = string.IsNullOrWhiteSpace(c.ResetsAt) ? "" : $" Resets {c.ResetsAt}.";
-            return $"You have {remaining} of {c.Limit} AI requests left this month.{resets}";
+            return $"{remaining:N0} / {c.Limit:N0} credits";
         }
 
         // UI-thread-safe badge setter (RefreshCreditBadgeAsync may resume off the UI thread).

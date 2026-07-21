@@ -32,6 +32,9 @@
     <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />
     <Compile Include="..\UI\Jkr\JkrTheme.cs" Link="JkrTheme.cs" />
     <Compile Include="..\Services\JkrCodeParser.cs" Link="JkrCodeParser.cs" />
+    <!-- TableCsv: pure CSV serializer + filename slug for the Download-CSV
+         button under AI tables (System + Regex only, no WPF/Revit). -->
+    <Compile Include="..\Helpers\TableCsv.cs" Link="TableCsv.cs" />
     <Compile Include="..\Services\AiUrl.cs" Link="AiUrl.cs" />
     <Compile Include="..\Services\UrlResolution.cs" Link="UrlResolution.cs" />
     <Compile Include="..\Services\TelemetryEvent.cs" Link="TelemetryEvent.cs" />

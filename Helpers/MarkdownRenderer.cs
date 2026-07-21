@@ -68,6 +68,12 @@ namespace RevitWebAppSync.Helpers
             {
                 Document = doc,
                 IsReadOnly = true,
+                // Without this, WPF renders every UIElement embedded in the
+                // document (table grids, the Download-CSV button) and every
+                // Hyperlink (bina://select element-id links) as DISABLED —
+                // visible but dead to clicks. Read-only text selection is
+                // unaffected.
+                IsDocumentEnabled = true,
                 IsTabStop = false,
                 BorderThickness = new Thickness(0),
                 Background = Brushes.Transparent,
@@ -97,6 +103,9 @@ namespace RevitWebAppSync.Helpers
             var lines = markdown.Replace("\r\n", "\n").Split('\n');
             bool inCode = false;
             var codeLines = new List<string>();
+            // Nearest heading ABOVE a table names its Download-CSV file
+            // (TableCsv.SuggestFileName slugifies it; null → "bina-schedule").
+            string lastHeading = null;
             // A blank markdown line becomes extra top-margin on the NEXT block
             // (an empty FlowDocument paragraph would render a full line tall).
             double pendingSpace = 0;
@@ -132,16 +141,16 @@ namespace RevitWebAppSync.Helpers
                     while (i < lines.Length && IsTableRow(lines[i].TrimStart()))
                         rows.Add(lines[i++].Trim());
                     i--; // step back; for-loop will advance
-                    var table = TableBlock(rows, maxWidth);
+                    var table = TableBlock(rows, maxWidth, lastHeading);
                     if (table != null) Add(new BlockUIContainer(table) { Margin = new Thickness(0, 4, 0, 4) });
                     continue;
                 }
 
                 if (string.IsNullOrWhiteSpace(trimmed)) { pendingSpace = 6; continue; }
 
-                if (trimmed.StartsWith("### ")) { Add(Header(trimmed.Substring(4), 13)); continue; }
-                if (trimmed.StartsWith("## "))  { Add(Header(trimmed.Substring(3), 14)); continue; }
-                if (trimmed.StartsWith("# "))   { Add(Header(trimmed.Substring(2), 15)); continue; }
+                if (trimmed.StartsWith("### ")) { lastHeading = trimmed.Substring(4); Add(Header(lastHeading, 13)); continue; }
+                if (trimmed.StartsWith("## "))  { lastHeading = trimmed.Substring(3); Add(Header(lastHeading, 14)); continue; }
+                if (trimmed.StartsWith("# "))   { lastHeading = trimmed.Substring(2); Add(Header(lastHeading, 15)); continue; }
 
                 if (trimmed.StartsWith("> "))   { Add(Blockquote(trimmed.Substring(2))); continue; }
 
@@ -260,7 +269,7 @@ namespace RevitWebAppSync.Helpers
         /// horizontal ScrollViewer and its width is bound to the viewport, so at
         /// extreme widths where even wrapped columns can't fit their minimum, the
         /// TABLE scrolls inside its own box — the thread never scrolls sideways.</summary>
-        private static FrameworkElement TableBlock(List<string> rows, double maxWidth)
+        private static FrameworkElement TableBlock(List<string> rows, double maxWidth, string nearestHeading)
         {
             var dataRows = rows.Where(r => !IsSeparatorRow(r)).Select(SplitCells).ToList();
             if (dataRows.Count == 0) return null;
@@ -340,7 +349,58 @@ namespace RevitWebAppSync.Helpers
             }
 
             grid.MaxWidth = maxWidth;
-            return grid;
+
+            // Header-only tables get no export affordance — nothing to save.
+            if (dataRows.Count < 2) return grid;
+
+            var panel = new StackPanel { HorizontalAlignment = HorizontalAlignment.Stretch, MaxWidth = maxWidth };
+            panel.Children.Add(grid);
+            panel.Children.Add(DownloadCsvButton(dataRows, nearestHeading));
+            return panel;
+        }
+
+        /// <summary>Small right-aligned "Download CSV" ghost button under a
+        /// rendered table (ClickUp 86eybfttd). Writes the PARSED cells (the same
+        /// dataRows the grid rendered) via SaveFileDialog. UTF-8 WITH BOM so
+        /// Excel opens Malay/unicode text correctly. The whole click handler is
+        /// try/caught — the pane lives inside Revit and must never throw across
+        /// the WPF dispatcher; a write failure just relabels the button.</summary>
+        private static FrameworkElement DownloadCsvButton(List<string[]> dataRows, string nearestHeading)
+        {
+            var label = new TextBlock { Text = "Download CSV", FontSize = 11, Foreground = Accent };
+            var btn = new Button
+            {
+                Content = label,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin = new Thickness(0, 2, 0, 0),
+                Padding = new Thickness(6, 2, 6, 2),
+                IsTabStop = false,
+                ToolTip = "Save this table as a .csv file",
+            };
+            UI.Copilot.Controls.FlatButton.Apply(btn, radius: 5);
+            btn.Click += (_, __) =>
+            {
+                try
+                {
+                    var dlg = new Microsoft.Win32.SaveFileDialog
+                    {
+                        FileName = TableCsv.SuggestFileName(nearestHeading) + ".csv",
+                        Filter = "CSV (*.csv)|*.csv",
+                        DefaultExt = ".csv",
+                        AddExtension = true,
+                    };
+                    if (dlg.ShowDialog() != true) return; // cancel = no-op
+                    System.IO.File.WriteAllText(
+                        dlg.FileName,
+                        TableCsv.Serialize(dataRows),
+                        new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+                }
+                catch (Exception)
+                {
+                    label.Text = "Save failed — try another location";
+                }
+            };
+            return btn;
         }
 
         // bina://select/<id> is the only URI scheme AddInlines treats as "live" —
