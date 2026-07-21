@@ -1,0 +1,23 @@
+# Unit tests (Tests/Tests.csproj, net10.0-windows) on every PR.
+# Revit API comes from the Nice3point NuGet package, so no local Revit
+# install is needed — the full suite compiles and runs on a bare runner.
+name: tests
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: |
+            8.0.x
+            10.0.x
+
+      - name: Run unit tests
+        run: dotnet test Tests/Tests.csproj -c Release --logger "console;verbosity=normal"
