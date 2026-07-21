@@ -19,15 +19,6 @@ namespace BinaVibe.Policy
         public bool ReadOnly { get; init; } = false;
         public int ApprovalTimeoutSeconds { get; init; } = 300;
 
-        /// <summary>Pull-based scene context: when true the copilot sends only a
-        /// tiny static env header ({project_id, projectName, revitVersion,
-        /// addin_version}) on /tool/generate and the agent gathers scene sight
-        /// on demand via READ tools (get_scene_overview, list_*, query_geometry)
-        /// instead of receiving a pushed ModelContext snapshot every turn.
-        /// Default ON (bina-ai prompt/tooling side landed). Rollback per
-        /// machine: {"LeanContext": false} in vibe.json.</summary>
-        public bool LeanContext { get; init; } = true;
-
         public static VibeFlags Load()
         {
             try

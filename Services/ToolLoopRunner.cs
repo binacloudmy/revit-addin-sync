@@ -65,8 +65,8 @@ namespace RevitWebAppSync.Services
 
         // Cap addin↔backend ping-pong so a model that keeps emitting tools can't
         // loop forever. Each round = one external batch we execute.
-        // 10 (was 8): pull-based context (LeanContext) typically adds one
-        // orientation round (get_scene_overview) before the real work.
+        // 10 (was 8): pull-based context typically adds one orientation
+        // round (get_scene_overview) before the real work.
         private const int MaxRounds = 10;
         // EXECUTION ceiling for a tool that actually started running in Revit
         // (commit + regen on a cold/large model). The old 600s was really an

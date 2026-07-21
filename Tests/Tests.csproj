@@ -64,9 +64,8 @@
     <Compile Include="..\UI\Copilot\Model\ProgressStep.cs" Link="ProgressStep.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\BatchRefResolver.cs" Link="BatchRefResolver.cs" />
     <!-- Lean-context wire contract: AIRequest/ModelContext (pure Newtonsoft
-         DTOs) + VibeFlags (System.Text.Json + IO). No Revit refs. -->
+         DTOs). No Revit refs. -->
     <Compile Include="..\Models\AIRequest.cs" Link="AIRequest.cs" />
-    <Compile Include="..\BinaVibe\Policy\VibeFlags.cs" Link="VibeFlags.cs" />
     <!--
       DocumentChangedIndexer: included for BuildBulkPayload / SnapshotDoc /
       SnapshotPayload (pure logic, no Revit refs). BulkIndexAsync and the

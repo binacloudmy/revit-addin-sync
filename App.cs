@@ -39,9 +39,10 @@ namespace RevitWebAppSync
         // Live UIApplication captured on Idling (a valid Revit API context).
         // Fallback for the dockable Copilot pane: its _uiApp is only pushed by
         // OpenCopilotCommand, so it stays NULL when Revit auto-restores the
-        // docked pane on startup (no ribbon click). Without this, BuildContext
-        // sees a null ActiveUIDocument and ships a BLANK context (no selection,
-        // levels, or views) to the agent.
+        // docked pane on startup (no ribbon click). Without this,
+        // BuildEnvContext sees a null ActiveUIDocument and ships a blank env
+        // header (no project name / Revit version) — and MCP tool execution
+        // has no UIApplication to run against.
         public static UIApplication UiApp { get; private set; }
 
         // Live cost update handler

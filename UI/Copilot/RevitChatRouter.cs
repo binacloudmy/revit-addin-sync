@@ -312,19 +312,11 @@ namespace RevitWebAppSync.UI.Copilot
             var __swRoute = System.Diagnostics.Stopwatch.StartNew();
             var cfg = BinaConfig.Load();
             var token = cfg?.AccessToken ?? "";
-            var __swCtx = System.Diagnostics.Stopwatch.StartNew();
-            // LeanContext (vibe.json): pull-based scene sight. Send only the
-            // static env header — the agent gathers levels/views/selection on
-            // demand via READ tools (get_scene_overview, list_*, query_geometry).
-            // Kills the pre-send UI-thread freeze BuildContext causes on big
-            // models AND fixes selection/active-view staleness (tools read at
-            // execution time, not send time).
-            var ctx = BinaVibe.Policy.VibeFlags.Load().LeanContext
-                ? BuildEnvContext()
-                : BuildContext(message);
-            __swCtx.Stop();
-            System.Diagnostics.Debug.WriteLine(
-                $"[BinaVibe][timing] BuildContext={__swCtx.ElapsedMilliseconds}ms (UI thread) views={ctx?.Views?.Count ?? 0} levels={ctx?.Levels?.Count ?? 0}");
+            // Pull-based scene sight: only the static env header goes with the
+            // prompt — the agent gathers levels/views/selection on demand via
+            // READ tools (get_scene_overview, list_*, query_geometry). No
+            // pre-send collectors, no UI-thread freeze, no stale selection.
+            var ctx = BuildEnvContext();
             int? userId = (cfg?.UserId ?? 0) > 0 ? (int?)cfg.UserId : null;
 
             // Consume any screenshots pasted with this prompt (cleared so they
@@ -475,34 +467,12 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
 
-        // Cap the view list so large projects don't blow up token cost / add noise.
-        private const int MaxViewsInContext = 60;
-
-        // Bound the view list: if there are more than the cap, prefer views whose
-        // name shares a word with the prompt (so "open aras 01" surfaces the Aras
-        // 01 views), then fill the rest up to the cap. Small projects send all.
-        private static List<ViewInfo> BoundViews(List<ViewInfo> all, string prompt)
-        {
-            if (all == null || all.Count <= MaxViewsInContext) return all;
-            var tokens = (prompt ?? "")
-                .Split(new[] { ' ', '\t', '\n', ',', '.', '(', ')', '"', '\'' },
-                       System.StringSplitOptions.RemoveEmptyEntries)
-                .Where(t => t.Length >= 2)
-                .Select(t => t.ToLowerInvariant())
-                .ToList();
-            bool Matches(ViewInfo v) => tokens.Any(t =>
-                (v.Name ?? "").ToLowerInvariant().Contains(t));
-            var matched = all.Where(Matches).ToList();
-            if (matched.Count >= MaxViewsInContext) return matched.Take(MaxViewsInContext).ToList();
-            var rest = all.Where(v => !matched.Contains(v)).Take(MaxViewsInContext - matched.Count);
-            return matched.Concat(rest).ToList();
-        }
-
-        /// <summary>Lean env header (VibeFlags.LeanContext) — the Claude Code
-        /// "env block" analog. Static identity only: project_id (bina-be config
-        /// value no READ tool can supply), project name, Revit version, addin
-        /// version. NO scene state — no collectors, no PlacementFacts, O(1) on
-        /// the UI thread. The agent pulls scene sight via READ tools instead.</summary>
+        /// <summary>The env header — the Claude Code "env block" analog.
+        /// Static identity only: project_id (bina-be config value no READ tool
+        /// can supply), project name, Revit version, addin version. NO scene
+        /// state — no collectors, no PlacementFacts, O(1) on the UI thread.
+        /// The agent pulls scene sight via READ tools (get_scene_overview,
+        /// list_*, query_geometry) instead.</summary>
         private ModelContext BuildEnvContext()
         {
             var ctx = new ModelContext();
@@ -528,87 +498,6 @@ namespace RevitWebAppSync.UI.Copilot
                 ctx.RevitVersion = uidoc.Application.Application.VersionNumber;
             }
             catch { /* best-effort env header */ }
-            return ctx;
-        }
-
-        private ModelContext BuildContext(string prompt = "")
-        {
-            var ctx = new ModelContext
-            {
-                Levels = new List<string>(),
-                Categories = new List<string> { "Walls", "Doors", "Windows", "Floors", "Roofs", "Ceilings", "Rooms", "Furniture", "Columns" },
-                Phases = new List<string>(),
-                SelectedElementIds = new List<int>(),
-            };
-
-            // Set the project id that matches the snapshot namespace the
-            // DocumentChangedIndexer uses for /revit-copilot/snapshot/{tenant}/{project}.
-            // BinaConfig.ProjectId is the integer project id from bina-be,
-            // stored in the same config that the indexer reads at startup.
-            try
-            {
-                var cfgForProject = BinaConfig.Load();
-                if ((cfgForProject?.ProjectId ?? 0) > 0)
-                    ctx.ProjectId = cfgForProject.ProjectId.ToString();
-            }
-            catch { /* best-effort */ }
-
-            try
-            {
-                var uidoc = _getApp()?.ActiveUIDocument;
-                var doc = uidoc?.Document;
-                if (doc == null) return ctx;
-
-                ctx.ProjectName = doc.Title;
-                ctx.RevitVersion = uidoc.Application.Application.VersionNumber;
-                ctx.Levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
-                    .OrderBy(l => l.Elevation).Select(l => l.Name).ToList();
-                var view = doc.ActiveView;
-                if (view != null) { ctx.ActiveViewName = view.Name; ctx.ActiveViewType = view.ViewType.ToString(); }
-                ctx.SelectedElementIds = uidoc.Selection.GetElementIds().Select(id => (int)id.Value).ToList();
-                ctx.Phases = new FilteredElementCollector(doc).OfClass(typeof(Phase)).Cast<Phase>().Select(p => p.Name).ToList();
-
-                // Phase 2 scene digest: placement facts for the working set
-                // (the current selection) so the agent SEES where things are
-                // without a query_geometry round-trip. Reuses the same
-                // PlacementFacts helper query_geometry uses. Cap 40; best-effort
-                // per element (a phase-less or odd element must not break context).
-                var __digest = new List<Dictionary<string, object>>();
-                foreach (var selId in uidoc.Selection.GetElementIds().Take(40))
-                {
-                    try
-                    {
-                        var selEl = doc.GetElement(selId);
-                        if (selEl == null) continue;
-                        var facts = BinaVibe.Mcp.Tools.QueryGeometry.PlacementFacts(doc, selEl);
-                        __digest.Add(new Dictionary<string, object>
-                        {
-                            ["id"] = (int)selId.Value,
-                            ["xyz"] = facts.TryGetValue("xyz", out var xyz) ? xyz : null,
-                            ["facing"] = facts.TryGetValue("facing", out var fac) ? fac : null,
-                            ["room"] = facts.TryGetValue("room", out var rm) ? rm : null,
-                            ["hostId"] = facts.TryGetValue("host_id", out var h) ? h : null,
-                        });
-                    }
-                    catch { /* skip this element, keep the rest */ }
-                }
-                if (__digest.Count > 0) ctx.SceneDigest = __digest;
-
-                // Real view list (id+name+type) — lets the agent resolve
-                // "open Aras 01" to the exact view instead of guessing. Bounded.
-                var __allViews = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
-                    .Where(v => !v.IsTemplate)
-                    .Select(v => new ViewInfo
-                    {
-                        Id = (int)v.Id.Value,
-                        Name = v.Name,
-                        ViewType = v.ViewType.ToString(),
-                        OwnerView = (v as ViewPlan)?.GenLevel?.Name ?? "",
-                    })
-                    .ToList();
-                ctx.Views = BoundViews(__allViews, prompt);
-            }
-            catch { /* best-effort context */ }
             return ctx;
         }
     }

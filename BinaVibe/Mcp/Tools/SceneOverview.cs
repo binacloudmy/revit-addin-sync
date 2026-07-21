@@ -1,7 +1,7 @@
 // SceneOverview — get_scene_overview, the one-call orientation READ tool.
 //
-// Pull-based context (VibeFlags.LeanContext): the agent no longer receives a
-// pushed ModelContext snapshot every turn, so its first look at the model
+// Pull-based context: the agent no longer receives a pushed ModelContext
+// snapshot every turn, so its first look at the model
 // would otherwise cost 4-6 tool round-trips (get_project_info + list_levels +
 // list_phases + get_active_view + get_current_selection). This tool composes
 // those existing Inspector implementations into ONE bounded payload — one
