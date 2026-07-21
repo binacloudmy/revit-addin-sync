@@ -64,19 +64,12 @@ namespace UiHarness
             Shot(dir, "copilot-blocked-member.png", dark: false,
                 configure: p => SetUsage(p, 100, atLimit: true, isAdmin: false));
 
-            // Sign-in gate: idle CTA, the waiting spinner, and the narrow-dock
-            // layout — plus the session-expired banner over a live thread.
+            // Sign-in gate: idle CTA, the waiting spinner, and the narrow-dock layout.
             foreach (var dark in new[] { false, true })
             {
                 string s = dark ? "-dark" : "";
                 Shot(dir, $"copilot-signin{s}.png", dark, configure: p => Auth(p, CpAuthState.SignedOut));
                 Shot(dir, $"copilot-signin-waiting{s}.png", dark, configure: p => Auth(p, CpAuthState.SigningIn));
-                Shot(dir, $"copilot-expired{s}.png", dark, configure: p =>
-                {
-                    SeedThread(p, applied: false);
-                    Settle(300);
-                    return Auth(p, CpAuthState.Expired);
-                });
             }
             // Narrowest dock the pane is usable at — the gate must not clip.
             Shot(dir, "copilot-signin-narrow.png", dark: false,

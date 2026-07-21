@@ -375,10 +375,10 @@ namespace RevitWebAppSync.UI.Copilot
         public string Category { get => _category; set { _category = value ?? "all"; Raise(); RaiseLibrary(); } }
 
         // ─── Auth gate ───────────────────────────────────────────────────────
-        // Drives the signed-out screen, the header status line, tab visibility and
-        // the session-expired banner. Set by CopilotPanel, which owns the actual
-        // session (CopilotAuthService); the VM only reflects it so every screen can
-        // bind without reaching into the auth path.
+        // Drives the signed-out screen, the header status line and tab visibility.
+        // Set by CopilotPanel, which owns the actual session (CopilotAuthService);
+        // the VM only reflects it so every screen can bind without reaching into
+        // the auth path.
         private CpAuthState _auth = CpAuthState.SignedIn;
         public CpAuthState Auth
         {
@@ -391,31 +391,22 @@ namespace RevitWebAppSync.UI.Copilot
                 Raise(nameof(IsSignedIn));
                 Raise(nameof(IsAppUsable));
                 Raise(nameof(ShowTabs));
-                Raise(nameof(ShowExpiredBanner));
                 Raise(nameof(AuthStatusText));
                 AuthChanged?.Invoke();
             }
         }
         public event System.Action AuthChanged;
 
-        /// <summary>Raised when a send is refused because the session died. The
-        /// panel listens so the header dot and banner update together.</summary>
-        public event System.Action SessionExpired;
-
-        /// <summary>Only a live session may send. Expired keeps the thread readable
-        /// but blocks the composer.</summary>
+        /// <summary>Only a live session may send.</summary>
         public bool IsSignedIn => Auth == CpAuthState.SignedIn;
 
-        /// <summary>Chat/History/Library and the tab strip render for a live OR an
-        /// expired session — expired must not wipe the visible conversation.</summary>
-        public bool IsAppUsable => Auth == CpAuthState.SignedIn || Auth == CpAuthState.Expired;
-
-        public bool ShowExpiredBanner => Auth == CpAuthState.Expired;
+        /// <summary>Chat/History/Library and the tab strip render only with a live
+        /// session; everything else is the gate.</summary>
+        public bool IsAppUsable => Auth == CpAuthState.SignedIn;
 
         /// <summary>Header line under the title, replacing "Connected · <model>".</summary>
         public string AuthStatusText =>
             Auth == CpAuthState.SignedIn ? "Connected · " + ModelName
-            : Auth == CpAuthState.Expired ? "Session expired"
             : Auth == CpAuthState.SigningIn ? "Signing in…"
             : "Not signed in";
 
@@ -727,15 +718,13 @@ namespace RevitWebAppSync.UI.Copilot
             var interp = QueryInterpreter.Interpret(text);
 
             // Auth gate: BINA Copilot needs a signed-in BINA Cloud session. Catch it
-            // here instead of letting the request 401 at the backend. Reaching this
-            // point at all means the session died mid-chat (the pane is gated when
-            // signed out), so surface the expired banner rather than a chat message —
-            // the thread stays readable and only sending is blocked.
+            // here instead of letting the request 401 at the backend. A session that
+            // died mid-chat is not a separate state — the pane drops back to the
+            // sign-in gate, same as any other signed-out case.
             var authCfg = BinaConfig.Load();
             if (authCfg == null || !authCfg.IsLoggedIn() || authCfg.TokenExpiry <= DateTime.Now)
             {
-                Auth = CpAuthState.Expired;
-                SessionExpired?.Invoke();
+                Auth = CpAuthState.SignedOut;
                 return;
             }
 

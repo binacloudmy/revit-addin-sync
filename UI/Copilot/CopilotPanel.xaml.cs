@@ -69,7 +69,6 @@ namespace RevitWebAppSync.UI.Copilot
             Controls.MentionInput.DefaultProvider = new RevitMentionProvider(() => _uiApp ?? App.UiApp);
             DataContext = _vm;
             _vm.PropertyChanged += OnVmChanged;
-            _vm.SessionExpired += MarkSessionExpired;
             _vm.Highlights.CollectionChanged += OnHighlightsChanged;
             _vm.RateRequested += () => ShowSheet(BuildRateSheet());
             // Local sink for ratings / bug reports (JSONL under %APPDATA%). Model
@@ -286,27 +285,13 @@ namespace RevitWebAppSync.UI.Copilot
             UpdateAuthDot();
         }
 
-        /// <summary>Mid-chat expiry: the thread stays visible and scrollable, the
-        /// composer is swapped for the "Session expired" banner. Called by whatever
-        /// notices the 401 (see CopilotViewModel's send path).</summary>
-        public void MarkSessionExpired()
-        {
-            if (_vm.Auth == CpAuthState.SigningIn) return;   // a sign-in is already running
-            _vm.Auth = CpAuthState.Expired;
-            UpdateAuthDot();
-        }
-
-        /// <summary>Status dot colour: accent live, amber expired, muted otherwise
+        /// <summary>Status dot colour: accent with a live session, muted otherwise
         /// (design authDotColor).</summary>
         private void UpdateAuthDot()
         {
             if (AuthDot == null) return;
-            switch (_vm.Auth)
-            {
-                case CpAuthState.SignedIn: AuthDot.SetResourceReference(Shape.FillProperty, "Cp.Accent"); break;
-                case CpAuthState.Expired: AuthDot.Fill = new SolidColorBrush(Color.FromRgb(0xf5, 0x9e, 0x0b)); break;
-                default: AuthDot.SetResourceReference(Shape.FillProperty, "Cp.Faint"); break;
-            }
+            AuthDot.SetResourceReference(Shape.FillProperty,
+                _vm.Auth == CpAuthState.SignedIn ? "Cp.Accent" : "Cp.Faint");
         }
 
         private static void OpenUrl(string url)
@@ -368,8 +353,6 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     chat.Prompt.UpgradeRequested += ShowUpgradeSheet;
                     chat.UpgradeRequested += ShowUpgradeSheet;
-                    // Expired banner's Sign in — same browser flow as the gate.
-                    chat.SignInRequested += () => _ = StartSignInAsync();
                 }
                 // Library rows fill the Chat composer + switch tabs (no auto-send).
                 if (cache is Screens.LibraryView lib)

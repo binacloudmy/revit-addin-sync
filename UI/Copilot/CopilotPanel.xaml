@@ -46,9 +46,9 @@
                 <StackPanel Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center">
                     <TextBlock Text="BINA AI Copilot" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
                     <!-- Status: accent dot + "Connected · <model>" when signed in;
-                         gray dot + "Not signed in" / amber + "Session expired" behind
-                         the gate. Dot brush is set in code (AuthDot) since the colour
-                         is state-driven, not a single theme token. -->
+                         gray dot + "Not signed in" / "Signing in…" behind the gate.
+                         Dot brush is set in code (AuthDot) since the colour is
+                         state-driven, not a single theme token. -->
                     <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                         <Ellipse x:Name="AuthDot" Width="6" Height="6" Fill="{DynamicResource Cp.Accent}" VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <TextBlock FontSize="11" Foreground="{DynamicResource Cp.Muted}"

@@ -126,30 +126,6 @@ namespace UiHarness
                 };
             });
 
-        // Session-expired banner: a thread stays readable, the composer is gone.
-        private void OpenExpiredSession(object sender, RoutedEventArgs e) =>
-            Open(() =>
-            {
-                var panel = new RevitWebAppSync.UI.Copilot.CopilotPanel();
-                var vm = panel.ViewModel;
-                vm.Auth = RevitWebAppSync.UI.Copilot.Model.CpAuthState.SignedIn;
-                vm.Thread.Add(new RevitWebAppSync.UI.Copilot.Model.ChatMessage
-                {
-                    Role = "user",
-                    Kind = RevitWebAppSync.UI.Copilot.Model.CpMsgKind.User,
-                    Text = "Audit all wall types on Level 1",
-                });
-                var win = new Window
-                {
-                    Title = "Session Expired",
-                    Width = 420,
-                    Height = 800,
-                    Content = new Frame { Content = panel },
-                };
-                win.Loaded += (_, __) => vm.Auth = RevitWebAppSync.UI.Copilot.Model.CpAuthState.Expired;
-                return win;
-            });
-
         // The upgrade sheet's only in-product entry point is the at-limit blocked
         // view, which needs a live usage API. Call it directly so the sheet (and
         // its real Process.Start redirect) can be exercised without one.
