@@ -44,6 +44,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // Slash command sent from the composer → add the turn (chip bubble +
             // placeholder reply). UI-only until tools run from chat.
             Prompt.SlashToolSubmitted += (tool, args) => Vm?.ChatSendSlashCommand(tool, args);
+            // An attachment that failed (or was partly dropped) must say so in
+            // the thread — the chip alone can't carry the reason.
+            Prompt.AttachmentFailed += msg => Vm?.ShowSystemNote(msg);
             // Host the "/" palette as an IN-PANEL overlay (SlashLayer) so it stays
             // inside the pane and tracks resize — the editor shows/hides the layer.
             Prompt.AttachSlashPalette(SlashPalette, v =>

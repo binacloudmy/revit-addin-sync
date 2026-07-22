@@ -724,6 +724,20 @@ namespace RevitWebAppSync.UI.Copilot
             });
         }
 
+        /// <summary>Surface a pane-side note in the thread (attachment could not
+        /// be read, part of it was dropped). Not a backend turn — nothing is sent
+        /// and nothing is metered; the user just needs to SEE it.</summary>
+        public void ShowSystemNote(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return;
+            Tab = CpTab.Chat;
+            Thread.Add(new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.AiReply, Text = text,
+                Time = System.DateTime.Now.ToString("h:mm tt"),
+            });
+        }
+
         /// <summary>Line count matching AttachmentChip's "N ln" display.</summary>
         private static int LineCount(string content) =>
             string.IsNullOrEmpty(content) ? 0 : content.Count(c => c == '\n') + 1;

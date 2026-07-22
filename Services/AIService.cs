@@ -343,6 +343,88 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// POST /agents/revit-ai/attachments/extract — turn an attached PDF/DWG/DXF
+        /// into a prompt-ready digest. The pane cannot read those formats locally
+        /// (they are binary), so the bytes go to the backend and come back as text
+        /// plus, for scanned PDF sheets, base64 PNGs for the vision channel.
+        ///
+        /// Throws <see cref="AttachmentExtractException"/> with the backend's own
+        /// message on failure: a drawing the user believes was attached but was
+        /// never read is worse than a visible error.
+        /// </summary>
+        public async Task<AttachmentExtract> ExtractAttachmentAsync(
+            byte[] bytes, string fileName, string accessToken,
+            CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                using var form = new MultipartFormDataContent();
+                var part = new ByteArrayContent(bytes ?? new byte[0]);
+                part.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                form.Add(part, "file", fileName ?? "attachment");
+
+                using var req = new HttpRequestMessage(
+                    HttpMethod.Post, AiUrl.Build(_baseUrl, "attachments/extract"))
+                {
+                    Content = form,
+                };
+                if (!string.IsNullOrEmpty(accessToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var resp = await _httpClient.SendAsync(req, cancellationToken);
+                var body = await resp.Content.ReadAsStringAsync();
+                if (resp.IsSuccessStatusCode)
+                    return JsonConvert.DeserializeObject<AttachmentExtract>(body);
+                throw new AttachmentExtractException(DetailOf(body, (int)resp.StatusCode));
+            }
+            catch (AttachmentExtractException) { throw; }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                throw new AttachmentExtractException(ex.Message, ex);
+            }
+        }
+
+        /// <summary>FastAPI errors carry {"detail": "..."} — surface that, not the
+        /// raw JSON envelope, so the chip's error line reads like a sentence.</summary>
+        private static string DetailOf(string body, int status)
+        {
+            try
+            {
+                var parsed = JsonConvert.DeserializeObject<Dictionary<string, object>>(body);
+                if (parsed != null && parsed.TryGetValue("detail", out var d) && d != null)
+                {
+                    var text = d.ToString();
+                    if (!string.IsNullOrWhiteSpace(text)) return text;
+                }
+            }
+            catch { }
+            return $"HTTP {status}";
+        }
+
+        /// <summary>Wire shape of POST /agents/revit-ai/attachments/extract.</summary>
+        public class AttachmentExtract
+        {
+            [JsonProperty("name")] public string Name { get; set; }
+            [JsonProperty("kind")] public string Kind { get; set; }
+            /// <summary>Markdown the pane drops in where a text file's contents would go.</summary>
+            [JsonProperty("digest")] public string Digest { get; set; }
+            /// <summary>Base64 PNGs of scanned PDF pages, for the images channel.</summary>
+            [JsonProperty("images")] public List<string> Images { get; set; }
+            [JsonProperty("pages")] public int? Pages { get; set; }
+            [JsonProperty("truncated")] public bool Truncated { get; set; }
+            /// <summary>Non-null when something was dropped (pages past the image cap,
+            /// text past the entity cap). Must be shown, never swallowed.</summary>
+            [JsonProperty("warning")] public string Warning { get; set; }
+        }
+
+        public class AttachmentExtractException : Exception
+        {
+            public AttachmentExtractException(string message, Exception inner = null)
+                : base(message, inner) { }
+        }
+
+        /// <summary>
         /// Wire shape of GET /credits/balance.
         /// <see cref="Remaining"/> is null when <see cref="Unlimited"/> is true.
         /// </summary>

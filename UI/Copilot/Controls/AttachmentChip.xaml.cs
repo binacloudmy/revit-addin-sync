@@ -80,6 +80,24 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             };
         }
 
+        /// <summary>Chip for a file whose useful measure isn't a line count —
+        /// a PDF ("12 pg"), a drawing ("47 layers"), or one still uploading
+        /// ("reading…"). Same visual as ForFile; only the sub-label differs.</summary>
+        public static AttachmentChip ForDocument(string name, string info, Action onRemove = null)
+        {
+            string ext = Path.GetExtension(name).TrimStart('.').ToUpperInvariant();
+            if (string.IsNullOrEmpty(ext)) ext = "FILE";
+            return new AttachmentChip
+            {
+                IsImage    = false,
+                FileName   = Path.GetFileNameWithoutExtension(name),
+                FileType   = ext,
+                LineInfo   = info ?? "",
+                ShowRemove = onRemove != null,
+                OnRemove   = onRemove,
+            };
+        }
+
         // ── Lifecycle ─────────────────────────────────────────────────────────
 
         public AttachmentChip()

@@ -52,6 +52,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 // not concatenated into the text — so the chat bubble and history
                 // show the user's message, not the file dump (the backend route text
                 // re-embeds them in CopilotViewModel.BuildRouteText).
+                // An attachment still being read by the backend would silently
+                // reach the agent as nothing at all. Hold the turn instead, and
+                // put the typed text back (MentionInput clears the editor right
+                // after this handler returns, so the restore is queued behind it).
+                if (_files.Exists(f => f.Pending))
+                {
+                    AttachmentFailed?.Invoke("Still reading the attachment — send again in a moment.");
+                    Dispatcher.BeginInvoke((System.Action)(() =>
+                    {
+                        Input.Editor.Text = text;
+                        Input.Editor.CaretIndex = Input.Editor.Text.Length;
+                    }));
+                    return;
+                }
                 object payload = text;
                 if (_images.Count > 0 || _files.Count > 0)
                 {
@@ -70,8 +84,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     if (_files.Count > 0)
                     {
                         var files = new System.Collections.Generic.List<RevitWebAppSync.UI.Copilot.Model.FileAttachment>();
-                        foreach (var (fname, fcontent) in _files)
-                            files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment(fname, fcontent));
+                        foreach (var f in _files)
+                            files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment(f.Name, f.Content));
                         pp.Files = files;
                         _files.Clear();
                     }
@@ -101,7 +115,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var dlg = new Microsoft.Win32.OpenFileDialog
                 {
                     Multiselect = true,
-                    Filter = "Text files|*.txt;*.csv;*.md;*.log;*.json;*.xml",
+                    Filter = "Text & drawings|*.txt;*.csv;*.md;*.log;*.json;*.xml;*.pdf;*.dwg;*.dxf"
+                           + "|Text files|*.txt;*.csv;*.md;*.log;*.json;*.xml"
+                           + "|Drawings & documents|*.pdf;*.dwg;*.dxf",
                     Title = "Attach file(s)",
                 };
                 if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
@@ -229,12 +245,38 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             = new System.Collections.Generic.List<System.Windows.Media.Imaging.BitmapSource>();
 
         // ─── File attachments (pending, content injected into prompt text) ────
-        private static readonly System.Collections.Generic.HashSet<string> SupportedExtensions
+        // Text formats are read right here. PDFs and drawings are binary, so the
+        // bytes go to the backend (/agents/revit-ai/attachments/extract) and come
+        // back as a digest that lands in the SAME slot — everything downstream
+        // (BuildRouteText, the chat bubble, run history) is unchanged.
+        private static readonly System.Collections.Generic.HashSet<string> TextExtensions
             = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
               { ".txt", ".csv", ".md", ".log", ".json", ".xml" };
-        private const long MaxFileBytes = 32 * 1024;
-        private readonly System.Collections.Generic.List<(string Name, string Content)> _files
-            = new System.Collections.Generic.List<(string, string)>();
+        private static readonly System.Collections.Generic.HashSet<string> DocumentExtensions
+            = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
+              { ".pdf", ".dwg", ".dxf" };
+        private const long MaxTextFileBytes = 32 * 1024;
+        // Matches MAX_UPLOAD_BYTES in app/services/attachments/extract_service.py —
+        // rejecting here saves a doomed 25 MB round-trip.
+        private const long MaxDocumentFileBytes = 25 * 1024 * 1024;
+
+        /// <summary>One attachment queued for the next turn. <see cref="Pending"/>
+        /// marks a document whose backend extraction is still in flight.</summary>
+        private class PendingFile
+        {
+            public string Name;
+            public string Content;
+            public string Info;      // chip sub-label: "42 ln", "12 pg", "reading…"
+            public bool Pending;
+        }
+
+        private readonly System.Collections.Generic.List<PendingFile> _files
+            = new System.Collections.Generic.List<PendingFile>();
+
+        /// <summary>Raised when an attachment could not be read (unsupported,
+        /// too big, backend/sidecar down). The host shows it in the thread — a
+        /// silently dropped drawing reads to the user as a successful attach.</summary>
+        public event System.Action<string> AttachmentFailed;
 
         private void AddImage(System.Windows.Media.Imaging.BitmapSource img)
         {
@@ -249,18 +291,119 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             RebuildThumbStrip();
         }
 
-        private void AddFiles(string[] paths)
+        private async void AddFiles(string[] paths)
         {
             foreach (var path in paths)
             {
                 var ext = System.IO.Path.GetExtension(path);
-                if (!SupportedExtensions.Contains(ext)) continue;
-                var info = new System.IO.FileInfo(path);
-                if (!info.Exists || info.Length > MaxFileBytes) continue;
-                var content = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8);
-                _files.Add((System.IO.Path.GetFileName(path), content));
+                var name = System.IO.Path.GetFileName(path);
+                var fileInfo = new System.IO.FileInfo(path);
+                if (!fileInfo.Exists)
+                {
+                    AttachmentFailed?.Invoke($"{name}: file not found.");
+                    continue;
+                }
+
+                if (TextExtensions.Contains(ext))
+                {
+                    if (fileInfo.Length > MaxTextFileBytes)
+                    {
+                        AttachmentFailed?.Invoke($"{name} is larger than {MaxTextFileBytes / 1024} KB — attach a smaller excerpt.");
+                        continue;
+                    }
+                    var content = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8);
+                    _files.Add(new PendingFile { Name = name, Content = content, Info = LineInfo(content) });
+                    RebuildThumbStrip();
+                }
+                else if (DocumentExtensions.Contains(ext))
+                {
+                    if (fileInfo.Length > MaxDocumentFileBytes)
+                    {
+                        AttachmentFailed?.Invoke($"{name} is larger than {MaxDocumentFileBytes / (1024 * 1024)} MB.");
+                        continue;
+                    }
+                    await AddDocumentAsync(path, name);
+                }
+                else
+                {
+                    AttachmentFailed?.Invoke($"{name}: unsupported file type.");
+                }
             }
             RebuildThumbStrip();
+        }
+
+        /// <summary>Ship a PDF/DWG/DXF to the backend for extraction. The chip
+        /// appears immediately as "reading…" so the strip never looks frozen
+        /// while a 20 MB drawing uploads.</summary>
+        private async System.Threading.Tasks.Task AddDocumentAsync(string path, string name)
+        {
+            var entry = new PendingFile { Name = name, Info = "reading…", Pending = true };
+            _files.Add(entry);
+            RebuildThumbStrip();
+
+            try
+            {
+                var cfg = BinaConfig.Load();
+                if (cfg == null || !cfg.IsLoggedIn())
+                    throw new RevitWebAppSync.Services.AIService.AttachmentExtractException(
+                        "sign in to BINA Cloud first (ribbon → BINA Cloud → Login)");
+
+                var bytes = System.IO.File.ReadAllBytes(path);
+                var result = await new RevitWebAppSync.Services.AIService()
+                    .ExtractAttachmentAsync(bytes, name, cfg.AccessToken);
+
+                entry.Content = result?.Digest ?? "";
+                entry.Info = DocumentInfo(result);
+                entry.Pending = false;
+
+                // Rendered sheet images ride the existing screenshot channel.
+                if (result?.Images != null)
+                {
+                    foreach (var b64 in result.Images)
+                    {
+                        if (_images.Count >= MaxImages) break;
+                        var bitmap = DecodePng(b64);
+                        if (bitmap != null) _images.Add(bitmap);
+                    }
+                }
+                if (!string.IsNullOrEmpty(result?.Warning))
+                    AttachmentFailed?.Invoke($"{name}: {result.Warning}");
+            }
+            catch (System.Exception ex)
+            {
+                _files.Remove(entry);
+                AttachmentFailed?.Invoke($"Could not read {name} — {ex.Message}");
+            }
+            RebuildThumbStrip();
+        }
+
+        private static string LineInfo(string content) =>
+            (string.IsNullOrEmpty(content) ? 0 : content.Split('\n').Length) + " ln";
+
+        private static string DocumentInfo(RevitWebAppSync.Services.AIService.AttachmentExtract r)
+        {
+            if (r == null) return "";
+            if (r.Pages.HasValue) return r.Pages.Value + " pg";
+            return string.IsNullOrEmpty(r.Kind) ? "" : r.Kind.ToUpperInvariant();
+        }
+
+        /// <summary>Inverse of <see cref="EncodePng"/> for backend-rendered pages.
+        /// Returns null on a corrupt payload rather than killing the attach.</summary>
+        private static System.Windows.Media.Imaging.BitmapSource DecodePng(string base64)
+        {
+            try
+            {
+                var bytes = System.Convert.FromBase64String(base64 ?? "");
+                using (var ms = new System.IO.MemoryStream(bytes))
+                {
+                    var decoder = System.Windows.Media.Imaging.BitmapFrame.Create(
+                        ms,
+                        System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat,
+                        System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+                    return decoder;
+                }
+            }
+            catch { return null; }
         }
 
         private void RebuildThumbStrip()
@@ -277,12 +420,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 ThumbStrip.Children.Add(chip);
             }
 
-            foreach (var (name, content) in _files)
+            foreach (var file in _files)
             {
-                var capturedName = name;
-                var chip = AttachmentChip.ForFile(name, content, () =>
+                var captured = file;
+                // A file still uploading gets no remove button — cancelling it
+                // mid-flight would leave the response with nowhere to land.
+                var chip = AttachmentChip.ForDocument(file.Name, file.Info, captured.Pending ? (System.Action)null : () =>
                 {
-                    _files.RemoveAll(f => f.Name == capturedName);
+                    _files.Remove(captured);
                     RebuildThumbStrip();
                 });
                 chip.Margin = new Thickness(0, 0, 6, 0);
