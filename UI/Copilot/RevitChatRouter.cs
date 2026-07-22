@@ -95,14 +95,6 @@ namespace RevitWebAppSync.UI.Copilot
         /// route that builds the request — same per-call pattern as OnProgress.</summary>
         public List<string> PendingImages { get; set; }
 
-        /// <summary>P2 slash command for the NEXT prompt: the backend command id
-        /// (and optional args) picked from the slash menu. Set by the viewmodel
-        /// right before RouteAsync, consumed and cleared when the request is
-        /// built — same per-call pattern as PendingImages. When set, the backend
-        /// dispatches that P1 command definition instead of a plain NL turn.</summary>
-        public string PendingCommandId { get; set; }
-        public Dictionary<string, object> PendingCommandArgs { get; set; }
-
         // Drives Cancel — set per stream so the pane's Cancel button can abort
         // the in-flight HttpClient request (CancelStream() trips this token,
         // which unwinds GenerateCodeStreamAsync's reader and disposes the
@@ -278,14 +270,6 @@ namespace RevitWebAppSync.UI.Copilot
             var images = PendingImages;
             PendingImages = null;
 
-            // Consume the slash command (P2) the same way — captured once here so
-            // whichever request path runs (tool-loop or codegen stream) carries it,
-            // and it never leaks into the following plain-NL turn.
-            var commandId = PendingCommandId;
-            var commandArgs = PendingCommandArgs;
-            PendingCommandId = null;
-            PendingCommandArgs = null;
-
             // ─── HITL clarify continuation ───────────────────────────────────
             // The previous turn paused on get_user_input — THIS message is the
             // user's ANSWER, not a new command. Resume the paused run with it.
@@ -336,7 +320,6 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     Prompt = message, Context = ctx, UserId = userId, SessionId = _sessionId,
                     Images = images,
-                    CommandId = commandId, CommandArgs = commandArgs,
                 };
 
                 // Live progress — HONEST, event-driven (no fake timer rotation).
@@ -429,8 +412,6 @@ namespace RevitWebAppSync.UI.Copilot
                     UserId = userId,
                     SessionId = _sessionId,
                     Images = images,
-                    CommandId = commandId,
-                    CommandArgs = commandArgs,
                 };
 
                 // Streaming path — preferred. Chunks arrive in <1s even

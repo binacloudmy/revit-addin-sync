@@ -24,18 +24,6 @@ namespace RevitWebAppSync.Models
         /// the JSON when null so un-upgraded backends see an unchanged body.</summary>
         [JsonProperty("images", NullValueHandling = NullValueHandling.Ignore)]
         public List<string> Images { get; set; }
-
-        /// <summary>P2 slash command: the backend command id the drafter picked
-        /// from the slash menu (authoritative — the backend injects that
-        /// definition's instructions + tool allowlist, no prompt parsing).
-        /// Omitted when null so a plain NL turn is byte-identical to before.</summary>
-        [JsonProperty("command_id", NullValueHandling = NullValueHandling.Ignore)]
-        public string CommandId { get; set; }
-
-        /// <summary>P2 slash command args (from param chips), keyed by the
-        /// definition's arg names. Omitted when null.</summary>
-        [JsonProperty("command_args", NullValueHandling = NullValueHandling.Ignore)]
-        public Dictionary<string, object> CommandArgs { get; set; }
     }
 
     public class ModelContext
