@@ -94,6 +94,9 @@ namespace RevitWebAppSync.UI
             _vm.PropertyChanged += Vm_PropertyChanged;
 
             Loaded += (_, __) => { Keyboard.Focus(this); RenderAll(); };
+            // Re-evaluate the signed-out overlay whenever the pane comes back into
+            // view — the user may have logged in via the ribbon while it sat hidden.
+            IsVisibleChanged += (_, __) => { if (IsVisible) UpdateSignInOverlay(IsSignedIn()); };
             KeyDown += OnKeyDown;
 
             PreviewKeyDown += (_, e) =>
@@ -240,6 +243,9 @@ namespace RevitWebAppSync.UI
                 IssuesScroll.Visibility = System.Windows.Visibility.Visible;
             }
 
+            // Signed-out overlay wins over both list and empty state.
+            UpdateSignInOverlay(IsSignedIn());
+
             // Row active highlight
             foreach (var container in EnumerateContainers(IssuesItems))
             {
@@ -325,6 +331,7 @@ namespace RevitWebAppSync.UI
 
         private async void FixAll_Click(object sender, RoutedEventArgs e)
         {
+            if (!EnsureLoggedIn()) return;
             if (App.JkrRenameHandler == null || App.JkrRenameEvent == null)
             {
                 TaskDialog.Show("BINA JKR Compliance", "Auto-fix unavailable — JkrRenameHandler not initialised.");
@@ -736,9 +743,53 @@ namespace RevitWebAppSync.UI
             _vm.ShowToast($"Ignored {ignorable.Count} Medium/Low issues.");
         }
 
+        /// <summary>Auth gate: JKR Compliance requires a signed-in BINA Cloud session,
+        /// same as the Copilot. Guards the panel's own actions too because Revit can
+        /// auto-restore the pane on startup without JkrComplianceDashboardCommand (and
+        /// its login gate) ever running.</summary>
+        private bool EnsureLoggedIn()
+        {
+            var signedIn = IsSignedIn();
+            UpdateSignInOverlay(signedIn);
+            if (signedIn) return true;
+            TaskDialog.Show("BINA JKR Compliance",
+                "Please sign in to use JKR Compliance — click BINA Cloud → Login in the ribbon, then try again.");
+            return false;
+        }
+
+        private static bool IsSignedIn()
+        {
+            try
+            {
+                var cfg = BinaConfig.Load();
+                return cfg != null && cfg.IsLoggedIn();
+            }
+            catch
+            {
+                return true; // fail open — the backend still 401s if truly signed out
+            }
+        }
+
+        /// <summary>Swap the issue-list area for the in-pane "Sign in to run compliance
+        /// checks" state while signed out. Covers the Revit-auto-restored-pane case,
+        /// where the ribbon command's login gate never ran.</summary>
+        private void UpdateSignInOverlay(bool signedIn)
+        {
+            if (SignInState == null) return;
+            if (signedIn)
+            {
+                SignInState.Visibility = System.Windows.Visibility.Collapsed;
+                return;
+            }
+            SignInState.Visibility = System.Windows.Visibility.Visible;
+            EmptyState.Visibility = System.Windows.Visibility.Collapsed;
+            IssuesScroll.Visibility = System.Windows.Visibility.Collapsed;
+        }
+
         private async Task RunScanAsync()
         {
             if (_vm.Scanning) return;
+            if (!EnsureLoggedIn()) return;
 
             var doc = UiAppLive?.ActiveUIDocument?.Document;
             if (doc == null)
