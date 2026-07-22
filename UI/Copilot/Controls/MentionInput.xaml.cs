@@ -66,10 +66,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             InitializeComponent();
             Editor.TextChanged += OnTextChanged;
             Editor.PreviewKeyDown += OnPreviewKeyDown;
-            // Dismissal evidence: StaysOpen=False closes the popup outside our
-            // code — without this line a silently-dismissed picker logs
-            // "opened" and nothing else (round-37 rendering-gap hunt).
-            Picker.Closed += (_, __) => RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("picker", "closed");
             DataObject.AddPastingHandler(Editor, OnPaste);
             Loaded += (_, __) => UpdatePlaceholder();
             Editor.DragOver += (_, e) =>
@@ -140,8 +136,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             // A "/" command token (at line start or after whitespace) takes
             // precedence when it sits closer to the caret than any "@".
+            // MentionToken.Find owns the "@" rules (spaces allowed in the query
+            // so "@Aras 01" matches; caret==0 during a programmatic Text set
+            // yields no token instead of a negative-length Substring throw).
             int slash = LastSlashTrigger(text, caret);
-            int at = text.LastIndexOf('@', Math.Max(0, caret - 1));
+            int at = Model.MentionToken.Find(text, caret, out string query);
             if (slash >= 0 && slash >= at)
             {
                 ClosePicker();
@@ -150,16 +149,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             CloseSlash();
 
-            // caret must sit STRICTLY AFTER the "@" or the query length below
-            // goes negative. Root cause of the rounds-29..34 Revit crash: the
-            // @-button sets Editor.Text programmatically, TextChanged fires
-            // with the caret reset to 0, at==caret==0 → Substring(1, -1) →
-            // ArgumentOutOfRangeException escaping a WPF handler killed the
-            // process (stack finally captured round 34 via panel-debug.log).
-            if (at < 0 || at >= caret) { ClosePicker(); return; }
-
-            string query = text.Substring(at + 1, caret - at - 1);
-            if (query.Contains(' ') || query.Contains('\n')) { ClosePicker(); return; }
+            if (at < 0) { ClosePicker(); return; }
 
             _atIndex = at;
             BuildPicker(query);
@@ -199,24 +189,6 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Close the palette from the host (scrim click-outside).</summary>
         public void CloseSlashExternal() => CloseSlash();
 
-        /// <summary>Re-run token detection after the host mutates Text/caret
-        /// programmatically (the @-button sets Text then CaretIndex; TextChanged
-        /// fired between the two with a stale caret, so the picker never opened
-        /// for the button path — round-34 UX note).
-        ///
-        /// DEFERRED to Background priority (round 37): opening the StaysOpen=False
-        /// popup synchronously inside the button's click processing gets it
-        /// dismissed by that same click's mouse transaction — the log said
-        /// "opened" while the screen showed nothing. Deferring lets the click
-        /// finish first; the popup then opens into a quiet dispatcher.</summary>
-        public void RefreshTokenDetection()
-            => Dispatcher.BeginInvoke(new Action(() =>
-            {
-                RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("picker",
-                    "deferred-detect editor#" + Editor.GetHashCode() + " len=" + (Editor.Text ?? "").Length);
-                DetectToken();
-            }), System.Windows.Threading.DispatcherPriority.Background);
-
         // Picked from the palette (click or Enter): strip the "/query" from the
         // editor, close, and hand the tool up to the PromptBar for the chip.
         private void OnSlashToolPicked(SlashTool tool)
@@ -240,10 +212,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // rows — sunken @-tile, label, right-aligned type — no per-group headers.
         private void BuildPicker(string query)
         {
-            RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("picker", "build-start q='" + query + "'");
             PickerHost.Children.Clear();
             var groups = Provider?.GetGroups() ?? new List<MentionGroup>();
-            RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("picker", "groups=" + groups.Count);
             bool any = false;
 
             PickerHost.Children.Add(new TextBlock
@@ -254,7 +224,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             foreach (var g in groups)
             {
-                var matches = g.Items.Where(it => it.IndexOf(query, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+                var matches = g.Items.Where(it => Model.MentionToken.Matches(it, query)).ToList();
                 if (matches.Count == 0) continue;
                 any = true;
 
@@ -285,9 +255,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 }
             }
 
-            RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("picker", "opening any=" + any);
             Picker.IsOpen = any;
-            RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("picker", "opened");
         }
 
         private void InsertMention(string item)

@@ -39,9 +39,10 @@ namespace RevitWebAppSync
         // Live UIApplication captured on Idling (a valid Revit API context).
         // Fallback for the dockable Copilot pane: its _uiApp is only pushed by
         // OpenCopilotCommand, so it stays NULL when Revit auto-restores the
-        // docked pane on startup (no ribbon click). Without this, BuildContext
-        // sees a null ActiveUIDocument and ships a BLANK context (no selection,
-        // levels, or views) to the agent.
+        // docked pane on startup (no ribbon click). Without this,
+        // BuildEnvContext sees a null ActiveUIDocument and ships a blank env
+        // header (no project name / Revit version) — and MCP tool execution
+        // has no UIApplication to run against.
         public static UIApplication UiApp { get; private set; }
 
         // Live cost update handler
@@ -178,25 +179,21 @@ namespace RevitWebAppSync
         {
             try
             {
-                // Build stamp first — closes the "which build am I testing?"
-                // gap (rounds 31-32: crash reports without a verifiable hash).
-                UI.Copilot.PanelDebugLog.WriteBuildStamp();
+                // Fleet heartbeat: 'started' now, 'ready' at the end of this
+                // method — the gap between the two is how the backend detects a
+                // release that dies mid-startup on some Revit year.
+                Services.TelemetryService.Init(application.ControlledApplication.VersionNumber);
+                Services.TelemetryService.Track("startup", "started");
 
-                // Last-words hooks: when Revit dies on an unhandled exception,
-                // panel-debug.log gets the stack Event Viewer never yielded
-                // (rounds 29-33 crash hunt). IsTerminating=false entries are
-                // survivable exceptions worth reading too.
-                AppDomain.CurrentDomain.UnhandledException += (s, e) =>
-                {
-                    var ex = e.ExceptionObject as Exception;
-                    UI.Copilot.PanelDebugLog.Write("UNHANDLED",
-                        "terminating=" + e.IsTerminating + " " +
-                        (ex == null ? e.ExceptionObject?.ToString() ?? "?" : ex.ToString()));
-                };
-                System.Threading.Tasks.TaskScheduler.UnobservedTaskException += (s, e) =>
-                    UI.Copilot.PanelDebugLog.Write("UNOBSERVED-TASK", e.Exception?.ToString() ?? "?");
-                System.Windows.Threading.Dispatcher.CurrentDispatcher.UnhandledException += (s, e) =>
-                    UI.Copilot.PanelDebugLog.Write("DISPATCHER", e.Exception?.ToString() ?? "?");
+                // Self-heal legacy direct-load installs (stale RevitWebAppSync
+                // manifest + DLL in Addins collide with the loader path — the
+                // "assembly with same name is already loaded" dialog). The
+                // telemetry event counts affected machines fleet-wide.
+                int cleaned = Services.DirectLoadCleanup.Run();
+                if (cleaned > 0)
+                    Services.TelemetryService.Track("startup", "directload_cleaned",
+                        new { files_removed = cleaned });
+
                 // Idle-gap heartbeat (diagnostic): Revit raises Idling whenever
                 // its UI thread is free. If two consecutive Idling events are
                 // >2s apart, the UI thread was BLOCKED that long ("Not
@@ -209,24 +206,6 @@ namespace RevitWebAppSync
                     // Capture a live UIApplication for the Copilot pane fallback
                     // (sender of Idling IS the UIApplication, in valid context).
                     if (UiApp == null && s is UIApplication __ua) UiApp = __ua;
-
-                    // Refresh the @-mention picker + BuildContext snapshots
-                    // HERE (valid API context, throttled inside). The pane's
-                    // UI thread only reads caches — collector/selection calls
-                    // from the WPF thread crashed Revit (round-29 CIDB repro).
-                    if (s is UIApplication __mua)
-                    {
-                        // Timed: if these ever block the UI thread they must
-                        // confess in panel-debug.log, not hide behind Idling.
-                        var __swRef = System.Diagnostics.Stopwatch.StartNew();
-                        UI.Copilot.RevitMentionProvider.RefreshCache(__mua);
-                        var __msMention = __swRef.ElapsedMilliseconds;
-                        __swRef.Restart();
-                        UI.Copilot.CopilotContextSnapshot.Refresh(__mua);
-                        if (__msMention > 250 || __swRef.ElapsedMilliseconds > 250)
-                            UI.Copilot.PanelDebugLog.Write("idling-refresh",
-                                "SLOW mention=" + __msMention + "ms snapshot=" + __swRef.ElapsedMilliseconds + "ms");
-                    }
                     var now = System.Diagnostics.Stopwatch.GetTimestamp();
                     double freq = System.Diagnostics.Stopwatch.Frequency;
                     double gapMs = lastIdleTs != 0 ? (now - lastIdleTs) * 1000.0 / freq : 0;
@@ -302,6 +281,8 @@ namespace RevitWebAppSync
                 catch (Exception dockEx)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA] Cost dockable pane registration failed: {dockEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "cost_pane", error_class = dockEx.GetType().Name });
                 }
 
                 // Register Fire Compliance dockable pane
@@ -316,6 +297,8 @@ namespace RevitWebAppSync
                 catch (Exception compEx)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA] Compliance dockable pane registration failed: {compEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "compliance_pane", error_class = compEx.GetType().Name });
                 }
 
                 // Register JKR BIM Compliance dockable pane
@@ -330,6 +313,8 @@ namespace RevitWebAppSync
                 catch (Exception jkrEx)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA] JKR Compliance dockable pane registration failed: {jkrEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "jkr_pane", error_class = jkrEx.GetType().Name });
                 }
 
                 // Register Revit Copilot dockable pane
@@ -344,6 +329,8 @@ namespace RevitWebAppSync
                 catch (Exception copilotEx)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA] Copilot dockable pane registration failed: {copilotEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "copilot_pane", error_class = copilotEx.GetType().Name });
                 }
 
                 // Subscribe to document changes for live cost updates
@@ -355,6 +342,8 @@ namespace RevitWebAppSync
                 catch (Exception evtEx)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA] Cost update handler failed: {evtEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "cost_update_handler", error_class = evtEx.GetType().Name });
                 }
 
                 // Decide which MCP transport(s) to boot. Default is
@@ -555,10 +544,15 @@ namespace RevitWebAppSync
                 // configured (see BinaConfig.UpdateFeedUrl).
                 Services.UpdateService.Start(application);
 
+                Services.TelemetryService.Track("startup", "ready");
                 return Result.Succeeded;
             }
             catch (Exception ex)
             {
+                Services.TelemetryService.Track("startup", "failed",
+                    new { error_class = ex.GetType().Name });
+                // Revit may be about to unload us — drain synchronously (2s cap).
+                Services.TelemetryService.FlushBlocking(TimeSpan.FromSeconds(2));
                 TaskDialog.Show("Error", $"Failed to initialize add-in: {ex.Message}");
                 return Result.Failed;
             }
@@ -575,6 +569,15 @@ namespace RevitWebAppSync
             try { VibeEngine?.Dispose(); } catch { }
             try { VibeMcpTunnel?.Dispose(); } catch { }
             try { VibeIndexer?.Dispose(); } catch { }
+
+            // 'clean' shutdown marker: a session with 'started' but neither
+            // 'ready' nor 'clean' reads as a dirty exit in the scorecard.
+            try
+            {
+                Services.TelemetryService.Track("shutdown", "clean");
+                Services.TelemetryService.FlushBlocking(TimeSpan.FromSeconds(2));
+            }
+            catch { }
 
             return Result.Succeeded;
         }

@@ -48,8 +48,25 @@ jobs:
           } else {
             '${{ github.ref_name }}'.TrimStart('v')
           }
-          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Bad version '$v' — want MAJOR.MINOR.PATCH" }
-          "version=$v" >> $env:GITHUB_OUTPUT
+          # Exactly two channels:
+          #   vX.Y.Z          -> Release build (prod backend), fleet OTA
+          #                      (becomes releases/latest -> mandatory).
+          #   vX.Y.Z-staging  -> Staging build (staging backend, updater
+          #                      disabled via .env.staging), published as
+          #                      a GitHub PRERELEASE, which releases/latest
+          #                      excludes -> no prod user is ever touched;
+          #                      testers install by direct link only.
+          # Binaries always carry the numeric core (AssemblyVersion=$(Version)
+          # cannot take a suffix).
+          if ($v -notmatch '^(\d+\.\d+\.\d+)(-staging)?$') {
+            throw "Bad version '$v' — want MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-staging"
+          }
+          $numeric = $Matches[1]
+          $isStaging = [bool]$Matches[2]
+          "version=$numeric" >> $env:GITHUB_OUTPUT
+          "fullversion=$v" >> $env:GITHUB_OUTPUT
+          "prerelease=$(if ($isStaging) { 'true' } else { 'false' })" >> $env:GITHUB_OUTPUT
+          "config=$(if ($isStaging) { 'Staging' } else { 'Release' })" >> $env:GITHUB_OUTPUT
 
       - name: Publish plugin (OTA payload, per-target subfolders)
         shell: pwsh
@@ -66,7 +83,7 @@ jobs:
           $yearMap = [ordered]@{}
           foreach ($tfm in $targets.Keys) {
             $sub = $targets[$tfm]
-            dotnet publish RevitWebAppSync.csproj -c Release -f $tfm -o "artifacts/plugin/$sub" -p:Version=$v
+            dotnet publish RevitWebAppSync.csproj -c '${{ steps.ver.outputs.config }}' -f $tfm -o "artifacts/plugin/$sub" -p:Version=$v
             if ($LASTEXITCODE -ne 0) { exit 1 }
             @{ version = $v; assembly = 'RevitWebAppSync.dll'; entryType = 'RevitWebAppSync.App' } |
               ConvertTo-Json | Set-Content "artifacts/plugin/$sub/manifest.json"
@@ -204,13 +221,28 @@ jobs:
           if ('${{ steps.engine.outputs.present }}' -eq 'true') {
             $engineAsset = @('${{ steps.engine.outputs.zip }}')
           }
-          gh release create "v$v" `
+          # Channel split:
+          #   -staging  -> immediate PRERELEASE (releases/latest never moves;
+          #                testers install by direct link only).
+          #   prod      -> DRAFT. CI assets are UNSIGNED and publishing them
+          #                would move releases/latest instantly — the fleet
+          #                OTA would pull an unsigned zip that SAC/WDAC
+          #                (Enforce) machines block at load (0x800711C7).
+          #                Sign + clobber the assets first (installer\
+          #                sign-release.ps1), then publish:
+          #                  gh release edit v<ver> --draft=false
+          $full = '${{ steps.ver.outputs.fullversion }}'
+          $chanFlag = @('--draft')
+          if ('${{ steps.ver.outputs.prerelease }}' -eq 'true') {
+            $chanFlag = @('--prerelease')
+          }
+          gh release create "v$full" `
             '${{ steps.payload.outputs.zip }}' `
             version.json `
             "RevitCopilot-$v-setup.exe" `
             RevitCopilotSetup.exe `
             @engineAsset `
-            --title "BINA Sync $v" --generate-notes
+            --title "BINA Sync $full" --generate-notes @chanFlag
 
       - name: Upload artifacts (manual runs)
         if: github.event_name == 'workflow_dispatch'

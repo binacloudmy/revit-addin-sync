@@ -48,7 +48,29 @@ namespace BinaLoader
         {
             var revitYear = application.ControlledApplication.VersionNumber;
             var attempted = 0;
-            Exception? lastError = null;
+            Exception? firstError = null;
+
+            // A RevitWebAppSync already in the process before we've loaded
+            // anything means ANOTHER manifest beat us to it — a leftover
+            // pre-loader RevitWebAppSync.addin (ProgramData / ApplicationPlugins,
+            // which the installer can't clean) or a second loader copy. Every
+            // LoadFrom of a different version would now die with the opaque
+            // "assembly with same name is already loaded" — name the culprit
+            // and the fix instead.
+            var preloaded = FindLoadedPlugin();
+            if (preloaded != null)
+            {
+                var loc = SafeLocation(preloaded);
+                Log($"RevitWebAppSync {preloaded.GetName().Version} was already loaded from '{loc}' before the loader ran — duplicate .addin manifest");
+                TaskDialog.Show("BINA Sync",
+                    "Two copies of BINA Sync are installed, so the newest version cannot load.\n\n" +
+                    $"An older copy was already loaded from:\n{loc}\n\n" +
+                    "Fix: remove the leftover .addin manifest that points at that file " +
+                    "(check %ProgramData%\\Autodesk\\Revit\\Addins and " +
+                    "%ProgramData%\\Autodesk\\ApplicationPlugins), then restart Revit.\n\n" +
+                    $"Details: {LogPath}");
+                return Result.Failed;
+            }
 
             foreach (var dir in CandidateDirs(revitYear))
             {
@@ -59,7 +81,10 @@ namespace BinaLoader
                 }
                 catch (Exception ex)
                 {
-                    lastError = ex;
+                    // The FIRST failure is the root cause: once a LoadFrom has
+                    // pulled RevitWebAppSync into the process, every OLDER
+                    // candidate fails with "same name already loaded" noise.
+                    firstError ??= ex;
                     Log($"load failed from '{dir}': {ex}");
                     continue; // half-staged or corrupt build — try the next-newest
                 }
@@ -90,7 +115,7 @@ namespace BinaLoader
                 Log($"{attempted} candidate build(s) found for Revit {revitYear}, none loadable");
                 TaskDialog.Show("BINA Sync",
                     $"BINA Sync is installed but failed to load in Revit {revitYear}.\n\n" +
-                    $"{lastError?.GetType().Name}: {lastError?.Message}\n\n" +
+                    $"{firstError?.GetType().Name}: {firstError?.Message}\n\n" +
                     $"Details: {LogPath}");
                 return Result.Failed;
             }
@@ -207,6 +232,26 @@ namespace BinaLoader
 
         private static Version? ParseVersion(string name) =>
             Version.TryParse(name, out var v) ? v : null;
+
+        /// <summary>The plugin assembly if some other manifest already loaded it
+        /// into this process, else null. Simple-name match — the loader itself
+        /// has loaded nothing yet when this runs.</summary>
+        private static Assembly? FindLoadedPlugin()
+        {
+            var name = Path.GetFileNameWithoutExtension(DefaultAssembly);
+            try
+            {
+                return AppDomain.CurrentDomain.GetAssemblies()
+                    .FirstOrDefault(a => string.Equals(a.GetName().Name, name, StringComparison.OrdinalIgnoreCase));
+            }
+            catch { return null; }
+        }
+
+        private static string SafeLocation(Assembly asm)
+        {
+            try { return string.IsNullOrEmpty(asm.Location) ? "(in-memory)" : asm.Location; }
+            catch { return "(unknown)"; }
+        }
 
         /// <summary>Best-effort: drop all but the newest <paramref name="keep"/>
         /// complete versions. A folder still locked by another running Revit

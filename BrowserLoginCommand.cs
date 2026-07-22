@@ -55,7 +55,7 @@ namespace RevitWebAppSync
                     // Never re-mints on every click while a healthy token exists,
                     // and never after a logout (that access token is being discarded).
                     if (!loggedOut &&
-                        !string.IsNullOrEmpty(config.GatewayUrl) &&
+                        !string.IsNullOrEmpty(config.ResolvedGatewayUrl) &&
                         DeviceTokenMissingOrExpiring(config))
                     {
                         _ = MintDeviceTokenAndRestartEngineAsync(config.AccessToken);
@@ -78,6 +78,8 @@ namespace RevitWebAppSync
                 }
                 catch (Exception ex)
                 {
+                    Services.TelemetryService.Track("auth", "login_failed",
+                        new { error_class = ex.GetType().Name });
                     TaskDialog.Show("Login Failed", $"Browser sign-in did not complete:\n{ex.Message}");
                     message = ex.Message;
                     return Result.Failed;
@@ -117,6 +119,7 @@ namespace RevitWebAppSync
                 config.ProjectId = 1;
                 config.ProjectName = "Demo";
                 config.Save();
+                Services.TelemetryService.SetUser(tokens.UserId);
 
                 // Engine credential (deployment spec B4/gateway spec A4): exchange the
                 // access token for a 14-day revocable device token, persist it, and
@@ -138,6 +141,8 @@ namespace RevitWebAppSync
             }
             catch (Exception ex)
             {
+                Services.TelemetryService.Track("auth", "login_failed",
+                    new { error_class = ex.GetType().Name });
                 TaskDialog.Show("Error", $"Login failed: {ex.Message}");
                 message = ex.Message;
                 return Result.Failed;
@@ -168,7 +173,7 @@ namespace RevitWebAppSync
         private static async Task MintDeviceTokenAndRestartEngineAsync(string accessToken)
         {
             var cfg = BinaConfig.Load();
-            if (string.IsNullOrEmpty(cfg.GatewayUrl))
+            if (string.IsNullOrEmpty(cfg.ResolvedGatewayUrl))
             {
                 System.Diagnostics.Debug.WriteLine(
                     "[BINA] GatewayUrl not configured — skipping engine device-token mint.");
@@ -181,7 +186,7 @@ namespace RevitWebAppSync
                 http.DefaultRequestHeaders.Authorization =
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
                 var resp = await http.PostAsync(
-                    cfg.GatewayUrl.TrimEnd('/') + "/auth/device-token", null).ConfigureAwait(false);
+                    cfg.ResolvedGatewayUrl + "/auth/device-token", null).ConfigureAwait(false);
                 if (resp.IsSuccessStatusCode)
                 {
                     var j = Newtonsoft.Json.Linq.JObject.Parse(

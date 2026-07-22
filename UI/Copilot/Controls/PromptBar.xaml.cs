@@ -1,4 +1,3 @@
-using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -92,35 +91,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // the editor — the mention picker opens from the editor's own logic.
             AtBtn.Click += (_, __) =>
             {
-                // Round-33: crash site is INSIDE this handler (breadcrumb showed
-                // "[at-btn] click" then process death; the typed-@ path is fine).
-                // Per-statement breadcrumbs + catch-log until the culprit line
-                // confesses; a caught exception here must never take Revit down.
-                // Instance hash distinguishes THIS bar from the Result/Library
-                // hosts' bars and from a rebuilt bar after "+ New chat" —
-                // round 37: three clicks all read len=0, which is only
-                // explainable if the text lands in a different/reset instance.
-                var log = new Action<string>(s => RevitWebAppSync.UI.Copilot.PanelDebugLog.Write("at-btn", "bar#" + GetHashCode() + " " + s));
-                log("click");
-                try
-                {
-                    var t = Input.Editor.Text ?? "";
-                    log("read-ok len=" + t.Length);
-                    Input.Editor.Text = t.Length > 0 && !char.IsWhiteSpace(t[t.Length - 1]) ? t + " @" : t + "@";
-                    log("set-ok");
-                    Input.Editor.CaretIndex = Input.Editor.Text.Length;
-                    log("caret-ok");
-                    Input.Editor.Focus();
-                    // TextChanged already fired with the caret still at 0, so
-                    // DetectToken bailed; re-run it now that the caret is after
-                    // the "@" — this is what actually opens the picker.
-                    Input.RefreshTokenDetection();
-                    log("done");
-                }
-                catch (Exception ex)
-                {
-                    log("EXCEPTION " + ex.GetType().FullName + ": " + ex.Message + "\n" + ex.StackTrace);
-                }
+                var t = Input.Editor.Text ?? "";
+                Input.Editor.Text = t.Length > 0 && !char.IsWhiteSpace(t[t.Length - 1]) ? t + " @" : t + "@";
+                Input.Editor.CaretIndex = Input.Editor.Text.Length;
+                Input.Editor.Focus();
             };
             AttachBtn.Click += (_, __) =>
             {
@@ -132,7 +106,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 };
                 if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
             };
-            MeterBtn.Click += (_, __) =>
+            PlanBtn.Click += (_, __) =>
             {
                 UsagePopup.IsOpen = !UsagePopup.IsOpen;
                 UsageMeterClicked?.Invoke();
@@ -204,11 +178,46 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// <summary>Raised by the popover's "Upgrade plan" button; host opens the upgrade sheet.</summary>
         public event System.Action UpgradeRequested;
 
-        /// <summary>Usage meter removed from the composer footer. Kept as a no-op
-        /// so existing callers still compile; the meter row stays hidden.</summary>
+        private CopilotViewModel _usageVm;
+
+        /// <summary>Wire the footer plan-name button + usage popover to the VM's
+        /// live usage snapshot. The full-width meter is gone; this renders the
+        /// plan label, the severity dot (amber ≥80, red ≥95, hidden below 80) and
+        /// the popover's bar / %. Re-renders on every UsageChanged.</summary>
         public void BindUsage(CopilotViewModel vm)
         {
-            MeterBtn.Visibility = Visibility.Collapsed;
+            if (_usageVm != null) _usageVm.UsageChanged -= OnUsageChanged;
+            _usageVm = vm;
+            if (_usageVm != null) _usageVm.UsageChanged += OnUsageChanged;
+            RenderUsage(vm?.Usage);
+        }
+
+        private void OnUsageChanged()
+        {
+            if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke((System.Action)OnUsageChanged); return; }
+            RenderUsage(_usageVm?.Usage);
+        }
+
+        private void RenderUsage(Model.UsageState u)
+        {
+            u = u ?? new Model.UsageState();
+            int pct = System.Math.Max(0, System.Math.Min(100, u.Pct));
+
+            // Footer plan-name button: live label + severity dot.
+            PlanLabel.Text = u.PlanName;
+            if (pct >= 80)
+            {
+                PlanDot.Visibility = Visibility.Visible;
+                PlanDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, pct >= 95 ? "Cp.Red" : "Cp.Amber");
+            }
+            else PlanDot.Visibility = Visibility.Collapsed;
+
+            // Usage popover: plan, % used, and the fill bar (severity colour).
+            PopPlan.Text = u.PlanName;
+            PopPctUsed.Text = pct + "%";
+            PopFillCol.Width = new System.Windows.GridLength(pct, System.Windows.GridUnitType.Star);
+            PopRestCol.Width = new System.Windows.GridLength(100 - pct, System.Windows.GridUnitType.Star);
+            PopFill.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, Model.UsageState.MeterColorKey(pct));
         }
 
         // ─── Pasted screenshots (pending, sent with the next prompt) ─────────

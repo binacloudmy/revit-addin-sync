@@ -165,8 +165,8 @@ namespace RevitWebAppSync.Services
             // Gateway env (colocate pipeline): defensive reads — Task 4 may not
             // have added these BinaConfig properties on every machine yet.
             var cfg = BinaConfig.Load();
-            if (!string.IsNullOrEmpty(cfg.GatewayUrl))
-                psi.Environment["BINA_GATEWAY_URL"] = cfg.GatewayUrl;
+            if (!string.IsNullOrEmpty(cfg.ResolvedGatewayUrl))
+                psi.Environment["BINA_GATEWAY_URL"] = cfg.ResolvedGatewayUrl;
             if (!string.IsNullOrEmpty(cfg.DeviceToken))
                 psi.Environment["BINA_ENGINE_TOKEN"] = cfg.DeviceToken;
 
@@ -224,6 +224,8 @@ namespace RevitWebAppSync.Services
             {
                 Status = "error:spawn-failed";
                 Debug.WriteLine("[BINA] engine failed to start: " + ex.Message);
+                Services.TelemetryService.Track("engine", "spawn_failed",
+                    new { error_class = ex.GetType().Name });
                 return;
             }
 
@@ -315,6 +317,8 @@ namespace RevitWebAppSync.Services
             catch (Exception ex)
             {
                 Debug.WriteLine("[BINA] engine watchdog respawn failed: " + ex.Message);
+                Services.TelemetryService.Track("engine", "respawn_failed",
+                    new { error_class = ex.GetType().Name });
             }
         }
 

@@ -9,15 +9,20 @@ using System.Windows.Shapes;
 namespace RevitWebAppSync.UI.Copilot.Controls
 {
     /// <summary>
-    /// "Choose your plan" bottom-sheet body: a peek carousel of the three plan
-    /// cards (Free / Basic / Pro) with drag, arrows and animated dots — the
+    /// "Choose your plan" bottom-sheet body: a peek carousel of the four plan
+    /// cards (Free / Plus / Pro / Pro Max) with drag, arrows and animated dots — the
     /// design's upgrade sheet. Animations use BeginAnimation on transforms
     /// (never XAML Storyboards, which crash in Revit dockable panes).
     /// </summary>
     public static class UpgradeSheet
     {
-        private const string UpgradeUrl = "https://billing.bina.cloud/upgrade";
-        private const string PricingUrl = "https://bina.cloud/pricing";
+        // The plugin landing page's pricing/checkout (subscription.astro) — the
+        // canonical source for tiers + purchase, matching this sheet's plan cards.
+        // Derived from the SAME web origin the addin uses for OAuth
+        // (LOGIN_WEB_URL / config LoginWebUrl) so a host change moves both
+        // together; hardcoding it here is what shipped a dead host once already.
+        private static string SubscriptionUrl =>
+            BinaConfig.Load().ResolvedLoginWebUrl.TrimEnd('/') + "/subscription/";
         private const double Gap = 12;
 
         private class PlanDef
@@ -30,19 +35,24 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private static readonly PlanDef[] Plans =
         {
             new PlanDef { Name = "Free", Price = "$0", IncLabel = "WHAT'S INCLUDED", CtaLabel = "Get started", Solid = false,
-                Features = new[] { "Limited usage", "Core Revit commands", "Chat history" } },
-            new PlanDef { Name = "Basic", Price = "$20", IncLabel = "WHAT'S INCLUDED", CtaLabel = "Upgrade to Basic", Solid = true, Recommended = true,
-                Features = new[] { "10× higher usage limit", "Faster responses", "Full Revit command library", "Chat history & exports", "Email support" } },
-            new PlanDef { Name = "Pro", Price = "$40", IncLabel = "EVERYTHING IN BASIC, PLUS", CtaLabel = "Upgrade to Pro", Solid = true,
-                Features = new[] { "Everything in Basic", "5× higher usage limit", "Priority responses", "Batch commands & automation", "Priority support" } },
+                Features = new[] { "500k tokens / month", "Core Revit commands", "Chat history" } },
+            new PlanDef { Name = "Plus", Price = "$25", IncLabel = "WHAT'S INCLUDED", CtaLabel = "Upgrade to Plus", Solid = true, Recommended = true,
+                Features = new[] { "Everything in Free", "10M tokens / month", "Bring-your-own family library", "Email support" } },
+            new PlanDef { Name = "Pro", Price = "$99", IncLabel = "EVERYTHING IN PLUS, AND", CtaLabel = "Upgrade to Pro", Solid = true,
+                Features = new[] { "Everything in Plus", "50M tokens / month", "Full single-source family library", "Priority support" } },
+            new PlanDef { Name = "Pro Max", Price = "$199", IncLabel = "EVERYTHING IN PRO, AND", CtaLabel = "Upgrade to Pro Max", Solid = true,
+                Features = new[] { "Everything in Pro", "100M tokens / month", "Built for heavy days and busy practices", "Priority support" } },
         };
 
-        /// <summary>Build the sheet BODY (the panel wraps it in its sheet chrome).</summary>
-        public static FrameworkElement Build()
+        /// <summary>Build the sheet BODY (the panel wraps it in its sheet chrome).
+        /// <paramref name="onCheckoutOpened"/> fires right after the billing page
+        /// is launched in the browser, so the panel can start polling for a plan
+        /// change (the browser round-trip has no callback of its own).</summary>
+        public static FrameworkElement Build(System.Action onCheckoutOpened = null)
         {
             var root = new StackPanel();
 
-            int active = 1; // Basic starts centered (design planIdx: 1)
+            int active = 1; // Plus starts centered (design planIdx: 1)
             var cards = new FrameworkElement[Plans.Length];   // card wrappers (shadow + card)
             var shadows = new Border[Plans.Length];           // soft lift, shown only under the active card
             var ctas = new Button[Plans.Length];
@@ -66,6 +76,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             for (int i = 0; i < Plans.Length; i++)
             {
                 var card = BuildCard(Plans[i], out var cta, out var shadow);
+                // A disabled CTA (current plan) doesn't raise Click, so the guard
+                // on the OpenUrl handler still holds; this only fires on a real
+                // checkout, letting the panel poll for the plan change.
+                cta.Click += (_, __) => onCheckoutOpened?.Invoke();
                 card.HorizontalAlignment = HorizontalAlignment.Center;
                 card.VerticalAlignment = VerticalAlignment.Top;
                 card.RenderTransformOrigin = new Point(0.5, 0.5);
@@ -194,7 +208,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Cursor = Cursors.Hand,
             };
             seeAll.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
-            seeAll.MouseLeftButtonDown += (_, __) => OpenUrl(PricingUrl);
+            seeAll.MouseLeftButtonDown += (_, __) => { OpenUrl(SubscriptionUrl); onCheckoutOpened?.Invoke(); };
             root.Children.Add(seeAll);
 
             root.Loaded += (_, __) =>
@@ -278,7 +292,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 HorizontalAlignment = HorizontalAlignment.Stretch, BorderThickness = new Thickness(0),
             };
             var ctaLocal = cta;
-            cta.Click += (_, __) => { if (ctaLocal.IsEnabled) OpenUrl(UpgradeUrl); };
+            cta.Click += (_, __) => { if (ctaLocal.IsEnabled) OpenUrl(SubscriptionUrl); };
             SetCtaContent(cta, p, arrow: p.Solid);
             body.Children.Add(cta);
 

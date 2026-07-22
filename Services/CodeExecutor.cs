@@ -140,6 +140,8 @@ namespace RevitWebAppSync.Services
             catch (TargetInvocationException ex)
             {
                 var innerEx = ex.InnerException ?? ex;
+                Services.TelemetryService.Track("tool_exec", "failed",
+                    new { tool = "codegen", error_class = innerEx.GetType().Name });
                 return new ExecutionResult
                 {
                     Success = false,
@@ -150,6 +152,8 @@ namespace RevitWebAppSync.Services
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"[BinaVibe][timing] codegen COMPILE FAILED — {ex.Message}");
+                Services.TelemetryService.Track("tool_exec", "failed",
+                    new { tool = "codegen", error_class = "CompilationException" });
                 return new ExecutionResult
                 {
                     Success = false,
@@ -158,6 +162,8 @@ namespace RevitWebAppSync.Services
             }
             catch (Exception ex)
             {
+                Services.TelemetryService.Track("tool_exec", "failed",
+                    new { tool = "codegen", error_class = ex.GetType().Name });
                 return new ExecutionResult
                 {
                     Success = false,
@@ -772,16 +778,8 @@ namespace RevitWebAppSync.Services
         }
     }
 
-    public class ExecutionResult
-    {
-        public bool Success { get; set; }
-        public string Message { get; set; }
-        public string Error { get; set; }
-
-        /// <summary>JSON of the snippet's structured return value (real model data), when it
-        /// returned an object/array rather than a status string. Drives the Copilot result card.</summary>
-        public string Data { get; set; }
-    }
+    // ExecutionResult lives in ExecutionResult.cs — it is a dependency-free DTO,
+    // and this file pulls in Revit + Roslyn, which the unit tests can't reference.
 
     public class CompilationException : Exception
     {

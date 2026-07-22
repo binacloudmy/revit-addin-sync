@@ -113,111 +113,6 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
-        /// Send prompt to NestJS backend and get generated code.
-        /// </summary>
-        public async Task<AIResponse> GenerateCodeAsync(
-            AIRequest request,
-            string accessToken,
-            CancellationToken cancellationToken = default)
-        {
-            try
-            {
-                var json = JsonConvert.SerializeObject(request);
-                using var httpRequest = new HttpRequestMessage(HttpMethod.Post, AiUrl.Build(_baseUrl, "generate"))
-                {
-                    Content = new StringContent(json, Encoding.UTF8, "application/json")
-                };
-
-                if (!string.IsNullOrEmpty(accessToken))
-                {
-                    httpRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-                }
-
-                var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-                var responseBody = await response.Content.ReadAsStringAsync();
-
-                if (response.IsSuccessStatusCode)
-                {
-                    return JsonConvert.DeserializeObject<AIResponse>(responseBody);
-                }
-
-                if (response.StatusCode == HttpStatusCode.Unauthorized)
-                {
-                    return new AIResponse
-                    {
-                        Success = false,
-                        Error = "Session expired. Please log in again."
-                    };
-                }
-
-                // 402 — monthly AI quota reached (PRD §10). Resets on the 1st.
-                if (response.StatusCode == HttpStatusCode.PaymentRequired)
-                {
-                    return new AIResponse
-                    {
-                        Success = false,
-                        Error = "You've used all your AI requests for this month. Your quota resets on the 1st."
-                    };
-                }
-
-                // 429 — burst limit; the addin should back off and retry shortly.
-                if ((int)response.StatusCode == 429) // TooManyRequests (member absent on net48)
-                {
-                    return new AIResponse
-                    {
-                        Success = false,
-                        Error = "Too many requests in a short time. Please wait a moment and try again."
-                    };
-                }
-
-                try
-                {
-                    return JsonConvert.DeserializeObject<AIResponse>(responseBody);
-                }
-                catch
-                {
-                    return new AIResponse
-                    {
-                        Success = false,
-                        Error = $"HTTP {(int)response.StatusCode}: {responseBody}"
-                    };
-                }
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                return new AIResponse
-                {
-                    Success = false,
-                    Error = "Cancelled."
-                };
-            }
-            catch (TaskCanceledException)
-            {
-                return new AIResponse
-                {
-                    Success = false,
-                    Error = "Request timed out. Please try again."
-                };
-            }
-            catch (HttpRequestException ex)
-            {
-                return new AIResponse
-                {
-                    Success = false,
-                    Error = $"Connection error: {ex.Message}. Is the backend running?"
-                };
-            }
-            catch (Exception ex)
-            {
-                return new AIResponse
-                {
-                    Success = false,
-                    Error = $"Error: {ex.Message}"
-                };
-            }
-        }
-
-        /// <summary>
         /// Unified Copilot entry point — classifies intent and returns an ordered
         /// list of actions for the addin to dispatch. POST /agents/revit-ai/route.
         /// </summary>
@@ -267,7 +162,7 @@ namespace RevitWebAppSync.Services
 
         /// <summary>
         /// Ask the backend to fix code that failed to compile or execute. Returns
-        /// the corrected code in the same shape as <see cref="GenerateCodeAsync"/>.
+        /// the corrected code as an <see cref="AIResponse"/>.
         /// </summary>
         public async Task<AIResponse> RetryCodeAsync(
             string originalPrompt, string failedCode, string errorMessage, int attempt,
@@ -457,6 +352,10 @@ namespace RevitWebAppSync.Services
             [JsonProperty("used")] public int Used { get; set; }
             [JsonProperty("monthly_limit")] public int Limit { get; set; }
             [JsonProperty("unlimited")] public bool Unlimited { get; set; }
+            // Plan/tier name (pricing v2: Free / Basic / Plus / Pro / Pro Max).
+            // Absent on older backends → UsageState.FromCredits falls back to
+            // inferring Free / Pro Max from the usage counts.
+            [JsonProperty("plan")] public string Plan { get; set; }
             [JsonProperty("remaining")] public int? Remaining { get; set; }
             [JsonProperty("resets_at")] public string ResetsAt { get; set; }
         }

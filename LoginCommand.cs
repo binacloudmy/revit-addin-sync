@@ -87,6 +87,8 @@ namespace RevitWebAppSync
             }
             catch (Exception ex)
             {
+                Services.TelemetryService.Track("auth", "login_failed",
+                    new { error_class = ex.GetType().Name });
                 TaskDialog.Show("Error", $"Login failed: {ex.Message}");
                 message = ex.Message;
                 return Result.Failed;

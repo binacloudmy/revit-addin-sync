@@ -60,11 +60,11 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void CanAccept_HighDenied_OthersAllowed()
+        public void CanIgnore_HighDenied_OthersAllowed()
         {
-            Assert.False(JkrTierMap.CanAccept(IssuePriority.High));
-            Assert.True(JkrTierMap.CanAccept(IssuePriority.Medium));
-            Assert.True(JkrTierMap.CanAccept(IssuePriority.Low));
+            Assert.False(JkrTierMap.CanIgnore(IssuePriority.High));
+            Assert.True(JkrTierMap.CanIgnore(IssuePriority.Medium));
+            Assert.True(JkrTierMap.CanIgnore(IssuePriority.Low));
         }
 
         [Fact]

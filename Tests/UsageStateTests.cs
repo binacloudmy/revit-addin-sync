@@ -42,11 +42,13 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void FromCredits_Unlimited_IsZeroPro()
+        public void FromCredits_Unlimited_IsInternalOverride()
         {
+            // v2 has no unlimited TIER — an uncapped wallet is an admin override,
+            // so it must NOT be labelled as a purchasable plan.
             var s = UsageState.FromCredits(true, 999, 0);
             Assert.Equal(0, s.Pct);
-            Assert.Equal("Pro", s.PlanName);
+            Assert.Equal("Unlimited (internal)", s.PlanName);
             Assert.False(s.AtLimit);
         }
     }

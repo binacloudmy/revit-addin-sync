@@ -38,6 +38,13 @@ namespace RevitWebAppSync
         // bina-ai backend during development). Default false = unchanged behavior.
         public bool AllowNgrokAIBaseUrl { get; set; }
 
+        // UAT opt-in: by default a config.json override pointing at one of OUR
+        // *.azurewebsites.net hosts follows the embedded .env (that is how the
+        // fleet migrates across backend cutovers). Set this true in config.json
+        // to deliberately steer THIS machine at a specific backend (e.g. a
+        // Release build against staging during UAT). Default false = env wins.
+        public bool AllowBackendOverride { get; set; }
+
         // OTA update feed (version.json). Empty default = updater disabled
         // until a host is chosen; overridable via config.json like the URLs
         // above, so enabling updates later needs no rebuild.
@@ -107,7 +114,7 @@ namespace RevitWebAppSync
         // fallbacks if the key is missing from the env file. API + AI + login all
         // share BASE_URL — they're the same host. config.json still overrides.
         public static string DEFAULT_AI_BASE_URL =>
-            Env("BASE_URL") ?? "https://bina-ai-staging.azurewebsites.net";
+            Env("BASE_URL") ?? "https://bina-ai-prod.azurewebsites.net";
         public static string DEFAULT_API_BASE_URL => DEFAULT_AI_BASE_URL;
         // BINA web login origin for the desktop OAuth browser flow. Override via
         // the LOGIN_WEB_URL env key or config.json once the real origin is known.
@@ -135,6 +142,8 @@ namespace RevitWebAppSync
         {
 #if DEBUG
             const string resource = "env.local";
+#elif STAGING
+            const string resource = "env.staging";
 #else
             const string resource = "env.production";
 #endif
@@ -162,45 +171,37 @@ namespace RevitWebAppSync
             return map;
         }
 
-        [JsonIgnore]
-        public string ResolvedAIBaseUrl
-        {
-            // Ignore stale ngrok overrides left in config.json — the addin now
-            // targets the cloud (DEFAULT_AI_BASE_URL = staging). A leftover ngrok
-            // AIBaseUrl points at a dead local tunnel (HTTP 502 / ERR_NGROK_8012),
-            // so by default we honor only a real, non-ngrok custom override.
-            // Devs can opt in to a live ngrok tunnel via AllowNgrokAIBaseUrl=true.
-            get
-            {
-                if (string.IsNullOrWhiteSpace(AIBaseUrl)) return DEFAULT_AI_BASE_URL;
-                bool isNgrok = AIBaseUrl.IndexOf("ngrok", StringComparison.OrdinalIgnoreCase) >= 0;
-                if (isNgrok && !AllowNgrokAIBaseUrl) return DEFAULT_AI_BASE_URL;
-                return AIBaseUrl;
-            }
-        }
+        // --- Env-first resolution -------------------------------------------
+        // Rules live in Services/UrlResolution.cs (pure, unit-tested): a
+        // persisted override pointing at one of OUR *.azurewebsites.net hosts
+        // follows the embedded .env; only genuinely custom values (self-
+        // hosted, dev tunnel, localhost engine) are honored from config.json.
+        // This is what moves an already-configured fleet across a backend
+        // cutover with nothing but a new build.
 
         [JsonIgnore]
-        public string ResolvedCloudBaseUrl
-        {
+        public string ResolvedAIBaseUrl =>
+            Services.UrlResolution.ResolveAIBase(
+                AIBaseUrl, AllowNgrokAIBaseUrl, DEFAULT_AI_BASE_URL,
+                AllowBackendOverride);
+
+        // Gateway base the engine + device-token flows must use. Empty stays
+        // empty (gateway features are gated on it being configured at all).
+        [JsonIgnore]
+        public string ResolvedGatewayUrl =>
+            Services.UrlResolution.ResolveGateway(
+                GatewayUrl, DEFAULT_AI_BASE_URL, AllowBackendOverride);
+
+        [JsonIgnore]
+        public string ResolvedCloudBaseUrl =>
             // The CLOUD bina-ai host, for features the local engine does not
             // serve. In engine mode AIBaseUrl points at the LOCAL engine
             // (localhost:48810), which mounts ONLY the tool loop + feedback —
             // auth (PKCE 404, first zero-config UAT 2026-07-13), JKR/fire
             // compliance ("Scan failed: NotFound", same day), cost analysis
             // and /credits/balance all live cloud-side only.
-            //   1. GatewayUrl (colocate: the gateway is the cloud) when set;
-            //   2. else ResolvedAIBaseUrl unless it's loopback (cloud mode —
-            //      unchanged behavior);
-            //   3. else the built-in cloud default.
-            get
-            {
-                if (!string.IsNullOrWhiteSpace(GatewayUrl)) return GatewayUrl.TrimEnd('/');
-                var ai = ResolvedAIBaseUrl ?? "";
-                bool isLoopback = ai.IndexOf("localhost", StringComparison.OrdinalIgnoreCase) >= 0
-                               || ai.IndexOf("127.0.0.1", StringComparison.OrdinalIgnoreCase) >= 0;
-                return isLoopback ? DEFAULT_AI_BASE_URL : ai;
-            }
-        }
+            Services.UrlResolution.ResolveCloudBase(
+                ResolvedGatewayUrl, ResolvedAIBaseUrl, DEFAULT_AI_BASE_URL);
 
         // Token-issuing base (login page api= param, /auth/*). Named alias so
         // auth call sites read as auth; it IS the cloud base.
@@ -209,36 +210,20 @@ namespace RevitWebAppSync
 
         [JsonIgnore]
         public string ResolvedApiBaseUrl =>
-            // Filter out localhost/loopback values left in config.json from dev
-            // sessions — they resolve to a dead local port on user machines and
-            // silently break login + credit allocation.
-            (!string.IsNullOrWhiteSpace(ApiBaseUrl) &&
-             ApiBaseUrl.IndexOf("localhost", StringComparison.OrdinalIgnoreCase) < 0 &&
-             ApiBaseUrl.IndexOf("127.0.0.1", StringComparison.OrdinalIgnoreCase) < 0)
-                ? ApiBaseUrl : DEFAULT_API_BASE_URL;
+            Services.UrlResolution.ResolveApiBase(
+                ApiBaseUrl, DEFAULT_API_BASE_URL, AllowBackendOverride);
 
+        // Login must open the real web origin (plugins.jkrbinaxone.com),
+        // never a dead local page left by dev testing.
         [JsonIgnore]
-        public string ResolvedLoginWebUrl
-        {
-            // Ignore stale localhost/loopback overrides left in config.json from dev
-            // testing — login must open the real web origin (plugins.jkrbinaxone.com),
-            // never a dead local page. A leftover "http://localhost:..." LoginWebUrl
-            // would otherwise hijack the browser sign-in. Honor only a real,
-            // non-loopback custom override.
-            get
-            {
-                if (string.IsNullOrWhiteSpace(LoginWebUrl)) return DEFAULT_LOGIN_WEB_URL;
-                bool isLoopback =
-                    LoginWebUrl.IndexOf("localhost", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    LoginWebUrl.IndexOf("127.0.0.1", StringComparison.OrdinalIgnoreCase) >= 0;
-                if (isLoopback) return DEFAULT_LOGIN_WEB_URL;
-                return LoginWebUrl;
-            }
-        }
+        public string ResolvedLoginWebUrl =>
+            Services.UrlResolution.ResolveLoginWeb(
+                LoginWebUrl, DEFAULT_LOGIN_WEB_URL, AllowBackendOverride);
 
         [JsonIgnore]
         public string ResolvedUpdateFeedUrl =>
-            !string.IsNullOrWhiteSpace(UpdateFeedUrl) ? UpdateFeedUrl : DEFAULT_UPDATE_FEED_URL;
+            Services.UrlResolution.ResolveUpdateFeed(
+                UpdateFeedUrl, DEFAULT_UPDATE_FEED_URL, AllowBackendOverride);
 
         // Sign-in URL. config.json LoginUrl > LOGIN_URL env > base + default path.
         [JsonIgnore]
