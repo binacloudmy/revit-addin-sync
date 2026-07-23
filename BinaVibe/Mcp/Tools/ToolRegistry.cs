@@ -62,6 +62,17 @@ namespace BinaVibe.Mcp.Tools
                 "list_phases"                   => Inspectors.ListPhases(doc),
                 "list_design_options"           => Inspectors.ListDesignOptions(doc),
                 "list_rvt_links"                => Inspectors.ListRvtLinks(doc),
+                // DWG reads — see DwgReader for the fidelity ceiling. Every
+                // arm takes a dwg_ref: "model:<id>" for CAD in the model,
+                // "att:<guid>" for a drawing the pane attached.
+                "list_cad_links"                => Inspectors.ListCadLinks(doc),
+                "get_dwg_summary"               => DwgSummary(app, doc, args),
+                "get_dwg_layer_detail"          => DwgLayerDetail(app, doc, args),
+                "get_dwg_blocks"                => DwgBlocks(app, doc, args),
+                // Pane-only: opens an attached DWG and hands back its ref +
+                // summary. Deliberately NOT advertised to the model (it takes a
+                // local file path), so it has no entry in the agent's catalog.
+                "dwg_open_attachment"           => DwgOpenAttachment(app, args),
                 "list_revisions"                => Inspectors.ListRevisions(doc),
                 "list_model_groups"             => Inspectors.ListModelGroups(doc),
                 "get_sheet_viewports"           => Inspectors.GetSheetViewports(doc, args),
@@ -161,6 +172,64 @@ namespace BinaVibe.Mcp.Tools
                 ["error"] = $"tool {tool} not implemented yet",
                 ["status"] = "not_implemented",
             };
+
+        // ─── DWG dispatch ───────────────────────────────────────────────
+        // One resolver behind every DWG tool so in-model CAD and an attached
+        // drawing are indistinguishable downstream — DwgReader never learns
+        // which source it is reading.
+
+        private static T WithDwg<T>(UIApplication app, Document doc, string dwgRef,
+                                    Func<Document, ImportInstance, string, T> body)
+        {
+            if (string.IsNullOrWhiteSpace(dwgRef))
+                throw new InvalidOperationException(
+                    "dwg_ref is required — call list_cad_links, or use the ref from the [Attached DWG] block");
+
+            if (DwgScratchCache.IsAttachmentRef(dwgRef))
+                return DwgScratchCache.Use(app, dwgRef, (d, imp) => body(d, imp, "attachment"));
+
+            var raw = dwgRef.StartsWith("model:", StringComparison.OrdinalIgnoreCase)
+                ? dwgRef.Substring("model:".Length) : dwgRef;
+            if (!long.TryParse(raw, out var id))
+                throw new InvalidOperationException(
+                    "bad dwg_ref '" + dwgRef + "' — expected \"model:<id>\" or \"att:<guid>\"");
+            if (doc.GetElement(ElemIds.From(id)) is not ImportInstance imp2)
+                throw new InvalidOperationException(
+                    "no CAD import with id " + id + " in this model — call list_cad_links for the current refs");
+            return body(doc, imp2, imp2.IsLinked ? "model_link" : "model_import");
+        }
+
+        private static Dictionary<string, object?> DwgSummary(UIApplication app, Document doc, JsonElement args)
+        {
+            var dwgRef = ArgsHelp.GetString(args, "dwg_ref") ?? "";
+            return WithDwg(app, doc, dwgRef, (d, imp, source) => DwgReader.Summarize(d, imp, dwgRef, source));
+        }
+
+        private static Dictionary<string, object?> DwgLayerDetail(UIApplication app, Document doc, JsonElement args)
+        {
+            var dwgRef = ArgsHelp.GetString(args, "dwg_ref") ?? "";
+            var layer = ArgsHelp.GetString(args, "layer") ?? "";
+            var limit = (int)(ArgsHelp.GetLong(args, "limit") ?? 200);
+            return WithDwg(app, doc, dwgRef, (d, imp, _) => DwgReader.LayerDetail(d, imp, dwgRef, layer, limit));
+        }
+
+        private static Dictionary<string, object?> DwgBlocks(UIApplication app, Document doc, JsonElement args)
+        {
+            var dwgRef = ArgsHelp.GetString(args, "dwg_ref") ?? "";
+            var limit = (int)(ArgsHelp.GetLong(args, "limit") ?? 100);
+            return WithDwg(app, doc, dwgRef, (d, imp, _) => DwgReader.BlockInstances(d, imp, dwgRef, limit));
+        }
+
+        // Pane path: attach -> ref + summary in one call, so the composer can
+        // embed the summary in the turn without a second round-trip.
+        private static Dictionary<string, object?> DwgOpenAttachment(UIApplication app, JsonElement args)
+        {
+            var path = ArgsHelp.GetString(args, "path") ?? "";
+            var dwgRef = DwgScratchCache.OpenAttachment(app, path);
+            var doc = app.ActiveUIDocument?.Document
+                ?? throw new InvalidOperationException("no active document — open a Revit project first");
+            return WithDwg(app, doc, dwgRef, (d, imp, source) => DwgReader.Summarize(d, imp, dwgRef, source));
+        }
 
         // ─── generic-tool arg remapping ─────────────────────────────────
         // Rebuild an args object with generic-contract keys renamed to the

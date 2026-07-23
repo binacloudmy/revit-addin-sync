@@ -70,8 +70,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     if (_files.Count > 0)
                     {
                         var files = new System.Collections.Generic.List<RevitWebAppSync.UI.Copilot.Model.FileAttachment>();
-                        foreach (var (fname, fcontent) in _files)
-                            files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment(fname, fcontent));
+                        foreach (var (fname, fcontent, fpath) in _files)
+                            files.Add(fpath != null
+                                ? RevitWebAppSync.UI.Copilot.Model.FileAttachment.ForDrawing(fname, fpath)
+                                : new RevitWebAppSync.UI.Copilot.Model.FileAttachment(fname, fcontent));
                         pp.Files = files;
                         _files.Clear();
                     }
@@ -101,7 +103,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var dlg = new Microsoft.Win32.OpenFileDialog
                 {
                     Multiselect = true,
-                    Filter = "Text files|*.txt;*.csv;*.md;*.log;*.json;*.xml",
+                    Filter = "Text and drawing files|*.txt;*.csv;*.md;*.log;*.json;*.xml;*.dwg;*.dxf"
+                           + "|Text files|*.txt;*.csv;*.md;*.log;*.json;*.xml"
+                           + "|Drawings|*.dwg;*.dxf",
                     Title = "Attach file(s)",
                 };
                 if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
@@ -232,9 +236,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private static readonly System.Collections.Generic.HashSet<string> SupportedExtensions
             = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
               { ".txt", ".csv", ".md", ".log", ".json", ".xml" };
+        // Drawings are read by Revit, not by us: no text read, no size cap —
+        // only the path travels, and only as far as the local tool server.
+        private static readonly System.Collections.Generic.HashSet<string> DrawingExtensions
+            = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
+              { ".dwg", ".dxf" };
         private const long MaxFileBytes = 32 * 1024;
-        private readonly System.Collections.Generic.List<(string Name, string Content)> _files
-            = new System.Collections.Generic.List<(string, string)>();
+        // Path is non-null for drawings only; Content is non-null for text only.
+        private readonly System.Collections.Generic.List<(string Name, string Content, string Path)> _files
+            = new System.Collections.Generic.List<(string, string, string)>();
 
         private void AddImage(System.Windows.Media.Imaging.BitmapSource img)
         {
@@ -254,11 +264,21 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             foreach (var path in paths)
             {
                 var ext = System.IO.Path.GetExtension(path);
-                if (!SupportedExtensions.Contains(ext)) continue;
                 var info = new System.IO.FileInfo(path);
-                if (!info.Exists || info.Length > MaxFileBytes) continue;
+                if (!info.Exists) continue;
+
+                if (DrawingExtensions.Contains(ext))
+                {
+                    // Binary — never ReadAllText it, and the 32KB cap doesn't
+                    // apply: nothing but the path leaves this method.
+                    _files.Add((System.IO.Path.GetFileName(path), null, path));
+                    continue;
+                }
+
+                if (!SupportedExtensions.Contains(ext)) continue;
+                if (info.Length > MaxFileBytes) continue;
                 var content = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8);
-                _files.Add((System.IO.Path.GetFileName(path), content));
+                _files.Add((System.IO.Path.GetFileName(path), content, null));
             }
             RebuildThumbStrip();
         }
@@ -277,14 +297,17 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 ThumbStrip.Children.Add(chip);
             }
 
-            foreach (var (name, content) in _files)
+            foreach (var (name, content, path) in _files)
             {
                 var capturedName = name;
-                var chip = AttachmentChip.ForFile(name, content, () =>
+                System.Action remove = () =>
                 {
                     _files.RemoveAll(f => f.Name == capturedName);
                     RebuildThumbStrip();
-                });
+                };
+                var chip = path != null
+                    ? AttachmentChip.ForDrawing(name, remove)
+                    : AttachmentChip.ForFile(name, content, remove);
                 chip.Margin = new Thickness(0, 0, 6, 0);
                 ThumbStrip.Children.Add(chip);
             }

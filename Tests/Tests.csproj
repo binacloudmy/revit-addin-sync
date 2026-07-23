@@ -55,6 +55,10 @@
     <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
     <Compile Include="..\Services\VettedToolCode.cs" Link="VettedToolCode.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotModels.cs" Link="CopilotModels.cs" />
+    <!-- RouteText: the attachment wire format the backend parses ([Attached:] /
+         [Attached DWG:] blocks). Pure StringBuilder logic, split out of
+         CopilotViewModel precisely so it compiles here. -->
+    <Compile Include="..\UI\Copilot\Model\RouteText.cs" Link="RouteText.cs" />
     <!-- MentionToken: pure @-mention token parsing/matching (System only) split
          out of MentionInput so the picker rules are testable without WPF. -->
     <Compile Include="..\UI\Copilot\Model\MentionToken.cs" Link="MentionToken.cs" />

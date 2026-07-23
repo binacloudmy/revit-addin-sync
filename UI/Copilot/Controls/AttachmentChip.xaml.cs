@@ -63,6 +63,23 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return ForFile(name, lines, onRemove);
         }
 
+        /// <summary>Chip for an attached drawing. A DWG has no line count — it is
+        /// read by Revit, not by us — so the sub-label says what it is instead.</summary>
+        public static AttachmentChip ForDrawing(string name, Action onRemove = null)
+        {
+            string ext = Path.GetExtension(name).TrimStart('.').ToUpperInvariant();
+            if (string.IsNullOrEmpty(ext)) ext = "DWG";
+            return new AttachmentChip
+            {
+                IsImage    = false,
+                FileName   = Path.GetFileNameWithoutExtension(name),
+                FileType   = ext,
+                LineInfo   = "drawing",
+                ShowRemove = onRemove != null,
+                OnRemove   = onRemove,
+            };
+        }
+
         /// <summary>Build a file chip from a precomputed line count — used when the
         /// content isn't available (e.g. redrawing from persisted run history).</summary>
         public static AttachmentChip ForFile(string name, int lines, Action onRemove = null)

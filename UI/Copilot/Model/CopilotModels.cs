@@ -202,14 +202,36 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public bool ActionsResolved;
     }
 
-    /// <summary>A text file attached to a prompt. Content is sent to the backend
+    /// <summary>What an attachment carries. Text files travel as CONTENT (read
+    /// at attach time, embedded in the route text). Drawings travel as a PATH
+    /// only — a DWG is binary and huge, so Revit reads it locally and the turn
+    /// carries a compact summary instead of any file bytes.</summary>
+    public enum AttachmentKind { Text, Dwg }
+
+    /// <summary>A file attached to a prompt. Content is sent to the backend
     /// (embedded in the route text) but never shown as raw text in the chat bubble.</summary>
     public class FileAttachment
     {
         public string Name;
         public string Content;
+        public AttachmentKind Kind = AttachmentKind.Text;
+        // Local path — set for Dwg attachments only (never sent to the backend).
+        public string Path;
+        // Resolved by the pane before the turn is sent: "att:<guid>" for a
+        // drawing opened into a scratch document, or "model:<id>" when the same
+        // drawing turns out to be linked in the open model already. The agent
+        // uses it as the handle for get_dwg_summary / get_dwg_layer_detail.
+        public string DwgRef;
+        // Compact dwg.summary/1 JSON, or null when the drawing could not be read.
+        public string DwgSummaryJson;
+        // Drafter-readable reason the drawing could not be read (null on success).
+        public string DwgError;
+
         public FileAttachment() { }
         public FileAttachment(string name, string content) { Name = name; Content = content; }
+
+        public static FileAttachment ForDrawing(string name, string path) =>
+            new FileAttachment { Name = name, Path = path, Kind = AttachmentKind.Dwg };
     }
 
     /// <summary>Composed prompt-bar submission: text plus any screenshots the user

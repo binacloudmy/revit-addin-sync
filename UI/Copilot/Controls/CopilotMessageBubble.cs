@@ -58,7 +58,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var fileStrip = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
                 foreach (var f in files)
                 {
-                    var chip = AttachmentChip.ForFile(f.Name, f.Lines);
+                    // Lines < 0 marks a drawing — it has no line count (Revit
+                    // read it, we never held its text).
+                    var chip = f.Lines < 0
+                        ? AttachmentChip.ForDrawing(f.Name)
+                        : AttachmentChip.ForFile(f.Name, f.Lines);
                     chip.Margin = new Thickness(0, 0, 6, 0);
                     fileStrip.Children.Add(chip);
                 }
