@@ -73,6 +73,14 @@ namespace BinaVibe.Mcp.Tools
                 // summary. Deliberately NOT advertised to the model (it takes a
                 // local file path), so it has no entry in the agent's catalog.
                 "dwg_open_attachment"           => DwgOpenAttachment(app, args),
+                // PDF reads — no Revit document involved, but routed through the
+                // same registry so tracing, the resume loop and the tool manifest
+                // work exactly as for every other tool.
+                "get_pdf_summary"               => PdfSummary(args),
+                "get_pdf_page_text"             => PdfPage(args),
+                "search_pdf"                    => PdfSearch(args),
+                // Pane-only, like dwg_open_attachment: takes a local file path.
+                "pdf_open_attachment"           => PdfOpenAttachment(args),
                 "list_revisions"                => Inspectors.ListRevisions(doc),
                 "list_model_groups"             => Inspectors.ListModelGroups(doc),
                 "get_sheet_viewports"           => Inspectors.GetSheetViewports(doc, args),
@@ -229,6 +237,49 @@ namespace BinaVibe.Mcp.Tools
             var doc = app.ActiveUIDocument?.Document
                 ?? throw new InvalidOperationException("no active document — open a Revit project first");
             return WithDwg(app, doc, dwgRef, (d, imp, source) => DwgReader.Summarize(d, imp, dwgRef, source));
+        }
+
+        // ─── PDF dispatch ───────────────────────────────────────────────
+        // Mirrors the DWG block above: one resolver, then thin arms. The ref
+        // namespace is "pdf:<guid>" — a PDF only ever comes from an attachment,
+        // so there is no in-model form to disambiguate.
+
+        private static T WithPdf<T>(JsonElement args, Func<PdfDoc, string, T> body)
+        {
+            var pdfRef = ArgsHelp.GetString(args, "pdf_ref") ?? "";
+            if (string.IsNullOrWhiteSpace(pdfRef))
+                throw new InvalidOperationException(
+                    "pdf_ref is required — use the ref from the [Attached PDF] block");
+            if (!PdfAttachmentCache.IsAttachmentRef(pdfRef))
+                throw new InvalidOperationException(
+                    "bad pdf_ref '" + pdfRef + "' — expected \"pdf:<guid>\"");
+            return PdfAttachmentCache.Use(pdfRef, doc => body(doc, pdfRef));
+        }
+
+        private static Dictionary<string, object?> PdfSummary(JsonElement args) =>
+            WithPdf(args, (doc, pdfRef) => PdfReader.Summarize(doc, pdfRef));
+
+        private static Dictionary<string, object?> PdfPage(JsonElement args)
+        {
+            var page = (int)(ArgsHelp.GetLong(args, "page") ?? 1);
+            var maxChars = (int)(ArgsHelp.GetLong(args, "max_chars") ?? 4000);
+            return WithPdf(args, (doc, pdfRef) => PdfReader.PageContent(doc, pdfRef, page, maxChars));
+        }
+
+        private static Dictionary<string, object?> PdfSearch(JsonElement args)
+        {
+            var query = ArgsHelp.GetString(args, "query") ?? "";
+            var limit = (int)(ArgsHelp.GetLong(args, "limit") ?? 10);
+            return WithPdf(args, (doc, pdfRef) => PdfReader.Search(doc, pdfRef, query, limit));
+        }
+
+        // Pane path: attach -> ref + summary in one call, so the composer can
+        // embed the summary in the turn without a second round-trip.
+        private static Dictionary<string, object?> PdfOpenAttachment(JsonElement args)
+        {
+            var path = ArgsHelp.GetString(args, "path") ?? "";
+            var pdfRef = PdfAttachmentCache.OpenAttachment(path);
+            return PdfAttachmentCache.Use(pdfRef, doc => PdfReader.Summarize(doc, pdfRef));
         }
 
         // ─── generic-tool arg remapping ─────────────────────────────────

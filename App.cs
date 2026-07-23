@@ -571,8 +571,10 @@ namespace RevitWebAppSync
             try { VibeIndexer?.Dispose(); } catch { }
 
             // Scratch documents opened to read attached DWGs — left open they
-            // hold a file lock and show up in Revit's window list.
+            // hold a file lock and show up in Revit's window list. Attached-PDF
+            // text goes with them (whole spec documents held as strings).
             try { BinaVibe.Mcp.Tools.DwgScratchCache.CloseAll(); } catch { }
+            try { BinaVibe.Mcp.Tools.PdfAttachmentCache.CloseAll(); } catch { }
 
             // 'clean' shutdown marker: a session with 'started' but neither
             // 'ready' nor 'clean' reads as a dirty exit in the scorecard.

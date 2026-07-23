@@ -16,36 +16,34 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// The text-file block is byte-for-byte identical to the legacy PromptBar
         /// concatenation — the backend sees exactly the same input it always did.
         ///
-        /// Drawings get their own block: the dwg_ref (the agent's handle for
-        /// get_dwg_summary / get_dwg_layer_detail / get_dwg_blocks) plus the
-        /// compact summary Revit produced — never file bytes. A drawing that
-        /// could NOT be read still gets a block saying so, so the agent reports
-        /// the failure instead of silently ignoring the attachment.</summary>
+        /// Binary kinds (DWG, PDF) get their own block instead: the ref — the
+        /// agent's handle for that kind's detail tools — plus the compact summary
+        /// the addin produced, never file bytes. A file that could NOT be read
+        /// still gets a block saying so, so the agent reports the failure instead
+        /// of silently ignoring the attachment.</summary>
         public static string Build(string text, List<FileAttachment> files)
         {
             if (files == null || files.Count == 0) return text;
             var sb = new StringBuilder();
             foreach (var f in files)
             {
-                if (f.Kind == AttachmentKind.Dwg)
+                if (f.Kind == AttachmentKind.Text)
                 {
-                    if (f.DwgSummaryJson != null)
-                    {
-                        sb.Append("[Attached DWG: ").Append(f.Name)
-                          .Append(" ref=").Append(f.DwgRef ?? "").AppendLine("]");
-                        sb.AppendLine(f.DwgSummaryJson);
-                    }
-                    else
-                    {
-                        sb.Append("[Attached DWG: ").Append(f.Name)
-                          .Append(" — could not be read: ").Append(f.DwgError ?? "unknown error")
-                          .AppendLine("]");
-                    }
-                    sb.AppendLine("---");
-                    continue;
+                    sb.Append("[Attached: ").Append(f.Name).AppendLine("]");
+                    sb.AppendLine(f.Content);
                 }
-                sb.Append("[Attached: ").Append(f.Name).AppendLine("]");
-                sb.AppendLine(f.Content);
+                else if (f.SummaryJson != null)
+                {
+                    sb.Append("[").Append(f.BlockLabel).Append(": ").Append(f.Name)
+                      .Append(" ref=").Append(f.Ref ?? "").AppendLine("]");
+                    sb.AppendLine(f.SummaryJson);
+                }
+                else
+                {
+                    sb.Append("[").Append(f.BlockLabel).Append(": ").Append(f.Name)
+                      .Append(" — could not be read: ").Append(f.ReadError ?? "unknown error")
+                      .AppendLine("]");
+                }
                 sb.AppendLine("---");
             }
             sb.Append(text);

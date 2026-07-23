@@ -107,15 +107,69 @@ namespace RevitWebAppSync.UI.Copilot.Model
         { Sender = sender; Text = text; Time = time; Tools = tools; }
     }
 
-    /// <summary>A file attachment as persisted in run history — just the name and
-    /// line count (enough to redraw the chip). The contents are deliberately not
-    /// stored, to keep copilot-state.json small.</summary>
+    /// <summary>A file attachment as persisted in run history — enough to redraw
+    /// the chip and no more. The contents are deliberately not stored, to keep
+    /// copilot-state.json small.</summary>
     public class HistoryFile
     {
         public string Name;
-        public int Lines;
+        public int Lines;   // text attachments only
+        public int Pages;   // pdf attachments only
+        // "text" | "dwg" | "pdf". History written before this field has it null;
+        // ResolvedKind maps those rows (including the old Lines == -1 drawing
+        // sentinel) so existing copilot-state.json still redraws.
+        public string Kind;
+
         public HistoryFile() { }
-        public HistoryFile(string name, int lines) { Name = name; Lines = lines; }
+        public HistoryFile(string name, int lines) { Name = name; Lines = lines; Kind = "text"; }
+
+        public static HistoryFile ForDrawing(string name) =>
+            new HistoryFile { Name = name, Kind = "dwg" };
+
+        public static HistoryFile ForDocument(string name, int pages) =>
+            new HistoryFile { Name = name, Pages = pages, Kind = "pdf" };
+
+        public string ResolvedKind =>
+            !string.IsNullOrEmpty(Kind) ? Kind : (Lines < 0 ? "dwg" : "text");
+
+        /// <summary>Chip projection of a live attachment — the one place that maps
+        /// an AttachmentKind onto what the chip shows. A PDF's page count comes
+        /// from the summary the addin produced, so it is 0 until the file has
+        /// actually been read (and stays 0 when it could not be).</summary>
+        public static HistoryFile From(FileAttachment f)
+        {
+            if (f == null) return null;
+            switch (f.Kind)
+            {
+                case AttachmentKind.Dwg:
+                    return ForDrawing(f.Name);
+                case AttachmentKind.Pdf:
+                    return ForDocument(f.Name, PagesFromSummary(f.SummaryJson));
+                default:
+                    return new HistoryFile(f.Name, LineCount(f.Content));
+            }
+        }
+
+        private static int LineCount(string content)
+        {
+            if (string.IsNullOrEmpty(content)) return 0;
+            int n = 1;
+            foreach (var c in content) if (c == '\n') n++;
+            return n;
+        }
+
+        private static int PagesFromSummary(string summaryJson)
+        {
+            if (string.IsNullOrEmpty(summaryJson)) return 0;
+            try
+            {
+                using var doc = System.Text.Json.JsonDocument.Parse(summaryJson);
+                return doc.RootElement.TryGetProperty("pages", out var p)
+                       && p.ValueKind == System.Text.Json.JsonValueKind.Number
+                    ? p.GetInt32() : 0;
+            }
+            catch { return 0; }
+        }
     }
 
     public class HistoryEntry
@@ -203,10 +257,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
     }
 
     /// <summary>What an attachment carries. Text files travel as CONTENT (read
-    /// at attach time, embedded in the route text). Drawings travel as a PATH
-    /// only — a DWG is binary and huge, so Revit reads it locally and the turn
-    /// carries a compact summary instead of any file bytes.</summary>
-    public enum AttachmentKind { Text, Dwg }
+    /// at attach time, embedded in the route text). Binary kinds travel as a
+    /// PATH only — a DWG or a PDF is large and unreadable as text, so the addin
+    /// reads it locally and the turn carries a compact summary, never bytes.</summary>
+    public enum AttachmentKind { Text, Dwg, Pdf }
 
     /// <summary>A file attached to a prompt. Content is sent to the backend
     /// (embedded in the route text) but never shown as raw text in the chat bubble.</summary>
@@ -215,23 +269,33 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Name;
         public string Content;
         public AttachmentKind Kind = AttachmentKind.Text;
-        // Local path — set for Dwg attachments only (never sent to the backend).
+        // Local path — set for binary kinds only (never sent to the backend).
         public string Path;
-        // Resolved by the pane before the turn is sent: "att:<guid>" for a
-        // drawing opened into a scratch document, or "model:<id>" when the same
-        // drawing turns out to be linked in the open model already. The agent
-        // uses it as the handle for get_dwg_summary / get_dwg_layer_detail.
-        public string DwgRef;
-        // Compact dwg.summary/1 JSON, or null when the drawing could not be read.
-        public string DwgSummaryJson;
-        // Drafter-readable reason the drawing could not be read (null on success).
-        public string DwgError;
+        // Resolved by the pane before the turn is sent, and the agent's handle
+        // for the matching detail tools: "att:<guid>" / "model:<id>" for a
+        // drawing, "pdf:<guid>" for a document.
+        public string Ref;
+        // Compact <kind>.summary/1 JSON, or null when the file could not be read.
+        public string SummaryJson;
+        // Drafter-readable reason the file could not be read (null on success).
+        public string ReadError;
 
         public FileAttachment() { }
         public FileAttachment(string name, string content) { Name = name; Content = content; }
 
         public static FileAttachment ForDrawing(string name, string path) =>
             new FileAttachment { Name = name, Path = path, Kind = AttachmentKind.Dwg };
+
+        public static FileAttachment ForDocument(string name, string path) =>
+            new FileAttachment { Name = name, Path = path, Kind = AttachmentKind.Pdf };
+
+        /// <summary>Label used in the route-text block and nowhere else.</summary>
+        public string BlockLabel => Kind switch
+        {
+            AttachmentKind.Dwg => "Attached DWG",
+            AttachmentKind.Pdf => "Attached PDF",
+            _ => "Attached",
+        };
     }
 
     /// <summary>Composed prompt-bar submission: text plus any screenshots the user

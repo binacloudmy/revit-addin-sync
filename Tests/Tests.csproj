@@ -20,6 +20,10 @@
       Autodesk.Revit.DB. From NuGet, so it builds with no local Revit install.
     -->
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.*" />
+    <!-- PdfPig: needed by the linked PdfReader source below, and used by the
+         tests themselves (PdfDocumentBuilder) to generate fixture PDFs — no
+         checked-in binaries, no SkiaSharp/native dependency in the test host. -->
+    <PackageReference Include="PdfPig" Version="0.1.*" />
   </ItemGroup>
 
   <ItemGroup>
@@ -72,6 +76,11 @@
     <Compile Include="..\UI\Copilot\Model\CopilotCatalog.cs" Link="CopilotCatalog.cs" />
     <Compile Include="..\UI\Copilot\Model\ProgressStep.cs" Link="ProgressStep.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\BatchRefResolver.cs" Link="BatchRefResolver.cs" />
+    <!-- PDF attachment reading: PdfPig + System only, no Revit and no WPF, so
+         the extractor and its caps are testable here. (DwgReader is not — it
+         needs live Revit Document/ImportInstance objects.) -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\PdfReader.cs" Link="PdfReader.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\PdfAttachmentCache.cs" Link="PdfAttachmentCache.cs" />
     <!-- Lean-context wire contract: AIRequest/ModelContext (pure Newtonsoft
          DTOs). No Revit refs. -->
     <Compile Include="..\Models\AIRequest.cs" Link="AIRequest.cs" />

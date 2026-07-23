@@ -649,14 +649,6 @@ namespace RevitWebAppSync.UI.Copilot
 
             Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images, Files = files, Time = System.DateTime.Now.ToString("h:mm tt") });
 
-            // Lightweight projection persisted with the run history so the chip can
-            // be redrawn in the History tab (name + line count; contents not stored).
-            // Lines = -1 marks a drawing: it has no line count, and its bytes were
-            // never read into the pane in the first place.
-            List<HistoryFile> historyFiles = files == null || files.Count == 0
-                ? null
-                : files.Select(f => new HistoryFile(
-                        f.Name, f.Kind == AttachmentKind.Dwg ? -1 : LineCount(f.Content))).ToList();
 
             // Intent detection runs on the user's text only, so file contents can't
             // falsely match tool keywords in PickResponseTool. NO early-return here:
@@ -696,23 +688,59 @@ namespace RevitWebAppSync.UI.Copilot
             _lastSteps = null;
             _streamText = null;
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Menganalisis permintaan…" });
-            _ = SendWithAttachmentsAsync(text, files, interp.ToolId, images, historyFiles);
+            _ = SendWithAttachmentsAsync(text, files, interp.ToolId, images);
         }
 
-        /// <summary>Resolve any attached drawings (Revit reads them locally), then
-        /// route the turn. Split out of ChatSend because reading a DWG needs the
-        /// Revit main thread and therefore an await — the thinking bubble is
-        /// already on screen, so the wait is visible rather than a frozen pane.</summary>
+        /// <summary>Read any binary attachments locally (the addin does it — Revit
+        /// for a DWG, PdfPig for a PDF), then route the turn. Split out of ChatSend
+        /// because reading them needs the Revit job pump and therefore an await —
+        /// the thinking bubble is already on screen, so the wait is visible rather
+        /// than a frozen pane.</summary>
         private async System.Threading.Tasks.Task SendWithAttachmentsAsync(
             string text, List<FileAttachment> files, string fallbackToolId,
-            List<string> images, List<HistoryFile> historyFiles)
+            List<string> images)
         {
             await ResolveDrawingAttachmentsAsync(files);
+            await ResolveDocumentAttachmentsAsync(files);
+
+            // Lightweight projection persisted with the run history so the chip can
+            // be redrawn in the History tab (name + line/page count; contents are
+            // never stored). Built AFTER resolution so a PDF's page count is known.
+            List<HistoryFile> historyFiles = files == null || files.Count == 0
+                ? null
+                : files.Select(HistoryFile.From).ToList();
+
             // The chat bubble + history use `text` (what the user typed). The
             // backend route text re-embeds any attached file contents — there's no
             // separate file channel, so files ride along inside the prompt string.
             string routeText = BuildRouteText(text, files);
             await ResolveProposalAsync(routeText, text, fallbackToolId, images, historyFiles);
+        }
+
+        /// <summary>Turn each attached .pdf into a pdf_ref + compact summary by
+        /// running the addin's own PDF tools. Same contract as the drawing path:
+        /// failures are recorded on the attachment, never thrown, so an unreadable
+        /// document degrades to a one-line note instead of killing the turn.</summary>
+        private async System.Threading.Tasks.Task ResolveDocumentAttachmentsAsync(List<FileAttachment> files)
+        {
+            var docs = files?.Where(f => f.Kind == AttachmentKind.Pdf).ToList();
+            if (docs == null || docs.Count == 0) return;
+
+            foreach (var d in docs)
+            {
+                try
+                {
+                    var result = await RunLocalToolAsync(
+                        "pdf_open_attachment", new Dictionary<string, object> { ["path"] = d.Path });
+                    if (result == null) { d.ReadError = "the PDF reader returned no result"; continue; }
+                    d.Ref = result.Value.TryGetProperty("pdf_ref", out var r) ? r.GetString() : null;
+                    d.SummaryJson = result.Value.GetRawText();
+                }
+                catch (Exception ex)
+                {
+                    d.ReadError = ex.Message;
+                }
+            }
         }
 
         /// <summary>Turn each attached .dwg/.dxf into a dwg_ref + compact summary
@@ -748,13 +776,13 @@ namespace RevitWebAppSync.UI.Copilot
                     else { tool = "dwg_open_attachment"; args["path"] = d.Path; }
 
                     var result = await RunLocalToolAsync(tool, args);
-                    if (result == null) { d.DwgError = "Revit did not return a result"; continue; }
-                    d.DwgRef = result.Value.TryGetProperty("dwg_ref", out var r) ? r.GetString() : match;
-                    d.DwgSummaryJson = result.Value.GetRawText();
+                    if (result == null) { d.ReadError = "Revit did not return a result"; continue; }
+                    d.Ref = result.Value.TryGetProperty("dwg_ref", out var r) ? r.GetString() : match;
+                    d.SummaryJson = result.Value.GetRawText();
                 }
                 catch (Exception ex)
                 {
-                    d.DwgError = ex.Message;
+                    d.ReadError = ex.Message;
                 }
             }
         }
@@ -821,10 +849,6 @@ namespace RevitWebAppSync.UI.Copilot
                      + "for now this is a placeholder so you can preview the flow.",
             });
         }
-
-        /// <summary>Line count matching AttachmentChip's "N ln" display.</summary>
-        private static int LineCount(string content) =>
-            string.IsNullOrEmpty(content) ? 0 : content.Count(c => c == '\n') + 1;
 
         /// <summary>Prompt string sent to the backend — see RouteText.Build for
         /// the block format (it lives in Model/ so the wire format is testable

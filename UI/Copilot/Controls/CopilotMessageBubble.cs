@@ -21,7 +21,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// (no avatar), 14/14/4/14 radius, image/file chips + selectable text,
         /// hover copy button on the left.</summary>
         public static FrameworkElement User(string text, string userInitial,
-            IEnumerable<string> imagesBase64, IEnumerable<(string Name, int Lines)> files,
+            IEnumerable<string> imagesBase64, IEnumerable<Model.HistoryFile> files,
             double maxWidth, string time = null, Model.SlashTool slashCommand = null)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
@@ -58,11 +58,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var fileStrip = new WrapPanel { Margin = new Thickness(0, 0, 0, 4) };
                 foreach (var f in files)
                 {
-                    // Lines < 0 marks a drawing — it has no line count (Revit
-                    // read it, we never held its text).
-                    var chip = f.Lines < 0
-                        ? AttachmentChip.ForDrawing(f.Name)
-                        : AttachmentChip.ForFile(f.Name, f.Lines);
+                    // Binary kinds have no line count — the addin read them, the
+                    // pane never held their contents.
+                    var chip = f.ResolvedKind == "dwg" ? AttachmentChip.ForDrawing(f.Name)
+                             : f.ResolvedKind == "pdf" ? AttachmentChip.ForDocument(f.Name, f.Pages)
+                             : AttachmentChip.ForFile(f.Name, f.Lines);
                     chip.Margin = new Thickness(0, 0, 6, 0);
                     fileStrip.Children.Add(chip);
                 }

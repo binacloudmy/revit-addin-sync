@@ -80,6 +80,23 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             };
         }
 
+        /// <summary>Chip for an attached document (PDF). Pages is 0 before the
+        /// addin has read the file — the sub-label then just names the kind.</summary>
+        public static AttachmentChip ForDocument(string name, int pages, Action onRemove = null)
+        {
+            string ext = Path.GetExtension(name).TrimStart('.').ToUpperInvariant();
+            if (string.IsNullOrEmpty(ext)) ext = "PDF";
+            return new AttachmentChip
+            {
+                IsImage    = false,
+                FileName   = Path.GetFileNameWithoutExtension(name),
+                FileType   = ext,
+                LineInfo   = pages > 0 ? $"{pages} pg" : "document",
+                ShowRemove = onRemove != null,
+                OnRemove   = onRemove,
+            };
+        }
+
         /// <summary>Build a file chip from a precomputed line count — used when the
         /// content isn't available (e.g. redrawing from persisted run history).</summary>
         public static AttachmentChip ForFile(string name, int lines, Action onRemove = null)

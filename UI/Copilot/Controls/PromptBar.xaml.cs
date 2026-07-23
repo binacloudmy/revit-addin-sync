@@ -70,10 +70,21 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     if (_files.Count > 0)
                     {
                         var files = new System.Collections.Generic.List<RevitWebAppSync.UI.Copilot.Model.FileAttachment>();
-                        foreach (var (fname, fcontent, fpath) in _files)
-                            files.Add(fpath != null
-                                ? RevitWebAppSync.UI.Copilot.Model.FileAttachment.ForDrawing(fname, fpath)
-                                : new RevitWebAppSync.UI.Copilot.Model.FileAttachment(fname, fcontent));
+                        foreach (var (fname, fcontent, fpath, fkind) in _files)
+                        {
+                            switch (fkind)
+                            {
+                                case RevitWebAppSync.UI.Copilot.Model.AttachmentKind.Dwg:
+                                    files.Add(RevitWebAppSync.UI.Copilot.Model.FileAttachment.ForDrawing(fname, fpath));
+                                    break;
+                                case RevitWebAppSync.UI.Copilot.Model.AttachmentKind.Pdf:
+                                    files.Add(RevitWebAppSync.UI.Copilot.Model.FileAttachment.ForDocument(fname, fpath));
+                                    break;
+                                default:
+                                    files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment(fname, fcontent));
+                                    break;
+                            }
+                        }
                         pp.Files = files;
                         _files.Clear();
                     }
@@ -103,9 +114,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var dlg = new Microsoft.Win32.OpenFileDialog
                 {
                     Multiselect = true,
-                    Filter = "Text and drawing files|*.txt;*.csv;*.md;*.log;*.json;*.xml;*.dwg;*.dxf"
+                    Filter = "Supported files|*.txt;*.csv;*.md;*.log;*.json;*.xml;*.dwg;*.dxf;*.pdf"
                            + "|Text files|*.txt;*.csv;*.md;*.log;*.json;*.xml"
-                           + "|Drawings|*.dwg;*.dxf",
+                           + "|Drawings|*.dwg;*.dxf"
+                           + "|Documents|*.pdf",
                     Title = "Attach file(s)",
                 };
                 if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
@@ -233,18 +245,26 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             = new System.Collections.Generic.List<System.Windows.Media.Imaging.BitmapSource>();
 
         // ─── File attachments (pending, content injected into prompt text) ────
-        private static readonly System.Collections.Generic.HashSet<string> SupportedExtensions
-            = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
-              { ".txt", ".csv", ".md", ".log", ".json", ".xml" };
-        // Drawings are read by Revit, not by us: no text read, no size cap —
-        // only the path travels, and only as far as the local tool server.
-        private static readonly System.Collections.Generic.HashSet<string> DrawingExtensions
-            = new System.Collections.Generic.HashSet<string>(System.StringComparer.OrdinalIgnoreCase)
-              { ".dwg", ".dxf" };
+        // One map, one rule: Text extensions are read here (small, UTF-8, capped);
+        // every other kind is read by the addin itself, so only the path travels
+        // and no size cap applies.
+        private static readonly System.Collections.Generic.Dictionary<string, Model.AttachmentKind> SupportedExtensions
+            = new System.Collections.Generic.Dictionary<string, Model.AttachmentKind>(System.StringComparer.OrdinalIgnoreCase)
+              {
+                  [".txt"] = Model.AttachmentKind.Text,
+                  [".csv"] = Model.AttachmentKind.Text,
+                  [".md"] = Model.AttachmentKind.Text,
+                  [".log"] = Model.AttachmentKind.Text,
+                  [".json"] = Model.AttachmentKind.Text,
+                  [".xml"] = Model.AttachmentKind.Text,
+                  [".dwg"] = Model.AttachmentKind.Dwg,
+                  [".dxf"] = Model.AttachmentKind.Dwg,
+                  [".pdf"] = Model.AttachmentKind.Pdf,
+              };
         private const long MaxFileBytes = 32 * 1024;
-        // Path is non-null for drawings only; Content is non-null for text only.
-        private readonly System.Collections.Generic.List<(string Name, string Content, string Path)> _files
-            = new System.Collections.Generic.List<(string, string, string)>();
+        // Path is non-null for binary kinds; Content is non-null for text only.
+        private readonly System.Collections.Generic.List<(string Name, string Content, string Path, Model.AttachmentKind Kind)> _files
+            = new System.Collections.Generic.List<(string, string, string, Model.AttachmentKind)>();
 
         private void AddImage(System.Windows.Media.Imaging.BitmapSource img)
         {
@@ -264,21 +284,21 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             foreach (var path in paths)
             {
                 var ext = System.IO.Path.GetExtension(path);
+                if (!SupportedExtensions.TryGetValue(ext ?? "", out var kind)) continue;
                 var info = new System.IO.FileInfo(path);
                 if (!info.Exists) continue;
 
-                if (DrawingExtensions.Contains(ext))
+                if (kind != Model.AttachmentKind.Text)
                 {
                     // Binary — never ReadAllText it, and the 32KB cap doesn't
                     // apply: nothing but the path leaves this method.
-                    _files.Add((System.IO.Path.GetFileName(path), null, path));
+                    _files.Add((System.IO.Path.GetFileName(path), null, path, kind));
                     continue;
                 }
 
-                if (!SupportedExtensions.Contains(ext)) continue;
                 if (info.Length > MaxFileBytes) continue;
                 var content = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8);
-                _files.Add((System.IO.Path.GetFileName(path), content, null));
+                _files.Add((System.IO.Path.GetFileName(path), content, null, kind));
             }
             RebuildThumbStrip();
         }
@@ -297,7 +317,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 ThumbStrip.Children.Add(chip);
             }
 
-            foreach (var (name, content, path) in _files)
+            foreach (var (name, content, path, kind) in _files)
             {
                 var capturedName = name;
                 System.Action remove = () =>
@@ -305,9 +325,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     _files.RemoveAll(f => f.Name == capturedName);
                     RebuildThumbStrip();
                 };
-                var chip = path != null
-                    ? AttachmentChip.ForDrawing(name, remove)
-                    : AttachmentChip.ForFile(name, content, remove);
+                // Page count is unknown until the addin reads the PDF, which
+                // happens on send — the chip shows the kind until then.
+                var chip = kind == Model.AttachmentKind.Dwg ? AttachmentChip.ForDrawing(name, remove)
+                         : kind == Model.AttachmentKind.Pdf ? AttachmentChip.ForDocument(name, 0, remove)
+                         : AttachmentChip.ForFile(name, content, remove);
                 chip.Margin = new Thickness(0, 0, 6, 0);
                 ThumbStrip.Children.Add(chip);
             }
