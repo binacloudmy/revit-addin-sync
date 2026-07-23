@@ -86,6 +86,20 @@ namespace BinaLoader
                     // candidate fails with "same name already loaded" noise.
                     firstError ??= ex;
                     Log($"load failed from '{dir}': {ex}");
+
+                    // A LoadFrom that got far enough to pull RevitWebAppSync into
+                    // the process before failing has poisoned the AppDomain: every
+                    // later LoadFrom is handed THAT assembly back regardless of
+                    // path, so the remaining candidates would log the identical
+                    // error and hide which dir actually broke. Stop here.
+                    var stuck = FindLoadedPlugin();
+                    if (stuck != null)
+                    {
+                        Log($"'{dir}' left RevitWebAppSync {stuck.GetName().Version} loaded from " +
+                            $"'{SafeLocation(stuck)}' — remaining candidates cannot be tried this session");
+                        break;
+                    }
+
                     continue; // half-staged or corrupt build — try the next-newest
                 }
 
@@ -151,7 +165,20 @@ namespace BinaLoader
         {
             var dev = Environment.GetEnvironmentVariable(DevDirEnvVar);
             if (!string.IsNullOrWhiteSpace(dev) && Directory.Exists(dev))
-                yield return dev;
+            {
+                // The dev override points at ONE build output dir, but it applies
+                // to every Revit year the dev has installed. Pointing it at
+                // bin\Debug\net10.0-windows while starting Revit 2024 used to
+                // load a .NET 10 DLL into the .NET Framework host: LoadFrom
+                // succeeds (valid PE), GetType then dies on "System.Runtime,
+                // Version=10.0.0.0" — AND leaves the plugin in the AppDomain, so
+                // every subsequent (correct) candidate is handed that same broken
+                // assembly back. Skip the dir instead when its TFM can't run here.
+                if (RuntimeAccepts(dev))
+                    yield return dev;
+                else
+                    Log($"dev override '{dev}' targets a runtime this host cannot load — skipped");
+            }
 
             if (!Directory.Exists(VersionsDir))
                 yield break;
@@ -168,6 +195,37 @@ namespace BinaLoader
                 if (payload != null)
                     yield return payload;
             }
+        }
+
+        /// <summary>Whether a build output dir's target framework can load in
+        /// THIS host. Read from the dir's leaf name, which for an SDK build
+        /// output is always the TFM ("net48", "net8.0-windows"): a dotted TFM is
+        /// .NET Core family, an undotted "net4x" is .NET Framework. Unrecognised
+        /// names are accepted — a dev pointing at a hand-made folder keeps the
+        /// old behaviour.</summary>
+        private static bool RuntimeAccepts(string dir)
+        {
+            var leaf = Path.GetFileName(dir.TrimEnd(Path.DirectorySeparatorChar,
+                                                    Path.AltDirectorySeparatorChar));
+            if (string.IsNullOrEmpty(leaf) ||
+                !leaf.StartsWith("net", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var moniker = leaf.Substring(3).Split('-')[0]; // "10.0-windows" -> "10.0"
+            var isCoreTfm = moniker.Contains(".");
+
+#if NETFRAMEWORK
+            // .NET Framework host: only an undotted net4x build ("net48").
+            return !isCoreTfm;
+#else
+            // .NET Core family host: a Core build whose major is <= ours (a net8
+            // assembly runs fine on the .NET 10 host; the reverse does not).
+            if (!isCoreTfm)
+                return false;
+
+            return int.TryParse(moniker.Split('.')[0], out var major)
+                   && major <= Environment.Version.Major;
+#endif
         }
 
         /// <summary>The payload dir inside a version dir for this Revit year,

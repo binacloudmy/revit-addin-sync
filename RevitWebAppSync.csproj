@@ -148,9 +148,16 @@
       </DeployItem>
     </ItemGroup>
 
+    <!-- Skip the year if the loader is installed there: BinaSync.addin and this
+         manifest both register "BINA Sync", so Revit loads the plugin twice and
+         ribbon-tab creation collides (see the warning in BinaSync.addin). The
+         installer deletes this file on install; PostBuild used to put it right
+         back on the next net48 build, which is how Revit 2024 ended up running
+         both a versions\ copy and a direct-load one on 2026-07-23. -->
     <Copy SourceFiles="$(ProjectDir)RevitWebAppSync.addin"
           DestinationFolder="$(APPDATA)\Autodesk\Revit\Addins\%(DeployVersion.Identity)\"
-          Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\%(DeployVersion.Identity)\')" />
+          Condition="Exists('$(APPDATA)\Autodesk\Revit\Addins\%(DeployVersion.Identity)\') AND
+                     !Exists('$(APPDATA)\Autodesk\Revit\Addins\%(DeployVersion.Identity)\BinaSync.addin')" />
 
     <Copy SourceFiles="@(DeployItem)"
           DestinationFiles="@(DeployItem->'$(APPDATA)\Autodesk\Revit\Addins\%(Version)\%(RecursiveDir)%(Filename)%(Extension)')"
