@@ -221,12 +221,20 @@ jobs:
           if ('${{ steps.engine.outputs.present }}' -eq 'true') {
             $engineAsset = @('${{ steps.engine.outputs.zip }}')
           }
-          # Prerelease channel: tag keeps its suffix, release is marked
-          # prerelease so releases/latest (the fleet OTA feed) never moves.
+          # Channel split:
+          #   -staging  -> immediate PRERELEASE (releases/latest never moves;
+          #                testers install by direct link only).
+          #   prod      -> DRAFT. CI assets are UNSIGNED and publishing them
+          #                would move releases/latest instantly — the fleet
+          #                OTA would pull an unsigned zip that SAC/WDAC
+          #                (Enforce) machines block at load (0x800711C7).
+          #                Sign + clobber the assets first (installer\
+          #                sign-release.ps1), then publish:
+          #                  gh release edit v<ver> --draft=false
           $full = '${{ steps.ver.outputs.fullversion }}'
-          $preFlag = @()
+          $chanFlag = @('--draft')
           if ('${{ steps.ver.outputs.prerelease }}' -eq 'true') {
-            $preFlag = @('--prerelease')
+            $chanFlag = @('--prerelease')
           }
           gh release create "v$full" `
             '${{ steps.payload.outputs.zip }}' `
@@ -234,7 +242,7 @@ jobs:
             "RevitCopilot-$v-setup.exe" `
             RevitCopilotSetup.exe `
             @engineAsset `
-            --title "BINA Sync $full" --generate-notes @preFlag
+            --title "BINA Sync $full" --generate-notes @chanFlag
 
       - name: Upload artifacts (manual runs)
         if: github.event_name == 'workflow_dispatch'
