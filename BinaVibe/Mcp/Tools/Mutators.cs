@@ -563,6 +563,24 @@ namespace BinaVibe.Mcp.Tools
             if (symbol == null)
                 throw new ArgumentException($"family type '{familyType}' not found in document");
 
+            // Host-based families (windows, doors, openings, most void-cutters)
+            // MUST sit on a host. The unhosted NewFamilyInstance overload below
+            // would create an instance whose cutting void intersects nothing —
+            // Revit's hard "Instance(s) ... not cutting anything" error (cannot
+            // be ignored). Fail fast with guidance so the agent re-routes to a
+            // hosted tool instead of leaving broken geometry / a blocked commit.
+            var placement = symbol.Family.FamilyPlacementType;
+            if (placement == FamilyPlacementType.OneLevelBasedHosted)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"family type '{familyType}' is host-based " +
+                                $"(placement={placement}); placed free-standing its cutting void " +
+                                "intersects nothing and Revit rejects the commit. Host it on a wall: " +
+                                "use place_window / place_door with host_wall_id (find the wall via " +
+                                "find_elements_by_filter / query_geometry first).",
+                };
+
             // Resolve optional level.
             Level? level = null;
             if (!string.IsNullOrEmpty(levelName))
@@ -585,7 +603,7 @@ namespace BinaVibe.Mcp.Tools
                 else
                     fi = doc.Create.NewFamilyInstance(pt, symbol,
                         Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
@@ -594,7 +612,9 @@ namespace BinaVibe.Mcp.Tools
                     ["level"] = level?.Name,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            // CommitOrThrow throws AFTER Revit has already rolled back, so only
+            // roll back here for a failure mid-build (tx still Started).
+            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
         }
 
         // ─── load_family ────────────────────────────────────────────────
