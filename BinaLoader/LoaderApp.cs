@@ -176,7 +176,19 @@ namespace BinaLoader
         {
             var targets = ReadManifest(versionDir).Targets;
             if (targets == null)
+            {
+#if NETFRAMEWORK
+                // Legacy flat layout predates the multi-year split, which landed
+                // in the SAME commit as net48/Revit-2024 support — so a flat dir
+                // is always a net8/net10 payload. LoadFrom-ing one here dies with
+                // "Could not load ... System.Runtime, Version=10.0.0.0" and then
+                // poisons every older candidate with same-name-already-loaded.
+                Log($"'{versionDir}' is a legacy flat build (predates Revit {revitYear} support) — skipped");
+                return null;
+#else
                 return versionDir; // legacy flat layout
+#endif
+            }
 
             if (!targets.TryGetValue(revitYear, out var sub) || string.IsNullOrWhiteSpace(sub))
             {

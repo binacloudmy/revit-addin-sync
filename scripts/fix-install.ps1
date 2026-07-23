@@ -52,7 +52,18 @@ foreach ($hive in @('HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*
         }
 }
 
-# 4) Fresh install of the newest release EXE (per-user, silent, no Windows
+# 4) Stale staged builds. Legacy flat version folders (pre multi-year layout)
+#    hold net8/net10 payloads; on Revit 2023/2024 the net48 loader dies on them
+#    with "Could not load ... System.Runtime, Version=10.0.0.0". The installer
+#    re-seeds versions\<ver> below and OTA re-stages anything newer, so a full
+#    purge is always safe here (Revit is confirmed closed above).
+$versionsDir = "$env:LOCALAPPDATA\Bina\RevitSync\versions"
+if (Test-Path $versionsDir) {
+    Write-Host "PURGING stale staged builds in $versionsDir" -ForegroundColor Yellow
+    Remove-Item $versionsDir -Recurse -Force -ErrorAction SilentlyContinue
+}
+
+# 5) Fresh install of the newest release EXE (per-user, silent, no Windows
 #    Installer involved at all).
 $exe = Join-Path $env:TEMP 'RevitCopilotSetup.exe'
 Write-Host "Downloading newest installer..." -ForegroundColor Cyan
@@ -66,7 +77,7 @@ Write-Host "Installing ($exeKB KB)..." -ForegroundColor Cyan
 $p = Start-Process $exe -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES' -Wait -PassThru
 Write-Host "installer exit code: $($p.ExitCode)" -ForegroundColor Cyan
 
-# 5) VERIFY: the loader manifest must now exist in at least one Addins year.
+# 6) VERIFY: the loader manifest must now exist in at least one Addins year.
 $installed = Get-ChildItem "$env:APPDATA\Autodesk\Revit\Addins\*\BinaSync.addin" -ErrorAction SilentlyContinue
 if ($installed) {
     Write-Host "VERIFIED installed:" -ForegroundColor Green
@@ -76,7 +87,7 @@ if ($installed) {
     return
 }
 
-# 6) State dump - paste this output when reporting problems.
+# 7) State dump - paste this output when reporting problems.
 Write-Host "`n== State ==" -ForegroundColor Cyan
 Write-Host "-- versions:"
 Get-ChildItem "$env:LOCALAPPDATA\Bina\RevitSync\versions" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
