@@ -20,18 +20,30 @@ namespace BinaVibe.Mcp.Tools.Audit
         public string RowRef = "";         // "1", "1.1", "4.2" — as printed
         public string Description = "";
         public string GuidelineRef = "";   // Reference column, e.g. "Appendix B.1.A (a)"
+        /// <summary>"form" (printed on this row), "form_sibling" (inherited from
+        /// the section's single printed ref) or "" (blank). Never synthesised.</summary>
+        public string ReferenceSource = "";
         public int Page;                   // 1-based source page
     }
 
     /// <summary>One evaluated record — the wire shape fill_audit returns per row.
-    /// compliance: "yes" | "no" | "not_verifiable". Remark is templated from
-    /// Evidence only (never free text about the description).</summary>
+    /// compliance: "yes" | "no" | "not_verifiable" ("nothing to check" is
+    /// not_verifiable carrying evidence.not_verifiable_reason, NOT a pass).
+    /// Remark is templated from Evidence only (never free text about the
+    /// description).</summary>
     public sealed class AuditRecord
     {
         public AuditFormRow Row = new();
         public bool CheckerMatched;
         public string CheckerId = "";
         public string Compliance = "not_verifiable";
+        /// <summary>The rule the checker actually tested, in the shape it tested
+        /// it — e.g. ">=2 segments separated by - or _". Stated in the remark so
+        /// a reader never has to guess what "ikut konvensyen" meant.</summary>
+        public string RulePattern = "";
+        /// <summary>"critical" | "major" | "minor" — how bad a `no` on this row
+        /// is. Ordering information only; it never changes a verdict.</summary>
+        public string Severity = "";
         public Dictionary<string, object?>? Evidence;
         public List<long> ElementIds = new();
         public string Remark = "";
@@ -43,9 +55,12 @@ namespace BinaVibe.Mcp.Tools.Audit
             ["section_title"] = Row.SectionTitle,
             ["description"] = Row.Description,
             ["guideline_ref"] = Row.GuidelineRef,
+            ["reference_source"] = Row.ReferenceSource,
             ["checker_matched"] = CheckerMatched,
             ["checker_id"] = CheckerMatched ? CheckerId : null,
             ["compliance"] = Compliance,
+            ["rule_pattern"] = RulePattern.Length > 0 ? RulePattern : null,
+            ["severity"] = Severity.Length > 0 ? Severity : null,
             ["evidence"] = Evidence,
             ["element_ids"] = ElementIds.Cast<object>().ToList(),
             ["remark"] = Remark,

@@ -81,6 +81,12 @@
          needs live Revit Document/ImportInstance objects.) -->
     <Compile Include="..\BinaVibe\Mcp\Tools\PdfReader.cs" Link="PdfReader.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\PdfAttachmentCache.cs" Link="PdfAttachmentCache.cs" />
+    <!-- Audit form parsing: the row/column extraction and its data model are
+         PdfPig + System only (the checkers and the tools are not — they need a
+         live Revit Document), so the row banding is testable against a real
+         form here. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditModels.cs" Link="AuditModels.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditFormParser.cs" Link="AuditFormParser.cs" />
     <!-- Lean-context wire contract: AIRequest/ModelContext (pure Newtonsoft
          DTOs). No Revit refs. -->
     <Compile Include="..\Models\AIRequest.cs" Link="AIRequest.cs" />
@@ -98,6 +104,12 @@
 
   <ItemGroup Condition="'$(SkipRevitSources)' == 'true'">
     <Compile Remove="DocumentChangedIndexerTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Real BIM 010 audit form + its hand-verified expected rows: the parser's
+         row banding can only be trusted against a genuine multi-page form. -->
+    <None Include="data\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

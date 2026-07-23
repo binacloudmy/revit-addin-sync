@@ -1,0 +1,54 @@
+# BIM 010 Model Audit Form (PINDAAN 01, 16 JULAI 2021) — expected parser output.
+# section 	 row_ref 	 description. Verified page by page against bim010_model_audit_form.pdf.
+# Remarks-column and section-D matrix guidance text is auditor instruction, not part of a
+# checklist item, and is deliberately absent (e.g. D20 is "Pipes", not "Pipes RWDP").
+A	1	Architectural Model developed in accordance to specified architectural design.
+A	2	Architectural Model files are named according to the PWD’s BIM Guidelines and Standards
+A	3	Architectural Model is structured according to rules that are easily managed. For example, architectural model is managed according to block, tower and podium.
+A	4	Architectural Model to be positioned appropriately to the Project Base Point preferably Grid A and 1.
+A	5	Architectural Model should be properly organised and using architectural gridlines and levels.
+A	6	Rooms are catagorised by departments.
+A	7	All materials are included in model elements.
+B	1	Project Information should be updated.
+C	1.0	Views (Architectural)
+C	1.1	Views (Architectural) created based from PWD’s architectural template.
+C	1.2	WIP views are used for design development and design study purposes.
+C	1.3	PBT views are used for PBT submission purposes.
+C	1.4	BOMBA views are used for BOMBA submission purposes.
+C	1.5	Dokumen views are used for contract documentation, contract implementation and final completion.
+C	1.6	Spatial and Zoning Analysis are generated from Area Plan.
+C	2.0	Legends
+C	2.1	Contents of Legends are managed as follows: a) Legends for Components b) General Notes
+C	3.0	Schedules/Quantities
+C	3.1	Schedules/Quantities shall be generated according to: a) Schedule of Accomodation b) Building Component Schedule c) Material Takeoff Schedule
+C	4.0	Sheets
+C	4.1	Contents of Sheets are architectural drawings that are managed according to the rules for architecture as follows: a) Title Block b) Drawing Title c) List of Drawings d) General Notes e) Plans f) Elevations g) Sections h) Details i) Others: _________________
+C	4.2	All architectural drawings should use JKR Title Block with furnished information.
+C	5.0	Link Files
+C	5.1	Files for the models linked with Architectural Model are correct and up-to-date
+D	1	Floors
+D	2	Walls
+D	3	Ceilings
+D	4	Roofs
+D	5	Stairs
+D	6	Railings
+D	7	Ramps
+D	8	Room
+D	9	Curtain Systems
+D	10	Doors
+D	11	Windows
+D	12	Caseworks
+D	13	Furniture
+D	14	Plumbing Fixtures
+D	15	Furniture Systems
+D	16	Specialty Equipment
+D	17	Generic Models
+D	18	Columns
+D	19	Parking
+D	20	Pipes
+D	21	Structural Column
+D	22	Toposurface
+D	23	Mass
+E	1.0	View Template are Correctly Applied
+E	1.1	BOMBA Submission
+E	1.2	PBT Submission

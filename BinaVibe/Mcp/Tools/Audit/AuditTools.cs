@@ -37,6 +37,11 @@ namespace BinaVibe.Mcp.Tools.Audit
             var (formName, formPath) = PdfAttachmentCache.Use(pdfRef, d => (d.Name, d.Path));
             var rows = AuditFormParser.Parse(formPath);
 
+            // One context for the whole run: shared model inventories, so two
+            // rows about the same thing cite the same numbers (and each
+            // collector runs once, not once per checker).
+            var ctx = new AuditContext(doc);
+
             var records = new List<AuditRecord>();
             foreach (var row in rows)
             {
@@ -44,7 +49,14 @@ namespace BinaVibe.Mcp.Tools.Audit
                 var match = AuditCheckers.Match(row);
                 if (match == null)
                 {
-                    rec.Remark = "Tiada semakan automatik untuk baris ini — semak manual.";
+                    // No checker — still surface whatever inventory the row's own
+                    // wording points at, so "semak manual" comes with the facts a
+                    // human would look up first. Context, never a verdict.
+                    var (evidence, note) = AuditCheckers.UnmatchedContext(ctx, row);
+                    rec.Evidence = evidence;
+                    rec.Remark = note.Length > 0
+                        ? "Tiada semakan automatik untuk baris ini. " + note + " Semak manual."
+                        : "Tiada semakan automatik untuk baris ini — semak manual.";
                 }
                 else
                 {
@@ -54,9 +66,11 @@ namespace BinaVibe.Mcp.Tools.Audit
                     try
                     {
                         var outcome = category != null
-                            ? AuditCheckers.EvaluateCategory(doc, category)
-                            : checker.Evaluate(doc, row);
+                            ? AuditCheckers.EvaluateCategory(ctx, category)
+                            : checker.Evaluate(ctx, row);
                         rec.Compliance = outcome.Compliance;
+                        rec.RulePattern = outcome.RulePattern;
+                        rec.Severity = AuditCheckers.SeverityOf(checker, outcome);
                         rec.Evidence = outcome.Evidence;
                         rec.ElementIds = outcome.ElementIds;
                         rec.Remark = outcome.Remark;
@@ -96,6 +110,14 @@ namespace BinaVibe.Mcp.Tools.Audit
                     ["no"] = records.Count(r => r.Compliance == "no"),
                     ["not_verifiable"] = records.Count(r => r.Compliance == "not_verifiable"),
                     ["checker_matched"] = records.Count(r => r.CheckerMatched),
+                    // Severity of the FAILED rows only — triage order for the
+                    // Isu list. It never changes a verdict.
+                    ["failed_by_severity"] = new Dictionary<string, object?>
+                    {
+                        ["critical"] = records.Count(r => r.Compliance == "no" && r.Severity == Severities.Critical),
+                        ["major"] = records.Count(r => r.Compliance == "no" && r.Severity == Severities.Major),
+                        ["minor"] = records.Count(r => r.Compliance == "no" && r.Severity == Severities.Minor),
+                    },
                 },
                 ["rows"] = records.Select(r => (object)r.ToDict()).ToList(),
             };
@@ -137,10 +159,12 @@ namespace BinaVibe.Mcp.Tools.Audit
 
         // ─── xlsx / csv (tracking layout: one row per checklist item) ───
 
+        // Severity and Rule ride along here only. docx/pdf keep the BIM 010
+        // six-column form layout, which has no place for them.
         private static readonly string[] FlatHeaders =
         {
             "Section", "No.", "Description", "Reference", "Compliance",
-            "Checker", "Remark", "Element IDs",
+            "Severity", "Checker", "Rule", "Remark", "Element IDs",
         };
 
         private static IEnumerable<string[]> FlatRows(AuditResult result) =>
@@ -149,9 +173,14 @@ namespace BinaVibe.Mcp.Tools.Audit
                 r.Row.Section + (r.Row.SectionTitle.Length > 0 ? " — " + r.Row.SectionTitle : ""),
                 r.Row.RowRef,
                 r.Row.Description,
-                r.Row.GuidelineRef,
+                // An inherited ref is marked as such — the form printed it once
+                // for the section, not on this row.
+                r.Row.GuidelineRef + (r.Row.ReferenceSource == "form_sibling"
+                    ? " (rujukan seksyen)" : ""),
                 r.Compliance,
+                r.Compliance == "no" ? r.Severity : "",
                 r.CheckerMatched ? r.CheckerId : "(manual)",
+                r.RulePattern,
                 r.Remark,
                 string.Join(" ", r.ElementIds),
             });
@@ -181,12 +210,14 @@ namespace BinaVibe.Mcp.Tools.Audit
                 else if (compliance == "yes")
                     ws.Cell(row, 5).Style.Fill.BackgroundColor = ClosedXML.Excel.XLColor.FromHtml("#bbf7d0");
                 ws.Cell(row, 3).Style.Alignment.WrapText = true;
-                ws.Cell(row, 7).Style.Alignment.WrapText = true;
+                ws.Cell(row, 8).Style.Alignment.WrapText = true;
+                ws.Cell(row, 9).Style.Alignment.WrapText = true;
                 row++;
             }
             ws.Column(1).Width = 26; ws.Column(2).Width = 6; ws.Column(3).Width = 55;
-            ws.Column(4).Width = 16; ws.Column(5).Width = 13; ws.Column(6).Width = 18;
-            ws.Column(7).Width = 60; ws.Column(8).Width = 20;
+            ws.Column(4).Width = 18; ws.Column(5).Width = 13; ws.Column(6).Width = 10;
+            ws.Column(7).Width = 18; ws.Column(8).Width = 40; ws.Column(9).Width = 60;
+            ws.Column(10).Width = 20;
             ws.SheetView.FreezeRows(headerRow);
             if (row > headerRow + 1)
                 ws.Range(headerRow, 1, row - 1, FlatHeaders.Length).SetAutoFilter();
