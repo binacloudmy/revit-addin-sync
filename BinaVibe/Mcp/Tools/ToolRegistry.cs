@@ -81,6 +81,12 @@ namespace BinaVibe.Mcp.Tools
                 "search_pdf"                    => PdfSearch(args),
                 // Pane-only, like dwg_open_attachment: takes a local file path.
                 "pdf_open_attachment"           => PdfOpenAttachment(args),
+                // Audit-form reads — fill_audit parses the attached form and
+                // evaluates deterministic checkers against the live model;
+                // draft_export renders a cached fill_audit result to a file.
+                // Both read-only (no Transaction).
+                "fill_audit"                    => Audit.AuditTools.FillAudit(doc, args),
+                "draft_export"                  => Audit.AuditTools.DraftExport(doc, args),
                 "list_revisions"                => Inspectors.ListRevisions(doc),
                 "list_model_groups"             => Inspectors.ListModelGroups(doc),
                 "get_sheet_viewports"           => Inspectors.GetSheetViewports(doc, args),

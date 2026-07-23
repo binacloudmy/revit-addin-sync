@@ -45,6 +45,17 @@ namespace BinaVibe.Mcp.Tools
         public bool HasTextLayer => PageText.Any(t => t.Length > 0);
     }
 
+    /// <summary>One word with its page-space bounding box (PDF points, origin
+    /// bottom-left). Plain struct so PdfPig types stay inside PdfReader.</summary>
+    public struct PdfWord
+    {
+        public string Text;
+        public double X;      // left
+        public double Y;      // bottom
+        public double Right;
+        public double Top;
+    }
+
     public static class PdfReader
     {
         public const string Schema = "pdf.summary/1";
@@ -130,6 +141,52 @@ namespace BinaVibe.Mcp.Tools
             }
 
             return doc;
+        }
+
+        /// <summary>Re-read a PDF and return positioned words per page (index 0 =
+        /// page 1). Used by AuditFormParser for table-column bucketing — the
+        /// attach-time PdfDoc keeps only flat page text, and holding word boxes
+        /// for every cached spec would be wasteful, so this is on-demand from the
+        /// original path. Throws drafter-readable when the file moved since
+        /// attach. The only other place PdfPig is touched.</summary>
+        public static List<PdfWord>[] ExtractWords(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+                throw new InvalidOperationException(
+                    "the attached PDF is no longer at " + path + " — re-attach the form and try again");
+            try
+            {
+                using var pdf = UglyToad.PdfPig.PdfDocument.Open(path);
+                var pages = new List<PdfWord>[pdf.NumberOfPages];
+                for (int i = 1; i <= pdf.NumberOfPages; i++)
+                {
+                    var words = new List<PdfWord>();
+                    try
+                    {
+                        foreach (var w in pdf.GetPage(i).GetWords())
+                        {
+                            var box = w.BoundingBox;
+                            words.Add(new PdfWord
+                            {
+                                Text = w.Text ?? "",
+                                X = box.Left,
+                                Y = box.Bottom,
+                                Right = box.Right,
+                                Top = box.Top,
+                            });
+                        }
+                    }
+                    catch { /* one unreadable page must not lose the rest */ }
+                    pages[i - 1] = words;
+                }
+                return pages;
+            }
+            catch (InvalidOperationException) { throw; }
+            catch (Exception ex)
+            {
+                throw new InvalidOperationException(
+                    "could not re-read this PDF for table parsing: " + ex.Message);
+            }
         }
 
         private static List<(string Title, int Page, int Level)> ReadOutline(UglyToad.PdfPig.PdfDocument pdf)
