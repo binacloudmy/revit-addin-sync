@@ -47,6 +47,11 @@ foreach ($tfm in $tfmDirs) {
                 Write-Host "prune-payload: $($tfm.Name)/LatoFont/$($_.Name) deleted"
                 Remove-Item $_.FullName -Force
             }
+        # A renamed font set would be pruned to nothing and PDFs would fall
+        # back silently — assert the default face survived.
+        if (-not (Test-Path (Join-Path $lato "Lato-Regular.ttf"))) {
+            throw "prune-payload: $($tfm.Name)/LatoFont lost Lato-Regular.ttf — keep-list no longer matches the shipped font set"
+        }
     }
 
     $native = Join-Path (Join-Path $runtimes "win-x64") "native"
