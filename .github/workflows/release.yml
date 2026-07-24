@@ -5,18 +5,24 @@
 #   → RevitWebAppSync-0.0.2.zip (OTA payload) + RevitCopilot-0.0.2-setup.exe
 #   → uploads them as GitHub workflow artifacts (build record / staging smoke)
 #
-# CI no longer publishes anything users can download — no GitHub Release, no
-# TM One upload. Publishing is the HUMAN sign-and-flip step: an operator runs
-# installer\sign-release.ps1 on the sovereign signing box, which rebuilds +
-# SIGNS every payload DLL + the setup EXE, then uploads the signed installer +
-# OTA zip to TM One object storage and flips the latest.json pointer that the
-# bina-ai /addin/download and /addin/version.json endpoints resolve. So:
-#   * CI builds on our own runner (build compute stays in-country);
-#   * unsigned bytes never reach a user-facing URL;
-#   * TM One credentials live only on the signing box, never in GitHub secrets.
+# Two actors, deliberately split — this workflow is ONLY the first half:
 #
-# This job is the fast "does the tag build + harvest cleanly" gate before the
-# operator signs.
+#   RUNNER (this workflow, automated, self-hosted):
+#     - builds the plugin payload + loaders + installer EXE, UNSIGNED;
+#     - uploads them as GitHub workflow artifacts (build record / staging smoke);
+#     - publishes NOTHING users can download: no GitHub Release, no TM One upload,
+#       no pointer flip. It cannot — it has no cert and no TM One creds.
+#
+#   OPERATOR (separate, manual, on the sovereign signing box):
+#     - runs installer\sign-release.ps1, which rebuilds + SIGNS every payload DLL
+#       and the setup EXE, uploads the signed installer + OTA zip to TM One, and
+#       flips the latest.json pointer that bina-ai /addin/download and
+#       /addin/version.json resolve. THIS is go-live.
+#
+# Why the split: unsigned bytes never reach a user-facing URL (the signing gate);
+# build compute stays in-country; TM One credentials live only on the signing
+# box, never in GitHub secrets. This job is the fast "does the tag build + harvest
+# cleanly" gate the operator relies on before signing.
 
 name: release
 
