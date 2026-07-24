@@ -652,16 +652,6 @@ namespace RevitWebAppSync.UI.Copilot
 
             Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images, Files = files, SlashCommand = slashChip, Time = System.DateTime.Now.ToString("h:mm tt") });
 
-            // The chat bubble + history use `text` (what the user typed). The
-            // backend route text re-embeds any attached file contents — there's no
-            // separate file channel, so files ride along inside the prompt string.
-            string routeText = BuildRouteText(text, files);
-
-            // Lightweight projection persisted with the run history so the chip can
-            // be redrawn in the History tab (name + line count; contents not stored).
-            List<HistoryFile> historyFiles = files == null || files.Count == 0
-                ? null
-                : files.Select(f => new HistoryFile(f.Name, LineCount(f.Content))).ToList();
 
             // Intent detection runs on the user's text only, so file contents can't
             // falsely match tool keywords in PickResponseTool. NO early-return here:
@@ -709,7 +699,143 @@ namespace RevitWebAppSync.UI.Copilot
                 _rr.PendingCommandArgs = null;   // param chips (source:) land here in a later P2 UI step
             }
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Menganalisis permintaan…" });
-            _ = ResolveProposalAsync(routeText, text, interp.ToolId, images, historyFiles);
+            _ = SendWithAttachmentsAsync(text, files, interp.ToolId, images);
+        }
+
+        /// <summary>Read any binary attachments locally (the addin does it — Revit
+        /// for a DWG, PdfPig for a PDF), then route the turn. Split out of ChatSend
+        /// because reading them needs the Revit job pump and therefore an await —
+        /// the thinking bubble is already on screen, so the wait is visible rather
+        /// than a frozen pane.</summary>
+        private async System.Threading.Tasks.Task SendWithAttachmentsAsync(
+            string text, List<FileAttachment> files, string fallbackToolId,
+            List<string> images)
+        {
+            await ResolveDrawingAttachmentsAsync(files);
+            await ResolveDocumentAttachmentsAsync(files);
+
+            // Lightweight projection persisted with the run history so the chip can
+            // be redrawn in the History tab (name + line/page count; contents are
+            // never stored). Built AFTER resolution so a PDF's page count is known.
+            List<HistoryFile> historyFiles = files == null || files.Count == 0
+                ? null
+                : files.Select(HistoryFile.From).ToList();
+
+            // The chat bubble + history use `text` (what the user typed). The
+            // backend route text re-embeds any attached file contents — there's no
+            // separate file channel, so files ride along inside the prompt string.
+            string routeText = BuildRouteText(text, files);
+            await ResolveProposalAsync(routeText, text, fallbackToolId, images, historyFiles);
+        }
+
+        /// <summary>Turn each attached .pdf into a pdf_ref + compact summary by
+        /// running the addin's own PDF tools. Same contract as the drawing path:
+        /// failures are recorded on the attachment, never thrown, so an unreadable
+        /// document degrades to a one-line note instead of killing the turn.</summary>
+        private async System.Threading.Tasks.Task ResolveDocumentAttachmentsAsync(List<FileAttachment> files)
+        {
+            var docs = files?.Where(f => f.Kind == AttachmentKind.Pdf).ToList();
+            if (docs == null || docs.Count == 0) return;
+
+            foreach (var d in docs)
+            {
+                try
+                {
+                    var result = await RunLocalToolAsync(
+                        "pdf_open_attachment", new Dictionary<string, object> { ["path"] = d.Path });
+                    if (result == null) { d.ReadError = "the PDF reader returned no result"; continue; }
+                    d.Ref = result.Value.TryGetProperty("pdf_ref", out var r) ? r.GetString() : null;
+                    d.SummaryJson = result.Value.GetRawText();
+                }
+                catch (Exception ex)
+                {
+                    d.ReadError = ex.Message;
+                }
+            }
+        }
+
+        /// <summary>Turn each attached .dwg/.dxf into a dwg_ref + compact summary
+        /// by running the addin's own DWG tools on the Revit thread. A drawing
+        /// that is ALREADY linked in the open model reuses that model ref instead
+        /// of being opened a second time — one drawing, one context block.
+        /// Failures are recorded on the attachment, never thrown: an unreadable
+        /// drawing must degrade to a one-line note, not kill the turn.</summary>
+        private async System.Threading.Tasks.Task ResolveDrawingAttachmentsAsync(List<FileAttachment> files)
+        {
+            var drawings = files?.Where(f => f.Kind == AttachmentKind.Dwg).ToList();
+            if (drawings == null || drawings.Count == 0) return;
+
+            // One list_cad_links read serves every attachment's dedup check.
+            List<System.Text.Json.JsonElement> inModel = null;
+            try
+            {
+                var links = await RunLocalToolAsync("list_cad_links", new Dictionary<string, object>());
+                if (links != null && links.Value.TryGetProperty("cad_links", out var arr)
+                    && arr.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    inModel = arr.EnumerateArray().ToList();
+            }
+            catch { /* no model / older addin — dedup simply doesn't apply */ }
+
+            foreach (var d in drawings)
+            {
+                try
+                {
+                    var match = FindLinkedCad(inModel, d.Path, d.Name);
+                    var args = new Dictionary<string, object>();
+                    string tool;
+                    if (match != null) { tool = "get_dwg_summary"; args["dwg_ref"] = match; }
+                    else { tool = "dwg_open_attachment"; args["path"] = d.Path; }
+
+                    var result = await RunLocalToolAsync(tool, args);
+                    if (result == null) { d.ReadError = "Revit did not return a result"; continue; }
+                    d.Ref = result.Value.TryGetProperty("dwg_ref", out var r) ? r.GetString() : match;
+                    d.SummaryJson = result.Value.GetRawText();
+                }
+                catch (Exception ex)
+                {
+                    d.ReadError = ex.Message;
+                }
+            }
+        }
+
+        /// <summary>dwg_ref of an in-model CAD link whose path (or, failing that,
+        /// file name) matches the attachment. Null when the drawing isn't linked.</summary>
+        private static string FindLinkedCad(List<System.Text.Json.JsonElement> inModel, string path, string name)
+        {
+            if (inModel == null) return null;
+            foreach (var item in inModel)
+            {
+                string LinkStr(string key) =>
+                    item.TryGetProperty(key, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String
+                        ? v.GetString() : null;
+                var linkPath = LinkStr("path");
+                var linkName = LinkStr("name");
+                bool samePath = !string.IsNullOrEmpty(linkPath) && !string.IsNullOrEmpty(path)
+                                && string.Equals(linkPath, path, StringComparison.OrdinalIgnoreCase);
+                bool sameName = !string.IsNullOrEmpty(linkName) && !string.IsNullOrEmpty(name)
+                                && string.Equals(linkName, name, StringComparison.OrdinalIgnoreCase);
+                if (samePath || sameName) return LinkStr("dwg_ref");
+            }
+            return null;
+        }
+
+        /// <summary>Run one addin tool in-process on the Revit thread (no backend
+        /// round-trip) and return its result as JSON. Throws with the tool's own
+        /// message on failure so the caller can show it to the drafter.</summary>
+        private static async System.Threading.Tasks.Task<System.Text.Json.JsonElement?> RunLocalToolAsync(
+            string tool, Dictionary<string, object> args)
+        {
+            var job = new BinaVibe.Mcp.McpJob
+            {
+                Tool = tool,
+                Args = System.Text.Json.JsonSerializer.SerializeToElement(args ?? new Dictionary<string, object>()),
+            };
+            BinaVibe.Mcp.McpJobPump.Enqueue(job);
+            await job.Done.Task;
+            if (job.Error != null) throw new InvalidOperationException(job.Error);
+            if (job.Result == null) return null;
+            var json = System.Text.Json.JsonSerializer.Serialize(job.Result);
+            return System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json);
         }
 
         /// <summary>Slash command sent from the composer (P2). Routes the picked
@@ -724,28 +850,11 @@ namespace RevitWebAppSync.UI.Copilot
             ChatSend((args ?? "").Trim(), slashChip: tool);
         }
 
-        /// <summary>Line count matching AttachmentChip's "N ln" display.</summary>
-        private static int LineCount(string content) =>
-            string.IsNullOrEmpty(content) ? 0 : content.Count(c => c == '\n') + 1;
-
-        /// <summary>Compose the prompt string sent to the backend: each attached
-        /// file's contents prepended as a labelled block, then the user's text.
-        /// Returns `text` unchanged when nothing is attached. Format is kept
-        /// byte-for-byte identical to the legacy PromptBar concatenation so the
-        /// backend sees exactly the same input.</summary>
-        private static string BuildRouteText(string text, List<FileAttachment> files)
-        {
-            if (files == null || files.Count == 0) return text;
-            var sb = new System.Text.StringBuilder();
-            foreach (var f in files)
-            {
-                sb.Append("[Attached: ").Append(f.Name).AppendLine("]");
-                sb.AppendLine(f.Content);
-                sb.AppendLine("---");
-            }
-            sb.Append(text);
-            return sb.ToString();
-        }
+        /// <summary>Prompt string sent to the backend — see RouteText.Build for
+        /// the block format (it lives in Model/ so the wire format is testable
+        /// without WPF).</summary>
+        private static string BuildRouteText(string text, List<FileAttachment> files) =>
+            RouteText.Build(text, files);
 
         // Persistent header badge: "27 / 30 credits" or "Unlimited". Empty string hides the pill.
         private string _creditBadge = "";
