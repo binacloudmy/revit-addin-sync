@@ -60,6 +60,11 @@ namespace BinaVibe.Mcp.Tools.Audit
         public string[][] KeywordGroups = Array.Empty<string[]>();
         public int MinGroups = 2;
         public string Severity = Severities.Major;
+        /// <summary>An AUTHORITATIVE guideline clause for this check (e.g.
+        /// "Appendix B.1.A (a)"), used to backfill a row whose Reference cell the
+        /// source form left blank. Seeded empty for every checker today — only a
+        /// verified clause string belongs here; nothing is ever synthesised.</summary>
+        public string GuidelineRef = "";
         public Func<AuditContext, AuditFormRow, CheckOutcome> Evaluate = (_, _) => new CheckOutcome();
 
         public int MatchScore(string text)
@@ -341,6 +346,17 @@ namespace BinaVibe.Mcp.Tools.Audit
         public static string SeverityOf(AuditChecker checker, CheckOutcome outcome) =>
             outcome.SeverityOverride ?? checker.Severity;
 
+        private static Dictionary<string, AuditChecker>? _byId;
+        /// <summary>Checker by id (including the Section D family_category
+        /// checker), for the Reference backfill to reach a matched checker's
+        /// declared GuidelineRef.</summary>
+        public static AuditChecker? ById(string id)
+        {
+            _byId ??= All.Concat(new[] { FamilyCategoryChecker })
+                         .ToDictionary(c => c.Id, StringComparer.Ordinal);
+            return _byId.TryGetValue(id, out var c) ? c : null;
+        }
+
         // ─── evidence helpers ───────────────────────────────────────────
 
         /// <summary>Cap a name list into evidence and record how many were cut,
@@ -396,11 +412,22 @@ namespace BinaVibe.Mcp.Tools.Audit
                     ["segments"] = segments,
                     ["rule"] = rule,
                 },
-                Remark = structured
-                    ? $"Format dijangka: {rule}; dijumpai: \"{title}\" ({segments} segmen) — patuh."
-                    : $"Format dijangka: {rule}; dijumpai: \"{title}\" ({segments} segmen). "
-                      + "Namakan semula fail mengikut garis panduan penamaan.",
             };
+            if (structured)
+            {
+                o.Remark = $"Format dijangka: {rule}; dijumpai: \"{title}\" ({segments} segmen) — patuh.";
+                return o;
+            }
+            // Offer a deterministic rename where one is confident; otherwise say
+            // so explicitly rather than omitting it.
+            var suggested = AuditNaming.Suggest(title, 3);
+            o.Evidence["suggested_value"] = suggested;
+            if (suggested == null) o.Evidence["no_suggestion_reason"] = "no_confident_transform";
+            o.Remark = $"Format dijangka: {rule}; dijumpai: \"{title}\" ({segments} segmen). "
+                + (suggested != null
+                    ? $"Cadangan nama: \"{suggested}\"."
+                    : "Tiada cadangan automatik yang yakin — namakan semula fail secara manual "
+                      + "mengikut garis panduan penamaan.");
             return o;
         }
 
@@ -936,6 +963,25 @@ namespace BinaVibe.Mcp.Tools.Audit
                 .Where(t => (t.Name ?? "").Split('-', '_').Count(s => s.Trim().Length > 0) < 2)
                 .ToList();
 
+            // Best-effort rename per offending type name; null where no confident
+            // transform exists (a single-word type name has nothing to split).
+            var suggestions = new List<object>();
+            int noSuggestion = 0;
+            var suggestedPairs = new List<(string current, string suggested)>();
+            foreach (var t in nonConforming)
+            {
+                var name = t.Name ?? "";
+                var suggested = AuditNaming.Suggest(name, 2);
+                if (suggested != null) suggestedPairs.Add((name, suggested));
+                else noSuggestion++;
+                if (suggestions.Count < Cap)
+                    suggestions.Add(new Dictionary<string, object?>
+                    {
+                        ["current"] = name,
+                        ["suggested"] = suggested,
+                    });
+            }
+
             var o = new CheckOutcome { RulePattern = rule };
             o.Evidence["rule"] = rule;
             o.Evidence["category"] = label;
@@ -943,6 +989,10 @@ namespace BinaVibe.Mcp.Tools.Audit
             o.Evidence["instances"] = instances.Count;
             o.Evidence["types"] = types.Count;
             AddNames(o, "types_nonconforming_naming", nonConforming.Select(t => t.Name ?? "").ToList());
+            o.Evidence["naming_suggestions"] = suggestions;
+            o.Evidence["naming_suggestions_truncated"] = Math.Max(0, nonConforming.Count - Cap);
+            o.Evidence["suggested_count"] = suggestedPairs.Count;
+            o.Evidence["no_suggestion_count"] = noSuggestion;
             o.Evidence["automated_scope"] = "standard naming only; quality/information/geometry manual";
             o.ElementIds = nonConforming.Take(IdCap).Select(t => (long)t.Id.Value).ToList();
 
@@ -988,10 +1038,16 @@ namespace BinaVibe.Mcp.Tools.Audit
                 ? $"Format dijangka: {rule}. {instances.Count} elemen, {types.Count} jenis — "
                   + "semua nama jenis sepadan. (Kualiti/maklumat/geometri: semak manual.)"
                 : $"Format dijangka: {rule}. {instances.Count} elemen; "
-                  + $"{nonConforming.Count}/{types.Count} nama jenis tidak sepadan (cth: "
-                  + $"{string.Join(", ", nonConforming.Take(3).Select(t => t.Name))}). Namakan "
-                  + "semula jenis tersebut mengikut format itu. (Kualiti/maklumat/geometri: semak "
-                  + "manual.)" + FullListNote(nonConforming.Count);
+                  + $"{nonConforming.Count}/{types.Count} nama jenis tidak sepadan. "
+                  + (suggestedPairs.Count > 0
+                      ? "Cadangan: " + string.Join(", ",
+                          suggestedPairs.Take(3).Select(p => $"\"{p.current}\" → \"{p.suggested}\"")) + ". "
+                      : "")
+                  + (noSuggestion > 0
+                      ? $"{noSuggestion} nama tiada cadangan automatik yang yakin — namakan semula "
+                        + "secara manual mengikut format itu. "
+                      : "")
+                  + "(Kualiti/maklumat/geometri: semak manual.)" + FullListNote(nonConforming.Count);
             return o;
         }
 
@@ -1003,7 +1059,15 @@ namespace BinaVibe.Mcp.Tools.Audit
         private static readonly (string key, string[] keywords, string label,
                                  Func<AuditContext, (int count, List<string> names)> read)[] ContextProviders =
         {
-            ("worksets", new[] { "workset", "worksharing", "work sharing", "kerja bersama" },
+            // "block/tower/podium/structured/managed according" covers the A.3
+            // row ("structured according to rules … managed according to block,
+            // tower and podium") — worksets are the model fact a human checks it
+            // against, and none of A.3's words hit any other provider.
+            ("worksets", new[]
+                {
+                    "workset", "worksharing", "work sharing", "kerja bersama",
+                    "block", "tower", "podium", "structured", "managed according",
+                },
                 "workset", c => (c.Worksets.Count, c.Worksets)),
             ("phases", new[] { "phase", "phasing", "fasa" },
                 "fasa (phase)", c => (c.Phases.Count, c.Phases)),
@@ -1025,6 +1089,15 @@ namespace BinaVibe.Mcp.Tools.Audit
                 "sheet", c => (c.Sheets.Count, c.Sheets.Select(s => s.SheetNumber ?? "").ToList())),
             ("schedules", new[] { "schedule", "jadual" },
                 "jadual", c => (c.Schedules.Count, c.Schedules.Select(s => s.Name).ToList())),
+            // Header/uncheckable rows that name a deliverable but fail a checker's
+            // 2-group match (C.2.0 "Legends", C.5.0 "Link Files", area-plan rows):
+            // still show the inventory a human would look up first.
+            ("legends", new[] { "legend", "legenda" },
+                "view Legend", c => (c.Legends.Count, c.Legends.Select(v => v.Name).ToList())),
+            ("links", new[] { "link files", "link file", "linked", "link", "pautan" },
+                "Revit link", c => (c.LinkTypes.Count, c.LinkTypes.Select(l => l.Name).ToList())),
+            ("area_plans", new[] { "area plan", "pelan keluasan", "spatial", "zoning", "zon" },
+                "Area Plan", c => (c.AreaPlans.Count, c.AreaPlans.Select(v => v.Name).ToList())),
             ("warnings", new[] { "warning", "error", "amaran", "ralat" },
                 "amaran (warning) dalam model", c => (c.Warnings, new List<string>())),
         };

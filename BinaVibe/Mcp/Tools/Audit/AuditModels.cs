@@ -20,8 +20,11 @@ namespace BinaVibe.Mcp.Tools.Audit
         public string RowRef = "";         // "1", "1.1", "4.2" — as printed
         public string Description = "";
         public string GuidelineRef = "";   // Reference column, e.g. "Appendix B.1.A (a)"
-        /// <summary>"form" (printed on this row), "form_sibling" (inherited from
-        /// the section's single printed ref) or "" (blank). Never synthesised.</summary>
+        /// <summary>Where GuidelineRef came from: "form" (printed on this row),
+        /// "form_sibling" (inherited from the section's single printed ref),
+        /// "checker" (matched checker's authoritative clause), "checker_sibling"
+        /// (a printed ref shared by other rows of the same checker in this form),
+        /// or "" (blank). The clause text itself is never synthesised.</summary>
         public string ReferenceSource = "";
         public int Page;                   // 1-based source page
     }

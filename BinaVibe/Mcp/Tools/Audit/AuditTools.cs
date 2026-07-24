@@ -87,6 +87,12 @@ namespace BinaVibe.Mcp.Tools.Audit
                 records.Add(rec);
             }
 
+            // A row whose Reference cell the form left blank inherits the matched
+            // checker's citation (or one a sibling row of the same checker
+            // printed). Runs after all rows are evaluated so the sibling scan sees
+            // the whole form. Clause text is never synthesised.
+            BackfillCheckerRefs(records);
+
             var result = new AuditResult
             {
                 FormName = formName,
@@ -121,6 +127,45 @@ namespace BinaVibe.Mcp.Tools.Audit
                 },
                 ["rows"] = records.Select(r => (object)r.ToDict()).ToList(),
             };
+        }
+
+        /// <summary>Fill a blank Reference from the matched checker: its declared
+        /// authoritative clause first, else a clause other rows of the SAME
+        /// checker printed on themselves (form_sibling refs are already inherited,
+        /// so only "form" rows seed a sibling). Blank stays blank when neither
+        /// source has a value — nothing is invented.</summary>
+        private static void BackfillCheckerRefs(List<AuditRecord> records)
+        {
+            // 1. Static: the checker's own authoritative clause.
+            foreach (var r in records)
+            {
+                if (r.Row.GuidelineRef.Length > 0 || !r.CheckerMatched) continue;
+                var checker = AuditCheckers.ById(r.CheckerId);
+                if (checker != null && checker.GuidelineRef.Length > 0)
+                {
+                    r.Row.GuidelineRef = checker.GuidelineRef;
+                    r.Row.ReferenceSource = "checker";
+                }
+            }
+
+            // 2. Learned within the form: a clause a sibling row of the same
+            // checker printed (ReferenceSource "form"), when it is unambiguous.
+            var printedByChecker = records
+                .Where(r => r.CheckerMatched && r.Row.ReferenceSource == "form"
+                            && r.Row.GuidelineRef.Length > 0)
+                .GroupBy(r => r.CheckerId)
+                .Where(g => g.Select(r => r.Row.GuidelineRef).Distinct(StringComparer.Ordinal).Count() == 1)
+                .ToDictionary(g => g.Key, g => g.First().Row.GuidelineRef, StringComparer.Ordinal);
+
+            foreach (var r in records)
+            {
+                if (r.Row.GuidelineRef.Length > 0 || !r.CheckerMatched) continue;
+                if (printedByChecker.TryGetValue(r.CheckerId, out var clause))
+                {
+                    r.Row.GuidelineRef = clause;
+                    r.Row.ReferenceSource = "checker_sibling";
+                }
+            }
         }
 
         // ─── draft_export ───────────────────────────────────────────────
@@ -173,10 +218,15 @@ namespace BinaVibe.Mcp.Tools.Audit
                 r.Row.Section + (r.Row.SectionTitle.Length > 0 ? " — " + r.Row.SectionTitle : ""),
                 r.Row.RowRef,
                 r.Row.Description,
-                // An inherited ref is marked as such — the form printed it once
-                // for the section, not on this row.
-                r.Row.GuidelineRef + (r.Row.ReferenceSource == "form_sibling"
-                    ? " (rujukan seksyen)" : ""),
+                // A ref not printed on this row is marked as such: the form
+                // printed it once for the section (form_sibling), or it came from
+                // the checker / a sibling row of the same checker.
+                r.Row.GuidelineRef + r.Row.ReferenceSource switch
+                {
+                    "form_sibling" => " (rujukan seksyen)",
+                    "checker" or "checker_sibling" => " (rujukan checker)",
+                    _ => "",
+                },
                 r.Compliance,
                 r.Compliance == "no" ? r.Severity : "",
                 r.CheckerMatched ? r.CheckerId : "(manual)",
@@ -184,6 +234,24 @@ namespace BinaVibe.Mcp.Tools.Audit
                 r.Remark,
                 string.Join(" ", r.ElementIds),
             });
+
+        /// <summary>Remark for the six-column form layouts (docx/pdf), which have
+        /// no Severity column. A failed critical/major row is prefixed so a reader
+        /// can still triage; minor and passing rows are unchanged. Ordering only —
+        /// it never alters the verdict already shown in the √/X columns. Keeps the
+        /// not_verifiable + empty-remark → "Semak manual" fallback.</summary>
+        private static string FormRemark(AuditRecord r)
+        {
+            var remark = r.Compliance == "not_verifiable" && r.Remark.Length == 0
+                ? "Semak manual" : r.Remark;
+            if (r.Compliance != "no") return remark;
+            return r.Severity switch
+            {
+                Severities.Critical => "[KRITIKAL] " + remark,
+                Severities.Major => "[MAJOR] " + remark,
+                _ => remark,
+            };
+        }
 
         private static void ExportXlsx(AuditResult result, string path)
         {
@@ -295,8 +363,7 @@ namespace BinaVibe.Mcp.Tools.Audit
                         r.Row.GuidelineRef,
                         r.Compliance == "yes" ? "√" : "",
                         r.Compliance == "no" ? "X" : "",
-                        r.Compliance == "not_verifiable" && r.Remark.Length == 0
-                            ? "Semak manual" : r.Remark));
+                        FormRemark(r)));
                 }
                 return table;
             }
@@ -406,7 +473,7 @@ namespace BinaVibe.Mcp.Tools.Audit
                                              r.Compliance == "yes" ? "#dcfce7" : null);
                                         Cell(r.Compliance == "no" ? "X" : "",
                                              r.Compliance == "no" ? "#fee2e2" : null);
-                                        Cell(r.Remark);
+                                        Cell(FormRemark(r));
                                     }
                                 });
                             });
