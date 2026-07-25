@@ -29,8 +29,44 @@ namespace RevitWebAppSync.UI.Copilot
         public string SessionId => _sessionId;
 
         /// <summary>Generates a fresh session id so the backend treats the next
-        /// request as a brand-new conversation with no prior history.</summary>
-        public void ResetSession() => _sessionId = Guid.NewGuid().ToString();
+        /// request as a brand-new conversation with no prior history, and drops
+        /// any parked HITL/confirmation state.
+        ///
+        /// Clearing the parked state is not optional. A new session id alone
+        /// does NOT start a fresh conversation: RouteAsync checks _pendingHitl
+        /// BEFORE it builds a normal turn, so a clarify card left unanswered in
+        /// the old chat swallows the new chat's first prompt as an ANSWER to the
+        /// old run — resumed on the old run_id and old session_id, carrying the
+        /// old history. The pane looks empty, the reply talks about the previous
+        /// topic, and the fresh session id is never sent to the backend at all.
+        /// Observed 2026-07-25: a door-schedule prompt answered a parked
+        /// clearance clarify and the agent replied "Pengguna nampaknya menukar
+        /// topik".</summary>
+        public void ResetSession()
+        {
+            _sessionId = Guid.NewGuid().ToString();
+            _pendingHitl = null;
+
+            // Unpause an abandoned mutate-confirmation server-side (fire-and-
+            // forget, same shape as RouteAsync's stale-confirm path) so the run
+            // does not sit paused forever with its session unflushed.
+            var parked = _pendingConfirm;
+            _pendingConfirm = null;
+            if (parked != null)
+            {
+                var token = BinaConfig.Load()?.AccessToken ?? "";
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _toolLoop.ResumeWithConfirmationAsync(
+                            parked.RunId, parked.SessionId, parked.Pending,
+                            approve: false, parked.Narration, null, token).ConfigureAwait(false);
+                    }
+                    catch { /* best-effort: chat was abandoned, reply discarded */ }
+                });
+            }
+        }
 
         // Shared HttpClient for the tool-loop (long timeout — a tool's Revit
         // execution can run minutes on a cold/large model).
