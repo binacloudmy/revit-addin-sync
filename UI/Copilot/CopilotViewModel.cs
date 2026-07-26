@@ -1340,19 +1340,29 @@ namespace RevitWebAppSync.UI.Copilot
             if (outcome != null && !outcome.Success)
                 return "Sorry — that didn't run. " + (outcome.Error ?? "");
             if (r == null) return "Done.";
+            string text;
             switch (r.Kind)
             {
                 case CpResultKind.Count:
-                    return $"{r.Headline} {r.Unit}".Trim() + (string.IsNullOrEmpty(r.Sub) ? "" : $". {r.Sub}");
+                    text = $"{r.Headline} {r.Unit}".Trim() + (string.IsNullOrEmpty(r.Sub) ? "" : $". {r.Sub}"); break;
                 case CpResultKind.Issues:
-                    return $"{r.Headline} {r.Unit}".Trim();
+                    text = $"{r.Headline} {r.Unit}".Trim(); break;
                 case CpResultKind.List:
-                    return r.Headline; // diffs render in History; chat keeps the line tight
+                    text = r.Headline; break; // diffs render in History; chat keeps the line tight
                 case CpResultKind.File:
-                    return $"Saved {r.Headline}." + (string.IsNullOrEmpty(r.Sub) ? "" : $" {r.Sub}");
+                    text = $"Saved {r.Headline}." + (string.IsNullOrEmpty(r.Sub) ? "" : $" {r.Sub}"); break;
                 default:
-                    return string.IsNullOrEmpty(r.Sub) ? r.Headline : $"{r.Headline} — {r.Sub}";
+                    text = string.IsNullOrEmpty(r.Sub) ? r.Headline : $"{r.Headline} — {r.Sub}"; break;
             }
+            // SetResult.details is the computed data itself (ready markdown —
+            // per-level tables, notes). Chat bubbles render markdown, so
+            // appending it here is what puts the actual result — and the CSV
+            // download button its tables carry — in front of the drafter.
+            // Without this the pane says "26 bilik — clearance height" and the
+            // 26 rows the code computed are silently thrown away.
+            if (!string.IsNullOrWhiteSpace(r.Details))
+                text = text + "\n\n" + r.Details.Trim();
+            return text;
         }
 
         private void ReplaceLastThinking(ChatMessage replacement)

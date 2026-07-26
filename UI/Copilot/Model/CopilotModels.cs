@@ -64,6 +64,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Headline;   // count stores the number as a string ("47")
         public string Unit;
         public string Sub;
+        public string Details;    // ready markdown from SetResult.details — tables render in chat (with the CSV button); dropping this loses computed data (clearance round 2026-07-23)
         public string Path;       // file variant
         public List<BarItem> Bars = new List<BarItem>();
         public List<IssueItem> Items = new List<IssueItem>();
