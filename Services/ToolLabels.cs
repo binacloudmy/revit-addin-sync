@@ -34,6 +34,8 @@ namespace RevitWebAppSync.Services
             ["list_sheets"]                = "Listing sheets",
             ["list_schedules"]             = "Listing schedules",
             ["list_grids"]                 = "Reading grids",
+            ["find_elements_between_grids"] = "Finding elements between grids",
+            ["find_mep_elements"]          = "Finding MEP elements",
             ["analyze_model_statistics"]   = "Analyzing model statistics",
             ["get_material_quantities"]    = "Reading material quantities",
             ["get_model_warnings"]         = "Checking model warnings",
