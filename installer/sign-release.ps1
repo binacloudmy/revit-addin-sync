@@ -1,7 +1,12 @@
 # Fully-signed release from a Windows box with the code-signing cert live
 # (Certum SimplySign connected, or any cert signtool /a can find).
 #
-#   powershell -ExecutionPolicy Bypass -File installer\sign-release.ps1 -Tag v0.0.27-staging
+#   powershell -ExecutionPolicy Bypass -File installer\sign-release.ps1 -Tag v0.0.27-staging -Thumbprint <sha1>
+#
+# Pass -Thumbprint (cert in CurrentUser\My) so the installer also pre-trusts
+# the publisher cert — without it Revit shows a one-time "Signed Add-In —
+# Always Load?" prompt per user. Omit it to fall back to signtool /a
+# auto-select (signs fine, but no pre-trust).
 #
 # Why this exists: CI (release.yml) has no cert, so its assets carry UNSIGNED
 # RevitWebAppSync.dll payloads — Smart App Control / WDAC (Enforce) machines
@@ -24,6 +29,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Tag,   # v0.0.27 or v0.0.27-staging
     [string]$RepoDir = "",                        # default: the repo this script sits in
     [string]$TimestampUrl = "http://time.certum.pl",
+    [string]$Thumbprint = "",                     # cert thumbprint (CurrentUser\My) — enables TrustedPublisher pre-trust
     [string]$EngineZip = "",
     [string]$GatewayUrl = "",
     [bool]$Mandatory = $true
@@ -62,16 +68,30 @@ if (git status --porcelain) {
     throw "Working tree is dirty — stash or discard changes before a release build"
 }
 
-# Cert: honor a caller-set SIGNTOOL_ARGS; default to /a (best cert in store —
-# with SimplySign connected that is the Certum cert).
-if (-not $env:SIGNTOOL_ARGS) {
+# Cert selection. -Thumbprint is the preferred path: build-installer.ps1 can
+# then export the public .cer and the installer pre-trusts the publisher
+# (certutil -addstore TrustedPublisher), which removes Revit's one-time
+# "Signed Add-In — Always Load?" prompt entirely. The SIGNTOOL_ARGS env path
+# signs identically but build-installer cannot see the cert object, so no
+# .cer export -> the prompt survives.
+if ($Thumbprint) {
+    if ($env:SIGNTOOL_ARGS) {
+        # build-installer honors SIGNTOOL_ARGS over -SignCert — letting both
+        # through would silently drop the pre-trust the caller asked for.
+        throw "-Thumbprint and SIGNTOOL_ARGS are mutually exclusive — unset SIGNTOOL_ARGS to use pre-trust"
+    }
+    if (-not (Test-Path "Cert:\CurrentUser\My\$Thumbprint")) {
+        throw "Thumbprint $Thumbprint not in Cert:\CurrentUser\My — connect SimplySign, then: Get-ChildItem Cert:\CurrentUser\My"
+    }
+} elseif (-not $env:SIGNTOOL_ARGS) {
     $env:SIGNTOOL_ARGS = "/a /fd SHA256 /tr $TimestampUrl /td SHA256"
-    Write-Host "==> SIGNTOOL_ARGS not set — using '/a' auto-select (connect SimplySign first)" -ForegroundColor Yellow
+    Write-Host "==> No -Thumbprint and SIGNTOOL_ARGS not set — '/a' auto-select, NO TrustedPublisher pre-trust (Revit shows the one-time Always Load prompt)" -ForegroundColor Yellow
 }
 
 # Full build: publishes all payload TFMs + loaders, SIGNS every addin DLL,
 # builds + signs the installer EXE and uninstaller.
 $buildArgs = @{ Version = $version; Configuration = $configuration; TimestampUrl = $TimestampUrl }
+if ($Thumbprint) { $buildArgs.SignCert = $Thumbprint }
 if ($EngineZip)  { $buildArgs.EngineZip  = $EngineZip }
 if ($GatewayUrl) { $buildArgs.GatewayUrl = $GatewayUrl }
 & (Join-Path $repo "installer\build-installer.ps1") @buildArgs
