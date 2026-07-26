@@ -35,6 +35,16 @@
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />
     <Compile Include="..\UI\Jkr\JkrTheme.cs" Link="JkrTheme.cs" />
+    <!-- JkrTheme.cs calls Helpers.WpfAppBootstrap.Ensure(). This project uses
+         explicit Compile items (no default globs), so a file added to the addin
+         is invisible here until it is linked — and WpfAppBootstrap never was.
+         Every `test` job since it landed failed at compile with
+         "CS0234: 'WpfAppBootstrap' does not exist in the namespace
+         'RevitWebAppSync.Helpers'", so NO test in this project actually ran;
+         PR #53 merged under that red check. 46 lines, System + System.Windows
+         only, and JkrTheme already pulls WPF in, so linking it adds no new
+         dependency. -->
+    <Compile Include="..\Helpers\WpfAppBootstrap.cs" Link="WpfAppBootstrap.cs" />
     <Compile Include="..\Services\JkrCodeParser.cs" Link="JkrCodeParser.cs" />
     <!-- TableCsv: pure CSV serializer + filename slug for the Download-CSV
          button under AI tables (System + Regex only, no WPF/Revit). -->
