@@ -349,7 +349,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (m.Role == "user")
                 return CopilotMessageBubble.User(
                     m.Text, Vm?.UserFirstName, m.ImagesBase64,
-                    m.Files?.Select(f => (f.Name, LineCount(f.Content))), BubbleMaxWidth(), m.Time,
+                    m.Files?.Select(Model.HistoryFile.From), BubbleMaxWidth(), m.Time,
                     m.SlashCommand);
 
             // Cancelled generation — the design's italic faint "Interrupted."
@@ -1569,11 +1569,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         // Copy-to-clipboard affordances, the bot avatar, and base64 image decoding
         // live in CopilotMessageBubble (shared with the History detail view).
-
-        /// <summary>Line count matching AttachmentChip's "N ln" display, for the
-        /// shared user-bubble file chips.</summary>
-        private static int LineCount(string content) =>
-            string.IsNullOrEmpty(content) ? 0 : content.Count(c => c == '\n') + 1;
 
         // Raw tool name → friendly step label. Polished labels for the common
         // tools; everything else falls back to a clean snake_case → sentence

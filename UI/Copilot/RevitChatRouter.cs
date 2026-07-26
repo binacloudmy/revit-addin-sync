@@ -138,6 +138,15 @@ namespace RevitWebAppSync.UI.Copilot
         /// route that builds the request — same per-call pattern as OnProgress.</summary>
         public List<string> PendingImages { get; set; }
 
+        /// <summary>P2 slash command for the NEXT prompt: the backend command id
+        /// (and optional args) picked from the slash menu. Set by the viewmodel
+        /// right before RouteAsync, consumed + cleared when the request is built —
+        /// same per-call pattern as PendingImages. When set, /tool/generate
+        /// carries command_id and the backend dispatches that P1 definition
+        /// (instructions + tool allowlist) instead of a plain NL turn.</summary>
+        public string PendingCommandId { get; set; }
+        public Dictionary<string, object> PendingCommandArgs { get; set; }
+
         // Drives Cancel — set per stream so the pane's Cancel button can abort
         // the in-flight HttpClient request (CancelStream() trips this token,
         // which unwinds GenerateCodeStreamAsync's reader and disposes the
@@ -390,6 +399,13 @@ namespace RevitWebAppSync.UI.Copilot
             var images = PendingImages;
             PendingImages = null;
 
+            // Consume the slash command (P2) the same way — so the tool turn
+            // carries it and it never leaks into the following plain-NL turn.
+            var commandId = PendingCommandId;
+            var commandArgs = PendingCommandArgs;
+            PendingCommandId = null;
+            PendingCommandArgs = null;
+
             // ─── Stale mutate-confirmation ───────────────────────────────────
             // The user typed a NEW message instead of answering the Ya/Tidak
             // card. Auto-reject the parked batch in the background (fire-and-
@@ -464,6 +480,7 @@ namespace RevitWebAppSync.UI.Copilot
                 {
                     Prompt = message, Context = ctx, UserId = userId, SessionId = _sessionId,
                     Images = images,
+                    CommandId = commandId, CommandArgs = commandArgs,
                 };
                 TraceSession($"send NORMAL session={Short(_sessionId)} router={GetHashCode()}");
 

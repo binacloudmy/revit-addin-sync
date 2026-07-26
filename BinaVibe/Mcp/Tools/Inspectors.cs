@@ -1247,6 +1247,28 @@ namespace BinaVibe.Mcp.Tools
             return new Dictionary<string, object?> { ["ok"] = true, ["links"] = links, ["count"] = links.Count };
         }
 
+        // ─── list_cad_links ─────────────────────────────────────────────
+        // CAD (DWG/DXF) links AND imports — both are ImportInstance. is_link
+        // false means the drawing was IMPORTED into the .rvt rather than linked,
+        // which drafters care about, so it is reported rather than flattened
+        // away. dwg_ref is the handle every other DWG tool takes.
+        public static Dictionary<string, object?> ListCadLinks(Document doc)
+        {
+            var cad = new FilteredElementCollector(doc)
+                .OfClass(typeof(ImportInstance)).Cast<ImportInstance>()
+                .Select(imp => new Dictionary<string, object?>
+                {
+                    ["dwg_ref"] = "model:" + imp.Id.Value,
+                    ["id"] = imp.Id.Value,
+                    ["name"] = DwgReader.NameOf(imp),
+                    ["is_link"] = imp.IsLinked,
+                    ["path"] = DwgReader.PathOf(doc, imp),
+                    ["layer_count"] = DwgReader.LayerNames(imp).Count,
+                    ["extents_mm"] = DwgReader.Extents(imp),
+                }).ToList<object>();
+            return new Dictionary<string, object?> { ["ok"] = true, ["cad_links"] = cad, ["count"] = cad.Count };
+        }
+
         // ─── list_revisions ─────────────────────────────────────────────
         public static Dictionary<string, object?> ListRevisions(Document doc)
         {

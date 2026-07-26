@@ -395,7 +395,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (msg.Sender == "user")
                 wrap.Children.Add(CopilotMessageBubble.User(
                     msg.Text, Vm?.UserFirstName, null,
-                    msg.Files?.Select(f => (f.Name, f.Lines)), DetailMaxWidth()));
+                    msg.Files, DetailMaxWidth()));
             else
                 wrap.Children.Add(CopilotMessageBubble.Ai(msg.Text, DetailMaxWidth()));
             return wrap;
