@@ -1,15 +1,28 @@
-# OTA release pipeline.
+# Release build + verification pipeline (sovereign delivery).
 #
 # Flow: git tag v0.0.2 && git push --tags
-#   → builds plugin + loader with Version=0.0.2
-#   → RevitWebAppSync-0.0.2.zip (the OTA payload) + sha256 + version.json
-#   → RevitCopilot-0.0.2.msi (loader + seeded first version; one-time install)
-#   → GitHub Release with all assets attached
+#   → builds plugin + loader with Version=0.0.2 (UNSIGNED — CI has no cert)
+#   → RevitWebAppSync-0.0.2.zip (OTA payload) + RevitCopilot-0.0.2-setup.exe
+#   → uploads them as GitHub workflow artifacts (build record / staging smoke)
 #
-# version.json is the update feed the addin polls (BinaConfig.UpdateFeedUrl).
-# NOTE: while this repo is private, GitHub release asset URLs need auth —
-# re-host version.json + zip on app.bina.cloud (or any public host) and point
-# UpdateFeedUrl there. The asset contents stay identical.
+# Two actors, deliberately split — this workflow is ONLY the first half:
+#
+#   RUNNER (this workflow, automated, self-hosted):
+#     - builds the plugin payload + loaders + installer EXE, UNSIGNED;
+#     - uploads them as GitHub workflow artifacts (build record / staging smoke);
+#     - publishes NOTHING users can download: no GitHub Release, no TM One upload,
+#       no pointer flip. It cannot — it has no cert and no TM One creds.
+#
+#   OPERATOR (separate, manual, on the sovereign signing box):
+#     - runs installer\sign-release.ps1, which rebuilds + SIGNS every payload DLL
+#       and the setup EXE, uploads the signed installer + OTA zip to TM One, and
+#       flips the latest.json pointer that bina-ai /addin/download and
+#       /addin/version.json resolve. THIS is go-live.
+#
+# Why the split: unsigned bytes never reach a user-facing URL (the signing gate);
+# build compute stays in-country; TM One credentials live only on the signing
+# box, never in GitHub secrets. This job is the fast "does the tag build + harvest
+# cleanly" gate the operator relies on before signing.
 
 name: release
 
@@ -19,15 +32,17 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version to build (e.g. 0.0.2) — no tag/release is created'
+        description: 'Version to build (e.g. 0.0.2) — build only, no publish'
         required: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   release:
-    runs-on: windows-latest
+    # Self-hosted sovereign runner (sovereignty: build compute in-country).
+    # Gated to tag pushes / manual dispatch above — never runs on fork PRs.
+    runs-on: [self-hosted, windows]
     steps:
       - uses: actions/checkout@v4
 
@@ -207,51 +222,14 @@ jobs:
           $size = (Get-Item "RevitCopilot-$v-setup.exe").Length
           if ($size -lt 1MB) { throw "Installer is only $([math]::Round($size/1KB)) KB — harvest failed, refusing to release" }
 
-      - name: Create GitHub Release
-        if: github.event_name == 'push'
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $v = '${{ steps.ver.outputs.version }}'
-          # Stable-named copy → evergreen landing-page link:
-          # releases/latest/download/RevitCopilotSetup.exe always serves the newest.
-          Copy-Item "RevitCopilot-$v-setup.exe" RevitCopilotSetup.exe
-          # Engine bundle rides the same release when fetched — version.json's
-          # engineUrl points at THIS release's copy of it.
-          $engineAsset = @()
-          if ('${{ steps.engine.outputs.present }}' -eq 'true') {
-            $engineAsset = @('${{ steps.engine.outputs.zip }}')
-          }
-          # Channel split:
-          #   -staging  -> immediate PRERELEASE (releases/latest never moves;
-          #                testers install by direct link only).
-          #   prod      -> DRAFT. CI assets are UNSIGNED and publishing them
-          #                would move releases/latest instantly — the fleet
-          #                OTA would pull an unsigned zip that SAC/WDAC
-          #                (Enforce) machines block at load (0x800711C7).
-          #                Sign + clobber the assets first (installer\
-          #                sign-release.ps1), then publish:
-          #                  gh release edit v<ver> --draft=false
-          $full = '${{ steps.ver.outputs.fullversion }}'
-          $chanFlag = @('--draft')
-          if ('${{ steps.ver.outputs.prerelease }}' -eq 'true') {
-            $chanFlag = @('--prerelease')
-          }
-          gh release create "v$full" `
-            '${{ steps.payload.outputs.zip }}' `
-            version.json `
-            "RevitCopilot-$v-setup.exe" `
-            RevitCopilotSetup.exe `
-            @engineAsset `
-            --title "BINA Sync $full" --generate-notes @chanFlag
-
-      - name: Upload artifacts (manual runs)
-        if: github.event_name == 'workflow_dispatch'
+      # No GitHub Release, no TM One upload here — CI produces UNSIGNED bytes.
+      # Publishing is the operator's sign-and-flip step (installer\sign-release.ps1),
+      # which SIGNS the payload + EXE, uploads to TM One and flips the pointer.
+      # This artifact is the build record + a staging smoke source only.
+      - name: Upload build artifacts (unsigned build record)
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ steps.ver.outputs.version }}
+          name: release-${{ steps.ver.outputs.fullversion }}
           path: |
             RevitWebAppSync-*.zip
             RevitCopilot-*-setup.exe
-            version.json
