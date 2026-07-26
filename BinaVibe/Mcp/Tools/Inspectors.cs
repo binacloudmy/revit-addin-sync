@@ -1247,6 +1247,28 @@ namespace BinaVibe.Mcp.Tools
             return new Dictionary<string, object?> { ["ok"] = true, ["links"] = links, ["count"] = links.Count };
         }
 
+        // ─── list_cad_links ─────────────────────────────────────────────
+        // CAD (DWG/DXF) links AND imports — both are ImportInstance. is_link
+        // false means the drawing was IMPORTED into the .rvt rather than linked,
+        // which drafters care about, so it is reported rather than flattened
+        // away. dwg_ref is the handle every other DWG tool takes.
+        public static Dictionary<string, object?> ListCadLinks(Document doc)
+        {
+            var cad = new FilteredElementCollector(doc)
+                .OfClass(typeof(ImportInstance)).Cast<ImportInstance>()
+                .Select(imp => new Dictionary<string, object?>
+                {
+                    ["dwg_ref"] = "model:" + imp.Id.Value,
+                    ["id"] = imp.Id.Value,
+                    ["name"] = DwgReader.NameOf(imp),
+                    ["is_link"] = imp.IsLinked,
+                    ["path"] = DwgReader.PathOf(doc, imp),
+                    ["layer_count"] = DwgReader.LayerNames(imp).Count,
+                    ["extents_mm"] = DwgReader.Extents(imp),
+                }).ToList<object>();
+            return new Dictionary<string, object?> { ["ok"] = true, ["cad_links"] = cad, ["count"] = cad.Count };
+        }
+
         // ─── list_revisions ─────────────────────────────────────────────
         public static Dictionary<string, object?> ListRevisions(Document doc)
         {
@@ -2092,6 +2114,305 @@ namespace BinaVibe.Mcp.Tools
                     ["audited"] = auditedCount,
                     ["violations"] = violations.Count,
                 },
+            };
+        }
+
+        // ─── find_elements_between_grids ────────────────────────────────────
+        /// <summary>
+        /// args: { grid_names: [string], category: string, level?: string }
+        ///
+        /// Elements whose location falls inside the plan box bounded by the
+        /// named grids. Two grids define a strip (bounded on one axis only);
+        /// four define a bay. Names match Revit's grid names case-insensitively.
+        ///
+        /// Why this tool exists: grid-bounded selection was the single largest
+        /// codegen fallback in July 2026 production — 4 of 5 fallbacks, 18-43s
+        /// each, hand-written FilteredElementCollector plus grid-curve maths on
+        /// every request ("tandas di Aras 01 antara gridline 1-2 & E-F").
+        ///
+        /// Returns element_ids + bounds_mm + the grids actually resolved, so a
+        /// typo in a grid name is visible instead of silently widening the box.
+        /// </summary>
+        public static Dictionary<string, object?> FindElementsBetweenGrids(Document doc, JsonElement args)
+        {
+            var names = new List<string>();
+            if (args.ValueKind == JsonValueKind.Object &&
+                args.TryGetProperty("grid_names", out var arr) &&
+                arr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var v in arr.EnumerateArray())
+                    if (v.ValueKind == JsonValueKind.String)
+                    {
+                        var s = v.GetString();
+                        if (!string.IsNullOrWhiteSpace(s)) names.Add(s!);
+                    }
+            }
+            if (names.Count < 2)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = "grid_names needs at least 2 grid names (2 = strip, 4 = bay)",
+                };
+
+            var categoryName = TryGetString(args, "category") ?? "Walls";
+            var bic = CategoryResolve.Resolve(categoryName);
+            if (!bic.HasValue)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"unknown category '{categoryName}' — pass a BuiltInCategory like OST_PlumbingFixtures or a friendly name like 'Plumbing Fixtures'",
+                };
+
+            var allGrids = new FilteredElementCollector(doc)
+                .OfCategory(BuiltInCategory.OST_Grids)
+                .WhereElementIsNotElementType()
+                .OfType<Grid>()
+                .ToList();
+
+            var resolved = new List<Grid>();
+            var unresolved = new List<string>();
+            foreach (var n in names)
+            {
+                var g = allGrids.FirstOrDefault(
+                    x => string.Equals(x.Name, n, StringComparison.OrdinalIgnoreCase));
+                if (g != null) resolved.Add(g); else unresolved.Add(n);
+            }
+            // Loud failure: a silently dropped grid name widens the box and the
+            // agent reports a confident count over the wrong region.
+            if (unresolved.Count > 0)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"grid(s) not found: {string.Join(", ", unresolved)}",
+                    ["available_grids"] = allGrids.Select(g => (object)g.Name).ToList<object>(),
+                };
+
+            // Collect each resolved grid's plan extent, then bound X and Y by
+            // whichever grids actually constrain them. A grid running N-S
+            // constrains X; one running E-W constrains Y. Deriving the axis from
+            // the curve (rather than from name order) is what lets the caller
+            // pass "1", "2", "E", "F" in any order.
+            double xMin = double.NegativeInfinity, xMax = double.PositiveInfinity;
+            double yMin = double.NegativeInfinity, yMax = double.PositiveInfinity;
+            var xs = new List<double>();
+            var ys = new List<double>();
+            foreach (var g in resolved)
+            {
+                var c = g.Curve;
+                if (c == null) continue;
+                var p0 = c.GetEndPoint(0);
+                var p1 = c.GetEndPoint(1);
+                if (Math.Abs(p1.X - p0.X) <= Math.Abs(p1.Y - p0.Y))
+                    xs.Add((p0.X + p1.X) / 2.0);      // runs N-S → constrains X
+                else
+                    ys.Add((p0.Y + p1.Y) / 2.0);      // runs E-W → constrains Y
+            }
+            if (xs.Count >= 2) { xMin = xs.Min(); xMax = xs.Max(); }
+            if (ys.Count >= 2) { yMin = ys.Min(); yMax = ys.Max(); }
+            if (xs.Count < 2 && ys.Count < 2)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = "the named grids do not bound a region — pass two PARALLEL grids (a strip) or four (a bay)",
+                };
+
+            var levelName = TryGetString(args, "level");
+            ElementId? levelId = null;
+            if (!string.IsNullOrWhiteSpace(levelName))
+            {
+                var lvl = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                    .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase));
+                if (lvl == null)
+                    return new Dictionary<string, object?>
+                    {
+                        ["ok"] = false,
+                        ["error"] = $"level '{levelName}' not found",
+                        ["available_levels"] = new FilteredElementCollector(doc)
+                            .OfClass(typeof(Level)).Cast<Level>()
+                            .Select(l => (object)l.Name).ToList<object>(),
+                    };
+                levelId = lvl.Id;
+            }
+
+            const int Cap = 200;
+            var matches = new List<object>();
+            int total = 0;
+            foreach (var el in new FilteredElementCollector(doc)
+                         .OfCategory(bic.Value).WhereElementIsNotElementType())
+            {
+                if (levelId != null && el.LevelId.Value != levelId.Value) continue;
+
+                // Centre of the element's bounding box: works for hosted
+                // families, walls, rooms and MEP curves alike, where
+                // LocationPoint alone is null for most of them.
+                var bb = el.get_BoundingBox(null);
+                if (bb == null) continue;
+                var cx = (bb.Min.X + bb.Max.X) / 2.0;
+                var cy = (bb.Min.Y + bb.Max.Y) / 2.0;
+                if (cx < xMin || cx > xMax || cy < yMin || cy > yMax) continue;
+
+                total++;
+                if (matches.Count >= Cap) continue;
+                var lvl = el.LevelId.Value != ElementId.InvalidElementId.Value
+                    ? doc.GetElement(el.LevelId) : null;
+                matches.Add(new Dictionary<string, object?>
+                {
+                    ["id"] = el.Id.Value,
+                    ["name"] = el.Name,
+                    ["level"] = lvl?.Name,
+                    ["xy_mm"] = new[] { Math.Round(cx * 304.8, 0), Math.Round(cy * 304.8, 0) },
+                });
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["matched"] = total,
+                ["returned"] = matches.Count,
+                ["truncated"] = total > matches.Count,
+                ["element_ids"] = matches
+                    .Cast<Dictionary<string, object?>>()
+                    .Select(m => m["id"]!).ToList<object>(),
+                ["matches"] = matches,
+                ["grids_resolved"] = resolved.Select(g => (object)g.Name).ToList<object>(),
+                ["bounds_mm"] = new Dictionary<string, object?>
+                {
+                    ["x_min"] = double.IsInfinity(xMin) ? null : (object)Math.Round(xMin * 304.8, 0),
+                    ["x_max"] = double.IsInfinity(xMax) ? null : (object)Math.Round(xMax * 304.8, 0),
+                    ["y_min"] = double.IsInfinity(yMin) ? null : (object)Math.Round(yMin * 304.8, 0),
+                    ["y_max"] = double.IsInfinity(yMax) ? null : (object)Math.Round(yMax * 304.8, 0),
+                },
+                ["nothing"] = total == 0,
+            };
+        }
+
+        // ─── find_mep_elements ─────────────────────────────────────────────
+        /// <summary>
+        /// args: { system: string, level?: string, view?: string }
+        ///
+        /// Existing MEP elements by plain-word system name. The mapping below is
+        /// the whole point of the tool: a hand-written collector for pipes
+        /// invented `BuiltInCategory.OST_Pipes`, which does not exist — the real
+        /// category is OST_PipeCurves (production trace 224e8f94, 2026-07-22).
+        /// Naming the categories once, here, removes them from the model's
+        /// guessing surface entirely.
+        /// </summary>
+        public static Dictionary<string, object?> FindMepElements(Document doc, JsonElement args)
+        {
+            var system = (TryGetString(args, "system") ?? "").Trim().ToLowerInvariant();
+            BuiltInCategory bic;
+            switch (system)
+            {
+                case "pipe": case "pipes": case "paip":
+                    bic = BuiltInCategory.OST_PipeCurves; break;
+                case "duct": case "ducts": case "ductwork":
+                    bic = BuiltInCategory.OST_DuctCurves; break;
+                case "conduit": case "conduits":
+                    bic = BuiltInCategory.OST_Conduit; break;
+                case "cable_tray": case "cabletray": case "cable trays":
+                    bic = BuiltInCategory.OST_CableTray; break;
+                case "pipe_fitting": case "pipe fittings":
+                    bic = BuiltInCategory.OST_PipeFitting; break;
+                case "duct_fitting": case "duct fittings":
+                    bic = BuiltInCategory.OST_DuctFitting; break;
+                case "pipe_accessory": case "pipe accessories": case "valve": case "valves":
+                    bic = BuiltInCategory.OST_PipeAccessory; break;
+                case "sprinkler": case "sprinklers":
+                    bic = BuiltInCategory.OST_Sprinklers; break;
+                case "air_terminal": case "air terminals": case "diffuser": case "diffusers":
+                    bic = BuiltInCategory.OST_DuctTerminal; break;
+                case "plumbing_fixture": case "plumbing fixtures": case "sanitary":
+                    bic = BuiltInCategory.OST_PlumbingFixtures; break;
+                case "mechanical_equipment": case "mechanical equipment":
+                    bic = BuiltInCategory.OST_MechanicalEquipment; break;
+                case "electrical_fixture": case "electrical fixtures":
+                    bic = BuiltInCategory.OST_ElectricalFixtures; break;
+                default:
+                    return new Dictionary<string, object?>
+                    {
+                        ["ok"] = false,
+                        ["error"] = $"unknown MEP system '{system}'",
+                        ["supported"] = new List<object>
+                        {
+                            "pipe", "duct", "conduit", "cable_tray", "pipe_fitting",
+                            "duct_fitting", "pipe_accessory", "sprinkler",
+                            "air_terminal", "plumbing_fixture",
+                            "mechanical_equipment", "electrical_fixture",
+                        },
+                    };
+            }
+
+            var levelName = TryGetString(args, "level");
+            ElementId? levelId = null;
+            if (!string.IsNullOrWhiteSpace(levelName))
+            {
+                var lvl = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                    .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase));
+                if (lvl == null)
+                    return new Dictionary<string, object?>
+                    {
+                        ["ok"] = false, ["error"] = $"level '{levelName}' not found",
+                    };
+                levelId = lvl.Id;
+            }
+
+            var viewName = TryGetString(args, "view");
+            FilteredElementCollector col;
+            if (!string.IsNullOrWhiteSpace(viewName))
+            {
+                var view = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                    .FirstOrDefault(v => !v.IsTemplate &&
+                                         string.Equals(v.Name, viewName, StringComparison.OrdinalIgnoreCase));
+                if (view == null)
+                    return new Dictionary<string, object?>
+                    {
+                        ["ok"] = false, ["error"] = $"view '{viewName}' not found",
+                    };
+                col = new FilteredElementCollector(doc, view.Id);
+            }
+            else
+            {
+                col = new FilteredElementCollector(doc);
+            }
+
+            const int Cap = 200;
+            var matches = new List<object>();
+            int total = 0;
+            foreach (var el in col.OfCategory(bic).WhereElementIsNotElementType())
+            {
+                if (levelId != null && el.LevelId.Value != levelId.Value) continue;
+                total++;
+                if (matches.Count >= Cap) continue;
+                var typeEl = el.GetTypeId().Value != ElementId.InvalidElementId.Value
+                    ? doc.GetElement(el.GetTypeId()) : null;
+                var lvl = el.LevelId.Value != ElementId.InvalidElementId.Value
+                    ? doc.GetElement(el.LevelId) : null;
+                var entry = new Dictionary<string, object?>
+                {
+                    ["id"] = el.Id.Value,
+                    ["name"] = el.Name,
+                    ["type_name"] = typeEl?.Name,
+                    ["level"] = lvl?.Name,
+                };
+                // Curve-based MEP carries a real length; mm per the units
+                // contract (every model-visible length is *_mm).
+                if ((el.Location as LocationCurve)?.Curve is Curve mc)
+                    entry["length_mm"] = Math.Round(mc.Length * 304.8, 0);
+                matches.Add(entry);
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["category"] = bic.ToString(),
+                ["matched"] = total,
+                ["returned"] = matches.Count,
+                ["truncated"] = total > matches.Count,
+                ["element_ids"] = matches
+                    .Cast<Dictionary<string, object?>>()
+                    .Select(m => m["id"]!).ToList<object>(),
+                ["matches"] = matches,
+                ["nothing"] = total == 0,
             };
         }
     }

@@ -6,3 +6,5 @@ BinaLoader/bin/
 BinaLoader/obj/
 Tests/obj
 .vs/
+# Wafi local-only test workspace (large binaries, Syncthing-synced, never pushed)
+TestingCIDB/

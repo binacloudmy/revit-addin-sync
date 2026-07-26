@@ -24,7 +24,9 @@ namespace RevitWebAppSync.UI.Jkr
             lock (_lock)
             {
                 if (_loaded) return;
-                if (Application.Current == null) return;
+                // Same reason as CopilotTheme: no Application means no merge target,
+                // and the panel's first {StaticResource} would then be fatal.
+                if (!Helpers.WpfAppBootstrap.Ensure()) return;
 
                 var asm = typeof(JkrTheme).Assembly.GetName().Name;
                 Merge($"pack://application:,,,/{asm};component/UI/Jkr/Tokens.xaml");

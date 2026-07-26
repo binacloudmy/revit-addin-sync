@@ -111,6 +111,8 @@ jobs:
           # Root manifest: which dll/type to bootstrap + the targets map.
           @{ version = $v; assembly = 'RevitWebAppSync.dll'; entryType = 'RevitWebAppSync.App'; targets = $yearMap } |
             ConvertTo-Json | Set-Content artifacts/plugin/manifest.json
+          & installer/prune-payload.ps1 -PluginDir artifacts/plugin
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-ChildItem artifacts/plugin -Recurse -Filter *.pdb | Remove-Item -ErrorAction SilentlyContinue
 
       - name: Publish loaders (net8 for 2025-2027, net48 for 2024)
