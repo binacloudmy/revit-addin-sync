@@ -15,13 +15,15 @@
 #
 # This script rebuilds everything via build-installer.ps1 (which signs
 # BinaLoader.dll, every RevitWebAppSync.dll payload, the setup EXE and the
-# uninstaller BEFORE Inno packs them), then produces the OTA zip + version.json
-# from the SIGNED payload tree and clobber-uploads all assets onto the tag's
-# GitHub release. Replaces every CI asset except auto-generated release notes.
+# uninstaller BEFORE Inno packs them), then produces the OTA zip from the
+# SIGNED payload tree, uploads the signed installer + OTA zip to TM One object
+# storage, and flips the latest.json pointer the bina-ai /addin endpoints serve
+# (sovereign delivery — no GitHub Release). This IS the go-live step.
 #
-# Requirements on this machine: git, gh (authed), dotnet 8 + 10 SDKs,
-# Inno Setup 6, signtool in PATH, and the cert available (connect SimplySign
-# first). Engine-channel releases: pass -EngineZip like build-installer.ps1.
+# Requirements on this machine: git, dotnet 8 + 10 SDKs, Inno Setup 6, signtool
+# in PATH, aws-cli, the cert available (connect SimplySign first), and TM One
+# creds in env (TMONE_SERVER/BUCKET/ACCESS_KEY_ID/SECRET_ACCESS_KEY — the bucket
+# you point at is the environment). Engine-channel releases: pass -EngineZip.
 
 param(
     [Parameter(Mandatory = $true)][string]$Tag,   # v0.0.27 or v0.0.27-staging
@@ -117,27 +119,68 @@ Remove-Item $zip -ErrorAction SilentlyContinue
 Compress-Archive -Path "$pluginDir\*" -DestinationPath $zip
 $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
 
-# Update feed the addin polls. Note: url carries the FULL tag — release.yml
-# writes the numeric-only path, which is broken for -staging tags (harmless
-# there only because staging builds disable the updater).
-$repoSlug = (git remote get-url origin) -replace '.*[:/]([^/]+/[^/.]+)(\.git)?$', '$1'
-$feed = [ordered]@{
-    version   = $version
-    url       = "https://github.com/$repoSlug/releases/download/$Tag/$zip"
-    sha256    = $sha
-    notes     = "BINA Sync $version"
-    mandatory = $Mandatory
+# ─── Publish to TM One (sovereign delivery) ─────────────────────────────────
+# Upload the signed installer + OTA zip to immutable versioned keys, THEN flip
+# latest.json — the pointer the bina-ai /addin/download + /addin/version.json
+# endpoints resolve. Uploads before the pointer flip = the go-live is one small
+# atomic PUT with no half-uploaded window. version.json is NOT written here: the
+# backend builds the feed from this pointer.
+#
+# Creds live on THIS box only (never in GitHub secrets). Set before running:
+#   TMONE_SERVER  TMONE_BUCKET  TMONE_ACCESS_KEY_ID  TMONE_SECRET_ACCESS_KEY
+#   (optional TMONE_REGION, REVIT_RELEASE_PREFIX; default prefix revit-copilot/releases)
+# The bucket you point at IS the environment: staging tag -> staging creds/bucket,
+# prod tag -> prod. Requires aws-cli (S3-compatible; OBS is S3-compatible).
+foreach ($k in 'TMONE_SERVER','TMONE_BUCKET','TMONE_ACCESS_KEY_ID','TMONE_SECRET_ACCESS_KEY') {
+    if (-not (Get-Item "env:$k" -ErrorAction SilentlyContinue)) {
+        throw "$k not set — needed to publish to TM One"
+    }
 }
-$feed | ConvertTo-Json -Depth 5 | Set-Content version.json
+$prefix   = if ($env:REVIT_RELEASE_PREFIX) { $env:REVIT_RELEASE_PREFIX.Trim('/') } else { 'revit-copilot/releases' }
+$endpoint = $env:TMONE_SERVER
+$bucket   = $env:TMONE_BUCKET
+$installerKey = "installers/RevitCopilot-$version-setup.exe"
+$otaKey       = "ota/RevitWebAppSync-$version.zip"
 
-Copy-Item -Force $setupExe (Join-Path $repo "RevitCopilotSetup.exe")
+# aws-cli reads AWS_* creds; SigV4 needs a region (derive from the OBS host,
+# e.g. obs.my-kualalumpur-1.alphaedge… -> my-kualalumpur-1). when_required
+# suppresses the CRC checksums Huawei OBS rejects (XAmzContentSHA256Mismatch).
+$env:AWS_ACCESS_KEY_ID     = $env:TMONE_ACCESS_KEY_ID
+$env:AWS_SECRET_ACCESS_KEY = $env:TMONE_SECRET_ACCESS_KEY
+$env:AWS_REQUEST_CHECKSUM_CALCULATION = 'when_required'
+if ($env:TMONE_REGION) { $env:AWS_DEFAULT_REGION = $env:TMONE_REGION }
+elseif ($endpoint -match '^https?://obs\.([^.]+)\.') { $env:AWS_DEFAULT_REGION = $Matches[1] }
+else { $env:AWS_DEFAULT_REGION = 'us-east-1' }
 
-Write-Host "==> Uploading signed assets onto release $Tag (clobber)..." -ForegroundColor Cyan
-gh release upload $Tag $zip version.json $setupExe RevitCopilotSetup.exe --clobber
-if ($LASTEXITCODE -ne 0) { throw "gh release upload failed" }
+function S3Cp($localFile, $key, $contentType, $cacheControl) {
+    # NB: not $args — that is PowerShell's automatic variable.
+    $cpArgs = @('s3', 'cp', $localFile, "s3://$bucket/$prefix/$key",
+                '--endpoint-url', $endpoint, '--content-type', $contentType)
+    if ($cacheControl) { $cpArgs += @('--cache-control', $cacheControl) }
+    aws @cpArgs
+    if ($LASTEXITCODE -ne 0) { throw "aws s3 cp failed: $key" }
+}
+
+Write-Host "==> Uploading signed installer + OTA zip to TM One..." -ForegroundColor Cyan
+S3Cp $setupExe $installerKey 'application/octet-stream' $null
+S3Cp $zip      $otaKey       'application/zip'          $null
+
+# Pointer LAST — the atomic go-live. Shape matches installer_release.read_pointer.
+$pointer = [ordered]@{
+    version      = $version
+    installer_key = $installerKey
+    ota_key      = $otaKey
+    sha256       = $sha
+    notes        = "BINA Sync $version"
+    mandatory    = [bool]$Mandatory
+}
+$pointerFile = Join-Path $repo 'latest.json'
+$pointer | ConvertTo-Json -Depth 5 | Set-Content $pointerFile
+Write-Host "==> Flipping latest.json pointer (go-live)..." -ForegroundColor Cyan
+S3Cp $pointerFile 'latest.json' 'application/json' 'no-cache, must-revalidate'
 
 Write-Host ""
-Write-Host "Done — $Tag now serves fully-signed assets:" -ForegroundColor Green
-Write-Host "  $zip (sha256 $sha)"
-Write-Host "  RevitCopilot-$version-setup.exe + RevitCopilotSetup.exe"
-Write-Host "  version.json"
+Write-Host "Done — $Tag published to TM One (bucket $bucket):" -ForegroundColor Green
+Write-Host "  $prefix/$installerKey"
+Write-Host "  $prefix/$otaKey (sha256 $sha)"
+Write-Host "  $prefix/latest.json -> now serving $version"

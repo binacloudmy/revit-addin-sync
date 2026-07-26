@@ -39,6 +39,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 Headline = o["headline"]?.ToString(),
                 Unit = o["unit"]?.ToString(),
                 Sub = o["sub"]?.ToString(),
+                Details = o["details"]?.ToString(),
                 Path = o["path"]?.ToString(),
             };
             switch (kind)

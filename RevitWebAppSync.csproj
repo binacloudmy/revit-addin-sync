@@ -35,6 +35,9 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <!-- Ensure all NuGet dependencies are copied to output -->
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <!-- Roslyn ships resource DLLs for 13 UI languages (~6.5MB per TFM in the
+         OTA payload); the addin surfaces compiler messages in English only. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <DefaultItemExcludes>$(DefaultItemExcludes);Tests\**;BinaLoader\**;UiHarness\**</DefaultItemExcludes>
   </PropertyGroup>
 
@@ -84,6 +87,11 @@
     <PackageReference Include="ClosedXML" Version="0.102.2" />
     <!-- PDF generation for Copilot session report export -->
     <PackageReference Include="QuestPDF" Version="2024.*" />
+    <!-- PDF READING for chat attachments (PdfReader.cs). Apache-2.0, pure
+         managed, netstandard2.0 — so it resolves for net48 as well as net8/net10.
+         Chosen over a cloud parser so attached PDFs never leave the machine and
+         cost nothing per page; see docs on the attachment channel. -->
+    <PackageReference Include="PdfPig" Version="0.1.*" />
     <!-- True-color emoji glyphs for the Copilot chat pane (MarkdownRenderer.cs)
          — WPF has no native color-font support, so heading/body emoji ("###
          🛠️ Tindakan") otherwise render as monochrome outline glyphs. Package
