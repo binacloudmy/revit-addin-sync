@@ -1593,6 +1593,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 ["list_sheets"] = "Reading sheets",
                 ["list_schedules"] = "Reading schedules",
                 ["list_grids"] = "Reading grids",
+                ["find_elements_between_grids"] = "Finding elements between grids",
+                ["find_mep_elements"] = "Finding MEP elements",
                 ["analyze_model_statistics"] = "Analyzing the model",
                 ["get_material_quantities"] = "Reading material quantities",
                 ["get_model_warnings"] = "Checking model warnings",

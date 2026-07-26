@@ -198,3 +198,8 @@ if a provider key is present on a gateway-configured machine (poison-pill,
 - A `Staging`-configuration build must never reach the fleet: its updater
   is disabled by design and its data lands in the staging DB. UAT builds
   get non-release version numbers (e.g. `0.0.20-uat`).
+- **The OTA payload is pruned to Windows x64** (`installer/prune-payload.ps1`,
+  called by CI and `build-installer.ps1`): non-`win-x64` RID natives and
+  unused Lato weights are deleted after publish, and the build fails if
+  `qpdf.dll`/`QuestPdfSkia.dll` go missing. Adding a dependency with native
+  assets or a new PDF font weight? Check the keep-lists in that script.

@@ -43,6 +43,8 @@ namespace BinaVibe.Mcp.Tools
                 "list_worksets"                 => Inspectors.ListWorksets(doc),
                 "get_element_parameters"        => Inspectors.GetElementParameters(doc, args),
                 "find_elements_by_filter"       => Inspectors.FindElementsByFilter(doc, args),
+                "find_elements_between_grids"   => Inspectors.FindElementsBetweenGrids(doc, args),
+                "find_mep_elements"             => Inspectors.FindMepElements(doc, args),
                 "query_geometry"                => QueryGeometry.Run(doc, args),
                 "filter_elements"               => ElementFilter.Run(app, doc, args),
                 "extract_cad_geometry"          => CadExtract.Run(uidoc, args),

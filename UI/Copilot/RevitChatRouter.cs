@@ -28,9 +28,75 @@ namespace RevitWebAppSync.UI.Copilot
         /// same session the rated response was produced under.</summary>
         public string SessionId => _sessionId;
 
+        /// <summary>Append one line to %LOCALAPPDATA%\Bina\RevitSync\session.log.
+        /// "+ New chat" kept landing on the PREVIOUS backend session (all eight
+        /// runs of 2026-07-25/26 piled into one session id) and no amount of
+        /// source reading settled whether _sessionId was rotating, so record
+        /// what the router actually does: every reset, and the session id +
+        /// branch of every send. The backend logs the id it RECEIVES; these two
+        /// together localise the divergence to one side in a single test.</summary>
+        private static void TraceSession(string message)
+        {
+            try
+            {
+                var dir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "Bina", "RevitSync");
+                System.IO.Directory.CreateDirectory(dir);
+                System.IO.File.AppendAllText(
+                    System.IO.Path.Combine(dir, "session.log"),
+                    $"{DateTime.Now:HH:mm:ss} [session] {message}{Environment.NewLine}");
+            }
+            catch { /* diagnostics must never break a turn */ }
+        }
+
+        private static string Short(string id) =>
+            string.IsNullOrEmpty(id) ? "(none)" : id.Substring(0, Math.Min(8, id.Length));
+
         /// <summary>Generates a fresh session id so the backend treats the next
-        /// request as a brand-new conversation with no prior history.</summary>
-        public void ResetSession() => _sessionId = Guid.NewGuid().ToString();
+        /// request as a brand-new conversation with no prior history, and drops
+        /// any parked HITL/confirmation state.
+        ///
+        /// Clearing the parked state matters because RouteAsync checks
+        /// _pendingHitl BEFORE it builds a normal turn: a clarify card left
+        /// unanswered in the old chat would swallow the new chat's first prompt
+        /// as an ANSWER to the old run — resumed on the old run_id and old
+        /// session_id, carrying the old history, with the fresh session id never
+        /// sent at all. (That path is a real leak, but it is NOT confirmed as
+        /// the cause of the 2026-07-25 "new chat remembers the old topic"
+        /// reports: none of the runs in that session recorded a get_user_input
+        /// call. TraceSession above is what settles it.)</summary>
+        public void ResetSession()
+        {
+            var previous = _sessionId;
+            _sessionId = Guid.NewGuid().ToString();
+            // router=<hash> on both reset and send lines: if the hashes differ,
+            // "+ New chat" is resetting a DIFFERENT router instance than the one
+            // that sends — which would explain a rotated id never reaching the wire.
+            TraceSession($"reset {Short(previous)} -> {Short(_sessionId)} router={GetHashCode()} "
+                       + $"(hitl={( _pendingHitl != null )} confirm={( _pendingConfirm != null )})");
+            _pendingHitl = null;
+
+            // Unpause an abandoned mutate-confirmation server-side (fire-and-
+            // forget, same shape as RouteAsync's stale-confirm path) so the run
+            // does not sit paused forever with its session unflushed.
+            var parked = _pendingConfirm;
+            _pendingConfirm = null;
+            if (parked != null)
+            {
+                var token = BinaConfig.Load()?.AccessToken ?? "";
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await _toolLoop.ResumeWithConfirmationAsync(
+                            parked.RunId, parked.SessionId, parked.Pending,
+                            approve: false, parked.Narration, null, token).ConfigureAwait(false);
+                    }
+                    catch { /* best-effort: chat was abandoned, reply discarded */ }
+                });
+            }
+        }
 
         // Shared HttpClient for the tool-loop (long timeout — a tool's Revit
         // execution can run minutes on a cold/large model).
@@ -369,6 +435,8 @@ namespace RevitWebAppSync.UI.Copilot
             if (hitl != null)
             {
                 _pendingHitl = null;
+                TraceSession($"send HITL-RESUME session={Short(hitl.SessionId)} "
+                           + $"(router holds {Short(_sessionId)}) run={Short(hitl.RunId)}");
                 EmitProgress("Thinking…");
                 CancellationTokenSource hcts = new CancellationTokenSource();
                 lock (_cancelLock)
@@ -414,6 +482,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Images = images,
                     CommandId = commandId, CommandArgs = commandArgs,
                 };
+                TraceSession($"send NORMAL session={Short(_sessionId)} router={GetHashCode()}");
 
                 // Live progress — HONEST, event-driven (no fake timer rotation).
                 // /tool/generate is a single non-streaming POST, so until the
