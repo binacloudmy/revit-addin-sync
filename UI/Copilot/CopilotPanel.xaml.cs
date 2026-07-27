@@ -202,8 +202,8 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 cache = new T();
                 cache.DataContext = _vm;
-                // The chat composer's usage popover and the blocked state's CTA
-                // both escalate to the upgrade sheet.
+                // The composer's usage popover, the blocked state's CTA and the
+                // near-limit notice all escalate to the upgrade sheet.
                 if (cache is Screens.ChatView chat)
                 {
                     chat.Prompt.UpgradeRequested += ShowUpgradeSheet;

@@ -29,8 +29,14 @@
             <StackPanel x:Name="BodyHost"/>
         </ScrollViewer>
 
-        <ctl:PromptBar x:Name="Prompt" Grid.Row="2" SubmitCommand="{Binding ChatSendCommand}"
-                       Busy="{Binding IsSending}" CancelCommand="{Binding CancelSendCommand}"/>
+        <!-- Bottom band: near-limit notice stacked directly above the composer, so
+             the notice pushes the composer down instead of overlaying it. Both
+             collapse together when the blocked state takes over (see UpdateUsage). -->
+        <StackPanel Grid.Row="2">
+            <ContentControl x:Name="NoticeHost" Visibility="Collapsed"/>
+            <ctl:PromptBar x:Name="Prompt" SubmitCommand="{Binding ChatSendCommand}"
+                           Busy="{Binding IsSending}" CancelCommand="{Binding CancelSendCommand}"/>
+        </StackPanel>
 
         <!-- Usage-limit blocked state; replaces the composer at 100% usage
              (centered over the body when the thread is empty). -->
