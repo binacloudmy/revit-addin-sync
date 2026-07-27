@@ -200,7 +200,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 vm.Usage,
                 () => UpgradeRequested?.Invoke(),
                 () => vm.UsageService != null ? vm.UsageService.NotifyAdminAsync() : System.Threading.Tasks.Task.CompletedTask,
-                centered);
+                centered,
+                () => { _ = vm.RefreshUsageAsync(); _ = vm.RefreshCreditBadgeAsync(); });
             BlockedHost.Visibility = Visibility.Visible;
             Prompt.Visibility = Visibility.Collapsed;
             UpdateNotice(vm, true);
