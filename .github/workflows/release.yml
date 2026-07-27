@@ -40,9 +40,23 @@ permissions:
 
 jobs:
   release:
-    # Self-hosted sovereign runner (sovereignty: build compute in-country).
-    # Gated to tag pushes / manual dispatch above — never runs on fork PRs.
-    runs-on: [self-hosted, windows]
+    # TEMPORARY: GitHub-hosted. The sovereign intent is a self-hosted Windows
+    # runner so build compute stays in-country (added 2026-07-27, PR #51) —
+    # but no such runner is registered, so every tagged release simply QUEUED
+    # forever with no failure and no log. v0.0.30-staging sat unassigned for
+    # 14 minutes before anyone noticed, because an unassigned job looks
+    # identical to a slow one.
+    #
+    # Reverted to unblock staging. Restore `runs-on: [self-hosted, windows]`
+    # once a runner is registered (repo Settings -> Actions -> Runners), and
+    # verify by pushing a throwaway tag BEFORE relying on it for a release —
+    # this failure mode is silent.
+    #
+    # Note what this does NOT change: the runner still produces unsigned
+    # artifacts only. Signing, the TM One upload and the latest.json flip stay
+    # on the operator's box, so no key or credential is exposed by building
+    # here rather than in-country.
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
