@@ -53,8 +53,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             Children.Clear();
             if (steps == null) return;
-            foreach (var s in steps)
-                Children.Add(Row(s));
+            for (int i = 0; i < steps.Count; i++)
+                Children.Add(Row(steps[i], i == 0, i == steps.Count - 1));
         }
 
         // One line per row: everything Update renders. If none of it changed,
@@ -71,48 +71,85 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return sb.ToString();
         }
 
-        private static FrameworkElement Row(ProgressStep s)
+        // A timeline row, not a bullet list line: a hairline rail runs the full
+        // height of the gutter with the state marker centred on it, so adjacent
+        // rows join into one continuous vertical thread. Reading order is
+        // marker -> label -> duration, with durations right-docked and
+        // min-width'd so the numbers form a column instead of ragging.
+        private static FrameworkElement Row(ProgressStep s, bool isFirst, bool isLast)
         {
-            var dock = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 1.5, 0, 1.5) };
+            var grid = new Grid { Margin = new Thickness(0, 0, 0, 0) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            var glyph = GlyphFor(s.State);
-            DockPanel.SetDock(glyph, Dock.Left);
-            dock.Children.Add(glyph);
+            // Gutter: rail + marker, marker painted over the rail.
+            var gutter = new Grid();
+            var rail = new Rectangle
+            {
+                Width = 1,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                // Stop the thread short of the panel edges so it reads as a
+                // segment belonging to these rows, not a line escaping them.
+                Margin = new Thickness(0, isFirst ? 9 : 0, 0, isLast ? 9 : 0),
+            };
+            rail.SetResourceReference(Shape.FillProperty, "Cp.LineSoft");
+            gutter.Children.Add(rail);
+            gutter.Children.Add(MarkerFor(s.State));
+            Grid.SetColumn(gutter, 0);
+            grid.Children.Add(gutter);
+
+            var content = new DockPanel { LastChildFill = true, Margin = new Thickness(9, 3, 0, 3) };
 
             var elapsed = new TextBlock
             {
                 Text = s.ElapsedText,
-                FontSize = 11,
+                FontSize = 10.5,
+                MinWidth = 38,
+                TextAlignment = TextAlignment.Right,
                 Margin = new Thickness(8, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
             };
-            elapsed.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            elapsed.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
             DockPanel.SetDock(elapsed, Dock.Right);
-            dock.Children.Add(elapsed);
+            content.Children.Add(elapsed);
 
             var label = new TextBlock
             {
                 Text = ProgressTrail.RowText(s),
-                FontSize = 12.5,
-                Margin = new Thickness(9, 0, 8, 0),
+                FontSize = 12,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
             };
-            label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
-            dock.Children.Add(label);
+            // Muted, not Ink: the trail is supporting evidence and must never
+            // compete with the answer for attention. The running row is the one
+            // exception — that is what the user is waiting on.
+            label.SetResourceReference(TextBlock.ForegroundProperty,
+                s.State == StepState.Running ? "Cp.Ink" : "Cp.Muted");
+            content.Children.Add(label);
 
-            return dock;
+            Grid.SetColumn(content, 1);
+            grid.Children.Add(content);
+            return grid;
         }
 
-        private static FrameworkElement GlyphFor(StepState state)
+        // Small filled dot for settled rows; the arc spinner keeps its place for
+        // Running so the row that is still working is the only moving thing.
+        private static FrameworkElement MarkerFor(StepState state)
         {
-            switch (state)
+            if (state == StepState.Running) return Spinner();
+            var dot = new Ellipse
             {
-                case StepState.Running: return Spinner();
-                case StepState.Error: return Mark("✗", "#dc2626");
-                default: return Mark("✓", "#10b981");   // Done
-            }
+                Width = 6, Height = 6,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+                Fill = CopilotColors.From(state == StepState.Error ? "#dc2626" : "#10b981"),
+            };
+            return dot;
         }
+
+        // (GlyphFor/Mark removed with the ✓/✗ text glyphs they served — the
+        // timeline uses MarkerFor's dots so the rail reads as one thread.)
 
         // Same spinning-arc pattern as ThinkingTrailView.Spinner() — direct
         // BeginAnimation, "Cp.Accent" stroke resource, 0.7s/turn.
@@ -135,12 +172,5 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return arc;
         }
 
-        private static TextBlock Mark(string glyph, string hex) => new TextBlock
-        {
-            Text = glyph, FontSize = 11, FontWeight = FontWeights.Bold,
-            Width = 15, TextAlignment = TextAlignment.Center,
-            Foreground = CopilotColors.From(hex),
-            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
-        };
     }
 }

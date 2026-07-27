@@ -19,7 +19,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         /// <summary>Turn a bare Button into a flat icon button (transparent, theme
         /// hover, no focus rect). Keeps whatever Content/Click it already has.
-        /// <paramref name="withBorder"/> is for callers (e.g. the langkah pill) that
+        /// <paramref name="withBorder"/> is for callers that
         /// want a visible 1px border: it skips zeroing BorderThickness, so whatever
         /// BorderThickness/BorderBrush the caller already set on the Button renders
         /// through the template. Default callers are unaffected — they keep

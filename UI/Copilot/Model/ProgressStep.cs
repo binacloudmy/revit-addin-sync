@@ -195,7 +195,39 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 }
             }
             var total = (end - start).TotalSeconds;
-            return "✓ " + steps.Count + " langkah · " + total.ToString("0.#") + "s";
+            // Deliberately WORDLESS. This used to read "✓ 6 langkah · 8.9s",
+            // which put a Malay noun on top of an English answer once the reply
+            // started mirroring the user's language (UAT 2026-07-27: "how many
+            // pipes in this model?" → English answer under a "6 langkah" pill).
+            // Translating the chrome would mean the client guessing the reply's
+            // language; removing the noun costs nothing and reads the same in
+            // both. What the steps WERE is far more useful than the word
+            // "steps" — see Preview below, which the chip renders beside this.
+            return "✓ " + steps.Count + " · " + total.ToString("0.#") + "s";
+        }
+
+        /// <summary>Short hint at WHAT ran, for the collapsed chip: the last
+        /// meaningful step's label plus "+N" for the rest. Empty when there is
+        /// nothing worth showing. Pure — unit-testable.
+        ///
+        /// The collapsed state used to carry only a count and a duration, so the
+        /// only way to learn whether the copilot had read the right things was to
+        /// expand it on every turn. The label text comes from ToolLabels, which
+        /// is already human-phrased ("Finding MEP elements").</summary>
+        public static string Preview(IReadOnlyList<ProgressStep> steps)
+        {
+            if (steps == null || steps.Count == 0) return "";
+            // Prefer a running step (that is what the user is waiting on), else
+            // the last one that carries a real label.
+            ProgressStep pick = null;
+            foreach (var s in steps)
+            {
+                if (s.State == StepState.Running && !string.IsNullOrWhiteSpace(s.Label)) { pick = s; break; }
+                if (!string.IsNullOrWhiteSpace(s.Label)) pick = s;
+            }
+            if (pick == null) return "";
+            var extra = steps.Count - 1;
+            return extra > 0 ? pick.Label + "  +" + extra : pick.Label;
         }
     }
 }

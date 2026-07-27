@@ -129,7 +129,13 @@ namespace Tests
             Assert.Single(steps);
             Assert.NotNull(steps[0].EndedUtc);
             Assert.NotEmpty(steps[0].ElapsedText);
-            Assert.Contains("langkah", ProgressTrail.Summary(new List<ProgressStep> { steps[0] }));
+            // Summary is deliberately WORDLESS (see ProgressTrail.Summary): it
+            // used to say "langkah", which put a Malay noun over English answers
+            // once replies began mirroring the user's language. Assert the count
+            // and the duration, not a noun in either language.
+            var oneStep = ProgressTrail.Summary(new List<ProgressStep> { steps[0] });
+            Assert.Contains("1", oneStep);
+            Assert.Contains("s", oneStep);
         }
 
         [Fact]
@@ -199,8 +205,49 @@ namespace Tests
             var summary = ProgressTrail.Summary(steps);
             Assert.Contains("✓", summary);
             Assert.Contains("2", summary);
-            Assert.Contains("langkah", summary);
             Assert.Contains("s", summary);
+            // No language-specific noun, in either language — the chip carries
+            // ProgressTrail.Preview beside this for what actually ran.
+            Assert.DoesNotContain("langkah", summary);
+            Assert.DoesNotContain("step", summary);
+        }
+
+        [Fact]
+        public void Preview_names_the_step_and_counts_the_rest()
+        {
+            var steps = new List<ProgressStep>
+            {
+                new ProgressStep { StepId = "a", Label = "Reading the active view", State = StepState.Done },
+                new ProgressStep { StepId = "b", Label = "Finding MEP elements", State = StepState.Done },
+                new ProgressStep { StepId = "c", Label = "Generating answer", State = StepState.Done },
+            };
+            var preview = ProgressTrail.Preview(steps);
+            Assert.Contains("Generating answer", preview);   // last labelled step
+            Assert.Contains("+2", preview);                  // the other two
+        }
+
+        [Fact]
+        public void Preview_prefers_the_running_step()
+        {
+            // Mid-turn the user cares about what is happening NOW, not what
+            // finished.
+            var steps = new List<ProgressStep>
+            {
+                new ProgressStep { StepId = "a", Label = "Reading the active view", State = StepState.Done },
+                new ProgressStep { StepId = "b", Label = "Finding MEP elements", State = StepState.Running },
+            };
+            Assert.Contains("Finding MEP elements", ProgressTrail.Preview(steps));
+        }
+
+        [Fact]
+        public void Preview_is_empty_without_steps_or_labels()
+        {
+            Assert.Equal("", ProgressTrail.Preview(null));
+            Assert.Equal("", ProgressTrail.Preview(new List<ProgressStep>()));
+            Assert.Equal("", ProgressTrail.Preview(new List<ProgressStep>
+            {
+                new ProgressStep { StepId = "a", Label = "", State = StepState.Done },
+            }));
         }
     }
 }
