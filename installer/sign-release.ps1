@@ -53,7 +53,8 @@ if ($Tag -notmatch '^v(\d+\.\d+\.\d+)(-staging)?$') {
 $version = $Matches[1]
 # Staging tags build the Staging configuration (staging backend, updater
 # disabled via .env.staging) exactly like release.yml's channel split.
-$configuration = if ($Matches[2]) { "Staging" } else { "Release" }
+$isStaging = [bool]$Matches[2]
+$configuration = if ($isStaging) { "Staging" } else { "Release" }
 
 # Refuse to build anything but the tag's exact tree — a dirty or drifted
 # checkout would ship bytes that don't match the tag.
@@ -136,7 +137,19 @@ foreach ($k in 'TMONE_SERVER','TMONE_BUCKET','TMONE_ACCESS_KEY_ID','TMONE_SECRET
         throw "$k not set — needed to publish to TM One"
     }
 }
-$prefix   = if ($env:REVIT_RELEASE_PREFIX) { $env:REVIT_RELEASE_PREFIX.Trim('/') } else { 'revit-copilot/releases' }
+# Prefix and channel are DERIVED FROM THE TAG, not from the environment. The
+# first staging release was published to the PROD prefix with its version
+# recorded as plain "0.0.30" — a prod backend reading that bucket would have
+# force-updated the whole fleet onto a staging build (mandatory defaults true).
+# An env var you must remember to set is not a safety mechanism; the tag
+# already carries the channel, so use it.
+$channel  = if ($isStaging) { 'staging' } else { 'prod' }
+$defaultPrefix = if ($isStaging) { 'revit-copilot/releases-staging' } else { 'revit-copilot/releases' }
+$prefix   = if ($env:REVIT_RELEASE_PREFIX) { $env:REVIT_RELEASE_PREFIX.Trim('/') } else { $defaultPrefix }
+# An override that contradicts the tag is a mistake, not an intention.
+if ($env:REVIT_RELEASE_PREFIX -and $prefix -ne $defaultPrefix) {
+    throw "REVIT_RELEASE_PREFIX '$prefix' contradicts tag $Tag (channel $channel, expected '$defaultPrefix') — unset it or fix the tag"
+}
 $endpoint = $env:TMONE_SERVER
 $bucket   = $env:TMONE_BUCKET
 $installerKey = "installers/RevitCopilot-$version-setup.exe"
@@ -165,14 +178,46 @@ Write-Host "==> Uploading signed installer + OTA zip to TM One..." -ForegroundCo
 S3Cp $setupExe $installerKey 'application/octet-stream' $null
 S3Cp $zip      $otaKey       'application/zip'          $null
 
+# Immutability check BEFORE uploading. Version keys must never be overwritten:
+# rollback works by pointing latest.json back at an earlier version, which is
+# only safe if the bytes under that version cannot have changed since. Also
+# catches the honest mistake of re-running a release after a local edit.
+foreach ($k in @($installerKey, $otaKey)) {
+    aws s3api head-object --endpoint-url $endpoint --bucket $bucket --key "$prefix/$k" *> $null
+    if ($LASTEXITCODE -eq 0) {
+        throw "$prefix/$k already exists — version $version is published and immutable. Bump the version; do not overwrite."
+    }
+}
+
 # Pointer LAST — the atomic go-live. Shape matches installer_release.read_pointer.
+# Staging defaults to OPTIONAL: a forced restart mid-Revit-session is the wrong
+# trade for a UAT build. Prod keeps the mandatory default, matching
+# UpdateService, which treats a MISSING flag as mandatory. An explicit
+# -Mandatory always wins.
+if ($PSBoundParameters.ContainsKey('Mandatory')) { $mandatoryFlag = [bool]$Mandatory }
+elseif ($isStaging)                              { $mandatoryFlag = $false }
+else                                             { $mandatoryFlag = $true }
+
+# Read the CURRENT pointer first so the new one records what to roll back to.
+# Rollback is a pointer flip, and it should not depend on anyone remembering
+# which version preceded this one.
+$previous = $null
+try {
+    $prevJson = aws s3 cp "s3://$bucket/$prefix/latest.json" - --endpoint-url $endpoint 2>$null
+    if ($LASTEXITCODE -eq 0 -and $prevJson) { $previous = ($prevJson | ConvertFrom-Json).version }
+} catch { }
+
 $pointer = [ordered]@{
-    version      = $version
-    installer_key = $installerKey
-    ota_key      = $otaKey
-    sha256       = $sha
-    notes        = "BINA Sync $version"
-    mandatory    = [bool]$Mandatory
+    version          = $version
+    channel          = $channel
+    tag              = $Tag
+    installer_key    = $installerKey
+    ota_key          = $otaKey
+    sha256           = $sha
+    notes            = "BINA Sync $version"
+    mandatory        = $mandatoryFlag
+    previous_version = $previous
+    published_at     = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
 }
 $pointerFile = Join-Path $repo 'latest.json'
 $pointer | ConvertTo-Json -Depth 5 | Set-Content $pointerFile
