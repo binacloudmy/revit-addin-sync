@@ -978,6 +978,18 @@ namespace RevitWebAppSync.UI.Copilot
 
         private void SetUsage(UsageState u)
         {
+            if (u == null) return;
+            // While the quota is exhausted the pane re-polls the SAME snapshot every
+            // few seconds waiting for an upgrade to land. Publishing an identical
+            // value would still raise UsageChanged, and consumers rebuild on that —
+            // the blocked wall would be torn down and re-created on every tick
+            // (visible flicker, and it would reset a button mid-click). Only a real
+            // change is worth broadcasting.
+            var cur = _usage;
+            if (cur != null && cur.Pct == u.Pct && cur.AtLimit == u.AtLimit &&
+                cur.PlanName == u.PlanName)
+                return;
+
             var disp = System.Windows.Application.Current?.Dispatcher;
             if (disp != null && !disp.CheckAccess()) disp.Invoke(() => Usage = u);
             else Usage = u;

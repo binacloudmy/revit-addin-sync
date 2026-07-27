@@ -20,7 +20,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     {
         /// <summary>Build the blocked section. `centered` fills the empty thread
         /// area; otherwise it renders as a composer-height bottom section.</summary>
-        public static FrameworkElement Build(UsageState u, Action openUpgrade, Func<Task> notifyAdmin, bool centered)
+        public static FrameworkElement Build(UsageState u, Action openUpgrade, Func<Task> notifyAdmin, bool centered,
+            Action refresh = null)
         {
             var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
             stack.Children.Add(Padlock());
@@ -71,6 +72,54 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 };
                 host.Content = notify;
                 stack.Children.Add(host);
+            }
+
+            // Escape hatch: the pane re-checks the quota on its own while blocked,
+            // but a drafter who paid on their phone (or during a network blip)
+            // shouldn't have to wait for the next tick — or restart Revit — to get
+            // back to work.
+            if (refresh != null)
+            {
+                var again = new Button
+                {
+                    Cursor = Cursors.Hand, BorderThickness = new Thickness(0),
+                    Background = Brushes.Transparent, FocusVisualStyle = null,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    Margin = new Thickness(0, 10, 0, 0),
+                };
+                var againBorder = new FrameworkElementFactory(typeof(Border));
+                againBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(7));
+                againBorder.SetValue(Border.PaddingProperty, new Thickness(9, 5, 9, 5));
+                againBorder.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+                againBorder.AppendChild(new FrameworkElementFactory(typeof(ContentPresenter)));
+                var againTemplate = new ControlTemplate(typeof(Button)) { VisualTree = againBorder };
+                var againHover = new Trigger { Property = UIElement.IsMouseOverProperty, Value = true };
+                againHover.Setters.Add(new Setter(Control.BackgroundProperty, new DynamicResourceExtension("Cp.Hover")));
+                againTemplate.Triggers.Add(againHover);
+                again.Template = againTemplate;
+
+                var againText = new TextBlock { Text = "Already upgraded? Check again", FontSize = 11.5 };
+                againText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+                again.Content = againText;
+                again.Click += (_, __) =>
+                {
+                    againText.Text = "Checking…";
+                    again.IsEnabled = false;
+                    refresh();
+                    // No completion callback: a successful refresh raises
+                    // UsageChanged, which tears this whole view down. If the quota is
+                    // genuinely still spent the label resets so it can be retried.
+                    var reset = new System.Windows.Threading.DispatcherTimer
+                    { Interval = TimeSpan.FromSeconds(3) };
+                    reset.Tick += (s2, e2) =>
+                    {
+                        reset.Stop();
+                        againText.Text = "Already upgraded? Check again";
+                        again.IsEnabled = true;
+                    };
+                    reset.Start();
+                };
+                stack.Children.Add(again);
             }
 
             var wrap = new Border { Padding = new Thickness(18) };
