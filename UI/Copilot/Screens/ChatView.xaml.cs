@@ -189,11 +189,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 BlockedHost.Visibility = Visibility.Collapsed;
                 BlockedHost.Content = null;
                 Prompt.Visibility = Visibility.Visible;
+                Scroller.Visibility = Visibility.Visible;
                 Grid.SetRow(BlockedHost, 2);
                 UpdateNotice(vm, false);
                 return;
             }
             bool centered = vm.Thread.Count == 0;
+            // Centered means the wall moves INTO the body row — which still holds the
+            // greeting and the suggested-prompt rows, so without collapsing it the
+            // padlock and CTA render straight on top of "Generate schedule" / "Tag
+            // rooms". With a thread present the wall sits in the composer row instead
+            // and the conversation behind it should stay readable.
+            Scroller.Visibility = centered ? Visibility.Collapsed : Visibility.Visible;
             Grid.SetRow(BlockedHost, centered ? 1 : 2);
             BlockedHost.VerticalAlignment = centered ? VerticalAlignment.Center : VerticalAlignment.Bottom;
             BlockedHost.Content = Controls.BlockedView.Build(

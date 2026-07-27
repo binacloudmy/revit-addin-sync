@@ -232,8 +232,15 @@ namespace UiHarness
         private static void Save(FrameworkElement el, string path)
         {
             el.UpdateLayout();
-            int w = (int)Math.Ceiling(el.ActualWidth);
-            int h = (int)Math.Ceiling(el.ActualHeight);
+            // RenderTargetBitmap.Render applies the element's layout offset — i.e. its
+            // Margin — so a bitmap sized to ActualWidth/Height alone draws the content
+            // shifted down-right into a canvas that is too small, silently cropping the
+            // right and bottom edges along with any drop shadow. That made the usage
+            // popover look mis-aligned in screenshots when the geometry was correct.
+            // Include the margins so the capture is honest.
+            var m = el.Margin;
+            int w = (int)Math.Ceiling(el.ActualWidth + m.Left + m.Right);
+            int h = (int)Math.Ceiling(el.ActualHeight + m.Top + m.Bottom);
             if (w <= 0 || h <= 0) { w = 430; h = 860; }
 
             var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
