@@ -122,7 +122,21 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 };
                 if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
             };
-            PlanBtn.Click += (_, __) => UsagePopup.IsOpen = !UsagePopup.IsOpen;
+            PlanBtn.Click += (_, __) =>
+            {
+                UsagePopup.IsOpen = !UsagePopup.IsOpen;
+                // Opening the card is an explicit "what's my usage right now?", so
+                // re-fetch rather than show whatever was last cached. Usage is
+                // otherwise only refreshed after a prompt / on pane re-show, so an
+                // idle pane — or a quota spent in another Revit session — would show
+                // a stale percent. The card is bound to UsageChanged, so it updates
+                // in place when the response lands.
+                if (UsagePopup.IsOpen && _usageVm != null)
+                {
+                    _ = _usageVm.RefreshUsageAsync();
+                    _ = _usageVm.RefreshCreditBadgeAsync();
+                }
+            };
             PopUpgradeBtn.Click += (_, __) =>
             {
                 UsagePopup.IsOpen = false;
