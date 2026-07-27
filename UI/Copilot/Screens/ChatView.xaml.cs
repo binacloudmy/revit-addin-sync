@@ -478,23 +478,26 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 chevron.RenderTransform = chevronSpin;
                 chipRow.Children.Add(chevron);
 
-                var chipButton = new Button
+                // A Border, not a Button: FlatButton's template carries an
+                // IsMouseOver trigger that tints the background Cp.Hover, and
+                // that highlight was rejected (2026-07-27) — on a chip this
+                // small it flashes a grey slab under the text. A Border has no
+                // control chrome to suppress, so there is simply nothing to
+                // hover. Transparent background for the same reason: the chip
+                // now reads as plain text with a chevron, and the answer keeps
+                // every bit of the visual weight.
+                var chipButton = new Border
                 {
-                    Content = chipRow,
-                    Padding = new Thickness(10, 4, 10, 4),
+                    Child = chipRow,
+                    Padding = new Thickness(0, 2, 6, 2),
                     // Hug the content instead of spanning the bubble column.
                     HorizontalAlignment = HorizontalAlignment.Left,
                     Margin = new Thickness(0, 0, 0, 7),
-                    BorderThickness = new Thickness(0),
+                    Background = Brushes.Transparent,   // still hit-testable
                     Cursor = System.Windows.Input.Cursors.Hand,
                 };
-                // A quiet sunken surface rather than an outline, so the chip
-                // stops competing with the answer. Applied AFTER FlatButton
-                // (which resets Background to Transparent) or it is overwritten.
-                FlatButton.Apply(chipButton, 999);
-                chipButton.SetResourceReference(Button.BackgroundProperty, "Cp.Sunken");
 
-                chipButton.Click += (_, __) =>
+                chipButton.MouseLeftButtonUp += (_, __) =>
                 {
                     bool expanding = trailView.Visibility == Visibility.Collapsed;
                     trailView.Visibility = expanding ? Visibility.Visible : Visibility.Collapsed;

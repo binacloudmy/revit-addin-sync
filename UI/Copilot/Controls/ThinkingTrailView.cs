@@ -64,7 +64,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 _iconSlot.Children.Clear();
                 switch (state)
                 {
-                    case State.Working: _iconSlot.Children.Add(Spinner()); break;
+                    case State.Working: _iconSlot.Children.Add(new PulseDotsSpinner()); break;
                     case State.Done: _iconSlot.Children.Add(PopCheck()); break;
                     case State.Error: _iconSlot.Children.Add(ErrorMark()); break;
                 }
@@ -123,25 +123,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             tt.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(7, 0, dur) { EasingFunction = ease });
         }
 
-        // Spinning accent arc (0.7s/turn) while working.
-        private static Path Spinner()
-        {
-            var arc = new Path
-            {
-                Width = 15, Height = 15, Stretch = Stretch.Uniform,
-                StrokeThickness = 2.6,
-                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
-                Data = Geometry.Parse("M21,12 A9,9 0 1 1 14.8,3.5"),
-                RenderTransformOrigin = new Point(0.5, 0.5),
-                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
-            };
-            arc.SetResourceReference(Shape.StrokeProperty, "Cp.Accent");
-            var spin = new RotateTransform();
-            arc.RenderTransform = spin;
-            spin.BeginAnimation(RotateTransform.AngleProperty,
-                new DoubleAnimation(0, 360, new Duration(TimeSpan.FromMilliseconds(700))) { RepeatBehavior = RepeatBehavior.Forever });
-            return arc;
-        }
+        // (The spinning accent arc lived here. Replaced by
+        // PulseDotsSpinner — the rotation read as a generic busy throbber.)
 
         // Design popCheck: check scales 0.4→1.18→1 with fade-in.
         private static Path PopCheck()

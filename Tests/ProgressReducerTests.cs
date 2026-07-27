@@ -203,8 +203,10 @@ namespace Tests
                 }
             };
             var summary = ProgressTrail.Summary(steps);
-            Assert.Contains("✓", summary);
             Assert.Contains("2", summary);
+            // No ✓ either — see ProgressTrail.Summary. A green tick on every
+            // reply is noise; the answer under the chip is the evidence.
+            Assert.DoesNotContain("✓", summary);
             Assert.Contains("s", summary);
             // No language-specific noun, in either language — the chip carries
             // ProgressTrail.Preview beside this for what actually ran.

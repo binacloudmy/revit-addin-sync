@@ -203,7 +203,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
             // language; removing the noun costs nothing and reads the same in
             // both. What the steps WERE is far more useful than the word
             // "steps" — see Preview below, which the chip renders beside this.
-            return "✓ " + steps.Count + " · " + total.ToString("0.#") + "s";
+            // No ✓ either. The chip is a quiet affordance, not a status
+            // badge: the answer sitting under it IS the evidence the turn
+            // succeeded, and a green tick on every reply is noise (rejected on
+            // sight, 2026-07-27).
+            return steps.Count + " · " + total.ToString("0.#") + "s";
         }
 
         /// <summary>The one step worth showing WHILE the turn runs: the running

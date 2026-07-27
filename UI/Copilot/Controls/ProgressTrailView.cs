@@ -39,7 +39,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // as ThinkingTrailView's _shownLabel/_shownState early return.
         private string _renderedKey;
 
-        /// <summary>One line showing only the CURRENT step, with the dot-ring
+        /// <summary>One line showing only the CURRENT step, with the pulse-dots
         /// spinner and whole-turn elapsed, instead of a row per step.
         ///
         /// Set for the in-flight turn. The full sequence is not lost: the
@@ -76,7 +76,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         }
 
         // Live mode keeps its own keys so the elapsed text can refresh WITHOUT
-        // rebuilding the row. Rebuilding would restart the dot-ring wave from
+        // rebuilding the row. Rebuilding would restart the pulse wave from
         // its first frame on every tick, which reads as a stutter — the same
         // trap the _renderedKey guard was added for with the arc spinner.
         private string _liveStepKey;
@@ -109,7 +109,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Children.Add(LiveRow(current, elapsed, out _liveTime));
         }
 
-        // The live line: [dot ring] label · elapsed. Deliberately one row —
+        // The live line: [pulse dots] label · elapsed. Deliberately one row —
         // see ProgressTrail.Current for why stacking was removed.
         private static FrameworkElement LiveRow(ProgressStep s, string elapsed, out TextBlock timeText)
         {
@@ -118,7 +118,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Orientation = Orientation.Horizontal,
                 Margin = new Thickness(0, 2, 0, 2),
             };
-            row.Children.Add(new DotRingSpinner(16, 12) { Margin = new Thickness(1, 0, 0, 0) });
+            row.Children.Add(new PulseDotsSpinner { Margin = new Thickness(1, 0, 0, 0) });
 
             var label = new TextBlock
             {
@@ -225,7 +225,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // Running so the row that is still working is the only moving thing.
         private static FrameworkElement MarkerFor(StepState state)
         {
-            if (state == StepState.Running) return Spinner();
+            if (state == StepState.Running) return PulsingDot();
             var dot = new Ellipse
             {
                 Width = 6, Height = 6,
@@ -246,26 +246,28 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // (GlyphFor/Mark removed with the ✓/✗ text glyphs they served — the
         // timeline uses MarkerFor's dots so the rail reads as one thread.)
 
-        // Same spinning-arc pattern as ThinkingTrailView.Spinner() — direct
-        // BeginAnimation, "Cp.Accent" stroke resource, 0.7s/turn.
-        private static Path Spinner()
+        // A single dot breathing on the rail. The 3-dot PulseDotsSpinner used
+        // on the live line is ~20px wide and cannot sit in an 18px gutter, and
+        // the arc it replaces was the throbber this redesign set out to remove —
+        // so the timeline's in-flight marker is the same dot as its settled
+        // neighbours, pulsing.
+        private static FrameworkElement PulsingDot()
         {
-            var arc = new Path
+            var dot = new Ellipse
             {
-                Width = 15, Height = 15, Stretch = Stretch.Uniform,
-                StrokeThickness = 2.6,
-                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
-                Data = Geometry.Parse("M21,12 A9,9 0 1 1 14.8,3.5"),
-                RenderTransformOrigin = new Point(0.5, 0.5),
-                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                Width = 6, Height = 6,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
             };
-            arc.SetResourceReference(Shape.StrokeProperty, "Cp.Accent");
-            var spin = new RotateTransform();
-            arc.RenderTransform = spin;
-            spin.BeginAnimation(RotateTransform.AngleProperty,
-                new DoubleAnimation(0, 360, new Duration(TimeSpan.FromMilliseconds(700))) { RepeatBehavior = RepeatBehavior.Forever });
-            return arc;
+            dot.SetResourceReference(Shape.FillProperty, "Cp.Accent");
+            dot.BeginAnimation(UIElement.OpacityProperty,
+                new DoubleAnimation(0.3, 1.0, new Duration(TimeSpan.FromMilliseconds(750)))
+                {
+                    AutoReverse = true,
+                    RepeatBehavior = RepeatBehavior.Forever,
+                    EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
+                });
+            return dot;
         }
-
     }
 }
