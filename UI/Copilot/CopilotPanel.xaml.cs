@@ -377,12 +377,15 @@ namespace RevitWebAppSync.UI.Copilot
             _ = _vm.RefreshCreditBadgeAsync();
         }
 
-        // Poll fast for the first minute (the likely return-from-checkout moment),
-        // then settle into a slow tick.
-        private static readonly TimeSpan FastPoll = TimeSpan.FromSeconds(5);
-        private static readonly TimeSpan SlowPoll = TimeSpan.FromSeconds(60);
-        private const int FastTicks = 12;                 // 12 x 5s = first minute
-        private int _pollTicks;
+        // Tick rate by how long we've been waiting. A checkout is rarely under a
+        // minute (bank login -> TAC -> confirm), so the middle tier covers the window
+        // a drafter actually returns in — dropping straight to a 60s tick meant
+        // coming back from a 5-minute payment and still waiting up to a minute at
+        // the blocked wall.
+        private static readonly TimeSpan FastPoll = TimeSpan.FromSeconds(5);    // first minute
+        private static readonly TimeSpan MidPoll = TimeSpan.FromSeconds(15);    // minutes 1-8
+        private static readonly TimeSpan SlowPoll = TimeSpan.FromSeconds(60);   // long tail
+        private DateTime _pollStarted;
         private DateTime _checkoutWatchUntil = DateTime.MinValue;
         private string _checkoutFromPlan;                 // plan name when checkout opened
 
@@ -434,7 +437,7 @@ namespace RevitWebAppSync.UI.Copilot
             if (_usagePoll != null && _usagePoll.IsEnabled && !restart) return;   // already running
 
             StopUsagePolling();
-            _pollTicks = 0;
+            _pollStarted = DateTime.UtcNow;
             _usagePoll = new System.Windows.Threading.DispatcherTimer { Interval = FastPoll };
             _usagePoll.Tick += OnUsagePollTick;
             _usagePoll.Start();
@@ -443,7 +446,11 @@ namespace RevitWebAppSync.UI.Copilot
         private void OnUsagePollTick(object sender, EventArgs e)
         {
             RefreshUsageNow();
-            if (++_pollTicks == FastTicks && _usagePoll != null) _usagePoll.Interval = SlowPoll;
+            var waited = DateTime.UtcNow - _pollStarted;
+            var rate = waited < TimeSpan.FromMinutes(1) ? FastPoll
+                     : waited < TimeSpan.FromMinutes(8) ? MidPoll
+                     : SlowPoll;
+            if (_usagePoll != null && _usagePoll.Interval != rate) _usagePoll.Interval = rate;
             // Stop once the reason to poll is gone (quota cleared, watch window
             // elapsed, pane hidden). RefreshUsageNow above raises UsageChanged on
             // success, but re-checking here also covers the window simply expiring.

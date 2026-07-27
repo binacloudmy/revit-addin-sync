@@ -122,7 +122,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 stack.Children.Add(again);
             }
 
-            var wrap = new Border { Padding = new Thickness(18) };
+            // Transparent (not null) so the whole wall hit-tests — a null Background
+            // only raises mouse events over the child glyphs, not the gaps.
+            var wrap = new Border { Padding = new Thickness(18), Background = Brushes.Transparent };
             if (centered)
             {
                 wrap.VerticalAlignment = VerticalAlignment.Center;
@@ -133,6 +135,22 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 wrap.BorderThickness = new Thickness(0, 1, 0, 0);
                 wrap.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
             }
+
+            // Coming back from the browser, the first thing a drafter does is move the
+            // pointer into the pane — so treat that as "check now" rather than making
+            // them wait out the next poll tick. Throttled, since MouseEnter fires on
+            // every re-entry.
+            if (refresh != null)
+            {
+                var lastAuto = DateTime.MinValue;
+                wrap.MouseEnter += (_, __) =>
+                {
+                    if ((DateTime.UtcNow - lastAuto).TotalSeconds < 3) return;
+                    lastAuto = DateTime.UtcNow;
+                    refresh();
+                };
+            }
+
             wrap.Child = stack;
             return wrap;
         }
