@@ -2236,6 +2236,8 @@ namespace BinaVibe.Mcp.Tools
 
             const int Cap = 200;
             var matches = new List<object>();
+            var byLevel = new Dictionary<string, int>();
+            var byType = new Dictionary<string, int>();
             int total = 0;
             foreach (var el in new FilteredElementCollector(doc)
                          .OfCategory(bic.Value).WhereElementIsNotElementType())
@@ -2252,14 +2254,28 @@ namespace BinaVibe.Mcp.Tools
                 if (cx < xMin || cx > xMax || cy < yMin || cy > yMax) continue;
 
                 total++;
-                if (matches.Count >= Cap) continue;
                 var lvl = el.LevelId.Value != ElementId.InvalidElementId.Value
                     ? doc.GetElement(el.LevelId) : null;
+                var typeEl = el.GetTypeId().Value != ElementId.InvalidElementId.Value
+                    ? doc.GetElement(el.GetTypeId()) : null;
+                // Same reasoning as FindMepElements: aggregate over the WHOLE
+                // set here so the model reads exact counts instead of tallying
+                // rows by hand. It reported "4 perangkap" correctly on a
+                // 13-item result and mis-split an 88-item one — small sets it
+                // can count, large sets it cannot, and nothing in the reply
+                // tells you which kind you got.
+                var lvlName = lvl?.Name ?? "(no level)";
+                var typName = typeEl?.Name ?? "(no type)";
+                byLevel[lvlName] = byLevel.TryGetValue(lvlName, out var lc) ? lc + 1 : 1;
+                byType[typName] = byType.TryGetValue(typName, out var tc) ? tc + 1 : 1;
+
+                if (matches.Count >= Cap) continue;
                 matches.Add(new Dictionary<string, object?>
                 {
                     ["id"] = el.Id.Value,
                     ["name"] = el.Name,
-                    ["level"] = lvl?.Name,
+                    ["type_name"] = typeEl?.Name,
+                    ["level"] = lvlName,
                     ["xy_mm"] = new[] { Math.Round(cx * 304.8, 0), Math.Round(cy * 304.8, 0) },
                 });
             }
@@ -2270,6 +2286,10 @@ namespace BinaVibe.Mcp.Tools
                 ["matched"] = total,
                 ["returned"] = matches.Count,
                 ["truncated"] = total > matches.Count,
+                ["by_level"] = byLevel.OrderByDescending(kv => kv.Value)
+                    .ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
+                ["by_type"] = byType.OrderByDescending(kv => kv.Value)
+                    .ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
                 ["element_ids"] = matches
                     .Cast<Dictionary<string, object?>>()
                     .Select(m => m["id"]!).ToList<object>(),
@@ -2378,21 +2398,37 @@ namespace BinaVibe.Mcp.Tools
             const int Cap = 200;
             var matches = new List<object>();
             int total = 0;
+            // Aggregate HERE, over every match, not just the capped page. The
+            // model was asked "how many pipes in this model", got 88 rows each
+            // carrying a level, hand-counted the grouping and reported
+            // "Aras 01: 20, Aras 02: 68" when the truth was 22 and 66. The day
+            // before, the same question produced "50 and 38". Three answers,
+            // all summing correctly to the right total, none of the splits
+            // right — because tallying 88 rows is exactly what a language model
+            // cannot do reliably. Counting is arithmetic: it belongs here,
+            // where it is exact and free, and the model only has to read it.
+            var byLevel = new Dictionary<string, int>();
+            var byType = new Dictionary<string, int>();
             foreach (var el in col.OfCategory(bic).WhereElementIsNotElementType())
             {
                 if (levelId != null && el.LevelId.Value != levelId.Value) continue;
                 total++;
-                if (matches.Count >= Cap) continue;
                 var typeEl = el.GetTypeId().Value != ElementId.InvalidElementId.Value
                     ? doc.GetElement(el.GetTypeId()) : null;
                 var lvl = el.LevelId.Value != ElementId.InvalidElementId.Value
                     ? doc.GetElement(el.LevelId) : null;
+                var lvlName = lvl?.Name ?? "(no level)";
+                var typName = typeEl?.Name ?? "(no type)";
+                byLevel[lvlName] = byLevel.TryGetValue(lvlName, out var lc) ? lc + 1 : 1;
+                byType[typName] = byType.TryGetValue(typName, out var tc) ? tc + 1 : 1;
+
+                if (matches.Count >= Cap) continue;
                 var entry = new Dictionary<string, object?>
                 {
                     ["id"] = el.Id.Value,
                     ["name"] = el.Name,
                     ["type_name"] = typeEl?.Name,
-                    ["level"] = lvl?.Name,
+                    ["level"] = lvlName,
                 };
                 // Curve-based MEP carries a real length; mm per the units
                 // contract (every model-visible length is *_mm).
@@ -2408,6 +2444,13 @@ namespace BinaVibe.Mcp.Tools
                 ["matched"] = total,
                 ["returned"] = matches.Count,
                 ["truncated"] = total > matches.Count,
+                // Exact, whole-set breakdowns. Quote these verbatim; never
+                // re-count `matches` (which is capped at 200 anyway, so a hand
+                // tally silently under-reports on any large model).
+                ["by_level"] = byLevel.OrderByDescending(kv => kv.Value)
+                    .ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
+                ["by_type"] = byType.OrderByDescending(kv => kv.Value)
+                    .ToDictionary(kv => kv.Key, kv => (object?)kv.Value),
                 ["element_ids"] = matches
                     .Cast<Dictionary<string, object?>>()
                     .Select(m => m["id"]!).ToList<object>(),
