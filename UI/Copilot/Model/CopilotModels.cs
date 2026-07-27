@@ -179,6 +179,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Status;    // "ok" | "warn" | "undone"
         public string Summary;
         public string Label;     // user-set display name; null means show auto-generated Summary
+        public string SessionId; // backend session this entry was recorded under; null on entries saved before Continue existed
         public List<History> History = new List<History>();
         public HistoryEntry() { }
         public HistoryEntry(string time, string status, string summary, List<History> history = null)

@@ -321,7 +321,8 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 _currentSession = new HistoryEntry(
                     DateTime.Now.ToString("MMM d, h:mm tt"), status, userText,
-                    new List<History>());
+                    new List<History>())
+                { SessionId = (Router as RevitChatRouter)?.SessionId };
                 History.Insert(0, _currentSession);
             }
             _currentSession.History.Add(new History("user", userText, time) { Files = userFiles });
@@ -339,6 +340,33 @@ namespace RevitWebAppSync.UI.Copilot
         {
             Thread.Clear();
             _currentSession = null; // next exchange begins a fresh HistoryEntry
+        }
+
+        /// <summary>Continue a past conversation from the History tab: the router
+        /// adopts its backend session (fresh session when the entry predates
+        /// SessionId tracking), the chat thread is rebuilt from the stored
+        /// exchanges, and new turns append to the same entry.</summary>
+        public void ContinueSession(HistoryEntry entry)
+        {
+            if (entry == null) return;
+            var router = Router as RevitChatRouter;
+            router?.AdoptSession(entry.SessionId);
+            if (string.IsNullOrWhiteSpace(entry.SessionId) && router != null)
+            {
+                // Pre-feature entry: remember the freshly minted session so a
+                // second Continue on this entry stays in the same conversation.
+                entry.SessionId = router.SessionId;
+                CopilotStateStore.Save(_pinned, History);
+            }
+            _currentSession = entry;
+            Thread.Clear();
+            foreach (var m in entry.History)
+            {
+                Thread.Add(m.Sender == "user"
+                    ? new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = m.Text, Time = m.Time }
+                    : new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = m.Text, Time = m.Time, ToolCallTrace = m.Tools });
+            }
+            Tab = CpTab.Chat;
         }
 
         public void RenameHistoryEntry(HistoryEntry entry, string newLabel)

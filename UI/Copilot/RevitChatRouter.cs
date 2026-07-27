@@ -98,6 +98,15 @@ namespace RevitWebAppSync.UI.Copilot
             }
         }
 
+        /// <summary>Continue an earlier conversation: subsequent calls carry its
+        /// session id, so the backend replays that session's history. A null/empty
+        /// id (history saved before Continue existed) starts a fresh session.</summary>
+        public void AdoptSession(string sessionId)
+        {
+            if (string.IsNullOrWhiteSpace(sessionId)) ResetSession();
+            else _sessionId = sessionId;
+        }
+
         // Shared HttpClient for the tool-loop (long timeout — a tool's Revit
         // execution can run minutes on a cold/large model).
         private static readonly System.Net.Http.HttpClient _toolHttp =

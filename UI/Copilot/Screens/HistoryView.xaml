@@ -18,6 +18,7 @@
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <Button x:Name="BackBtn" Grid.Column="0" Visibility="Collapsed"
                         Click="BackBtn_Click"
@@ -31,8 +32,22 @@
                     <TextBlock x:Name="HeaderTitle" Text="History" FontSize="13.5" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
                     <TextBlock x:Name="Sub" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}" Margin="0,1,0,0"/>
                 </StackPanel>
+                <!-- Continue this conversation in the Chat tab (visible only in session detail) -->
+                <Button x:Name="ContinueBtn" Grid.Column="2" Visibility="Collapsed"
+                        Click="ContinueBtn_Click"
+                        Background="Transparent" BorderThickness="0"
+                        Cursor="Hand" Padding="6,3,6,3" VerticalAlignment="Center" Margin="0,0,6,0"
+                        ToolTip="Continue this conversation">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Width="13" Height="13" Stretch="Uniform"
+                              Stroke="{DynamicResource Cp.Accent}" StrokeThickness="1.8"
+                              Data="M4,4 L20,12 L4,20 Z"/>
+                        <TextBlock Text="Continue" FontSize="12" FontWeight="Medium"
+                                   Foreground="{DynamicResource Cp.Accent}" Margin="5,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
                 <!-- Download report (visible only in session detail) -->
-                <Button x:Name="DownloadBtn" Grid.Column="2" Visibility="Collapsed"
+                <Button x:Name="DownloadBtn" Grid.Column="3" Visibility="Collapsed"
                         Click="DownloadBtn_Click"
                         Background="Transparent" BorderThickness="0"
                         Cursor="Hand" Padding="6,3,6,3" VerticalAlignment="Center"

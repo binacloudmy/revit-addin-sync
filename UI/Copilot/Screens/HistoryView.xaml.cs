@@ -57,9 +57,17 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             DetailPanel.Visibility = Visibility.Collapsed;
             BackBtn.Visibility = Visibility.Collapsed;
             DownloadBtn.Visibility = Visibility.Collapsed;
+            ContinueBtn.Visibility = Visibility.Collapsed;
             _detailEntry = null;
             HeaderTitle.Text = "History";
             Rebuild();
+        }
+
+        // Header Continue button → adopt this session in the Chat tab.
+        private void ContinueBtn_Click(object s, RoutedEventArgs e)
+        {
+            if (_detailEntry == null) return;
+            Vm?.ContinueSession(_detailEntry);
         }
 
         // Header Download button → format menu for the session being viewed.
@@ -98,6 +106,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             DetailPanel.Visibility = Visibility.Visible;
             BackBtn.Visibility = Visibility.Visible;
             DownloadBtn.Visibility = Visibility.Visible;
+            ContinueBtn.Visibility = Visibility.Visible;
 
             foreach (var msg in h.History)
             {
