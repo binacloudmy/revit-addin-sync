@@ -201,7 +201,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 () => UpgradeRequested?.Invoke(),
                 () => vm.UsageService != null ? vm.UsageService.NotifyAdminAsync() : System.Threading.Tasks.Task.CompletedTask,
                 centered,
-                () => { _ = vm.RefreshUsageAsync(); _ = vm.RefreshCreditBadgeAsync(); });
+                () => { _ = vm.RefreshUsageAndBadgeAsync(); });
             BlockedHost.Visibility = Visibility.Visible;
             Prompt.Visibility = Visibility.Collapsed;
             UpdateNotice(vm, true);
@@ -211,14 +211,25 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// (that wall already states the case) and, in the 80–94 band only, once the
         /// user has dismissed this exact warning — the ≥95 band is deliberately
         /// undismissable so nobody is surprised mid-command.</summary>
+        // Band dismissed this session when there's no quota period to key a persisted
+        // dismissal to. 0 = none.
+        private int _noticeDismissedThisSession;
+
         private void UpdateNotice(CopilotViewModel vm, bool blocked)
         {
             var u = vm != null ? vm.Usage : null;
             bool show = !blocked && u != null && u.ShouldWarn;
 
-            string key = show ? (u.ResetsAt ?? "") + ":" + u.WarnBand : null;
+            // The key carries the quota period so a dismissal expires with it. Without
+            // resets_at there IS no period to key on, and a bare ":80" would silence
+            // the notice forever, across every future month — so in that case fall
+            // back to a session-only dismissal: never persisted, never consulted.
+            string key = show && !string.IsNullOrEmpty(u.ResetsAt)
+                ? u.ResetsAt + ":" + u.WarnBand
+                : null;
             if (show && u.WarnBand == Model.UsageState.WarnPct &&
-                Model.CopilotPrefs.Load().IsUsageNoticeDismissed(key))
+                (_noticeDismissedThisSession == u.WarnBand ||
+                 (key != null && Model.CopilotPrefs.Load().IsUsageNoticeDismissed(key))))
                 show = false;
 
             if (!show)
@@ -228,10 +239,16 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 return;
             }
 
+            int band = u.WarnBand;
             NoticeHost.Content = Controls.UsageWarningBanner.Build(
                 u,
                 () => UpgradeRequested?.Invoke(),
-                () => { Model.CopilotPrefs.Load().DismissUsageNotice(key); UpdateUsage(); });
+                () =>
+                {
+                    if (key != null) Model.CopilotPrefs.Load().DismissUsageNotice(key);
+                    else _noticeDismissedThisSession = band;
+                    UpdateUsage();
+                });
             NoticeHost.Visibility = Visibility.Visible;
         }
 

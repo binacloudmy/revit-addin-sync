@@ -966,33 +966,74 @@ namespace RevitWebAppSync.UI.Copilot
         /// else from the credits balance. Best-effort; the meter never blocks chat.</summary>
         public async System.Threading.Tasks.Task RefreshUsageAsync()
         {
+            long seq = NextUsageSeq();
             try
             {
-                if (UsageService != null) { SetUsage(await UsageService.GetAsync()); return; }
+                if (UsageService != null) { SetUsage(await UsageService.GetAsync(), seq); return; }
                 var credits = await FetchCreditsAsync();
                 if (credits != null)
-                    SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit, credits.Plan, credits.ResetsAt));
+                    SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit, credits.Plan, credits.ResetsAt), seq);
             }
             catch { /* best-effort */ }
         }
 
-        private void SetUsage(UsageState u)
+        /// <summary>ONE balance read feeding both the usage snapshot and the credit
+        /// badge. The poll previously called RefreshUsageAsync + RefreshCreditBadgeAsync
+        /// back to back, and each fetched independently — two byte-identical
+        /// GET /credits/balance per tick (~24/min in the fast tier). Use this wherever
+        /// both are wanted.</summary>
+        public async System.Threading.Tasks.Task RefreshUsageAndBadgeAsync()
+        {
+            long seq = NextUsageSeq();
+            try
+            {
+                if (UsageService != null) { SetUsage(await UsageService.GetAsync(), seq); return; }
+                var credits = await FetchCreditsAsync();
+                if (credits == null) return;
+                SetUsage(UsageState.FromCredits(credits.Unlimited, credits.Used, credits.Limit, credits.Plan, credits.ResetsAt), seq);
+                SetCreditBadge(BadgeText(credits));
+            }
+            catch { /* best-effort */ }
+        }
+
+        // Monotonic stamp per usage read. Polling can leave two reads in flight at a
+        // 5s tick and they may land out of order — a slow PRE-upgrade response
+        // arriving after a fast POST-upgrade one would re-raise the blocked wall over
+        // a working composer. Only ever publish a read newer than the last applied.
+        private long _usageSeq;
+        private long _usageApplied;
+
+        /// <summary>Take a ticket for an in-flight usage read; hand it to SetUsage.</summary>
+        private long NextUsageSeq() => System.Threading.Interlocked.Increment(ref _usageSeq);
+
+        private void SetUsage(UsageState u, long seq = 0)
         {
             if (u == null) return;
+
+            var disp = System.Windows.Application.Current?.Dispatcher;
+            if (disp != null && !disp.CheckAccess()) { disp.Invoke(() => SetUsage(u, seq)); return; }
+
+            // Ordering and de-duping are both decided on the UI thread, so two
+            // concurrent refreshes can never both pass these checks.
+            if (seq != 0)
+            {
+                if (seq <= _usageApplied) return;      // stale read, already overtaken
+                _usageApplied = seq;
+            }
+
             // While the quota is exhausted the pane re-polls the SAME snapshot every
             // few seconds waiting for an upgrade to land. Publishing an identical
             // value would still raise UsageChanged, and consumers rebuild on that —
             // the blocked wall would be torn down and re-created on every tick
-            // (visible flicker, and it would reset a button mid-click). Only a real
-            // change is worth broadcasting.
-            var cur = _usage;
-            if (cur != null && cur.Pct == u.Pct && cur.AtLimit == u.AtLimit &&
-                cur.PlanName == u.PlanName)
-                return;
+            // (visible flicker, and it would reset a button mid-click).
+            //
+            // SameAs covers EVERY rendered field. Comparing only a subset was a real
+            // bug: a snapshot differing solely in the reset date could never reach the
+            // screen, so a fresh 0%-usage account kept the seeded default forever and
+            // was shown an "Upgrade plan" CTA instead of "Resets 1 Aug".
+            if (_usage != null && _usage.SameAs(u)) return;
 
-            var disp = System.Windows.Application.Current?.Dispatcher;
-            if (disp != null && !disp.CheckAccess()) disp.Invoke(() => Usage = u);
-            else Usage = u;
+            Usage = u;
         }
 
         private async System.Threading.Tasks.Task ResolveProposalAsync(string routeText, string displayText, string fallbackToolId, List<string> images = null, List<HistoryFile> historyFiles = null)

@@ -90,7 +90,15 @@ namespace RevitWebAppSync.UI.Copilot
                 CopilotTheme.ThemeChanged += SwapLocalTheme;
                 SwapLocalTheme();
             };
-            Unloaded += (_, __) => CopilotTheme.ThemeChanged -= SwapLocalTheme;
+            Unloaded += (_, __) =>
+            {
+                CopilotTheme.ThemeChanged -= SwapLocalTheme;
+                // Belt and braces: IsVisible is the poll's only other stop condition,
+                // and if a docked-as-tab pane ever hides its host HWND without
+                // flipping IsVisible, a blocked user would keep polling for the rest
+                // of the Revit session.
+                StopUsagePolling();
+            };
 
             UpdateThemeIcon();
             UpdateBody();
@@ -371,11 +379,7 @@ namespace RevitWebAppSync.UI.Copilot
 
         /// <summary>Re-fetch the plan/usage snapshot + credit badge now
         /// (best-effort; the VM marshals to the UI thread and swallows failures).</summary>
-        private void RefreshUsageNow()
-        {
-            _ = _vm.RefreshUsageAsync();
-            _ = _vm.RefreshCreditBadgeAsync();
-        }
+        private void RefreshUsageNow() => _ = _vm.RefreshUsageAndBadgeAsync();
 
         // Tick rate by how long we've been waiting. A checkout is rarely under a
         // minute (bank login -> TAC -> confirm), so the middle tier covers the window
@@ -387,7 +391,7 @@ namespace RevitWebAppSync.UI.Copilot
         private static readonly TimeSpan SlowPoll = TimeSpan.FromSeconds(60);   // long tail
         private DateTime _pollStarted;
         private DateTime _checkoutWatchUntil = DateTime.MinValue;
-        private string _checkoutFromPlan;                 // plan name when checkout opened
+        private int _checkoutFromLimit;                   // quota when checkout opened
 
         /// <summary>The billing page opens in the browser, which has no callback, so
         /// we watch for the plan to change after the user leaves for checkout.
@@ -400,7 +404,11 @@ namespace RevitWebAppSync.UI.Copilot
         private void StartUsagePollAfterCheckout()
         {
             RefreshUsageNow();               // optimistic immediate refresh
-            _checkoutFromPlan = _vm.Usage != null ? _vm.Usage.PlanName : null;
+            // Watch the LIMIT, not the plan name: /credits/balance returns no "plan"
+            // field, so PlanName is always the inferred "Free" and a plan-change test
+            // could never fire. A purchase raises monthly_limit (apply_paid_plan ->
+            // credits.set_limit), so that is the observable signal an upgrade landed.
+            _checkoutFromLimit = _vm.Usage != null ? _vm.Usage.Limit : 0;
             _checkoutWatchUntil = DateTime.UtcNow.AddMinutes(15);
             SyncUsagePolling(restart: true);
         }
@@ -423,12 +431,12 @@ namespace RevitWebAppSync.UI.Copilot
             bool blocked = _vm.Usage != null && _vm.Usage.AtLimit;
 
             // The 15 minutes is a worst case, not a duration to sit through: once the
-            // plan actually changes the upgrade has landed and there is nothing left
-            // to watch for, so close the window instead of ticking it out.
-            if (_checkoutFromPlan != null && _vm.Usage != null && _vm.Usage.PlanName != _checkoutFromPlan)
+            // quota actually grows the upgrade has landed and there is nothing left to
+            // watch for, so close the window instead of ticking it out.
+            if (_checkoutFromLimit > 0 && _vm.Usage != null && _vm.Usage.Limit > _checkoutFromLimit)
             {
                 _checkoutWatchUntil = DateTime.MinValue;
-                _checkoutFromPlan = null;
+                _checkoutFromLimit = 0;
             }
             bool watchingCheckout = DateTime.UtcNow < _checkoutWatchUntil;
             bool want = IsVisible && (blocked || watchingCheckout);

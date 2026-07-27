@@ -94,7 +94,11 @@
                            FontSize="10" Foreground="{DynamicResource Cp.Faint}">
                     <Run Text="Type "/><Run Text="/" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" for tools · "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to reference a level, view or selection"/>
                 </TextBlock>
+                <!-- Collapsed until BindUsage runs. PromptBar is also hosted outside
+                     ChatView (ResultView), where nothing binds usage — an unbound
+                     button is an invisible click target opening a blank card. -->
                 <Button x:Name="PlanBtn" Grid.Column="1" Cursor="Hand" Padding="6,2,6,2"
+                        Visibility="Collapsed"
                         Background="Transparent" BorderThickness="0" FocusVisualStyle="{x:Null}"
                         ToolTip="Plan usage">
                     <Button.Template>
@@ -122,22 +126,32 @@
                  sized to its width, matching the design's
                  left:0;right:0;bottom:calc(100% + 8px). HorizontalOffset cancels the
                  8px shadow margin so the card's left edge lines up with the composer. -->
+            <!-- Offsets cancel the card's shadow margins so it sits 8px above the
+                 composer with its left edge aligned: +12 against the 20px bottom
+                 margin, -8 against the 8px left. -->
             <Popup x:Name="UsagePopup" PlacementTarget="{Binding ElementName=ComposerBox}" Placement="Top"
-                   VerticalOffset="-8" HorizontalOffset="-8" StaysOpen="False"
+                   VerticalOffset="12" HorizontalOffset="-8" StaysOpen="False"
                    AllowsTransparency="True" PopupAnimation="Fade">
                 <Border Width="{Binding ActualWidth, ElementName=ComposerBox}"
                         Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}"
-                        BorderThickness="1" CornerRadius="13" Padding="15,15,15,14" Margin="8">
+                        BorderThickness="1" CornerRadius="13" Padding="15,15,15,14" Margin="8,8,20,20">
                     <Border.Effect>
                         <DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.14" Color="#000000"/>
                     </Border.Effect>
                     <StackPanel>
                         <!-- Plan name + tier pill -->
+                        <!-- Two columns rather than a magic right-margin on the name:
+                             the pill takes what it needs and the name trims to fit,
+                             so a longer backend plan string can't overlap it. -->
                         <Grid>
-                            <TextBlock x:Name="PopPlan" FontSize="13" FontWeight="Bold"
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="PopPlan" Grid.Column="0" FontSize="13" FontWeight="Bold"
                                        Foreground="{DynamicResource Cp.Ink}" HorizontalAlignment="Left"
-                                       TextTrimming="CharacterEllipsis" Margin="0,0,52,0"/>
-                            <Border x:Name="PopTierBadge" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
+                            <Border x:Name="PopTierBadge" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center"
                                     CornerRadius="5" Padding="6,2,6,2" Background="{DynamicResource Cp.BlueSoft}">
                                 <TextBlock x:Name="PopTier" FontSize="9" FontWeight="Bold"
                                            Foreground="{DynamicResource Cp.BlueText}"/>

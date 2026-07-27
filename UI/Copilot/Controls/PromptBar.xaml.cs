@@ -132,10 +132,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 // a stale percent. The card is bound to UsageChanged, so it updates
                 // in place when the response lands.
                 if (UsagePopup.IsOpen && _usageVm != null)
-                {
-                    _ = _usageVm.RefreshUsageAsync();
-                    _ = _usageVm.RefreshCreditBadgeAsync();
-                }
+                    _ = _usageVm.RefreshUsageAndBadgeAsync();
             };
             PopUpgradeBtn.Click += (_, __) =>
             {
@@ -211,6 +208,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (_usageVm != null) _usageVm.UsageChanged -= OnUsageChanged;
             _usageVm = vm;
             if (_usageVm != null) _usageVm.UsageChanged += OnUsageChanged;
+            PlanBtn.Visibility = Visibility.Visible;
             RenderUsage(vm?.Usage);
         }
 
@@ -237,23 +235,28 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // Popover: plan + tier pill, % used, the fill bar (severity colour), and
             // either the reset line or the upgrade CTA.
             PopPlan.Text = u.PlanName;
-            var tier = u.TierBadge;
+            // Only assert a tier the BACKEND named. /credits/balance returns no "plan"
+            // field today, so PlanName is the inferred "Free" — showing the pill
+            // regardless would stamp FREE on a paying Pro customer's popover.
+            var tier = u.PlanKnown ? u.TierBadge : "";
             PopTier.Text = tier;
             PopTierBadge.Visibility = string.IsNullOrEmpty(tier) ? Visibility.Collapsed : Visibility.Visible;
 
-            PopPctUsed.Text = pct + "% used";
-            PopFillCol.Width = new System.Windows.GridLength(pct, System.Windows.GridUnitType.Star);
-            PopRestCol.Width = new System.Windows.GridLength(100 - pct, System.Windows.GridUnitType.Star);
+            PopPctUsed.Text = u.Unlimited ? "No limit" : pct + "% used";
+            PopFillCol.Width = new System.Windows.GridLength(u.Unlimited ? 0 : pct, System.Windows.GridUnitType.Star);
+            PopRestCol.Width = new System.Windows.GridLength(u.Unlimited ? 100 : 100 - pct, System.Windows.GridUnitType.Star);
             PopFill.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, Model.UsageState.MeterColorKey(pct));
 
             // Reset line while there's headroom; upgrade CTA once we're in the warn
-            // band (or the reset date is unknown, where the line would be empty).
+            // band. An uncapped wallet has nothing to upgrade TO and no reset date, so
+            // it gets neither — telling an admin-override account to buy a plan (or
+            // showing it a quota reset) would be nonsense.
             bool warn = pct >= Model.UsageState.WarnPct || u.AtLimit;
             string resets = u.ResetsLabel;
-            bool showReset = !warn && !string.IsNullOrEmpty(resets);
+            bool showReset = !u.Unlimited && !warn && !string.IsNullOrEmpty(resets);
             PopResets.Text = resets;
             PopResetRow.Visibility = showReset ? Visibility.Visible : Visibility.Collapsed;
-            PopUpgradeBtn.Visibility = showReset ? Visibility.Collapsed : Visibility.Visible;
+            PopUpgradeBtn.Visibility = (!u.Unlimited && !showReset) ? Visibility.Visible : Visibility.Collapsed;
         }
 
         // ─── Pasted screenshots (pending, sent with the next prompt) ─────────

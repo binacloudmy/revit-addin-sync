@@ -23,6 +23,26 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// the dismissal of the near-limit notice per quota period.</summary>
         public string ResetsAt { get; set; }
 
+        /// <summary>The wallet's monthly allowance. A purchase raises it, and that is
+        /// the only observable signal that an upgrade landed — /credits/balance does
+        /// not report a plan (see <see cref="PlanKnown"/>).</summary>
+        public int Limit { get; set; }
+
+        /// <summary>True only when the BACKEND named the plan. /credits/balance
+        /// currently returns no "plan" field, so PlanName is an inference ("Free"),
+        /// not a fact — a paying Pro customer would otherwise be labelled FREE. UI
+        /// that asserts a tier must hide itself unless this is true.</summary>
+        public bool PlanKnown { get; set; }
+
+        /// <summary>Value-equality over everything the UI renders, used to suppress
+        /// no-op publishes while polling. It must cover EVERY rendered field: a
+        /// changed-but-uncompared one (the reset date, say) could otherwise never
+        /// reach the screen.</summary>
+        public bool SameAs(UsageState o) =>
+            o != null && Pct == o.Pct && AtLimit == o.AtLimit && Unlimited == o.Unlimited
+            && Limit == o.Limit && PlanKnown == o.PlanKnown
+            && PlanName == o.PlanName && ResetsAt == o.ResetsAt;
+
         /// <summary>The severity thresholds. One source of truth so the ring, the
         /// popover bar and the near-limit notice can never disagree.</summary>
         public const int WarnPct = 80;
@@ -89,12 +109,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
             // tier at all — it's an internal/admin override (POST /credits/set-unlimited).
             // Label it as such rather than aliasing it to "Pro Max", which would imply
             // the account is paying $199/mo.
-            string name = !string.IsNullOrWhiteSpace(plan) ? plan
+            bool planKnown = !string.IsNullOrWhiteSpace(plan);
+            string name = planKnown ? plan
                 : (unlimited ? "Unlimited (internal)" : "Free");
             return new UsageState
             {
                 PlanName = name, Pct = pct, AtLimit = atLimit,
                 Unlimited = unlimited, ResetsAt = resetsAt,
+                Limit = limit, PlanKnown = planKnown,
             };
         }
     }

@@ -18,6 +18,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     /// </summary>
     public static class BlockedView
     {
+        // Shared across rebuilds — see the MouseEnter throttle below.
+        private static DateTime _lastEnterRefresh = DateTime.MinValue;
+
         /// <summary>Build the blocked section. `centered` fills the empty thread
         /// area; otherwise it renders as a composer-height bottom section.</summary>
         public static FrameworkElement Build(UsageState u, Action openUpgrade, Func<Task> notifyAdmin, bool centered,
@@ -142,11 +145,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // every re-entry.
             if (refresh != null)
             {
-                var lastAuto = DateTime.MinValue;
                 wrap.MouseEnter += (_, __) =>
                 {
-                    if ((DateTime.UtcNow - lastAuto).TotalSeconds < 3) return;
-                    lastAuto = DateTime.UtcNow;
+                    // Throttle is STATIC, not per-Build: the host rebuilds this whole
+                    // view on every usage change, and a per-instance timestamp would
+                    // reset each time — with the cursor already inside, every rebuild
+                    // would fire another refresh.
+                    if ((DateTime.UtcNow - _lastEnterRefresh).TotalSeconds < 3) return;
+                    _lastEnterRefresh = DateTime.UtcNow;
                     refresh();
                 };
             }

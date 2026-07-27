@@ -122,6 +122,52 @@ namespace RevitWebAppSync.Tests
         public void WarnBand_SplitsAtCritical(int pct, int band) =>
             Assert.Equal(band, new UsageState { Pct = pct }.WarnBand);
 
+        // ── Snapshot equality (guards the no-op suppression) ─────────────────
+
+        [Fact]
+        public void SameAs_DetectsAResetDateChange()
+        {
+            // Regression: the suppression guard once compared only Pct/AtLimit/Plan,
+            // so a fresh 0%-usage account — identical to the seeded default on those
+            // three — never published. ResetsAt stayed null forever and the popover
+            // showed an "Upgrade plan" CTA instead of "Resets 1 Aug".
+            var seeded = new UsageState();          // PlanName "Free", 0%, not at limit
+            var real = UsageState.FromCredits(false, 0, 1000, null, "2026-08-01");
+            Assert.Equal(seeded.Pct, real.Pct);
+            Assert.Equal(seeded.AtLimit, real.AtLimit);
+            Assert.Equal(seeded.PlanName, real.PlanName);
+            Assert.False(seeded.SameAs(real));      // ...and yet it must still publish
+            Assert.Equal("Resets 1 Aug", real.ResetsLabel);
+        }
+
+        [Fact]
+        public void SameAs_DetectsALimitChange()
+        {
+            // The upgrade signal: /credits/balance reports no plan, so a raised quota
+            // is the only observable evidence that a purchase landed.
+            var before = UsageState.FromCredits(false, 500, 1000, null, "2026-08-01");
+            var after = UsageState.FromCredits(false, 500, 50_000, null, "2026-08-01");
+            Assert.False(before.SameAs(after));
+            Assert.True(after.Limit > before.Limit);
+        }
+
+        [Fact]
+        public void SameAs_TrueForAnIdenticalRepoll()
+        {
+            var a = UsageState.FromCredits(false, 500, 1000, null, "2026-08-01");
+            var b = UsageState.FromCredits(false, 500, 1000, null, "2026-08-01");
+            Assert.True(a.SameAs(b));
+        }
+
+        [Fact]
+        public void PlanKnown_FalseWhenBackendOmitsPlan()
+        {
+            // /credits/balance carries no "plan" key, so PlanName is an inference —
+            // the tier pill must not assert FREE at a paying customer.
+            Assert.False(UsageState.FromCredits(false, 1, 10).PlanKnown);
+            Assert.True(UsageState.FromCredits(false, 1, 10, "Pro").PlanKnown);
+        }
+
         [Fact]
         public void WarnBand_KeysDismissalPerBandAndPeriod()
         {
