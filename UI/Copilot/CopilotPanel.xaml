@@ -62,85 +62,8 @@
                     </StackPanel>
                 </StackPanel>
 
-                <!-- Usage ring: percent chip that opens the plan popover. Hides itself
-                     on an uncapped wallet (see UsageRing.Render). -->
-                <ctl:UsageRing x:Name="UsageChip" Grid.Column="2" Margin="0,0,6,0"/>
-
-                <Popup x:Name="UsagePopup" PlacementTarget="{Binding ElementName=UsageChip}" Placement="Bottom"
-                       VerticalOffset="6" HorizontalOffset="-96" StaysOpen="False"
-                       AllowsTransparency="True" PopupAnimation="Fade">
-                    <Border Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}"
-                            BorderThickness="1" CornerRadius="13" Padding="15,15,15,14" MinWidth="228" Margin="8">
-                        <Border.Effect>
-                            <DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.14" Color="#000000"/>
-                        </Border.Effect>
-                        <StackPanel>
-                            <!-- Plan name + tier pill -->
-                            <Grid>
-                                <TextBlock x:Name="PopPlan" FontSize="13" FontWeight="Bold"
-                                           Foreground="{DynamicResource Cp.Ink}" HorizontalAlignment="Left"
-                                           TextTrimming="CharacterEllipsis" Margin="0,0,52,0"/>
-                                <Border x:Name="PopTierBadge" HorizontalAlignment="Right" VerticalAlignment="Center"
-                                        CornerRadius="5" Padding="6,2,6,2" Background="{DynamicResource Cp.BlueSoft}">
-                                    <TextBlock x:Name="PopTier" FontSize="9" FontWeight="Bold"
-                                               Foreground="{DynamicResource Cp.BlueText}"/>
-                                </Border>
-                            </Grid>
-                            <TextBlock Text="Plan usage" FontSize="10.5" Foreground="{DynamicResource Cp.Faint}" Margin="0,2,0,0"/>
-
-                            <Grid Margin="0,13,0,7">
-                                <TextBlock Text="Usage" FontSize="11" Foreground="{DynamicResource Cp.Muted}" HorizontalAlignment="Left"/>
-                                <TextBlock x:Name="PopPctUsed" FontSize="11.5" FontWeight="Bold"
-                                           Foreground="{DynamicResource Cp.Ink}" HorizontalAlignment="Right"/>
-                            </Grid>
-                            <Border Height="6" CornerRadius="2" Background="{DynamicResource Cp.Line}" ClipToBounds="True">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition x:Name="PopFillCol" Width="88*"/>
-                                        <ColumnDefinition x:Name="PopRestCol" Width="12*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <Border x:Name="PopFill" Grid.Column="0" CornerRadius="2"/>
-                                </Grid>
-                            </Border>
-
-                            <!-- Below the warn threshold the quota just resets; at/above it
-                                 the reset is cold comfort, so the CTA takes its place. -->
-                            <StackPanel x:Name="PopResetRow" Orientation="Horizontal" Margin="0,10,0,0">
-                                <Path Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center"
-                                      Fill="Transparent" Stroke="{DynamicResource Cp.Faint}" StrokeThickness="2"
-                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                                      Data="M12,21 A9,9 0 1 1 12,3 A9,9 0 1 1 12,21 Z M12,7 V12 L15.5,14"/>
-                                <TextBlock x:Name="PopResets" FontSize="10.5" VerticalAlignment="Center"
-                                           Foreground="{DynamicResource Cp.Faint}"/>
-                            </StackPanel>
-
-                            <Button x:Name="PopUpgradeBtn" Height="32" Margin="0,13,0,0" Cursor="Hand"
-                                    Background="{DynamicResource Cp.AccentGrad}" BorderThickness="0"
-                                    FocusVisualStyle="{x:Null}">
-                                <Button.Template>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="9">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                        <ControlTemplate.Triggers>
-                                            <Trigger Property="IsMouseOver" Value="True">
-                                                <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.AccentGradHover}"/>
-                                            </Trigger>
-                                        </ControlTemplate.Triggers>
-                                    </ControlTemplate>
-                                </Button.Template>
-                                <StackPanel Orientation="Horizontal">
-                                    <Path Width="13" Height="13" Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center"
-                                          Fill="Transparent" Stroke="{DynamicResource Cp.AccentContrast}" StrokeThickness="2.1"
-                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                          Data="M13,2 4.5,13.5 H11 l-1,8.5 8.5,-11.5 H12 Z"/>
-                                    <TextBlock Text="Upgrade plan" FontSize="11.5" FontWeight="SemiBold"
-                                               Foreground="{DynamicResource Cp.AccentContrast}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                        </StackPanel>
-                    </Border>
-                </Popup>
+                <!-- Usage lives in the composer footer (design "footer" placement):
+                     plan-name button + popover above the composer. -->
 
                 <Button x:Name="ThemeBtn" Grid.Column="3" Style="{DynamicResource Cp.IconButton}" Click="OnToggleTheme" ToolTip="Toggle theme">
                     <Path x:Name="ThemeIcon" Width="15" Height="15" Stretch="Uniform" Fill="Transparent"

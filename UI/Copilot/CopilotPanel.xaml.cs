@@ -75,8 +75,6 @@ namespace RevitWebAppSync.UI.Copilot
             // name + user id are captured lazily so they reflect the live context.
             _feedback = new LocalFeedbackService(() => _vm.ModelName, () => cfg?.UserId.ToString());
 
-            BindHeaderUsage();
-
             // Mount the active theme brushes on the PANEL's own resources and swap
             // them here on ThemeChanged. Mutating/replacing App-scope resources does
             // not re-invalidate this pane's {DynamicResource} chrome bindings inside
@@ -204,11 +202,13 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 cache = new T();
                 cache.DataContext = _vm;
-                // The blocked state's CTA and the near-limit notice's Upgrade button
-                // both escalate to the upgrade sheet. (The usage popover now lives in
-                // the header and wires itself — see BindHeaderUsage.)
+                // The composer's usage popover, the blocked state's CTA and the
+                // near-limit notice all escalate to the upgrade sheet.
                 if (cache is Screens.ChatView chat)
+                {
+                    chat.Prompt.UpgradeRequested += ShowUpgradeSheet;
                     chat.UpgradeRequested += ShowUpgradeSheet;
+                }
                 // Library rows fill the Chat composer + switch tabs (no auto-send).
                 if (cache is Screens.LibraryView lib)
                     lib.PromptChosen += StartPromptInChat;
@@ -359,58 +359,6 @@ namespace RevitWebAppSync.UI.Copilot
         public void ShowUpgradeSheet() =>
             ShowSheet(SheetChrome("Choose your plan", "Swipe to compare",
                 Controls.UpgradeSheet.Build(StartUsagePollAfterCheckout)));
-
-        // ── Header usage ring + plan popover ────────────────────────────────
-
-        /// <summary>Wire the header ring to the VM's live usage snapshot. The ring
-        /// toggles the popover; the popover's CTA opens the upgrade sheet.</summary>
-        private void BindHeaderUsage()
-        {
-            UsageChip.Click += (_, __) => UsagePopup.IsOpen = !UsagePopup.IsOpen;
-            PopUpgradeBtn.Click += (_, __) =>
-            {
-                UsagePopup.IsOpen = false;
-                ShowUpgradeSheet();
-            };
-            _vm.UsageChanged += OnUsageChanged;
-            RenderUsage(_vm.Usage);
-        }
-
-        private void OnUsageChanged()
-        {
-            if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke((Action)OnUsageChanged); return; }
-            RenderUsage(_vm.Usage);
-        }
-
-        /// <summary>Paint the ring and the popover from one snapshot, so the chip,
-        /// the bar and the near-limit notice can never disagree.</summary>
-        private void RenderUsage(Model.UsageState u)
-        {
-            u = u ?? new Model.UsageState();
-            int pct = Math.Max(0, Math.Min(100, u.Pct));
-
-            UsageChip.Render(u);
-            if (u.Unlimited) UsagePopup.IsOpen = false;   // the ring is gone; don't strand the popover
-
-            PopPlan.Text = u.PlanName;
-            var tier = u.TierBadge;
-            PopTier.Text = tier;
-            PopTierBadge.Visibility = string.IsNullOrEmpty(tier) ? Visibility.Collapsed : Visibility.Visible;
-
-            PopPctUsed.Text = pct + "% used";
-            PopFillCol.Width = new GridLength(pct, GridUnitType.Star);
-            PopRestCol.Width = new GridLength(100 - pct, GridUnitType.Star);
-            PopFill.SetResourceReference(Border.BackgroundProperty, Model.UsageState.MeterColorKey(pct));
-
-            // Reset line while there's headroom; upgrade CTA once we're in the warn
-            // band (or the reset date is unknown, where the line would be empty).
-            bool warn = pct >= Model.UsageState.WarnPct || u.AtLimit;
-            string resets = u.ResetsLabel;
-            bool showReset = !warn && !string.IsNullOrEmpty(resets);
-            PopResets.Text = resets;
-            PopResetRow.Visibility = showReset ? Visibility.Visible : Visibility.Collapsed;
-            PopUpgradeBtn.Visibility = showReset ? Visibility.Collapsed : Visibility.Visible;
-        }
 
         // ── Live plan/usage refresh ─────────────────────────────────────────
         private System.Windows.Threading.DispatcherTimer _usagePoll;

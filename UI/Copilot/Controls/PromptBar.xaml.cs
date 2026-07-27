@@ -122,6 +122,12 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 };
                 if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
             };
+            PlanBtn.Click += (_, __) => UsagePopup.IsOpen = !UsagePopup.IsOpen;
+            PopUpgradeBtn.Click += (_, __) =>
+            {
+                UsagePopup.IsOpen = false;
+                UpgradeRequested?.Invoke();
+            };
         }
 
         // ─── Slash command (pending, sent as the next turn) ──────────────────
@@ -175,6 +181,65 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (_pendingTool == null) { CommandStrip.Visibility = Visibility.Collapsed; return; }
             CommandStrip.Children.Add(CommandChip.Build(_pendingTool, ClearPendingTool));
             CommandStrip.Visibility = Visibility.Visible;
+        }
+
+        // ─── Footer plan button + usage popover ──────────────────────────────
+
+        /// <summary>Raised by the popover's "Upgrade plan" button; host opens the upgrade sheet.</summary>
+        public event System.Action UpgradeRequested;
+
+        private CopilotViewModel _usageVm;
+
+        /// <summary>Wire the footer plan-name button + popover to the VM's live usage
+        /// snapshot. Re-renders on every UsageChanged.</summary>
+        public void BindUsage(CopilotViewModel vm)
+        {
+            if (_usageVm != null) _usageVm.UsageChanged -= OnUsageChanged;
+            _usageVm = vm;
+            if (_usageVm != null) _usageVm.UsageChanged += OnUsageChanged;
+            RenderUsage(vm?.Usage);
+        }
+
+        private void OnUsageChanged()
+        {
+            if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke((System.Action)OnUsageChanged); return; }
+            RenderUsage(_usageVm?.Usage);
+        }
+
+        private void RenderUsage(Model.UsageState u)
+        {
+            u = u ?? new Model.UsageState();
+            int pct = System.Math.Max(0, System.Math.Min(100, u.Pct));
+
+            // Footer plan-name button: live label + severity dot.
+            PlanLabel.Text = u.PlanName;
+            if (pct >= Model.UsageState.WarnPct && !u.Unlimited)
+            {
+                PlanDot.Visibility = Visibility.Visible;
+                PlanDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, Model.UsageState.MeterColorKey(pct));
+            }
+            else PlanDot.Visibility = Visibility.Collapsed;
+
+            // Popover: plan + tier pill, % used, the fill bar (severity colour), and
+            // either the reset line or the upgrade CTA.
+            PopPlan.Text = u.PlanName;
+            var tier = u.TierBadge;
+            PopTier.Text = tier;
+            PopTierBadge.Visibility = string.IsNullOrEmpty(tier) ? Visibility.Collapsed : Visibility.Visible;
+
+            PopPctUsed.Text = pct + "% used";
+            PopFillCol.Width = new System.Windows.GridLength(pct, System.Windows.GridUnitType.Star);
+            PopRestCol.Width = new System.Windows.GridLength(100 - pct, System.Windows.GridUnitType.Star);
+            PopFill.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, Model.UsageState.MeterColorKey(pct));
+
+            // Reset line while there's headroom; upgrade CTA once we're in the warn
+            // band (or the reset date is unknown, where the line would be empty).
+            bool warn = pct >= Model.UsageState.WarnPct || u.AtLimit;
+            string resets = u.ResetsLabel;
+            bool showReset = !warn && !string.IsNullOrEmpty(resets);
+            PopResets.Text = resets;
+            PopResetRow.Visibility = showReset ? Visibility.Visible : Visibility.Collapsed;
+            PopUpgradeBtn.Visibility = showReset ? Visibility.Collapsed : Visibility.Visible;
         }
 
         // ─── Pasted screenshots (pending, sent with the next prompt) ─────────
