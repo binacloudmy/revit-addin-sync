@@ -247,3 +247,104 @@ jobs:
           path: |
             RevitWebAppSync-*.zip
             RevitCopilot-*-setup.exe
+
+  # ─── Staging auto-sign + publish ────────────────────────────────────────
+  # STAGING ONLY, and a SEPARATE job on purpose.
+  #
+  # Separate because the build must not depend on the signing box being up.
+  # When release.yml briefly ran wholly on [self-hosted, windows] with no
+  # runner registered, v0.0.30-staging simply QUEUED — no failure, no log,
+  # nothing to debug, because an unassigned job is indistinguishable from a
+  # slow one. Split like this, the build always runs on windows-latest and
+  # only this job waits; artifacts still exist and the operator can sign by
+  # hand as before.
+  #
+  # Why self-hosted is unavoidable here: Certum's private key never leaves
+  # their cloud, and SimplySign Desktop must hold an AUTHENTICATED session
+  # before signtool can see the key. There is no API credential to put in
+  # GitHub secrets — an ephemeral GitHub-hosted VM cannot hold that session.
+  # So this job runs on the signing box, which keeps SimplySign logged in.
+  # That session EXPIRES: when it lapses the job fails at preflight with a
+  # clear message rather than burning a build.
+  #
+  # Prod is deliberately excluded. A fleet-wide update should have a human
+  # in the loop, so `v0.0.31` (no suffix) still goes through
+  # installer\sign-release.ps1 by hand.
+  sign-staging:
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v') && endsWith(github.ref_name, '-staging')
+    runs-on: [self-hosted, windows]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # sign-release.ps1 resolves the tag with `git rev-list -n 1 $Tag`
+          # and refuses unless HEAD matches it, so the full history + tags
+          # must be present. A shallow checkout fails that gate.
+          fetch-depth: 0
+
+      # Fail BEFORE the expensive part. sign-release.ps1 does its full signed
+      # build at line ~97 but only validates TM One credentials at line ~134,
+      # so a missing variable would compile and sign everything, burn a
+      # SimplySign session, then die before publishing a single byte.
+      - name: Preflight (fail fast, protect the signing session)
+        shell: pwsh
+        env:
+          TMONE_SERVER: ${{ secrets.TMONE_SERVER }}
+          TMONE_BUCKET: ${{ secrets.TMONE_BUCKET }}
+          TMONE_ACCESS_KEY_ID: ${{ secrets.TMONE_ACCESS_KEY_ID }}
+          TMONE_SECRET_ACCESS_KEY: ${{ secrets.TMONE_SECRET_ACCESS_KEY }}
+        run: |
+          $missing = @()
+          foreach ($k in 'TMONE_SERVER','TMONE_BUCKET','TMONE_ACCESS_KEY_ID','TMONE_SECRET_ACCESS_KEY') {
+            if (-not (Get-Item "env:$k" -ErrorAction SilentlyContinue).Value) { $missing += $k }
+          }
+          if ($missing) { throw "Missing repo secrets: $($missing -join ', ')" }
+
+          # The upload step shells out to a bare `aws`. It was not installed on
+          # the signing box the first time this was attempted, so every S3 copy
+          # would have thrown AFTER signing.
+          if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
+            throw "aws CLI not on PATH — install once: winget install --id Amazon.AWSCLI -e"
+          }
+
+          # SIGNTOOL_ARGS and -Thumbprint are mutually exclusive in the script;
+          # a stale value in the machine environment would abort the run.
+          if ($env:SIGNTOOL_ARGS) { throw "SIGNTOOL_ARGS is set; unset it so -Thumbprint takes the pre-trust path" }
+
+          # Certum's key is only visible while SimplySign holds a session. If it
+          # lapsed, say so plainly instead of failing later inside signtool.
+          $tp = '${{ secrets.CERT_THUMBPRINT }}'
+          if (-not $tp) { throw "CERT_THUMBPRINT secret not set" }
+          if (-not (Test-Path "Cert:\CurrentUser\My\$tp")) {
+            throw "Cert $tp not in CurrentUser\My — SimplySign session has expired. Re-authenticate on this box."
+          }
+          Write-Host "preflight OK — creds present, aws found, SimplySign session live"
+
+      - name: Sign, upload to TM One, flip latest.json
+        shell: pwsh
+        env:
+          TMONE_SERVER: ${{ secrets.TMONE_SERVER }}
+          TMONE_BUCKET: ${{ secrets.TMONE_BUCKET }}
+          TMONE_ACCESS_KEY_ID: ${{ secrets.TMONE_ACCESS_KEY_ID }}
+          TMONE_SECRET_ACCESS_KEY: ${{ secrets.TMONE_SECRET_ACCESS_KEY }}
+          # boto3 >=1.36 and recent AWS CLI v2 add CRC request checksums that
+          # Huawei OBS rejects with XAmzContentSHA256Mismatch — the same trap
+          # app/services/family_library.py disables in its boto3 client.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: |
+          # Belt and braces: the job-level `if` already restricts this to
+          # -staging, but a signed prod publish must not be one edited
+          # condition away.
+          if (-not '${{ github.ref_name }}'.EndsWith('-staging')) {
+            throw "refusing to auto-sign a non-staging tag: ${{ github.ref_name }}"
+          }
+          ./installer/sign-release.ps1 `
+            -Tag '${{ github.ref_name }}' `
+            -Thumbprint '${{ secrets.CERT_THUMBPRINT }}'
+
+      - name: Report what was published
+        shell: pwsh
+        run: |
+          Write-Host "published ${{ github.ref_name }} to TM One"
+          Write-Host "latest.json is flipped — bina-ai /addin/version.json will serve it within its 600s cache"
