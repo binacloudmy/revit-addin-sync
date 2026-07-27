@@ -67,19 +67,22 @@ namespace RevitWebAppSync.Services
                     $"[BinaVibe][timing] codegen compile={_swCompile.ElapsedMilliseconds}ms " +
                     $"exec(tx+regen)={_swExec.ElapsedMilliseconds}ms");
 
-                // Watchdog: a snippet that ran past the hard cap is reported as a
-                // timeout rather than success — the self-heal loop then feeds this
-                // back as an error (e.g. "tighten the loop / add a bound").
-                if (_swExec.Elapsed > ExecutionWatchdogTimeout)
+                // Watchdog: the invoke above is SYNCHRONOUS — by the time we get
+                // here the snippet has COMPLETED and its transaction committed.
+                // Reporting an over-time run as "was stopped" was a lie that
+                // discarded the real result: round-13 CIDB retests (2026-07-19)
+                // showed committed beams/pipes + a populated legend view while
+                // the chat claimed "that didn't run" on both DEV-16 and DEV-18.
+                // Over-time-but-completed = SUCCESS with the real result plus a
+                // slowness note; a genuine mid-flight stop is impossible on this
+                // path, so never claim one.
+                bool _overran = _swExec.Elapsed > ExecutionWatchdogTimeout;
+                if (_overran)
                 {
                     System.Diagnostics.Debug.WriteLine(
                         $"[BinaVibe][timing] codegen EXEC OVERRAN watchdog — " +
-                        $"{_swExec.ElapsedMilliseconds}ms > {ExecutionWatchdogTimeout.TotalMilliseconds}ms");
-                    return new ExecutionResult
-                    {
-                        Success = false,
-                        Error = $"Execution exceeded {(int)ExecutionWatchdogTimeout.TotalSeconds}s and was stopped."
-                    };
+                        $"{_swExec.ElapsedMilliseconds}ms > {ExecutionWatchdogTimeout.TotalMilliseconds}ms " +
+                        "(completed anyway; reporting real result)");
                 }
 
                 // Guard branches exit with `SetResult(...); return null;` — the
@@ -108,6 +111,8 @@ namespace RevitWebAppSync.Services
                 if (result is string s)
                 {
                     message = string.IsNullOrEmpty(s) ? "Done" : s;
+                    if (_overran)
+                        message += $" (slow run: {(int)_swExec.Elapsed.TotalSeconds}s — consider tightening loops)";
                 }
                 else if (result != null)
                 {
@@ -167,11 +172,24 @@ namespace RevitWebAppSync.Services
             }
             finally
             {
-                // Release the per-execution assembly so the Revit session doesn't
-                // accumulate one dynamic assembly per generated snippet.
-                loadContext?.Unload();
+                // Do NOT Unload() here. Unloading the collectible context right
+                // after execution crashed Revit outright when anything still
+                // referenced its types — the snippet's own `__result` object IS
+                // a type from this assembly, and a failed attempt can leave
+                // delegates/updaters alive. Both round-12 CIDB hard crashes
+                // (2026-07-19) fired on the retry's second compile cycle, i.e.
+                // the next load after an unload of a still-referenced context.
+                // Retain instead: a session runs at most dozens of snippets and
+                // each assembly is a few hundred KB — retention is noise; a
+                // poisoned unload is a process kill.
+                if (loadContext != null) _retainedContexts.Add(loadContext);
             }
         }
+
+        // Spent per-snippet load contexts, retained for the session lifetime
+        // (see the finally above). Process exit reclaims everything.
+        private static readonly List<AssemblyLoadContext> _retainedContexts
+            = new List<AssemblyLoadContext>();
 
         /// <summary>
         /// Compile-only check — no execution, no Revit thread.
@@ -257,24 +275,98 @@ namespace RevitWebAppSync.Services
                 var en = Regex.Escape(n);
 
                 // After `<n>.Start();`, attach the failure preprocessor.
+                // Snapshot per replace: the evaluator's in-string/comment guard
+                // must scan the same text the regex matched against.
+                var snapshot = code;
                 code = Regex.Replace(
-                    code,
+                    snapshot,
                     $@"\b{en}\s*\.\s*Start\s*\(\s*\)\s*;",
-                    m => m.Value
+                    m => InCommentOrString(snapshot, m.Index)
+                         ? m.Value
+                         : m.Value
                          + " { var __fho_" + n + " = " + n + ".GetFailureHandlingOptions();"
                          + " __fho_" + n + " = __fho_" + n + ".SetFailuresPreprocessor(new __FailHandler());"
                          + " " + n + ".SetFailureHandlingOptions(__fho_" + n + "); }");
 
                 // `<n>.Commit();` (as a bare statement) → checked Commit that
                 // throws on rollback. Only matches when Commit() is a statement;
-                // doesn't touch `if (<n>.Commit() == ...)` etc.
+                // doesn't touch `if (<n>.Commit() == ...)` etc. The message is
+                // ASCII-only ON PURPOSE: this line gets spliced into generated
+                // code, and a mis-splice must not add non-ASCII tokens on top.
+                var snapshot2 = code;
                 code = Regex.Replace(
-                    code,
+                    snapshot2,
                     $@"\b{en}\s*\.\s*Commit\s*\(\s*\)\s*;",
-                    "if (" + n + ".Commit() != TransactionStatus.Committed)"
-                    + " throw new InvalidOperationException(\"Changes were not applied — the transaction was rolled back (Revit blocked the edit, e.g. shared/locked elements, join conflicts, or warnings escalated to errors).\");");
+                    m => InCommentOrString(snapshot2, m.Index)
+                         ? m.Value
+                         : "if (" + n + ".Commit() != TransactionStatus.Committed)"
+                         + " throw new InvalidOperationException(\"Changes were not applied - the transaction was rolled back.\" + __FailHandler.Suffix());");
             }
             return code;
+        }
+
+        // Body spans of `void <name>(...) { ... }` local functions in the
+        // snippet — regions where a bare `return;` is legal and must NOT be
+        // rewritten to `return null;`. Brace-matched with the same line-local
+        // string/comment awareness as InCommentOrString.
+        private static List<(int start, int end)> FindVoidLocalFunctionRegions(string code)
+        {
+            var regions = new List<(int, int)>();
+            foreach (Match m in Regex.Matches(code, @"\bvoid\s+\w+\s*\([^)]*\)\s*\{"))
+            {
+                int open = m.Index + m.Length - 1;   // the '{'
+                int depth = 0;
+                for (int i = open; i < code.Length; i++)
+                {
+                    char c = code[i];
+                    if (InCommentOrString(code, i)) continue;
+                    if (c == '{') depth++;
+                    else if (c == '}')
+                    {
+                        depth--;
+                        if (depth == 0) { regions.Add((open, i)); break; }
+                    }
+                }
+            }
+            return regions;
+        }
+
+        private static bool InAnyRegion(List<(int start, int end)> regions, int index)
+        {
+            foreach (var r in regions)
+                if (index > r.start && index < r.end) return true;
+            return false;
+        }
+
+        // True when the char at `index` sits inside a // comment or an open
+        // string literal on its line. The transaction-wrapper rewrites above
+        // must never fire there: a `tx.Commit();` mentioned inside a string or
+        // comment in generated code got spliced with the rollback throw, whose
+        // quotes shattered the surrounding literal and dumped the message words
+        // into the compiler ("the name 'conflicts' does not exist..." cascade —
+        // observed identically across multiple CIDB retests, 2026-07-17/18).
+        // Line-local scan: good enough for generated snippets, which don't use
+        // multi-line verbatim strings around transaction calls.
+        private static bool InCommentOrString(string code, int index)
+        {
+            int lineStart = code.LastIndexOf('\n', Math.Max(0, index - 1)) + 1;
+            bool inStr = false;
+            char quote = '\0';
+            for (int i = lineStart; i < index; i++)
+            {
+                char c = code[i];
+                if (inStr)
+                {
+                    if (c == '\\') { i++; continue; }
+                    if (c == quote) inStr = false;
+                }
+                else
+                {
+                    if (c == '"' || c == '\'') { inStr = true; quote = c; }
+                    else if (c == '/' && i + 1 < code.Length && code[i + 1] == '/') return true;
+                }
+            }
+            return inStr;
         }
 
         // Serialize a snippet's structured return to JSON, defensively — ignores reference
@@ -329,6 +421,11 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("using Autodesk.Revit.DB;");
             sb.AppendLine("using Autodesk.Revit.DB.Architecture;");
             sb.AppendLine("using Autodesk.Revit.DB.Structure;");
+            // MEP namespaces: `Pipe` etc. failed with "type or namespace not
+            // found" on the round-7 CIDB FF retest (2026-07-18). Electrical is
+            // deliberately EXCLUDED — its Panel collides with DB.Panel.
+            sb.AppendLine("using Autodesk.Revit.DB.Plumbing;");
+            sb.AppendLine("using Autodesk.Revit.DB.Mechanical;");
             sb.AppendLine("using Autodesk.Revit.UI;");
             sb.AppendLine("using Autodesk.Revit.UI.Selection;");
             if (needsExcel) sb.AppendLine("using ClosedXML.Excel;");
@@ -377,15 +474,25 @@ namespace RevitWebAppSync.Services
             // to the agent.
             sb.AppendLine("        private class __FailHandler : IFailuresPreprocessor");
             sb.AppendLine("        {");
+            sb.AppendLine("            // Real Revit failure texts captured at rollback — surfaced in the");
+            sb.AppendLine("            // thrown message so the user sees e.g. \"Can't keep elements joined\"");
+            sb.AppendLine("            // instead of a generic guess (round-31 CIDB quality finding).");
+            sb.AppendLine("            public static readonly List<string> Errors = new List<string>();");
             sb.AppendLine("            public FailureProcessingResult PreprocessFailures(FailuresAccessor a)");
             sb.AppendLine("            {");
             sb.AppendLine("                bool hasError = false;");
             sb.AppendLine("                foreach (var f in a.GetFailureMessages())");
             sb.AppendLine("                {");
             sb.AppendLine("                    if (f.GetSeverity() == FailureSeverity.Warning) a.DeleteWarning(f);");
-            sb.AppendLine("                    else hasError = true;");
+            sb.AppendLine("                    else { hasError = true; try { var __d = f.GetDescriptionText(); if (!string.IsNullOrWhiteSpace(__d) && !Errors.Contains(__d)) Errors.Add(__d); } catch { } }");
             sb.AppendLine("                }");
             sb.AppendLine("                return hasError ? FailureProcessingResult.ProceedWithRollBack : FailureProcessingResult.Continue;");
+            sb.AppendLine("            }");
+            sb.AppendLine("            public static string Suffix()");
+            sb.AppendLine("            {");
+            sb.AppendLine("                if (Errors.Count == 0) return \"\";");
+            sb.AppendLine("                var take = Errors.Count > 3 ? Errors.GetRange(0, 3) : Errors;");
+            sb.AppendLine("                return \" Revit reported: \" + string.Join(\"; \", take);");
             sb.AppendLine("            }");
             sb.AppendLine("        }");
             sb.AppendLine();
@@ -393,6 +500,7 @@ namespace RevitWebAppSync.Services
             sb.AppendLine("        public object Execute(Document doc, UIDocument uidoc, View activeView)");
             sb.AppendLine("        {");
             sb.AppendLine("            this.doc = doc; this.uidoc = uidoc; this.activeView = activeView;");
+            sb.AppendLine("            __FailHandler.Errors.Clear();");
 
             // Auto-wrap the body in a Transaction (with the silent failure handler)
             // so model edits commit + get a named undo entry on the first attempt.
@@ -420,6 +528,25 @@ namespace RevitWebAppSync.Services
             if (selfManagesTransaction)
                 processedCode = InjectFailureHandlingIntoUserTransactions(processedCode);
 
+            // Bare `return;` in a snippet is CS0126 inside the object-returning
+            // Execute wrapper ("An object of a type convertible to 'object' is
+            // required") — the model writes it as an early exit after
+            // SetResult(...). Rewrite to `return null;`, with the same
+            // string/comment guard as the transaction rewrites — but NOT inside
+            // the snippet's own void local functions (CAD-geometry walkers like
+            // WalkGeo/ExtractFF/ExtractLines): there a bare return is legal and
+            // `return null;` is CS0127 "returns void, a return keyword must not
+            // be followed by an object expression" — the exact round-7 CIDB
+            // failure on DEV-16/DEV-18 (2026-07-18).
+            var snapshotReturns = processedCode;
+            var voidRegions = FindVoidLocalFunctionRegions(snapshotReturns);
+            processedCode = Regex.Replace(
+                snapshotReturns,
+                @"\breturn\s*;",
+                m => InCommentOrString(snapshotReturns, m.Index)
+                     || InAnyRegion(voidRegions, m.Index)
+                     ? m.Value : "return null;");
+
             var lines = processedCode.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
             foreach (var line in lines)
             {
@@ -429,7 +556,7 @@ namespace RevitWebAppSync.Services
             if (!selfManagesTransaction)
             {
                 sb.AppendLine("                if (__tx.Commit() != TransactionStatus.Committed)");
-                sb.AppendLine("                    throw new InvalidOperationException(\"Changes were not applied — the transaction was rolled back (you may have cancelled, or Revit blocked the edit, e.g. elements inside a group).\");");
+                sb.AppendLine("                    throw new InvalidOperationException(\"Changes were not applied - the transaction was rolled back.\" + __FailHandler.Suffix());");
                 sb.AppendLine("            }");
             }
 

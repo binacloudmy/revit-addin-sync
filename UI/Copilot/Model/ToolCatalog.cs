@@ -19,6 +19,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public ToolBadge Badge;
         public string IconKey;    // ti-*
         public string Keywords;   // search terms
+
+        /// <summary>bina-ai P1 command id sent to the backend as `command_id`
+        /// (authoritative dispatch). Set from the id map in the static ctor;
+        /// BackendId falls back to Id when they already match.</summary>
+        public string CommandId;
+        public string BackendId => string.IsNullOrEmpty(CommandId) ? Id : CommandId;
     }
 
     public static class ToolCatalog
@@ -50,6 +56,36 @@ namespace RevitWebAppSync.UI.Copilot.Model
             new SlashTool { Id="ff-pick",      Category="MEP",           Name="FF from Picked CAD",        Subtitle="Convert selected FF branch only",              Badge=ToolBadge.Deterministic, IconKey="ti-hand-finger",     Keywords="ff fire pick selected branch partial sprinkler pipe cad section" },
             new SlashTool { Id="light-cad",    Category="MEP",           Name="Lighting from CAD",         Subtitle="CAD blocks → native lighting fixtures",        Badge=ToolBadge.AiAssisted,    IconKey="ti-bulb",            Keywords="lighting light fixture cad block lamp mep convert family lampu" },
         };
+
+        // addin-local Id → bina-ai P1 command id (app/commands/*.md). Only the
+        // ids that differ are listed; the rest already match the backend.
+        private static readonly Dictionary<string, string> _backendIds = new Dictionary<string, string>
+        {
+            ["level-vis"] = "level-visualiser",
+            ["level-filter"] = "level-view-filter",
+            ["level-build"] = "level-builder",
+            ["cad-family"] = "cad-block-to-family",
+            ["skata"] = "skata-code",
+            ["lightvent"] = "light-vent-report",
+            ["door-sched"] = "door-schedule",
+            ["win-sched"] = "window-schedule",
+            ["walls-cad"] = "walls-from-cad",
+            ["walls-slab"] = "walls-from-slab-edge",
+            ["floor-align"] = "floor-edge-align",
+            ["col-cad"] = "column-from-cad",
+            ["beam-cad"] = "beam-from-cad",
+            ["split-floor"] = "split-floor-by-beams",
+            ["ff-net"] = "ff-network-from-cad",
+            ["ff-pick"] = "ff-from-picked-cad",
+            ["light-cad"] = "lighting-from-cad",
+            // batch-link, room-views, sloped-floor already match the backend
+        };
+
+        static ToolCatalog()
+        {
+            foreach (var t in All)
+                t.CommandId = _backendIds.TryGetValue(t.Id, out var bid) ? bid : t.Id;
+        }
 
         public static SlashTool ById(string id) => All.FirstOrDefault(t => t.Id == id);
 

@@ -349,7 +349,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (m.Role == "user")
                 return CopilotMessageBubble.User(
                     m.Text, Vm?.UserFirstName, m.ImagesBase64,
-                    m.Files?.Select(f => (f.Name, LineCount(f.Content))), BubbleMaxWidth(), m.Time,
+                    m.Files?.Select(Model.HistoryFile.From), BubbleMaxWidth(), m.Time,
                     m.SlashCommand);
 
             // Cancelled generation — the design's italic faint "Interrupted."
@@ -395,9 +395,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
 
             // Design: a completed reply shows the answer. When m.Steps is populated
-            // (final AI replies from the backend), a collapsed pill above the text shows
-            // the summary ("✓ N langkah · Xs") with a ▸/▾ toggle glyph; clicking expands
-            // a ProgressTrailView below it showing all Done rows + elapsed times.
+            // (final AI replies from the backend), a collapsed chip above the text
+            // shows "✓ N · Xs" plus the key step's name and a rotating chevron;
+            // clicking expands a ProgressTrailView timeline below it.
             // The live single-line thinking indicator fades out and no step trail
             // persists otherwise. (ProgressTracePanel/ToolTracePanel remain for old
             // serialized history.)
@@ -407,44 +407,113 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // render their own cards, so the pill would be a stray duplicate).
             if (m.Kind == CpMsgKind.AiReply && m.Steps != null && m.Steps.Count > 0)
             {
+                // ── Collapsed chip ────────────────────────────────────────────
+                // Redesigned 2026-07-27. The old pill stretched the full column
+                // width, so a one-line summary rendered as a wide empty bar
+                // heavier than the answer beneath it; it concatenated the ▸ into
+                // the text string; and it said only "N langkah · Xs" — nothing
+                // about WHAT ran, so checking whether the copilot had read the
+                // right things meant expanding it on every single turn. It also
+                // put a Malay noun over English answers once replies started
+                // mirroring the user's language.
+                //
+                // Now: auto-width so it takes only the room it needs, a wordless
+                // count·duration, the key step's name beside it, and a chevron
+                // that ROTATES instead of a character that gets swapped.
                 string trailSummary = ProgressTrail.Summary(m.Steps);
-                string glyphText = "▸";
+                string trailPreview = ProgressTrail.Preview(m.Steps);
                 var trailView = new ProgressTrailView();
                 trailView.Update(m.Steps);
                 trailView.Visibility = Visibility.Collapsed;
 
-                var pillButton = new Button
+                var chipRow = new StackPanel
                 {
-                    Padding = new Thickness(11, 5, 11, 5),
-                    BorderThickness = new Thickness(1),
-                    Margin = new Thickness(0, 0, 0, 9),
-                    Cursor = System.Windows.Input.Cursors.Hand,
-                };
-                pillButton.SetResourceReference(Button.BorderBrushProperty, "Cp.Muted");
-                pillButton.Background = Brushes.Transparent;
-                FlatButton.Apply(pillButton, 16, withBorder: true);
-
-                var pillText = new TextBlock
-                {
-                    FontSize = 11.5,
+                    Orientation = Orientation.Horizontal,
                     VerticalAlignment = VerticalAlignment.Center,
                 };
-                pillText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
-                pillButton.Content = pillText;
 
-                // Click handler: toggle trail visibility and swap glyph
-                pillButton.Click += (_, __) =>
+                var summaryText = new TextBlock
+                {
+                    Text = trailSummary,
+                    FontSize = 11,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                summaryText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+                chipRow.Children.Add(summaryText);
+
+                if (!string.IsNullOrEmpty(trailPreview))
+                {
+                    var previewText = new TextBlock
+                    {
+                        Text = trailPreview,
+                        FontSize = 11,
+                        Margin = new Thickness(8, 0, 0, 0),
+                        MaxWidth = 240,
+                        TextTrimming = TextTrimming.CharacterEllipsis,
+                        VerticalAlignment = VerticalAlignment.Center,
+                    };
+                    // Fainter than the summary: a hint, not a headline.
+                    previewText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+                    chipRow.Children.Add(previewText);
+                }
+
+                // Chevron as a Path, not a glyph character: the rotation is
+                // smooth and the shape is identical in both states.
+                var chevron = new System.Windows.Shapes.Path
+                {
+                    Width = 8,
+                    Height = 8,
+                    Stretch = Stretch.Uniform,
+                    StrokeThickness = 1.6,
+                    StrokeStartLineCap = PenLineCap.Round,
+                    StrokeEndLineCap = PenLineCap.Round,
+                    StrokeLineJoin = PenLineJoin.Round,
+                    Data = Geometry.Parse("M 3,1 L 7,5 L 3,9"),
+                    Margin = new Thickness(9, 0, 1, 0),
+                    RenderTransformOrigin = new Point(0.5, 0.5),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                chevron.SetResourceReference(System.Windows.Shapes.Shape.StrokeProperty, "Cp.Faint");
+                var chevronSpin = new RotateTransform(0);
+                chevron.RenderTransform = chevronSpin;
+                chipRow.Children.Add(chevron);
+
+                // A Border, not a Button: FlatButton's template carries an
+                // IsMouseOver trigger that tints the background Cp.Hover, and
+                // that highlight was rejected (2026-07-27) — on a chip this
+                // small it flashes a grey slab under the text. A Border has no
+                // control chrome to suppress, so there is simply nothing to
+                // hover. Transparent background for the same reason: the chip
+                // now reads as plain text with a chevron, and the answer keeps
+                // every bit of the visual weight.
+                var chipButton = new Border
+                {
+                    Child = chipRow,
+                    Padding = new Thickness(0, 2, 6, 2),
+                    // Hug the content instead of spanning the bubble column.
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Margin = new Thickness(0, 0, 0, 7),
+                    Background = Brushes.Transparent,   // still hit-testable
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                };
+
+                chipButton.MouseLeftButtonUp += (_, __) =>
                 {
                     bool expanding = trailView.Visibility == Visibility.Collapsed;
                     trailView.Visibility = expanding ? Visibility.Visible : Visibility.Collapsed;
-                    glyphText = expanding ? "▾" : "▸";
-                    pillText.Text = trailSummary + "  " + glyphText;
+                    chevronSpin.BeginAnimation(RotateTransform.AngleProperty,
+                        new DoubleAnimation(expanding ? 0 : 90, expanding ? 90 : 0,
+                            new Duration(TimeSpan.FromMilliseconds(140)))
+                        {
+                            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+                        });
+                    // Fade the rows in so the panel does not pop into place.
+                    if (expanding)
+                        trailView.BeginAnimation(UIElement.OpacityProperty,
+                            new DoubleAnimation(0, 1, new Duration(TimeSpan.FromMilliseconds(160))));
                 };
 
-                // Initial text with ▸ glyph
-                pillText.Text = trailSummary + "  " + glyphText;
-
-                col.Children.Add(pillButton);
+                col.Children.Add(chipButton);
                 col.Children.Add(trailView);
             }
 
@@ -553,7 +622,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         // Horizontal button row: primary "✓ Ya, teruskan" (accent bg, white
         // text, 7px radius — same chrome family as ProposalCard's "Apply to
         // model" button) and secondary "Tidak" (bordered flat, matches the
-        // langkah pill's FlatButton.Apply(..., withBorder: true) idiom).
+        // step-trail chip's FlatButton.Apply idiom).
         private FrameworkElement TindakanRow(ChatMessage m)
         {
             var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 9) };
@@ -1001,7 +1070,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private FrameworkElement ProgressTrailPanel(System.Collections.Generic.IReadOnlyList<ProgressStep> steps)
         {
-            if (_progressTrailView == null) _progressTrailView = new ProgressTrailView();
+            // Live=true: while the turn runs, show ONE line for the current step
+            // instead of a growing stack (and one spinner, not one per row —
+            // several rows could hold State=Running at once). Nothing is lost:
+            // the completed reply's chip expands into the full timeline from its
+            // own ProgressTrailView with Live=false. See ProgressTrail.Current.
+            if (_progressTrailView == null) _progressTrailView = new ProgressTrailView { Live = true };
             else if (_progressTrailView.Parent is Panel oldParent)
                 oldParent.Children.Remove(_progressTrailView);
             _progressTrailView.Update(steps);
@@ -1022,12 +1096,22 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var star = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(5), Background = Brushes.Transparent, Margin = new Thickness(0, 0, 8, 0) };
             star.Child = new Path { Width = 14, Height = 14, Stretch = Stretch.Uniform, Fill = CopilotMessageBubble.StarGradient(), Data = CopilotIcons.Get("sparkleSolid"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             hs.Children.Add(star);
-            hs.Children.Add(new TextBlock { Text = "I need a bit more detail", FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#1e3a8a"), VerticalAlignment = VerticalAlignment.Center });
+            // Cp.BlueText rather than a literal #1e3a8a: that navy is a
+            // light-theme value and rendered near-invisible on the dark card.
+            var clarifyTitle = new TextBlock { Text = "I need a bit more detail", FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+            clarifyTitle.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
+            hs.Children.Add(clarifyTitle);
             head.Child = hs;
             sp.Children.Add(head);
 
             var body = new StackPanel { Margin = new Thickness(12, 10, 12, 12) };
-            body.Children.Add(new TextBlock { Text = m.Question, FontSize = 12.5, Foreground = CopilotColors.From("#131c2b"), TextWrapping = TextWrapping.Wrap, LineHeight = 18, Margin = new Thickness(0, 0, 0, 10) });
+            // MarkdownText, not a bare TextBlock: the model writes **bold** in
+            // clarify questions exactly as it does in answers, and a plain
+            // TextBlock rendered the asterisks literally (UAT 2026-07-27). Same
+            // renderer the answer bubble uses, so the two read consistently.
+            var qText = CopilotMessageBubble.MarkdownText(m.Question ?? "", 460);
+            qText.Margin = new Thickness(0, 0, 0, 10);
+            body.Children.Add(qText);
             foreach (var o in m.Options)
             {
                 var tool = CopilotCatalog.Find(o.ToolId);
@@ -1570,11 +1654,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         // Copy-to-clipboard affordances, the bot avatar, and base64 image decoding
         // live in CopilotMessageBubble (shared with the History detail view).
 
-        /// <summary>Line count matching AttachmentChip's "N ln" display, for the
-        /// shared user-bubble file chips.</summary>
-        private static int LineCount(string content) =>
-            string.IsNullOrEmpty(content) ? 0 : content.Count(c => c == '\n') + 1;
-
         // Raw tool name → friendly step label. Polished labels for the common
         // tools; everything else falls back to a clean snake_case → sentence
         // transform (e.g. "find_elements_by_filter" → "Find elements by filter").
@@ -1598,6 +1677,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 ["list_sheets"] = "Reading sheets",
                 ["list_schedules"] = "Reading schedules",
                 ["list_grids"] = "Reading grids",
+                ["find_elements_between_grids"] = "Finding elements between grids",
+                ["find_mep_elements"] = "Finding MEP elements",
                 ["analyze_model_statistics"] = "Analyzing the model",
                 ["get_material_quantities"] = "Reading material quantities",
                 ["get_model_warnings"] = "Checking model warnings",

@@ -321,7 +321,8 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 _currentSession = new HistoryEntry(
                     DateTime.Now.ToString("MMM d, h:mm tt"), status, userText,
-                    new List<History>());
+                    new List<History>())
+                { SessionId = (Router as RevitChatRouter)?.SessionId };
                 History.Insert(0, _currentSession);
             }
             _currentSession.History.Add(new History("user", userText, time) { Files = userFiles });
@@ -339,6 +340,33 @@ namespace RevitWebAppSync.UI.Copilot
         {
             Thread.Clear();
             _currentSession = null; // next exchange begins a fresh HistoryEntry
+        }
+
+        /// <summary>Continue a past conversation from the History tab: the router
+        /// adopts its backend session (fresh session when the entry predates
+        /// SessionId tracking), the chat thread is rebuilt from the stored
+        /// exchanges, and new turns append to the same entry.</summary>
+        public void ContinueSession(HistoryEntry entry)
+        {
+            if (entry == null) return;
+            var router = Router as RevitChatRouter;
+            router?.AdoptSession(entry.SessionId);
+            if (string.IsNullOrWhiteSpace(entry.SessionId) && router != null)
+            {
+                // Pre-feature entry: remember the freshly minted session so a
+                // second Continue on this entry stays in the same conversation.
+                entry.SessionId = router.SessionId;
+                CopilotStateStore.Save(_pinned, History);
+            }
+            _currentSession = entry;
+            Thread.Clear();
+            foreach (var m in entry.History)
+            {
+                Thread.Add(m.Sender == "user"
+                    ? new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = m.Text, Time = m.Time }
+                    : new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = m.Text, Time = m.Time, ToolCallTrace = m.Tools });
+            }
+            Tab = CpTab.Chat;
         }
 
         public void RenameHistoryEntry(HistoryEntry entry, string newLabel)
@@ -616,10 +644,13 @@ namespace RevitWebAppSync.UI.Copilot
             else ChatSend(p as string);
         }
 
-        public void ChatSend(string text, List<string> images = null, List<FileAttachment> files = null)
+        public void ChatSend(string text, List<string> images = null, List<FileAttachment> files = null,
+            SlashTool slashChip = null)
         {
             text = (text ?? "").Trim();
-            if (text.Length == 0) return;
+            // A slash command may carry no typed args (a bare "/level-builder"),
+            // so an empty text is valid when a command chip is attached.
+            if (text.Length == 0 && slashChip == null) return;
             LastPrompt = text;   // key for 👍/👎 feedback on the resulting response
             if (IsIndexing)
             {
@@ -647,18 +678,8 @@ namespace RevitWebAppSync.UI.Copilot
                 }
             }
 
-            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images, Files = files, Time = System.DateTime.Now.ToString("h:mm tt") });
+            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, ImagesBase64 = images, Files = files, SlashCommand = slashChip, Time = System.DateTime.Now.ToString("h:mm tt") });
 
-            // The chat bubble + history use `text` (what the user typed). The
-            // backend route text re-embeds any attached file contents — there's no
-            // separate file channel, so files ride along inside the prompt string.
-            string routeText = BuildRouteText(text, files);
-
-            // Lightweight projection persisted with the run history so the chip can
-            // be redrawn in the History tab (name + line count; contents not stored).
-            List<HistoryFile> historyFiles = files == null || files.Count == 0
-                ? null
-                : files.Select(f => new HistoryFile(f.Name, LineCount(f.Content))).ToList();
 
             // Intent detection runs on the user's text only, so file contents can't
             // falsely match tool keywords in PickResponseTool. NO early-return here:
@@ -697,55 +718,171 @@ namespace RevitWebAppSync.UI.Copilot
 
             _lastSteps = null;
             _streamText = null;
+            // P2 slash command: hand the backend command id to the router BEFORE
+            // routing kicks off. The field persists until RouteAsync consumes and
+            // clears it (sends are serial, so it can't leak into another turn).
+            if (slashChip != null && Router is RevitChatRouter _rr)
+            {
+                _rr.PendingCommandId = slashChip.BackendId;
+                _rr.PendingCommandArgs = null;   // param chips (source:) land here in a later P2 UI step
+            }
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Menganalisis permintaan…" });
-            _ = ResolveProposalAsync(routeText, text, interp.ToolId, images, historyFiles);
+            _ = SendWithAttachmentsAsync(text, files, interp.ToolId, images);
         }
 
-        /// <summary>Slash command sent from the composer. UI-only for now: adds the
-        /// user's turn (a command chip, plus any typed args) and a placeholder reply
-        /// — running tools from chat is wired later.</summary>
+        /// <summary>Read any binary attachments locally (the addin does it — Revit
+        /// for a DWG, PdfPig for a PDF), then route the turn. Split out of ChatSend
+        /// because reading them needs the Revit job pump and therefore an await —
+        /// the thinking bubble is already on screen, so the wait is visible rather
+        /// than a frozen pane.</summary>
+        private async System.Threading.Tasks.Task SendWithAttachmentsAsync(
+            string text, List<FileAttachment> files, string fallbackToolId,
+            List<string> images)
+        {
+            await ResolveDrawingAttachmentsAsync(files);
+            await ResolveDocumentAttachmentsAsync(files);
+
+            // Lightweight projection persisted with the run history so the chip can
+            // be redrawn in the History tab (name + line/page count; contents are
+            // never stored). Built AFTER resolution so a PDF's page count is known.
+            List<HistoryFile> historyFiles = files == null || files.Count == 0
+                ? null
+                : files.Select(HistoryFile.From).ToList();
+
+            // The chat bubble + history use `text` (what the user typed). The
+            // backend route text re-embeds any attached file contents — there's no
+            // separate file channel, so files ride along inside the prompt string.
+            string routeText = BuildRouteText(text, files);
+            await ResolveProposalAsync(routeText, text, fallbackToolId, images, historyFiles);
+        }
+
+        /// <summary>Turn each attached .pdf into a pdf_ref + compact summary by
+        /// running the addin's own PDF tools. Same contract as the drawing path:
+        /// failures are recorded on the attachment, never thrown, so an unreadable
+        /// document degrades to a one-line note instead of killing the turn.</summary>
+        private async System.Threading.Tasks.Task ResolveDocumentAttachmentsAsync(List<FileAttachment> files)
+        {
+            var docs = files?.Where(f => f.Kind == AttachmentKind.Pdf).ToList();
+            if (docs == null || docs.Count == 0) return;
+
+            foreach (var d in docs)
+            {
+                try
+                {
+                    var result = await RunLocalToolAsync(
+                        "pdf_open_attachment", new Dictionary<string, object> { ["path"] = d.Path });
+                    if (result == null) { d.ReadError = "the PDF reader returned no result"; continue; }
+                    d.Ref = result.Value.TryGetProperty("pdf_ref", out var r) ? r.GetString() : null;
+                    d.SummaryJson = result.Value.GetRawText();
+                }
+                catch (Exception ex)
+                {
+                    d.ReadError = ex.Message;
+                }
+            }
+        }
+
+        /// <summary>Turn each attached .dwg/.dxf into a dwg_ref + compact summary
+        /// by running the addin's own DWG tools on the Revit thread. A drawing
+        /// that is ALREADY linked in the open model reuses that model ref instead
+        /// of being opened a second time — one drawing, one context block.
+        /// Failures are recorded on the attachment, never thrown: an unreadable
+        /// drawing must degrade to a one-line note, not kill the turn.</summary>
+        private async System.Threading.Tasks.Task ResolveDrawingAttachmentsAsync(List<FileAttachment> files)
+        {
+            var drawings = files?.Where(f => f.Kind == AttachmentKind.Dwg).ToList();
+            if (drawings == null || drawings.Count == 0) return;
+
+            // One list_cad_links read serves every attachment's dedup check.
+            List<System.Text.Json.JsonElement> inModel = null;
+            try
+            {
+                var links = await RunLocalToolAsync("list_cad_links", new Dictionary<string, object>());
+                if (links != null && links.Value.TryGetProperty("cad_links", out var arr)
+                    && arr.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    inModel = arr.EnumerateArray().ToList();
+            }
+            catch { /* no model / older addin — dedup simply doesn't apply */ }
+
+            foreach (var d in drawings)
+            {
+                try
+                {
+                    var match = FindLinkedCad(inModel, d.Path, d.Name);
+                    var args = new Dictionary<string, object>();
+                    string tool;
+                    if (match != null) { tool = "get_dwg_summary"; args["dwg_ref"] = match; }
+                    else { tool = "dwg_open_attachment"; args["path"] = d.Path; }
+
+                    var result = await RunLocalToolAsync(tool, args);
+                    if (result == null) { d.ReadError = "Revit did not return a result"; continue; }
+                    d.Ref = result.Value.TryGetProperty("dwg_ref", out var r) ? r.GetString() : match;
+                    d.SummaryJson = result.Value.GetRawText();
+                }
+                catch (Exception ex)
+                {
+                    d.ReadError = ex.Message;
+                }
+            }
+        }
+
+        /// <summary>dwg_ref of an in-model CAD link whose path (or, failing that,
+        /// file name) matches the attachment. Null when the drawing isn't linked.</summary>
+        private static string FindLinkedCad(List<System.Text.Json.JsonElement> inModel, string path, string name)
+        {
+            if (inModel == null) return null;
+            foreach (var item in inModel)
+            {
+                string LinkStr(string key) =>
+                    item.TryGetProperty(key, out var v) && v.ValueKind == System.Text.Json.JsonValueKind.String
+                        ? v.GetString() : null;
+                var linkPath = LinkStr("path");
+                var linkName = LinkStr("name");
+                bool samePath = !string.IsNullOrEmpty(linkPath) && !string.IsNullOrEmpty(path)
+                                && string.Equals(linkPath, path, StringComparison.OrdinalIgnoreCase);
+                bool sameName = !string.IsNullOrEmpty(linkName) && !string.IsNullOrEmpty(name)
+                                && string.Equals(linkName, name, StringComparison.OrdinalIgnoreCase);
+                if (samePath || sameName) return LinkStr("dwg_ref");
+            }
+            return null;
+        }
+
+        /// <summary>Run one addin tool in-process on the Revit thread (no backend
+        /// round-trip) and return its result as JSON. Throws with the tool's own
+        /// message on failure so the caller can show it to the drafter.</summary>
+        private static async System.Threading.Tasks.Task<System.Text.Json.JsonElement?> RunLocalToolAsync(
+            string tool, Dictionary<string, object> args)
+        {
+            var job = new BinaVibe.Mcp.McpJob
+            {
+                Tool = tool,
+                Args = System.Text.Json.JsonSerializer.SerializeToElement(args ?? new Dictionary<string, object>()),
+            };
+            BinaVibe.Mcp.McpJobPump.Enqueue(job);
+            await job.Done.Task;
+            if (job.Error != null) throw new InvalidOperationException(job.Error);
+            if (job.Result == null) return null;
+            var json = System.Text.Json.JsonSerializer.Serialize(job.Result);
+            return System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json);
+        }
+
+        /// <summary>Slash command sent from the composer (P2). Routes the picked
+        /// command to the backend via `command_id` — the definition's instructions
+        /// and tool allowlist are injected server-side — and renders the user turn
+        /// as a command chip plus any typed args. This is the real run, not a stub.</summary>
         public void ChatSendSlashCommand(SlashTool tool, string args)
         {
             if (tool == null) return;
-            Tab = CpTab.Chat;
-            Screen = CpScreen.Home;
-            ToolId = null;
-            string time = System.DateTime.Now.ToString("h:mm tt");
-            Thread.Add(new ChatMessage
-            {
-                Role = "user", Kind = CpMsgKind.User, SlashCommand = tool,
-                Text = (args ?? "").Trim(), Time = time,
-            });
-            Thread.Add(new ChatMessage
-            {
-                Role = "ai", Kind = CpMsgKind.AiReply, Time = time,
-                Text = $"**/{tool.Name}** is ready. Running tools directly from chat is coming soon — "
-                     + "for now this is a placeholder so you can preview the flow.",
-            });
+            // ChatSend does the routing; the chip rides the user bubble and the
+            // backend command id is handed to the router just before RouteAsync.
+            ChatSend((args ?? "").Trim(), slashChip: tool);
         }
 
-        /// <summary>Line count matching AttachmentChip's "N ln" display.</summary>
-        private static int LineCount(string content) =>
-            string.IsNullOrEmpty(content) ? 0 : content.Count(c => c == '\n') + 1;
-
-        /// <summary>Compose the prompt string sent to the backend: each attached
-        /// file's contents prepended as a labelled block, then the user's text.
-        /// Returns `text` unchanged when nothing is attached. Format is kept
-        /// byte-for-byte identical to the legacy PromptBar concatenation so the
-        /// backend sees exactly the same input.</summary>
-        private static string BuildRouteText(string text, List<FileAttachment> files)
-        {
-            if (files == null || files.Count == 0) return text;
-            var sb = new System.Text.StringBuilder();
-            foreach (var f in files)
-            {
-                sb.Append("[Attached: ").Append(f.Name).AppendLine("]");
-                sb.AppendLine(f.Content);
-                sb.AppendLine("---");
-            }
-            sb.Append(text);
-            return sb.ToString();
-        }
+        /// <summary>Prompt string sent to the backend — see RouteText.Build for
+        /// the block format (it lives in Model/ so the wire format is testable
+        /// without WPF).</summary>
+        private static string BuildRouteText(string text, List<FileAttachment> files) =>
+            RouteText.Build(text, files);
 
         // Persistent header badge: "27 / 30 credits" or "Unlimited". Empty string hides the pill.
         private string _creditBadge = "";
@@ -1231,19 +1368,29 @@ namespace RevitWebAppSync.UI.Copilot
             if (outcome != null && !outcome.Success)
                 return "Sorry — that didn't run. " + (outcome.Error ?? "");
             if (r == null) return "Done.";
+            string text;
             switch (r.Kind)
             {
                 case CpResultKind.Count:
-                    return $"{r.Headline} {r.Unit}".Trim() + (string.IsNullOrEmpty(r.Sub) ? "" : $". {r.Sub}");
+                    text = $"{r.Headline} {r.Unit}".Trim() + (string.IsNullOrEmpty(r.Sub) ? "" : $". {r.Sub}"); break;
                 case CpResultKind.Issues:
-                    return $"{r.Headline} {r.Unit}".Trim();
+                    text = $"{r.Headline} {r.Unit}".Trim(); break;
                 case CpResultKind.List:
-                    return r.Headline; // diffs render in History; chat keeps the line tight
+                    text = r.Headline; break; // diffs render in History; chat keeps the line tight
                 case CpResultKind.File:
-                    return $"Saved {r.Headline}." + (string.IsNullOrEmpty(r.Sub) ? "" : $" {r.Sub}");
+                    text = $"Saved {r.Headline}." + (string.IsNullOrEmpty(r.Sub) ? "" : $" {r.Sub}"); break;
                 default:
-                    return string.IsNullOrEmpty(r.Sub) ? r.Headline : $"{r.Headline} — {r.Sub}";
+                    text = string.IsNullOrEmpty(r.Sub) ? r.Headline : $"{r.Headline} — {r.Sub}"; break;
             }
+            // SetResult.details is the computed data itself (ready markdown —
+            // per-level tables, notes). Chat bubbles render markdown, so
+            // appending it here is what puts the actual result — and the CSV
+            // download button its tables carry — in front of the drafter.
+            // Without this the pane says "26 bilik — clearance height" and the
+            // 26 rows the code computed are silently thrown away.
+            if (!string.IsNullOrWhiteSpace(r.Details))
+                text = text + "\n\n" + r.Details.Trim();
+            return text;
         }
 
         private void ReplaceLastThinking(ChatMessage replacement)

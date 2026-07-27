@@ -36,7 +36,9 @@ namespace RevitWebAppSync.UI.Copilot
             lock (_lock)
             {
                 if (_loaded) return;
-                if (Application.Current == null) return;
+                // Revit never creates one — without this the dictionaries stay
+                // unmerged and the first {StaticResource Cp.*} kills the process.
+                if (!Helpers.WpfAppBootstrap.Ensure()) return;
 
                 var asm = typeof(CopilotTheme).Assembly.GetName().Name;
                 Merge($"pack://application:,,,/{asm};component/UI/Copilot/CopilotTokens.xaml");

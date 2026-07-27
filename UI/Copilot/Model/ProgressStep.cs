@@ -195,7 +195,87 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 }
             }
             var total = (end - start).TotalSeconds;
-            return "✓ " + steps.Count + " langkah · " + total.ToString("0.#") + "s";
+            // Deliberately WORDLESS. This used to read "✓ 6 langkah · 8.9s",
+            // which put a Malay noun on top of an English answer once the reply
+            // started mirroring the user's language (UAT 2026-07-27: "how many
+            // pipes in this model?" → English answer under a "6 langkah" pill).
+            // Translating the chrome would mean the client guessing the reply's
+            // language; removing the noun costs nothing and reads the same in
+            // both. What the steps WERE is far more useful than the word
+            // "steps" — see Preview below, which the chip renders beside this.
+            // No ✓ either. The chip is a quiet affordance, not a status
+            // badge: the answer sitting under it IS the evidence the turn
+            // succeeded, and a green tick on every reply is noise (rejected on
+            // sight, 2026-07-27).
+            return steps.Count + " · " + total.ToString("0.#") + "s";
+        }
+
+        /// <summary>The one step worth showing WHILE the turn runs: the running
+        /// one, else the last with a label. Null when there is nothing to show.
+        ///
+        /// The live trail used to stack every step as it arrived, so a six-step
+        /// turn grew a six-line block above the answer — and because two rows
+        /// could hold State=Running at once, two spinners turned simultaneously
+        /// (UAT 2026-07-27). One line at a time says the same thing without the
+        /// pile-up; the full sequence is still there afterwards, behind the
+        /// completed reply's chip.</summary>
+        public static ProgressStep Current(IReadOnlyList<ProgressStep> steps)
+        {
+            if (steps == null || steps.Count == 0) return null;
+            ProgressStep fallback = null;
+            for (int i = steps.Count - 1; i >= 0; i--)
+            {
+                var s = steps[i];
+                if (s == null) continue;
+                // Last running step wins: with several marked Running, the most
+                // recent is the one actually in flight.
+                if (s.State == StepState.Running && !string.IsNullOrWhiteSpace(s.Label))
+                    return s;
+                if (fallback == null && !string.IsNullOrWhiteSpace(s.Label))
+                    fallback = s;
+            }
+            return fallback;
+        }
+
+        /// <summary>Whole-turn elapsed seconds, formatted like "2s" — what the
+        /// live line shows instead of a per-step time. Per-step durations came
+        /// out as "0.0s" on every status row, because those steps are progress
+        /// markers that open and close in the same tick rather than units of
+        /// work; nine rows of "0.0s" told the drafter nothing.</summary>
+        public static string TotalElapsedText(IReadOnlyList<ProgressStep> steps)
+        {
+            if (steps == null || steps.Count == 0) return "";
+            var start = steps[0].StartedUtc;
+            var end = DateTime.UtcNow;
+            foreach (var s in steps)
+                if (s.EndedUtc != null && s.EndedUtc.Value > end) end = s.EndedUtc.Value;
+            var secs = (end - start).TotalSeconds;
+            if (secs < 0) secs = 0;
+            return secs < 10 ? secs.ToString("0.#") + "s" : ((int)secs) + "s";
+        }
+
+        /// <summary>Short hint at WHAT ran, for the collapsed chip: the last
+        /// meaningful step's label plus "+N" for the rest. Empty when there is
+        /// nothing worth showing. Pure — unit-testable.
+        ///
+        /// The collapsed state used to carry only a count and a duration, so the
+        /// only way to learn whether the copilot had read the right things was to
+        /// expand it on every turn. The label text comes from ToolLabels, which
+        /// is already human-phrased ("Finding MEP elements").</summary>
+        public static string Preview(IReadOnlyList<ProgressStep> steps)
+        {
+            if (steps == null || steps.Count == 0) return "";
+            // Prefer a running step (that is what the user is waiting on), else
+            // the last one that carries a real label.
+            ProgressStep pick = null;
+            foreach (var s in steps)
+            {
+                if (s.State == StepState.Running && !string.IsNullOrWhiteSpace(s.Label)) { pick = s; break; }
+                if (!string.IsNullOrWhiteSpace(s.Label)) pick = s;
+            }
+            if (pick == null) return "";
+            var extra = steps.Count - 1;
+            return extra > 0 ? pick.Label + "  +" + extra : pick.Label;
         }
     }
 }

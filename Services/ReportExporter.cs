@@ -207,7 +207,7 @@ namespace RevitWebAppSync.Services
         /// QuestPDF.Settings' static ctor throws a TypeInitializationException.
         /// Adding the native dir to the search path fixes the dependent resolution.
         /// </summary>
-        private static void EnsureQuestPdfReady()
+        internal static void EnsureQuestPdfReady()
         {
             if (_pdfReady) return;
             lock (_pdfInitLock)

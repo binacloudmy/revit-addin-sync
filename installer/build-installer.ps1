@@ -112,6 +112,12 @@ Copy-Item -Force (Join-Path $repo "BinaLoader\BinaSync.addin") $loaderNet48Dir
     ConvertTo-Json | Set-Content (Join-Path $pluginDir "manifest.json")
 Set-Content (Join-Path $pluginDir ".complete") $Version
 
+# Prune to what a Windows x64 Revit loads (non-win RIDs, unused Lato weights)
+# + guard the PDF natives. Before signing: fewer files to sign, and a broken
+# prune fails here rather than after a cert round-trip.
+Write-Host "==> Pruning payload..." -ForegroundColor Cyan
+& (Join-Path $PSScriptRoot "prune-payload.ps1") -PluginDir $pluginDir
+
 # Optional: stage the packaged Copilot Engine into the layout the .iss packs.
 # EngineDir/EngineVersion are only passed to ISCC when -EngineZip is given —
 # without it, the /D flags below are omitted entirely and RevitCopilot.iss

@@ -6,3 +6,12 @@ BinaLoader/bin/
 BinaLoader/obj/
 Tests/obj
 .vs/
+# Wafi local-only test workspace (large binaries, Syncthing-synced, never pushed)
+TestingCIDB/
+
+# Local plugin config written by the addin at login — holds AccessToken,
+# RefreshToken, DeviceToken and EngineSecret. Untracked 2026-07-26; it had
+# been committed in 480eeea/44e6123 and the tokens in those commits are still
+# reachable through git history.
+secret
+config.json

@@ -10,11 +10,15 @@ using RevitWebAppSync.UI.Copilot.Model;
 namespace RevitWebAppSync.UI.Copilot.Controls
 {
     /// <summary>
-    /// The live multi-row step trail — one row per <see cref="ProgressStep"/>:
-    /// [15px glyph] [label] [elapsed, right-docked, muted]. The Running row
-    /// shows the same spinning-arc storyboard as <see cref="ThinkingTrailView"/>
-    /// (direct BeginAnimation, never a XAML Storyboard — that crashes inside a
-    /// Revit dockable pane); Done/Error rows show a static check/cross.
+    /// The step trail, in two modes.
+    ///
+    /// Live=true (turn in flight): ONE line — [dot-ring spinner] [current step]
+    /// [whole-turn elapsed]. Live=false (completed reply, behind the chip): a
+    /// timeline, one row per <see cref="ProgressStep"/>, each [marker on a rail]
+    /// [label] [duration, right-docked].
+    ///
+    /// Animations use direct BeginAnimation calls, never a XAML Storyboard —
+    /// that crashes inside a Revit dockable pane.
     ///
     /// ChatView holds ONE instance per thinking session (like ThinkingTrailView)
     /// and calls <see cref="Update"/> on every steps snapshot. Update is a full
@@ -35,26 +39,110 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // as ThinkingTrailView's _shownLabel/_shownState early return.
         private string _renderedKey;
 
+        /// <summary>One line showing only the CURRENT step, with the pulse-dots
+        /// spinner and whole-turn elapsed, instead of a row per step.
+        ///
+        /// Set for the in-flight turn. The full sequence is not lost: the
+        /// completed reply's chip expands into the same timeline this control
+        /// renders when Live is false.</summary>
+        public bool Live { get; set; }
+
         public ProgressTrailView()
         {
             Orientation = Orientation.Vertical;
             Margin = new Thickness(0, 4, 0, 2);
         }
 
-        /// <summary>Rebuild all rows from the given snapshot. No-op when nothing
-        /// visible changed since the last render (keeps the spinner animation
-        /// running smoothly across reply-stream re-renders). Must be called on
-        /// the UI thread.</summary>
+        /// <summary>Rebuild from the given snapshot. No-op when nothing visible
+        /// changed since the last render (keeps the spinner animation running
+        /// smoothly across reply-stream re-renders). Must be called on the UI
+        /// thread.</summary>
         public void Update(IReadOnlyList<ProgressStep> steps)
         {
-            var key = Fingerprint(steps);
+            if (Live)
+            {
+                UpdateLive(steps);
+                return;
+            }
+
+            var key = "F|" + Fingerprint(steps);
             if (key == _renderedKey) return;
             _renderedKey = key;
 
             Children.Clear();
             if (steps == null) return;
-            foreach (var s in steps)
-                Children.Add(Row(s));
+            for (int i = 0; i < steps.Count; i++)
+                Children.Add(Row(steps[i], i == 0, i == steps.Count - 1));
+        }
+
+        // Live mode keeps its own keys so the elapsed text can refresh WITHOUT
+        // rebuilding the row. Rebuilding would restart the pulse wave from
+        // its first frame on every tick, which reads as a stutter — the same
+        // trap the _renderedKey guard was added for with the arc spinner.
+        private string _liveStepKey;
+        private TextBlock _liveTime;
+
+        private void UpdateLive(IReadOnlyList<ProgressStep> steps)
+        {
+            var current = ProgressTrail.Current(steps);
+            if (current == null)
+            {
+                if (Children.Count > 0) Children.Clear();
+                _liveStepKey = null;
+                _liveTime = null;
+                return;
+            }
+
+            var stepKey = current.StepId + "|" + current.State + "|" + current.Label;
+            var elapsed = ProgressTrail.TotalElapsedText(steps);
+
+            if (stepKey == _liveStepKey)
+            {
+                // Same step, more seconds: touch the text only, leave the
+                // spinner and its animation exactly where they are.
+                if (_liveTime != null) _liveTime.Text = "· " + elapsed;
+                return;
+            }
+
+            _liveStepKey = stepKey;
+            Children.Clear();
+            Children.Add(LiveRow(current, elapsed, out _liveTime));
+        }
+
+        // The live line: [pulse dots] label · elapsed. Deliberately one row —
+        // see ProgressTrail.Current for why stacking was removed.
+        private static FrameworkElement LiveRow(ProgressStep s, string elapsed, out TextBlock timeText)
+        {
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 2, 0, 2),
+            };
+            row.Children.Add(new PulseDotsSpinner { Margin = new Thickness(1, 0, 0, 0) });
+
+            var label = new TextBlock
+            {
+                Text = string.IsNullOrEmpty(s.Label) ? s.StepId : s.Label,
+                FontSize = 12.5,
+                Margin = new Thickness(10, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            row.Children.Add(label);
+
+            // Always created (even when elapsed is empty) so UpdateLive has a
+            // handle to write later seconds into without a rebuild.
+            timeText = new TextBlock
+            {
+                Text = string.IsNullOrEmpty(elapsed) ? "" : "· " + elapsed,
+                FontSize = 11.5,
+                Margin = new Thickness(7, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            timeText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+            row.Children.Add(timeText);
+            return row;
         }
 
         // One line per row: everything Update renders. If none of it changed,
@@ -71,76 +159,115 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return sb.ToString();
         }
 
-        private static FrameworkElement Row(ProgressStep s)
+        // A timeline row, not a bullet list line: a hairline rail runs the full
+        // height of the gutter with the state marker centred on it, so adjacent
+        // rows join into one continuous vertical thread. Reading order is
+        // marker -> label -> duration, with durations right-docked and
+        // min-width'd so the numbers form a column instead of ragging.
+        private static FrameworkElement Row(ProgressStep s, bool isFirst, bool isLast)
         {
-            var dock = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 1.5, 0, 1.5) };
+            var grid = new Grid { Margin = new Thickness(0, 0, 0, 0) };
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(18) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            var glyph = GlyphFor(s.State);
-            DockPanel.SetDock(glyph, Dock.Left);
-            dock.Children.Add(glyph);
+            // Gutter: rail + marker, marker painted over the rail.
+            var gutter = new Grid();
+            var rail = new Rectangle
+            {
+                Width = 1,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Stretch,
+                // Stop the thread short of the panel edges so it reads as a
+                // segment belonging to these rows, not a line escaping them.
+                Margin = new Thickness(0, isFirst ? 9 : 0, 0, isLast ? 9 : 0),
+            };
+            rail.SetResourceReference(Shape.FillProperty, "Cp.LineSoft");
+            gutter.Children.Add(rail);
+            gutter.Children.Add(MarkerFor(s.State));
+            Grid.SetColumn(gutter, 0);
+            grid.Children.Add(gutter);
+
+            var content = new DockPanel { LastChildFill = true, Margin = new Thickness(9, 3, 0, 3) };
 
             var elapsed = new TextBlock
             {
                 Text = s.ElapsedText,
-                FontSize = 11,
+                FontSize = 10.5,
+                MinWidth = 38,
+                TextAlignment = TextAlignment.Right,
                 Margin = new Thickness(8, 0, 0, 0),
                 VerticalAlignment = VerticalAlignment.Center,
             };
-            elapsed.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            elapsed.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
             DockPanel.SetDock(elapsed, Dock.Right);
-            dock.Children.Add(elapsed);
+            content.Children.Add(elapsed);
 
             var label = new TextBlock
             {
                 Text = ProgressTrail.RowText(s),
-                FontSize = 12.5,
-                Margin = new Thickness(9, 0, 8, 0),
+                FontSize = 12,
                 VerticalAlignment = VerticalAlignment.Center,
                 TextTrimming = TextTrimming.CharacterEllipsis,
             };
-            label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
-            dock.Children.Add(label);
+            // Muted, not Ink: the trail is supporting evidence and must never
+            // compete with the answer for attention. The running row is the one
+            // exception — that is what the user is waiting on.
+            label.SetResourceReference(TextBlock.ForegroundProperty,
+                s.State == StepState.Running ? "Cp.Ink" : "Cp.Muted");
+            content.Children.Add(label);
 
-            return dock;
+            Grid.SetColumn(content, 1);
+            grid.Children.Add(content);
+            return grid;
         }
 
-        private static FrameworkElement GlyphFor(StepState state)
+        // Small filled dot for settled rows; the spinner keeps its place for
+        // Running so the row that is still working is the only moving thing.
+        private static FrameworkElement MarkerFor(StepState state)
         {
-            switch (state)
+            if (state == StepState.Running) return PulsingDot();
+            var dot = new Ellipse
             {
-                case StepState.Running: return Spinner();
-                case StepState.Error: return Mark("✗", "#dc2626");
-                default: return Mark("✓", "#10b981");   // Done
-            }
-        }
-
-        // Same spinning-arc pattern as ThinkingTrailView.Spinner() — direct
-        // BeginAnimation, "Cp.Accent" stroke resource, 0.7s/turn.
-        private static Path Spinner()
-        {
-            var arc = new Path
-            {
-                Width = 15, Height = 15, Stretch = Stretch.Uniform,
-                StrokeThickness = 2.6,
-                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
-                Data = Geometry.Parse("M21,12 A9,9 0 1 1 14.8,3.5"),
-                RenderTransformOrigin = new Point(0.5, 0.5),
-                HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                Width = 6, Height = 6,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
             };
-            arc.SetResourceReference(Shape.StrokeProperty, "Cp.Accent");
-            var spin = new RotateTransform();
-            arc.RenderTransform = spin;
-            spin.BeginAnimation(RotateTransform.AngleProperty,
-                new DoubleAnimation(0, 360, new Duration(TimeSpan.FromMilliseconds(700))) { RepeatBehavior = RepeatBehavior.Forever });
-            return arc;
+            // Theme resources, not literal hex. These were hardcoded #10b981 /
+            // #dc2626 — which are exactly the LIGHT-theme values of Cp.Green and
+            // Cp.Red, so in dark mode the markers rendered at light-mode
+            // saturation against a near-black pane. The dark variants (#34d399 /
+            // #f87171) are lifted for that background; SetResourceReference also
+            // means the dots re-colour live when the pane's theme toggles.
+            dot.SetResourceReference(Shape.FillProperty,
+                state == StepState.Error ? "Cp.Red" : "Cp.Green");
+            return dot;
         }
 
-        private static TextBlock Mark(string glyph, string hex) => new TextBlock
+        // (GlyphFor/Mark removed with the ✓/✗ text glyphs they served — the
+        // timeline uses MarkerFor's dots so the rail reads as one thread.)
+
+        // A single dot breathing on the rail. The 3-dot PulseDotsSpinner used
+        // on the live line is ~20px wide and cannot sit in an 18px gutter, and
+        // the arc it replaces was the throbber this redesign set out to remove —
+        // so the timeline's in-flight marker is the same dot as its settled
+        // neighbours, pulsing.
+        private static FrameworkElement PulsingDot()
         {
-            Text = glyph, FontSize = 11, FontWeight = FontWeights.Bold,
-            Width = 15, TextAlignment = TextAlignment.Center,
-            Foreground = CopilotColors.From(hex),
-            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
-        };
+            var dot = new Ellipse
+            {
+                Width = 6, Height = 6,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            dot.SetResourceReference(Shape.FillProperty, "Cp.Accent");
+            dot.BeginAnimation(UIElement.OpacityProperty,
+                new DoubleAnimation(0.3, 1.0, new Duration(TimeSpan.FromMilliseconds(750)))
+                {
+                    AutoReverse = true,
+                    RepeatBehavior = RepeatBehavior.Forever,
+                    EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
+                });
+            return dot;
+        }
     }
 }

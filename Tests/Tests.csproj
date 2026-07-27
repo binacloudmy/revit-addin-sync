@@ -20,6 +20,10 @@
       Autodesk.Revit.DB. From NuGet, so it builds with no local Revit install.
     -->
     <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.*" />
+    <!-- PdfPig: needed by the linked PdfReader source below, and used by the
+         tests themselves (PdfDocumentBuilder) to generate fixture PDFs — no
+         checked-in binaries, no SkiaSharp/native dependency in the test host. -->
+    <PackageReference Include="PdfPig" Version="0.1.*" />
   </ItemGroup>
 
   <ItemGroup>
@@ -31,6 +35,16 @@
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />
     <Compile Include="..\UI\Jkr\JkrTheme.cs" Link="JkrTheme.cs" />
+    <!-- JkrTheme.cs calls Helpers.WpfAppBootstrap.Ensure(). This project uses
+         explicit Compile items (no default globs), so a file added to the addin
+         is invisible here until it is linked — and WpfAppBootstrap never was.
+         Every `test` job since it landed failed at compile with
+         "CS0234: 'WpfAppBootstrap' does not exist in the namespace
+         'RevitWebAppSync.Helpers'", so NO test in this project actually ran;
+         PR #53 merged under that red check. 46 lines, System + System.Windows
+         only, and JkrTheme already pulls WPF in, so linking it adds no new
+         dependency. -->
+    <Compile Include="..\Helpers\WpfAppBootstrap.cs" Link="WpfAppBootstrap.cs" />
     <Compile Include="..\Services\JkrCodeParser.cs" Link="JkrCodeParser.cs" />
     <!-- TableCsv: pure CSV serializer + filename slug for the Download-CSV
          button under AI tables (System + Regex only, no WPF/Revit). -->
@@ -55,6 +69,10 @@
     <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
     <Compile Include="..\Services\VettedToolCode.cs" Link="VettedToolCode.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotModels.cs" Link="CopilotModels.cs" />
+    <!-- RouteText: the attachment wire format the backend parses ([Attached:] /
+         [Attached DWG:] blocks). Pure StringBuilder logic, split out of
+         CopilotViewModel precisely so it compiles here. -->
+    <Compile Include="..\UI\Copilot\Model\RouteText.cs" Link="RouteText.cs" />
     <!-- MentionToken: pure @-mention token parsing/matching (System only) split
          out of MentionInput so the picker rules are testable without WPF. -->
     <Compile Include="..\UI\Copilot\Model\MentionToken.cs" Link="MentionToken.cs" />
@@ -68,6 +86,19 @@
     <Compile Include="..\UI\Copilot\Model\CopilotCatalog.cs" Link="CopilotCatalog.cs" />
     <Compile Include="..\UI\Copilot\Model\ProgressStep.cs" Link="ProgressStep.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\BatchRefResolver.cs" Link="BatchRefResolver.cs" />
+    <!-- PDF attachment reading: PdfPig + System only, no Revit and no WPF, so
+         the extractor and its caps are testable here. (DwgReader is not — it
+         needs live Revit Document/ImportInstance objects.) -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\PdfReader.cs" Link="PdfReader.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\PdfAttachmentCache.cs" Link="PdfAttachmentCache.cs" />
+    <!-- Audit form parsing: the row/column extraction and its data model are
+         PdfPig + System only (the checkers and the tools are not — they need a
+         live Revit Document), so the row banding is testable against a real
+         form here. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditModels.cs" Link="AuditModels.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditFormParser.cs" Link="AuditFormParser.cs" />
+    <!-- Rename suggestion transform: System only, no Revit — unit-tested here. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditNaming.cs" Link="AuditNaming.cs" />
     <!-- Lean-context wire contract: AIRequest/ModelContext (pure Newtonsoft
          DTOs). No Revit refs. -->
     <Compile Include="..\Models\AIRequest.cs" Link="AIRequest.cs" />
@@ -85,6 +116,12 @@
 
   <ItemGroup Condition="'$(SkipRevitSources)' == 'true'">
     <Compile Remove="DocumentChangedIndexerTests.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Real BIM 010 audit form + its hand-verified expected rows: the parser's
+         row banding can only be trusted against a genuine multi-page form. -->
+    <None Include="data\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
