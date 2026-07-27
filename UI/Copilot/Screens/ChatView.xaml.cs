@@ -1096,12 +1096,22 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             var star = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(5), Background = Brushes.Transparent, Margin = new Thickness(0, 0, 8, 0) };
             star.Child = new Path { Width = 14, Height = 14, Stretch = Stretch.Uniform, Fill = CopilotMessageBubble.StarGradient(), Data = CopilotIcons.Get("sparkleSolid"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
             hs.Children.Add(star);
-            hs.Children.Add(new TextBlock { Text = "I need a bit more detail", FontSize = 12.5, FontWeight = FontWeights.SemiBold, Foreground = CopilotColors.From("#1e3a8a"), VerticalAlignment = VerticalAlignment.Center });
+            // Cp.BlueText rather than a literal #1e3a8a: that navy is a
+            // light-theme value and rendered near-invisible on the dark card.
+            var clarifyTitle = new TextBlock { Text = "I need a bit more detail", FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+            clarifyTitle.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
+            hs.Children.Add(clarifyTitle);
             head.Child = hs;
             sp.Children.Add(head);
 
             var body = new StackPanel { Margin = new Thickness(12, 10, 12, 12) };
-            body.Children.Add(new TextBlock { Text = m.Question, FontSize = 12.5, Foreground = CopilotColors.From("#131c2b"), TextWrapping = TextWrapping.Wrap, LineHeight = 18, Margin = new Thickness(0, 0, 0, 10) });
+            // MarkdownText, not a bare TextBlock: the model writes **bold** in
+            // clarify questions exactly as it does in answers, and a plain
+            // TextBlock rendered the asterisks literally (UAT 2026-07-27). Same
+            // renderer the answer bubble uses, so the two read consistently.
+            var qText = CopilotMessageBubble.MarkdownText(m.Question ?? "", 460);
+            qText.Margin = new Thickness(0, 0, 0, 10);
+            body.Children.Add(qText);
             foreach (var o in m.Options)
             {
                 var tool = CopilotCatalog.Find(o.ToolId);
