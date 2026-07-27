@@ -150,34 +150,35 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (_hooked != null)
             {
                 _hooked.Thread.CollectionChanged -= OnThread;
-                _hooked.UsageChanged -= UpdateBlocked;
+                _hooked.UsageChanged -= UpdateUsage;
                 _hooked.PropertyChanged -= OnVmProp;
             }
             _hooked = Vm;
             if (_hooked != null)
             {
                 _hooked.Thread.CollectionChanged += OnThread;
-                _hooked.UsageChanged += UpdateBlocked;
+                _hooked.UsageChanged += UpdateUsage;
                 _hooked.PropertyChanged += OnVmProp;
-                Prompt.BindUsage(_hooked);
                 _ = _hooked.RefreshUsageAsync();
             }
             Rebuild();
-            UpdateBlocked();
+            UpdateUsage();
         }
 
         private void OnVmProp(object s, System.ComponentModel.PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(CopilotViewModel.IsSending)) UpdateBlocked();
+            if (e.PropertyName == nameof(CopilotViewModel.IsSending)) UpdateUsage();
         }
 
-        /// <summary>At 100% usage the composer is replaced by the blocked state —
-        /// centered over the empty body, or a bottom section under a thread.</summary>
-        private void UpdateBlocked()
+        /// <summary>Drives BOTH usage surfaces in the bottom band from one snapshot:
+        /// at 100% the composer is replaced by the blocked state (centered over an
+        /// empty body, else a bottom section); below that, the near-limit notice may
+        /// sit above the composer. They are mutually exclusive by construction.</summary>
+        private void UpdateUsage()
         {
             if (!Dispatcher.CheckAccess())
             {
-                Dispatcher.BeginInvoke((System.Action)UpdateBlocked);
+                Dispatcher.BeginInvoke((System.Action)UpdateUsage);
                 return;
             }
             var vm = Vm;
@@ -188,6 +189,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 BlockedHost.Content = null;
                 Prompt.Visibility = Visibility.Visible;
                 Grid.SetRow(BlockedHost, 2);
+                UpdateNotice(vm, false);
                 return;
             }
             bool centered = vm.Thread.Count == 0;
@@ -200,6 +202,35 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 centered);
             BlockedHost.Visibility = Visibility.Visible;
             Prompt.Visibility = Visibility.Collapsed;
+            UpdateNotice(vm, true);
+        }
+
+        /// <summary>Near-limit notice above the composer. Suppressed while blocked
+        /// (that wall already states the case) and, in the 80–94 band only, once the
+        /// user has dismissed this exact warning — the ≥95 band is deliberately
+        /// undismissable so nobody is surprised mid-command.</summary>
+        private void UpdateNotice(CopilotViewModel vm, bool blocked)
+        {
+            var u = vm != null ? vm.Usage : null;
+            bool show = !blocked && u != null && u.ShouldWarn;
+
+            string key = show ? (u.ResetsAt ?? "") + ":" + u.WarnBand : null;
+            if (show && u.WarnBand == Model.UsageState.WarnPct &&
+                Model.CopilotPrefs.Load().IsUsageNoticeDismissed(key))
+                show = false;
+
+            if (!show)
+            {
+                NoticeHost.Visibility = Visibility.Collapsed;
+                NoticeHost.Content = null;
+                return;
+            }
+
+            NoticeHost.Content = Controls.UsageWarningBanner.Build(
+                u,
+                () => UpgradeRequested?.Invoke(),
+                () => { Model.CopilotPrefs.Load().DismissUsageNotice(key); UpdateUsage(); });
+            NoticeHost.Visibility = Visibility.Visible;
         }
 
         private void OnThread(object s, NotifyCollectionChangedEventArgs e)
