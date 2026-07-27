@@ -10,11 +10,15 @@ using RevitWebAppSync.UI.Copilot.Model;
 namespace RevitWebAppSync.UI.Copilot.Controls
 {
     /// <summary>
-    /// The live multi-row step trail — one row per <see cref="ProgressStep"/>:
-    /// [15px glyph] [label] [elapsed, right-docked, muted]. The Running row
-    /// shows the same spinning-arc storyboard as <see cref="ThinkingTrailView"/>
-    /// (direct BeginAnimation, never a XAML Storyboard — that crashes inside a
-    /// Revit dockable pane); Done/Error rows show a static check/cross.
+    /// The step trail, in two modes.
+    ///
+    /// Live=true (turn in flight): ONE line — [dot-ring spinner] [current step]
+    /// [whole-turn elapsed]. Live=false (completed reply, behind the chip): a
+    /// timeline, one row per <see cref="ProgressStep"/>, each [marker on a rail]
+    /// [label] [duration, right-docked].
+    ///
+    /// Animations use direct BeginAnimation calls, never a XAML Storyboard —
+    /// that crashes inside a Revit dockable pane.
     ///
     /// ChatView holds ONE instance per thinking session (like ThinkingTrailView)
     /// and calls <see cref="Update"/> on every steps snapshot. Update is a full
@@ -35,7 +39,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // as ThinkingTrailView's _shownLabel/_shownState early return.
         private string _renderedKey;
 
-        /// <summary>One line showing only the CURRENT step, with the dot-grid
+        /// <summary>One line showing only the CURRENT step, with the dot-ring
         /// spinner and whole-turn elapsed, instead of a row per step.
         ///
         /// Set for the in-flight turn. The full sequence is not lost: the
@@ -72,7 +76,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         }
 
         // Live mode keeps its own keys so the elapsed text can refresh WITHOUT
-        // rebuilding the row. Rebuilding would restart the dot-grid wave from
+        // rebuilding the row. Rebuilding would restart the dot-ring wave from
         // its first frame on every tick, which reads as a stutter — the same
         // trap the _renderedKey guard was added for with the arc spinner.
         private string _liveStepKey;
@@ -105,7 +109,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Children.Add(LiveRow(current, elapsed, out _liveTime));
         }
 
-        // The live line: [dot grid] label · elapsed. Deliberately one row —
+        // The live line: [dot ring] label · elapsed. Deliberately one row —
         // see ProgressTrail.Current for why stacking was removed.
         private static FrameworkElement LiveRow(ProgressStep s, string elapsed, out TextBlock timeText)
         {
@@ -114,7 +118,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Orientation = Orientation.Horizontal,
                 Margin = new Thickness(0, 2, 0, 2),
             };
-            row.Children.Add(new DotGridSpinner { Margin = new Thickness(1, 0, 0, 0) });
+            row.Children.Add(new DotRingSpinner(16, 12) { Margin = new Thickness(1, 0, 0, 0) });
 
             var label = new TextBlock
             {
@@ -217,7 +221,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             return grid;
         }
 
-        // Small filled dot for settled rows; the arc spinner keeps its place for
+        // Small filled dot for settled rows; the spinner keeps its place for
         // Running so the row that is still working is the only moving thing.
         private static FrameworkElement MarkerFor(StepState state)
         {
@@ -227,8 +231,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Width = 6, Height = 6,
                 HorizontalAlignment = HorizontalAlignment.Center,
                 VerticalAlignment = VerticalAlignment.Center,
-                Fill = CopilotColors.From(state == StepState.Error ? "#dc2626" : "#10b981"),
             };
+            // Theme resources, not literal hex. These were hardcoded #10b981 /
+            // #dc2626 — which are exactly the LIGHT-theme values of Cp.Green and
+            // Cp.Red, so in dark mode the markers rendered at light-mode
+            // saturation against a near-black pane. The dark variants (#34d399 /
+            // #f87171) are lifted for that background; SetResourceReference also
+            // means the dots re-colour live when the pane's theme toggles.
+            dot.SetResourceReference(Shape.FillProperty,
+                state == StepState.Error ? "Cp.Red" : "Cp.Green");
             return dot;
         }
 
