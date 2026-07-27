@@ -206,6 +206,50 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return "✓ " + steps.Count + " · " + total.ToString("0.#") + "s";
         }
 
+        /// <summary>The one step worth showing WHILE the turn runs: the running
+        /// one, else the last with a label. Null when there is nothing to show.
+        ///
+        /// The live trail used to stack every step as it arrived, so a six-step
+        /// turn grew a six-line block above the answer — and because two rows
+        /// could hold State=Running at once, two spinners turned simultaneously
+        /// (UAT 2026-07-27). One line at a time says the same thing without the
+        /// pile-up; the full sequence is still there afterwards, behind the
+        /// completed reply's chip.</summary>
+        public static ProgressStep Current(IReadOnlyList<ProgressStep> steps)
+        {
+            if (steps == null || steps.Count == 0) return null;
+            ProgressStep fallback = null;
+            for (int i = steps.Count - 1; i >= 0; i--)
+            {
+                var s = steps[i];
+                if (s == null) continue;
+                // Last running step wins: with several marked Running, the most
+                // recent is the one actually in flight.
+                if (s.State == StepState.Running && !string.IsNullOrWhiteSpace(s.Label))
+                    return s;
+                if (fallback == null && !string.IsNullOrWhiteSpace(s.Label))
+                    fallback = s;
+            }
+            return fallback;
+        }
+
+        /// <summary>Whole-turn elapsed seconds, formatted like "2s" — what the
+        /// live line shows instead of a per-step time. Per-step durations came
+        /// out as "0.0s" on every status row, because those steps are progress
+        /// markers that open and close in the same tick rather than units of
+        /// work; nine rows of "0.0s" told the drafter nothing.</summary>
+        public static string TotalElapsedText(IReadOnlyList<ProgressStep> steps)
+        {
+            if (steps == null || steps.Count == 0) return "";
+            var start = steps[0].StartedUtc;
+            var end = DateTime.UtcNow;
+            foreach (var s in steps)
+                if (s.EndedUtc != null && s.EndedUtc.Value > end) end = s.EndedUtc.Value;
+            var secs = (end - start).TotalSeconds;
+            if (secs < 0) secs = 0;
+            return secs < 10 ? secs.ToString("0.#") + "s" : ((int)secs) + "s";
+        }
+
         /// <summary>Short hint at WHAT ran, for the collapsed chip: the last
         /// meaningful step's label plus "+N" for the rest. Empty when there is
         /// nothing worth showing. Pure — unit-testable.

@@ -35,19 +35,33 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // as ThinkingTrailView's _shownLabel/_shownState early return.
         private string _renderedKey;
 
+        /// <summary>One line showing only the CURRENT step, with the dot-grid
+        /// spinner and whole-turn elapsed, instead of a row per step.
+        ///
+        /// Set for the in-flight turn. The full sequence is not lost: the
+        /// completed reply's chip expands into the same timeline this control
+        /// renders when Live is false.</summary>
+        public bool Live { get; set; }
+
         public ProgressTrailView()
         {
             Orientation = Orientation.Vertical;
             Margin = new Thickness(0, 4, 0, 2);
         }
 
-        /// <summary>Rebuild all rows from the given snapshot. No-op when nothing
-        /// visible changed since the last render (keeps the spinner animation
-        /// running smoothly across reply-stream re-renders). Must be called on
-        /// the UI thread.</summary>
+        /// <summary>Rebuild from the given snapshot. No-op when nothing visible
+        /// changed since the last render (keeps the spinner animation running
+        /// smoothly across reply-stream re-renders). Must be called on the UI
+        /// thread.</summary>
         public void Update(IReadOnlyList<ProgressStep> steps)
         {
-            var key = Fingerprint(steps);
+            if (Live)
+            {
+                UpdateLive(steps);
+                return;
+            }
+
+            var key = "F|" + Fingerprint(steps);
             if (key == _renderedKey) return;
             _renderedKey = key;
 
@@ -55,6 +69,76 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             if (steps == null) return;
             for (int i = 0; i < steps.Count; i++)
                 Children.Add(Row(steps[i], i == 0, i == steps.Count - 1));
+        }
+
+        // Live mode keeps its own keys so the elapsed text can refresh WITHOUT
+        // rebuilding the row. Rebuilding would restart the dot-grid wave from
+        // its first frame on every tick, which reads as a stutter — the same
+        // trap the _renderedKey guard was added for with the arc spinner.
+        private string _liveStepKey;
+        private TextBlock _liveTime;
+
+        private void UpdateLive(IReadOnlyList<ProgressStep> steps)
+        {
+            var current = ProgressTrail.Current(steps);
+            if (current == null)
+            {
+                if (Children.Count > 0) Children.Clear();
+                _liveStepKey = null;
+                _liveTime = null;
+                return;
+            }
+
+            var stepKey = current.StepId + "|" + current.State + "|" + current.Label;
+            var elapsed = ProgressTrail.TotalElapsedText(steps);
+
+            if (stepKey == _liveStepKey)
+            {
+                // Same step, more seconds: touch the text only, leave the
+                // spinner and its animation exactly where they are.
+                if (_liveTime != null) _liveTime.Text = "· " + elapsed;
+                return;
+            }
+
+            _liveStepKey = stepKey;
+            Children.Clear();
+            Children.Add(LiveRow(current, elapsed, out _liveTime));
+        }
+
+        // The live line: [dot grid] label · elapsed. Deliberately one row —
+        // see ProgressTrail.Current for why stacking was removed.
+        private static FrameworkElement LiveRow(ProgressStep s, string elapsed, out TextBlock timeText)
+        {
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 2, 0, 2),
+            };
+            row.Children.Add(new DotGridSpinner { Margin = new Thickness(1, 0, 0, 0) });
+
+            var label = new TextBlock
+            {
+                Text = string.IsNullOrEmpty(s.Label) ? s.StepId : s.Label,
+                FontSize = 12.5,
+                Margin = new Thickness(10, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            row.Children.Add(label);
+
+            // Always created (even when elapsed is empty) so UpdateLive has a
+            // handle to write later seconds into without a rebuild.
+            timeText = new TextBlock
+            {
+                Text = string.IsNullOrEmpty(elapsed) ? "" : "· " + elapsed,
+                FontSize = 11.5,
+                Margin = new Thickness(7, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            timeText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+            row.Children.Add(timeText);
+            return row;
         }
 
         // One line per row: everything Update renders. If none of it changed,

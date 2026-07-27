@@ -240,6 +240,78 @@ namespace Tests
         }
 
         [Fact]
+        public void Current_picks_the_running_step_not_the_stack()
+        {
+            // The live trail used to render every row; it now renders only this.
+            var steps = new List<ProgressStep>
+            {
+                new ProgressStep { StepId = "a", Label = "Understanding your request", State = StepState.Done },
+                new ProgressStep { StepId = "b", Label = "Collecting information", State = StepState.Running },
+                new ProgressStep { StepId = "c", Label = "Finding MEP elements", State = StepState.Done },
+            };
+            Assert.Equal("b", ProgressTrail.Current(steps).StepId);
+        }
+
+        [Fact]
+        public void Current_picks_the_LAST_running_step_when_several_are_marked()
+        {
+            // Two rows held State=Running at once in UAT 2026-07-27, so two
+            // spinners turned together. The most recent is the one in flight.
+            var steps = new List<ProgressStep>
+            {
+                new ProgressStep { StepId = "a", Label = "Collecting information", State = StepState.Running },
+                new ProgressStep { StepId = "b", Label = "Generating answer", State = StepState.Running },
+            };
+            Assert.Equal("b", ProgressTrail.Current(steps).StepId);
+        }
+
+        [Fact]
+        public void Current_falls_back_to_the_last_labelled_step()
+        {
+            var steps = new List<ProgressStep>
+            {
+                new ProgressStep { StepId = "a", Label = "Understanding your request", State = StepState.Done },
+                new ProgressStep { StepId = "b", Label = "Generating answer", State = StepState.Done },
+            };
+            Assert.Equal("b", ProgressTrail.Current(steps).StepId);
+        }
+
+        [Fact]
+        public void Current_is_null_without_usable_steps()
+        {
+            Assert.Null(ProgressTrail.Current(null));
+            Assert.Null(ProgressTrail.Current(new List<ProgressStep>()));
+            Assert.Null(ProgressTrail.Current(new List<ProgressStep>
+            {
+                new ProgressStep { StepId = "a", Label = "", State = StepState.Running },
+            }));
+        }
+
+        [Fact]
+        public void TotalElapsed_reports_the_turn_not_the_step()
+        {
+            // Per-step times rendered as "0.0s" on every status row, because
+            // those steps open and close in one tick. The live line shows the
+            // whole turn instead.
+            var steps = new List<ProgressStep>
+            {
+                new ProgressStep { StepId = "a", StartedUtc = DateTime.UtcNow.AddSeconds(-5), EndedUtc = DateTime.UtcNow.AddSeconds(-5), State = StepState.Done },
+                new ProgressStep { StepId = "b", StartedUtc = DateTime.UtcNow.AddSeconds(-1), State = StepState.Running },
+            };
+            var text = ProgressTrail.TotalElapsedText(steps);
+            Assert.EndsWith("s", text);
+            Assert.NotEqual("0s", text);
+            Assert.NotEqual("0.0s", text);
+        }
+
+        [Fact]
+        public void TotalElapsed_is_empty_without_steps()
+        {
+            Assert.Equal("", ProgressTrail.TotalElapsedText(null));
+            Assert.Equal("", ProgressTrail.TotalElapsedText(new List<ProgressStep>()));
+        }
+
+        [Fact]
         public void Preview_is_empty_without_steps_or_labels()
         {
             Assert.Equal("", ProgressTrail.Preview(null));

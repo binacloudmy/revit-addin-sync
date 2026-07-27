@@ -1067,7 +1067,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private FrameworkElement ProgressTrailPanel(System.Collections.Generic.IReadOnlyList<ProgressStep> steps)
         {
-            if (_progressTrailView == null) _progressTrailView = new ProgressTrailView();
+            // Live=true: while the turn runs, show ONE line for the current step
+            // instead of a growing stack (and one spinner, not one per row —
+            // several rows could hold State=Running at once). Nothing is lost:
+            // the completed reply's chip expands into the full timeline from its
+            // own ProgressTrailView with Live=false. See ProgressTrail.Current.
+            if (_progressTrailView == null) _progressTrailView = new ProgressTrailView { Live = true };
             else if (_progressTrailView.Parent is Panel oldParent)
                 oldParent.Children.Remove(_progressTrailView);
             _progressTrailView.Update(steps);
