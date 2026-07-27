@@ -384,17 +384,20 @@ namespace RevitWebAppSync.UI.Copilot
         private const int FastTicks = 12;                 // 12 x 5s = first minute
         private int _pollTicks;
         private DateTime _checkoutWatchUntil = DateTime.MinValue;
+        private string _checkoutFromPlan;                 // plan name when checkout opened
 
         /// <summary>The billing page opens in the browser, which has no callback, so
         /// we watch for the plan to change after the user leaves for checkout.
         /// Previously this was a ~30s burst started the instant the browser opened —
         /// but a real card payment takes minutes, so it had almost always expired by
         /// the time the drafter came back, leaving the pane stale until it was closed
-        /// and reopened. Now it opens a generous watch window; SyncUsagePolling keeps
-        /// the timer alive while it (or the blocked state) still needs it.</summary>
+        /// and reopened. Now it opens a generous watch window: an FPX/card checkout is
+        /// bank login → TAC → confirm → redirect, commonly several minutes. The window
+        /// is only a ceiling — it closes as soon as the plan actually changes.</summary>
         private void StartUsagePollAfterCheckout()
         {
             RefreshUsageNow();               // optimistic immediate refresh
+            _checkoutFromPlan = _vm.Usage != null ? _vm.Usage.PlanName : null;
             _checkoutWatchUntil = DateTime.UtcNow.AddMinutes(15);
             SyncUsagePolling(restart: true);
         }
@@ -415,6 +418,15 @@ namespace RevitWebAppSync.UI.Copilot
         private void SyncUsagePolling(bool restart = false)
         {
             bool blocked = _vm.Usage != null && _vm.Usage.AtLimit;
+
+            // The 15 minutes is a worst case, not a duration to sit through: once the
+            // plan actually changes the upgrade has landed and there is nothing left
+            // to watch for, so close the window instead of ticking it out.
+            if (_checkoutFromPlan != null && _vm.Usage != null && _vm.Usage.PlanName != _checkoutFromPlan)
+            {
+                _checkoutWatchUntil = DateTime.MinValue;
+                _checkoutFromPlan = null;
+            }
             bool watchingCheckout = DateTime.UtcNow < _checkoutWatchUntil;
             bool want = IsVisible && (blocked || watchingCheckout);
 
