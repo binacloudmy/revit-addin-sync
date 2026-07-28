@@ -89,45 +89,24 @@ if ($Thumbprint) {
     Write-Host "==> No -Thumbprint and SIGNTOOL_ARGS not set — '/a' auto-select, NO TrustedPublisher pre-trust (Revit shows the one-time Always Load prompt)" -ForegroundColor Yellow
 }
 
-# Full build: publishes all payload TFMs + loaders, SIGNS every addin DLL,
-# builds + signs the installer EXE and uninstaller.
-$buildArgs = @{ Version = $version; Configuration = $configuration; TimestampUrl = $TimestampUrl }
-if ($Thumbprint) { $buildArgs.SignCert = $Thumbprint }
-if ($EngineZip)  { $buildArgs.EngineZip  = $EngineZip }
-if ($GatewayUrl) { $buildArgs.GatewayUrl = $GatewayUrl }
-& (Join-Path $repo "installer\build-installer.ps1") @buildArgs
-
-$setupExe = Join-Path $repo "RevitCopilot-$version-setup.exe"
-if (-not (Test-Path $setupExe)) { throw "build-installer.ps1 did not produce $setupExe" }
-
-# OTA zip from the SIGNED payload tree. Strip pdbs (CI parity) and the
-# .complete seed marker — the updater writes its own only after a verified
-# extract; shipping one would bless half-staged folders.
-$pluginDir = Join-Path $repo "artifacts\plugin"
-Get-ChildItem $pluginDir -Recurse -Filter *.pdb | Remove-Item -ErrorAction SilentlyContinue
-Remove-Item (Join-Path $pluginDir ".complete") -ErrorAction SilentlyContinue
-
-Write-Host "==> Verifying payload signatures..." -ForegroundColor Cyan
-$payloadDlls = Get-ChildItem $pluginDir -Recurse -Filter "RevitWebAppSync.dll"
-if (-not $payloadDlls) { throw "no RevitWebAppSync.dll found under artifacts\plugin" }
-foreach ($dll in $payloadDlls + (Get-Item $setupExe)) {
-    signtool verify /pa /q $dll.FullName
-    if ($LASTEXITCODE -ne 0) { throw "signature verify failed: $($dll.FullName)" }
-}
-
-$zip = "RevitWebAppSync-$version.zip"
-Remove-Item $zip -ErrorAction SilentlyContinue
-Compress-Archive -Path "$pluginDir\*" -DestinationPath $zip
-$sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
-
-# ─── Publish to TM One (sovereign delivery) ─────────────────────────────────
-# Upload the signed installer + OTA zip to immutable versioned keys, THEN flip
-# latest.json — the pointer the bina-ai /addin/download + /addin/version.json
-# endpoints resolve. Uploads before the pointer flip = the go-live is one small
-# atomic PUT with no half-uploaded window. version.json is NOT written here: the
-# backend builds the feed from this pointer.
+# ─── Publish target, resolved BEFORE the build ──────────────────────────────
+# Everything below depends only on the tag, so it costs nothing to run first —
+# and running it first is the whole point. Two failures made that necessary:
 #
-# Creds live on THIS box only (never in GitHub secrets). Set before running:
+#   * The immutability guard used to sit AFTER the two uploads it was meant to
+#     gate. head-object inspected the keys the script had just written, so it
+#     returned 0 every time and the throw fired on every run, including a clean
+#     first release — leaving the pointer flip unreachable and the uploads
+#     themselves completely unguarded. Exactly backwards: it could not prevent
+#     an overwrite, only prevent a success.
+#   * Credentials were validated at what was line 135, after build-installer.ps1
+#     had already spent ~4 minutes producing a fully signed tree. release.yml
+#     grew a whole preflight job to compensate for that ordering.
+#
+# Checked here, a republish or a missing variable costs a second and no
+# SimplySign session.
+#
+# Creds live on THIS box only (never in GitHub secrets):
 #   TMONE_SERVER  TMONE_BUCKET  TMONE_ACCESS_KEY_ID  TMONE_SECRET_ACCESS_KEY
 #   (optional TMONE_REGION, REVIT_RELEASE_PREFIX; default prefix revit-copilot/releases)
 # The bucket you point at IS the environment: staging tag -> staging creds/bucket,
@@ -165,6 +144,49 @@ if ($env:TMONE_REGION) { $env:AWS_DEFAULT_REGION = $env:TMONE_REGION }
 elseif ($endpoint -match '^https?://obs\.([^.]+)\.') { $env:AWS_DEFAULT_REGION = $Matches[1] }
 else { $env:AWS_DEFAULT_REGION = 'us-east-1' }
 
+# Version keys must never be overwritten: rollback works by pointing
+# latest.json back at an earlier version, which is only safe if the bytes under
+# that version cannot have changed since. Also catches the honest mistake of
+# re-running a release after a local edit.
+Write-Host "==> Checking $prefix/ for an existing $version..." -ForegroundColor Cyan
+foreach ($k in @($installerKey, $otaKey)) {
+    aws s3api head-object --endpoint-url $endpoint --bucket $bucket --key "$prefix/$k" *> $null
+    if ($LASTEXITCODE -eq 0) {
+        throw "$prefix/$k already exists — version $version is published and immutable. Bump the version; do not overwrite."
+    }
+}
+
+# Full build: publishes all payload TFMs + loaders, SIGNS every addin DLL,
+# builds + signs the installer EXE and uninstaller.
+$buildArgs = @{ Version = $version; Configuration = $configuration; TimestampUrl = $TimestampUrl }
+if ($Thumbprint) { $buildArgs.SignCert = $Thumbprint }
+if ($EngineZip)  { $buildArgs.EngineZip  = $EngineZip }
+if ($GatewayUrl) { $buildArgs.GatewayUrl = $GatewayUrl }
+& (Join-Path $repo "installer\build-installer.ps1") @buildArgs
+
+$setupExe = Join-Path $repo "RevitCopilot-$version-setup.exe"
+if (-not (Test-Path $setupExe)) { throw "build-installer.ps1 did not produce $setupExe" }
+
+# OTA zip from the SIGNED payload tree. Strip pdbs (CI parity) and the
+# .complete seed marker — the updater writes its own only after a verified
+# extract; shipping one would bless half-staged folders.
+$pluginDir = Join-Path $repo "artifacts\plugin"
+Get-ChildItem $pluginDir -Recurse -Filter *.pdb | Remove-Item -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $pluginDir ".complete") -ErrorAction SilentlyContinue
+
+Write-Host "==> Verifying payload signatures..." -ForegroundColor Cyan
+$payloadDlls = Get-ChildItem $pluginDir -Recurse -Filter "RevitWebAppSync.dll"
+if (-not $payloadDlls) { throw "no RevitWebAppSync.dll found under artifacts\plugin" }
+foreach ($dll in $payloadDlls + (Get-Item $setupExe)) {
+    signtool verify /pa /q $dll.FullName
+    if ($LASTEXITCODE -ne 0) { throw "signature verify failed: $($dll.FullName)" }
+}
+
+$zip = "RevitWebAppSync-$version.zip"
+Remove-Item $zip -ErrorAction SilentlyContinue
+Compress-Archive -Path "$pluginDir\*" -DestinationPath $zip
+$sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+
 function S3Cp($localFile, $key, $contentType, $cacheControl) {
     # NB: not $args — that is PowerShell's automatic variable.
     $cpArgs = @('s3', 'cp', $localFile, "s3://$bucket/$prefix/$key",
@@ -177,17 +199,6 @@ function S3Cp($localFile, $key, $contentType, $cacheControl) {
 Write-Host "==> Uploading signed installer + OTA zip to TM One..." -ForegroundColor Cyan
 S3Cp $setupExe $installerKey 'application/octet-stream' $null
 S3Cp $zip      $otaKey       'application/zip'          $null
-
-# Immutability check BEFORE uploading. Version keys must never be overwritten:
-# rollback works by pointing latest.json back at an earlier version, which is
-# only safe if the bytes under that version cannot have changed since. Also
-# catches the honest mistake of re-running a release after a local edit.
-foreach ($k in @($installerKey, $otaKey)) {
-    aws s3api head-object --endpoint-url $endpoint --bucket $bucket --key "$prefix/$k" *> $null
-    if ($LASTEXITCODE -eq 0) {
-        throw "$prefix/$k already exists — version $version is published and immutable. Bump the version; do not overwrite."
-    }
-}
 
 # Pointer LAST — the atomic go-live. Shape matches installer_release.read_pointer.
 # Staging defaults to OPTIONAL: a forced restart mid-Revit-session is the wrong
