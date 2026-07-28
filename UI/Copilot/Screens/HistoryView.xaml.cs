@@ -57,17 +57,52 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             DetailPanel.Visibility = Visibility.Collapsed;
             BackBtn.Visibility = Visibility.Collapsed;
             DownloadBtn.Visibility = Visibility.Collapsed;
-            ContinueBtn.Visibility = Visibility.Collapsed;
+            ComposerPanel.Visibility = Visibility.Collapsed;
+            ComposerInput.Clear();
             _detailEntry = null;
             HeaderTitle.Text = "History";
             Rebuild();
         }
 
-        // Header Continue button → adopt this session in the Chat tab.
-        private void ContinueBtn_Click(object s, RoutedEventArgs e)
+        // Composer → continue this conversation. Replaces the old Continue button:
+        // a drafter who wants to carry on is already typing, so making them click
+        // Continue first, land in Chat, then type again was a step that only ever
+        // delayed the thing they came to do.
+        //
+        // ContinueSession adopts the backend session, rebuilds the thread and
+        // switches to the Chat tab, so ordering matters: adopt first, then send, or
+        // the turn would post against whatever session Chat was last holding.
+        private void SubmitComposer()
         {
-            if (_detailEntry == null) return;
-            Vm?.ContinueSession(_detailEntry);
+            if (_detailEntry == null || Vm == null) return;
+            var text = (ComposerInput.Text ?? "").Trim();
+            if (text.Length == 0) return;
+            ComposerInput.Clear();          // before the switch — this view is about
+            UpdateComposerHint();           // to go away and must not keep stale text
+            Vm.ContinueSession(_detailEntry);
+            Vm.ChatSend(text);
+        }
+
+        private void ComposerSend_Click(object s, RoutedEventArgs e) => SubmitComposer();
+
+        private void ComposerInput_KeyDown(object s, KeyEventArgs e)
+        {
+            // Shift+Enter is left alone: the box is single-line today, but not
+            // capturing the modifier keeps the door open for a multi-line variant
+            // without this handler quietly eating newlines.
+            if (e.Key != Key.Enter || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
+            e.Handled = true;
+            SubmitComposer();
+        }
+
+        private void ComposerInput_TextChanged(object s, TextChangedEventArgs e) => UpdateComposerHint();
+
+        private void UpdateComposerHint()
+        {
+            if (ComposerHint == null || ComposerInput == null) return;
+            bool empty = string.IsNullOrEmpty(ComposerInput.Text);
+            ComposerHint.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+            ComposerSend.IsEnabled = !empty;
         }
 
         // Header Download button → format menu for the session being viewed.
@@ -106,7 +141,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             DetailPanel.Visibility = Visibility.Visible;
             BackBtn.Visibility = Visibility.Visible;
             DownloadBtn.Visibility = Visibility.Visible;
-            ContinueBtn.Visibility = Visibility.Visible;
+            ComposerPanel.Visibility = Visibility.Visible;
+            UpdateComposerHint();
 
             foreach (var msg in h.History)
             {
