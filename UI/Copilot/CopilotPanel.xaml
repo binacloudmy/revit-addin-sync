@@ -62,7 +62,8 @@
                     </StackPanel>
                 </StackPanel>
 
-                <!-- Usage moved to the footer meter (design) — no header credit pill. -->
+                <!-- Usage lives in the composer footer (design "footer" placement):
+                     plan-name button + popover above the composer. -->
 
                 <Button x:Name="ThemeBtn" Grid.Column="3" Style="{DynamicResource Cp.IconButton}" Click="OnToggleTheme" ToolTip="Toggle theme">
                     <Path x:Name="ThemeIcon" Width="15" Height="15" Stretch="Uniform" Fill="Transparent"

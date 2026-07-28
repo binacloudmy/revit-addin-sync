@@ -50,6 +50,135 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(0, s.Pct);
             Assert.Equal("Unlimited (internal)", s.PlanName);
             Assert.False(s.AtLimit);
+            Assert.True(s.Unlimited);
+        }
+
+        // ── Reset label (popover's normal state) ────────────────────────────
+
+        [Fact]
+        public void ResetsLabel_FormatsBackendDate()
+        {
+            // resets_at is the 1st of the month after the current period (KL).
+            var s = UsageState.FromCredits(false, 1, 10, "Pro", "2026-08-01");
+            Assert.Equal("Resets 1 Aug", s.ResetsLabel);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("not-a-date")]
+        public void ResetsLabel_EmptyWhenUnusable(string resetsAt)
+        {
+            // Callers hide the row on empty rather than printing a placeholder.
+            var s = UsageState.FromCredits(false, 1, 10, "Pro", resetsAt);
+            Assert.Equal("", s.ResetsLabel);
+        }
+
+        [Fact]
+        public void ResetsLabel_EmptyWhenUnlimited()
+        {
+            // An uncapped wallet never resets, so a date would be a lie.
+            var s = UsageState.FromCredits(true, 1, 0, null, "2026-08-01");
+            Assert.Equal("", s.ResetsLabel);
+        }
+
+        // ── Tier pill ───────────────────────────────────────────────────────
+
+        [Theory]
+        [InlineData("Free", "FREE")]
+        [InlineData("Basic", "BASIC")]
+        [InlineData("Plus", "PLUS")]
+        [InlineData("Pro", "PRO")]
+        [InlineData("Pro Max", "PRO")]          // shares the PRO pill so it stays narrow
+        [InlineData("Unlimited (internal)", "INTERNAL")]
+        [InlineData("", "")]
+        public void TierBadge_Mapping(string plan, string expected) =>
+            Assert.Equal(expected, new UsageState { PlanName = plan }.TierBadge);
+
+        // ── Warn bands (ring, notice and bar must agree) ─────────────────────
+
+        [Theory]
+        [InlineData(0, false)]
+        [InlineData(79, false)]
+        [InlineData(80, true)]
+        [InlineData(95, true)]
+        [InlineData(99, true)]
+        public void ShouldWarn_StartsAtWarnThreshold(int pct, bool warn) =>
+            Assert.Equal(warn, new UsageState { Pct = pct }.ShouldWarn);
+
+        [Fact]
+        public void ShouldWarn_FalseWhenUnlimitedOrBlocked()
+        {
+            // Unlimited has no limit to approach; AtLimit is the blocked wall's job.
+            Assert.False(new UsageState { Pct = 99, Unlimited = true }.ShouldWarn);
+            Assert.False(new UsageState { Pct = 100, AtLimit = true }.ShouldWarn);
+        }
+
+        [Theory]
+        [InlineData(80, 80)]
+        [InlineData(94, 80)]
+        [InlineData(95, 95)]
+        [InlineData(99, 95)]
+        public void WarnBand_SplitsAtCritical(int pct, int band) =>
+            Assert.Equal(band, new UsageState { Pct = pct }.WarnBand);
+
+        // ── Snapshot equality (guards the no-op suppression) ─────────────────
+
+        [Fact]
+        public void SameAs_DetectsAResetDateChange()
+        {
+            // Regression: the suppression guard once compared only Pct/AtLimit/Plan,
+            // so a fresh 0%-usage account — identical to the seeded default on those
+            // three — never published. ResetsAt stayed null forever and the popover
+            // showed an "Upgrade plan" CTA instead of "Resets 1 Aug".
+            var seeded = new UsageState();          // PlanName "Free", 0%, not at limit
+            var real = UsageState.FromCredits(false, 0, 1000, null, "2026-08-01");
+            Assert.Equal(seeded.Pct, real.Pct);
+            Assert.Equal(seeded.AtLimit, real.AtLimit);
+            Assert.Equal(seeded.PlanName, real.PlanName);
+            Assert.False(seeded.SameAs(real));      // ...and yet it must still publish
+            Assert.Equal("Resets 1 Aug", real.ResetsLabel);
+        }
+
+        [Fact]
+        public void SameAs_DetectsALimitChange()
+        {
+            // The upgrade signal: /credits/balance reports no plan, so a raised quota
+            // is the only observable evidence that a purchase landed.
+            var before = UsageState.FromCredits(false, 500, 1000, null, "2026-08-01");
+            var after = UsageState.FromCredits(false, 500, 50_000, null, "2026-08-01");
+            Assert.False(before.SameAs(after));
+            Assert.True(after.Limit > before.Limit);
+        }
+
+        [Fact]
+        public void SameAs_TrueForAnIdenticalRepoll()
+        {
+            var a = UsageState.FromCredits(false, 500, 1000, null, "2026-08-01");
+            var b = UsageState.FromCredits(false, 500, 1000, null, "2026-08-01");
+            Assert.True(a.SameAs(b));
+        }
+
+        [Fact]
+        public void PlanKnown_FalseWhenBackendOmitsPlan()
+        {
+            // /credits/balance carries no "plan" key, so PlanName is an inference —
+            // the tier pill must not assert FREE at a paying customer.
+            Assert.False(UsageState.FromCredits(false, 1, 10).PlanKnown);
+            Assert.True(UsageState.FromCredits(false, 1, 10, "Pro").PlanKnown);
+        }
+
+        [Fact]
+        public void WarnBand_KeysDismissalPerBandAndPeriod()
+        {
+            // Dismissing at 80% must not silence the 95% notice, and a new quota
+            // month must bring the notice back — both fall out of the key changing.
+            var warn = new UsageState { Pct = 82, ResetsAt = "2026-08-01" };
+            var crit = new UsageState { Pct = 96, ResetsAt = "2026-08-01" };
+            var next = new UsageState { Pct = 82, ResetsAt = "2026-09-01" };
+
+            Assert.NotEqual(warn.ResetsAt + ":" + warn.WarnBand, crit.ResetsAt + ":" + crit.WarnBand);
+            Assert.NotEqual(warn.ResetsAt + ":" + warn.WarnBand, next.ResetsAt + ":" + next.WarnBand);
         }
     }
 }

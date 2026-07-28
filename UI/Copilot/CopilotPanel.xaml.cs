@@ -90,7 +90,15 @@ namespace RevitWebAppSync.UI.Copilot
                 CopilotTheme.ThemeChanged += SwapLocalTheme;
                 SwapLocalTheme();
             };
-            Unloaded += (_, __) => CopilotTheme.ThemeChanged -= SwapLocalTheme;
+            Unloaded += (_, __) =>
+            {
+                CopilotTheme.ThemeChanged -= SwapLocalTheme;
+                // Belt and braces: IsVisible is the poll's only other stop condition,
+                // and if a docked-as-tab pane ever hides its host HWND without
+                // flipping IsVisible, a blocked user would keep polling for the rest
+                // of the Revit session.
+                StopUsagePolling();
+            };
 
             UpdateThemeIcon();
             UpdateBody();
@@ -102,9 +110,15 @@ namespace RevitWebAppSync.UI.Copilot
             // Re-fetch plan/usage when the pane regains visibility (switched back
             // to it). Usage is otherwise only fetched on first ChatView load,
             // after each prompt, and at login — so an upgrade done elsewhere would
-            // stay stale until one of those. See StartUsagePollAfterCheckout for
-            // the return-from-billing case.
-            IsVisibleChanged += (_, e) => { if (e.NewValue is bool v && v) RefreshUsageNow(); };
+            // stay stale until one of those. See SyncUsagePolling for the
+            // blocked / return-from-billing cases.
+            IsVisibleChanged += (_, e) =>
+            {
+                if (e.NewValue is bool v && v) RefreshUsageNow();
+                SyncUsagePolling();      // only a VISIBLE pane polls
+            };
+            // A quota that fills (or clears) is what starts (or stops) the poll.
+            _vm.UsageChanged += SyncUsagePollingOnUiThread;
         }
 
         private ResourceDictionary _localTheme;
@@ -202,8 +216,8 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 cache = new T();
                 cache.DataContext = _vm;
-                // The chat composer's usage popover and the blocked state's CTA
-                // both escalate to the upgrade sheet.
+                // The composer's usage popover, the blocked state's CTA and the
+                // near-limit notice all escalate to the upgrade sheet.
                 if (cache is Screens.ChatView chat)
                 {
                     chat.Prompt.UpgradeRequested += ShowUpgradeSheet;
@@ -365,30 +379,98 @@ namespace RevitWebAppSync.UI.Copilot
 
         /// <summary>Re-fetch the plan/usage snapshot + credit badge now
         /// (best-effort; the VM marshals to the UI thread and swallows failures).</summary>
-        private void RefreshUsageNow()
-        {
-            _ = _vm.RefreshUsageAsync();
-            _ = _vm.RefreshCreditBadgeAsync();
-        }
+        private void RefreshUsageNow() => _ = _vm.RefreshUsageAndBadgeAsync();
 
-        /// <summary>The billing page opens in the browser, which has no callback,
-        /// so after the user leaves for checkout we poll a few times — a completed
-        /// upgrade flips the plan (e.g. to "Pro") within seconds of returning to
-        /// Revit, no restart. Bounded to ~30s and self-cancelling; restarting the
-        /// poll (e.g. reopening the sheet) resets the window.</summary>
+        // Tick rate by how long we've been waiting. A checkout is rarely under a
+        // minute (bank login -> TAC -> confirm), so the middle tier covers the window
+        // a drafter actually returns in — dropping straight to a 60s tick meant
+        // coming back from a 5-minute payment and still waiting up to a minute at
+        // the blocked wall.
+        private static readonly TimeSpan FastPoll = TimeSpan.FromSeconds(5);    // first minute
+        private static readonly TimeSpan MidPoll = TimeSpan.FromSeconds(15);    // minutes 1-8
+        private static readonly TimeSpan SlowPoll = TimeSpan.FromSeconds(60);   // long tail
+        private DateTime _pollStarted;
+        private DateTime _checkoutWatchUntil = DateTime.MinValue;
+        private int _checkoutFromLimit;                   // quota when checkout opened
+
+        /// <summary>The billing page opens in the browser, which has no callback, so
+        /// we watch for the plan to change after the user leaves for checkout.
+        /// Previously this was a ~30s burst started the instant the browser opened —
+        /// but a real card payment takes minutes, so it had almost always expired by
+        /// the time the drafter came back, leaving the pane stale until it was closed
+        /// and reopened. Now it opens a generous watch window: an FPX/card checkout is
+        /// bank login → TAC → confirm → redirect, commonly several minutes. The window
+        /// is only a ceiling — it closes as soon as the plan actually changes.</summary>
         private void StartUsagePollAfterCheckout()
         {
             RefreshUsageNow();               // optimistic immediate refresh
-            _usagePoll?.Stop();
-            int ticks = 0;
-            _usagePoll = new System.Windows.Threading.DispatcherTimer
-            { Interval = TimeSpan.FromSeconds(3) };
-            _usagePoll.Tick += (_, __) =>
+            // Watch the LIMIT, not the plan name: /credits/balance returns no "plan"
+            // field, so PlanName is always the inferred "Free" and a plan-change test
+            // could never fire. A purchase raises monthly_limit (apply_paid_plan ->
+            // credits.set_limit), so that is the observable signal an upgrade landed.
+            _checkoutFromLimit = _vm.Usage != null ? _vm.Usage.Limit : 0;
+            _checkoutWatchUntil = DateTime.UtcNow.AddMinutes(15);
+            SyncUsagePolling(restart: true);
+        }
+
+        private void SyncUsagePollingOnUiThread()
+        {
+            if (!Dispatcher.CheckAccess()) { Dispatcher.BeginInvoke((Action)SyncUsagePollingOnUiThread); return; }
+            SyncUsagePolling();
+        }
+
+        /// <summary>Start or stop the usage poll purely from state. It runs while the
+        /// pane is VISIBLE and either the quota is exhausted — so a completed upgrade
+        /// unblocks the pane by itself, with no restart — or we're still inside the
+        /// post-checkout watch window. While blocked the poll deliberately does not
+        /// give up: the pane is unusable until the quota clears, and one request a
+        /// minute is precisely what makes the upgrade apply itself. A hidden pane
+        /// polls nothing.</summary>
+        private void SyncUsagePolling(bool restart = false)
+        {
+            bool blocked = _vm.Usage != null && _vm.Usage.AtLimit;
+
+            // The 15 minutes is a worst case, not a duration to sit through: once the
+            // quota actually grows the upgrade has landed and there is nothing left to
+            // watch for, so close the window instead of ticking it out.
+            if (_checkoutFromLimit > 0 && _vm.Usage != null && _vm.Usage.Limit > _checkoutFromLimit)
             {
-                RefreshUsageNow();
-                if (++ticks >= 10) _usagePoll.Stop();   // ~30s budget
-            };
+                _checkoutWatchUntil = DateTime.MinValue;
+                _checkoutFromLimit = 0;
+            }
+            bool watchingCheckout = DateTime.UtcNow < _checkoutWatchUntil;
+            bool want = IsVisible && (blocked || watchingCheckout);
+
+            if (!want) { StopUsagePolling(); return; }
+            if (_usagePoll != null && _usagePoll.IsEnabled && !restart) return;   // already running
+
+            StopUsagePolling();
+            _pollStarted = DateTime.UtcNow;
+            _usagePoll = new System.Windows.Threading.DispatcherTimer { Interval = FastPoll };
+            _usagePoll.Tick += OnUsagePollTick;
             _usagePoll.Start();
+        }
+
+        private void OnUsagePollTick(object sender, EventArgs e)
+        {
+            RefreshUsageNow();
+            var waited = DateTime.UtcNow - _pollStarted;
+            var rate = waited < TimeSpan.FromMinutes(1) ? FastPoll
+                     : waited < TimeSpan.FromMinutes(8) ? MidPoll
+                     : SlowPoll;
+            if (_usagePoll != null && _usagePoll.Interval != rate) _usagePoll.Interval = rate;
+            // Stop once the reason to poll is gone (quota cleared, watch window
+            // elapsed, pane hidden). RefreshUsageNow above raises UsageChanged on
+            // success, but re-checking here also covers the window simply expiring.
+            SyncUsagePolling();
+        }
+
+        private void StopUsagePolling()
+        {
+            if (_usagePoll == null) return;
+            _usagePoll.Stop();
+            _usagePoll.Tick -= OnUsagePollTick;
+            _usagePoll = null;
         }
 
         // ══════════ Sheet content builders ══════════

@@ -125,7 +125,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             PlanBtn.Click += (_, __) =>
             {
                 UsagePopup.IsOpen = !UsagePopup.IsOpen;
-                UsageMeterClicked?.Invoke();
+                // Opening the card is an explicit "what's my usage right now?", so
+                // re-fetch rather than show whatever was last cached. Usage is
+                // otherwise only refreshed after a prompt / on pane re-show, so an
+                // idle pane — or a quota spent in another Revit session — would show
+                // a stale percent. The card is bound to UsageChanged, so it updates
+                // in place when the response lands.
+                if (UsagePopup.IsOpen && _usageVm != null)
+                    _ = _usageVm.RefreshUsageAndBadgeAsync();
             };
             PopUpgradeBtn.Click += (_, __) =>
             {
@@ -187,24 +194,21 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             CommandStrip.Visibility = Visibility.Visible;
         }
 
-        // ─── Footer usage meter ───────────────────────────────────────────────
-        /// <summary>Raised when the meter row is clicked (popover opens itself).</summary>
-        public event System.Action UsageMeterClicked;
+        // ─── Footer plan button + usage popover ──────────────────────────────
 
         /// <summary>Raised by the popover's "Upgrade plan" button; host opens the upgrade sheet.</summary>
         public event System.Action UpgradeRequested;
 
         private CopilotViewModel _usageVm;
 
-        /// <summary>Wire the footer plan-name button + usage popover to the VM's
-        /// live usage snapshot. The full-width meter is gone; this renders the
-        /// plan label, the severity dot (amber ≥80, red ≥95, hidden below 80) and
-        /// the popover's bar / %. Re-renders on every UsageChanged.</summary>
+        /// <summary>Wire the footer plan-name button + popover to the VM's live usage
+        /// snapshot. Re-renders on every UsageChanged.</summary>
         public void BindUsage(CopilotViewModel vm)
         {
             if (_usageVm != null) _usageVm.UsageChanged -= OnUsageChanged;
             _usageVm = vm;
             if (_usageVm != null) _usageVm.UsageChanged += OnUsageChanged;
+            PlanBtn.Visibility = Visibility.Visible;
             RenderUsage(vm?.Usage);
         }
 
@@ -221,19 +225,38 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
             // Footer plan-name button: live label + severity dot.
             PlanLabel.Text = u.PlanName;
-            if (pct >= 80)
+            if (pct >= Model.UsageState.WarnPct && !u.Unlimited)
             {
                 PlanDot.Visibility = Visibility.Visible;
-                PlanDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, pct >= 95 ? "Cp.Red" : "Cp.Amber");
+                PlanDot.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, Model.UsageState.MeterColorKey(pct));
             }
             else PlanDot.Visibility = Visibility.Collapsed;
 
-            // Usage popover: plan, % used, and the fill bar (severity colour).
+            // Popover: plan + tier pill, % used, the fill bar (severity colour), and
+            // either the reset line or the upgrade CTA.
             PopPlan.Text = u.PlanName;
-            PopPctUsed.Text = pct + "%";
-            PopFillCol.Width = new System.Windows.GridLength(pct, System.Windows.GridUnitType.Star);
-            PopRestCol.Width = new System.Windows.GridLength(100 - pct, System.Windows.GridUnitType.Star);
+            // Only assert a tier the BACKEND named. /credits/balance returns no "plan"
+            // field today, so PlanName is the inferred "Free" — showing the pill
+            // regardless would stamp FREE on a paying Pro customer's popover.
+            var tier = u.PlanKnown ? u.TierBadge : "";
+            PopTier.Text = tier;
+            PopTierBadge.Visibility = string.IsNullOrEmpty(tier) ? Visibility.Collapsed : Visibility.Visible;
+
+            PopPctUsed.Text = u.Unlimited ? "No limit" : pct + "% used";
+            PopFillCol.Width = new System.Windows.GridLength(u.Unlimited ? 0 : pct, System.Windows.GridUnitType.Star);
+            PopRestCol.Width = new System.Windows.GridLength(u.Unlimited ? 100 : 100 - pct, System.Windows.GridUnitType.Star);
             PopFill.SetResourceReference(System.Windows.Controls.Border.BackgroundProperty, Model.UsageState.MeterColorKey(pct));
+
+            // Reset line while there's headroom; upgrade CTA once we're in the warn
+            // band. An uncapped wallet has nothing to upgrade TO and no reset date, so
+            // it gets neither — telling an admin-override account to buy a plan (or
+            // showing it a quota reset) would be nonsense.
+            bool warn = pct >= Model.UsageState.WarnPct || u.AtLimit;
+            string resets = u.ResetsLabel;
+            bool showReset = !u.Unlimited && !warn && !string.IsNullOrEmpty(resets);
+            PopResets.Text = resets;
+            PopResetRow.Visibility = showReset ? Visibility.Visible : Visibility.Collapsed;
+            PopUpgradeBtn.Visibility = (!u.Unlimited && !showReset) ? Visibility.Visible : Visibility.Collapsed;
         }
 
         // ─── Pasted screenshots (pending, sent with the next prompt) ─────────
