@@ -6,6 +6,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <Grid.Resources>
             <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource Cp.SlimScrollBar}"/>
@@ -32,21 +33,10 @@
                     <TextBlock x:Name="HeaderTitle" Text="History" FontSize="13.5" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
                     <TextBlock x:Name="Sub" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}" Margin="0,1,0,0"/>
                 </StackPanel>
-                <!-- Continue this conversation in the Chat tab (visible only in session detail) -->
-                <Button x:Name="ContinueBtn" Grid.Column="2" Visibility="Collapsed"
-                        Click="ContinueBtn_Click"
-                        Background="Transparent" BorderThickness="0"
-                        Cursor="Hand" Padding="6,3,6,3" VerticalAlignment="Center" Margin="0,0,6,0"
-                        ToolTip="Continue this conversation">
-                    <StackPanel Orientation="Horizontal">
-                        <Path Width="13" Height="13" Stretch="Uniform"
-                              Stroke="{DynamicResource Cp.Accent}" StrokeThickness="1.8"
-                              Data="M4,4 L20,12 L4,20 Z"/>
-                        <TextBlock Text="Continue" FontSize="12" FontWeight="Medium"
-                                   Foreground="{DynamicResource Cp.Accent}" Margin="5,0,0,0" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </Button>
+                <!-- Continuing is the composer at the bottom, not a button up here:
+                     typing IS the intent, so a Continue click was pure ceremony. -->
                 <!-- Download report (visible only in session detail) -->
+
                 <Button x:Name="DownloadBtn" Grid.Column="3" Visibility="Collapsed"
                         Click="DownloadBtn_Click"
                         Background="Transparent" BorderThickness="0"
@@ -74,5 +64,49 @@
                       HorizontalScrollBarVisibility="Disabled">
             <StackPanel x:Name="MessagesHost" Margin="0,8,0,16"/>
         </ScrollViewer>
+
+        <!-- Composer (session detail only). Deliberately a plain TextBox rather than
+             the PromptBar: this is a doorway back into the conversation, and the
+             full bar's attachments / @mentions / slash menu / usage pill would all
+             need wiring to a thread that is not live yet. Typing here adopts the
+             session and hands the turn to the Chat tab, which owns sending. -->
+        <Border x:Name="ComposerPanel" Grid.Row="2" Visibility="Collapsed"
+                BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,1,0,0"
+                Background="{DynamicResource Cp.Bg}" Padding="10,8,10,10">
+            <Border Background="{DynamicResource Cp.Sunken}"
+                    BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
+                    CornerRadius="10" Padding="10,6,6,6">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid Grid.Column="0" VerticalAlignment="Center">
+                        <TextBox x:Name="ComposerInput"
+                                 Background="Transparent" BorderThickness="0"
+                                 Foreground="{DynamicResource Cp.Ink}"
+                                 CaretBrush="{DynamicResource Cp.Ink}"
+                                 FontSize="12.5" MaxLength="4000"
+                                 VerticalContentAlignment="Center"
+                                 KeyDown="ComposerInput_KeyDown"
+                                 TextChanged="ComposerInput_TextChanged"/>
+                        <!-- IsHitTestVisible=False so a click lands on the TextBox
+                             underneath rather than being swallowed by the hint. -->
+                        <TextBlock x:Name="ComposerHint" IsHitTestVisible="False"
+                                   Text="Continue this conversation..."
+                                   FontSize="12.5" Foreground="{DynamicResource Cp.Faint}"
+                                   VerticalAlignment="Center" Margin="2,0,0,0"/>
+                    </Grid>
+                    <Button x:Name="ComposerSend" Grid.Column="1" Click="ComposerSend_Click"
+                            Style="{DynamicResource Cp.IconButton}"
+                            IsEnabled="False" Cursor="Hand" Margin="6,0,0,0"
+                            ToolTip="Continue this conversation">
+                        <Path Width="14" Height="14" Stretch="Uniform"
+                              Stroke="{DynamicResource Cp.Accent}" StrokeThickness="1.9"
+                              Data="M12,20 L12,4 M5,11 L12,4 L19,11"/>
+                    </Button>
+                </Grid>
+            </Border>
+        </Border>
     </Grid>
 </UserControl>
