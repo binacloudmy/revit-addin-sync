@@ -12,7 +12,7 @@
             <StackPanel x:Name="CommandStrip" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,8"/>
             <!-- Slate composer: sunken rounded container, borderless input,
                  ghost attach button, accent-gradient send/stop button. -->
-            <Border Background="{DynamicResource Cp.Sunken}" CornerRadius="13" Padding="13,8,8,8">
+            <Border x:Name="ComposerBox" Background="{DynamicResource Cp.Sunken}" CornerRadius="13" Padding="13,8,8,8">
                 <DockPanel LastChildFill="True">
                     <!-- send / stop: circular; gray while idle, accent gradient once
                          there is text; stop square while a reply streams -->
@@ -77,11 +77,11 @@
                     <ctl:MentionInput x:Name="Input" VerticalAlignment="Center" Margin="0,0,8,0"/>
                 </DockPanel>
             </Border>
-            <!-- Footer: hint (left, truncates) + plan-name button (right).
-                 The full-width usage meter row was removed; the plan name is now
-                 the only ambient usage affordance. A severity dot (amber ≥80, red
-                 ≥95, none below 80) sits left of the label; clicking the label
-                 opens the usage popover. All bound via BindUsage(). -->
+            <!-- Footer: hint (left, truncates) + plan-name button (right). Design's
+                 "footer" placement: the plan name is the ambient usage affordance,
+                 with a severity dot (amber ≥80, red ≥95, hidden below 80) to its
+                 left; clicking it opens the popover ABOVE the composer. Bound via
+                 BindUsage(). -->
             <Grid Margin="0,8,0,1">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -94,9 +94,11 @@
                            FontSize="10" Foreground="{DynamicResource Cp.Faint}">
                     <Run Text="Type "/><Run Text="/" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" for tools · "/><Run Text="@" FontWeight="Bold" Foreground="{DynamicResource Cp.Muted}"/><Run Text=" to reference a level, view or selection"/>
                 </TextBlock>
-                <!-- Plan-name button: muted text (same size as the hint), subtle
-                     hover. Label is the live plan name — never hardcoded. -->
+                <!-- Collapsed until BindUsage runs. PromptBar is also hosted outside
+                     ChatView (ResultView), where nothing binds usage — an unbound
+                     button is an invisible click target opening a blank card. -->
                 <Button x:Name="PlanBtn" Grid.Column="1" Cursor="Hand" Padding="6,2,6,2"
+                        Visibility="Collapsed"
                         Background="Transparent" BorderThickness="0" FocusVisualStyle="{x:Null}"
                         ToolTip="Plan usage">
                     <Button.Template>
@@ -119,23 +121,48 @@
                     </StackPanel>
                 </Button>
             </Grid>
-            <!-- Usage popover: plan, bar, Upgrade plan — anchored above the
-                 plan-name button. Populated by BindUsage(); StaysOpen=False so a
-                 click-outside / Esc closes it. HorizontalOffset pulls the wider
-                 card left so it stays on-panel under the right-aligned button. -->
-            <Popup x:Name="UsagePopup" PlacementTarget="{Binding ElementName=PlanBtn}" Placement="Top"
-                   VerticalOffset="-8" HorizontalOffset="-188" StaysOpen="False" AllowsTransparency="True" PopupAnimation="Fade">
-                <Border Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}"
-                        BorderThickness="1" CornerRadius="13" Padding="15,15,15,14" MinWidth="228" Margin="8">
+
+            <!-- Usage popover, anchored to the COMPOSER (not the plan button) and
+                 sized to its width, matching the design's
+                 left:0;right:0;bottom:calc(100% + 8px). HorizontalOffset cancels the
+                 8px shadow margin so the card's left edge lines up with the composer. -->
+            <!-- Offsets cancel the card's shadow margins so it sits 8px above the
+                 composer with its left edge aligned: +12 against the 20px bottom
+                 margin, -8 against the 8px left. -->
+            <Popup x:Name="UsagePopup" PlacementTarget="{Binding ElementName=ComposerBox}" Placement="Top"
+                   VerticalOffset="12" HorizontalOffset="-8" StaysOpen="False"
+                   AllowsTransparency="True" PopupAnimation="Fade">
+                <Border Width="{Binding ActualWidth, ElementName=ComposerBox}"
+                        Background="{DynamicResource Cp.Menu}" BorderBrush="{DynamicResource Cp.Line}"
+                        BorderThickness="1" CornerRadius="13" Padding="15,15,15,14" Margin="8,8,20,20">
                     <Border.Effect>
                         <DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.14" Color="#000000"/>
                     </Border.Effect>
                     <StackPanel>
-                        <TextBlock x:Name="PopPlan" FontSize="13" FontWeight="Bold" Foreground="{DynamicResource Cp.Ink}"/>
+                        <!-- Plan name + tier pill -->
+                        <!-- Two columns rather than a magic right-margin on the name:
+                             the pill takes what it needs and the name trims to fit,
+                             so a longer backend plan string can't overlap it. -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="PopPlan" Grid.Column="0" FontSize="13" FontWeight="Bold"
+                                       Foreground="{DynamicResource Cp.Ink}" HorizontalAlignment="Left"
+                                       TextTrimming="CharacterEllipsis" Margin="0,0,8,0"/>
+                            <Border x:Name="PopTierBadge" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                    CornerRadius="5" Padding="6,2,6,2" Background="{DynamicResource Cp.BlueSoft}">
+                                <TextBlock x:Name="PopTier" FontSize="9" FontWeight="Bold"
+                                           Foreground="{DynamicResource Cp.BlueText}"/>
+                            </Border>
+                        </Grid>
                         <TextBlock Text="Plan usage" FontSize="10.5" Foreground="{DynamicResource Cp.Faint}" Margin="0,2,0,0"/>
+
                         <Grid Margin="0,13,0,7">
                             <TextBlock Text="Usage" FontSize="11" Foreground="{DynamicResource Cp.Muted}" HorizontalAlignment="Left"/>
-                            <TextBlock x:Name="PopPctUsed" FontSize="11.5" FontWeight="Bold" Foreground="{DynamicResource Cp.Ink}" HorizontalAlignment="Right"/>
+                            <TextBlock x:Name="PopPctUsed" FontSize="11.5" FontWeight="Bold"
+                                       Foreground="{DynamicResource Cp.Ink}" HorizontalAlignment="Right"/>
                         </Grid>
                         <Border Height="6" CornerRadius="2" Background="{DynamicResource Cp.Line}" ClipToBounds="True">
                             <Grid>
@@ -146,6 +173,18 @@
                                 <Border x:Name="PopFill" Grid.Column="0" CornerRadius="2"/>
                             </Grid>
                         </Border>
+
+                        <!-- Below the warn threshold the quota just resets; at/above it
+                             the reset is cold comfort, so the CTA takes its place. -->
+                        <StackPanel x:Name="PopResetRow" Orientation="Horizontal" Margin="0,10,0,0">
+                            <Path Width="12" Height="12" Stretch="Uniform" Margin="0,0,6,0" VerticalAlignment="Center"
+                                  Fill="Transparent" Stroke="{DynamicResource Cp.Faint}" StrokeThickness="2"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  Data="M12,21 A9,9 0 1 1 12,3 A9,9 0 1 1 12,21 Z M12,7 V12 L15.5,14"/>
+                            <TextBlock x:Name="PopResets" FontSize="10.5" VerticalAlignment="Center"
+                                       Foreground="{DynamicResource Cp.Faint}"/>
+                        </StackPanel>
+
                         <Button x:Name="PopUpgradeBtn" Height="32" Margin="0,13,0,0" Cursor="Hand"
                                 Background="{DynamicResource Cp.AccentGrad}" BorderThickness="0"
                                 FocusVisualStyle="{x:Null}">

@@ -27,6 +27,25 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>Recently used tool ids (most-recent first, capped) — fills out Quick access.</summary>
         public List<string> RecentTools { get; set; } = new List<string>();
 
+        /// <summary>Which near-limit notice the user dismissed, as
+        /// "{resets_at}:{band}". Storing the band and the quota period (rather than a
+        /// bare bool) means a dismissal sticks for THAT warning only: crossing from
+        /// 80% into 95%, or rolling into a new quota month, produces a new key and
+        /// the notice returns. A single value is enough — only the current one can
+        /// ever be showing.</summary>
+        public string UsageNoticeDismissed { get; set; }
+
+        /// <summary>True when this exact notice has already been dismissed.</summary>
+        public bool IsUsageNoticeDismissed(string key) =>
+            !string.IsNullOrEmpty(key) && UsageNoticeDismissed == key;
+
+        /// <summary>Remember a dismissal and persist.</summary>
+        public void DismissUsageNotice(string key)
+        {
+            UsageNoticeDismissed = key;
+            Save();
+        }
+
         public bool IsPinned(string id) => PinnedTools != null && PinnedTools.Contains(id);
 
         /// <summary>Toggle a pin and persist. Returns the new pinned state.</summary>

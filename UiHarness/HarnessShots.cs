@@ -50,9 +50,19 @@ namespace UiHarness
                 Shot(dir, $"copilot-usage-free-88{s}.png", dark, configure: p => SetUsage(p, 88));
                 Shot(dir, $"copilot-usage-free-96{s}.png", dark, configure: p => SetUsage(p, 96));
                 Shot(dir, $"copilot-usage-pro-30{s}.png", dark, configure: p => SetUsage(p, 30, plan: "Pro"));
-                // Usage popover (Free 88%) — a WPF Popup lives in its own window,
-                // so render its card visual directly rather than the panel frame.
-                PopoverShot(dir, $"copilot-usage-popover{s}.png", dark);
+                // Near-limit notice above the composer: amber + dismissible at 80-94,
+                // red "Running low" + Upgrade and NO dismiss at >=95.
+                Shot(dir, $"copilot-notice-warn{s}.png", dark, configure: p => SetUsage(p, 85));
+                Shot(dir, $"copilot-notice-critical{s}.png", dark, configure: p => SetUsage(p, 96));
+                // Uncapped wallet: no severity dot, and the popover reads "No limit"
+                // with neither an Upgrade CTA nor a reset row.
+                Shot(dir, $"copilot-usage-unlimited{s}.png", dark,
+                    configure: p => SetUsage(p, 0, plan: "Unlimited (internal)", unlimited: true));
+                // Usage popover — a WPF Popup lives in its own window, so render its
+                // card visual directly rather than the panel frame. Two variants: with
+                // headroom (reset row) and in the warn band (Upgrade CTA).
+                PopoverShot(dir, $"copilot-usage-popover{s}.png", dark, pct: 88);
+                PopoverShot(dir, $"copilot-usage-popover-reset{s}.png", dark, pct: 22);
                 // Kebab menu (Rate · Report · WhatsApp · divider · Version) — also
                 // a Popup, so render its card directly.
                 KebabShot(dir, $"copilot-kebab{s}.png", dark);
@@ -70,9 +80,13 @@ namespace UiHarness
         }
 
         // Inject a stub usage snapshot and refresh; returns extra settle time.
-        private static int SetUsage(CopilotPanel panel, int pct, bool atLimit = false, bool isAdmin = true, string plan = "Free")
+        // resetsAt defaults to a FIXED date so the popover's "Resets 1 Aug" row is
+        // deterministic across runs (a moving date would churn every screenshot).
+        private static int SetUsage(CopilotPanel panel, int pct, bool atLimit = false, bool isAdmin = true,
+            string plan = "Free", string resetsAt = "2026-08-01", bool unlimited = false)
         {
-            panel.ViewModel.UsageService = new StubUsageService(plan, pct, atLimit, isAdmin);
+            panel.ViewModel.UsageService = new StubUsageService(
+                plan, pct, atLimit, isAdmin, resetsAt, unlimited);
             _ = panel.ViewModel.RefreshUsageAsync();
             return 400;
         }
@@ -80,7 +94,7 @@ namespace UiHarness
         // Render the usage popover card. The Popup is hosted in its own top-level
         // window, so a RenderTargetBitmap of the panel frame never contains it —
         // instead open it and render its Child visual directly.
-        private static void PopoverShot(string dir, string file, bool dark)
+        private static void PopoverShot(string dir, string file, bool dark, int pct = 88)
         {
             CopilotTheme.SetDark(dark);
             var panel = new CopilotPanel();
@@ -93,7 +107,7 @@ namespace UiHarness
             };
             win.Show();
             Settle(250);
-            SetUsage(panel, 88);
+            SetUsage(panel, pct);
             Settle(400);
 
             var prompt = FindDescendant<RevitWebAppSync.UI.Copilot.Controls.PromptBar>(panel);
@@ -218,8 +232,15 @@ namespace UiHarness
         private static void Save(FrameworkElement el, string path)
         {
             el.UpdateLayout();
-            int w = (int)Math.Ceiling(el.ActualWidth);
-            int h = (int)Math.Ceiling(el.ActualHeight);
+            // RenderTargetBitmap.Render applies the element's layout offset — i.e. its
+            // Margin — so a bitmap sized to ActualWidth/Height alone draws the content
+            // shifted down-right into a canvas that is too small, silently cropping the
+            // right and bottom edges along with any drop shadow. That made the usage
+            // popover look mis-aligned in screenshots when the geometry was correct.
+            // Include the margins so the capture is honest.
+            var m = el.Margin;
+            int w = (int)Math.Ceiling(el.ActualWidth + m.Left + m.Right);
+            int h = (int)Math.Ceiling(el.ActualHeight + m.Top + m.Bottom);
             if (w <= 0 || h <= 0) { w = 430; h = 860; }
 
             var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);

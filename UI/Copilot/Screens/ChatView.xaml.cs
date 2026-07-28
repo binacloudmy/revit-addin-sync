@@ -150,34 +150,36 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (_hooked != null)
             {
                 _hooked.Thread.CollectionChanged -= OnThread;
-                _hooked.UsageChanged -= UpdateBlocked;
+                _hooked.UsageChanged -= UpdateUsage;
                 _hooked.PropertyChanged -= OnVmProp;
             }
             _hooked = Vm;
             if (_hooked != null)
             {
                 _hooked.Thread.CollectionChanged += OnThread;
-                _hooked.UsageChanged += UpdateBlocked;
+                _hooked.UsageChanged += UpdateUsage;
                 _hooked.PropertyChanged += OnVmProp;
                 Prompt.BindUsage(_hooked);
                 _ = _hooked.RefreshUsageAsync();
             }
             Rebuild();
-            UpdateBlocked();
+            UpdateUsage();
         }
 
         private void OnVmProp(object s, System.ComponentModel.PropertyChangedEventArgs e)
         {
-            if (e.PropertyName == nameof(CopilotViewModel.IsSending)) UpdateBlocked();
+            if (e.PropertyName == nameof(CopilotViewModel.IsSending)) UpdateUsage();
         }
 
-        /// <summary>At 100% usage the composer is replaced by the blocked state —
-        /// centered over the empty body, or a bottom section under a thread.</summary>
-        private void UpdateBlocked()
+        /// <summary>Drives BOTH usage surfaces in the bottom band from one snapshot:
+        /// at 100% the composer is replaced by the blocked state (centered over an
+        /// empty body, else a bottom section); below that, the near-limit notice may
+        /// sit above the composer. They are mutually exclusive by construction.</summary>
+        private void UpdateUsage()
         {
             if (!Dispatcher.CheckAccess())
             {
-                Dispatcher.BeginInvoke((System.Action)UpdateBlocked);
+                Dispatcher.BeginInvoke((System.Action)UpdateUsage);
                 return;
             }
             var vm = Vm;
@@ -187,19 +189,74 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 BlockedHost.Visibility = Visibility.Collapsed;
                 BlockedHost.Content = null;
                 Prompt.Visibility = Visibility.Visible;
+                Scroller.Visibility = Visibility.Visible;
                 Grid.SetRow(BlockedHost, 2);
+                UpdateNotice(vm, false);
                 return;
             }
             bool centered = vm.Thread.Count == 0;
+            // Centered means the wall moves INTO the body row — which still holds the
+            // greeting and the suggested-prompt rows, so without collapsing it the
+            // padlock and CTA render straight on top of "Generate schedule" / "Tag
+            // rooms". With a thread present the wall sits in the composer row instead
+            // and the conversation behind it should stay readable.
+            Scroller.Visibility = centered ? Visibility.Collapsed : Visibility.Visible;
             Grid.SetRow(BlockedHost, centered ? 1 : 2);
             BlockedHost.VerticalAlignment = centered ? VerticalAlignment.Center : VerticalAlignment.Bottom;
             BlockedHost.Content = Controls.BlockedView.Build(
                 vm.Usage,
                 () => UpgradeRequested?.Invoke(),
                 () => vm.UsageService != null ? vm.UsageService.NotifyAdminAsync() : System.Threading.Tasks.Task.CompletedTask,
-                centered);
+                centered,
+                () => { _ = vm.RefreshUsageAndBadgeAsync(); });
             BlockedHost.Visibility = Visibility.Visible;
             Prompt.Visibility = Visibility.Collapsed;
+            UpdateNotice(vm, true);
+        }
+
+        /// <summary>Near-limit notice above the composer. Suppressed while blocked
+        /// (that wall already states the case) and, in the 80–94 band only, once the
+        /// user has dismissed this exact warning — the ≥95 band is deliberately
+        /// undismissable so nobody is surprised mid-command.</summary>
+        // Band dismissed this session when there's no quota period to key a persisted
+        // dismissal to. 0 = none.
+        private int _noticeDismissedThisSession;
+
+        private void UpdateNotice(CopilotViewModel vm, bool blocked)
+        {
+            var u = vm != null ? vm.Usage : null;
+            bool show = !blocked && u != null && u.ShouldWarn;
+
+            // The key carries the quota period so a dismissal expires with it. Without
+            // resets_at there IS no period to key on, and a bare ":80" would silence
+            // the notice forever, across every future month — so in that case fall
+            // back to a session-only dismissal: never persisted, never consulted.
+            string key = show && !string.IsNullOrEmpty(u.ResetsAt)
+                ? u.ResetsAt + ":" + u.WarnBand
+                : null;
+            if (show && u.WarnBand == Model.UsageState.WarnPct &&
+                (_noticeDismissedThisSession == u.WarnBand ||
+                 (key != null && Model.CopilotPrefs.Load().IsUsageNoticeDismissed(key))))
+                show = false;
+
+            if (!show)
+            {
+                NoticeHost.Visibility = Visibility.Collapsed;
+                NoticeHost.Content = null;
+                return;
+            }
+
+            int band = u.WarnBand;
+            NoticeHost.Content = Controls.UsageWarningBanner.Build(
+                u,
+                () => UpgradeRequested?.Invoke(),
+                () =>
+                {
+                    if (key != null) Model.CopilotPrefs.Load().DismissUsageNotice(key);
+                    else _noticeDismissedThisSession = band;
+                    UpdateUsage();
+                });
+            NoticeHost.Visibility = Visibility.Visible;
         }
 
         private void OnThread(object s, NotifyCollectionChangedEventArgs e)
