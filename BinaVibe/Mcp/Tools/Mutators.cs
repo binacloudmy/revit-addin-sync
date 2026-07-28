@@ -2686,11 +2686,36 @@ namespace BinaVibe.Mcp.Tools
         }
 
         // ─── rename_elements ────────────────────────────────────────────
+        /// <summary>
+        /// args: { category, find, replace, scope?, dry_run? }
+        ///
+        /// ``scope`` selects WHICH project-browser node to rename in — the reason
+        /// this tool grew: "update family door name dari jkrAR18 ke jkrAR25" could
+        /// not be served at all. Views/sheets/schedules were covered, but a
+        /// category collector with WhereElementIsNotElementType() returns
+        /// INSTANCES, and Family elements are not in it at all, so family and type
+        /// names — the ones a drafter actually sees under Families in the project
+        /// browser — were unreachable. The agent fell back to hand-written C#,
+        /// which failed to compile and spent 92s in the repair loop
+        /// (Langfuse e90115fc, 2026-07-28).
+        ///
+        ///   families  Family elements (the "jkrAR18_door" node itself)
+        ///   types     ElementType / FamilySymbol names (each type under it)
+        ///   instances element instances (previous behaviour)
+        ///   auto      families + types when a category is given, else instances
+        ///
+        /// ``dry_run`` returns exactly what WOULD change without opening a
+        /// transaction. A find/replace across a project browser is wide and
+        /// awkward to undo by hand, so the agent can show the diff and let the
+        /// drafter confirm first.
+        /// </summary>
         public static Dictionary<string, object?> RenameElements(Document doc, JsonElement args)
         {
             string category = ArgsHelp.GetString(args, "category") ?? throw new ArgumentException("missing category");
             string find = ArgsHelp.GetString(args, "find") ?? throw new ArgumentException("missing find");
             string replace = ArgsHelp.GetString(args, "replace") ?? "";
+            string scope = (ArgsHelp.GetString(args, "scope") ?? "auto").ToLowerInvariant();
+            bool dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
 
             var lc = category.ToLowerInvariant();
             List<Element> targets;
@@ -2702,12 +2727,61 @@ namespace BinaVibe.Mcp.Tools
             else if (lc == "schedules" || lc == "schedule")
                 targets = new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
                     .Where(s => !s.IsTemplate).Cast<Element>().ToList();
+            else if (lc == "families" || lc == "family")
+                // Every loadable family in the document, regardless of category —
+                // "rename jkrAR17 to jkrAR26" is usually a naming-standard sweep
+                // that spans categories.
+                targets = new FilteredElementCollector(doc).OfClass(typeof(Family)).ToList();
             else if (TryResolveCatOrLive(doc, category, out var bic))
-                targets = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType().ToList();
+            {
+                targets = new List<Element>();
+                bool wantFam = scope == "families" || scope == "family" || scope == "auto";
+                bool wantTyp = scope == "types" || scope == "type" || scope == "auto";
+                bool wantIns = scope == "instances" || scope == "instance";
+
+                if (wantFam)
+                    // Family has no Category filter that behaves consistently across
+                    // versions, so filter by the family's own CategoryId.
+                    targets.AddRange(new FilteredElementCollector(doc).OfClass(typeof(Family))
+                        .Cast<Family>()
+                        .Where(f => f.FamilyCategoryId != null && f.FamilyCategoryId.Value == (long)bic)
+                        .Cast<Element>());
+                if (wantTyp)
+                    targets.AddRange(new FilteredElementCollector(doc)
+                        .OfCategory(bic).WhereElementIsElementType().ToList());
+                if (wantIns)
+                    targets.AddRange(new FilteredElementCollector(doc)
+                        .OfCategory(bic).WhereElementIsNotElementType().ToList());
+            }
             else
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
 
-            int renamed = 0; var examples = new List<object>();
+            // Preview without a transaction. Reported as would_rename, never
+            // renamed, so a caller cannot mistake a preview for a completed edit.
+            if (dryRun)
+            {
+                var preview = new List<object>();
+                int would = 0;
+                foreach (var e in targets)
+                {
+                    var nm0 = e.Name;
+                    if (string.IsNullOrEmpty(nm0) || !nm0.Contains(find)) continue;
+                    var nn0 = nm0.Replace(find, replace);
+                    if (nn0 == nm0 || string.IsNullOrWhiteSpace(nn0)) continue;
+                    would++;
+                    if (preview.Count < 25) preview.Add(new Dictionary<string, object?>
+                    { ["id"] = e.Id.Value, ["from"] = nm0, ["to"] = nn0, ["kind"] = KindOf(e) });
+                }
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["dry_run"] = true, ["scope"] = scope,
+                    ["would_rename"] = would, ["preview"] = preview,
+                    ["nothing"] = would == 0,
+                    ["headline"] = would + " name(s) would change (nothing renamed yet)",
+                };
+            }
+
+            int renamed = 0, matched = 0; var examples = new List<object>();
             using var tx = new Transaction(doc, "BinaVibe: rename_elements");
             TxGuard.StartSwallowing(tx);
             try
@@ -2718,13 +2792,31 @@ namespace BinaVibe.Mcp.Tools
                     if (string.IsNullOrEmpty(name) || !name.Contains(find)) continue;
                     var nn = name.Replace(find, replace);
                     if (nn == name || string.IsNullOrWhiteSpace(nn)) continue;
-                    try { e.Name = nn; renamed++; if (examples.Count < 5) examples.Add(name + " → " + nn); } catch { /* dup / read-only */ }
+                    matched++;
+                    try { e.Name = nn; renamed++; if (examples.Count < 8) examples.Add(name + " → " + nn); } catch { /* dup / read-only */ }
                 }
                 tx.Commit();
             }
             catch { tx.RollBack(); throw; }
-            return new Dictionary<string, object?> { ["ok"] = true, ["renamed"] = renamed, ["examples"] = examples };
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["scope"] = scope,
+                ["renamed"] = renamed,
+                ["matched"] = matched,
+                // A duplicate or read-only name throws per element and is skipped;
+                // reporting the count stops "renamed 3" reading as "all 40 done".
+                ["skipped"] = matched - renamed,
+                ["examples"] = examples,
+                ["nothing"] = renamed == 0,
+                ["headline"] = renamed + " of " + matched + " renamed (" + scope + ")",
+            };
         }
+
+        // Which project-browser node an element belongs to — so a preview can say
+        // whether a row is a family, a type or an instance.
+        private static string KindOf(Element e) =>
+            e is Family ? "family" : (e is ElementType ? "type" : "instance");
 
         // ─── color_by_parameter ─────────────────────────────────────────
         public static Dictionary<string, object?> ColorByParameter(Document doc, JsonElement args)
