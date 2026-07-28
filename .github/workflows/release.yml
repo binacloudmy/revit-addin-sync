@@ -264,15 +264,36 @@ jobs:
   # before signtool can see the key. There is no API credential to put in
   # GitHub secrets — an ephemeral GitHub-hosted VM cannot hold that session.
   # So this job runs on the signing box, which keeps SimplySign logged in.
-  # That session EXPIRES: when it lapses the job fails at preflight with a
-  # clear message rather than burning a build.
+  # That session EXPIRES; the preflight below reports it plainly instead of
+  # failing later inside signtool.
+  #
+  # GATED OFF UNTIL A RUNNER EXISTS. `runs-on: [self-hosted, windows]` with no
+  # registered runner does not fail — it QUEUES, forever, exactly as described
+  # four paragraphs up. The preflight cannot save us there: a job whose labels
+  # match no runner never starts, so not one of its steps runs and there is no
+  # message to read. Re-introducing that condition here would have reproduced
+  # the same invisible hang on the next -staging tag, with the incident report
+  # sitting directly above it.
+  #
+  # So the job is skipped unless the repo variable SELF_HOSTED_SIGNER is
+  # 'true'. A skipped job is legible — it appears in the checks list greyed
+  # out — whereas a queued one is indistinguishable from a slow build. To turn
+  # it on: register the signing box as a self-hosted runner with the
+  # `windows` label, then
+  #   gh variable set SELF_HOSTED_SIGNER --body true
+  # Until then, staging publishes the way 0.0.30 did: run
+  # installer\sign-release.ps1 on the signing box by hand. The build job still
+  # runs on windows-latest and still uploads artifacts, so nothing is blocked.
   #
   # Prod is deliberately excluded. A fleet-wide update should have a human
   # in the loop, so `v0.0.31` (no suffix) still goes through
   # installer\sign-release.ps1 by hand.
   sign-staging:
     needs: release
-    if: startsWith(github.ref, 'refs/tags/v') && endsWith(github.ref_name, '-staging')
+    if: >-
+      startsWith(github.ref, 'refs/tags/v')
+      && endsWith(github.ref_name, '-staging')
+      && vars.SELF_HOSTED_SIGNER == 'true'
     runs-on: [self-hosted, windows]
     steps:
       - uses: actions/checkout@v4
