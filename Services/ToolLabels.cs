@@ -25,6 +25,7 @@ namespace RevitWebAppSync.Services
             ["list_worksets"]              = "Reading worksets",
             ["get_element_parameters"]     = "Reading element parameters",
             ["find_elements_by_filter"]    = "Finding elements",
+            ["measure_wall_openings"]      = "Measuring the opening",
             ["find_elements_by_parameter"] = "Finding elements by parameter",
             ["get_current_selection"]      = "Reading the current selection",
             ["get_active_view"]            = "Reading the active view",
