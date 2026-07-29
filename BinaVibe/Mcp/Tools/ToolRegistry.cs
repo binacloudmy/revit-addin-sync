@@ -105,6 +105,7 @@ namespace BinaVibe.Mcp.Tools
                 "suggest_socket_points"         => Electrical.SocketCandidates.Suggest(doc, args),
                 "audit_parameters"              => Inspectors.AuditParameters(doc, args),
                 "audit_view_names"              => Inspectors.AuditViewNames(doc, args),
+                "audit_family_names"            => Inspectors.AuditFamilyNames(doc, args),
                 "open_view"                     => Inspectors.OpenView(uidoc, args),
                 "select_elements"               => Inspectors.SelectElements(uidoc, args),
                 "count_by"                      => Inspectors.CountBy(doc, args),

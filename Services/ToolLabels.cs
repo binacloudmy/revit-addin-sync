@@ -21,6 +21,7 @@ namespace RevitWebAppSync.Services
             ["list_levels"]                = "Reading levels",
             ["list_wall_types"]            = "Querying wall types",
             ["list_family_types"]          = "Listing family types",
+            ["audit_family_names"]         = "Auditing family names",
             ["list_view_templates"]        = "Reading view templates",
             ["list_worksets"]              = "Reading worksets",
             ["get_element_parameters"]     = "Reading element parameters",
