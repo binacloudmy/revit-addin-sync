@@ -86,6 +86,11 @@
     <Compile Include="..\UI\Copilot\Model\CopilotCatalog.cs" Link="CopilotCatalog.cs" />
     <Compile Include="..\UI\Copilot\Model\ProgressStep.cs" Link="ProgressStep.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\BatchRefResolver.cs" Link="BatchRefResolver.cs" />
+    <!-- CadCenterlineSolver: pure 2D double math (System only, no Revit) behind
+         cad_walls_to_centerlines — split from the Revit-facing tool precisely so
+         the pairing/thickness/snap logic runs here (the tool itself needs a live
+         ImportInstance and cannot). -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\CadCenterlineSolver.cs" Link="CadCenterlineSolver.cs" />
     <!-- PDF attachment reading: PdfPig + System only, no Revit and no WPF, so
          the extractor and its caps are testable here. (DwgReader is not — it
          needs live Revit Document/ImportInstance objects.) -->

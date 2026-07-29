@@ -48,6 +48,7 @@ namespace BinaVibe.Mcp.Tools
                 "query_geometry"                => QueryGeometry.Run(doc, args),
                 "filter_elements"               => ElementFilter.Run(app, doc, args),
                 "extract_cad_geometry"          => CadExtract.Run(uidoc, args),
+                "cad_walls_to_centerlines"      => CadWallsToCenterlines.Run(uidoc, args),
                 "compare_levels"                => LevelCompare.Run(uidoc, args),
                 "batch_link_models"             => BatchLink.Run(uidoc, args),
                 "get_current_selection"         => Inspectors.GetCurrentSelection(uidoc),
