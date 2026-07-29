@@ -44,7 +44,8 @@ namespace BinaVibe.Mcp.Tools
                     overlapMinRatio: ArgsHelp.GetDouble(args, "overlap_min_ratio") ?? 0.5,
                     minSegLenMm: ArgsHelp.GetDouble(args, "min_wall_length_mm") ?? 300,
                     // snap_mm default = max thickness (spec).
-                    snapMm: ArgsHelp.GetDouble(args, "snap_mm") ?? ArgsHelp.GetDouble(args, "max_thickness_mm") ?? 500);
+                    snapMm: ArgsHelp.GetDouble(args, "snap_mm") ?? ArgsHelp.GetDouble(args, "max_thickness_mm") ?? 500,
+                    cornerReachMm: ArgsHelp.GetDouble(args, "corner_reach_mm") ?? 500);
 
                 var solved = CadCenterlineSolver.Solve(segs, opt);
 

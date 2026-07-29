@@ -48,10 +48,15 @@ namespace BinaVibe.Mcp.Tools
         public double SinAngleTol = Math.Sin(1.5 * Math.PI / 180.0); // 1.5°
         public double OverlapMinRatio = 0.5;
         public double MinSegLenFt = 300 / MmPerFoot;
-        public double SnapFt = 500 / MmPerFoot; // default = max thickness (spec)
+        public double SnapFt = 500 / MmPerFoot; // junction search / consolidation radius
+        // Max distance a wall end may be TRIMMED (overshoot) or EXTENDED (undershoot)
+        // onto a corner. Decoupled from SnapFt: SnapFt groups nearby junction points,
+        // CornerReachFt bounds how far a real over/undershoot is corrected.
+        public double CornerReachFt = 500 / MmPerFoot;
 
         public static SolveOptions FromMm(double minThickMm, double maxThickMm,
-            double angleTolDeg, double overlapMinRatio, double minSegLenMm, double snapMm)
+            double angleTolDeg, double overlapMinRatio, double minSegLenMm, double snapMm,
+            double cornerReachMm)
             => new SolveOptions
             {
                 MinThicknessFt = minThickMm / MmPerFoot,
@@ -60,6 +65,7 @@ namespace BinaVibe.Mcp.Tools
                 OverlapMinRatio = overlapMinRatio,
                 MinSegLenFt = minSegLenMm / MmPerFoot,
                 SnapFt = snapMm / MmPerFoot,
+                CornerReachFt = cornerReachMm / MmPerFoot,
             };
     }
 
@@ -245,45 +251,89 @@ namespace BinaVibe.Mcp.Tools
             return Math.Sqrt(perpx * perpx + perpy * perpy);
         }
 
-        // L/T snapping: move each non-parallel pair's nearby endpoints onto the
-        // intersection of their infinite lines. L-corner = both move; T = only the
-        // endpoint within snap moves (the through-wall's interior is left alone and
-        // Revit auto-joins the wall end into it).
+        private static (double ux, double uy, double len) UnitOf(Centerline c)
+        {
+            double dx = c.Bx - c.Ax, dy = c.By - c.Ay;
+            double len = Math.Sqrt(dx * dx + dy * dy);
+            return len < 1e-12 ? (1, 0, 0) : (dx / len, dy / len, len);
+        }
+
+        // Non-parallel corner resolution. For each pair, X = infinite-line
+        // intersection (lies exactly on BOTH walls' axes). Each wall is classified by
+        // X's AXIAL position along it (not raw Euclidean distance):
+        //   - X near an end (|t-0| or |t-len| ≤ CornerReachFt) → that end is moved to
+        //     X — TRIMMED when X is inside the span (overshoot), EXTENDED when X is
+        //     just past it (undershoot). Gated by CornerReachFt, NOT SnapFt, so real
+        //     over/undershoots beyond the junction radius still get corrected.
+        //   - X in the deep interior → this wall is a THROUGH-wall and does NOT move
+        //     (the other wall's end reaches its centerline → genuine T preserved).
+        // Moves are collected against the ORIGINAL geometry, then consolidated so a
+        // multi-wall junction lands on ONE shared node (avoids pairwise scatter).
         private static int SnapCorners(List<Centerline> walls, SolveOptions opt)
         {
-            int snapped = 0;
+            var moves = new List<(int wall, bool moveB, double x, double y)>();
             for (int i = 0; i < walls.Count; i++)
                 for (int j = i + 1; j < walls.Count; j++)
                 {
-                    var a = walls[i]; var b = walls[j];
-                    double aux = a.Bx - a.Ax, auy = a.By - a.Ay;
-                    double al = Math.Sqrt(aux * aux + auy * auy); if (al < 1e-9) continue; aux /= al; auy /= al;
-                    double bux = b.Bx - b.Ax, buy = b.By - b.Ay;
-                    double bl = Math.Sqrt(bux * bux + buy * buy); if (bl < 1e-9) continue; bux /= bl; buy /= bl;
+                    var (aux, auy, al) = UnitOf(walls[i]); if (al < 1e-9) continue;
+                    var (bux, buy, bl) = UnitOf(walls[j]); if (bl < 1e-9) continue;
 
                     double crs = Cross(aux, auy, bux, buy);
-                    if (Math.Abs(crs) < 1e-9) continue; // parallel — handled by merge
+                    if (Math.Abs(crs) < 1e-9) continue; // parallel — MergeCollinear owns it
 
-                    // intersection of infinite lines a(A + t*ua) and b(A + s*ub).
-                    double wx = b.Ax - a.Ax, wy = b.Ay - a.Ay;
+                    double wx = walls[j].Ax - walls[i].Ax, wy = walls[j].Ay - walls[i].Ay;
                     double t = Cross(wx, wy, bux, buy) / crs;
-                    double xX = a.Ax + t * aux, xY = a.Ay + t * auy;
+                    double xX = walls[i].Ax + t * aux, xY = walls[i].Ay + t * auy;
 
-                    bool moved = SnapNearEndpoint(a, xX, xY, opt.SnapFt);
-                    moved |= SnapNearEndpoint(b, xX, xY, opt.SnapFt);
-                    if (moved) snapped++;
+                    TryCornerMove(moves, i, walls[i], aux, auy, al, xX, xY, opt.CornerReachFt);
+                    TryCornerMove(moves, j, walls[j], bux, buy, bl, xX, xY, opt.CornerReachFt);
                 }
-            return snapped;
+            return Consolidate(walls, moves, opt.SnapFt);
         }
 
-        // Move whichever endpoint (A or B) is closer to X, but only if within snap.
-        private static bool SnapNearEndpoint(Centerline c, double xX, double xY, double snapFt)
+        // Record a move iff X sits at/just-past one of this wall's ends (axial). The
+        // end to move is the one X is closest to ALONG the wall's own direction — not
+        // the Euclidean-nearest, which mis-selects on skew/overshoot geometry.
+        private static void TryCornerMove(
+            List<(int, bool, double, double)> moves, int idx, Centerline c,
+            double ux, double uy, double len, double xX, double xY, double reachFt)
         {
-            double dA = Dist(c.Ax, c.Ay, xX, xY);
-            double dB = Dist(c.Bx, c.By, xX, xY);
-            if (dA <= dB) { if (dA > snapFt) return false; c.Ax = xX; c.Ay = xY; }
-            else { if (dB > snapFt) return false; c.Bx = xX; c.By = xY; }
-            return true;
+            double t = Dot(xX - c.Ax, xY - c.Ay, ux, uy); // axial coord of X, span [0,len]
+            double dA = Math.Abs(t), dB = Math.Abs(t - len);
+            bool nearA = dA <= reachFt, nearB = dB <= reachFt;
+            if (!nearA && !nearB) return;                 // deep interior → through-wall
+            bool moveB = nearB && (!nearA || dB < dA);    // end X is axially closest to
+            moves.Add((idx, moveB, xX, xY));
+        }
+
+        // Cluster move points within SnapFt and snap every participating end to the
+        // cluster centroid. Returns the number of junction clusters that moved an end.
+        private static int Consolidate(
+            List<Centerline> walls, List<(int wall, bool moveB, double x, double y)> moves, double snapFt)
+        {
+            int junctions = 0;
+            var used = new bool[moves.Count];
+            for (int k = 0; k < moves.Count; k++)
+            {
+                if (used[k]) continue;
+                var group = new List<int> { k }; used[k] = true;
+                for (int m = k + 1; m < moves.Count; m++)
+                    if (!used[m] && Dist(moves[k].x, moves[k].y, moves[m].x, moves[m].y) <= snapFt)
+                    { used[m] = true; group.Add(m); }
+
+                double nx = 0, ny = 0;
+                foreach (var g in group) { nx += moves[g].x; ny += moves[g].y; }
+                nx /= group.Count; ny /= group.Count;
+
+                foreach (var g in group)
+                {
+                    var mv = moves[g];
+                    if (mv.moveB) { walls[mv.wall].Bx = nx; walls[mv.wall].By = ny; }
+                    else { walls[mv.wall].Ax = nx; walls[mv.wall].Ay = ny; }
+                }
+                junctions++;
+            }
+            return junctions;
         }
     }
 }

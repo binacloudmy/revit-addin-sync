@@ -41,9 +41,21 @@ namespace Tests
             };
         }
 
-        private static SolveOptions Opt() => SolveOptions.FromMm(
-            minThickMm: 50, maxThickMm: 500, angleTolDeg: 1.5,
-            overlapMinRatio: 0.5, minSegLenMm: 300, snapMm: 500);
+        private static SolveOptions Opt(double snapMm = 500, double cornerReachMm = 500)
+            => SolveOptions.FromMm(
+                minThickMm: 50, maxThickMm: 500, angleTolDeg: 1.5,
+                overlapMinRatio: 0.5, minSegLenMm: 300, snapMm: snapMm,
+                cornerReachMm: cornerReachMm);
+
+        private static WallSeg S(double ax, double ay, double bx, double by)
+            => new WallSeg(ax, ay, bx, by, Layer);
+
+        private static List<(double x, double y)> Endpoints(SolveResult r)
+        {
+            var pts = new List<(double, double)>();
+            foreach (var w in r.Walls) { pts.Add((w.Ax, w.Ay)); pts.Add((w.Bx, w.By)); }
+            return pts;
+        }
 
         [Fact]
         public void Pairs_two_double_lines_into_two_centerlines()
@@ -110,6 +122,109 @@ namespace Tests
             };
             var r = CadCenterlineSolver.Solve(segs, Opt());
             Assert.Empty(r.Walls);
+        }
+
+        // ─── corner resolution (Fix 2): overshoot / undershoot / T / multi-wall ──
+
+        [Fact]
+        public void Overshoot_beyond_snap_is_trimmed_to_an_L()
+        {
+            // Both walls run PAST the corner (5, 100mm): horizontal to x=6, vertical
+            // down to y=-0.8 — overshoots larger than snap. With a TINY snap (50mm)
+            // but default reach (500mm), the ends must still trim back to the corner
+            // (proves trim distance is gated by CornerReachFt, not SnapFt).
+            var segs = new List<WallSeg>
+            {
+                S(0, 0, 6, 0), S(0, Gap200, 6, Gap200),               // horizontal, x 0..6
+                S(5 - Half200, -0.8, 5 - Half200, 4),                 // vertical, y -0.8..4
+                S(5 + Half200, -0.8, 5 + Half200, 4),
+            };
+            var r = CadCenterlineSolver.Solve(segs, Opt(snapMm: 50));
+            Assert.Equal(2, r.Walls.Count);
+            var pts = Endpoints(r);
+            Assert.Equal(2, pts.Count(p => Dist(p.x, p.y, 5.0, CornerY) < 1e-6)); // meet at corner
+            Assert.All(pts, p => Assert.True(p.x <= 5.0 + 1e-6));   // no horizontal stub past x=5
+            Assert.All(pts, p => Assert.True(p.y >= CornerY - 1e-6)); // no vertical stub below corner
+        }
+
+        [Fact]
+        public void Undershoot_is_extended_to_an_L()
+        {
+            // Horizontal ends short at x=4 (1ft gap to the corner at x=5); it must be
+            // EXTENDED out to meet the vertical, closing the gap into a clean L.
+            var segs = new List<WallSeg>
+            {
+                S(0, 0, 4, 0), S(0, Gap200, 4, Gap200),               // horizontal, x 0..4 (short)
+                S(5 - Half200, 0, 5 - Half200, 4),                    // vertical through the corner
+                S(5 + Half200, 0, 5 + Half200, 4),
+            };
+            var r = CadCenterlineSolver.Solve(segs, Opt());
+            Assert.Equal(2, r.Walls.Count);
+            var pts = Endpoints(r);
+            Assert.Equal(2, pts.Count(p => Dist(p.x, p.y, 5.0, CornerY) < 1e-6));
+            var h = r.Walls.Single(w => Math.Abs(w.Ay - CornerY) < 1e-6 && Math.Abs(w.By - CornerY) < 1e-6);
+            Assert.Equal(5.0, Math.Max(h.Ax, h.Bx), 6); // far end pushed from x=4 out to x=5
+        }
+
+        [Fact]
+        public void Genuine_T_is_preserved()
+        {
+            // A long through-wall (x 0..10) with a stem meeting it mid-span. The
+            // through-wall must NOT be trimmed; only the stem extends to its centerline.
+            var segs = new List<WallSeg>
+            {
+                S(0, 0, 10, 0), S(0, Gap200, 10, Gap200),             // through-wall, x 0..10
+                S(5 - Half200, 0.9, 5 - Half200, 4),                  // stem, starts short of centerline
+                S(5 + Half200, 0.9, 5 + Half200, 4),
+            };
+            var r = CadCenterlineSolver.Solve(segs, Opt());
+            Assert.Equal(2, r.Walls.Count);
+
+            var through = r.Walls.Single(w => Math.Abs(w.Ay - CornerY) < 1e-6 && Math.Abs(w.By - CornerY) < 1e-6);
+            var xs = new[] { through.Ax, through.Bx }.OrderBy(x => x).ToArray();
+            Assert.Equal(0.0, xs[0], 6);   // through-wall untouched…
+            Assert.Equal(10.0, xs[1], 6);  // …both ends still at 0 and 10
+
+            var stem = r.Walls.Single(w => w != through);
+            var ends = new[] { (stem.Ax, stem.Ay), (stem.Bx, stem.By) };
+            Assert.Contains(ends, e => Dist(e.Item1, e.Item2, 5.0, CornerY) < 1e-6); // stem reaches centerline
+            Assert.Equal(1, r.JunctionsSnapped);
+        }
+
+        [Fact]
+        public void Three_wall_junction_consolidates_to_one_node()
+        {
+            double n = 0.70710678 * Half200; // 45° face offset
+            var segs = new List<WallSeg>
+            {
+                // W1 horizontal, centerline (0,0)-(4.6,0)
+                S(0, -Half200, 4.6, -Half200), S(0, Half200, 4.6, Half200),
+                // W2 vertical, centerline (5,0.4)-(5,5)
+                S(5 - Half200, 0.4, 5 - Half200, 5), S(5 + Half200, 0.4, 5 + Half200, 5),
+                // W3 diagonal, centerline (5.3,0)-(8.1,2.8) — its pairwise intersections
+                // with W1/W2 sit near but not exactly on the others', so consolidation
+                // (not identical points) is what makes the three ends coincide.
+                S(5.3 - n, 0 + n, 8.1 - n, 2.8 + n), S(5.3 + n, 0 - n, 8.1 + n, 2.8 - n),
+            };
+            var r = CadCenterlineSolver.Solve(segs, Opt());
+            Assert.Equal(3, r.Walls.Count);
+
+            // each wall's junction-side end (nearest the shared node) must coincide.
+            double nodeX = 5.1, nodeY = -0.1;
+            var nearX = new double[3];
+            var nearY = new double[3];
+            for (int k = 0; k < 3; k++)
+            {
+                var w = r.Walls[k];
+                bool aCloser = Dist(w.Ax, w.Ay, nodeX, nodeY) <= Dist(w.Bx, w.By, nodeX, nodeY);
+                nearX[k] = aCloser ? w.Ax : w.Bx;
+                nearY[k] = aCloser ? w.Ay : w.By;
+            }
+            for (int i = 0; i < 3; i++)
+                for (int j = i + 1; j < 3; j++)
+                    Assert.True(Dist(nearX[i], nearY[i], nearX[j], nearY[j]) < 1e-6,
+                        "three junction ends must consolidate to one node");
+            Assert.Equal(1, r.JunctionsSnapped);
         }
 
         private static double Dist(double ax, double ay, double bx, double by)
