@@ -127,6 +127,7 @@ namespace BinaVibe.Mcp.Tools
                 // approval_decisions before they reach here.
                 // Multi-element builds: ONE TransactionGroup, single undo.
                 "execute_revit_batch"    => BatchExecutor.Run(app, args),
+                "convert_ifc_to_native"  => InvokeIfcConvert(app, args),
                 "set_parameter"          => Mutators.SetParameter(doc, args),
                 "set_parameter_bulk"     => Mutators.SetParameterBulk(doc, args),
                 "change_type"            => Mutators.ChangeType(doc, args),
@@ -136,6 +137,8 @@ namespace BinaVibe.Mcp.Tools
                 "place_door"             => Mutators.PlaceDoor(doc, args),
                 "place_window"           => Mutators.PlaceWindow(doc, args),
                 "create_wall"            => Mutators.CreateWall(doc, args),
+                "create_wall_type"       => Mutators.CreateWallType(doc, args),
+                "create_floor_type"      => Mutators.CreateFloorType(doc, args),
                 "create_room"            => Mutators.CreateRoomXY(doc, args),
                 "create_level"           => Mutators.CreateLevel(doc, args),
                 "create_grid"            => Mutators.CreateGrid(doc, args),
@@ -166,6 +169,7 @@ namespace BinaVibe.Mcp.Tools
                 "create_roof"                   => Mutators.CreateRoof(doc, args),
                 "create_beam_system"            => MutatorsStructure.CreateBeamSystem(doc, args),
                 "create_beam"                   => MutatorsStructure.CreateBeam(doc, args),
+                "create_column"                 => MutatorsStructure.CreateColumn(doc, args),
                 "create_duct"                   => MutatorsMep.CreateDuct(doc, args),
                 "create_pipe"                   => MutatorsMep.CreatePipe(doc, args),
                 "create_dimensions"             => Dimensioning.CreateDimensions(app, doc, args),
@@ -191,6 +195,32 @@ namespace BinaVibe.Mcp.Tools
                 ["error"] = $"tool {tool} not implemented yet",
                 ["status"] = "not_implemented",
             };
+
+        // ─── IFC → native conversion dispatch ──────────────────────────
+        // scope: "whole" (default) | "level" (active level) | "selection"
+        // mode:  "preview" (default, no Transaction) | "build" (single
+        // TransactionGroup via BatchExecutor — one undo).
+        private static Dictionary<string, object?> InvokeIfcConvert(UIApplication app, JsonElement args)
+        {
+            var scope = (args.TryGetProperty("scope", out var s) ? s.GetString() : "whole") switch
+            {
+                "selection" => IfcConvert.ConvertScope.Selection,
+                "level"     => IfcConvert.ConvertScope.ActiveLevel,
+                _           => IfcConvert.ConvertScope.Whole,
+            };
+            var mode = args.TryGetProperty("mode", out var m) ? m.GetString() : "preview";
+            var sel = app.ActiveUIDocument.Selection.GetElementIds();
+            // I1: resolve the active level name for scope="level". Plan-view (and other
+            // level-based) views expose the associated level via View.GenLevel; when the
+            // active view has none, the converter warns and falls back to whole-model.
+            string? activeLevelName = scope == IfcConvert.ConvertScope.ActiveLevel
+                ? app.ActiveUIDocument.ActiveView?.GenLevel?.Name
+                : null;
+            var conv = new IfcConvert.IfcConverter();
+            return mode == "build"
+                ? conv.Build(app, scope, sel, activeLevelName)
+                : conv.Preview(app, scope, sel, activeLevelName);
+        }
 
         // ─── DWG dispatch ───────────────────────────────────────────────
         // One resolver behind every DWG tool so in-model CAD and an attached

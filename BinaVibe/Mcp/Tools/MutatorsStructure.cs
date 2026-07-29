@@ -128,6 +128,37 @@ namespace BinaVibe.Mcp.Tools
             catch { tx.RollBack(); throw; }
         }
 
+        public static Dictionary<string, object?> CreateColumn(Document doc, JsonElement args)
+        {
+            var p = ArgsHelp.GetPointMm(args, "point_mm") ?? throw new ArgumentException("missing point_mm [x,y,z]");
+            var levelName = ArgsHelp.GetString(args, "level") ?? throw new ArgumentException("missing level");
+            var typeName = ArgsHelp.GetString(args, "type_name");
+
+            var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException($"level '{levelName}' not found");
+
+            var sym = new FilteredElementCollector(doc)
+                .OfCategory(BuiltInCategory.OST_StructuralColumns).OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>()
+                .FirstOrDefault(s => typeName == null || string.Equals(s.Name, typeName, StringComparison.OrdinalIgnoreCase))
+                ?? new FilteredElementCollector(doc).OfCategory(BuiltInCategory.OST_StructuralColumns)
+                    .OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>().FirstOrDefault()
+                ?? throw new ArgumentException("no structural column family loaded");
+
+            using var tx = new Transaction(doc, "BinaVibe: create_column");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                if (!sym.IsActive) sym.Activate();
+                var col = doc.Create.NewFamilyInstance(p, sym, level,
+                    Autodesk.Revit.DB.Structure.StructuralType.Column);
+                tx.Commit();
+                return new Dictionary<string, object?>
+                { ["ok"] = true, ["created_id"] = col.Id.Value, ["level"] = levelName, ["type_name"] = sym.Name };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
         // adapted from mcp-servers-for-revit (MIT) — ResolveBeamType: exact
         // name match ("Family: Type" or type name), else first available.
         private static FamilySymbol ResolveBeamType(Document doc, string? name)

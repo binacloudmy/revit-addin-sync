@@ -536,6 +536,83 @@ namespace BinaVibe.Mcp.Tools
             catch { tx.RollBack(); throw; }
         }
 
+        // ─── create_wall_type ───────────────────────────────────────────
+        // args: { type_name, thickness_mm }. Synthesizes a SYSTEM wall type by
+        // duplicating an existing WallType and setting a single structural layer
+        // to the requested width. Idempotent: an existing name is a no-op ok.
+        // Emitted by the IFC→native converter BEFORE the create_wall step that
+        // references the new type by name (same batch, ordered execution).
+        public static Dictionary<string, object?> CreateWallType(Document doc, JsonElement args)
+        {
+            var typeName = ArgsHelp.GetString(args, "type_name") ?? throw new ArgumentException("missing type_name");
+            double widthFt = ArgsHelp.GetLengthMm(args, "thickness_mm", "thickness_ft")
+                ?? throw new ArgumentException("missing thickness_mm");
+
+            var existing = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
+                .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+                return new Dictionary<string, object?> { ["ok"] = true, ["type_name"] = existing.Name, ["already_exists"] = true };
+
+            var allWallTypes = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().ToList();
+            var template = allWallTypes.FirstOrDefault(t => t.GetCompoundStructure() != null) ?? allWallTypes.FirstOrDefault();
+            if (template == null) throw new InvalidOperationException("no WallType in document to duplicate");
+            if (template.GetCompoundStructure() == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no basic wall type to duplicate" };
+
+            using var tx = new Transaction(doc, "BinaVibe: create_wall_type");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                var newType = template.Duplicate(typeName) as WallType
+                    ?? throw new InvalidOperationException("wall type duplicate failed");
+                var src = newType.GetCompoundStructure();
+                ElementId matId = (src != null && src.LayerCount > 0) ? src.GetMaterialId(0) : ElementId.InvalidElementId;
+                var single = CompoundStructure.CreateSingleLayerCompoundStructure(
+                    MaterialFunctionAssignment.Structure, widthFt, matId);
+                newType.SetCompoundStructure(single);
+                tx.Commit();
+                return new Dictionary<string, object?> { ["ok"] = true, ["type_name"] = newType.Name, ["already_exists"] = false };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
+        // ─── create_floor_type ──────────────────────────────────────────
+        // args: { type_name, thickness_mm }. Mirror of create_wall_type for
+        // FloorType (slab). Idempotent, single structural layer at the width.
+        public static Dictionary<string, object?> CreateFloorType(Document doc, JsonElement args)
+        {
+            var typeName = ArgsHelp.GetString(args, "type_name") ?? throw new ArgumentException("missing type_name");
+            double widthFt = ArgsHelp.GetLengthMm(args, "thickness_mm", "thickness_ft")
+                ?? throw new ArgumentException("missing thickness_mm");
+
+            var existing = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()
+                .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+                return new Dictionary<string, object?> { ["ok"] = true, ["type_name"] = existing.Name, ["already_exists"] = true };
+
+            var allFloorTypes = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().ToList();
+            var template = allFloorTypes.FirstOrDefault(t => t.GetCompoundStructure() != null) ?? allFloorTypes.FirstOrDefault();
+            if (template == null) throw new InvalidOperationException("no FloorType in document to duplicate");
+            if (template.GetCompoundStructure() == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no basic floor type to duplicate" };
+
+            using var tx = new Transaction(doc, "BinaVibe: create_floor_type");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                var newType = template.Duplicate(typeName) as FloorType
+                    ?? throw new InvalidOperationException("floor type duplicate failed");
+                var src = newType.GetCompoundStructure();
+                ElementId matId = (src != null && src.LayerCount > 0) ? src.GetMaterialId(0) : ElementId.InvalidElementId;
+                var single = CompoundStructure.CreateSingleLayerCompoundStructure(
+                    MaterialFunctionAssignment.Structure, widthFt, matId);
+                newType.SetCompoundStructure(single);
+                tx.Commit();
+                return new Dictionary<string, object?> { ["ok"] = true, ["type_name"] = newType.Name, ["already_exists"] = false };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
         // ─── place_family_instance ──────────────────────────────────────
         public static Dictionary<string, object?> PlaceFamilyInstance(Document doc, JsonElement args)
         {
@@ -1994,21 +2071,19 @@ namespace BinaVibe.Mcp.Tools
                 .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
                 ?? throw new ArgumentException($"level '{levelName}' not found");
 
-            // Resolve floor type — named or first available.
-            ElementId floorTypeId;
-            if (!string.IsNullOrEmpty(typeName))
-            {
-                var ft = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()
+            // Resolve floor type — named or first available. Defense (C2): an
+            // UNKNOWN name falls back to a default FloorType instead of throwing,
+            // mirroring create_wall's null-type fallback, so a stray name can't roll
+            // back a whole IFC-conversion batch (create_floor_type should have run
+            // first, but never lose the element to a hard failure).
+            var byName = !string.IsNullOrEmpty(typeName)
+                ? new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()
                     .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
-                    ?? throw new ArgumentException($"floor type '{typeName}' not found");
-                floorTypeId = ft.Id;
-            }
-            else
-            {
-                var first = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).FirstOrDefault()
-                    ?? throw new InvalidOperationException("no FloorType found in document");
-                floorTypeId = first.Id;
-            }
+                : null;
+            var floorType = byName
+                ?? new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().FirstOrDefault()
+                ?? throw new InvalidOperationException("no FloorType found in document");
+            ElementId floorTypeId = floorType.Id;
 
             using var tx = new Transaction(doc, "BinaVibe: create_floor");
             TxGuard.StartSwallowing(tx);
@@ -2022,7 +2097,7 @@ namespace BinaVibe.Mcp.Tools
                     ["ok"] = true,
                     ["floor_id"] = floor.Id.Value,
                     ["level"] = levelName,
-                    ["type_name"] = typeName ?? "(default)",
+                    ["type_name"] = floorType.Name,
                 };
             }
             catch { tx.RollBack(); throw; }

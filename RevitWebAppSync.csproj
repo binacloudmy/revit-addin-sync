@@ -38,7 +38,7 @@
     <!-- Roslyn ships resource DLLs for 13 UI languages (~6.5MB per TFM in the
          OTA payload); the addin surfaces compiler messages in English only. -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <DefaultItemExcludes>$(DefaultItemExcludes);Tests\**;BinaLoader\**;UiHarness\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Tests\**;Tests.Ifc\**;BinaLoader\**;UiHarness\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <PropertyGroup>

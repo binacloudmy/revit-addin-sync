@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Cross-platform (net10.0, NO WPF) test project for the PURE IFC → Native
+    conversion pipeline. The main Tests/Tests.csproj is net10.0-windows + UseWPF,
+    so its test host needs the Windows Desktop runtime and cannot RUN on macOS/Linux
+    (it compiles there with EnableWindowsTargeting, but the WPF test host won't launch).
+    The IFC pipeline core is platform-independent (primitives + System.Text.Json),
+    so it lives here and runs on any OS. Revit-coupled files (IfcReader/IfcConverter)
+    are NOT linked — they need the Revit API.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+    <PackageReference Include="xunit" Version="2.9.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Pure IFC pipeline source (no Revit, no WPF). -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\IfcConvert\IfcElement.cs" Link="IfcElement.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\IfcConvert\NativeStep.cs" Link="NativeStep.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\IfcConvert\ConversionReport.cs" Link="ConversionReport.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\IfcConvert\ITypeResolver.cs" Link="ITypeResolver.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\IfcConvert\MatchOrCreateTypeResolver.cs" Link="MatchOrCreateTypeResolver.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\IfcConvert\IfcMapper.cs" Link="IfcMapper.cs" />
+  </ItemGroup>
+
+</Project>
