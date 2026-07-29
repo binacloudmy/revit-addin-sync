@@ -98,6 +98,11 @@ namespace BinaVibe.Mcp.Tools
                 "list_project_parameters"       => Inspectors.ListProjectParameters(doc),
                 "get_type_parameters"           => Inspectors.GetTypeParameters(doc, args),
                 "list_rooms"                    => Inspectors.ListRooms(doc, args),
+                // Socket placement candidates. Read-only (no Transaction): it
+                // caches a plan and returns reviewable points, and
+                // place_socket_points commits them. Same two-step shape as
+                // fill_audit -> draft_export.
+                "suggest_socket_points"         => Electrical.SocketCandidates.Suggest(doc, args),
                 "audit_parameters"              => Inspectors.AuditParameters(doc, args),
                 "audit_view_names"              => Inspectors.AuditViewNames(doc, args),
                 "open_view"                     => Inspectors.OpenView(uidoc, args),
@@ -135,6 +140,11 @@ namespace BinaVibe.Mcp.Tools
                 "apply_view_template"    => Mutators.ApplyViewTemplate(doc, args),
                 "place_door"             => Mutators.PlaceDoor(doc, args),
                 "place_window"           => Mutators.PlaceWindow(doc, args),
+                // Sockets: one TransactionGroup, single undo, per-item failure
+                // tolerance. Coordinates come from the cached plan, never from
+                // the model re-emitting them.
+                "place_socket_points"    => Electrical.SocketPlacement.PlaceSocketPoints(doc, args),
+                "place_socket_on_wall"   => Electrical.SocketPlacement.PlaceSocketOnWall(doc, args),
                 "create_wall"            => Mutators.CreateWall(doc, args),
                 "create_room"            => Mutators.CreateRoomXY(doc, args),
                 "create_level"           => Mutators.CreateLevel(doc, args),

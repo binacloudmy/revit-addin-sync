@@ -577,8 +577,9 @@ namespace BinaVibe.Mcp.Tools
                     ["error"] = $"family type '{familyType}' is host-based " +
                                 $"(placement={placement}); placed free-standing its cutting void " +
                                 "intersects nothing and Revit rejects the commit. Host it on a wall: " +
-                                "use place_window / place_door with host_wall_id (find the wall via " +
-                                "find_elements_by_filter / query_geometry first).",
+                                "use place_window / place_door / place_socket_on_wall with " +
+                                "host_wall_id (find the wall via find_elements_by_filter / " +
+                                "query_geometry first).",
                 };
 
             // Resolve optional level.
