@@ -148,6 +148,29 @@ tx.Commit();",
                 Title = "Bump JKR version (jkrAR18 to jkrAR25)",
                 Desc = "Anchored sweep across sheets, families and types — preview first",
                 Icon = "filter", TileBg = "#fef3c7", TileFg = "#a16207", Category = "clean",
+                Plan = new List<string> {
+                    "Run with dry_run mode first to preview all matches without applying changes",
+                    "Match anchors to version code only (jkrAR18, jkrAR25, …) — other digits in names stay unchanged",
+                    "Sweep across all sheets, families and types in the document",
+                    "Collision reports are generated separately — those elements are not updated",
+                },
+                Code = @"using var tx = new Transaction(doc, ""Bump JKR version"");
+tx.Start();
+var elements = new FilteredElementCollector(doc)
+  .WhereElementIsNotElementType();
+
+foreach (var el in elements) {
+  if (el.Name.Contains(""jkrAR18"")) {
+    el.Name = el.Name.Replace(""jkrAR18"", ""jkrAR25"");
+  }
+}
+tx.Commit();",
+                Result = v => new ResultModel { Kind = CpResultKind.List, Headline = "23 elements renamed",
+                    Diffs = new List<DiffItem> {
+                        new DiffItem("jkrAR18_Foundation_Wall", "jkrAR25_Foundation_Wall"),
+                        new DiffItem("jkrAR18_Window-Casement", "jkrAR25_Window-Casement"),
+                        new DiffItem("jkrAR18_drw_DD_900x2100", "jkrAR25_drw_DD_900x2100"),
+                    } },
             },
             new ToolDef {
                 Id = "count-doors", BackendName = "code", Tier = 2,
