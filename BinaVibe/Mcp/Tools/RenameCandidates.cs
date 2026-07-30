@@ -53,7 +53,14 @@ namespace BinaVibe.Mcp.Tools
         public string From = "";
         public string To = "";
         public bool Collides;
-        /// <summary>Id of the occupant, or 0 when two renames in this plan collide.</summary>
+        /// <summary>
+        /// Id of the occupant that blocks this rename: either another
+        /// target's untouched value, or another target's own rename that
+        /// claimed the same (scope, field) slot first. 0 only for the
+        /// degenerate case of a target colliding with an earlier claim of its
+        /// own (e.g. duplicate <see cref="RenameTarget"/> entries for the
+        /// same id).
+        /// </summary>
         public long CollidesWith;
     }
 
@@ -98,24 +105,30 @@ namespace BinaVibe.Mcp.Tools
             bool wantName = field == RenameField.Name || field == RenameField.Both;
             bool wantNumber = field == RenameField.Number || field == RenameField.Both;
 
-            // Occupancy per uniqueness scope, so a collision is judged the way
-            // Revit judges it. Values a plan vacates are removed before new ones
-            // are claimed — otherwise renaming A to B's name while B moves away
-            // reports a phantom collision and blocks a legal sweep.
-            var occupied = new Dictionary<string, Dictionary<string, long>>();
+            // Occupancy per (uniqueness scope, field), so a collision is judged
+            // the way Revit judges it. Scope alone is not enough: Name and
+            // Number are different namespaces even when they share a scope
+            // string (e.g. a sheet's "sheet_number" scope), so a Number
+            // candidate must never be blocked by an unrelated target's
+            // untouched Name value, and vice versa. Values a plan vacates are
+            // removed before new ones are claimed — otherwise renaming A to
+            // B's name while B moves away reports a phantom collision and
+            // blocks a legal sweep.
+            var occupied = new Dictionary<(string Scope, string Field), Dictionary<string, long>>();
 
-            void Seed(string scope, string value, long id)
+            void Seed(string scope, string fieldName, string value, long id)
             {
                 if (string.IsNullOrEmpty(value)) return;
-                if (!occupied.TryGetValue(scope, out var byValue))
-                    occupied[scope] = byValue = new Dictionary<string, long>();
+                var key = (scope, fieldName);
+                if (!occupied.TryGetValue(key, out var byValue))
+                    occupied[key] = byValue = new Dictionary<string, long>();
                 if (!byValue.ContainsKey(value)) byValue[value] = id;
             }
 
             foreach (var t in list)
             {
-                if (wantName) Seed(t.UniquenessScope, t.CurrentName, t.Id);
-                if (wantNumber) Seed(t.UniquenessScope, t.CurrentNumber, t.Id);
+                if (wantName) Seed(t.UniquenessScope, "name", t.CurrentName, t.Id);
+                if (wantNumber) Seed(t.UniquenessScope, "number", t.CurrentNumber, t.Id);
             }
 
             string Apply(string value)
@@ -144,7 +157,7 @@ namespace BinaVibe.Mcp.Tools
                         From = current, To = next,
                     });
 
-                    if (occupied.TryGetValue(t.UniquenessScope, out var byValue)
+                    if (occupied.TryGetValue((t.UniquenessScope, fieldName), out var byValue)
                         && byValue.TryGetValue(current, out var holder) && holder == t.Id)
                         byValue.Remove(current);
                 }
@@ -158,8 +171,9 @@ namespace BinaVibe.Mcp.Tools
             foreach (var c in raw)
             {
                 var scope = list.First(t => t.Id == c.Id).UniquenessScope;
-                if (!occupied.TryGetValue(scope, out var byValue))
-                    occupied[scope] = byValue = new Dictionary<string, long>();
+                var key = (scope, c.Field);
+                if (!occupied.TryGetValue(key, out var byValue))
+                    occupied[key] = byValue = new Dictionary<string, long>();
 
                 if (byValue.TryGetValue(c.To, out var holder))
                 {

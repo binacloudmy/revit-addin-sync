@@ -190,6 +190,30 @@ namespace Tests
         }
 
         [Fact]
+        public void Collisions_do_not_leak_across_fields_sharing_a_scope()
+        {
+            // Both targets share the "sheet_number" scope, but Name and Number
+            // are different namespaces in Revit — a sheet number never
+            // collides with a view name. Target 1's Number change lands on
+            // "jkrAR25", which happens to equal target 2's untouched NAME.
+            // That must not block the rename: occupancy has to be keyed by
+            // (scope, field), not scope alone.
+            var plan = RenameCandidates.Build(
+                new[]
+                {
+                    T(1, "AAA", "sheet_number", "jkrAR18"),
+                    T(2, "jkrAR25", "sheet_number", "BBB"),
+                },
+                "jkrAR18", "jkrAR25", RenameField.Both, RenameMode.Literal);
+
+            var c = Assert.Single(plan.Candidates);
+            Assert.Equal("number", c.Field);
+            Assert.False(c.Collides);
+            Assert.Equal(1, plan.WouldRename);
+            Assert.Equal(0, plan.WouldCollide);
+        }
+
+        [Fact]
         public void A_renamed_away_name_frees_its_slot()
         {
             // A is renamed to B's CURRENT name while B is ALSO renamed away in
