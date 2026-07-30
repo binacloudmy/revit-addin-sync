@@ -154,24 +154,32 @@ tx.Commit();",
                     "Sweep across all sheets, families and types in the document",
                     "Collision reports are generated separately — those elements are not updated",
                 },
-                Code = @"// rename_elements tool with anchored field matching
-// Arguments:
-//   field: ""both""       // sheet numbers + names
-//   mode: ""regex""      // anchored pattern: jkrAR18 only
-//   scope: ""auto""      // families, types, instances
-//   dry_run: true      // preview before applying
-
-// Collects and renames across:
-// - Sheet names and sheet numbers (A01_jkrAR18 → A01_jkrAR25)
-// - Families (jkrAR18_door in project browser)
-// - Family types (each symbol under it)
-// - All instances (automatically updated with families/types)
-
-// Example dry-run result:
-// 23 would rename
-// 2 blocked by existing name (collision)
+                Code = @"// Anchored version bump: two separate rename_elements calls
 //
-// Then run with dry_run: false to apply confirmed changes.",
+// (1) Sheets (names and numbers):
+// rename_elements(
+//   category: ""Sheets"",
+//   find:     ""jkrAR18"",
+//   replace:  ""jkrAR25"",
+//   field:    ""both"",        // Name and SheetNumber
+//   mode:     ""regex"",       // anchored: only version code
+//   dry_run:  true           // preview before applying
+// )
+//
+// (2) Families (all loadable families):
+// rename_elements(
+//   category: ""Families"",
+//   find:     ""jkrAR18"",
+//   replace:  ""jkrAR25"",
+//   field:    ""name"",
+//   mode:     ""regex"",       // anchored: only version code
+//   dry_run:  true           // preview before applying
+// )
+//
+// Example dry-run results:
+// Call 1: 12 sheet names + numbers would rename, 2 collisions
+// Call 2: 11 families would rename, 1 collision
+// Then repeat each with dry_run: false to apply.",
                 Result = v => new ResultModel { Kind = CpResultKind.List, Headline = "23 elements renamed",
                     Diffs = new List<DiffItem> {
                         new DiffItem("jkrAR18_Foundation_Wall", "jkrAR25_Foundation_Wall"),
