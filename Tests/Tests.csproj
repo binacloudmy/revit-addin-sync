@@ -99,6 +99,10 @@
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditFormParser.cs" Link="AuditFormParser.cs" />
     <!-- Rename suggestion transform: System only, no Revit — unit-tested here. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditNaming.cs" Link="AuditNaming.cs" />
+    <!-- RenameCandidates: the rename planner. System + Regex only, no Revit —
+         deliberately split out of Mutators.RenameElements so the preview and the
+         apply loop provably consume ONE plan. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\RenameCandidates.cs" Link="RenameCandidates.cs" />
     <!-- Lean-context wire contract: AIRequest/ModelContext (pure Newtonsoft
          DTOs). No Revit refs. -->
     <Compile Include="..\Models\AIRequest.cs" Link="AIRequest.cs" />
