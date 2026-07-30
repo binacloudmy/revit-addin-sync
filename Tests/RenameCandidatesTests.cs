@@ -248,5 +248,59 @@ namespace Tests
 
             Assert.NotNull(plan.Error);
         }
+
+        // ─── FIX 3 (final review round) — field="number" false-clean warning ──
+        //
+        // Spec §5: "Ignored with a warning for categories that have no number
+        // concept." Only Sheets carry CurrentNumber; field="number"/"both"
+        // against anything else used to come back {nothing: true, "0 name(s)
+        // would change"} — indistinguishable from an already-swept model. A JKR
+        // version bump chains 3+ calls across category/field combinations, so
+        // one wrong combination must say so.
+
+        [Fact]
+        public void Number_field_against_a_category_with_no_numbers_needs_a_warning()
+        {
+            // Walls (kind "type") never carry a SheetNumber — CurrentNumber is
+            // always "" for them, exactly like the real category-mismatch bug.
+            var plan = RenameCandidates.Build(
+                new[] { T(1, "jkrAR18_wll-b_(bb02) Batu Bata") },
+                "jkrAR18", "jkrAR25", RenameField.Number, RenameMode.Literal);
+
+            Assert.True(plan.NumberWarningNeeded);
+        }
+
+        [Fact]
+        public void Number_field_against_sheets_that_do_carry_numbers_needs_no_warning()
+        {
+            var plan = RenameCandidates.Build(
+                new[] { T(1, "Cover Sheet", "sheet_number", "A-101", "instance") },
+                "A-101", "A-201", RenameField.Number, RenameMode.Literal);
+
+            Assert.False(plan.NumberWarningNeeded);
+        }
+
+        [Fact]
+        public void Number_field_against_a_sheets_sweep_that_matched_zero_sheets_still_warns()
+        {
+            // A Sheets category sweep where every target's number happens to be
+            // empty (or the collector simply returned nothing) is exactly as
+            // uninformative as auditing the wrong category — same warning.
+            var plan = RenameCandidates.Build(
+                System.Array.Empty<RenameTarget>(),
+                "A-101", "A-201", RenameField.Number, RenameMode.Literal);
+
+            Assert.True(plan.NumberWarningNeeded);
+        }
+
+        [Fact]
+        public void Name_field_never_triggers_the_number_warning_regardless_of_numbers()
+        {
+            var plan = RenameCandidates.Build(
+                new[] { T(1, "jkrAR18_wll-b_(bb02) Batu Bata") },
+                "jkrAR18", "jkrAR25", RenameField.Name, RenameMode.Literal);
+
+            Assert.False(plan.NumberWarningNeeded);
+        }
     }
 }

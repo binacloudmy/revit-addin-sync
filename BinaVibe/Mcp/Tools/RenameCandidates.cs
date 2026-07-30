@@ -29,7 +29,10 @@ namespace BinaVibe.Mcp.Tools
     public class RenameTarget
     {
         public long Id;
-        /// <summary>"family" | "type" | "instance" | "sheet" | "view" | "schedule".</summary>
+        /// <summary>"family" | "type" | "instance" — the only values Mutators.KindOf
+        /// ever emits. Sheets, views and schedules are instances (Kind = "instance");
+        /// their own identity is carried by RenameCandidate.Field / CurrentNumber and
+        /// the request's `category`, not by a distinct Kind.</summary>
         public string Kind = "";
         public string CurrentName = "";
         /// <summary>Sheet number. Empty for everything that has no number.</summary>
@@ -71,6 +74,18 @@ namespace BinaVibe.Mcp.Tools
         public int WouldCollide;
         /// <summary>Non-null means the request was unusable; Candidates is empty.</summary>
         public string Error;
+        /// <summary>
+        /// True when field was "number"/"both" but NOT ONE target carries a
+        /// non-empty CurrentNumber — only Sheets have SheetNumber, so this fires
+        /// for every other category and for a Sheets sweep that matched zero
+        /// sheets. Spec §5: "ignored with a warning for categories that have no
+        /// number concept" — before this, that combination silently produced
+        /// `nothing: true`, indistinguishable from an already-swept model.
+        /// Mutators.RenameElements turns this into the wire-facing `warning`
+        /// string (it knows the caller's `category` and raw `field` text; this
+        /// class deliberately does not import either).
+        /// </summary>
+        public bool NumberWarningNeeded;
     }
 
     public static class RenameCandidates
@@ -104,6 +119,9 @@ namespace BinaVibe.Mcp.Tools
 
             bool wantName = field == RenameField.Name || field == RenameField.Both;
             bool wantNumber = field == RenameField.Number || field == RenameField.Both;
+
+            plan.NumberWarningNeeded = wantNumber
+                && list.All(t => string.IsNullOrEmpty(t.CurrentNumber));
 
             // Occupancy per (uniqueness scope, field), so a collision is judged
             // the way Revit judges it. Scope alone is not enough: Name and

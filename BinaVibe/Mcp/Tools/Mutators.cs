@@ -2709,6 +2709,12 @@ namespace BinaVibe.Mcp.Tools
         /// transaction. A find/replace across a project browser is wide and
         /// awkward to undo by hand, so the agent can show the diff and let the
         /// drafter confirm first.
+        ///
+        /// ``field: "number"`` only touches Sheets (ViewSheet.SheetNumber). Every
+        /// other category has no number concept, so a `field="number"`/`"both"`
+        /// call against them (or a Sheets sweep matching zero sheets) comes back
+        /// with a `warning` key naming the category, instead of a `nothing: true`
+        /// that reads identically to an already-swept model.
         /// </summary>
         public static Dictionary<string, object?> RenameElements(Document doc, JsonElement args)
         {
@@ -2782,6 +2788,22 @@ namespace BinaVibe.Mcp.Tools
             if (plan.Error != null)
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = plan.Error };
 
+            // Spec §5: field="number" is "ignored with a warning for categories
+            // that have no number concept" — only Sheets carry SheetNumber, so a
+            // field="number"/"both" call against anything else (or a Sheets sweep
+            // that matched none) has literally nothing to touch, and the response
+            // used to look identical to an already-swept model ({nothing: true},
+            // "0 name(s) would change"). A JKR version bump is 3+ chained calls
+            // across category/field combinations, so one wrong combination must
+            // say so, not read as "nothing to do". The bool itself is decided in
+            // RenameCandidates.Build (testable on plain DTOs); this class only
+            // knows category/fieldArg to word the message.
+            string numberWarning = plan.NumberWarningNeeded
+                ? $"field=\"{fieldArg}\" requested but no target in category "
+                  + $"'{category}' carries a number — only Sheets have a "
+                  + "SheetNumber. This field is ignored for every other category."
+                : null;
+
             // byId is needed both to un-collide sheet names below and, later, to
             // find the live Element behind a candidate when applying.
             var byId = targets.ToDictionary(e => (long)e.Id.Value, e => e);
@@ -2852,7 +2874,7 @@ namespace BinaVibe.Mcp.Tools
 
                 var fileRows = FilesNeedingRename(doc, find, replace, mode, previewRx);
 
-                return new Dictionary<string, object?>
+                var dryRunResult = new Dictionary<string, object?>
                 {
                     ["ok"] = true, ["dry_run"] = true, ["scope"] = scope,
                     ["field"] = fieldArg, ["mode"] = modeArg,
@@ -2867,6 +2889,8 @@ namespace BinaVibe.Mcp.Tools
                     ["param_occurrences"] = paramHits,
                     ["files_needing_rename"] = fileRows,
                 };
+                if (numberWarning != null) dryRunResult["warning"] = numberWarning;
+                return dryRunResult;
             }
 
             int renamed = 0, matched = 0; var examples = new List<object>();
@@ -2896,7 +2920,7 @@ namespace BinaVibe.Mcp.Tools
             }
             catch { tx.RollBack(); throw; }
 
-            return new Dictionary<string, object?>
+            var applyResult = new Dictionary<string, object?>
             {
                 ["ok"] = true,
                 ["scope"] = scope,
@@ -2913,6 +2937,8 @@ namespace BinaVibe.Mcp.Tools
                                 ? ", " + plan.WouldCollide + " blocked by an existing name"
                                 : ""),
             };
+            if (numberWarning != null) applyResult["warning"] = numberWarning;
+            return applyResult;
         }
 
         // Which project-browser node an element belongs to — so a preview can say
