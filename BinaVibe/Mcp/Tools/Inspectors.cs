@@ -98,22 +98,59 @@ namespace BinaVibe.Mcp.Tools
                     || (fn != null && fn.IndexOf(nameContains, System.StringComparison.OrdinalIgnoreCase) >= 0);
             }
 
-            var types = q
-                .Where(NameHit)
-                .Take(500)
-                .Select(t => new Dictionary<string, object?>
+            // Count BEFORE the cap. A silent .Take(500) makes a partial sweep
+            // read identically to a clean model — 500 of 900 types audited
+            // looks exactly like 500 compliant types to the caller.
+            var matching = q.Where(NameHit).ToList();
+            int totalMatching = matching.Count;
+            const int CAP = 500;
+            bool truncated = totalMatching > CAP;
+
+            var wantParams = new List<string>();
+            if (args.TryGetProperty("param_names", out var pnames)
+                && pnames.ValueKind == JsonValueKind.Array)
+                foreach (var p in pnames.EnumerateArray())
                 {
-                    ["id"] = t.Id.Value,
-                    ["name"] = t.Name,
-                    ["family_name"] = (t as ElementType)?.FamilyName,
-                    ["instances"] = counts.TryGetValue(t.Id.Value, out var c) ? c : 0,
+                    var s = p.GetString();
+                    if (!string.IsNullOrWhiteSpace(s)) wantParams.Add(s);
+                }
+
+            var types = matching
+                .Take(CAP)
+                .Select(t =>
+                {
+                    var row = new Dictionary<string, object?>
+                    {
+                        ["id"] = t.Id.Value,
+                        ["name"] = t.Name,
+                        ["family_name"] = (t as ElementType)?.FamilyName,
+                        ["instances"] = counts.TryGetValue(t.Id.Value, out var c) ? c : 0,
+                    };
+                    if (wantParams.Count > 0)
+                    {
+                        // Type-level values, for a name-vs-parameter cross-check.
+                        // SafeParamValue is the existing serializer — reusing it
+                        // keeps one storage-type switch in this file.
+                        var pv = new Dictionary<string, object?>();
+                        foreach (var want in wantParams)
+                        {
+                            Parameter p = null;
+                            try { p = t.LookupParameter(want); } catch { }
+                            pv[want] = p == null ? null : SafeParamValue(p);
+                        }
+                        row["parameters"] = pv;
+                    }
+                    return row;
                 })
                 .ToList<object>();
+
             return new Dictionary<string, object?>
             {
                 ["category"] = category,
                 ["name_contains"] = nameContains,
                 ["types"] = types,
+                ["total"] = totalMatching,
+                ["truncated"] = truncated,
                 ["total_instances_in_category"] = totalInstances,
             };
         }
