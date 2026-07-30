@@ -2717,6 +2717,14 @@ namespace BinaVibe.Mcp.Tools
             string scope = (ArgsHelp.GetString(args, "scope") ?? "auto").ToLowerInvariant();
             bool dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
 
+            string fieldArg = (ArgsHelp.GetString(args, "field") ?? "name").ToLowerInvariant();
+            string modeArg = (ArgsHelp.GetString(args, "mode") ?? "literal").ToLowerInvariant();
+
+            var field = fieldArg == "number" ? RenameField.Number
+                      : fieldArg == "both" ? RenameField.Both
+                      : RenameField.Name;
+            var mode = modeArg == "regex" ? RenameMode.Regex : RenameMode.Literal;
+
             var lc = category.ToLowerInvariant();
             List<Element> targets;
             if (lc == "views" || lc == "view")
@@ -2756,60 +2764,105 @@ namespace BinaVibe.Mcp.Tools
             else
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
 
+            // Project Revit elements into plain DTOs and plan once. Both the
+            // preview and the apply loop read that ONE plan — they used to
+            // derive names independently, which is how a preview promising 40
+            // renames landed 12.
+            var dtos = targets.Select(e => new RenameTarget
+            {
+                Id = e.Id.Value,
+                Kind = KindOf(e),
+                CurrentName = e.Name ?? "",
+                CurrentNumber = (e as ViewSheet)?.SheetNumber ?? "",
+                UniquenessScope = ScopeOf(e),
+            }).ToList();
+
+            var plan = RenameCandidates.Build(dtos, find, replace, field, mode);
+            if (plan.Error != null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = plan.Error };
+
             // Preview without a transaction. Reported as would_rename, never
             // renamed, so a caller cannot mistake a preview for a completed edit.
             if (dryRun)
             {
-                var preview = new List<object>();
-                int would = 0;
-                foreach (var e in targets)
-                {
-                    var nm0 = e.Name;
-                    if (string.IsNullOrEmpty(nm0) || !nm0.Contains(find)) continue;
-                    var nn0 = nm0.Replace(find, replace);
-                    if (nn0 == nm0 || string.IsNullOrWhiteSpace(nn0)) continue;
-                    would++;
-                    if (preview.Count < 25) preview.Add(new Dictionary<string, object?>
-                    { ["id"] = e.Id.Value, ["from"] = nm0, ["to"] = nn0, ["kind"] = KindOf(e) });
-                }
+                var preview = plan.Candidates
+                    .Where(c => !c.Collides).Take(25)
+                    .Select(c => (object)new Dictionary<string, object?>
+                    {
+                        ["id"] = c.Id, ["from"] = c.From, ["to"] = c.To,
+                        ["kind"] = c.Kind, ["field"] = c.Field,
+                    }).ToList();
+
+                // Collisions ride in their own list, never mixed into preview.
+                // A drafter approving "40 renames" must not be approving 12.
+                var collisions = plan.Candidates
+                    .Where(c => c.Collides).Take(25)
+                    .Select(c => (object)new Dictionary<string, object?>
+                    {
+                        ["id"] = c.Id, ["from"] = c.From, ["to"] = c.To,
+                        ["kind"] = c.Kind, ["field"] = c.Field,
+                        ["collides_with"] = c.CollidesWith,
+                    }).ToList();
+
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true, ["dry_run"] = true, ["scope"] = scope,
-                    ["would_rename"] = would, ["preview"] = preview,
-                    ["nothing"] = would == 0,
-                    ["headline"] = would + " name(s) would change (nothing renamed yet)",
+                    ["field"] = fieldArg, ["mode"] = modeArg,
+                    ["would_rename"] = plan.WouldRename,
+                    ["would_collide"] = plan.WouldCollide,
+                    ["preview"] = preview,
+                    ["collisions"] = collisions,
+                    ["nothing"] = plan.WouldRename == 0,
+                    ["headline"] = plan.WouldRename + " name(s) would change, "
+                                 + plan.WouldCollide + " blocked by an existing name"
+                                 + " (nothing renamed yet)",
                 };
             }
 
             int renamed = 0, matched = 0; var examples = new List<object>();
+            var byId = targets.ToDictionary(e => (long)e.Id.Value, e => e);
             using var tx = new Transaction(doc, "BinaVibe: rename_elements");
             TxGuard.StartSwallowing(tx);
             try
             {
-                foreach (var e in targets)
+                // Collisions are skipped deliberately, not discovered here. The
+                // per-element catch stays as a backstop for anything Revit
+                // refuses for a reason the planner cannot see (read-only names),
+                // but it is no longer the first place a duplicate surfaces.
+                foreach (var c in plan.Candidates)
                 {
-                    var name = e.Name;
-                    if (string.IsNullOrEmpty(name) || !name.Contains(find)) continue;
-                    var nn = name.Replace(find, replace);
-                    if (nn == name || string.IsNullOrWhiteSpace(nn)) continue;
+                    if (c.Collides) continue;
+                    if (!byId.TryGetValue(c.Id, out var e)) continue;
                     matched++;
-                    try { e.Name = nn; renamed++; if (examples.Count < 8) examples.Add(name + " → " + nn); } catch { /* dup / read-only */ }
+                    try
+                    {
+                        if (c.Field == "number" && e is ViewSheet vs) vs.SheetNumber = c.To;
+                        else e.Name = c.To;
+                        renamed++;
+                        if (examples.Count < 8) examples.Add(c.From + " -> " + c.To);
+                    }
+                    catch { /* read-only, or a duplicate the planner could not see */ }
                 }
                 tx.Commit();
             }
             catch { tx.RollBack(); throw; }
+
             return new Dictionary<string, object?>
             {
                 ["ok"] = true,
                 ["scope"] = scope,
+                ["field"] = fieldArg,
+                ["mode"] = modeArg,
                 ["renamed"] = renamed,
                 ["matched"] = matched,
-                // A duplicate or read-only name throws per element and is skipped;
-                // reporting the count stops "renamed 3" reading as "all 40 done".
                 ["skipped"] = matched - renamed,
+                ["blocked_by_collision"] = plan.WouldCollide,
                 ["examples"] = examples,
                 ["nothing"] = renamed == 0,
-                ["headline"] = renamed + " of " + matched + " renamed (" + scope + ")",
+                ["headline"] = renamed + " of " + matched + " renamed (" + scope + ")"
+                             + (plan.WouldCollide > 0
+                                ? ", " + plan.WouldCollide + " blocked by an existing name"
+                                : ""),
             };
         }
 
@@ -2817,6 +2870,19 @@ namespace BinaVibe.Mcp.Tools
         // whether a row is a family, a type or an instance.
         private static string KindOf(Element e) =>
             e is Family ? "family" : (e is ElementType ? "type" : "instance");
+
+        // Which namespace a value must be unique within. Revit's rules are not
+        // global: sheet numbers and family names are document-wide, but a type
+        // name only has to be unique inside its own family. Scoping this wrong
+        // in either direction is a bug — too broad reports collisions that are
+        // not real, too narrow lets a real one through to a silent skip.
+        private static string ScopeOf(Element e)
+        {
+            if (e is ViewSheet) return "sheet_number";
+            if (e is Family) return "family";
+            if (e is ElementType et) return "type:" + (et.FamilyName ?? "");
+            return "element:" + (e.Category?.Name ?? "");
+        }
 
         // ─── color_by_parameter ─────────────────────────────────────────
         public static Dictionary<string, object?> ColorByParameter(Document doc, JsonElement args)
