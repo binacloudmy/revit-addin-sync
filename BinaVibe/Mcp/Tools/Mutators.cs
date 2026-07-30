@@ -2839,14 +2839,17 @@ namespace BinaVibe.Mcp.Tools
                 // Param occurrences are scoped to the elements the plan actually
                 // matched (not every target collected above), and files_needing_rename
                 // is derived from that same find/replace/mode — see the two helpers
-                // below ScopeOf for the reasoning.
-                var matchedIds = new HashSet<long>(plan.Candidates.Select(c => c.Id));
-                var paramHits = ParamOccurrences(
-                    targets.Where(e => matchedIds.Contains(e.Id.Value)), find);
-
+                // below ScopeOf for the reasoning. Compiled once here and shared by
+                // both helpers so regex mode is honoured consistently and "find" is
+                // never re-compiled twice for one preview.
                 Regex previewRx = null;
                 if (mode == RenameMode.Regex)
                     try { previewRx = new Regex(find); } catch { }
+
+                var matchedIds = new HashSet<long>(plan.Candidates.Select(c => c.Id));
+                var paramHits = ParamOccurrences(
+                    targets.Where(e => matchedIds.Contains(e.Id.Value)), find, mode, previewRx);
+
                 var fileRows = FilesNeedingRename(doc, find, replace, mode, previewRx);
 
                 return new Dictionary<string, object?>
@@ -2978,10 +2981,26 @@ namespace BinaVibe.Mcp.Tools
         //
         // Scanned set is deliberately narrow: string parameters on the elements
         // ALREADY matched. A document-wide parameter sweep is an unbounded read.
+        //
+        // Match test must agree with `mode`, same as FilesNeedingRename below —
+        // in regex mode `find` is a pattern (e.g. "^jkrAR18" or "jkrAR(\d+)"),
+        // and a parameter value essentially never literally contains that
+        // pattern's source text, so a plain Contains() here would silently come
+        // back empty in exactly the multi-code sweep where stale parameters are
+        // most likely. `rx` is the caller's already-compiled regex (built once,
+        // shared with FilesNeedingRename) so an invalid pattern still cannot
+        // throw out of the dry run — it just yields no hits, same as a null rx
+        // does for the file-rename suggestions.
+        //
+        // `count` and `sample_ids` are deliberately separate: sample_ids is
+        // capped at 5 for payload size, but count must reflect every matched
+        // element or a parameter stale on 50 elements would misreport as 5 —
+        // understating the scale of the mismatch by an order of magnitude and,
+        // worse, looking like a minor, safely-ignorable finding.
         private static List<object> ParamOccurrences(
-            IEnumerable<Element> matched, string find)
+            IEnumerable<Element> matched, string find, RenameMode mode, Regex rx)
         {
-            var hits = new Dictionary<string, List<long>>();
+            var hits = new Dictionary<string, (int Count, List<long> Ids)>();
             foreach (var e in matched)
             {
                 foreach (Parameter p in e.Parameters)
@@ -2989,17 +3008,23 @@ namespace BinaVibe.Mcp.Tools
                     if (p.StorageType != StorageType.String) continue;
                     string v;
                     try { v = p.AsString(); } catch { continue; }
-                    if (string.IsNullOrEmpty(v) || !v.Contains(find)) continue;
+                    if (string.IsNullOrEmpty(v)) continue;
+                    bool isHit = mode == RenameMode.Regex
+                        ? (rx != null && rx.IsMatch(v))
+                        : v.Contains(find);
+                    if (!isHit) continue;
                     var key = p.Definition?.Name ?? "(unnamed)";
-                    if (!hits.TryGetValue(key, out var ids)) hits[key] = ids = new List<long>();
-                    if (ids.Count < 5) ids.Add(e.Id.Value);
+                    if (!hits.TryGetValue(key, out var entry)) entry = (0, new List<long>());
+                    entry.Count++;
+                    if (entry.Ids.Count < 5) entry.Ids.Add(e.Id.Value);
+                    hits[key] = entry;
                 }
             }
             return hits.Select(kv => (object)new Dictionary<string, object?>
             {
                 ["parameter"] = kv.Key,
                 ["count"] = kv.Value.Count,
-                ["sample_ids"] = kv.Value,
+                ["sample_ids"] = kv.Value.Ids,
             }).ToList();
         }
 
