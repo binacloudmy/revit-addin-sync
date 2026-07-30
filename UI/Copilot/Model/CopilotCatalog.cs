@@ -193,20 +193,35 @@ tx.Commit();",
                 Desc = "Do type parameters match what the name claims — reports both sides",
                 Icon = "filter", TileBg = "#dbeafe", TileFg = "#1d4ed8", Category = "clean",
                 Plan = new List<string> {
-                    "Harvest every type's Bahan_jkr_stt / Bidang_Kejuruteraan_jkr_stt via list_family_types",
-                    "Parse each type name and diff its material code, discipline and category claims against those values",
+                    "Harvest the category's types via list_family_types(category, param_names: Bahan_jkr_stt / Bahan_jkr_stm / Bidang_Kejuruteraan_jkr_stt)",
+                    "Pass that harvest straight into audit_jkr_type_integrity — pure analysis, no second model round-trip",
+                    "Parse each type name and diff its material code, discipline and category claims against the harvested values",
                     "Report both sides on every mismatch — nothing is renamed or re-parametrised automatically",
                 },
-                Code = @"// audit_jkr_type_integrity(category: ""Walls"")   // or ""all"" to sweep every category
+                Code = @"// Two calls, in order — the harvest and the analysis are separate tools:
 //
-// For each type:
-//   - name's material code vs Bahan_jkr_stt / Bahan_jkr_stm
-//   - name's discipline vs Bidang_Kejuruteraan_jkr_stt
-//   - name's category prefix vs the real Revit category
+// (1) list_family_types(
+//       category:    ""Walls"",
+//       param_names: [""Bahan_jkr_stt"", ""Bahan_jkr_stm"", ""Bidang_Kejuruteraan_jkr_stt""]
+//     )
+//     -> { types, truncated, total }
+//
+// (2) audit_jkr_type_integrity(
+//       category:  ""Walls"",
+//       types:     <(1)'s types>,
+//       truncated: <(1)'s truncated>,
+//       total:     <(1)'s total>
+//     )
+//
+// For each type: name's material code vs Bahan_jkr_stt / Bahan_jkr_stm,
+// name's discipline vs Bidang_Kejuruteraan_jkr_stt, name's category prefix
+// vs the real Revit category.
 //
 // Every mismatch carries BOTH candidate fixes (rename vs re-parametrise) —
 // report-only, nothing is auto-applied. truncated:true means the sweep was
-// capped; say so rather than presenting a partial list as the whole category.",
+// capped; say so rather than presenting a partial list as the whole category.
+// One category per run — skipping step (1), or omitting the param_names,
+// silently hands step (2) an empty/parameter-blind list.",
                 Result = v => new ResultModel { Kind = CpResultKind.Issues, Headline = "5", Unit = "type mismatches",
                     Items = new List<IssueItem> {
                         new IssueItem("jkrAR_wll-b_(bb02) Batu Bata", "Bahan_jkr_stt reads (ce01) Simen"),
