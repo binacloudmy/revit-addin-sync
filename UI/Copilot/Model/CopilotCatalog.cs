@@ -154,17 +154,24 @@ tx.Commit();",
                     "Sweep across all sheets, families and types in the document",
                     "Collision reports are generated separately — those elements are not updated",
                 },
-                Code = @"using var tx = new Transaction(doc, ""Bump JKR version"");
-tx.Start();
-var elements = new FilteredElementCollector(doc)
-  .WhereElementIsNotElementType();
+                Code = @"// rename_elements tool with anchored field matching
+// Arguments:
+//   field: ""both""       // sheet numbers + names
+//   mode: ""regex""      // anchored pattern: jkrAR18 only
+//   scope: ""auto""      // families, types, instances
+//   dry_run: true      // preview before applying
 
-foreach (var el in elements) {
-  if (el.Name.Contains(""jkrAR18"")) {
-    el.Name = el.Name.Replace(""jkrAR18"", ""jkrAR25"");
-  }
-}
-tx.Commit();",
+// Collects and renames across:
+// - Sheet names and sheet numbers (A01_jkrAR18 → A01_jkrAR25)
+// - Families (jkrAR18_door in project browser)
+// - Family types (each symbol under it)
+// - All instances (automatically updated with families/types)
+
+// Example dry-run result:
+// 23 would rename
+// 2 blocked by existing name (collision)
+//
+// Then run with dry_run: false to apply confirmed changes.",
                 Result = v => new ResultModel { Kind = CpResultKind.List, Headline = "23 elements renamed",
                     Diffs = new List<DiffItem> {
                         new DiffItem("jkrAR18_Foundation_Wall", "jkrAR25_Foundation_Wall"),
