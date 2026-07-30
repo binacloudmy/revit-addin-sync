@@ -19,6 +19,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.UI;
@@ -2835,6 +2836,19 @@ namespace BinaVibe.Mcp.Tools
                         ["collides_with"] = c.CollidesWith,
                     }).ToList();
 
+                // Param occurrences are scoped to the elements the plan actually
+                // matched (not every target collected above), and files_needing_rename
+                // is derived from that same find/replace/mode — see the two helpers
+                // below ScopeOf for the reasoning.
+                var matchedIds = new HashSet<long>(plan.Candidates.Select(c => c.Id));
+                var paramHits = ParamOccurrences(
+                    targets.Where(e => matchedIds.Contains(e.Id.Value)), find);
+
+                Regex previewRx = null;
+                if (mode == RenameMode.Regex)
+                    try { previewRx = new Regex(find); } catch { }
+                var fileRows = FilesNeedingRename(doc, find, replace, mode, previewRx);
+
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true, ["dry_run"] = true, ["scope"] = scope,
@@ -2847,6 +2861,8 @@ namespace BinaVibe.Mcp.Tools
                     ["headline"] = plan.WouldRename + " name(s) would change, "
                                  + plan.WouldCollide + " blocked by an existing name"
                                  + " (nothing renamed yet)",
+                    ["param_occurrences"] = paramHits,
+                    ["files_needing_rename"] = fileRows,
                 };
             }
 
@@ -2951,6 +2967,96 @@ namespace BinaVibe.Mcp.Tools
             if (e is Grid) return "element:Grid";
             if (e is View) return "element:View";
             return "free:" + e.Id.Value;
+        }
+
+        // Where else the find string lives. A rename writes Element.Name only,
+        // so a jkrAR18 -> jkrAR25 sweep leaves every parameter still reading
+        // jkrAR18 — manufacturing precisely the name-vs-parameter mismatch the
+        // JKR type integrity audit exists to find. Reported, never written:
+        // set_parameter_where is the tool for that, and mixing a parameter write
+        // into a rename would put two different edits behind one approval.
+        //
+        // Scanned set is deliberately narrow: string parameters on the elements
+        // ALREADY matched. A document-wide parameter sweep is an unbounded read.
+        private static List<object> ParamOccurrences(
+            IEnumerable<Element> matched, string find)
+        {
+            var hits = new Dictionary<string, List<long>>();
+            foreach (var e in matched)
+            {
+                foreach (Parameter p in e.Parameters)
+                {
+                    if (p.StorageType != StorageType.String) continue;
+                    string v;
+                    try { v = p.AsString(); } catch { continue; }
+                    if (string.IsNullOrEmpty(v) || !v.Contains(find)) continue;
+                    var key = p.Definition?.Name ?? "(unnamed)";
+                    if (!hits.TryGetValue(key, out var ids)) hits[key] = ids = new List<long>();
+                    if (ids.Count < 5) ids.Add(e.Id.Value);
+                }
+            }
+            return hits.Select(kv => (object)new Dictionary<string, object?>
+            {
+                ["parameter"] = kv.Key,
+                ["count"] = kv.Value.Count,
+                ["sample_ids"] = kv.Value,
+            }).ToList();
+        }
+
+        // On-disk names that need the same edit. REPORTED ONLY — no SaveAs, no
+        // filesystem write. A filesystem rename is not in the undo stack:
+        // renaming a host .rvt breaks every consuming model's link path and
+        // orphans the old file, and Ctrl+Z cannot recover it. Everything this
+        // tool writes stays inside one Transaction, so one undo reverts the
+        // whole sweep. The drafter renames these few files by hand.
+        private static List<object> FilesNeedingRename(
+            Document doc, string find, string replace, RenameMode mode, Regex rx)
+        {
+            var rows = new List<object>();
+
+            string Suggest(string current)
+            {
+                if (string.IsNullOrEmpty(current)) return null;
+                var next = mode == RenameMode.Regex
+                    ? (rx != null && rx.IsMatch(current) ? rx.Replace(current, replace) : null)
+                    : (current.Contains(find) ? current.Replace(find, replace) : null);
+                return next == current ? null : next;
+            }
+
+            void Add(string kind, string path)
+            {
+                if (string.IsNullOrEmpty(path)) return;
+                var name = System.IO.Path.GetFileName(path);
+                var suggested = Suggest(name);
+                if (suggested == null) return;
+                rows.Add(new Dictionary<string, object?>
+                {
+                    ["kind"] = kind,
+                    ["current_path"] = path,
+                    ["suggested_name"] = suggested,
+                    ["note"] = "Revit cannot rename this file itself — rename it outside Revit.",
+                });
+            }
+
+            try { Add("host", doc.PathName); } catch { }
+
+            try
+            {
+                foreach (var lt in new FilteredElementCollector(doc)
+                             .OfClass(typeof(RevitLinkType)).Cast<RevitLinkType>())
+                {
+                    try
+                    {
+                        var r = lt.GetExternalFileReference();
+                        if (r == null) continue;
+                        Add("link", ModelPathUtils.ConvertModelPathToUserVisiblePath(r.GetPath()));
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+
+            return rows;
         }
 
         // ─── color_by_parameter ─────────────────────────────────────────
