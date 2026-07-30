@@ -188,6 +188,33 @@ tx.Commit();",
                     } },
             },
             new ToolDef {
+                Id = "jkr-naming-check", BackendName = "audit_jkr_type_integrity", Tier = 2,
+                Title = "Check JKR type naming",
+                Desc = "Do type parameters match what the name claims — reports both sides",
+                Icon = "filter", TileBg = "#dbeafe", TileFg = "#1d4ed8", Category = "clean",
+                Plan = new List<string> {
+                    "Harvest every type's Bahan_jkr_stt / Bidang_Kejuruteraan_jkr_stt via list_family_types",
+                    "Parse each type name and diff its material code, discipline and category claims against those values",
+                    "Report both sides on every mismatch — nothing is renamed or re-parametrised automatically",
+                },
+                Code = @"// audit_jkr_type_integrity(category: ""Walls"")   // or ""all"" to sweep every category
+//
+// For each type:
+//   - name's material code vs Bahan_jkr_stt / Bahan_jkr_stm
+//   - name's discipline vs Bidang_Kejuruteraan_jkr_stt
+//   - name's category prefix vs the real Revit category
+//
+// Every mismatch carries BOTH candidate fixes (rename vs re-parametrise) —
+// report-only, nothing is auto-applied. truncated:true means the sweep was
+// capped; say so rather than presenting a partial list as the whole category.",
+                Result = v => new ResultModel { Kind = CpResultKind.Issues, Headline = "5", Unit = "type mismatches",
+                    Items = new List<IssueItem> {
+                        new IssueItem("jkrAR_wll-b_(bb02) Batu Bata", "Bahan_jkr_stt reads (ce01) Simen"),
+                        new IssueItem("jkrST_wll-b_(bb02) Batu Bata", "Bidang_Kejuruteraan_jkr_stt reads Arkitek"),
+                        new IssueItem("jkrAR_dor-k_(bb02) Batu Bata", "category prefix expects dor, name carries dor under Walls"),
+                    } },
+            },
+            new ToolDef {
                 Id = "count-doors", BackendName = "code", Tier = 2,
                 Title = "Count doors by level",
                 Desc = "Group doors by level and return totals",
@@ -408,7 +435,7 @@ return rooms.Where(r => {
 
         public static readonly List<CategoryDef> Categories = new List<CategoryDef>
         {
-            new CategoryDef("all", "All", 16),
+            new CategoryDef("all", "All", 17),
             new CategoryDef("query", "Query", 1),
             new CategoryDef("modify", "Modify", 2),
             new CategoryDef("select", "Select", 1),
@@ -416,7 +443,7 @@ return rooms.Where(r => {
             new CategoryDef("annotate", "Annotate", 1),
             new CategoryDef("nav", "Navigation", 1),
             new CategoryDef("excel", "Excel I/O", 1),
-            new CategoryDef("clean", "Cleanup", 4),
+            new CategoryDef("clean", "Cleanup", 5),
             new CategoryDef("compliance", "Compliance", 2),
         };
 

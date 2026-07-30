@@ -7,11 +7,11 @@ namespace Tests
     public class CopilotCatalogTests
     {
         [Fact]
-        public void Catalog_has_5_vetted_and_11_ai()
+        public void Catalog_has_5_vetted_and_12_ai()
         {
             Assert.Equal(5, CopilotCatalog.Vetted.Count);
-            Assert.Equal(11, CopilotCatalog.Ai.Count);
-            Assert.Equal(16, CopilotCatalog.All.Count());
+            Assert.Equal(12, CopilotCatalog.Ai.Count);
+            Assert.Equal(17, CopilotCatalog.All.Count());
         }
 
         [Fact]

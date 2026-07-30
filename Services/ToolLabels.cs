@@ -39,6 +39,8 @@ namespace RevitWebAppSync.Services
             ["analyze_model_statistics"]   = "Analyzing model statistics",
             ["get_material_quantities"]    = "Reading material quantities",
             ["get_model_warnings"]         = "Checking model warnings",
+            ["audit_jkr_type_integrity"]   = "Checking JKR type naming",
+            ["ask_jkr_standard"]           = "Reading JKR standards",
             ["list_view_filters"]          = "Reading view filters",
             ["open_view"]                  = "Opening the view",
             ["select_elements"]            = "Selecting elements",
