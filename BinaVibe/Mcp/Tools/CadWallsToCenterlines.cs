@@ -13,11 +13,15 @@ namespace BinaVibe.Mcp.Tools
     /// Reuses extract_cad_geometry verbatim for the geometry read (same import
     /// selection, same layer filter, same *_ft segment shape), then runs the pure
     /// CadCenterlineSolver: parallel-pair the two faces of each wall, take the
-    /// midline, snap corners. Returns proposed create_wall args — creation stays a
-    /// separate mutate step so the Ya/Tidak gate and idempotency keys are unchanged.
+    /// midline, snap corners.
     ///
-    /// Read-only (no Transaction). v1 = straight walls only (arcs never reach
-    /// CadExtract's `segments`).
+    /// Two modes on one tool (one Ya/Tidak gate either way):
+    ///   - create=false (default) → returns proposed create_wall args, no Transaction.
+    ///   - create=true → builds every accepted wall itself in ONE Transaction and
+    ///     returns a summary. This is the anti-loop path: the model sets a type rule
+    ///     once instead of issuing hundreds of per-wall create_wall calls.
+    ///
+    /// v1 = straight walls only (arcs never reach CadExtract's `segments`).
     /// </summary>
     internal static class CadWallsToCenterlines
     {
@@ -49,13 +53,22 @@ namespace BinaVibe.Mcp.Tools
 
                 var solved = CadCenterlineSolver.Solve(segs, opt);
 
-                // 2. Emit exact create_wall args. Convert feet -> mm HERE, once.
                 string level = ArgsHelp.GetString(args, "level")
                     ?? (ext.TryGetValue("import_level", out var lv) ? lv as string : null)
                     ?? "";
                 double? heightMm = ArgsHelp.GetDouble(args, "height_mm");
                 string? typeName = ArgsHelp.GetString(args, "type_name");
+                string? layerFilter = ArgsHelp.GetString(args, "layer_filter");
 
+                // 2a. CREATE MODE — build the walls here in one gated transaction.
+                if (ArgsHelp.GetBool(args, "create") == true)
+                    return CreateWalls(uidoc.Document, solved, ext, level, heightMm, typeName,
+                        ParseBands(args),
+                        ArgsHelp.GetDouble(args, "create_min_thickness_mm"),
+                        ArgsHelp.GetDouble(args, "create_max_thickness_mm"),
+                        layerFilter);
+
+                // 2b. PROPOSAL MODE — emit exact create_wall args. Convert feet -> mm HERE.
                 var proposed = solved.Walls.Select(c =>
                 {
                     var wall = new Dictionary<string, object?>
@@ -93,6 +106,118 @@ namespace BinaVibe.Mcp.Tools
             // No segments key (e.g. name-filter miss listing imports_present) — pass through.
             return ext;
         }
+
+        // Create every accepted wall in ONE transaction. Coords are used directly in
+        // FEET from the solver (no mm round-trip). Per-wall try/catch so one bad wall
+        // (degenerate/rejected by Revit) doesn't roll back the whole batch.
+        private static Dictionary<string, object?> CreateWalls(
+            Document doc, SolveResult solved, Dictionary<string, object?> ext,
+            string level, double? heightMm, string? typeName, List<ThicknessBand> bands,
+            double? createMinMm, double? createMaxMm, string? layerFilter)
+        {
+            var levelEl = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .FirstOrDefault(l => string.Equals(l.Name, level, StringComparison.OrdinalIgnoreCase));
+            if (levelEl == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"level '{level}' not found" };
+
+            double heightFt = (heightMm ?? 3000.0) / MmPerFoot;
+
+            var typeCache = new Dictionary<string, WallType?>(StringComparer.OrdinalIgnoreCase);
+            WallType? ResolveType(string? name)
+            {
+                if (string.IsNullOrEmpty(name)) return null;
+                if (typeCache.TryGetValue(name, out var cached)) return cached;
+                var wt = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
+                    .FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+                typeCache[name] = wt;
+                return wt;
+            }
+
+            int created = 0, skippedWindow = 0, skippedNoType = 0, skippedDegenerate = 0, failed = 0;
+            string? firstError = null;
+            var byType = new Dictionary<string, int>();
+
+            using var tx = new Transaction(doc, "BinaVibe: cad_walls_to_centerlines");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var c in solved.Walls)
+                {
+                    double th = c.ThicknessFt * MmPerFoot;
+                    if (!CadWallBanding.InWindow(th, createMinMm, createMaxMm)) { skippedWindow++; continue; }
+
+                    string? tName = CadWallBanding.PickType(th, bands, typeName);
+                    // band mode with no match and no fallback type → leave it for the user.
+                    if (bands.Count > 0 && tName == null) { skippedNoType++; continue; }
+
+                    // Degenerate after snapping (collapsed to a point) → Revit would throw.
+                    if (Dist(c.Ax, c.Ay, c.Bx, c.By) < 1e-3) { skippedDegenerate++; continue; }
+
+                    try
+                    {
+                        var line = Line.CreateBound(new XYZ(c.Ax, c.Ay, 0), new XYZ(c.Bx, c.By, 0));
+                        var wt = ResolveType(tName);
+                        var wall = wt != null
+                            ? Wall.Create(doc, line, wt.Id, levelEl.Id, heightFt, 0, false, false)
+                            : Wall.Create(doc, line, levelEl.Id, false);
+                        created++;
+                        var key = wt?.Name ?? "<default>";
+                        byType[key] = byType.TryGetValue(key, out var n) ? n + 1 : 1;
+                    }
+                    catch (Exception ex) { failed++; firstError ??= ex.Message; }
+                }
+                TxGuard.CommitOrThrow(tx);
+            }
+            catch (Exception) { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["created"] = true,
+                ["level"] = level,
+                ["layer_filter"] = layerFilter,
+                ["proposed_count"] = solved.Walls.Count,
+                ["created_count"] = created,
+                ["by_type"] = byType,
+                ["skipped_out_of_window"] = skippedWindow,
+                ["skipped_no_type_match"] = skippedNoType,
+                ["skipped_degenerate"] = skippedDegenerate,
+                ["failed"] = failed,
+                ["first_error"] = firstError,
+                ["unpaired_segments"] = solved.UnpairedSegments,
+                ["junctions_snapped"] = solved.JunctionsSnapped,
+                ["note"] = "walls created in one transaction. by_type shows the count per resolved "
+                    + "wall type ('<default>' = Revit default type when none resolved). Re-run with "
+                    + "create=false to preview proposed_walls without building.",
+            };
+        }
+
+        // Parse the optional thickness_to_type band map: [{min_mm, max_mm, type_name}].
+        private static List<ThicknessBand> ParseBands(JsonElement args)
+        {
+            var bands = new List<ThicknessBand>();
+            if (args.ValueKind == JsonValueKind.Object
+                && args.TryGetProperty("thickness_to_type", out var arr) && arr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var el in arr.EnumerateArray())
+                {
+                    if (el.ValueKind != JsonValueKind.Object) continue;
+                    double min = GetD(el, "min_mm") ?? 0;
+                    double max = GetD(el, "max_mm") ?? double.MaxValue;
+                    string? tn = el.TryGetProperty("type_name", out var t) && t.ValueKind == JsonValueKind.String
+                        ? t.GetString() : null;
+                    if (!string.IsNullOrEmpty(tn)) bands.Add(new ThicknessBand(min, max, tn!));
+                }
+            }
+            return bands;
+        }
+
+        private static double? GetD(JsonElement o, string key)
+            => o.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var d)
+                ? d : (double?)null;
+
+        private static double Dist(double ax, double ay, double bx, double by)
+            => Math.Sqrt((ax - bx) * (ax - bx) + (ay - by) * (ay - by));
 
         // CadExtract stored each coordinate as a boxed double (Math.Round) and layer
         // as a string. Read them back into the solver's plain-double input.

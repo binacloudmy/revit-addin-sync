@@ -91,6 +91,9 @@
          the pairing/thickness/snap logic runs here (the tool itself needs a live
          ImportInstance and cannot). -->
     <Compile Include="..\BinaVibe\Mcp\Tools\CadCenterlineSolver.cs" Link="CadCenterlineSolver.cs" />
+    <!-- CadWallBanding: pure thickness→type selection for the create mode (System
+         only, no Revit) — the Wall.Create loop that consumes it is not testable here. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\CadWallBanding.cs" Link="CadWallBanding.cs" />
     <!-- PDF attachment reading: PdfPig + System only, no Revit and no WPF, so
          the extractor and its caps are testable here. (DwgReader is not — it
          needs live Revit Document/ImportInstance objects.) -->
