@@ -151,7 +151,7 @@ tx.Commit();",
                 Plan = new List<string> {
                     "Run with dry_run mode first to preview all matches without applying changes",
                     "Match anchors to version code only (jkrAR18, jkrAR25, …) — other digits in names stay unchanged",
-                    "Sweep across all sheets, families and types in the document",
+                    "Multiple calls sweep each scope: sheets (SheetNumber and Name), all families, type names per category",
                     "Collision reports are generated separately — those elements are not updated",
                 },
                 Code = @"// Anchored version bump: two separate rename_elements calls
