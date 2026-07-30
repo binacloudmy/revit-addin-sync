@@ -2876,12 +2876,39 @@ namespace BinaVibe.Mcp.Tools
         // name only has to be unique inside its own family. Scoping this wrong
         // in either direction is a bug — too broad reports collisions that are
         // not real, too narrow lets a real one through to a silent skip.
+        //
+        // The default below is deliberately PERMISSIVE, not the reverse. Only a
+        // narrow set of element kinds have a Name that Revit's own API refuses
+        // to duplicate (the Element.Name setter throws): Levels, Grids, and
+        // every View subtype (including schedules — duplicating a view always
+        // auto-suffixes " Copy 1" to dodge this exact constraint; ViewSheet is
+        // the one View subtype excluded here because its Name is not the
+        // constrained field — SheetNumber is, handled above). Everything else
+        // reached through the generic `scope=instances` category path — Rooms,
+        // Areas, and any other placed instance — is NOT Name-constrained by
+        // Revit: several rooms named "Bilik Mesyuarat" is normal and drafters
+        // rely on it. Giving those a shared category-wide scope (as an earlier
+        // version of this method did) reported phantom collisions and silently
+        // blocked legitimate renames — exactly the "too broad" failure this
+        // comment warns about above.
+        //
+        // So: an element gets a shared, document-wide scope ONLY where that is
+        // a confirmed Revit constraint. Anything else gets its own one-member
+        // scope (keyed by element id) so it can never collide with another
+        // element. Do NOT "tighten" this back to a category-wide bucket for a
+        // new kind without first confirming, for that specific kind, that
+        // Revit's own Name setter refuses duplicates — a missed collision only
+        // surfaces as a per-element catch at apply time (safe, just noisy); a
+        // false one blocks work Revit itself would have accepted.
         private static string ScopeOf(Element e)
         {
             if (e is ViewSheet) return "sheet_number";
             if (e is Family) return "family";
             if (e is ElementType et) return "type:" + (et.FamilyName ?? "");
-            return "element:" + (e.Category?.Name ?? "");
+            if (e is Level) return "element:Level";
+            if (e is Grid) return "element:Grid";
+            if (e is View) return "element:View";
+            return "free:" + e.Id.Value;
         }
 
         // ─── color_by_parameter ─────────────────────────────────────────
