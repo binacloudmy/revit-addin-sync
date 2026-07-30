@@ -144,6 +144,12 @@ tx.Commit();",
                     } },
             },
             new ToolDef {
+                Id = "jkr-version-bump", BackendName = "rename_elements", Tier = 2,
+                Title = "Bump JKR version (jkrAR18 to jkrAR25)",
+                Desc = "Anchored sweep across sheets, families and types — preview first",
+                Icon = "filter", TileBg = "#fef3c7", TileFg = "#a16207", Category = "clean",
+            },
+            new ToolDef {
                 Id = "count-doors", BackendName = "code", Tier = 2,
                 Title = "Count doors by level",
                 Desc = "Group doors by level and return totals",
@@ -364,7 +370,7 @@ return rooms.Where(r => {
 
         public static readonly List<CategoryDef> Categories = new List<CategoryDef>
         {
-            new CategoryDef("all", "All", 14),
+            new CategoryDef("all", "All", 16),
             new CategoryDef("query", "Query", 1),
             new CategoryDef("modify", "Modify", 2),
             new CategoryDef("select", "Select", 1),
@@ -372,7 +378,7 @@ return rooms.Where(r => {
             new CategoryDef("annotate", "Annotate", 1),
             new CategoryDef("nav", "Navigation", 1),
             new CategoryDef("excel", "Excel I/O", 1),
-            new CategoryDef("clean", "Cleanup", 3),
+            new CategoryDef("clean", "Cleanup", 4),
             new CategoryDef("compliance", "Compliance", 2),
         };
 
