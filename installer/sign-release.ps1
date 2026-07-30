@@ -156,6 +156,26 @@ foreach ($k in @($installerKey, $otaKey)) {
     }
 }
 
+# PROD ONLY: the GitHub bridge must be possible BEFORE the signed build runs.
+# Every installed 0.0.29 has github.com/.../releases/latest/download/version.json
+# baked in and polls nothing else — a prod release that reaches TM One but not
+# GitHub is invisible to the entire fleet, with no error anywhere: their update
+# check keeps succeeding against a release that never changes. So a prod tag
+# publishes to BOTH, and the GitHub half is validated here, where failing costs
+# a second instead of a SimplySign session. (Staging has no GitHub half: the
+# staging fleet polls the staging backend directly.)
+if (-not $isStaging) {
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+        throw "gh CLI not on PATH — needed to publish the GitHub bridge release. winget install GitHub.cli, then: gh auth login"
+    }
+    gh auth status *> $null
+    if ($LASTEXITCODE -ne 0) { throw "gh is not authenticated — run: gh auth login" }
+    gh release view "v$version" *> $null
+    if ($LASTEXITCODE -eq 0) {
+        throw "GitHub release v$version already exists — same immutability rule as the version keys. Bump the version."
+    }
+}
+
 # Full build: publishes all payload TFMs + loaders, SIGNS every addin DLL,
 # builds + signs the installer EXE and uninstaller.
 $buildArgs = @{ Version = $version; Configuration = $configuration; TimestampUrl = $TimestampUrl }
@@ -234,6 +254,40 @@ $pointerFile = Join-Path $repo 'latest.json'
 $pointer | ConvertTo-Json -Depth 5 | Set-Content $pointerFile
 Write-Host "==> Flipping latest.json pointer (go-live)..." -ForegroundColor Cyan
 S3Cp $pointerFile 'latest.json' 'application/json' 'no-cache, must-revalidate'
+
+# ─── GitHub bridge (PROD tags only) ─────────────────────────────────────────
+# The installed 0.0.29 fleet polls releases/latest/download/version.json and
+# nothing else, so a prod release must also land here — carrying the SIGNED
+# bytes (CI's old auto-release shipped unsigned DLLs; WDAC blocked them at load,
+# 0x800711C7, 2026-07-21). Once no 0.0.29 remains in telemetry this block can
+# go; new builds poll the backend, which serves TM One.
+#
+# Two names are load-bearing, not conventions:
+#   * the feed asset must be called exactly version.json — that filename is
+#     baked into every 0.0.29's UPDATE_FEED_URL;
+#   * feed keys are lowercase (version/url/sha256/notes/mandatory) — matching
+#     UpdateService.UpdateFeed's JsonProperty attributes at v0.0.29.
+# The url is the zip asset's public download URL, deterministic from tag+name,
+# so the feed can be written before the upload happens.
+if (-not $isStaging) {
+    Write-Host "==> Publishing GitHub bridge release (the URL the 0.0.29 fleet polls)..." -ForegroundColor Cyan
+    $ghZipUrl = "https://github.com/binacloudmy/revit-addin-sync/releases/download/$Tag/$zip"
+    $ghFeed = [ordered]@{
+        version   = $version
+        url       = $ghZipUrl
+        sha256    = $sha
+        notes     = "BINA Sync $version"
+        mandatory = $mandatoryFlag
+    }
+    $ghFeedFile = Join-Path $repo 'version.json'
+    $ghFeed | ConvertTo-Json -Depth 5 | Set-Content $ghFeedFile
+    gh release create $Tag $zip $setupExe $ghFeedFile `
+        --title "BINA Sync $version" `
+        --notes "Signed release. OTA payload + installer + update feed. Published to TM One and GitHub (bridge for pre-0.0.30 clients)." `
+        --verify-tag
+    if ($LASTEXITCODE -ne 0) { throw "gh release create failed — TM One IS published ($version live there); fix gh and re-run ONLY the GitHub half by hand: gh release create $Tag $zip $setupExe $ghFeedFile --verify-tag" }
+    Write-Host "  github releases/latest -> $version (fleet picks it up at next Revit launch)"
+}
 
 Write-Host ""
 Write-Host "Done — $Tag published to TM One (bucket $bucket):" -ForegroundColor Green
