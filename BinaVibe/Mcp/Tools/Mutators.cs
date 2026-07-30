@@ -2781,6 +2781,37 @@ namespace BinaVibe.Mcp.Tools
             if (plan.Error != null)
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = plan.Error };
 
+            // byId is needed both to un-collide sheet names below and, later, to
+            // find the live Element behind a candidate when applying.
+            var byId = targets.ToDictionary(e => (long)e.Id.Value, e => e);
+
+            // Revit does not require sheet NAMES to be unique — only sheet
+            // NUMBERS are document-wide unique (see ScopeOf's ViewSheet branch).
+            // RenameTarget carries a single UniquenessScope per target though,
+            // reused for both of a sheet's fields, so Build() necessarily
+            // treats a sheet's Name candidates as sharing "sheet_number"'s
+            // document-wide bucket too — correct for Number, wrong for Name.
+            // Un-collide the Name side here instead of forking RenameTarget
+            // into a genuinely per-field scope, which would mean giving Build()
+            // two targets per sheet with distinct synthetic ids (needed because
+            // its pass-2 scope lookup is keyed by Id alone) and then unwrapping
+            // that synthetic id everywhere a candidate's Id reaches the wire
+            // response — real Revit ElementIds must never leak a synthetic
+            // sibling into "id"/"collides_with". This is behaviourally
+            // equivalent to a genuinely permissive scope (each freed candidate
+            // is independently re-evaluated, so two sheets renamed to the same
+            // new title both go through, exactly as Revit allows) without that
+            // risk, and without touching RenameCandidates.cs.
+            foreach (var c in plan.Candidates)
+            {
+                if (c.Field != "name" || !c.Collides) continue;
+                if (!byId.TryGetValue(c.Id, out var el) || !(el is ViewSheet)) continue;
+                c.Collides = false;
+                c.CollidesWith = 0;
+                plan.WouldCollide--;
+                plan.WouldRename++;
+            }
+
             // Preview without a transaction. Reported as would_rename, never
             // renamed, so a caller cannot mistake a preview for a completed edit.
             if (dryRun)
@@ -2820,7 +2851,6 @@ namespace BinaVibe.Mcp.Tools
             }
 
             int renamed = 0, matched = 0; var examples = new List<object>();
-            var byId = targets.ToDictionary(e => (long)e.Id.Value, e => e);
             using var tx = new Transaction(doc, "BinaVibe: rename_elements");
             TxGuard.StartSwallowing(tx);
             try
@@ -2902,6 +2932,18 @@ namespace BinaVibe.Mcp.Tools
         // false one blocks work Revit itself would have accepted.
         private static string ScopeOf(Element e)
         {
+            // "sheet_number" is shared by BOTH of a sheet's fields, but only
+            // one of them is actually a Revit constraint: SheetNumber is
+            // document-wide unique, Name is NOT — several sheets titled
+            // "PELAN LANTAI" is ordinary practice, and Revit's API happily
+            // allows it. RenameTarget has one UniquenessScope per target, so
+            // this method cannot return something different per field; the
+            // Name side of that false document-wide bucket is corrected right
+            // after RenameCandidates.Build() runs in RenameElements (search
+            // for "does not require sheet NAMES to be unique"), not here. Do
+            // not "fix" this by inventing a different string for sheets —
+            // Number's document-wide behaviour depends on every sheet sharing
+            // this exact literal.
             if (e is ViewSheet) return "sheet_number";
             if (e is Family) return "family";
             if (e is ElementType et) return "type:" + (et.FamilyName ?? "");
