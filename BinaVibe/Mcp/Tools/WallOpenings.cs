@@ -83,8 +83,29 @@ namespace BinaVibe.Mcp.Tools
                         ["height_mm"] = heightMm,
                         ["sill_mm"] = Round(bb.Min.Z - levelElev),
                         ["head_mm"] = Round(bb.Max.Z - levelElev),
-                        // Exactly what place_door's location_mm expects, so one tool's
-                        // output feeds the next without the agent doing arithmetic.
+                        // The point place_door/place_window actually wants: centred
+                        // along the wall, but at the opening's BOTTOM, because those
+                        // tools read Z as the instance's elevation and a hosted family
+                        // sits on its sill. Correct for both cases without the caller
+                        // doing arithmetic — a door (sill 0) lands on the level, a
+                        // window (sill 900) lands 900 up.
+                        //
+                        // This field exists because the obvious-looking alternative is
+                        // wrong and was believed for a while: center_mm's Z is the
+                        // opening's MID-height, so feeding it straight to place_door
+                        // gave a 2100mm opening a door with Sill Height 1050 — fitted
+                        // perfectly, floating half an opening off the floor. Caught in
+                        // Revit 2026-07-30 only because a drafter asked why the door
+                        // was above the hole; it hides at 1:100.
+                        ["insert_mm"] = new List<object>
+                        {
+                            Round((bb.Min.X + bb.Max.X) / 2.0),
+                            Round((bb.Min.Y + bb.Max.Y) / 2.0),
+                            Round(bb.Min.Z),
+                        },
+                        // Geometric centre. Useful for reasoning about the hole itself
+                        // (which side of a wall, distance to a reference). NOT an
+                        // insertion point — see insert_mm above.
                         ["center_mm"] = new List<object>
                         {
                             Round((bb.Min.X + bb.Max.X) / 2.0),
