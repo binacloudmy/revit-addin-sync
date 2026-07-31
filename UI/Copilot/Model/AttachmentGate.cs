@@ -60,10 +60,27 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 [".log"] = AttachmentKind.Text,
                 [".json"] = AttachmentKind.Text,
                 [".xml"] = AttachmentKind.Text,
+                [".xlsx"] = AttachmentKind.Text,   // converted to CSV at attach time — see ConvertedText
                 [".dwg"] = AttachmentKind.Dwg,
                 [".dxf"] = AttachmentKind.Dwg,
                 [".pdf"] = AttachmentKind.Pdf,
             };
+
+        /// <summary>Text kinds that are not readable as text on disk and must be
+        /// CONVERTED first (XlsxText). The byte cap is deliberately NOT applied to
+        /// these: an .xlsx is a compressed ZIP, so file size says nothing useful
+        /// about how much text it becomes. The cap is enforced on the conversion
+        /// output instead.</summary>
+        private static readonly HashSet<string> _convertedText =
+            new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".xlsx" };
+
+        public static IReadOnlyCollection<string> ConvertedText => _convertedText;
+
+        public static bool NeedsConversion(string path)
+        {
+            var ext = Path.GetExtension(path);
+            return !string.IsNullOrEmpty(ext) && _convertedText.Contains(ext);
+        }
 
         /// <summary>OpenFileDialog filter, GENERATED from <see cref="Supported"/> —
         /// not hand-written. Add an extension to the map above and it appears in
@@ -114,6 +131,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
             // Binary kinds never get read here — only the path travels — so the
             // text cap is irrelevant to them.
             if (kind != AttachmentKind.Text)
+                return GateResult.Accept(kind);
+
+            // Converted kinds (.xlsx) are compressed: the file size does not
+            // predict the text size, so the cap is applied after conversion.
+            if (NeedsConversion(path))
                 return GateResult.Accept(kind);
 
             if (info.Length > maxTextBytes)
