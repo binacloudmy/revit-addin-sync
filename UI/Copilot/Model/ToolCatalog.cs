@@ -20,6 +20,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string IconKey;    // ti-*
         public string Keywords;   // search terms
 
+        /// <summary>True = handled entirely in the addin (no backend command).
+        /// The chat send path short-circuits these — see ChatSendSlashCommand.</summary>
+        public bool Local;
+
         /// <summary>bina-ai P1 command id sent to the backend as `command_id`
         /// (authoritative dispatch). Set from the id map in the static ctor;
         /// BackendId falls back to Id when they already match.</summary>
@@ -30,11 +34,24 @@ namespace RevitWebAppSync.UI.Copilot.Model
     public static class ToolCatalog
     {
         // Category order in the palette (Quick access is prepended dynamically).
-        public static readonly string[] Categories = { "General", "Architecture", "Structure", "MEP" };
+        public static readonly string[] Categories = { "Actions", "General", "Architecture", "Structure", "MEP" };
 
-        // The 20 tools, verbatim from the design file's slash catalogue.
+        // 20 tools verbatim from the design file's slash catalogue + the 9 quick
+        // commands from the 2026-07 Langfuse prod prompt mining
+        // (docs/analysis/2026-07-30-slash-command-mining-prod-july.md in bina-ai).
         public static readonly IReadOnlyList<SlashTool> All = new List<SlashTool>
         {
+            // ── Actions: generic verb commands ──
+            new SlashTool { Id="create",    Category="Actions", Name="Create",             Subtitle="Create elements from description",              Badge=ToolBadge.AiAssisted,    IconKey="ti-plus",            Keywords="create make add new build buat bina tambah letak" },
+            new SlashTool { Id="delete",    Category="Actions", Name="Delete",             Subtitle="Delete by selection / filter — preview first",  Badge=ToolBadge.Deterministic, IconKey="ti-trash",           Keywords="delete remove erase clear padam buang hapus" },
+            new SlashTool { Id="change",    Category="Actions", Name="Change",             Subtitle="Swap type / material / parameter",              Badge=ToolBadge.Deterministic, IconKey="ti-exchange",        Keywords="change swap replace type material parameter tukar ganti" },
+            new SlashTool { Id="rename",    Category="Actions", Name="Rename",             Subtitle="Bulk rename by pattern",                        Badge=ToolBadge.Deterministic, IconKey="ti-pencil",          Keywords="rename name pattern batch namakan nama semula" },
+            new SlashTool { Id="open-view", Category="Actions", Name="Open View",          Subtitle="Open view / sheet by name",                     Badge=ToolBadge.Deterministic, IconKey="ti-eye",             Keywords="open view sheet goto jump navigate buka papar", Local=true },
+            new SlashTool { Id="count",     Category="Actions", Name="Count / List",       Subtitle="Count & list model contents + loaded families", Badge=ToolBadge.Report,        IconKey="ti-sum",             Keywords="count list how many total inventory berapa kira senarai family loaded" },
+            // ── Task tools from the same mining round ──
+            new SlashTool { Id="clone",     Category="General", Name="Clone Sheet",        Subtitle="Duplicate template sheet per room / level",     Badge=ToolBadge.Deterministic, IconKey="ti-copy",            Keywords="clone duplicate sheet template copy salin" },
+            new SlashTool { Id="place",     Category="General", Name="Place at Selection", Subtitle="Place family relative to selection",            Badge=ToolBadge.AiAssisted,    IconKey="ti-map-pin",         Keywords="place put position spacing selection letak jarak bawah tepi" },
+            new SlashTool { Id="audit",     Category="General", Name="Name Audit",         Subtitle="JKR name audit → fix via /rename",              Badge=ToolBadge.Report,        IconKey="ti-clipboard-check", Keywords="audit naming standard jkr compliance check semak nama" },
             new SlashTool { Id="level-vis",    Category="General",       Name="Level Visualiser",          Subtitle="Compare levels host vs linked → .csv",         Badge=ToolBadge.Report,        IconKey="ti-git-compare",     Keywords="level elevation compare align link csv qa" },
             new SlashTool { Id="level-filter", Category="General",       Name="Level View Filter",         Subtitle="Filter / highlight elements by level",         Badge=ToolBadge.Deterministic, IconKey="ti-filter",          Keywords="level filter view highlight isolate element" },
             new SlashTool { Id="level-build",  Category="General",       Name="Level Builder",             Subtitle="Batch-generate levels by name / spacing",      Badge=ToolBadge.Deterministic, IconKey="ti-stack-2",         Keywords="level create generate build floor storey spacing batch" },
@@ -79,6 +96,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
             ["ff-pick"] = "ff-from-picked-cad",
             ["light-cad"] = "lighting-from-cad",
             // batch-link, room-views, sloped-floor already match the backend
+            ["create"] = "quick-create",
+            ["delete"] = "quick-delete",
+            ["change"] = "quick-change",
+            ["rename"] = "quick-rename",
+            ["count"] = "model-count",
+            ["clone"] = "clone-sheet",
+            ["place"] = "place-family",
+            ["audit"] = "name-audit",
+            // open-view is Local — never sent to the backend; BackendId falls back to Id.
         };
 
         static ToolCatalog()
@@ -105,6 +131,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             switch (category)
             {
                 case "Quick access": return "ti-clock-bolt";
+                case "Actions": return "ti-command";
                 case "General": return "ti-adjustments";
                 case "Architecture": return "ti-building-arch";
                 case "Structure": return "ti-building-skyscraper";
@@ -148,6 +175,15 @@ namespace RevitWebAppSync.UI.Copilot.Model
             ["ti-star-filled"]         = "M12,2.5 l2.9,6.1 6.6,0.6 -5,4.4 1.5,6.5 L12,17.3 6,20.6 l1.5,-6.5 -5,-4.4 6.6,-0.6 z",
             ["ti-search-off"]          = "M3,11 a8,8 0 1 0 16,0 a8,8 0 1 0 -16,0 M21,21 l-4.3,-4.3 M8,8 l6,6",
             ["ti-tag"]                 = "M9,5 H5 a2,2 0 0 0 -2,2 v4 l9,9 a1.5,1.5 0 0 0 2.1,0 l4,-4 a1.5,1.5 0 0 0 0,-2.1 L9,5 z M7.5,8.5 h0.01",
+            ["ti-plus"]                = "M12,5 v14 M5,12 h14",
+            ["ti-trash"]               = "M4,7 h16 M10,11 v6 M14,11 v6 M5,7 l1,12 a2,2 0 0 0 2,2 h8 a2,2 0 0 0 2,-2 l1,-12 M9,7 V4 a1,1 0 0 1 1,-1 h4 a1,1 0 0 1 1,1 v3",
+            ["ti-exchange"]            = "M21,7 H3 M18,10 l3,-3 -3,-3 M3,17 h18 M6,20 l-3,-3 3,-3",
+            ["ti-pencil"]              = "M4,20 h4 L18.5,9.5 a2.828,2.828 0 1 0 -4,-4 L4,16 v4 M13.5,6.5 l4,4",
+            ["ti-eye"]                 = "M10,12 a2,2 0 1 0 4,0 a2,2 0 1 0 -4,0 M21,12 c-2.4,4 -5.4,6 -9,6 c-3.6,0 -6.6,-2 -9,-6 c2.4,-4 5.4,-6 9,-6 c3.6,0 6.6,2 9,6",
+            ["ti-sum"]                 = "M18,16 v2 a1,1 0 0 1 -1,1 H6 l6,-7 -6,-7 h11 a1,1 0 0 1 1,1 v2",
+            ["ti-copy"]                = "M10,8 h8 a2,2 0 0 1 2,2 v8 a2,2 0 0 1 -2,2 h-8 a2,2 0 0 1 -2,-2 v-8 a2,2 0 0 1 2,-2 z M16,8 V6 a2,2 0 0 0 -2,-2 H6 a2,2 0 0 0 -2,2 v8 a2,2 0 0 0 2,2 h2",
+            ["ti-map-pin"]             = "M9,11 a3,3 0 1 0 6,0 a3,3 0 1 0 -6,0 M17.657,16.657 L13.414,20.9 a2,2 0 0 1 -2.827,0 l-4.244,-4.243 a8,8 0 1 1 11.314,0 z",
+            ["ti-clipboard-check"]     = "M9,5 H7 a2,2 0 0 0 -2,2 v12 a2,2 0 0 0 2,2 h10 a2,2 0 0 0 2,-2 V7 a2,2 0 0 0 -2,-2 h-2 M9,3 h6 a1,1 0 0 1 1,1 v1 a1,1 0 0 1 -1,1 H9 a1,1 0 0 1 -1,-1 V4 a1,1 0 0 1 1,-1 z M9,14 l2,2 4,-4",
         };
 
         private static readonly Dictionary<string, Geometry> _geo = new Dictionary<string, Geometry>();
