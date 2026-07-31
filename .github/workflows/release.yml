@@ -369,3 +369,100 @@ jobs:
         run: |
           Write-Host "published ${{ github.ref_name }} to TM One"
           Write-Host "latest.json is flipped — bina-ai /addin/version.json will serve it within its 600s cache"
+
+  # ─── Prod publish — same box, but a human says go ───────────────────────────
+  # Identical machinery to sign-staging with one difference that is the whole
+  # point: `environment: production`. A tag push builds and then WAITS on a
+  # required reviewer in that environment's settings; nothing is signed or
+  # uploaded until someone approves in the Actions UI.
+  #
+  # Why prod does not just auto-publish like staging: prod feeds are
+  # mandatory:true, so publishing force-updates every drafter at their next
+  # Revit launch, and there is no recall — only a higher version behind it. A
+  # mistagged commit would reach the whole fleet. Staging is recoverable
+  # (mandatory:false, a handful of testers); prod is not. The approval click is
+  # the cheapest possible place to keep a human, and unlike the old runbook it
+  # does not require that human to be sitting at the Windows box.
+  #
+  # sign-release.ps1 does MORE on a prod tag than on staging: after TM One and
+  # the pointer flip it publishes the signed GitHub Release that the pre-0.0.34
+  # fleet still polls. That step shells out to `gh`, which needs auth — hence
+  # GH_TOKEN below. Without it the script fails its own gh preflight before the
+  # build, which is the correct place to fail but a confusing one to debug.
+  sign-prod:
+    needs: release
+    if: >-
+      startsWith(github.ref, 'refs/tags/v')
+      && !endsWith(github.ref_name, '-staging')
+      && vars.SELF_HOSTED_SIGNER == 'true'
+    runs-on: [self-hosted, windows]
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # sign-release.ps1 resolves the tag with `git rev-list -n 1 $Tag` and
+          # refuses unless HEAD matches, so full history + tags are required.
+          fetch-depth: 0
+
+      - name: Preflight (fail fast, protect the signing session)
+        shell: pwsh
+        env:
+          TMONE_SERVER: ${{ secrets.TMONE_SERVER }}
+          TMONE_BUCKET: ${{ secrets.TMONE_BUCKET }}
+          TMONE_ACCESS_KEY_ID: ${{ secrets.TMONE_ACCESS_KEY_ID }}
+          TMONE_SECRET_ACCESS_KEY: ${{ secrets.TMONE_SECRET_ACCESS_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $missing = @()
+          foreach ($k in 'TMONE_SERVER','TMONE_BUCKET','TMONE_ACCESS_KEY_ID','TMONE_SECRET_ACCESS_KEY') {
+            if (-not (Get-Item "env:$k" -ErrorAction SilentlyContinue).Value) { $missing += $k }
+          }
+          if ($missing) { throw "Missing repo secrets: $($missing -join ', ')" }
+
+          if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
+            throw "aws CLI not on PATH — install once: winget install --id Amazon.AWSCLI -e"
+          }
+          if (-not (Get-Command signtool -ErrorAction SilentlyContinue)) {
+            throw "signtool not on PATH — install the Windows SDK / VS BuildTools on this box"
+          }
+          if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+            throw "gh CLI not on PATH — needed for the prod GitHub bridge release: winget install GitHub.cli"
+          }
+          if ($env:SIGNTOOL_ARGS) { throw "SIGNTOOL_ARGS is set; unset it so -Thumbprint takes the pre-trust path" }
+
+          $tp = '${{ secrets.CERT_THUMBPRINT }}'
+          if (-not $tp) { throw "CERT_THUMBPRINT secret not set" }
+          if (-not (Test-Path "Cert:\CurrentUser\My\$tp")) {
+            throw "Cert $tp not in CurrentUser\My — SimplySign session has expired. Re-authenticate on this box."
+          }
+          Write-Host "preflight OK — creds, aws, signtool, gh, SimplySign session all present"
+
+      - name: Sign, upload to TM One, flip pointer, publish GitHub bridge
+        shell: pwsh
+        env:
+          TMONE_SERVER: ${{ secrets.TMONE_SERVER }}
+          TMONE_BUCKET: ${{ secrets.TMONE_BUCKET }}
+          TMONE_ACCESS_KEY_ID: ${{ secrets.TMONE_ACCESS_KEY_ID }}
+          TMONE_SECRET_ACCESS_KEY: ${{ secrets.TMONE_SECRET_ACCESS_KEY }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Mirror of the staging guard, inverted: a staging tag must never take
+          # the prod path, where mandatory defaults to true and the GitHub
+          # bridge publishes to the URL the whole fleet polls.
+          if ('${{ github.ref_name }}'.EndsWith('-staging')) {
+            throw "refusing to publish a -staging tag through the prod job: ${{ github.ref_name }}"
+          }
+          # -Mandatory is deliberately NOT passed: a prod tag resolves it to
+          # true on its own, and passing it explicitly is how that decision
+          # gets silently inverted later.
+          ./installer/sign-release.ps1 `
+            -Tag '${{ github.ref_name }}' `
+            -Thumbprint '${{ secrets.CERT_THUMBPRINT }}'
+
+      - name: Report what was published
+        shell: pwsh
+        run: |
+          Write-Host "published ${{ github.ref_name }} to TM One (prod prefix) AND as a signed GitHub Release"
+          Write-Host "the fleet force-updates at each drafter's next Revit launch — mandatory:true"
