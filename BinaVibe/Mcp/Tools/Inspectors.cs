@@ -2117,6 +2117,236 @@ namespace BinaVibe.Mcp.Tools
             };
         }
 
+        // ─── audit_family_names ─────────────────────────────────────────
+        // The family/type-name twin of audit_view_names, and it exists for the
+        // same measured reason: an LLM reading list_family_types output judges
+        // plausibility, not the literal rule. Same contract — the caller ships
+        // ONE .NET regex, this tool wraps it as ^(?:pattern)$ unconditionally
+        // so full-name semantics are guaranteed HERE and never delegated back
+        // to the calling model, with a 2s timeout against catastrophic
+        // backtracking.
+        //
+        // This tool deliberately knows NOTHING about JKR codes. The pattern is
+        // composed server-side from the reference tables
+        // (app/services/jkr_family_naming.py build_family_name_regex), so
+        // growing those tables widens the audit without an addin rebuild.
+        //
+        // WHICH NAME carries the convention is a deterministic rule, never a
+        // judgment call:
+        //   - loadable family (FamilySymbol) -> the FAMILY name, ONE row per
+        //     family (not per type). include_type_names:true additionally
+        //     audits each symbol's type name.
+        //   - system family (WallType/FloorType/RoofType/... — any other
+        //     ElementType) -> the TYPE name, which is what actually carries
+        //     the JKR name (cf. jkrAR_wll-b_(bb02)-3 Batu Bata).
+        //   - in-place families -> reported separately as in_place_families,
+        //     NEVER counted as violations (same stance as other_model_views).
+        //
+        // Annotation-side families (tags, title blocks, profiles, detail
+        // items, generic annotations) are excluded entirely — Doc 03 gives
+        // them their own naming patterns — counts only, never rows.
+        public static Dictionary<string, object?> AuditFamilyNames(Document doc, JsonElement args)
+        {
+            var pattern = ArgsHelp.GetString(args, "pattern");
+            if (string.IsNullOrEmpty(pattern))
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = "pattern is required — a .NET regex; the tool matches it against the FULL family/type name (anchoring is applied by the tool)",
+                };
+
+            Regex regex;
+            try
+            {
+                // Full-name match is guaranteed HERE (unconditional ^(?:...)$
+                // wrap) — never rely on the caller to anchor.
+                regex = new Regex("^(?:" + pattern + ")$", RegexOptions.None, TimeSpan.FromSeconds(2));
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"invalid regex: {ex.Message}" };
+            }
+
+            var category = ArgsHelp.GetString(args, "category");
+            BuiltInCategory? bic = null;
+            if (!string.IsNullOrEmpty(category))
+            {
+                bic = CategoryResolve.Resolve(category);
+                if (!bic.HasValue)
+                    return new Dictionary<string, object?>
+                    {
+                        ["ok"] = false,
+                        ["error"] = $"unknown category '{category}' — pass a BuiltInCategory like OST_Doors or a friendly name like 'Doors'",
+                    };
+            }
+
+            var nameContains = ArgsHelp.GetString(args, "name_contains");
+            var includeTypeNames = ArgsHelp.GetBool(args, "include_type_names") ?? false;
+
+            // Annotation-side families carry their own conventions (Doc 03) —
+            // excluded before any matching so they can never score as
+            // violations.
+            var excludedCategories = new HashSet<int>
+            {
+                (int)BuiltInCategory.OST_TitleBlocks,
+                (int)BuiltInCategory.OST_ProfileFamilies,
+                (int)BuiltInCategory.OST_DetailComponents,
+                (int)BuiltInCategory.OST_GenericAnnotation,
+            };
+
+            var col = new FilteredElementCollector(doc).WhereElementIsElementType();
+            if (bic.HasValue)
+                col = col.OfCategory(bic.Value);
+
+            int excludedAnnotation = 0, excludedTitleblock = 0, excludedProfileDetail = 0, excludedOther = 0;
+            int auditedCount = 0;
+            var violations = new List<object>();
+            var compliant = new List<object>();
+            var inPlace = new List<object>();
+            var seenFamilies = new HashSet<long>();
+            var seenInPlace = new HashSet<long>();
+            const int CompliantCap = 200;
+            const int InPlaceCap = 50;
+            bool compliantCapped = false, inPlaceCapped = false;
+
+            // Local match helper — keeps the timeout contract in ONE place so
+            // no audited surface can silently skip it.
+            bool timedOut = false;
+            bool Matches(string name)
+            {
+                try { return regex.IsMatch(name); }
+                catch (RegexMatchTimeoutException) { timedOut = true; return false; }
+            }
+
+            void Audit(long id, string? name, string nameKind, string? categoryName, string? familyName)
+            {
+                if (string.IsNullOrEmpty(name)) return;
+                if (!string.IsNullOrEmpty(nameContains)
+                    && name!.IndexOf(nameContains, System.StringComparison.OrdinalIgnoreCase) < 0) return;
+
+                auditedCount++;
+                if (Matches(name!))
+                {
+                    if (compliant.Count < CompliantCap)
+                        compliant.Add(new Dictionary<string, object?>
+                        {
+                            ["id"] = id,
+                            ["name"] = name,
+                            ["name_kind"] = nameKind,
+                            ["category"] = categoryName,
+                        });
+                    else
+                        compliantCapped = true;
+                }
+                else
+                {
+                    violations.Add(new Dictionary<string, object?>
+                    {
+                        ["id"] = id,
+                        ["name"] = name,
+                        ["name_kind"] = nameKind,
+                        ["category"] = categoryName,
+                        ["family_name"] = familyName,
+                    });
+                }
+            }
+
+            foreach (var el in col)
+            {
+                var cat = el.Category;
+                if (cat == null) { excludedOther++; continue; }
+
+                // Specific buckets BEFORE the CategoryType sweep — title
+                // blocks and detail components are themselves Annotation, and
+                // folding them into one counter would hide what was skipped.
+                var catId = (int)cat.Id.Value;
+                if (catId == (int)BuiltInCategory.OST_TitleBlocks) { excludedTitleblock++; continue; }
+                if (excludedCategories.Contains(catId)) { excludedProfileDetail++; continue; }
+                if (cat.CategoryType == CategoryType.Annotation) { excludedAnnotation++; continue; }
+
+                var catName = cat.Name;
+
+                if (el is FamilySymbol fs)
+                {
+                    var fam = fs.Family;
+                    if (fam == null) { excludedOther++; continue; }
+
+                    if (fam.IsInPlace)
+                    {
+                        // Reported, never judged — an in-place family is not a
+                        // library family and the convention doesn't bind it.
+                        if (seenInPlace.Add(fam.Id.Value))
+                        {
+                            if (inPlace.Count < InPlaceCap)
+                                inPlace.Add(new Dictionary<string, object?>
+                                {
+                                    ["id"] = fam.Id.Value,
+                                    ["name"] = fam.Name,
+                                    ["category"] = catName,
+                                });
+                            else
+                                inPlaceCapped = true;
+                        }
+                        continue;
+                    }
+
+                    // ONE row per family — auditing the same family name once
+                    // per type would report the same violation N times.
+                    if (seenFamilies.Add(fam.Id.Value))
+                        Audit(fam.Id.Value, fam.Name, "family", catName, fam.Name);
+
+                    if (includeTypeNames)
+                        Audit(fs.Id.Value, fs.Name, "type", catName, fam.Name);
+                }
+                else
+                {
+                    // System family: the TYPE name carries the convention.
+                    Audit(el.Id.Value, el.Name, "type", catName, (el as ElementType)?.FamilyName);
+                }
+
+                if (timedOut) break;
+            }
+
+            if (timedOut)
+                // The 2s timeout fires at MATCH time, not construction — keep
+                // the tool's {ok:false, error} contract instead of returning a
+                // half-audited result that reads as complete.
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = "regex timed out — simplify the pattern",
+                };
+
+            var scope = new List<object> { "loadable family names" };
+            if (includeTypeNames) scope.Add("loadable family type names");
+            scope.Add("system family type names");
+            if (!string.IsNullOrEmpty(category)) scope.Add($"category={category}");
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["audited_scope"] = scope,
+                ["compliant_count"] = auditedCount - violations.Count,
+                ["compliant"] = compliant,
+                ["compliant_capped"] = compliantCapped,
+                ["violations"] = violations,
+                ["in_place_families"] = inPlace,
+                ["in_place_capped"] = inPlaceCapped,
+                ["excluded_counts"] = new Dictionary<string, object?>
+                {
+                    ["annotation"] = excludedAnnotation,
+                    ["titleblock"] = excludedTitleblock,
+                    ["profile_detail"] = excludedProfileDetail,
+                    ["other"] = excludedOther,
+                },
+                ["counts"] = new Dictionary<string, object?>
+                {
+                    ["audited"] = auditedCount,
+                    ["violations"] = violations.Count,
+                },
+            };
+        }
+
         // ─── find_elements_between_grids ────────────────────────────────────
         /// <summary>
         /// args: { grid_names: [string], category: string, level?: string }
