@@ -2332,7 +2332,13 @@ namespace BinaVibe.Mcp.Tools
                     ?? throw new InvalidOperationException("host wall has no level");
                 var fi = doc.Create.NewFamilyInstance(loc, symbol, host, hostLevel,
                     Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
-                tx.Commit();
+                // CommitOrThrow, not a bare Commit. A hard Revit error (door wider
+                // than its host, "not cutting anything") reaches SwallowWarnings,
+                // which returns ProceedWithRollBack — so Commit returns RolledBack
+                // and `fi` is dead. A bare Commit ignores that status and reads
+                // fi.Id below, which throws on the dead element and lands in the
+                // catch, discarding Revit's own message.
+                TxGuard.CommitOrThrow(tx);
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
@@ -2340,7 +2346,17 @@ namespace BinaVibe.Mcp.Tools
                     ["host_wall_id"] = hostId,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch
+            {
+                // Guarded: when the preprocessor rolled the transaction back, it is
+                // no longer Started, and an unguarded RollBack() throws "The
+                // transaction has not been started yet (the current status is not
+                // 'Started')" which REPLACES the real error. Measured in Revit
+                // 2026-07-30 — a 1700mm door on a 1200mm wall reported the
+                // transaction complaint instead of the geometry one.
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
+                throw;
+            }
         }
 
         // ─── value helpers ──────────────────────────────────────────────

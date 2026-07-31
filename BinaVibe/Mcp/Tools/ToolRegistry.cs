@@ -46,6 +46,7 @@ namespace BinaVibe.Mcp.Tools
                 "find_elements_between_grids"   => Inspectors.FindElementsBetweenGrids(doc, args),
                 "find_mep_elements"             => Inspectors.FindMepElements(doc, args),
                 "query_geometry"                => QueryGeometry.Run(doc, args),
+                "measure_wall_openings"         => WallOpenings.Run(doc, args),
                 "filter_elements"               => ElementFilter.Run(app, doc, args),
                 "extract_cad_geometry"          => CadExtract.Run(uidoc, args),
                 "compare_levels"                => LevelCompare.Run(uidoc, args),
