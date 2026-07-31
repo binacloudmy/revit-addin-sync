@@ -351,6 +351,124 @@ namespace RevitWebAppSync.Tests
             Assert.Equal(1.0, dy, 6);
         }
 
+        // ── run selection (place_socket_on_wall's ad-hoc derivation) ─────
+        //
+        // suggest_socket_points always knows which room it is walking.
+        // place_socket_on_wall gets a bare coordinate, so it has to work out
+        // which room's face the point is on before NormalAt can tell it which
+        // way is "into the room". These back SocketCandidates.TryFacingAt.
+
+        /// <summary>A w x h rectangle with its lower-left corner at (x0, y0).</summary>
+        private static List<Pt2> RectAt(double x0, double y0, double w, double h) => new()
+        {
+            new Pt2(x0, y0), new Pt2(x0 + w, y0), new Pt2(x0 + w, y0 + h), new Pt2(x0, y0 + h),
+        };
+
+        private static WallRun Run(long wallId, params Pt2[] pts) => new()
+        {
+            RunKey = $"w:{wallId}",
+            HostWallId = wallId,
+            Points = pts.ToList(),
+            LengthMm = SocketLayout.PolylineLength(pts.ToList()),
+        };
+
+        [Fact]
+        public void DistanceToRun_is_the_perpendicular_distance_and_clamps_past_the_ends()
+        {
+            var pts = new List<Pt2> { new(0, 0), new(5000, 0) };
+
+            Assert.Equal(900.0, SocketLayout.DistanceToRun(pts, new Pt2(2500, 900)), 6);
+            Assert.Equal(0.0, SocketLayout.DistanceToRun(pts, new Pt2(2500, 0)), 6);
+            // Past the end: measured to the clamped endpoint, matching
+            // ProjectStation. 3-4-5 triangle off the right end.
+            Assert.Equal(5000.0, SocketLayout.DistanceToRun(pts, new Pt2(9000, 3000)), 6);
+            // Degenerate run never wins a min-scan.
+            Assert.Equal(double.MaxValue, SocketLayout.DistanceToRun(new List<Pt2> { new(0, 0) }, new Pt2(1, 1)));
+            Assert.Equal(double.MaxValue, SocketLayout.DistanceToRun(null, new Pt2(1, 1)));
+        }
+
+        [Fact]
+        public void NearestRunIndex_picks_the_closer_run()
+        {
+            var runs = new List<WallRun>
+            {
+                Run(1, new Pt2(0, 0), new Pt2(5000, 0)),
+                Run(2, new Pt2(0, 200), new Pt2(5000, 200)),
+            };
+
+            int i = SocketLayout.NearestRunIndex(runs, new Pt2(2500, 20), 50.0, out bool ambiguous);
+            Assert.Equal(0, i);
+            Assert.False(ambiguous);
+
+            i = SocketLayout.NearestRunIndex(runs, new Pt2(2500, 180), 50.0, out ambiguous);
+            Assert.Equal(1, i);
+            Assert.False(ambiguous);
+        }
+
+        [Fact]
+        public void NearestRunIndex_flags_a_point_equidistant_from_two_runs()
+        {
+            // Dead centre between the two faces of a 200mm party wall. Whichever
+            // index wins, the caller must refuse: picking a side here faces the
+            // socket into the neighbour's unit.
+            var runs = new List<WallRun>
+            {
+                Run(1, new Pt2(0, 0), new Pt2(5000, 0)),
+                Run(2, new Pt2(0, 200), new Pt2(5000, 200)),
+            };
+
+            SocketLayout.NearestRunIndex(runs, new Pt2(2500, 100), 50.0, out bool ambiguous);
+            Assert.True(ambiguous);
+        }
+
+        [Fact]
+        public void NearestRunIndex_returns_minus_one_when_nothing_is_usable()
+        {
+            Assert.Equal(-1, SocketLayout.NearestRunIndex(new List<WallRun>(), new Pt2(0, 0), 50.0, out _));
+            Assert.Equal(-1, SocketLayout.NearestRunIndex(null, new Pt2(0, 0), 50.0, out _));
+            // A run with a single point has no axis to project onto.
+            var degenerate = new List<WallRun> { Run(1, new Pt2(0, 0)) };
+            Assert.Equal(-1, SocketLayout.NearestRunIndex(degenerate, new Pt2(0, 0), 50.0, out _));
+        }
+
+        [Fact]
+        public void Nearest_run_then_NormalAt_faces_into_the_room_the_point_is_actually_in()
+        {
+            // A 100mm party wall on the x-axis. Room A is below it (finish face
+            // y = -50), room B above (finish face y = +50). Each room's run
+            // carries its OWN loop polygon — that is what makes NormalAt's inside
+            // test resolve to opposite signs for the same physical wall.
+            var roomA = Run(7, new Pt2(0, -50), new Pt2(5000, -50));
+            roomA.LoopPolygon = RectAt(0, -4000, 5000, 3950);
+            var roomB = Run(7, new Pt2(0, 50), new Pt2(5000, 50));
+            roomB.LoopPolygon = RectAt(0, 50, 5000, 4000);
+
+            var runs = new List<WallRun> { roomA, roomB };
+
+            // A point on room B's face resolves to room B and faces up, into B.
+            int i = SocketLayout.NearestRunIndex(runs, new Pt2(2500, 40), 50.0, out bool ambiguous);
+            Assert.Equal(1, i);
+            Assert.False(ambiguous);
+            SocketLayout.NormalAt(runs[i], SocketLayout.ProjectStation(runs[i].Points, new Pt2(2500, 40)),
+                                  out double dx, out double dy);
+            Assert.Equal(0.0, dx, 6);
+            Assert.Equal(1.0, dy, 6);
+
+            // Same wall, room A's side: faces down, into A. Sign is derived, not
+            // assumed — this is the whole point of carrying LoopPolygon.
+            i = SocketLayout.NearestRunIndex(runs, new Pt2(2500, -40), 50.0, out ambiguous);
+            Assert.Equal(0, i);
+            Assert.False(ambiguous);
+            SocketLayout.NormalAt(runs[i], SocketLayout.ProjectStation(runs[i].Points, new Pt2(2500, -40)),
+                                  out dx, out dy);
+            Assert.Equal(0.0, dx, 6);
+            Assert.Equal(-1.0, dy, 6);
+
+            // The centreline belongs to neither room.
+            SocketLayout.NearestRunIndex(runs, new Pt2(2500, 0), 50.0, out ambiguous);
+            Assert.True(ambiguous);
+        }
+
         // ── plan angles ──────────────────────────────────────────────────
         //
         // These back the facing correction in SocketPlacement.OrientToFace.

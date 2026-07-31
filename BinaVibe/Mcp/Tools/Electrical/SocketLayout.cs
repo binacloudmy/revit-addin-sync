@@ -361,6 +361,48 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return bestStation;
         }
 
+        /// <summary>Perpendicular distance in mm from p to a run's polyline.
+        /// Companion to <see cref="ProjectStation"/> — same projection, distance
+        /// instead of station. double.MaxValue for a degenerate run, so a
+        /// min-scan never picks one.</summary>
+        public static double DistanceToRun(IReadOnlyList<Pt2> pts, Pt2 p)
+        {
+            if (pts == null || pts.Count < 2) return double.MaxValue;
+            var onRun = PointAt(pts, ProjectStation(pts, p));
+            return Dist(onRun, p);
+        }
+
+        /// <summary>Index of the run whose polyline is nearest p, or -1 when the
+        /// list is empty or every run is degenerate.
+        ///
+        /// `ambiguous` is set when the runner-up is within tieTolMm of the
+        /// winner: the point sits equidistant between two candidate runs — a
+        /// party wall's centreline, where it belongs to neither room — and there
+        /// is no honest way to pick a side. The caller must refuse rather than
+        /// guess, because guessing here ships a socket facing into the
+        /// neighbour's unit.</summary>
+        public static int NearestRunIndex(IReadOnlyList<WallRun> runs, Pt2 p,
+                                          double tieTolMm, out bool ambiguous)
+        {
+            ambiguous = false;
+            if (runs == null || runs.Count == 0) return -1;
+
+            int best = -1;
+            double bestDist = double.MaxValue, runnerUpDist = double.MaxValue;
+            for (int i = 0; i < runs.Count; i++)
+            {
+                double d = runs[i] == null ? double.MaxValue : DistanceToRun(runs[i].Points, p);
+                if (d == double.MaxValue) continue;
+                if (d < bestDist) { runnerUpDist = bestDist; bestDist = d; best = i; }
+                else if (d < runnerUpDist) { runnerUpDist = d; }
+            }
+
+            if (best < 0) return -1;
+            if (runnerUpDist != double.MaxValue && runnerUpDist - bestDist < tieTolMm)
+                ambiguous = true;
+            return best;
+        }
+
         // ── intervals ────────────────────────────────────────────────────
 
         /// <summary>Usable stretches of a run: the full length minus corner

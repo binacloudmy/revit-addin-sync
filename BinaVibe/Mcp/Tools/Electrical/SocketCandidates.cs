@@ -45,6 +45,17 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// versions and could not be pinned in a golden test.</summary>
         private const double ChordMm = 100.0;
 
+        /// <summary>How far past the wall face a room probe is pushed, mm. A
+        /// probe at exactly half the wall thickness lands ON the Finish
+        /// boundary, where IsPointInRoom is undefined; this clears it.</summary>
+        private const double RoomProbeClearMm = 100.0;
+
+        /// <summary>Two candidate runs whose distance to the point differs by
+        /// less than this are a tie: the point is on a party wall's centreline
+        /// and belongs to neither room. Half the thinnest partition anyone
+        /// builds.</summary>
+        private const double RoomTieTolMm = 50.0;
+
         /// <summary>Linguistic fallback only — see the file header. A bare call
         /// must not silently place sockets in a bathroom.</summary>
         private static readonly string[] DefaultWetKeywords =
@@ -544,6 +555,185 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 else { if (s < lo) lo = s; if (s > hi) hi = s; }
             }
             return !first;
+        }
+
+        // ── ad-hoc facing derivation (place_socket_on_wall) ──────────────
+        //
+        // suggest_socket_points derives every candidate's inward normal during
+        // the room walk and carries it in the plan. The single-socket tool has
+        // no plan, so before this it placed whatever Revit produced and the
+        // faceplate could end up parallel to the wall. Same derivation, same
+        // NormalAt, computed on demand for one point.
+
+        /// <summary>Inward plan normal for an arbitrary point on a host wall,
+        /// derived exactly the way suggest_socket_points derives it (room
+        /// boundary loop -> merged run -> SocketLayout.NormalAt), so an ad-hoc
+        /// socket faces the same way a planned one at the same coordinate would.
+        ///
+        /// pointFt is in FEET — straight off ArgsHelp.GetPointMm, which reads mm
+        /// from the wire and returns feet. THIS METHOD IS THE ft->mm HOP for the
+        /// single-socket path, consistent with this file's header; no millimetre
+        /// value escapes it and no foot reaches SocketLayout.
+        ///
+        /// Read-only: opens no Transaction and never throws. Returns false with
+        /// a machine-readable <paramref name="reason"/> so the caller can still
+        /// place the socket and SAY it went in uncorrected.</summary>
+        internal static bool TryFacingAt(Document doc, Wall wall, XYZ pointFt,
+                                         out double dx, out double dy,
+                                         out long roomId, out string reason)
+        {
+            dx = 0.0; dy = 0.0; roomId = 0; reason = "";
+
+            var axis = (wall?.Location as LocationCurve)?.Curve;
+            if (axis == null) { reason = "no_location_curve"; return false; }
+
+            try
+            {
+                var probeDir = WallPlanNormalAt(axis, pointFt);
+                var rooms = CandidateRooms(doc, wall!, pointFt, probeDir);
+                if (rooms.Count == 0) { reason = "no_room_at_point"; return false; }
+
+                // One best run per room, then pick between rooms. Both passes
+                // use the same tie tolerance, but only the second one's verdict
+                // matters — within a single room the runs are different walls.
+                var pMm = ToPt(pointFt);
+                var bestRuns = new List<WallRun>();
+                var bestRoomIds = new List<long>();
+                var throwaway = new List<object>();
+
+                foreach (var room in rooms)
+                {
+                    var runs = BuildRuns(doc, room, includeIslands: false, throwaway, out _)
+                        .Where(r => r.HostWallId.HasValue && r.HostWallId.Value == wall!.Id.Value)
+                        .ToList();
+                    int idx = SocketLayout.NearestRunIndex(runs, pMm, RoomTieTolMm, out _);
+                    if (idx < 0) continue;
+                    bestRuns.Add(runs[idx]);
+                    bestRoomIds.Add(room.Id.Value);
+                }
+
+                if (bestRuns.Count == 0) { reason = "wall_not_on_room_boundary"; return false; }
+
+                int win = SocketLayout.NearestRunIndex(bestRuns, pMm, RoomTieTolMm, out bool tie);
+                if (win < 0) { reason = "degenerate_run"; return false; }
+                if (tie)
+                {
+                    // Equidistant from two rooms' finish faces: the caller gave a
+                    // centreline point on a party wall. Guessing here faces the
+                    // socket into the neighbour's unit.
+                    reason = "ambiguous_room:" + string.Join(",", bestRoomIds);
+                    return false;
+                }
+
+                var run = bestRuns[win];
+                if (run.LoopPolygon == null || run.LoopPolygon.Count < 3)
+                {
+                    // Without the polygon NormalAt cannot resolve the sign
+                    // (SocketLayout.NormalAt) and would pick a side arbitrarily —
+                    // the exact silent-sideways-socket outcome this fixes.
+                    reason = "no_loop_polygon";
+                    return false;
+                }
+
+                SocketLayout.NormalAt(run, SocketLayout.ProjectStation(run.Points, pMm), out dx, out dy);
+                roomId = bestRoomIds[win];
+                return true;
+            }
+            catch (Exception ex)
+            {
+                // GetBoundarySegments, IsPointInRoom and Wall.Width all throw on
+                // some inputs. A derivation failure must never lose a placement
+                // that would otherwise commit.
+                dx = 0.0; dy = 0.0; roomId = 0;
+                reason = "derivation_failed:" + ex.Message;
+                return false;
+            }
+        }
+
+        /// <summary>A plan direction perpendicular to the wall axis at the
+        /// projected point. Its SIGN IS DELIBERATELY IRRELEVANT — this exists
+        /// only to generate two opposed probe points, both of which are tested.
+        /// It is not a second opinion on NormalAt and must not be used as
+        /// one.</summary>
+        private static XYZ WallPlanNormalAt(Curve axis, XYZ pointFt)
+        {
+            XYZ tangent;
+            try
+            {
+                var hit = axis.Project(pointFt);
+                double u = hit != null ? axis.ComputeNormalizedParameter(hit.Parameter) : 0.5;
+                tangent = axis.ComputeDerivatives(u, true).BasisX;
+            }
+            catch { tangent = axis.GetEndPoint(1) - axis.GetEndPoint(0); }
+
+            var plan = new XYZ(-tangent.Y, tangent.X, 0);
+            return plan.GetLength() < 1e-9 ? XYZ.BasisX : plan.Normalize();
+        }
+
+        /// <summary>Rooms that could own this point: the point itself plus one
+        /// probe each side of the wall.
+        ///
+        /// Neither existing approach works alone. doc.GetRoomAtPoint
+        /// (Mutators.cs) takes one global Z and one phase, and cannot tell a
+        /// phasing miss from "no room here". A bare IsPointInRoom scan
+        /// (QueryGeometry.cs) is exact but fails at floor level, and fails
+        /// outright for a point on the wall CENTRELINE — inside the wall,
+        /// outside every room — which is exactly what a caller gets from
+        /// wall.LocationCurve. So: scan, raise the probe per room the way
+        /// BlockRuns does, and offset in plan to clear the wall.
+        ///
+        /// Two hits is normal for an interior wall; the caller adjudicates.</summary>
+        private static List<Room> CandidateRooms(Document doc, Wall wall, XYZ pointFt, XYZ probeDir)
+        {
+            double halfWidthFt;
+            // Wall.Width throws for curtain walls. 300mm is a plausible partition,
+            // and the probe only has to clear the face, not measure it.
+            try { halfWidthFt = wall.Width / 2.0; } catch { halfWidthFt = 150.0 / MmPerFoot; }
+            double offFt = halfWidthFt + RoomProbeClearMm / MmPerFoot;
+
+            var probes = new List<XYZ>
+            {
+                pointFt,
+                pointFt + probeDir.Multiply(offFt),
+                pointFt - probeDir.Multiply(offFt),
+            };
+
+            var hits = new List<Room>();
+            foreach (var room in new FilteredElementCollector(doc)
+                .OfCategory(BuiltInCategory.OST_Rooms)
+                .WhereElementIsNotElementType()
+                .OfType<Room>())
+            {
+                if (room.Area <= 0) continue;              // unplaced, same guard as Suggest
+                var bb = room.get_BoundingBox(null);
+                if (bb == null) continue;
+                if (!probes.Any(p => InPlanBox(bb, p))) continue;
+
+                // Lifted from BlockRuns: a point at floor level fails the naive
+                // test, so probe half way up the room volume.
+                double probeZ = RoomFloorZMm(doc, room) / MmPerFoot
+                                + (room.UnboundedHeight > 0 ? room.UnboundedHeight / 2.0 : 3.0);
+
+                foreach (var p in probes)
+                {
+                    bool inside;
+                    try { inside = room.IsPointInRoom(new XYZ(p.X, p.Y, probeZ)); }
+                    catch { inside = false; }
+                    if (inside) { hits.Add(room); break; }
+                }
+            }
+            return hits;
+        }
+
+        /// <summary>Plan-only bounding-box prefilter. A room's bbox always
+        /// contains its volume, so this cannot produce a false negative.</summary>
+        private static bool InPlanBox(BoundingBoxXYZ bb, XYZ p)
+        {
+            var t = bb.Transform ?? Transform.Identity;
+            var lo = t.OfPoint(bb.Min);
+            var hi = t.OfPoint(bb.Max);
+            return p.X >= Math.Min(lo.X, hi.X) && p.X <= Math.Max(lo.X, hi.X)
+                && p.Y >= Math.Min(lo.Y, hi.Y) && p.Y <= Math.Max(lo.Y, hi.Y);
         }
 
         // ── heights ──────────────────────────────────────────────────────
