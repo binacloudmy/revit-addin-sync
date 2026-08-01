@@ -181,6 +181,10 @@ namespace BinaVibe.Mcp.Tools
                 "create_duct"                   => MutatorsMep.CreateDuct(doc, args),
                 "create_pipe"                   => MutatorsMep.CreatePipe(doc, args),
                 "create_dimensions"             => Dimensioning.CreateDimensions(app, doc, args),
+                "list_connectors"               => MutatorsMepRouting.ListConnectors(doc, args),
+                "route_duct"                    => MutatorsMepRouting.RouteDuct(doc, args),
+                "route_pipe"                    => MutatorsMepRouting.RoutePipe(doc, args),
+                "tap_branch"                    => MutatorsMepRouting.TapBranch(doc, args),
 
                 // Generic OSS-compatible wrappers — dispatch to typed tools.
                 // Arg names get remapped per target below (RemapArgs) since the
