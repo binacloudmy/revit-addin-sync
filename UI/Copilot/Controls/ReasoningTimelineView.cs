@@ -165,6 +165,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 IsOpen = seedOpen || streaming;   // streaming turns start expanded (README default)
                 ApplyOpenVisual(animate: false);
             }
+            // Defensive re-assertion (2026-08-02 defect #7 fix): the body must
+            // never be visible while collapsed, full stop — re-applied on every
+            // tick rather than only at construction/toggle time, so there is no
+            // window where a stale Visibility value (however it got there)
+            // could leave the step/body text rendering outside the collapsed
+            // card. Cheap: a Visibility write WPF already no-ops when unchanged.
+            _bodyOuter.Visibility = IsOpen ? Visibility.Visible : Visibility.Collapsed;
 
             double elapsed = ReasoningTrail.TotalElapsedSeconds(steps);
             _label.Text = ReasoningTrail.ElapsedLabel(elapsed, streaming);

@@ -501,8 +501,23 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // approval card and the answer (ConfirmActions and AiReply both carry
             // ReasoningSteps). Omitted entirely when the turn had no reasoning
             // frames — no empty shell.
-            if ((m.Kind == CpMsgKind.AiReply || m.Kind == CpMsgKind.ConfirmActions)
-                && m.ReasoningSteps != null && m.ReasoningSteps.Count > 0)
+            //
+            // ONE card per TURN (2026-08-02 defect #3 fix): a MUTATE/codegen
+            // approval pause and the AiReply that follows it once resolved BOTH
+            // carry a ReasoningSteps snapshot from the SAME underlying
+            // reasoningTrail — Confirm at pause time, AiReply at completion —
+            // so rendering both produced two near-identical "Thinking Ns · N
+            // steps" cards for one turn (the second appearing right after the
+            // approval card resolved). A ConfirmActions card only shows its OWN
+            // reasoning block while it's still the newest thing in the thread;
+            // the instant the turn continues past it (resume leg -> a later
+            // Thinking/AiReply message gets added), it defers to that later
+            // message's card instead of duplicating. AiReply doesn't need the
+            // same guard — a turn produces at most one AiReply, ever.
+            bool showReasoningBlock = m.ReasoningSteps != null && m.ReasoningSteps.Count > 0
+                && (m.Kind == CpMsgKind.AiReply
+                    || (m.Kind == CpMsgKind.ConfirmActions && IsThreadTail(m)));
+            if (showReasoningBlock)
             {
                 col.Children.Add(ReasoningBlock(m));
             }
@@ -639,24 +654,19 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // Result card (2026-08-02 spec): proportion-bar breakdown (when the
             // done frame carried a structured result_summary) + follow-up chips
             // (independent — a turn can offer follow-ups with no bars) + an Undo
-            // chip whenever a structured write result is shown. Sits between the
-            // answer and the feedback row. Omitted entirely when the turn has
-            // neither — no empty shell.
+            // chip whenever a structured write result is shown + the tindakan
+            // one-tap next-step offer, ALSO as a chip (2026-08-02 defect #4 fix:
+            // unified into this one chip row — no more separate blue "✓ Ya,
+            // teruskan"/"Tidak" buttons rendering alongside the new cards). Sits
+            // between the answer and the feedback row. Omitted entirely when the
+            // turn has none of the above — no empty shell.
             bool hasResultBars = m.ResultSummary != null && m.ResultSummary.Rows.Count > 0;
             bool hasFollowups = m.Followups != null && m.Followups.Count > 0;
-            if (m.Kind == CpMsgKind.AiReply && (hasResultBars || hasFollowups))
+            bool hasTindakan = m.Kind == CpMsgKind.AiReply && !string.IsNullOrWhiteSpace(m.Tindakan)
+                && !m.TindakanResolved && IsLastAiReply(m);
+            if (m.Kind == CpMsgKind.AiReply && (hasResultBars || hasFollowups || hasTindakan))
             {
-                col.Children.Add(ResultSummaryCard(m, hasResultBars, hasFollowups));
-            }
-
-            // Tindakan (one-tap next-step offer): [✓ Ya, teruskan] [Tidak] under
-            // the answer. Only while unresolved, and only on the LAST AiReply in
-            // the thread — a stale offer on an older message just renders as the
-            // plain trailing text above (no dead buttons for a superseded turn).
-            if (m.Kind == CpMsgKind.AiReply && !string.IsNullOrWhiteSpace(m.Tindakan)
-                && !m.TindakanResolved && IsLastAiReply(m))
-            {
-                col.Children.Add(TindakanRow(m));
+                col.Children.Add(ResultSummaryCard(m, hasResultBars, hasFollowups, hasTindakan));
             }
 
             switch (m.Kind)
@@ -737,51 +747,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return false;
         }
 
-        // Horizontal button row: primary "✓ Ya, teruskan" (accent bg, white
-        // text, 7px radius — same chrome family as ProposalCard's "Apply to
-        // model" button) and secondary "Tidak" (bordered flat, matches the
-        // step-trail chip's FlatButton.Apply idiom).
-        private FrameworkElement TindakanRow(ChatMessage m)
-        {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 4, 0, 9) };
-
-            var yes = new Button
-            {
-                Padding = new Thickness(12, 6, 12, 6),
-                BorderThickness = new Thickness(0),
-                Cursor = System.Windows.Input.Cursors.Hand,
-            };
-            yes.SetResourceReference(BackgroundProperty, "Cp.AccentGrad");
-            var yesBorder = new FrameworkElementFactory(typeof(Border));
-            yesBorder.SetValue(Border.CornerRadiusProperty, new CornerRadius(7));
-            yesBorder.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(BackgroundProperty));
-            yesBorder.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
-            var yesCp = new FrameworkElementFactory(typeof(ContentPresenter));
-            yesBorder.AppendChild(yesCp);
-            yes.Template = new ControlTemplate(typeof(Button)) { VisualTree = yesBorder };
-            var yesLabel = new TextBlock { Text = "✓ Ya, teruskan", FontSize = 11.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
-            yesLabel.SetResourceReference(TextBlock.ForegroundProperty, "Cp.AccentContrast");
-            yes.Content = yesLabel;
-            yes.Click += (_, __) => Vm?.AcceptTindakan(m);
-            row.Children.Add(yes);
-
-            var no = new Button
-            {
-                Content = "Tidak",
-                FontSize = 11.5, FontWeight = FontWeights.Medium,
-                Padding = new Thickness(12, 6, 12, 6),
-                BorderThickness = new Thickness(1),
-                Margin = new Thickness(8, 0, 0, 0),
-                Cursor = System.Windows.Input.Cursors.Hand,
-            };
-            no.SetResourceReference(Control.ForegroundProperty, "Cp.Muted");
-            no.SetResourceReference(Button.BorderBrushProperty, "Cp.Muted");
-            FlatButton.Apply(no, 7, withBorder: true);
-            no.Click += (_, __) => Vm?.DeclineTindakan(m);
-            row.Children.Add(no);
-
-            return row;
-        }
+        // True when m is the very last message in the whole thread — used to
+        // stop a superseded ConfirmActions card from re-rendering its own
+        // reasoning block once a later message in the same turn (a resume
+        // leg's continuation) has taken over that role (defect #3, one
+        // reasoning card per turn).
+        private bool IsThreadTail(ChatMessage m) =>
+            Vm != null && Vm.Thread.Count > 0 && ReferenceEquals(Vm.Thread[Vm.Thread.Count - 1], m);
 
         // ─── Inline rating nudge ─────────────────────────────────────────────
         // A gentle one-time prompt under the LATEST reply, inviting a star rating
@@ -1561,17 +1533,31 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             "supply" => "Cp.System.Supply",
             "return" => "Cp.System.Return",
             "exhaust" => "Cp.System.Exhaust",
+            // Generic (non-MEP-system) semantic hints — 2026-08-02 addendum for
+            // route-tool results. Reuse EXISTING tokens whose hex already
+            // matches rather than adding new literals: info/#2563eb is the
+            // same blue as Cp.System.Supply, ok/#10b981 is the same green as
+            // Cp.Reasoning.Success, warn/#eab308 is the same amber as
+            // Cp.System.Exhaust.
+            "info" => "Cp.System.Supply",
+            "ok" => "Cp.Reasoning.Success",
+            "warn" => "Cp.System.Exhaust",
             _ => "Cp.System.None",
         };
 
         /// <summary>Result card (2026-08-02 spec) — proportion-bar rows from
         /// ChatMessage.ResultSummary (when present) plus follow-up chips from
-        /// ChatMessage.Followups (independent of the bars) and an "Undo" chip.
-        /// Follow-up chips send their text as the next prompt through the SAME
-        /// ChatSendCommand the ClarifyCard option buttons already use — no new
-        /// send path. "Undo" is client-side: it asks the agent in natural
-        /// language rather than assuming a dedicated undo tool exists server-side.</summary>
-        private FrameworkElement ResultSummaryCard(ChatMessage m, bool hasBars, bool hasFollowups)
+        /// ChatMessage.Followups (independent of the bars), an "Undo" chip, and
+        /// the tindakan one-tap next-step offer (defect #4: folded in here
+        /// instead of its old separate blue-button row — ONE chip row, not two
+        /// competing approval-ish UIs). Follow-up chips send their text as the
+        /// next prompt through the SAME ChatSendCommand the ClarifyCard option
+        /// buttons already use — no new send path. "Undo" is client-side: it
+        /// asks the agent in natural language rather than assuming a dedicated
+        /// undo tool exists server-side. The tindakan chip NEVER echoes the
+        /// AI's own offer text as the outgoing/echoed message (defect #2) — its
+        /// label and its send text are both the fixed short word "Continue".</summary>
+        private FrameworkElement ResultSummaryCard(ChatMessage m, bool hasBars, bool hasFollowups, bool hasTindakan)
         {
             var outer = new StackPanel { Margin = new Thickness(0, 4, 0, 8) };
 
@@ -1651,7 +1637,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 outer.Children.Add(card);
             }
 
-            if (hasFollowups || hasBars)
+            if (hasFollowups || hasBars || hasTindakan)
             {
                 var chips = new WrapPanel { Margin = new Thickness(0, 0, 0, 0) };
                 if (hasFollowups)
@@ -1660,6 +1646,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                         var t = text;
                         chips.Children.Add(FollowupChip(t, () => Vm?.ChatSendCommand.Execute(t)));
                     }
+                if (hasTindakan)
+                    // Fixed short label + fixed short send text — NEVER the raw
+                    // AI-authored m.Tindakan sentence (defect #2: that would
+                    // render as a fake "the drafter said this" user bubble once
+                    // echoed). AcceptTindakan already sends "Continue"; the
+                    // label matches so what's shown is what gets sent.
+                    chips.Children.Add(FollowupChip("Continue", () => Vm?.AcceptTindakan(m)));
                 if (hasBars)
                     // Client-side, always offered after a write result — no
                     // dedicated undo tool assumed server-side; phrased as a

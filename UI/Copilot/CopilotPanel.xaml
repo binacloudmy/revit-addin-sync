@@ -46,15 +46,19 @@
                 <StackPanel Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center">
                     <TextBlock Text="BINA AI Copilot" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
                     <!-- Mono subline (2026-08-02 spec): "«model» · «doc name»", live —
-                         ModelName is already the active document's title, refreshed
-                         on every SetRevitContext (pane show / doc switch handoff);
-                         "Main Model" is the fixed model-scope label from the
-                         canonical design (docs/design/copilot-reasoning), matching
-                         its literal "Main Model · Snowdon Towers" example. -->
+                         "Main Model" is the fixed connection/model-scope label from
+                         the canonical design (docs/design/copilot-reasoning),
+                         matching its literal "Main Model · Snowdon Towers" example;
+                         DocumentTitle is the active document's title, refreshed on
+                         every SetRevitContext (pane show / doc switch handoff).
+                         Bound to DocumentTitle, NOT ModelName (defect #9 fix) —
+                         ModelName's own fallback is ALSO the literal string "Main
+                         Model", so binding both halves to it could render "Main
+                         Model · Main Model" before a document loads. -->
                     <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
                         <Ellipse Width="5" Height="5" Fill="{DynamicResource Cp.Accent}" VerticalAlignment="Center" Margin="0,0,5,0"/>
                         <TextBlock FontSize="10.5" Foreground="{DynamicResource Cp.Muted}" FontFamily="{DynamicResource Cp.Reasoning.FontMono}">
-                            <Run Text="Main Model · "/><Run Text="{Binding ModelName, Mode=OneWay}"/>
+                            <Run Text="Main Model · "/><Run Text="{Binding DocumentTitle, Mode=OneWay}"/>
                         </TextBlock>
                     </StackPanel>
                     <!-- Live tool activity: "applying create_wall…" while a mutation

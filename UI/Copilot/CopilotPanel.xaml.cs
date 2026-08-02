@@ -160,7 +160,14 @@ namespace RevitWebAppSync.UI.Copilot
 
             var doc = uiApp?.ActiveUIDocument?.Document;
             if (doc != null)
-                _vm.ModelName = string.IsNullOrWhiteSpace(doc.Title) ? "Main Model" : System.IO.Path.GetFileNameWithoutExtension(doc.Title);
+            {
+                var docName = string.IsNullOrWhiteSpace(doc.Title) ? "" : System.IO.Path.GetFileNameWithoutExtension(doc.Title);
+                _vm.ModelName = string.IsNullOrEmpty(docName) ? "Main Model" : docName;
+                // Header subline's second half (defect #9) — kept separate from
+                // ModelName above so the two can never both fall back to the
+                // literal string "Main Model" at once.
+                _vm.DocumentTitle = docName;
+            }
 
             // On open: warm the cloud mirror (fast READS), then wait for the
             // Revit model to be warm (first regen paid by the add-in warm-up)

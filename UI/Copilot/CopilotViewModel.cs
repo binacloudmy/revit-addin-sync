@@ -76,6 +76,17 @@ namespace RevitWebAppSync.UI.Copilot
         public IChatRouter Router { get; set; }
         public string UserFirstName { get; set; } = "there";
         public string ModelName { get; set; } = "Main Model";
+        // 2026-08-02 defect #9 fix: the header subline is "«connection label»
+        // · «active document title»" — ModelName above IS the connection
+        // label (and doubles as feedback-log context elsewhere, unrelated to
+        // the header), but it does NOT hold the document title. It used to:
+        // the header bound BOTH halves to ModelName, and ModelName's own
+        // fallback (before SetRevitContext populates it, or if doc.Title is
+        // ever empty) is literally the string "Main Model" too — so the
+        // subline could read "Main Model · Main Model". DocumentTitle is a
+        // separate property, set only from the live Document.Title (see
+        // CopilotPanel.SetRevitContext), so the two halves can never collide.
+        public string DocumentTitle { get; set; } = "";
 
         /// <summary>Raised when the user taps the inline "rate" nudge under a
         /// reply. The panel listens and slides up the Rate sheet (which owns the
@@ -450,14 +461,11 @@ namespace RevitWebAppSync.UI.Copilot
         // typed-steps snapshot from RevitChatRouter.OnSteps (null until the
         // backend emits at least one steps frame — older backends never set
         // this, which is how the legacy OnProgress fallback below detects it
-        // should keep driving the trail). _streamText mirrors whatever reply
-        // prose OnCodeStream has accumulated so far, so OnSteps can keep the
-        // growing answer visible under the trail instead of blanking it.
-        // Both reset at the start of every turn (ChatSend) — never mid-turn,
-        // so a late OnProgress tick from an old-style backend can't clobber
-        // a newer OnSteps-driven trail once one has arrived this turn.
+        // should keep driving the trail). Reset at the start of every turn
+        // (ChatSend) — never mid-turn, so a late OnProgress tick from an
+        // old-style backend can't clobber a newer OnSteps-driven trail once
+        // one has arrived this turn.
         private IReadOnlyList<ProgressStep> _lastSteps;
-        private string _streamText;
         // Live REASONING trail state for the current turn — same reset/lifecycle
         // as _lastSteps above, but a separate collection (see ReasoningStep):
         // the working-narrative timeline, not the terse tool/status trail.
@@ -721,7 +729,6 @@ namespace RevitWebAppSync.UI.Copilot
             // }
 
             _lastSteps = null;
-            _streamText = null;
             _lastReasoning = null;
             // P2 slash command: hand the backend command id to the router BEFORE
             // routing kicks off. The field persists until RouteAsync consumes and
@@ -1171,8 +1178,6 @@ namespace RevitWebAppSync.UI.Copilot
                         ReplaceLastThinking(new ChatMessage
                         {
                             Role = "ai", Kind = CpMsgKind.Thinking,
-                            Text = _streamText ?? "",
-                            StreamingReply = !string.IsNullOrEmpty(_streamText),
                             LiveSteps = steps,
                             LiveReasoningSteps = _lastReasoning,
                         });
@@ -1189,28 +1194,33 @@ namespace RevitWebAppSync.UI.Copilot
                         ReplaceLastThinking(new ChatMessage
                         {
                             Role = "ai", Kind = CpMsgKind.Thinking,
-                            Text = _streamText ?? "",
-                            StreamingReply = !string.IsNullOrEmpty(_streamText),
                             LiveSteps = _lastSteps,
                             LiveReasoningSteps = steps,
                         });
                     };
+                    // 2026-08-02 "intermediate prose leak" fix: this callback's
+                    // cumulative reply_partial text used to render as a growing
+                    // full-size ANSWER bubble mid-turn (StreamingReply=true) — but
+                    // every round's reply streams here, not just the truly final
+                    // one, so an intermediate round's prose ("Tiada tool sedia
+                    // untuk permintaan ini…") rendered as if it were the answer,
+                    // sometimes duplicated when a later round's text arrived on
+                    // top. It never does that anymore: the backend's `reasoning`
+                    // frames (OnReasoning above) already carry the honest working
+                    // narrative for the reasoning card, and RenderRouteResult
+                    // builds the ONE real answer message from the terminal
+                    // done-frame's reply once the turn actually finishes — so this
+                    // handler now only keeps the reasoning card's liveness ticking
+                    // (same ReplaceLastThinking the other two handlers use) and
+                    // flags replyStreaming so the legacy single-line OnProgress
+                    // fallback (older backends with no typed steps) stays quiet.
                     revitRouter.OnCodeStream = (cumulative) =>
                     {
                         if (string.IsNullOrWhiteSpace(cumulative)) return;
                         replyStreaming = true;
-                        _streamText = cumulative;
-                        // StreamingReply: still Kind=Thinking so ReplaceLastThinking
-                        // keeps growing THIS bubble, but flagged so ChatView renders
-                        // the prose as the reply (markdown) — not the steps trail.
-                        // LiveSteps carries along whatever trail has arrived so far
-                        // so the ticking rows stay visible ABOVE the growing answer
-                        // instead of disappearing the moment prose starts.
                         ReplaceLastThinking(new ChatMessage
                         {
                             Role = "ai", Kind = CpMsgKind.Thinking,
-                            Text = cumulative,
-                            StreamingReply = true,
                             LiveSteps = _lastSteps,
                             LiveReasoningSteps = _lastReasoning,
                         });
@@ -1413,28 +1423,44 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 var result = BuildResult(tool, outcome);
                 var resultText = FormatResultAsText(result, outcome);
-                // ONE growing bubble: keep the model's streamed narration ("Tingkap
-                // diasingkan… Sekarang warnakan…") and APPEND the code's result under
-                // it, instead of REPLACING the narration with the result.
-                var reply = (!string.IsNullOrWhiteSpace(streamedReply)
-                             && streamedReply.Trim() != resultText.Trim())
-                    ? streamedReply.Trim() + "\n\n" + resultText
-                    : resultText;
+                // 2026-08-02 fix (acceptance-test item for the reasoning-UI round):
+                // streamedReply here is the pre-execution placeholder narration
+                // ("Tiada tool sedia untuk permintaan ini, jadi saya jana skrip
+                // C#…") — TRANSIENT commentary about what's ABOUT to happen, not
+                // part of the answer. It used to be PREPENDED to the execution
+                // result, so the real result ended up "one buried line at the
+                // bottom" under the placeholder text. Now the execution result
+                // REPLACES it as the turn's single answer block; the placeholder
+                // is preserved instead as a reasoning step (same routing defect
+                // #1 uses for other intermediate prose) so it's still visible if
+                // the drafter expands the reasoning card.
+                var finalReasoningSteps = reasoningSteps;
+                if (!string.IsNullOrWhiteSpace(streamedReply) && streamedReply.Trim() != resultText.Trim())
+                {
+                    finalReasoningSteps = new List<ReasoningStep>(reasoningSteps ?? new List<ReasoningStep>())
+                    {
+                        new ReasoningStep
+                        {
+                            StepId = "codegen-note", Label = "Working notes",
+                            Text = streamedReply.Trim(), State = ReasoningState.Done,
+                        },
+                    };
+                }
                 ReplaceLastThinking(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
-                    Text = reply,
+                    Text = resultText,
                     // Carry the offer through the codegen path too — without this
                     // a done frame with BOTH code and tindakan dropped the offer
-                    // and the Ya/Tidak row never rendered (the reply-only branch
-                    // already set it).
+                    // and the follow-up chip never rendered (the reply-only
+                    // branch already set it).
                     Tindakan = tindakan ?? "",
-                    ReasoningSteps = reasoningSteps,
+                    ReasoningSteps = finalReasoningSteps,
                     ReasoningElapsedSeconds = reasoningElapsedSeconds,
                     Followups = followups,
                     ResultSummary = resultSummary,
                 });
-                AppendToCurrentSession(displayPrompt ?? tool.Title, reply, "ok", new List<string> { tool.Id }, historyFiles);
+                AppendToCurrentSession(displayPrompt ?? tool.Title, resultText, "ok", new List<string> { tool.Id }, historyFiles);
                 PopulateHighlights(tool.Id);
             }
 
@@ -1444,16 +1470,20 @@ namespace RevitWebAppSync.UI.Copilot
 
         // ─── Tindakan (one-tap next-step offer) ────────────────────────────────
         // The agent's reply can end with a "next step" offer ("Nak saya
-        // lanjutkan?"); the pane renders it as [✓ Ya, teruskan] / [Tidak] under
-        // the LAST AiReply while unresolved (ChatView gates the buttons — see
-        // IsLastAiReply). Ya re-sends the offer text as if the drafter typed it
-        // — SAME path as a normal ChatSend, so it goes through the tool loop,
-        // history, feedback, everything unchanged. Tidak just dismisses.
+        // lanjutkan?"); the pane renders it as a follow-up CHIP under the LAST
+        // AiReply while unresolved (ChatView gates it — see IsLastAiReply) —
+        // 2026-08-02: no longer the old blue "✓ Ya, teruskan"/"Tidak" buttons
+        // (defect #4, unified into the reasoning-UI's chip row), and Accept no
+        // longer echoes the AI's own offer text back as the user bubble (defect
+        // #2 — a fake "the drafter said this" bubble). "Continue" is enough:
+        // the backend already has the offer in this session's history, and the
+        // SAME path as a normal ChatSend (tool loop, history, feedback) still
+        // runs either way.
         public void AcceptTindakan(ChatMessage m)
         {
             if (m == null || string.IsNullOrWhiteSpace(m.Tindakan) || m.TindakanResolved) return;
             m.TindakanResolved = true;
-            ChatSend("Ya, teruskan: " + m.Tindakan);
+            ChatSend("Continue");
         }
 
         public void DeclineTindakan(ChatMessage m)
@@ -1504,7 +1534,6 @@ namespace RevitWebAppSync.UI.Copilot
             if (revitRouter == null) return;
 
             _lastSteps = null;
-            _streamText = null;
             _lastReasoning = null;
             Thread.Add(new ChatMessage
             {

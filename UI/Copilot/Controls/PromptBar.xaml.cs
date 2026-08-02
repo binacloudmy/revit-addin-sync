@@ -442,17 +442,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         }
 
         // Idle (no text): transparent circle + faint arrow. Armed (text present)
-        // or Busy (stop): accent-gradient circle + white glyph.
+        // or Busy (stop): ink-black circle + white glyph (2026-08-02 defect #6
+        // fix — the artifact's composer send button is always ink-black when
+        // armed, not the accent gradient the rest of the pane uses elsewhere).
         private void UpdateSendVisual()
         {
             if (SendBtn == null || SendIcon == null || Input?.Editor == null) return;
             bool armed = Busy || _pendingTool != null || !string.IsNullOrWhiteSpace(Input.Editor.Text);
             if (armed)
             {
-                SendBtn.Background = TryFindResource("Cp.AccentGrad") as System.Windows.Media.Brush ?? Brushes.RoyalBlue;
+                SendBtn.Background = TryFindResource("Cp.Reasoning.Ink") as System.Windows.Media.Brush ?? Brushes.Black;
                 // Always white — NOT Cp.AccentContrast (which is near-black in dark theme,
                 // giving a black glyph on the blue button). A send/stop glyph reads best
-                // white on the accent gradient in both themes.
+                // white on an ink-black button in both themes.
                 SendIcon.Fill = Brushes.White;
             }
             else
@@ -510,9 +512,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
         }
 
+        // "Ask Copilot" (no ellipsis) — 2026-08-02 defect #6, matches the
+        // artifact's composer 1:1 exactly.
         public static readonly DependencyProperty PlaceholderProperty = DependencyProperty.Register(
             nameof(Placeholder), typeof(string), typeof(PromptBar),
-            new PropertyMetadata("Ask Copilot…", OnPlaceholderChanged));
+            new PropertyMetadata("Ask Copilot", OnPlaceholderChanged));
         public string Placeholder { get => (string)GetValue(PlaceholderProperty); set => SetValue(PlaceholderProperty, value); }
 
         private static void OnPlaceholderChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)

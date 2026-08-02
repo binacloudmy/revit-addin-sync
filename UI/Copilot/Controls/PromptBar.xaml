@@ -10,124 +10,141 @@
             <StackPanel x:Name="ThumbStrip" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,8"/>
             <!-- pending slash command (accent chip with an × to clear) -->
             <StackPanel x:Name="CommandStrip" Orientation="Horizontal" Visibility="Collapsed" Margin="0,0,0,8"/>
-            <!-- Slate composer: sunken rounded container, borderless input,
-                 ghost attach button, accent-gradient send/stop button. -->
-            <Border x:Name="ComposerBox" Background="{DynamicResource Cp.Sunken}" CornerRadius="13" Padding="13,8,8,8">
-                <DockPanel LastChildFill="True">
-                    <!-- send / stop: circular; gray while idle, accent gradient once
-                         there is text; stop square while a reply streams -->
-                    <Button x:Name="SendBtn" DockPanel.Dock="Right" Width="32" Height="32" Cursor="Hand"
-                            Background="Transparent" BorderThickness="0" VerticalAlignment="Bottom"
-                            FocusVisualStyle="{x:Null}" ToolTip="Send">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border Background="{TemplateBinding Background}" CornerRadius="9">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                            </ControlTemplate>
-                        </Button.Template>
-                        <Path x:Name="SendIcon" Width="14" Height="14" Stretch="Uniform"
-                              Fill="{DynamicResource Cp.Faint}"
-                              Data="M12,4 L19,11.5 L14.4,11.5 L14.4,19 L9.6,19 L9.6,11.5 L5,11.5 Z"/>
-                    </Button>
-                    <!-- @ mention button -->
-                    <Button x:Name="AtBtn" DockPanel.Dock="Right" Width="30" Height="30" Cursor="Hand"
-                            Background="Transparent" BorderThickness="0" VerticalAlignment="Bottom"
-                            FocusVisualStyle="{x:Null}"
-                            Margin="0,0,4,1" ToolTip="Reference a level, category, view, or selection">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="bd" Background="Transparent" CornerRadius="8">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                        <Path Width="16" Height="16" Stretch="Uniform" Fill="Transparent"
-                              Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.9"
-                              StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                              Data="M16,8 v5 a3,3 0 0 0 6,0 v-1 a10,10 0 1 0 -4,8 M12,8 a4,4 0 1 0 0,8 a4,4 0 1 0 0,-8"/>
-                    </Button>
-                    <!-- attach file button -->
-                    <Button x:Name="AttachBtn" DockPanel.Dock="Right" Width="30" Height="30" Cursor="Hand"
-                            Background="Transparent" BorderThickness="0" VerticalAlignment="Bottom"
-                            FocusVisualStyle="{x:Null}"
-                            Margin="0,0,2,1" ToolTip="Attach a file (.txt, .csv, .md, .log, .json, .xml)">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="bd" Background="Transparent" CornerRadius="8">
-                                    <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                        <Path Width="14" Height="14" Stretch="Uniform" Fill="Transparent"
-                              Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.9"
-                              StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                              Data="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
-                    </Button>
-                    <!-- Reasoning toggle chip (2026-08-02 copilot-reasoning-ui spec):
-                         controls whether `reasoning` SSE frames are shown for the
-                         next turn. Persisted via CopilotPrefs.ReasoningEnabled. -->
-                    <Button x:Name="ReasoningBtn" DockPanel.Dock="Right" Cursor="Hand"
-                            Background="Transparent" BorderThickness="0" VerticalAlignment="Bottom"
-                            FocusVisualStyle="{x:Null}" Margin="0,0,2,3"
-                            ToolTip="Toggle the reasoning timeline for the next turn">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="bd" Background="Transparent" CornerRadius="8" Padding="9,4,9,4">
-                                    <ContentPresenter/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <Ellipse x:Name="ReasoningDot" Width="5" Height="5" Margin="0,0,5,0" VerticalAlignment="Center"/>
-                            <TextBlock Text="Reasoning" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-                    <!-- Action Mode chip (2026-08-02 addendum): "Ask first" (amber,
-                         default) / "Auto" (green) — opens ActionModePopup below.
-                         Persisted via CopilotPrefs.AutoApproveWrites. -->
-                    <Button x:Name="ActionModeBtn" DockPanel.Dock="Right" Cursor="Hand"
-                            Background="Transparent" BorderThickness="0" VerticalAlignment="Bottom"
-                            FocusVisualStyle="{x:Null}" Margin="0,0,2,3"
-                            ToolTip="Choose how write actions are approved">
-                        <Button.Template>
-                            <ControlTemplate TargetType="Button">
-                                <Border x:Name="bd" Background="Transparent" CornerRadius="8" Padding="9,4,9,4">
-                                    <ContentPresenter/>
-                                </Border>
-                                <ControlTemplate.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
-                                    </Trigger>
-                                </ControlTemplate.Triggers>
-                            </ControlTemplate>
-                        </Button.Template>
-                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <Ellipse x:Name="ActionModeDot" Width="5" Height="5" Margin="0,0,5,0" VerticalAlignment="Center"/>
-                            <TextBlock x:Name="ActionModeLabel" Text="Ask first" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
-                            <Path Width="7" Height="7" Stretch="Uniform" Margin="4,0,0,0" VerticalAlignment="Center"
-                                  StrokeThickness="1.6" Stroke="{DynamicResource Cp.Faint}"
-                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                                  Data="M1,5 L4,1.5 L7,5"/>
-                        </StackPanel>
-                    </Button>
-                    <ctl:MentionInput x:Name="Input" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                </DockPanel>
+            <!-- Slate composer: sunken rounded container. 2026-08-02 defect #6
+                 fix (1:1 against the operator's artifact reference) — TWO rows,
+                 not one: line 1 is the input alone, line 2 (margin-top 10px)
+                 is the action row (attach, @, Reasoning chip, Action Mode chip,
+                 flex spacer, send). Previously the icon cluster + input shared
+                 one row (DockPanel with the input filling the remaining
+                 space) — this is a structural rebuild, not a re-skin. -->
+            <Border x:Name="ComposerBox" Background="{DynamicResource Cp.Sunken}" CornerRadius="13" Padding="13,10,10,8">
+                <StackPanel>
+                    <!-- Row 1: input alone. -->
+                    <ctl:MentionInput x:Name="Input" VerticalAlignment="Center"/>
+
+                    <!-- Row 2: action row. LastChildFill="False" + explicit
+                         Left/Right docks (not a single fill child) is what
+                         produces the artifact's "icon cluster ⟷ flex spacer ⟷
+                         send button" layout — DockPanel leaves whatever space
+                         is left between the two docked groups blank, which
+                         reads as the flex spacer with no extra element needed. -->
+                    <DockPanel LastChildFill="False" Margin="0,10,0,0">
+                        <!-- attach file button -->
+                        <Button x:Name="AttachBtn" DockPanel.Dock="Left" Width="26" Height="26" Cursor="Hand"
+                                Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
+                                FocusVisualStyle="{x:Null}"
+                                ToolTip="Attach a file (.txt, .csv, .md, .log, .json, .xml)">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="bd" Background="Transparent" CornerRadius="8">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                            <Path Width="14" Height="14" Stretch="Uniform" Fill="Transparent"
+                                  Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.9"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  Data="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                        </Button>
+                        <!-- @ mention button -->
+                        <Button x:Name="AtBtn" DockPanel.Dock="Left" Width="26" Height="26" Cursor="Hand"
+                                Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
+                                FocusVisualStyle="{x:Null}" Margin="2,0,0,0"
+                                ToolTip="Reference a level, category, view, or selection">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="bd" Background="Transparent" CornerRadius="8">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                            <Path Width="16" Height="16" Stretch="Uniform" Fill="Transparent"
+                                  Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.9"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  Data="M16,8 v5 a3,3 0 0 0 6,0 v-1 a10,10 0 1 0 -4,8 M12,8 a4,4 0 1 0 0,8 a4,4 0 1 0 0,-8"/>
+                        </Button>
+                        <!-- Reasoning toggle chip (2026-08-02 copilot-reasoning-ui
+                             spec): controls whether `reasoning` SSE frames are
+                             shown for the next turn. Persisted via
+                             CopilotPrefs.ReasoningEnabled. -->
+                        <Button x:Name="ReasoningBtn" DockPanel.Dock="Left" Cursor="Hand"
+                                Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
+                                FocusVisualStyle="{x:Null}" Margin="4,0,0,0"
+                                ToolTip="Toggle the reasoning timeline for the next turn">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="bd" Background="Transparent" CornerRadius="8" Padding="9,4,9,4">
+                                        <ContentPresenter/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Ellipse x:Name="ReasoningDot" Width="5" Height="5" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="Reasoning" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- Action Mode chip (2026-08-02 addendum): "Ask first"
+                             (amber, default) / "Auto" (green) — opens
+                             ActionModePopup below. Persisted via
+                             CopilotPrefs.AutoApproveWrites. -->
+                        <Button x:Name="ActionModeBtn" DockPanel.Dock="Left" Cursor="Hand"
+                                Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
+                                FocusVisualStyle="{x:Null}" Margin="2,0,0,0"
+                                ToolTip="Choose how write actions are approved">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="bd" Background="Transparent" CornerRadius="8" Padding="9,4,9,4">
+                                        <ContentPresenter/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <Ellipse x:Name="ActionModeDot" Width="5" Height="5" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                                <TextBlock x:Name="ActionModeLabel" Text="Ask first" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
+                                <Path Width="7" Height="7" Stretch="Uniform" Margin="4,0,0,0" VerticalAlignment="Center"
+                                      StrokeThickness="1.6" Stroke="{DynamicResource Cp.Faint}"
+                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                      Data="M1,5 L4,1.5 L7,5"/>
+                            </StackPanel>
+                        </Button>
+                        <!-- send / stop: 28x28 ink-black once armed (artifact 1:1),
+                             gray while idle; stop square while a reply streams. -->
+                        <Button x:Name="SendBtn" DockPanel.Dock="Right" Width="28" Height="28" Cursor="Hand"
+                                Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
+                                FocusVisualStyle="{x:Null}" ToolTip="Send">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="{TemplateBinding Background}" CornerRadius="9">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                </ControlTemplate>
+                            </Button.Template>
+                            <Path x:Name="SendIcon" Width="14" Height="14" Stretch="Uniform"
+                                  Fill="{DynamicResource Cp.Faint}"
+                                  Data="M12,4 L19,11.5 L14.4,11.5 L14.4,19 L9.6,19 L9.6,11.5 L5,11.5 Z"/>
+                        </Button>
+                    </DockPanel>
+                </StackPanel>
             </Border>
 
             <!-- Action Mode popover — upward, closes on outside click (StaysOpen
