@@ -141,6 +141,7 @@
     <SolidColorBrush x:Key="Cp.Reasoning.TextSecondary" Color="#4a4a55"/>
     <SolidColorBrush x:Key="Cp.Reasoning.Text"         Color="#7a7a86"/>   <!-- reasoning body -->
     <SolidColorBrush x:Key="Cp.Reasoning.TextMuted"    Color="#8b8b95"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.TextRowCount" Color="#6e6e78"/>   <!-- result card row count (task 16 polish; distinct from TextMuted per handoff) -->
     <SolidColorBrush x:Key="Cp.Reasoning.TextFaint"    Color="#a5a5ae"/>
     <SolidColorBrush x:Key="Cp.Reasoning.TextFaint2"   Color="#b4b4bd"/>
 

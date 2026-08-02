@@ -682,7 +682,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 && !m.TindakanResolved && IsLastAiReply(m);
             if (m.Kind == CpMsgKind.AiReply && (hasResultBars || hasFollowups || hasTindakan))
             {
-                col.Children.Add(ResultSummaryCard(m, hasResultBars, hasFollowups, hasTindakan));
+                col.Children.Add(ResultSummaryCard(m, hasResultBars, hasFollowups, hasTindakan, col.MaxWidth));
             }
 
             switch (m.Kind)
@@ -1579,7 +1579,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// can send a full long AI sentence there). "Undo" stays client-side:
         /// it asks the agent in natural language rather than assuming a
         /// dedicated undo tool exists server-side.</summary>
-        private FrameworkElement ResultSummaryCard(ChatMessage m, bool hasBars, bool hasFollowups, bool hasTindakan)
+        private FrameworkElement ResultSummaryCard(ChatMessage m, bool hasBars, bool hasFollowups, bool hasTindakan, double maxCardWidth)
         {
             var outer = new StackPanel { Margin = new Thickness(0, 4, 0, 8) };
 
@@ -1596,7 +1596,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
                 head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                 head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                var titleTb = new TextBlock { Text = (rs.Title ?? "").ToUpperInvariant(), FontSize = 10, VerticalAlignment = VerticalAlignment.Center };
+                var titleTb = new TextBlock
+                {
+                    Text = LetterSpace(FormatResultCardTitle(rs.Title)), FontSize = 10, VerticalAlignment = VerticalAlignment.Center,
+                };
                 titleTb.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextFaint");
                 titleTb.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.Reasoning.FontMono");
                 Grid.SetColumn(titleTb, 0);
@@ -1609,12 +1612,19 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 cardSp.Children.Add(headBorder);
 
                 var rows = new StackPanel { Margin = new Thickness(13, 11, 13, 12) };
+                // All rows' label columns share one auto-fit width (widest
+                // label wins, e.g. "L3 — Connected") capped at ~45% of the
+                // card so a runaway label still ellipses instead of crushing
+                // the bar — SharedSizeGroup needs an IsSharedSizeScope
+                // ancestor, which `rows` provides for every Grid below.
+                Grid.SetIsSharedSizeScope(rows, true);
+                double labelCap = System.Math.Max(70, (maxCardWidth - 26 /* card padding */) * 0.45);
                 int total = rs.Total > 0 ? rs.Total : rs.Rows.Sum(r => r.Count);
                 foreach (var row in rs.Rows)
                 {
                     var g = new Grid { Margin = new Thickness(0, 0, 0, 9) };
                     g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(11) });
-                    g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(84) });
+                    g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto, SharedSizeGroup = "ResultSummaryLabel", MaxWidth = labelCap });
                     g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
                     g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
 
@@ -1623,31 +1633,44 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     Grid.SetColumn(swatch, 0);
                     g.Children.Add(swatch);
 
-                    var lbl = new TextBlock { Text = row.Label, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+                    var lbl = new TextBlock
+                    {
+                        Text = row.Label, FontSize = 12.5, VerticalAlignment = VerticalAlignment.Center,
+                        TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(10, 0, 0, 0),
+                    };
                     lbl.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextPrimary");
                     Grid.SetColumn(lbl, 1);
                     g.Children.Add(lbl);
 
-                    var track = new Border { Height = 5, CornerRadius = new CornerRadius(99), ClipToBounds = true, VerticalAlignment = VerticalAlignment.Center };
-                    track.SetResourceReference(Border.BackgroundProperty, "Cp.Reasoning.BarTrack");
+                    // Proportion bar: two overlaid Rectangles (not nested
+                    // Borders) with RadiusX/Y=2.5 == half the 5px height, so
+                    // both ends are always fully rounded regardless of DPI —
+                    // a thin pill, never the fat/Ellipse-looking blob the
+                    // previous Border+CornerRadius(99) combo rendered as.
+                    var barHost = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+                    var track = new Rectangle { Height = 5, RadiusX = 2.5, RadiusY = 2.5, VerticalAlignment = VerticalAlignment.Center };
+                    track.SetResourceReference(Shape.FillProperty, "Cp.Reasoning.BarTrack");
+                    barHost.Children.Add(track);
+
                     double pct = total > 0 ? System.Math.Max(0, System.Math.Min(1.0, row.Count / (double)total)) : 0;
-                    var fill = new Border
+                    var fill = new Rectangle
                     {
-                        Height = 5, CornerRadius = new CornerRadius(99), HorizontalAlignment = HorizontalAlignment.Left,
-                        Width = System.Double.NaN,
+                        Height = 5, RadiusX = 2.5, RadiusY = 2.5,
+                        HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center,
+                        Width = 0,
                     };
-                    fill.SetResourceReference(Border.BackgroundProperty, SystemColorToken(row.ColorHint));
-                    // Width is resolved against the track's ActualWidth once laid
-                    // out — a percentage Border needs a host; bind via Loaded so
-                    // the track has a real ActualWidth to multiply against.
-                    track.Child = fill;
-                    track.Loaded += (_, __) => fill.Width = track.ActualWidth * pct;
-                    track.SizeChanged += (_, __) => fill.Width = track.ActualWidth * pct;
-                    Grid.SetColumn(track, 2);
-                    g.Children.Add(track);
+                    fill.SetResourceReference(Shape.FillProperty, SystemColorToken(row.ColorHint));
+                    barHost.Children.Add(fill);
+                    // Width is resolved against the host's ActualWidth once
+                    // laid out — a percentage Rectangle needs a host; bind via
+                    // Loaded so the host has a real ActualWidth to multiply.
+                    barHost.Loaded += (_, __) => fill.Width = barHost.ActualWidth * pct;
+                    barHost.SizeChanged += (_, __) => fill.Width = barHost.ActualWidth * pct;
+                    Grid.SetColumn(barHost, 2);
+                    g.Children.Add(barHost);
 
                     var countTb = new TextBlock { Text = row.Count.ToString("N0"), FontSize = 11, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
-                    countTb.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextMuted");
+                    countTb.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextRowCount");
                     countTb.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.Reasoning.FontMono");
                     Grid.SetColumn(countTb, 3);
                     g.Children.Add(countTb);
@@ -1695,6 +1718,30 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             if (!CopilotTheme.ReducedMotion) MsgRise(outer);
             return outer;
+        }
+
+        // Result-card title cosmetics (task 16, 2026-08-02): the backend
+        // composes compound group_by titles as "BY LEVEL,CONNECTIVITY" (comma,
+        // no space) — uppercase the whole string, then insert a space after
+        // every comma so it reads as "BY LEVEL, CONNECTIVITY". Display-only;
+        // the wire Title string is untouched.
+        private static string FormatResultCardTitle(string title)
+        {
+            var upper = (title ?? "").ToUpperInvariant();
+            return System.Text.RegularExpressions.Regex.Replace(upper, @",\s*", ", ");
+        }
+
+        // WPF's TextBlock has no CSS-style letter-spacing API (verified: no
+        // CharacterSpacing member on TextBlock/TextElement in this SDK) — the
+        // handoff's .06em uppercase mono tracking (also unimplemented so far
+        // for "ACTION MODE" / step labels elsewhere in this file) is
+        // approximated here by threading a hair space (U+200A, ~0.06em wide
+        // in most fonts) between characters. Existing inline spaces still
+        // read as spaces, just slightly wider — the standard WPF workaround.
+        private static string LetterSpace(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            return string.Join(" ", text.ToCharArray());
         }
 
         // Chip-sized display for any follow-up chip (task 12/13, 2026-08-02):
