@@ -468,12 +468,36 @@ namespace BinaVibe.Mcp.Tools
             return tee;
         }
 
-        private static ConnectorManager? GetConnectorManager(Element el) => el switch
+        // internal, not private: Inspectors.CountBy's "connectivity" grouping
+        // (2026-08-02) reuses this SAME connector-enumeration logic rather
+        // than re-deriving it — one place that knows how to find an
+        // element's ConnectorManager across the two Revit shapes that carry
+        // one (duct/pipe/tray vs. an MEP family instance like an AHU or
+        // diffuser).
+        internal static ConnectorManager? GetConnectorManager(Element el) => el switch
         {
             MEPCurve mc => mc.ConnectorManager,
             FamilyInstance fi => fi.MEPModel?.ConnectorManager,
             _ => null,
         };
+
+        // null = not an MEP element (no ConnectorManager at all) — count_by's
+        // "connectivity" grouping buckets these separately rather than
+        // silently mislabeling them "Not Connected". true = has connectors
+        // and EVERY one is attached to something; false = has connectors and
+        // at least one is open/free.
+        internal static bool? IsFullyConnected(Element el)
+        {
+            var cm = GetConnectorManager(el);
+            if (cm == null) return null;
+            bool sawAny = false;
+            foreach (Connector c in cm.Connectors)
+            {
+                sawAny = true;
+                if (!c.IsConnected) return false;
+            }
+            return sawAny ? true : (bool?)null;   // connector set exists but is empty — treat like "not MEP" rather than guessing
+        }
 
         private static List<Connector> ConnectorsOf(Element el)
         {
