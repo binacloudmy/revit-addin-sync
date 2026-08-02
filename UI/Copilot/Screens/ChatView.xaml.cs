@@ -1767,15 +1767,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             var b = new Border
             {
-                CornerRadius = new CornerRadius(999), BorderThickness = new Thickness(1),
-                Padding = new Thickness(16, 8, 16, 8), Margin = new Thickness(0, 0, 8, 8),
+                // Radius 9 + tight padding per the artifact chip spec (operator
+                // mockup 2026-08-02 22:07) — full-round 999 rendered oval/egg
+                // shapes on WPF Borders taller than 2x the radius.
+                CornerRadius = new CornerRadius(9), BorderThickness = new Thickness(1),
+                Padding = new Thickness(11, 6, 11, 6), Margin = new Thickness(0, 0, 8, 8),
                 Cursor = System.Windows.Input.Cursors.Hand,
             };
             b.SetResourceReference(Border.BorderBrushProperty, "Cp.Reasoning.Border2");
             b.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
             b.MouseEnter += (_, __) => b.SetResourceReference(Border.BackgroundProperty, "Cp.Reasoning.Hover");
             b.MouseLeave += (_, __) => b.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
-            var tb = new TextBlock { Text = text, FontSize = 13 };
+            var tb = new TextBlock { Text = text, FontSize = 12.5 };
             tb.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextPrimary");
             b.Child = tb;
             if (onClick != null) b.MouseLeftButtonUp += (_, __) => onClick();
