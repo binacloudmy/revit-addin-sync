@@ -1056,28 +1056,11 @@ namespace BinaVibe.Mcp.Tools
         }
 
         // ─── count_by ───────────────────────────────────────────────────
-        // Count a category broken down by level / type / workset /
-        // connectivity — or a COMPOUND of up to two, comma-separated (e.g.
-        // "level,connectivity" answers "connected vs not, broken down by
-        // level" in one call: rows come back as "Level 1 — Connected" /
-        // "Level 1 — Not Connected" / …). Read-only.
-        //
-        // "summary_card" (2026-08-02): the GENERAL convention for "make this
-        // render as the proportion-bar result card instead of the model
-        // hand-typing a text report" — see the long comment on it below.
-        // count_by is the flagship example; any INSPECT/MUTATE tool can add
-        // the same key to its own result. build_result_summary
-        // (revit_response_shaping.py, bina-ai) passes it through generically
-        // for ANY tool now — no per-tool-name branch needed there anymore.
+        // Count a category broken down by level / type / workset. Read-only.
         public static Dictionary<string, object?> CountBy(Document doc, JsonElement args)
         {
             string category = TryGetString(args, "category") ?? "";
-            string groupByRaw = (TryGetString(args, "group_by") ?? "level").ToLowerInvariant();
-            // Compound grouping: "level,connectivity" -> ["level", "connectivity"].
-            // Capped at 2 dims — a 3-way breakdown stops being a readable bar
-            // chart; the model should make a second call instead.
-            var dims = groupByRaw.Split(',').Select(d => d.Trim()).Where(d => d.Length > 0).Take(2).ToList();
-            if (dims.Count == 0) dims.Add("level");
+            string groupBy = (TryGetString(args, "group_by") ?? "level").ToLowerInvariant();
             if (string.IsNullOrWhiteSpace(category))
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no category given" };
             var bic = ResolveCategoryRobust(doc, category);
@@ -1087,40 +1070,18 @@ namespace BinaVibe.Mcp.Tools
             var els = new FilteredElementCollector(doc).OfCategory(bic.Value)
                 .WhereElementIsNotElementType().ToList();
 
-            string KeyForDim(string dim, Element el)
+            string KeyOf(Element el)
             {
-                if (dim == "type")
+                if (groupBy == "type")
                 {
                     var t = el.GetTypeId();
                     return (t != null && t.Value != ElementId.InvalidElementId.Value
                         ? doc.GetElement(t)?.Name : null) ?? "(no type)";
                 }
-                if (dim == "workset")
+                if (groupBy == "workset")
                 {
                     var wp = el.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
                     return wp?.AsValueString() ?? "(no workset)";
-                }
-                if (dim == "connectivity" || dim == "connected")
-                {
-                    // 2026-08-02: MEP audit-style questions ("how many air
-                    // terminals are connected", "belum connected mengikut
-                    // aras") had NO tool that could answer them structurally
-                    // — group_by only covered real Revit PARAMETERS, and
-                    // "connected" isn't one (it's derived from each
-                    // element's connectors). The agent fell back to writing
-                    // its own free-text report, which could never render as
-                    // the result card (that only comes from a real tool
-                    // result) and — being hand-typed prose on a 500+ element
-                    // category — ate into the reply's own token budget.
-                    // Reuses MutatorsMepRouting's connector lookup (same
-                    // code list_connectors/trace_connections already trust).
-                    var connected = MutatorsMepRouting.IsFullyConnected(el);
-                    return connected switch
-                    {
-                        true => "Connected",
-                        false => "Not Connected",
-                        null => "(no connectors)",   // not an MEP element / empty connector set
-                    };
                 }
                 // default: level — direct LevelId, else a level-ish param for hosted elements
                 var lid = el.LevelId;
@@ -1134,62 +1095,15 @@ namespace BinaVibe.Mcp.Tools
                 return "(no level)";
             }
 
-            // Compound key: "Level 1 — Connected". Single-dim stays exactly
-            // as before ("Level 1") — no behaviour change for existing
-            // (non-compound) callers.
-            string KeyOf(Element el) => string.Join(" — ", dims.Select(d => KeyForDim(d, el)));
-
             var groups = els.GroupBy(KeyOf)
                 .Select(g => new Dictionary<string, object?> { ["group"] = g.Key, ["count"] = g.Count() })
                 .OrderByDescending(d => (int)d["count"]!)
-                .ToList();
-
-            // ─── summary_card convention ──────────────────────────────────
-            // Any tool result MAY include "summary_card": {title, total,
-            // rows: [{label, count, color_hint}]} — exactly the shape the
-            // done frame's result_summary needs, so the addin's proportion-
-            // bar card renders it as-is. This is the GENERAL mechanism (not
-            // count_by-specific): a tool that computed a natural "N things
-            // broken into buckets" result — a count, an audit, "N elements
-            // changed" — just adds this key instead of the model having to
-            // restate the numbers in prose that then can't be a chart.
-            // color_hint is one of: "supply"/"return"/"exhaust" (MEP system
-            // colours), "info"/"ok"/"warn" (neutral/good/needs-attention),
-            // or "none" (gray) — the addin maps all of these to its palette
-            // (ChatView.SystemColorToken); anything else falls back to gray.
-            bool hasConnectivity = dims.Any(d => d is "connectivity" or "connected");
-            string ColorHintFor(string label)
-            {
-                if (hasConnectivity)
-                {
-                    // Compound labels embed "Connected"/"Not Connected" as a
-                    // segment ("Level 1 — Connected") — substring match so
-                    // the colour still lands regardless of dim order.
-                    if (label.Contains("Not Connected")) return "warn";
-                    if (label.Contains("Connected")) return "ok";
-                    return "none";
-                }
-                var l = label.ToLowerInvariant();
-                if (l.Contains("supply")) return "supply";
-                if (l.Contains("return")) return "return";
-                if (l.Contains("exhaust")) return "exhaust";
-                return "none";
-            }
-            var cardRows = groups.Select(g => new Dictionary<string, object?>
-            {
-                ["label"] = g["group"], ["count"] = g["count"], ["color_hint"] = ColorHintFor((string)g["group"]!),
-            }).Cast<object>().ToList();
+                .Cast<object>().ToList();
 
             return new Dictionary<string, object?>
             {
-                ["ok"] = true, ["category"] = category, ["group_by"] = groupByRaw,
-                ["total"] = els.Count, ["groups"] = groups.Cast<object>().ToList(),
-                ["summary_card"] = new Dictionary<string, object?>
-                {
-                    ["title"] = $"{category} by {string.Join(" & ", dims)}",
-                    ["total"] = els.Count,
-                    ["rows"] = cardRows,
-                },
+                ["ok"] = true, ["category"] = category, ["group_by"] = groupBy,
+                ["total"] = els.Count, ["groups"] = groups,
             };
         }
 
