@@ -101,5 +101,70 @@ namespace Tests
             ReasoningReducer.Apply(steps, "s2", "B", "y", ReasoningState.Running);
             Assert.Equal("s2", ReasoningTrail.Current(steps).StepId);
         }
+
+        // 2026-08-02 live-blank-rows defect fix — ReasoningTimelineView's body
+        // rebuild is gated on RenderKey so it doesn't stutter its own caret
+        // animation on every 15ms delta tick. The OLD key was
+        // `streaming|count|lastRow.Text.Length` — these tests pin down exactly
+        // the class of update that key missed: anything that isn't a brand-new
+        // row AND isn't a length change on whichever row happens to be last.
+        // The backend reuses a small, fixed set of step_ids ("gather"/"run"/
+        // "gate:compile"/...), so a row frequently stops being "last" the
+        // moment a later step_id is first seen — after that, its own updates
+        // must still change the key, which is what these assert.
+
+        [Fact]
+        public void RenderKey_changes_when_a_non_last_rows_label_changes()
+        {
+            var steps = new ObservableCollection<ReasoningStep>();
+            ReasoningReducer.Apply(steps, "gather", "Collecting information", "", ReasoningState.Running);
+            ReasoningReducer.Apply(steps, "run", "Generating answer", "", ReasoningState.Running);
+            var before = ReasoningTrail.RenderKey(true, steps);
+
+            // "gather" is no longer the last row ("run" is) — a label-only
+            // update on it must still change the key.
+            ReasoningReducer.Apply(steps, "gather", "Route duct → 3 segments", "", ReasoningState.Running);
+            var after = ReasoningTrail.RenderKey(true, steps);
+
+            Assert.NotEqual(before, after);
+        }
+
+        [Fact]
+        public void RenderKey_changes_when_a_non_last_rows_text_grows()
+        {
+            var steps = new ObservableCollection<ReasoningStep>();
+            ReasoningReducer.Apply(steps, "gather", "Collecting information", "", ReasoningState.Running);
+            ReasoningReducer.Apply(steps, "run", "Generating answer", "", ReasoningState.Running);
+            var before = ReasoningTrail.RenderKey(true, steps);
+
+            ReasoningReducer.Apply(steps, "gather", "", "route_duct → 3 segments, 1 fitting", ReasoningState.Running);
+            var after = ReasoningTrail.RenderKey(true, steps);
+
+            Assert.NotEqual(before, after);
+        }
+
+        [Fact]
+        public void RenderKey_changes_when_a_non_last_rows_state_flips_to_done()
+        {
+            var steps = new ObservableCollection<ReasoningStep>();
+            ReasoningReducer.Apply(steps, "gather", "Collecting information", "", ReasoningState.Running);
+            ReasoningReducer.Apply(steps, "run", "Generating answer", "", ReasoningState.Running);
+            var before = ReasoningTrail.RenderKey(true, steps);
+
+            ReasoningReducer.Apply(steps, "gather", "Collecting information", "", ReasoningState.Done);
+            var after = ReasoningTrail.RenderKey(true, steps);
+
+            Assert.NotEqual(before, after);
+        }
+
+        [Fact]
+        public void RenderKey_is_stable_when_nothing_visible_changed()
+        {
+            var steps = new ObservableCollection<ReasoningStep>();
+            ReasoningReducer.Apply(steps, "s1", "Working", "hello", ReasoningState.Running);
+            var a = ReasoningTrail.RenderKey(true, steps);
+            var b = ReasoningTrail.RenderKey(true, steps);
+            Assert.Equal(a, b);
+        }
     }
 }

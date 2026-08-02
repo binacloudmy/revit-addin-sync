@@ -1056,7 +1056,9 @@ namespace BinaVibe.Mcp.Tools
         }
 
         // ─── count_by ───────────────────────────────────────────────────
-        // Count a category broken down by level / type / workset. Read-only.
+        // Count a category broken down by level / type / workset /
+        // connectivity, or a "dim1,dim2" compound of those (e.g.
+        // "level,connectivity" -> rows like "L2 — Connected"). Read-only.
         public static Dictionary<string, object?> CountBy(Document doc, JsonElement args)
         {
             string category = TryGetString(args, "category") ?? "";
@@ -1070,30 +1072,10 @@ namespace BinaVibe.Mcp.Tools
             var els = new FilteredElementCollector(doc).OfCategory(bic.Value)
                 .WhereElementIsNotElementType().ToList();
 
-            string KeyOf(Element el)
-            {
-                if (groupBy == "type")
-                {
-                    var t = el.GetTypeId();
-                    return (t != null && t.Value != ElementId.InvalidElementId.Value
-                        ? doc.GetElement(t)?.Name : null) ?? "(no type)";
-                }
-                if (groupBy == "workset")
-                {
-                    var wp = el.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
-                    return wp?.AsValueString() ?? "(no workset)";
-                }
-                // default: level — direct LevelId, else a level-ish param for hosted elements
-                var lid = el.LevelId;
-                if (lid != null && lid.Value != ElementId.InvalidElementId.Value)
-                    return doc.GetElement(lid)?.Name ?? "(no level)";
-                var lp = el.get_Parameter(BuiltInParameter.FAMILY_LEVEL_PARAM)
-                      ?? el.get_Parameter(BuiltInParameter.SCHEDULE_LEVEL_PARAM);
-                var lpId = lp?.AsElementId();
-                if (lpId != null && lpId.Value != ElementId.InvalidElementId.Value)
-                    return doc.GetElement(lpId)?.Name ?? "(no level)";
-                return "(no level)";
-            }
+            var dims = groupBy.Split(',').Select(d => d.Trim()).Where(d => d.Length > 0).ToArray();
+            if (dims.Length == 0) dims = new[] { "level" };
+
+            string KeyOf(Element el) => string.Join(" — ", dims.Select(d => CountByDimensionKey(doc, el, d)));
 
             var groups = els.GroupBy(KeyOf)
                 .Select(g => new Dictionary<string, object?> { ["group"] = g.Key, ["count"] = g.Count() })
@@ -1105,6 +1087,50 @@ namespace BinaVibe.Mcp.Tools
                 ["ok"] = true, ["category"] = category, ["group_by"] = groupBy,
                 ["total"] = els.Count, ["groups"] = groups,
             };
+        }
+
+        // One grouping dimension's key for a single element. Split out of
+        // CountBy so a compound group_by ("level,connectivity") can compose
+        // dimensions instead of needing a dedicated code path.
+        private static string CountByDimensionKey(Document doc, Element el, string dim)
+        {
+            if (dim == "type")
+            {
+                var t = el.GetTypeId();
+                return (t != null && t.Value != ElementId.InvalidElementId.Value
+                    ? doc.GetElement(t)?.Name : null) ?? "(no type)";
+            }
+            if (dim == "workset")
+            {
+                var wp = el.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
+                return wp?.AsValueString() ?? "(no workset)";
+            }
+            if (dim == "connectivity")
+            {
+                // Reuses MutatorsMepRouting's GetConnectorManager (made
+                // internal for this) instead of re-deriving the
+                // MEPCurve/FamilyInstance switch here.
+                var cm = MutatorsMepRouting.GetConnectorManager(el);
+                if (cm == null) return "(no connectors)";
+                bool sawAny = false, sawFree = false;
+                foreach (Connector c in cm.Connectors)
+                {
+                    sawAny = true;
+                    if (!c.IsConnected) { sawFree = true; break; }
+                }
+                if (!sawAny) return "(no connectors)";       // empty connector set — never mislabeled
+                return sawFree ? "Not Connected" : "Connected";
+            }
+            // default: level — direct LevelId, else a level-ish param for hosted elements
+            var lid = el.LevelId;
+            if (lid != null && lid.Value != ElementId.InvalidElementId.Value)
+                return doc.GetElement(lid)?.Name ?? "(no level)";
+            var lp = el.get_Parameter(BuiltInParameter.FAMILY_LEVEL_PARAM)
+                  ?? el.get_Parameter(BuiltInParameter.SCHEDULE_LEVEL_PARAM);
+            var lpId = lp?.AsElementId();
+            if (lpId != null && lpId.Value != ElementId.InvalidElementId.Value)
+                return doc.GetElement(lpId)?.Name ?? "(no level)";
+            return "(no level)";
         }
 
         // ─── export_schedule_to_excel ───────────────────────────────────

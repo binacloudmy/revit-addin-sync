@@ -468,7 +468,10 @@ namespace BinaVibe.Mcp.Tools
             return tee;
         }
 
-        private static ConnectorManager? GetConnectorManager(Element el) => el switch
+        // internal, not private: Inspectors.CountBy's "connectivity" group_by
+        // (2026-08-02) reuses this same connector-manager resolver instead of
+        // duplicating the element-shape switch.
+        internal static ConnectorManager? GetConnectorManager(Element el) => el switch
         {
             MEPCurve mc => mc.ConnectorManager,
             FamilyInstance fi => fi.MEPModel?.ConnectorManager,

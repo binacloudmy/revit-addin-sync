@@ -203,7 +203,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             // Cheap fingerprint guard (ProgressTrailView precedent) — a fresh
             // rebuild of every row on every 15ms delta tick would stutter the
             // blinking caret's own animation by restarting it each time.
-            var key = streaming + "|" + steps.Count + "|" + (steps.Count > 0 ? steps[steps.Count - 1].Text.Length : 0);
+            // See ReasoningTrail.RenderKey's doc comment (2026-08-02 defect
+            // fix) for why this now fingerprints every row, not just the
+            // count and the last row's text length.
+            var key = ReasoningTrail.RenderKey(streaming, steps);
             if (key == _renderedKey) return;
             _renderedKey = key;
 

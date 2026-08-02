@@ -329,10 +329,20 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // A new turn just started (the user's message is last, thinking hasn't
             // begun): drop the persistent thinking view so the NEXT run's steps
             // reveal + animate fresh instead of reusing the prior run's rows.
+            // 2026-08-02 defect fix: _reasoningView was missing from this reset
+            // (only _thinkingView/_progressTrailView were dropped) — the LIVE
+            // reasoning card instance, including its rebuild fingerprint
+            // (_renderedKey) and open/closed state, survived across turns. A
+            // stale _renderedKey left over from the PREVIOUS turn's last render
+            // could coincidentally match one of the NEW turn's early keys
+            // (both are cheap "streaming|count|..." style strings), silently
+            // skipping the very first rebuild(s) of the new card and leaving it
+            // showing stale/blank rows from the moment the new turn starts.
             if (empty || (Vm.Thread.Count > 0 && Vm.Thread[Vm.Thread.Count - 1].Role == "user"))
             {
                 _thinkingView = null;
                 _progressTrailView = null;
+                _reasoningView = null;
             }
 
             if (empty) { BodyHost.Children.Add(EmptyState()); return; }

@@ -116,5 +116,42 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 if (steps[i]?.State == ReasoningState.Running) return steps[i];
             return null;
         }
+
+        /// <summary>Cheap fingerprint of a reasoning trail's full render-relevant
+        /// state — used by ReasoningTimelineView to skip a body rebuild when
+        /// nothing visible changed (a fresh rebuild of every row on every 15ms
+        /// delta tick would stutter the live step's blinking-caret animation).
+        ///
+        /// 2026-08-02 defect fix: an EARLIER version of this key only looked at
+        /// `steps.Count` and the LAST row's text length. The backend coalesces a
+        /// turn's activity onto a small, REUSED set of step_ids ("gather"/"run"/
+        /// "gate:compile"/"review"/"understand" — see router.py's
+        /// _reasoning_event call sites), each appended to the trail in
+        /// first-seen order, so as soon as a later step_id (typically "run",
+        /// opened only once real generation/tool-execution starts) landed AFTER
+        /// an earlier one (e.g. "gate:compile", opened in the very first
+        /// round), that earlier row was permanently demoted from "last" — and
+        /// every later update to it (a label refinement, growing narrative
+        /// text, a running->done flip) changed neither `count` nor "the last
+        /// row's text length," so the old key never changed and that row's
+        /// rendered TextBlocks — built once, often near-empty, right when the
+        /// row was first created — never got touched again for the rest of a
+        /// long multi-round (awaiting_revit) turn. Fingerprinting EVERY row's
+        /// (StepId, Label, Text.Length, State) — not just the count and the
+        /// last row's text length — makes ANY row's label/state/text-growth
+        /// change force a rebuild, regardless of its position in the trail.</summary>
+        public static string RenderKey(bool streaming, IReadOnlyList<ReasoningStep> steps)
+        {
+            steps ??= new List<ReasoningStep>();
+            var sb = new System.Text.StringBuilder();
+            sb.Append(streaming).Append('|').Append(steps.Count);
+            for (int i = 0; i < steps.Count; i++)
+            {
+                var s = steps[i];
+                sb.Append('|').Append(s?.StepId).Append(':').Append(s?.Label)
+                  .Append(':').Append(s?.Text?.Length ?? 0).Append(':').Append(s?.State);
+            }
+            return sb.ToString();
+        }
     }
 }
