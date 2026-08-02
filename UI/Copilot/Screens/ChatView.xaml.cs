@@ -662,7 +662,12 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // turn has none of the above — no empty shell.
             bool hasResultBars = m.ResultSummary != null && m.ResultSummary.Rows.Count > 0;
             bool hasFollowups = m.Followups != null && m.Followups.Count > 0;
-            bool hasTindakan = m.Kind == CpMsgKind.AiReply && !string.IsNullOrWhiteSpace(m.Tindakan)
+            // Legacy single-string fallback only — once the backend sends the
+            // multi-bullet Followups list, Tindakan is just its mirrored first
+            // item (see ChatMessage.Tindakan) and would render as a duplicate
+            // chip if shown alongside the real list, so it's gated on
+            // !hasFollowups (2026-08-02 old-backend-compat pass).
+            bool hasTindakan = m.Kind == CpMsgKind.AiReply && !hasFollowups && !string.IsNullOrWhiteSpace(m.Tindakan)
                 && !m.TindakanResolved && IsLastAiReply(m);
             if (m.Kind == CpMsgKind.AiReply && (hasResultBars || hasFollowups || hasTindakan))
             {
@@ -1547,16 +1552,21 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         /// <summary>Result card (2026-08-02 spec) — proportion-bar rows from
         /// ChatMessage.ResultSummary (when present) plus follow-up chips from
-        /// ChatMessage.Followups (independent of the bars), an "Undo" chip, and
-        /// the tindakan one-tap next-step offer (defect #4: folded in here
-        /// instead of its old separate blue-button row — ONE chip row, not two
-        /// competing approval-ish UIs). Follow-up chips send their text as the
-        /// next prompt through the SAME ChatSendCommand the ClarifyCard option
-        /// buttons already use — no new send path. "Undo" is client-side: it
-        /// asks the agent in natural language rather than assuming a dedicated
-        /// undo tool exists server-side. The tindakan chip NEVER echoes the
-        /// AI's own offer text as the outgoing/echoed message (defect #2) — its
-        /// label and its send text are both the fixed short word "Continue".</summary>
+        /// ChatMessage.Followups (independent of the bars — a turn can offer
+        /// follow-ups with no bars), an "Undo" chip, and (old-backend compat
+        /// only) the legacy tindakan one-tap offer as a single chip. Every chip
+        /// here sends ITS OWN text verbatim as the next prompt through the SAME
+        /// ChatSendCommand the ClarifyCard option buttons already use — no chip
+        /// echoes a different/longer sentence than what it displays, and none
+        /// send a placeholder like the old bare "Continue" (task 12 fix,
+        /// 2026-08-02: the multi-bullet Followups contract sends short
+        /// imperatives that are honest to show AND send whole). The one
+        /// exception is the legacy tindakan-only chip: since that string can be
+        /// a full long AI sentence (pre-Followups backends), its LABEL is
+        /// truncated to stay chip-sized, but the SEND is still the full string
+        /// — never a generic placeholder. "Undo" stays client-side: it asks the
+        /// agent in natural language rather than assuming a dedicated undo tool
+        /// exists server-side.</summary>
         private FrameworkElement ResultSummaryCard(ChatMessage m, bool hasBars, bool hasFollowups, bool hasTindakan)
         {
             var outer = new StackPanel { Margin = new Thickness(0, 4, 0, 8) };
@@ -1641,18 +1651,22 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 var chips = new WrapPanel { Margin = new Thickness(0, 0, 0, 0) };
                 if (hasFollowups)
-                    foreach (var text in m.Followups)
+                    // Contract: up to 3 short imperative strings — Take(3) is a
+                    // defensive cap, not a trim of legitimate content. Label ==
+                    // send text: the whole point of the multi-bullet contract is
+                    // that these are already short enough to show AND send whole.
+                    foreach (var text in m.Followups.Take(3))
                     {
                         var t = text;
                         chips.Children.Add(FollowupChip(t, () => Vm?.ChatSendCommand.Execute(t)));
                     }
                 if (hasTindakan)
-                    // Fixed short label + fixed short send text — NEVER the raw
-                    // AI-authored m.Tindakan sentence (defect #2: that would
-                    // render as a fake "the drafter said this" user bubble once
-                    // echoed). AcceptTindakan already sends "Continue"; the
-                    // label matches so what's shown is what gets sent.
-                    chips.Children.Add(FollowupChip("Continue", () => Vm?.AcceptTindakan(m)));
+                    // Old-backend compat only (no Followups list on this turn).
+                    // Display is truncated so a long AI-authored offer sentence
+                    // never renders as one oversized chip; the SEND is always
+                    // the full m.Tindakan string, verbatim — never a "Continue"
+                    // placeholder (task 12 fix, 2026-08-02).
+                    chips.Children.Add(FollowupChip(TruncateChipLabel(m.Tindakan), () => Vm?.AcceptTindakan(m)));
                 if (hasBars)
                     // Client-side, always offered after a write result — no
                     // dedicated undo tool assumed server-side; phrased as a
@@ -1663,6 +1677,16 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             if (!CopilotTheme.ReducedMotion) MsgRise(outer);
             return outer;
+        }
+
+        // Chip-sized display for the legacy tindakan fallback (task 12,
+        // 2026-08-02): old backends can send a full sentence here, and it must
+        // never blow up into "ONE wide chip" — but the caller always sends the
+        // untruncated m.Tindakan, so nothing is lost on tap.
+        private static string TruncateChipLabel(string text, int max = 48)
+        {
+            if (string.IsNullOrEmpty(text) || text.Length <= max) return text;
+            return text.Substring(0, max).TrimEnd() + "…";
         }
 
         private FrameworkElement FollowupChip(string text, System.Action onClick)

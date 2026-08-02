@@ -1469,21 +1469,23 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         // ─── Tindakan (one-tap next-step offer) ────────────────────────────────
-        // The agent's reply can end with a "next step" offer ("Nak saya
-        // lanjutkan?"); the pane renders it as a follow-up CHIP under the LAST
-        // AiReply while unresolved (ChatView gates it — see IsLastAiReply) —
-        // 2026-08-02: no longer the old blue "✓ Ya, teruskan"/"Tidak" buttons
-        // (defect #4, unified into the reasoning-UI's chip row), and Accept no
-        // longer echoes the AI's own offer text back as the user bubble (defect
-        // #2 — a fake "the drafter said this" bubble). "Continue" is enough:
-        // the backend already has the offer in this session's history, and the
-        // SAME path as a normal ChatSend (tool loop, history, feedback) still
-        // runs either way.
+        // Old-backend fallback only (a turn with no Followups list — see
+        // ChatView's hasTindakan gate). The agent's reply can end with a "next
+        // step" offer ("Nak saya lanjutkan?"); the pane renders it as a
+        // follow-up CHIP under the LAST AiReply while unresolved (ChatView
+        // gates it — see IsLastAiReply) — 2026-08-02: no longer the old blue
+        // "✓ Ya, teruskan"/"Tidak" buttons (defect #4, unified into the
+        // reasoning-UI's chip row). Task 12 (2026-08-02): sends the FULL
+        // m.Tindakan text verbatim, matching every other follow-up chip's
+        // "what's shown [before truncation] is what gets sent" contract — a
+        // bare "Continue" placeholder lost the offer's content on send, and the
+        // multi-bullet Followups path never used one, so this fallback
+        // shouldn't either.
         public void AcceptTindakan(ChatMessage m)
         {
             if (m == null || string.IsNullOrWhiteSpace(m.Tindakan) || m.TindakanResolved) return;
             m.TindakanResolved = true;
-            ChatSend("Continue");
+            ChatSend(m.Tindakan);
         }
 
         public void DeclineTindakan(ChatMessage m)
