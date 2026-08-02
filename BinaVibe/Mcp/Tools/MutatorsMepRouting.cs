@@ -39,6 +39,71 @@ namespace BinaVibe.Mcp.Tools
             return new Dictionary<string, object?> { ["ok"] = true, ["connectors"] = list, ["count"] = list.Count };
         }
 
+        // Read-only — no Transaction. BFS over PHYSICAL connector refs (same
+        // ConnectorsOf/AllRefs/ConnectorType.Physical pattern as
+        // CapturePendingLinks), capped at max_depth and 100 nodes.
+        public static Dictionary<string, object?> TraceConnections(Document doc, JsonElement args)
+        {
+            var elementId = ArgsHelp.GetLong(args, "element_id")
+                ?? throw new InvalidOperationException("element_id required");
+            var maxDepth = (int)(ArgsHelp.GetLong(args, "max_depth") ?? 10);
+            const int maxNodes = 100;
+
+            var start = doc.GetElement(ElemIds.From(elementId))
+                ?? throw new InvalidOperationException($"element {elementId} not found");
+
+            var visited = new HashSet<long> { elementId };
+            var nodes = new List<Dictionary<string, object?>> { DescribeNode(start) };
+            var edgeKeys = new HashSet<(long, long)>();
+            var edges = new List<List<long>>();
+            var truncated = false;
+
+            var queue = new Queue<(Element el, int depth)>();
+            queue.Enqueue((start, 0));
+
+            while (queue.Count > 0)
+            {
+                var (el, depth) = queue.Dequeue();
+                if (depth >= maxDepth) { truncated = true; continue; }
+
+                List<Connector> conns;
+                try { conns = ConnectorsOf(el); }
+                catch (RouteFailure) { continue; }
+
+                foreach (var c in conns)
+                {
+                    if (!c.IsConnected) continue;
+                    foreach (Connector r in c.AllRefs)
+                    {
+                        if (r.Owner == null) continue;
+                        if (r.Owner.Id.Value == el.Id.Value) continue;
+                        if ((r.ConnectorType & ConnectorType.Physical) == 0) continue;
+
+                        var otherId = r.Owner.Id.Value;
+                        var key = el.Id.Value < otherId ? (el.Id.Value, otherId) : (otherId, el.Id.Value);
+                        if (edgeKeys.Add(key))
+                            edges.Add(new List<long> { key.Item1, key.Item2 });
+
+                        if (visited.Contains(otherId)) continue;
+                        if (nodes.Count >= maxNodes) { truncated = true; continue; }
+
+                        visited.Add(otherId);
+                        nodes.Add(DescribeNode(r.Owner));
+                        queue.Enqueue((r.Owner, depth + 1));
+                    }
+                }
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["nodes"] = nodes,
+                ["edges"] = edges,
+                ["count"] = nodes.Count,
+                ["truncated"] = truncated,
+            };
+        }
+
         public static Dictionary<string, object?> RouteDuct(Document doc, JsonElement args)
         {
             Transaction? tx = null;
@@ -238,7 +303,10 @@ namespace BinaVibe.Mcp.Tools
                 for (int corner = 1; corner < pts.Count - 1; corner++)
                     fittingIds.Add(CreateElbow(doc, segments[corner - 1], segments[corner], pts[corner], corner));
 
-                var newIds = segments.Select(s => s.Id.Value).ToList();
+                // (long) is load-bearing for net48: ElementId.Value is int on the
+                // 2024- API, long on 2025+ — without the cast this infers
+                // List<int> and SplitMainAndTee's List<long> parameter won't bind.
+                var newIds = segments.Select(s => (long)s.Id.Value).ToList();
                 var warnings = new List<string>();
                 var branchConn = NearestConnector(ConnectorsOf(segments[0]), pts[0], double.MaxValue, freeOnly: false)
                     ?? throw new RouteFailure("no connector found at the branch's tap end", 0);
@@ -522,5 +590,33 @@ namespace BinaVibe.Mcp.Tools
             Domain.DomainCableTrayConduit => "cable_tray_conduit",
             _ => "undefined",
         };
+
+        private static Dictionary<string, object?> DescribeNode(Element el)
+        {
+            var typeName = el.Document.GetElement(el.GetTypeId()) is ElementType et ? et.Name : null;
+            return new Dictionary<string, object?>
+            {
+                ["id"] = el.Id.Value,
+                ["kind"] = ClassifyNode(el),
+                ["category"] = el.Category?.Name,
+                ["type_name"] = typeName,
+            };
+        }
+
+        private static string ClassifyNode(Element el)
+        {
+            if (el is MEPCurve) return "curve";
+            if (el is FamilyInstance fi)
+            {
+                var catId = fi.Category?.Id.Value;
+                if (catId == (long)BuiltInCategory.OST_DuctFitting || catId == (long)BuiltInCategory.OST_PipeFitting)
+                    return "fitting";
+                if (catId == (long)BuiltInCategory.OST_DuctTerminal)
+                    return "terminal";
+                if (fi.MEPModel != null)
+                    return "equipment";
+            }
+            return "unknown";
+        }
     }
 }
