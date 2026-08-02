@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using RevitWebAppSync.Services;
 
 namespace RevitWebAppSync.UI.Copilot.Model
 {
@@ -298,10 +299,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // Turn-scoped only; not meaningful once the message is persisted.
         public bool ReasoningUserToggled;
 
-        // Done-frame follow-up chips (0-3), model-derived text — never a fixed
-        // menu. Null/empty = none. "Undo" is a client-side chip ChatView adds
-        // itself after any write, not carried here.
-        public List<string> Followups;
+        // Done-frame follow-up chips (0-3), model-derived {label, prompt} —
+        // never a fixed menu. Null/empty = none. "Undo" is a client-side chip
+        // ChatView adds itself after any write, not carried here.
+        public List<FollowupAction> Followups;
         // Structured result breakdown (proportion-bar rows) — set only when the
         // turn's tool results carried a count_by/color legend/route_* summary.
         // Null = fall back to the plain answer text (no result card).

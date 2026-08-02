@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using RevitWebAppSync.Services;
 
 namespace RevitWebAppSync.UI.Copilot.Model
 {
@@ -25,7 +26,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<ReasoningStep> ReasoningSteps;
         public double ReasoningElapsedSeconds;
         // Done-frame follow-up chips + optional structured result breakdown.
-        public List<string> Followups;
+        public List<FollowupAction> Followups;
         public ResultSummaryModel ResultSummary;
         // Action Mode addendum (2026-08-02): true when EVERY pending call in
         // this confirmation batch has requires_confirmation == false — the

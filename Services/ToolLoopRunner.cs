@@ -48,7 +48,7 @@ namespace RevitWebAppSync.Services
         public double ReasoningElapsedSeconds { get; set; }
         // Done-frame follow-up chips + optional structured result breakdown,
         // carried straight through from the terminal ToolTurn.
-        public List<string> Followups { get; set; }
+        public List<FollowupAction> Followups { get; set; }
         public ResultSummaryDto ResultSummary { get; set; }
         // Action Mode addendum (2026-08-02) — only meaningful alongside Code;
         // always true from a spec-compliant backend, defaulted true here too.

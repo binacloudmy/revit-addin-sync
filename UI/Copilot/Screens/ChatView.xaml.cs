@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Shapes;
 using BinaVibe.Mcp;
+using RevitWebAppSync.Services;
 using RevitWebAppSync.UI.Copilot.Controls;
 using RevitWebAppSync.UI.Copilot.Model;
 
@@ -1550,23 +1551,24 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             _ => "Cp.System.None",
         };
 
-        /// <summary>Result card (2026-08-02 spec) — proportion-bar rows from
-        /// ChatMessage.ResultSummary (when present) plus follow-up chips from
-        /// ChatMessage.Followups (independent of the bars — a turn can offer
-        /// follow-ups with no bars), an "Undo" chip, and (old-backend compat
-        /// only) the legacy tindakan one-tap offer as a single chip. Every chip
-        /// here sends ITS OWN text verbatim as the next prompt through the SAME
-        /// ChatSendCommand the ClarifyCard option buttons already use — no chip
-        /// echoes a different/longer sentence than what it displays, and none
-        /// send a placeholder like the old bare "Continue" (task 12 fix,
-        /// 2026-08-02: the multi-bullet Followups contract sends short
-        /// imperatives that are honest to show AND send whole). The one
-        /// exception is the legacy tindakan-only chip: since that string can be
-        /// a full long AI sentence (pre-Followups backends), its LABEL is
-        /// truncated to stay chip-sized, but the SEND is still the full string
-        /// — never a generic placeholder. "Undo" stays client-side: it asks the
-        /// agent in natural language rather than assuming a dedicated undo tool
-        /// exists server-side.</summary>
+        /// <summary>Result card (2026-08-02 offer_actions spec) — proportion-bar
+        /// rows from ChatMessage.ResultSummary (when present) plus follow-up
+        /// chips from ChatMessage.Followups (independent of the bars — a turn
+        /// can offer follow-ups with no bars), an "Undo" chip, and (old-backend
+        /// compat only) the legacy tindakan one-tap offer as a single chip.
+        /// Every chip DISPLAYS a (possibly truncated) label but SENDS its own
+        /// full prompt verbatim through the SAME ChatSendCommand the ClarifyCard
+        /// option buttons already use — offer_actions items carry {label,
+        /// prompt} that may legitimately differ (short pill, rich standalone
+        /// command); a plain-string item from an older backend decodes as
+        /// Label == Prompt == that string, so nothing sent is ever a shorter/
+        /// different sentence than what the model actually authored, and none
+        /// send a placeholder like the old bare "Continue" (task 12/13 fix).
+        /// The legacy tindakan-only chip follows the same truncate-display /
+        /// send-full-string rule for the same reason (pre-Followups backends
+        /// can send a full long AI sentence there). "Undo" stays client-side:
+        /// it asks the agent in natural language rather than assuming a
+        /// dedicated undo tool exists server-side.</summary>
         private FrameworkElement ResultSummaryCard(ChatMessage m, bool hasBars, bool hasFollowups, bool hasTindakan)
         {
             var outer = new StackPanel { Margin = new Thickness(0, 4, 0, 8) };
@@ -1651,14 +1653,20 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             {
                 var chips = new WrapPanel { Margin = new Thickness(0, 0, 0, 0) };
                 if (hasFollowups)
-                    // Contract: up to 3 short imperative strings — Take(3) is a
-                    // defensive cap, not a trim of legitimate content. Label ==
-                    // send text: the whole point of the multi-bullet contract is
-                    // that these are already short enough to show AND send whole.
-                    foreach (var text in m.Followups.Take(3))
+                    // offer_actions contract (2026-08-02): each item is
+                    // {label, prompt} — Take(3) is a defensive cap (the
+                    // server already caps at 3). The pill DISPLAYS the
+                    // (truncated) label but SENDS the full prompt verbatim —
+                    // label and prompt may differ (short pill, rich command).
+                    // A plain-string item from an older backend deserializes
+                    // as Label == Prompt == that string, so it behaves exactly
+                    // like the old contract.
+                    foreach (var action in m.Followups.Take(3))
                     {
-                        var t = text;
-                        chips.Children.Add(FollowupChip(t, () => Vm?.ChatSendCommand.Execute(t)));
+                        var prompt = !string.IsNullOrWhiteSpace(action?.Prompt) ? action.Prompt : action?.Label;
+                        if (string.IsNullOrWhiteSpace(prompt)) continue;
+                        var label = TruncateChipLabel(!string.IsNullOrWhiteSpace(action.Label) ? action.Label : prompt);
+                        chips.Children.Add(FollowupChip(label, () => Vm?.ChatSendCommand.Execute(prompt)));
                     }
                 if (hasTindakan)
                     // Old-backend compat only (no Followups list on this turn).
@@ -1679,29 +1687,38 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return outer;
         }
 
-        // Chip-sized display for the legacy tindakan fallback (task 12,
-        // 2026-08-02): old backends can send a full sentence here, and it must
-        // never blow up into "ONE wide chip" — but the caller always sends the
-        // untruncated m.Tindakan, so nothing is lost on tap.
+        // Chip-sized display for any follow-up chip (task 12/13, 2026-08-02):
+        // offer_actions labels are already server-truncated to <=32 chars, but
+        // the legacy tindakan fallback and a stray oversized label from an
+        // older backend can send a full sentence here — this must never blow
+        // up into "ONE wide chip". Display-only: the caller always sends the
+        // untruncated prompt/tindakan string, so nothing is lost on tap.
         private static string TruncateChipLabel(string text, int max = 48)
         {
             if (string.IsNullOrEmpty(text) || text.Length <= max) return text;
             return text.Substring(0, max).TrimEnd() + "…";
         }
 
+        // Pill styling per the operator's follow-up-chip mockup (task 13,
+        // 2026-08-02): fully rounded (radius >= half the pill's height so it
+        // always renders as a true pill, not just rounded corners), white
+        // background, 1px hairline border, 13px label, ~16x8 padding, hover =
+        // light gray. Shared by every chip in this row (offer_actions,
+        // tindakan fallback, and the client-side "Undo" chip) so they stay
+        // visually identical.
         private FrameworkElement FollowupChip(string text, System.Action onClick)
         {
             var b = new Border
             {
-                CornerRadius = new CornerRadius(9), BorderThickness = new Thickness(1),
-                Padding = new Thickness(11, 6, 11, 6), Margin = new Thickness(0, 0, 6, 6),
+                CornerRadius = new CornerRadius(999), BorderThickness = new Thickness(1),
+                Padding = new Thickness(16, 8, 16, 8), Margin = new Thickness(0, 0, 8, 8),
                 Cursor = System.Windows.Input.Cursors.Hand,
             };
             b.SetResourceReference(Border.BorderBrushProperty, "Cp.Reasoning.Border2");
-            b.Background = Brushes.Transparent;
+            b.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
             b.MouseEnter += (_, __) => b.SetResourceReference(Border.BackgroundProperty, "Cp.Reasoning.Hover");
-            b.MouseLeave += (_, __) => b.Background = Brushes.Transparent;
-            var tb = new TextBlock { Text = text, FontSize = 12.5 };
+            b.MouseLeave += (_, __) => b.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
+            var tb = new TextBlock { Text = text, FontSize = 13 };
             tb.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextPrimary");
             b.Child = tb;
             if (onClick != null) b.MouseLeftButtonUp += (_, __) => onClick();

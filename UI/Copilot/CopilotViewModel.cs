@@ -1400,7 +1400,7 @@ namespace RevitWebAppSync.UI.Copilot
         private void ExecuteAsChatReply(ToolDef tool, string code, string routePrompt = null, string displayPrompt = null,
             List<HistoryFile> historyFiles = null, string streamedReply = null, string tindakan = null,
             List<ReasoningStep> reasoningSteps = null, double reasoningElapsedSeconds = 0,
-            List<string> followups = null, ResultSummaryModel resultSummary = null)
+            List<FollowupAction> followups = null, ResultSummaryModel resultSummary = null)
         {
             ToolId = tool.Id;
             _runClock = System.Diagnostics.Stopwatch.StartNew();
