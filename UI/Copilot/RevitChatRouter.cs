@@ -142,6 +142,13 @@ namespace RevitWebAppSync.UI.Copilot
         /// OnProgress's rendered text.</summary>
         public Action<IReadOnlyList<ProgressStep>> OnSteps { get; set; }
 
+        /// <summary>Optional callback for the streaming REASONING timeline — fires
+        /// on every `reasoning` SSE event (step_id/label/text_delta/state),
+        /// carrying a snapshot of the accumulated <see cref="ReasoningStep"/>
+        /// trail. Separate from OnSteps: this carries the backend's working
+        /// narrative (multi-sentence body per step), not terse tool labels.</summary>
+        public Action<IReadOnlyList<ReasoningStep>> OnReasoning { get; set; }
+
         /// <summary>Screenshots pasted with the NEXT prompt (base64 PNG). Set by
         /// the viewmodel right before RouteAsync, consumed and cleared by the
         /// route that builds the request — same per-call pattern as OnProgress.</summary>
@@ -188,6 +195,7 @@ namespace RevitWebAppSync.UI.Copilot
             public List<PendingToolCall> Pending;
             public string Narration;
             public IReadOnlyList<ProgressStep> Steps;
+            public IReadOnlyList<ReasoningStep> ReasoningSteps;
         }
         private PendingConfirm _pendingConfirm;
 
@@ -267,6 +275,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Pending = outcome.PendingActions,
                     Narration = outcome.NarrationSoFar,
                     Steps = outcome.Steps,
+                    ReasoningSteps = outcome.ReasoningSteps,
                 };
                 var labels = new List<string>();
                 foreach (var c in outcome.PendingActions ?? new List<PendingToolCall>())
@@ -281,6 +290,15 @@ namespace RevitWebAppSync.UI.Copilot
                     Reply = outcome.Reply ?? "",
                     IsQuery = true,
                     Steps = outcome.Steps,
+                    ReasoningSteps = ToUiReasoning(outcome.ReasoningSteps),
+                    ReasoningElapsedSeconds = outcome.ReasoningElapsedSeconds,
+                    // Action Mode addendum: Auto mode's programmatic-accept path
+                    // is only safe when EVERY call in the batch opted out of
+                    // confirmation. Empty/null pending list is never auto-eligible
+                    // (nothing to accept, and All() on an empty sequence is
+                    // vacuously true — guard explicitly rather than rely on that).
+                    AutoApprovable = outcome.PendingActions != null && outcome.PendingActions.Count > 0
+                        && outcome.PendingActions.All(c => !c.RequiresConfirmation),
                 };
             }
             return new RouteResult
@@ -297,7 +315,25 @@ namespace RevitWebAppSync.UI.Copilot
                 ToolCallTrace = outcome.ToolsUsed.Count > 0 ? outcome.ToolsUsed : null,
                 Steps = outcome.Steps,
                 Tindakan = outcome.Tindakan ?? "",
+                ReasoningSteps = ToUiReasoning(outcome.ReasoningSteps),
+                ReasoningElapsedSeconds = outcome.ReasoningElapsedSeconds,
+                Followups = outcome.Followups,
+                ResultSummary = ToUiResultSummary(outcome.ResultSummary),
+                CodeRequiresConfirmation = outcome.CodeRequiresConfirmation,
             };
+        }
+
+        // ─── Wire DTO -> UI model mapping (2026-08-02 reasoning-ui spec) ────────
+        private static List<ReasoningStep> ToUiReasoning(IReadOnlyList<ReasoningStep> steps) =>
+            steps == null ? null : new List<ReasoningStep>(steps);
+
+        private static ResultSummaryModel ToUiResultSummary(ResultSummaryDto dto)
+        {
+            if (dto == null) return null;
+            var m = new ResultSummaryModel { Title = dto.Title ?? "", Total = dto.Total };
+            foreach (var r in dto.Rows ?? new List<ResultSummaryRowDto>())
+                m.Rows.Add(new ResultSummaryRow(r.Label ?? "", r.Count, r.ColorHint ?? ""));
+            return m;
         }
 
         // The user-facing clarify question: the agent's own reply line first,
@@ -367,7 +403,9 @@ namespace RevitWebAppSync.UI.Copilot
                     pc.RunId, pc.SessionId, pc.Pending, approve, pc.Narration, pc.Steps,
                     token, EmitProgress, ccts.Token,
                     onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
-                    onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } }
+                    onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } },
+                    priorReasoningSteps: pc.ReasoningSteps,
+                    onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } }
                     ).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { ccanceled = true; }
@@ -460,7 +498,8 @@ namespace RevitWebAppSync.UI.Copilot
                     ho = await _toolLoop.ResumeWithInputAsync(
                         hitl.RunId, hitl.SessionId, BuildAnswers(hitl, message), token, EmitProgress,
                         hcts.Token, onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
-                        onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } }
+                        onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } },
+                        onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } }
                         ).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) { hcanceled = true; }
@@ -526,7 +565,8 @@ namespace RevitWebAppSync.UI.Copilot
                     outcome = await _toolLoop.RunAsync(
                         treq, token, EmitProgress, cts.Token,
                         onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
-                        onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } }
+                        onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } },
+                        onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } }
                         ).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)

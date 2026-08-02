@@ -74,9 +74,146 @@
                               StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                               Data="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
                     </Button>
+                    <!-- Reasoning toggle chip (2026-08-02 copilot-reasoning-ui spec):
+                         controls whether `reasoning` SSE frames are shown for the
+                         next turn. Persisted via CopilotPrefs.ReasoningEnabled. -->
+                    <Button x:Name="ReasoningBtn" DockPanel.Dock="Right" Cursor="Hand"
+                            Background="Transparent" BorderThickness="0" VerticalAlignment="Bottom"
+                            FocusVisualStyle="{x:Null}" Margin="0,0,2,3"
+                            ToolTip="Toggle the reasoning timeline for the next turn">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="bd" Background="Transparent" CornerRadius="8" Padding="9,4,9,4">
+                                    <ContentPresenter/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Ellipse x:Name="ReasoningDot" Width="5" Height="5" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Reasoning" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Button>
+                    <!-- Action Mode chip (2026-08-02 addendum): "Ask first" (amber,
+                         default) / "Auto" (green) — opens ActionModePopup below.
+                         Persisted via CopilotPrefs.AutoApproveWrites. -->
+                    <Button x:Name="ActionModeBtn" DockPanel.Dock="Right" Cursor="Hand"
+                            Background="Transparent" BorderThickness="0" VerticalAlignment="Bottom"
+                            FocusVisualStyle="{x:Null}" Margin="0,0,2,3"
+                            ToolTip="Choose how write actions are approved">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="bd" Background="Transparent" CornerRadius="8" Padding="9,4,9,4">
+                                    <ContentPresenter/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <Ellipse x:Name="ActionModeDot" Width="5" Height="5" Margin="0,0,5,0" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="ActionModeLabel" Text="Ask first" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
+                            <Path Width="7" Height="7" Stretch="Uniform" Margin="4,0,0,0" VerticalAlignment="Center"
+                                  StrokeThickness="1.6" Stroke="{DynamicResource Cp.Faint}"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                  Data="M1,5 L4,1.5 L7,5"/>
+                        </StackPanel>
+                    </Button>
                     <ctl:MentionInput x:Name="Input" VerticalAlignment="Center" Margin="0,0,8,0"/>
                 </DockPanel>
             </Border>
+
+            <!-- Action Mode popover — upward, closes on outside click (StaysOpen
+                 False + PlacementTarget) or Esc (code-behind). Same card chrome as
+                 the reasoning-UI cards: Cp.Reasoning.* radius/border/shadow tokens. -->
+            <Popup x:Name="ActionModePopup" PlacementTarget="{Binding ElementName=ActionModeBtn}"
+                   Placement="Top" VerticalOffset="-8" StaysOpen="False"
+                   AllowsTransparency="True" PopupAnimation="Fade">
+                <Border x:Name="ActionModeCard" Background="{DynamicResource Cp.Reasoning.Surface}"
+                        BorderBrush="{DynamicResource Cp.Reasoning.Border3}" BorderThickness="1"
+                        CornerRadius="13" Padding="4" MinWidth="248" Margin="8,8,8,8"
+                        Focusable="True" KeyDown="OnActionModePopupKeyDown">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="20" ShadowDepth="4" Opacity="0.14" Color="#000000"/>
+                    </Border.Effect>
+                    <StackPanel>
+                        <TextBlock Text="ACTION MODE" FontFamily="{DynamicResource Cp.Reasoning.FontMono}"
+                                   FontSize="10" Foreground="{DynamicResource Cp.Reasoning.TextFaint}"
+                                   Margin="9,7,9,6"/>
+                        <Button x:Name="AskFirstOption" Background="Transparent" BorderThickness="0"
+                                Cursor="Hand" HorizontalContentAlignment="Stretch" Padding="0">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="bd" Background="Transparent" CornerRadius="9" Padding="9,7,9,7">
+                                        <ContentPresenter/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Reasoning.Hover2}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Ellipse Grid.Column="0" Width="7" Height="7" Fill="#eab308"
+                                         VerticalAlignment="Top" Margin="0,4,9,0"/>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="Ask first" FontSize="12.5" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource Cp.Reasoning.TextPrimary}"/>
+                                    <TextBlock Text="Approve each write before it runs." FontSize="11"
+                                               TextWrapping="Wrap" Margin="0,1,0,0"
+                                               Foreground="{DynamicResource Cp.Reasoning.Text}"/>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                        <Border Height="1" Background="{DynamicResource Cp.Reasoning.BorderSubtle2}" Margin="9,4,9,4"/>
+                        <Button x:Name="AutoOption" Background="Transparent" BorderThickness="0"
+                                Cursor="Hand" HorizontalContentAlignment="Stretch" Padding="0">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="bd" Background="Transparent" CornerRadius="9" Padding="9,7,9,7">
+                                        <ContentPresenter/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Reasoning.Hover2}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Ellipse Grid.Column="0" Width="7" Height="7" Fill="#10b981"
+                                         VerticalAlignment="Top" Margin="0,4,9,0"/>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="Auto" FontSize="12.5" FontWeight="SemiBold"
+                                               Foreground="{DynamicResource Cp.Reasoning.TextPrimary}"/>
+                                    <TextBlock Text="Writes run straight away. Still undoable." FontSize="11"
+                                               TextWrapping="Wrap" Margin="0,1,0,0"
+                                               Foreground="{DynamicResource Cp.Reasoning.Text}"/>
+                                </StackPanel>
+                            </Grid>
+                        </Button>
+                        <TextBlock Text="Deletions and workset changes always ask, even in Auto."
+                                   FontSize="10.5" TextWrapping="Wrap" Margin="9,8,9,8"
+                                   Foreground="{DynamicResource Cp.Reasoning.TextFaint}"/>
+                    </StackPanel>
+                </Border>
+            </Popup>
             <!-- Footer: hint (left, truncates) + plan-name button (right). Design's
                  "footer" placement: the plan name is the ambient usage affordance,
                  with a severity dot (amber ≥80, red ≥95, hidden below 80) to its

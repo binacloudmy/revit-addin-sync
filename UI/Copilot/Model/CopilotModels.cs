@@ -256,6 +256,78 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // the action list as an audit trail.
         public List<string> ActionLabels;
         public bool ActionsResolved;
+        // Which way it was resolved — null while pending. Lets the resolved-state
+        // render (2026-08-02 spec) say "Allowed"/"Rejected" instead of a generic
+        // "resolved" note.
+        public bool? ActionsApproved;
+        // Action Mode addendum (2026-08-02): true when this card was resolved
+        // PROGRAMMATICALLY by Auto mode (never by a click) — ConfirmActionsCard
+        // renders "Auto-approved · N writes" instead of "Allowed", and skips the
+        // amber "Needs permission" header in favour of a green one, so the
+        // transcript reads honestly (permission was never actually asked for).
+        public bool AutoApproved;
+        // Codegen approval gate (Action Mode addendum): non-empty means this
+        // ConfirmActions card is gating a codegen C# run, NOT a MUTATE-tool
+        // batch — ConfirmActionsCard/CopilotViewModel branch on this to route
+        // Allow/Reject to AcceptCodeApproval/DeclineCodeApproval instead of
+        // AcceptActions/DeclineActions. The rest of the fields below are just
+        // enough context to call ExecuteAsChatReply on Allow — everything else
+        // ExecuteAsChatReply needs (reasoning trail, followups, result summary,
+        // tindakan, reply text) is already carried on the fields above/below,
+        // reused rather than duplicated.
+        public string PendingCode;
+        public string PendingCodeRoutePrompt;
+        public string PendingCodeDisplayPrompt;
+        public List<HistoryFile> PendingCodeHistoryFiles;
+
+        // ─── Streaming reasoning timeline (2026-08-02 copilot-reasoning-ui spec) ──
+        // Persisted trail — set once the turn finishes, so a completed AiReply/
+        // ConfirmActions message can still expand its "working narrative" from
+        // history. Null/empty = no steps this turn (ChatView omits the block).
+        public List<ReasoningStep> ReasoningSteps;
+        // Transient live trail for the CURRENT turn's Thinking bubble — mirrors
+        // LiveSteps above; only ever rides the in-flight message.
+        public IReadOnlyList<ReasoningStep> LiveReasoningSteps;
+        // Whole-turn reasoning duration, captured at completion (seconds).
+        public double ReasoningElapsedSeconds;
+        // Expand/collapse state, persisted with the message so a re-opened
+        // history turn remembers whether the drafter had it open.
+        public bool ReasoningOpen;
+        // True once the drafter manually toggled the timeline THIS turn — the
+        // client suppresses auto-collapse-on-answer when set (README behaviour).
+        // Turn-scoped only; not meaningful once the message is persisted.
+        public bool ReasoningUserToggled;
+
+        // Done-frame follow-up chips (0-3), model-derived text — never a fixed
+        // menu. Null/empty = none. "Undo" is a client-side chip ChatView adds
+        // itself after any write, not carried here.
+        public List<string> Followups;
+        // Structured result breakdown (proportion-bar rows) — set only when the
+        // turn's tool results carried a count_by/color legend/route_* summary.
+        // Null = fall back to the plain answer text (no result card).
+        public ResultSummaryModel ResultSummary;
+    }
+
+    /// <summary>Proportion-bar row: one system/category slice of a result_summary
+    /// ("Supply Air", 486, color_hint "supply"). ColorHint maps to the
+    /// Cp.System.* tokens client-side — the backend never sends a hex.</summary>
+    public class ResultSummaryRow
+    {
+        public string Label;
+        public int Count;
+        public string ColorHint;   // "supply" | "return" | "exhaust" | "none" | ""
+        public ResultSummaryRow() { }
+        public ResultSummaryRow(string label, int count, string colorHint)
+        { Label = label; Count = count; ColorHint = colorHint; }
+    }
+
+    /// <summary>Optional structured breakdown attached to a done frame — proportion
+    /// bars in the result card instead of (or above) the plain answer text.</summary>
+    public class ResultSummaryModel
+    {
+        public string Title;
+        public int Total;
+        public List<ResultSummaryRow> Rows = new List<ResultSummaryRow>();
     }
 
     /// <summary>What an attachment carries. Text files travel as CONTENT (read

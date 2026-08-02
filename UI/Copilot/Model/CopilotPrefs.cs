@@ -21,6 +21,19 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// nudge never appears again after this.</summary>
         public bool RatingSubmitted { get; set; }
 
+        /// <summary>Composer "Reasoning" toggle (2026-08-02 spec) — when false the
+        /// client ignores `reasoning` SSE frames entirely (no timeline rendered),
+        /// same idea as the theme toggle: persisted, defaults on.</summary>
+        public bool ReasoningEnabled { get; set; } = true;
+
+        /// <summary>Composer "Action Mode" chip (2026-08-02 addendum): false =
+        /// Ask first (default — every write batch shows the approval card),
+        /// true = Auto (write batches where every call opted out of
+        /// confirmation run without a card; anything else still asks, and
+        /// codegen always asks regardless of this flag). Per-machine,
+        /// persisted the same way as ReasoningEnabled/Dark.</summary>
+        public bool AutoApproveWrites { get; set; } = false;
+
         /// <summary>Slash-command tool ids the user pinned (shown first in Quick access).</summary>
         public List<string> PinnedTools { get; set; } = new List<string>();
 

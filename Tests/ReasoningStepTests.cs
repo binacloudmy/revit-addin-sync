@@ -1,0 +1,105 @@
+using System.Collections.ObjectModel;
+using RevitWebAppSync.UI.Copilot.Model;
+using Xunit;
+
+namespace Tests
+{
+    // 2026-08-02 copilot-reasoning-ui spec — same style as ProgressReducerTests,
+    // covering ReasoningReducer's delta-append contract (distinct from
+    // ProgressReducer: a `reasoning` event's text_delta is APPENDED to the
+    // existing row, never replaces it).
+    public class ReasoningStepTests
+    {
+        [Fact]
+        public void New_step_id_appends_a_row()
+        {
+            var steps = new ObservableCollection<ReasoningStep>();
+            ReasoningReducer.Apply(steps, "s1", "Understanding request", "User wants ", ReasoningState.Running);
+            Assert.Single(steps);
+            Assert.Equal("Understanding request", steps[0].Label);
+            Assert.Equal("User wants ", steps[0].Text);
+            Assert.Equal(ReasoningState.Running, steps[0].State);
+        }
+
+        [Fact]
+        public void Same_step_id_appends_text_delta_not_replaces()
+        {
+            var steps = new ObservableCollection<ReasoningStep>();
+            ReasoningReducer.Apply(steps, "s1", "Inspecting model", "Scanning ducts", ReasoningState.Running);
+            ReasoningReducer.Apply(steps, "s1", "Inspecting model", "... found 319.", ReasoningState.Running);
+            Assert.Single(steps);
+            Assert.Equal("Scanning ducts... found 319.", steps[0].Text);
+        }
+
+        [Fact]
+        public void Distinct_ids_append_separate_rows()
+        {
+            var steps = new ObservableCollection<ReasoningStep>();
+            ReasoningReducer.Apply(steps, "s1", "Understanding request", "text", ReasoningState.Running);
+            ReasoningReducer.Apply(steps, "s2", "Inspecting model", "text", ReasoningState.Running);
+            Assert.Equal(2, steps.Count);
+        }
+
+        [Fact]
+        public void Empty_delta_does_not_blank_existing_text()
+        {
+            var steps = new ObservableCollection<ReasoningStep>();
+            ReasoningReducer.Apply(steps, "s1", "Working", "hello", ReasoningState.Running);
+            ReasoningReducer.Apply(steps, "s1", "", "", ReasoningState.Done);
+            Assert.Equal("hello", steps[0].Text);
+            Assert.Equal("Working", steps[0].Label);
+            Assert.Equal(ReasoningState.Done, steps[0].State);
+        }
+
+        [Fact]
+        public void CompleteRunning_flips_running_rows_to_done()
+        {
+            var steps = new ObservableCollection<ReasoningStep>();
+            ReasoningReducer.Apply(steps, "s1", "A", "x", ReasoningState.Running);
+            ReasoningReducer.Apply(steps, "s2", "B", "y", ReasoningState.Done);
+            ReasoningReducer.CompleteRunning(steps);
+            Assert.Equal(ReasoningState.Done, steps[0].State);
+            Assert.Equal(ReasoningState.Done, steps[1].State);
+        }
+
+        [Fact]
+        public void StateFrom_maps_wire_strings_case_insensitively()
+        {
+            Assert.Equal(ReasoningState.Done, ReasoningReducer.StateFrom("done"));
+            Assert.Equal(ReasoningState.Done, ReasoningReducer.StateFrom("DONE"));
+            Assert.Equal(ReasoningState.Running, ReasoningReducer.StateFrom("running"));
+            Assert.Equal(ReasoningState.Running, ReasoningReducer.StateFrom(null));
+        }
+
+        [Fact]
+        public void StepBadge_pluralises_correctly()
+        {
+            Assert.Equal("1 step", ReasoningTrail.StepBadge(1));
+            Assert.Equal("5 steps", ReasoningTrail.StepBadge(5));
+            Assert.Equal("0 steps", ReasoningTrail.StepBadge(0));
+        }
+
+        [Fact]
+        public void ElapsedLabel_uses_english_chrome_streaming_vs_done()
+        {
+            var streaming = ReasoningTrail.ElapsedLabel(2.34, streaming: true);
+            var done = ReasoningTrail.ElapsedLabel(8.0, streaming: false);
+            Assert.Contains("Thinking…", streaming);
+            Assert.Contains("2.3", streaming);
+            Assert.Equal("Thinking 8s", done);
+        }
+
+        [Fact]
+        public void Current_returns_last_running_step_or_null()
+        {
+            var steps = new ObservableCollection<ReasoningStep>();
+            Assert.Null(ReasoningTrail.Current(steps));
+
+            ReasoningReducer.Apply(steps, "s1", "A", "x", ReasoningState.Done);
+            Assert.Null(ReasoningTrail.Current(steps));
+
+            ReasoningReducer.Apply(steps, "s2", "B", "y", ReasoningState.Running);
+            Assert.Equal("s2", ReasoningTrail.Current(steps).StepId);
+        }
+    }
+}

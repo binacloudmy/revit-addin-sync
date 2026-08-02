@@ -30,6 +30,21 @@ namespace RevitWebAppSync.UI.Copilot
 
         public static bool IsDark { get; private set; }
 
+        /// <summary>Proxy for the web's `prefers-reduced-motion` — WPF has no
+        /// direct equivalent, so this reads the same OS setting most WPF apps
+        /// use for it: Windows' Ease of Access "Show animations" toggle
+        /// (Settings > Accessibility > Visual effects), surfaced as
+        /// SystemParameters.MinimizeAnimation. True = the user asked Windows to
+        /// minimize animation; new reasoning-UI motion (rise entrances, blinking
+        /// carets) checks this and skips itself, keeping only the spinner per
+        /// the 2026-08-02 spec ("drop rise/blink, keep spinner"). Pre-existing
+        /// animations elsewhere in the pane (ThinkingTrailView, MsgRise, …) are
+        /// unaffected — out of scope for this flag's introduction.</summary>
+        public static bool ReducedMotion
+        {
+            get { try { return SystemParameters.MinimizeAnimation; } catch { return false; } }
+        }
+
         public static void EnsureLoaded()
         {
             if (_loaded) return;

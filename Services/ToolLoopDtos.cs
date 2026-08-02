@@ -34,6 +34,21 @@ namespace RevitWebAppSync.Services
         [JsonPropertyName("tool_calls")] public List<ServerToolCall> ToolCalls { get; set; } = new();
         // Clarify requirements when the agent paused to ask the user (HITL).
         [JsonPropertyName("clarify")] public List<ClarifyRequirement> Clarify { get; set; } = new();
+        // Done-frame follow-up chips (0-3, model-derived text) — 2026-08-02
+        // copilot-reasoning-ui spec. Empty/absent on older backends.
+        [JsonPropertyName("followups")] public List<string> Followups { get; set; } = new();
+        // Optional structured result breakdown for the result card's proportion
+        // bars — populated only when the turn's tool results carried one
+        // (count_by / color legend / route_* open_connectors). Null otherwise;
+        // the pane falls back to the plain answer.
+        [JsonPropertyName("result_summary")] public ResultSummaryDto ResultSummary { get; set; }
+        // Action Mode addendum (2026-08-02): codegen C# always requires
+        // confirmation — arbitrary code can delete anything, so Auto mode
+        // never fast-tracks it. Hardcoded true server-side today; default
+        // true here too (fail-safe — same "missing = ask" rule as
+        // PendingToolCall.RequiresConfirmation) so an older/not-yet-updated
+        // backend that omits the field still gates codegen.
+        [JsonPropertyName("code_requires_confirmation")] public bool CodeRequiresConfirmation { get; set; } = true;
 
         public bool AwaitingRevit =>
             Status == "awaiting_revit" && Pending != null && Pending.Count > 0;
@@ -83,6 +98,14 @@ namespace RevitWebAppSync.Services
         // mode). Gates the Ya/Tidak confirmation card. Missing on older
         // backends → false → no gate, today's auto-execute behavior.
         [JsonPropertyName("mutate")] public bool Mutate { get; set; }
+        // Action Mode addendum (2026-08-02): whether THIS call must be
+        // approved even in Auto mode (serialize_pending's per-call flag —
+        // always-confirm set: delete_elements, delete_unused_views,
+        // purge_unused, workset mutations, execute_revit_batch; everything
+        // else in MUTATE_TOOL_NAMES is auto-eligible). Default true —
+        // fail-safe: a missing field (older backend) means "ask", never a
+        // silent auto-run.
+        [JsonPropertyName("requires_confirmation")] public bool RequiresConfirmation { get; set; } = true;
     }
 
     public sealed class ToolResultDto
@@ -91,5 +114,23 @@ namespace RevitWebAppSync.Services
         [JsonPropertyName("ok")] public bool Ok { get; set; } = true;
         [JsonPropertyName("result")] public object Result { get; set; }
         [JsonPropertyName("error")] public string Error { get; set; }
+    }
+
+    // ─── Result summary (done-frame proportion-bar breakdown) ───────────────
+    // 2026-08-02 copilot-reasoning-ui spec: color_hint is a system CLASS
+    // ("supply"/"return"/"exhaust"/"none"), never a hex — the pane maps it to
+    // the Cp.System.* tokens so the palette stays client-owned.
+    public sealed class ResultSummaryRowDto
+    {
+        [JsonPropertyName("label")] public string Label { get; set; } = "";
+        [JsonPropertyName("count")] public int Count { get; set; }
+        [JsonPropertyName("color_hint")] public string ColorHint { get; set; } = "";
+    }
+
+    public sealed class ResultSummaryDto
+    {
+        [JsonPropertyName("title")] public string Title { get; set; } = "";
+        [JsonPropertyName("total")] public int Total { get; set; }
+        [JsonPropertyName("rows")] public List<ResultSummaryRowDto> Rows { get; set; } = new();
     }
 }
