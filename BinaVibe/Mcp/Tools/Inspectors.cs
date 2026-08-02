@@ -1056,16 +1056,7 @@ namespace BinaVibe.Mcp.Tools
         }
 
         // ─── count_by ───────────────────────────────────────────────────
-        // Count a category broken down by level / type / workset /
-        // connectivity. Read-only.
-        //
-        // "summary_card" (2026-08-02): the GENERAL convention for "make this
-        // render as the proportion-bar result card instead of the model
-        // hand-typing a text report" — see the long comment on it below.
-        // count_by is the flagship example; any INSPECT/MUTATE tool can add
-        // the same key to its own result. build_result_summary
-        // (revit_response_shaping.py, bina-ai) passes it through generically
-        // for ANY tool now — no per-tool-name branch needed there anymore.
+        // Count a category broken down by level / type / workset. Read-only.
         public static Dictionary<string, object?> CountBy(Document doc, JsonElement args)
         {
             string category = TryGetString(args, "category") ?? "";
@@ -1092,28 +1083,6 @@ namespace BinaVibe.Mcp.Tools
                     var wp = el.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
                     return wp?.AsValueString() ?? "(no workset)";
                 }
-                if (groupBy == "connectivity" || groupBy == "connected")
-                {
-                    // 2026-08-02: MEP audit-style questions ("how many air
-                    // terminals are connected", "belum connected mengikut
-                    // aras") had NO tool that could answer them structurally
-                    // — group_by only covered real Revit PARAMETERS, and
-                    // "connected" isn't one (it's derived from each
-                    // element's connectors). The agent fell back to writing
-                    // its own free-text report, which could never render as
-                    // the result card (that only comes from a real tool
-                    // result) and — being hand-typed prose on a 500+ element
-                    // category — ate into the reply's own token budget.
-                    // Reuses MutatorsMepRouting's connector lookup (same
-                    // code list_connectors/trace_connections already trust).
-                    var connected = MutatorsMepRouting.IsFullyConnected(el);
-                    return connected switch
-                    {
-                        true => "Connected",
-                        false => "Not Connected",
-                        null => "(no connectors)",   // not an MEP element / empty connector set
-                    };
-                }
                 // default: level — direct LevelId, else a level-ish param for hosted elements
                 var lid = el.LevelId;
                 if (lid != null && lid.Value != ElementId.InvalidElementId.Value)
@@ -1129,46 +1098,12 @@ namespace BinaVibe.Mcp.Tools
             var groups = els.GroupBy(KeyOf)
                 .Select(g => new Dictionary<string, object?> { ["group"] = g.Key, ["count"] = g.Count() })
                 .OrderByDescending(d => (int)d["count"]!)
-                .ToList();
-
-            // ─── summary_card convention ──────────────────────────────────
-            // Any tool result MAY include "summary_card": {title, total,
-            // rows: [{label, count, color_hint}]} — exactly the shape the
-            // done frame's result_summary needs, so the addin's proportion-
-            // bar card renders it as-is. This is the GENERAL mechanism (not
-            // count_by-specific): a tool that computed a natural "N things
-            // broken into buckets" result — a count, an audit, "N elements
-            // changed" — just adds this key instead of the model having to
-            // restate the numbers in prose that then can't be a chart.
-            // color_hint is one of: "supply"/"return"/"exhaust" (MEP system
-            // colours), "info"/"ok"/"warn" (neutral/good/needs-attention),
-            // or "none" (gray) — the addin maps all of these to its palette
-            // (ChatView.SystemColorToken); anything else falls back to gray.
-            string ColorHintFor(string label)
-            {
-                if (groupBy is "connectivity" or "connected")
-                    return label switch { "Connected" => "ok", "Not Connected" => "warn", _ => "none" };
-                var l = label.ToLowerInvariant();
-                if (l.Contains("supply")) return "supply";
-                if (l.Contains("return")) return "return";
-                if (l.Contains("exhaust")) return "exhaust";
-                return "none";
-            }
-            var cardRows = groups.Select(g => new Dictionary<string, object?>
-            {
-                ["label"] = g["group"], ["count"] = g["count"], ["color_hint"] = ColorHintFor((string)g["group"]!),
-            }).Cast<object>().ToList();
+                .Cast<object>().ToList();
 
             return new Dictionary<string, object?>
             {
                 ["ok"] = true, ["category"] = category, ["group_by"] = groupBy,
-                ["total"] = els.Count, ["groups"] = groups.Cast<object>().ToList(),
-                ["summary_card"] = new Dictionary<string, object?>
-                {
-                    ["title"] = $"{category} by {groupBy}",
-                    ["total"] = els.Count,
-                    ["rows"] = cardRows,
-                },
+                ["total"] = els.Count, ["groups"] = groups,
             };
         }
 
