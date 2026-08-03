@@ -51,6 +51,7 @@ namespace BinaVibe.Mcp.Tools
                 "cad_walls_to_centerlines"      => CadWallsToCenterlines.Run(uidoc, args),
                 "cad_walls_from_attachment"     => CadWallsFromAttachment.Run(uidoc, args),
                 "cad_doors_from_attachment"     => CadDoorsFromAttachment.Run(uidoc, args),
+                "cad_windows_from_attachment"   => CadWindowsFromAttachment.Run(uidoc, args),
                 "compare_levels"                => LevelCompare.Run(uidoc, args),
                 "batch_link_models"             => BatchLink.Run(uidoc, args),
                 "get_current_selection"         => Inspectors.GetCurrentSelection(uidoc),
