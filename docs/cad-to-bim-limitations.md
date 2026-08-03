@@ -1,7 +1,22 @@
 # CAD-to-BIM: Revit Link Limitations & Alternatives
 
-Analysis of what Revit's CAD link API can and cannot extract, and when to use
-alternative paths (ezdxf, ODA, APS).
+Analysis of what Revit's CAD link API can and cannot extract, and the
+alternative paths now implemented.
+
+## Status (2026-08)
+
+**SOLVED:** ACadSharp integration is complete. For DWG **attachments**, the
+agent can now read block names, text content, and attributes directly.
+
+| Gap | Status | Tool |
+|-----|--------|------|
+| Block names | ✅ Solved (attachments) | `get_dwg_block_names` |
+| Text content | ✅ Solved (attachments) | `get_dwg_texts` |
+| Block attributes | ✅ Solved (attachments) | `get_dwg_block_names` |
+| Model CAD | ❌ Still geometry-only | `get_dwg_blocks` (no names) |
+
+For **model CAD** (linked/imported in Revit), the limitations below still
+apply — Revit's API only exposes geometry, not the original DWG metadata.
 
 ## Revit link limitations by element type
 
@@ -71,179 +86,102 @@ CAD block "DOOR-01"
 
 Revit link: sees geometry only. **Attributes = invisible.**
 
-## Element-by-element verdict
+## Element-by-element verdict (attachments vs model CAD)
 
-| Element | Revit link viable? | Workaround | Better path |
-|---------|-------------------|------------|-------------|
-| **Walls** | Yes | — | — |
-| **Columns** | Yes | — | — |
-| **Doors** | Partial | Infer type from geometry width | ezdxf (block name + attributes) |
-| **Windows** | Partial | Same | ezdxf |
-| **Furniture** | Partial | Layer only, no type | ezdxf |
-| **Rooms** | No | OCR room names | ezdxf (text content) |
-| **Grids** | No | OCR grid labels | ezdxf |
-| **Roof** | Partial | Outline only, no slope | ezdxf (text for slope) |
-| **Stairs** | No | Can't get riser count | ezdxf + heuristics |
-| **Annotations** | No | OCR | ezdxf |
+| Element | Model CAD | Attachment (ACadSharp) |
+|---------|-----------|------------------------|
+| **Walls** | ✅ Full (cad_walls_to_centerlines) | ✅ Full |
+| **Columns** | ✅ Full | ✅ Full |
+| **Doors** | ⚠️ Position only | ✅ Full (block name + attributes) |
+| **Windows** | ⚠️ Position only | ✅ Full |
+| **Furniture** | ⚠️ Position only | ✅ Full (block name) |
+| **Rooms** | ❌ No text | ✅ Full (get_dwg_texts) |
+| **Grids** | ❌ No text | ✅ Full |
+| **Annotations** | ❌ No text | ✅ Full |
 
-## Alternative paths comparison
+**Recommendation:** For full CAD-to-BIM conversion, have users **attach** the
+DWG in the Copilot pane rather than linking it in Revit first. The attachment
+path reads the file directly via ACadSharp and extracts everything.
 
-| Feature | Revit link | ezdxf | ODA SDK | APS |
-|---------|------------|-------|---------|-----|
-| **Format** | DWG/DXF | DXF only | DWG/DXF | DWG/DXF |
-| **Layers** | Yes | Yes | Yes | Yes |
-| **Lines/arcs/polylines** | Yes | Yes | Yes | Yes |
-| **Blocks (intact)** | Partial | Full (name, insert, rotation, scale, attributes) | Full | Full |
-| **Block attributes** | No | Yes | Yes | Yes |
-| **Text content** | No | Yes | Yes | Yes |
-| **Dimensions** | No | Yes | Yes | Yes |
-| **Hatches** | Partial | Yes | Yes | Yes |
-| **Xdata** | No | Yes | Yes | Yes |
-| **AEC objects** | No | No | Yes (with ACA) | Yes (with ACA) |
-| **Cost** | Free | Free (MIT) | $$$ (license) | $$$ (per job) |
-| **Runs where** | Windows + Revit | Anywhere (Python) | Anywhere | Cloud |
+## Implementation (current)
 
-## Recommended architecture
-
-### Two paths, one pipeline
+### Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    User attaches DWG                     │
-└─────────────────────────┬───────────────────────────────┘
-                          │
-          ┌───────────────┴───────────────┐
-          │                               │
-          ▼                               ▼
-┌─────────────────────┐       ┌─────────────────────────┐
-│   Backend (bina-ai) │       │   Revit (addin-sync)    │
-│                     │       │                         │
-│  ODA File Converter │       │  extract_cad_geometry   │
-│         │           │       │  cad_walls_to_centerlines│
-│         ▼           │       │                         │
-│      ezdxf          │       │  Wall.Create            │
-│         │           │       │  Door.Create            │
-│         ▼           │       │  etc.                   │
-│  {blocks, text,     │       │                         │
-│   attributes,       │       │                         │
-│   geometry}         │       │                         │
-└─────────┬───────────┘       └────────────▲────────────┘
-          │                                │
-          │    Agent plans placement       │
-          └────────────────────────────────┘
+User attaches DWG in Copilot pane
+              │
+              ▼
+┌─────────────────────────────────────┐
+│   Add-in: DwgScratchCache           │
+│   ├── ACadSharp.Extract()           │  ← block names, text, attributes
+│   └── Revit Link (ImportInstance)   │  ← geometry for placement
+└─────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────┐
+│   Agent tools                        │
+│   ├── get_dwg_block_names           │  ← DR-900 → Door 900mm
+│   ├── get_dwg_texts                 │  ← LIVING ROOM, A, B, 1, 2
+│   └── cad_walls_to_centerlines      │  ← line pairs → walls
+└─────────────────────────────────────┘
+              │
+              ▼
+┌─────────────────────────────────────┐
+│   Revit creation                     │
+│   ├── Wall.Create (batch mode)      │
+│   ├── Door.Create                   │
+│   └── Room.Create                   │
+└─────────────────────────────────────┘
 ```
 
-**Backend path (ezdxf):** Full CAD data extraction — block names, text, attributes.
-Used for understanding CAD content and planning element placement.
+### Key components
 
-**Revit path:** Element creation. Walls via `cad_walls_to_centerlines`, doors/windows
-via family placement tools.
+| Component | Location | Purpose |
+|-----------|----------|---------|
+| `CadFileReader.cs` | BinaVibe/Mcp/Tools/ | ACadSharp extraction |
+| `DwgScratchCache.cs` | BinaVibe/Mcp/Tools/ | Caches ACadSharp + Revit data |
+| `ToolRegistry.cs` | BinaVibe/Mcp/Tools/ | Tool dispatch |
+| `tools.py` | bina-ai/.../copilot/ | Tool schemas |
 
-## Implementation phases
+### Tools
 
-### Phase 1 (done)
-Walls via Revit link. `cad_walls_to_centerlines` with create mode.
+| Tool | What it does | Works on |
+|------|-------------|----------|
+| `get_dwg_block_names` | Block names + attributes | Attachments only |
+| `get_dwg_texts` | Text content | Attachments only |
+| `get_dwg_blocks` | Block positions (no names) | Model CAD + attachments |
+| `get_dwg_summary` | Layer overview | Both |
+| `cad_walls_to_centerlines` | Line pairs → walls | Model CAD |
 
-### Phase 2 (next)
-Doors/windows. Options:
-- **Minimal:** Revit link, infer type from geometry width
-- **Better:** ezdxf extracts block names → type mapping → Revit creates
+### Source detection
 
-### Phase 3
-Rooms/grids. Requires text extraction → ezdxf mandatory.
+ACadSharp detects AutoCAD Architecture / Civil 3D / MEP files by checking
+for `AEC_*` / `AECC_*` / `AECB_*` custom classes. These are warned but not
+blocked — AEC objects explode to geometry, losing semantic data.
 
-### Phase 4
-Full pipeline with metadata (fire ratings, etc.) → ezdxf block attributes.
+## Alternative paths (reference)
 
-## Backend implementation (ezdxf path)
+| Feature | ACadSharp (add-in) | ezdxf (backend) | ODA SDK | APS |
+|---------|-------------------|-----------------|---------|-----|
+| **Format** | DWG + DXF | DXF only | DWG/DXF | DWG/DXF |
+| **Block names** | ✅ | ✅ | ✅ | ✅ |
+| **Text content** | ✅ | ✅ | ✅ | ✅ |
+| **Attributes** | ✅ | ✅ | ✅ | ✅ |
+| **AEC objects** | ❌ (exploded) | ❌ | ✅ (with ACA) | ✅ (with ACA) |
+| **Cost** | Free (MIT) | Free (MIT) | $$$ | $$$ |
+| **Where** | Add-in (C#) | Backend (Python) | Anywhere | Cloud |
 
-### Prerequisites
-```bash
-# ODA File Converter (free, registration required)
-# Download from opendesign.com
-sudo dpkg -i ODAFileConverter_*.deb
-
-# ezdxf
-pip install ezdxf
-```
-
-### DWG → DXF conversion
-```python
-import subprocess
-import tempfile
-from pathlib import Path
-
-def dwg_to_dxf(dwg_path: Path) -> Path:
-    """Convert DWG to DXF via ODA File Converter."""
-    out_dir = tempfile.mkdtemp()
-    subprocess.run([
-        "ODAFileConverter",
-        str(dwg_path.parent),  # input folder
-        out_dir,               # output folder
-        "ACAD2018", "DXF",     # output version, format
-        "0", "1",              # recurse=no, audit=yes
-        str(dwg_path.name)     # specific file
-    ], check=True)
-    return Path(out_dir) / dwg_path.with_suffix(".dxf").name
-```
-
-### DXF extraction
-```python
-import ezdxf
-
-def extract_cad(dxf_path: Path) -> dict:
-    doc = ezdxf.readfile(dxf_path)
-    msp = doc.modelspace()
-    
-    return {
-        "layers": [l.dxf.name for l in doc.layers],
-        "blocks": [
-            {
-                "name": e.dxf.name,
-                "x": e.dxf.insert.x,
-                "y": e.dxf.insert.y,
-                "rotation": e.dxf.rotation,
-                "layer": e.dxf.layer,
-                "scale": (e.dxf.xscale, e.dxf.yscale),
-                "attributes": {a.dxf.tag: a.dxf.text for a in e.attribs},
-            }
-            for e in msp.query("INSERT")
-        ],
-        "text": [
-            {
-                "content": e.dxf.text if hasattr(e.dxf, 'text') else e.text,
-                "x": e.dxf.insert.x,
-                "y": e.dxf.insert.y,
-                "layer": e.dxf.layer,
-            }
-            for e in msp.query("TEXT MTEXT")
-        ],
-        "lines": [
-            {
-                "x1": e.dxf.start.x, "y1": e.dxf.start.y,
-                "x2": e.dxf.end.x, "y2": e.dxf.end.y,
-                "layer": e.dxf.layer,
-            }
-            for e in msp.query("LINE")
-        ],
-        # + polylines, arcs, circles as needed
-    }
-```
-
-## Cost comparison
-
-| Path | Fixed cost | Per-job cost | Best for |
-|------|-----------|--------------|----------|
-| **Revit link** | $0 | $0 | Walls, columns (geometry only) |
-| **ezdxf + ODA Converter** | $0 | $0 | Doors, windows, rooms, text |
-| **ODA SDK (licensed)** | ~$2k–8k/year | $0 | High volume, no DXF conversion |
-| **APS** | $0 | $0.10–$1/job | Cloud-native, AEC objects |
+**Current choice:** ACadSharp in add-in. Direct DWG read, no conversion,
+no backend dependency. ezdxf backend exists but not wired — for future
+API-only clients.
 
 ## Summary
 
-**Revit link works for:** Walls, columns — geometry-based elements on known layers.
+**Attachments (via ACadSharp):** Full CAD data — block names, text, attributes.
+Use `get_dwg_block_names` and `get_dwg_texts`.
 
-**Revit link fails for:** Anything needing block names, text content, or attributes.
+**Model CAD (via Revit link):** Geometry only — lines, positions, layers.
+Use `cad_walls_to_centerlines` for walls.
 
-**Recommended path:** ezdxf (free) for full CAD data, Revit API for element creation.
-Two complementary paths feeding one agent.
+**Recommendation:** Have users attach DWGs in the Copilot pane for full
+CAD-to-BIM conversion. The attachment path extracts everything.
