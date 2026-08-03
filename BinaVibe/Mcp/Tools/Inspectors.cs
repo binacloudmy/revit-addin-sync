@@ -1116,23 +1116,13 @@ namespace BinaVibe.Mcp.Tools
             if (string.IsNullOrWhiteSpace(name))
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no schedule name given" };
 
-            var sched = new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
-                .Where(s => !s.IsTemplate)
-                .FirstOrDefault(s => s.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
+            // Same resolver and same cell reader as read_schedule — the export
+            // and what the agent sees must never drift apart.
+            var sched = Schedules.Resolve(doc, name);
             if (sched == null)
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"no schedule matching '{name}'" };
 
-            var body = sched.GetTableData().GetSectionData(SectionType.Body);
-            int nCols = body.NumberOfColumns, nRows = body.NumberOfRows;
-            var headers = new List<string>();
-            for (int c = 0; c < nCols; c++) headers.Add(sched.GetCellText(SectionType.Body, 0, c) ?? "");
-            var rows = new List<List<string>>();
-            for (int r = 1; r < nRows; r++)
-            {
-                var row = new List<string>();
-                for (int c = 0; c < nCols; c++) row.Add(sched.GetCellText(SectionType.Body, r, c) ?? "");
-                rows.Add(row);
-            }
+            var (headers, rows, _, _) = Schedules.ReadBody(sched, 0);   // 0 = no cap, export everything
 
             string fileName = SanitizeFileName(sched.Name) + ".xlsx";
             string dir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
