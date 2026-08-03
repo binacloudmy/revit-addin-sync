@@ -34,6 +34,10 @@ namespace BinaVibe.Mcp.Tools
             public Document? Doc;          // null => fallback mode (re-link per call)
             public ElementId? ImportId;
             public DateTime LastUsed;
+            // ACadSharp extraction — block names, text content, attributes.
+            // Null if ACadSharp failed or file unreadable; the Revit-only path
+            // still works, just without the enriched data.
+            public CadExtractionResult? AcadSharpData;
         }
 
         private static readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
@@ -71,6 +75,20 @@ namespace BinaVibe.Mcp.Tools
                 Name = System.IO.Path.GetFileName(path),
                 LastUsed = DateTime.UtcNow,
             };
+
+            // Extract via ACadSharp FIRST — block names, text, attributes.
+            // This runs before Revit linking because ACadSharp reads the file
+            // directly and doesn't need Revit. If it fails, we still have the
+            // Revit-only path (geometry, no block names/text).
+            try
+            {
+                entry.AcadSharpData = CadFileReader.Extract(path);
+            }
+            catch
+            {
+                // ACadSharp failed — continue with Revit-only extraction.
+                entry.AcadSharpData = null;
+            }
 
             var scratch = TryOpenScratch(app, path, out var importId);
             if (scratch != null)
@@ -114,6 +132,24 @@ namespace BinaVibe.Mcp.Tools
 
         public static bool IsAttachmentRef(string dwgRef) =>
             !string.IsNullOrEmpty(dwgRef) && dwgRef.StartsWith("att:", StringComparison.Ordinal);
+
+        /// <summary>Get ACadSharp extraction data for an attachment — block names,
+        /// text content, attributes. Returns null if ACadSharp failed or the ref
+        /// is unknown. The Revit-only path (Use()) still works either way.</summary>
+        public static CadExtractionResult? GetAcadSharpData(string dwgRef)
+        {
+            if (!_entries.TryGetValue(dwgRef, out var entry)) return null;
+            entry.LastUsed = DateTime.UtcNow;
+            return entry.AcadSharpData;
+        }
+
+        /// <summary>Get the file path for an attachment ref.</summary>
+        public static string? GetPath(string dwgRef)
+        {
+            if (!_entries.TryGetValue(dwgRef, out var entry)) return null;
+            entry.LastUsed = DateTime.UtcNow;
+            return entry.Path;
+        }
 
         /// <summary>Close every scratch document. Called when the pane's session
         /// ends and when the host document closes — a scratch document left open
