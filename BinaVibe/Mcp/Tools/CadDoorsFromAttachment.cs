@@ -45,6 +45,20 @@ namespace BinaVibe.Mcp.Tools
             var namePattern = ArgsHelp.GetString(args, "name_pattern") ?? "(?i)(door|dr|pintu)";
 
             var doorBlocks = FilterDoorBlocks(acadData.Blocks, layerFilter, namePattern);
+
+            // 2b. Filter by Z range (for multi-floor DWGs)
+            var zMinMm = ArgsHelp.GetDouble(args, "z_min_mm");
+            var zMaxMm = ArgsHelp.GetDouble(args, "z_max_mm");
+            if (zMinMm.HasValue || zMaxMm.HasValue)
+            {
+                doorBlocks = doorBlocks.Where(b =>
+                {
+                    if (zMinMm.HasValue && b.Z < zMinMm.Value) return false;
+                    if (zMaxMm.HasValue && b.Z > zMaxMm.Value) return false;
+                    return true;
+                }).ToList();
+            }
+
             if (doorBlocks.Count == 0)
             {
                 var allNames = acadData.Blocks
@@ -58,6 +72,7 @@ namespace BinaVibe.Mcp.Tools
                     ["error"] = "no door blocks found matching filter",
                     ["layer_filter"] = layerFilter,
                     ["name_pattern"] = namePattern,
+                    ["z_filter"] = zMinMm.HasValue || zMaxMm.HasValue ? $"{zMinMm ?? 0}mm to {zMaxMm ?? double.MaxValue}mm" : null,
                     ["available_block_names"] = allNames,
                 };
             }
@@ -376,7 +391,8 @@ namespace BinaVibe.Mcp.Tools
         }
 
         /// <summary>
-        /// Find the wall at or near the given CAD coordinate.
+        /// Find the wall that can host a door at the given CAD coordinate.
+        /// Checks both perpendicular distance AND that the point is within wall length.
         /// </summary>
         private static Wall? FindHostWall(List<Wall> walls, double xMm, double yMm)
         {
@@ -384,30 +400,63 @@ namespace BinaVibe.Mcp.Tools
             double yFt = yMm / MmPerFoot;
             var point = new XYZ(xFt, yFt, 0);
 
-            // Search radius (in feet) - doors should be ON the wall
-            const double searchRadius = 2.0; // ~600mm
+            // Perpendicular tolerance: door should be close to wall centerline
+            // (wall thickness / 2 + small margin). Most walls < 500mm thick.
+            const double perpTolerance = 1.5; // ~450mm from centerline
 
-            Wall? closest = null;
-            double closestDist = double.MaxValue;
+            // Axial tolerance: allow door slightly past wall ends
+            const double axialTolerance = 0.5; // ~150mm past endpoint
+
+            Wall? best = null;
+            double bestScore = double.MaxValue;
 
             foreach (var wall in walls)
             {
-                var curve = (wall.Location as LocationCurve)?.Curve;
+                var locCurve = wall.Location as LocationCurve;
+                if (locCurve == null) continue;
+
+                var curve = locCurve.Curve;
                 if (curve == null) continue;
 
-                // Get distance from point to wall centerline
-                var result = curve.Project(point);
-                if (result == null) continue;
+                // Get wall endpoints
+                var p0 = curve.GetEndPoint(0);
+                var p1 = curve.GetEndPoint(1);
 
-                double dist = result.Distance;
-                if (dist < closestDist && dist < searchRadius)
+                // Wall direction and length
+                var dir = (p1 - p0);
+                double wallLen = dir.GetLength();
+                if (wallLen < 0.01) continue;
+                dir = dir.Normalize();
+
+                // Vector from wall start to door point
+                var toDoor = point - p0;
+
+                // Axial distance (along wall)
+                double axial = toDoor.DotProduct(dir);
+
+                // Check if door is within wall length (with tolerance)
+                if (axial < -axialTolerance || axial > wallLen + axialTolerance)
+                    continue; // Door is past wall ends
+
+                // Perpendicular distance (from wall centerline)
+                var perpVec = toDoor - axial * dir;
+                double perp = perpVec.GetLength();
+
+                if (perp > perpTolerance)
+                    continue; // Too far from wall
+
+                // Score: prefer smaller perpendicular distance, then axial distance from center
+                double axialFromCenter = Math.Abs(axial - wallLen / 2);
+                double score = perp * 10 + axialFromCenter * 0.1;
+
+                if (score < bestScore)
                 {
-                    closestDist = dist;
-                    closest = wall;
+                    bestScore = score;
+                    best = wall;
                 }
             }
 
-            return closest;
+            return best;
         }
 
         /// <summary>

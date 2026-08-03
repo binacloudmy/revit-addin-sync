@@ -52,6 +52,20 @@ namespace BinaVibe.Mcp.Tools
                 };
             }
 
+            // 2b. Filter by Z range (for multi-floor DWGs)
+            var zMinMm = ArgsHelp.GetDouble(args, "z_min_mm");
+            var zMaxMm = ArgsHelp.GetDouble(args, "z_max_mm");
+            if (zMinMm.HasValue || zMaxMm.HasValue)
+            {
+                cadLines = FilterByZ(cadLines, zMinMm, zMaxMm);
+                if (cadLines.Count == 0)
+                    return new Dictionary<string, object?>
+                    {
+                        ["ok"] = false,
+                        ["error"] = $"no lines in Z range {zMinMm ?? 0}mm to {zMaxMm ?? double.MaxValue}mm",
+                    };
+            }
+
             // 3. Convert to WallSeg (solver expects feet)
             var segs = cadLines.Select(l => new WallSeg(
                 l.X1 / MmPerFoot, l.Y1 / MmPerFoot,
@@ -113,7 +127,10 @@ namespace BinaVibe.Mcp.Tools
                     ["median_mm"] = thicknesses.Count > 0 ? Median(thicknesses) : 0,
                 };
 
-                return new Dictionary<string, object?>
+                // Detect floor clusters from Z coordinates
+                var floorClusters = DetectFloorClusters(cadLines);
+
+                var result = new Dictionary<string, object?>
                 {
                     ["ok"] = true,
                     ["dwg_ref"] = dwgRef,
@@ -129,6 +146,17 @@ namespace BinaVibe.Mcp.Tools
                     ["note"] = "Preview only. Use thickness_histogram to suggest thickness_to_type mapping. "
                         + "Pass create=true with thickness_to_type:[{min_mm, max_mm, type_name}] to build walls.",
                 };
+
+                // Add floor cluster info if multiple floors detected
+                if (floorClusters.Count > 1)
+                {
+                    result["floor_clusters"] = floorClusters;
+                    result["multi_floor_warning"] = $"Detected {floorClusters.Count} floor levels in DWG (Z offsets). "
+                        + "Consider filtering by z_min_mm/z_max_mm to process one floor at a time, or creating "
+                        + "separate Revit levels for each floor.";
+                }
+
+                return result;
             }
 
             // 6b. CREATE MODE — build walls in one Transaction
@@ -266,6 +294,70 @@ namespace BinaVibe.Mcp.Tools
             return sorted.Count % 2 == 0
                 ? (sorted[mid - 1] + sorted[mid]) / 2.0
                 : sorted[mid];
+        }
+
+        /// <summary>
+        /// Detect floor clusters from Z coordinates of lines.
+        /// Groups Z values into clusters (floors typically differ by 3000-4500mm).
+        /// </summary>
+        private static List<Dictionary<string, object>> DetectFloorClusters(List<CadLine> lines)
+        {
+            // Get all Z values (use average of Z1 and Z2 for each line)
+            var zValues = lines
+                .Select(l => Math.Round((l.Z1 + l.Z2) / 2, 0))
+                .ToList();
+
+            if (zValues.Count == 0) return new List<Dictionary<string, object>>();
+
+            // Group into clusters (tolerance ~100mm)
+            const double clusterTolerance = 100;
+            var clusters = new List<(double z, int count)>();
+
+            foreach (var z in zValues.OrderBy(z => z))
+            {
+                var existing = clusters.FindIndex(c => Math.Abs(c.z - z) < clusterTolerance);
+                if (existing >= 0)
+                {
+                    var (oldZ, oldCount) = clusters[existing];
+                    // Update centroid
+                    clusters[existing] = ((oldZ * oldCount + z) / (oldCount + 1), oldCount + 1);
+                }
+                else
+                {
+                    clusters.Add((z, 1));
+                }
+            }
+
+            // Filter out tiny clusters (noise)
+            var significant = clusters
+                .Where(c => c.count >= lines.Count * 0.05) // At least 5% of lines
+                .OrderBy(c => c.z)
+                .Select((c, i) => new Dictionary<string, object>
+                {
+                    ["floor_index"] = i,
+                    ["z_mm"] = Math.Round(c.z, 0),
+                    ["line_count"] = c.count,
+                    ["percent"] = Math.Round(100.0 * c.count / lines.Count, 1),
+                })
+                .ToList();
+
+            return significant;
+        }
+
+        /// <summary>
+        /// Filter lines by Z range (for processing one floor at a time).
+        /// </summary>
+        public static List<CadLine> FilterByZ(List<CadLine> lines, double? zMinMm, double? zMaxMm)
+        {
+            if (!zMinMm.HasValue && !zMaxMm.HasValue) return lines;
+
+            return lines.Where(l =>
+            {
+                double avgZ = (l.Z1 + l.Z2) / 2;
+                if (zMinMm.HasValue && avgZ < zMinMm.Value) return false;
+                if (zMaxMm.HasValue && avgZ > zMaxMm.Value) return false;
+                return true;
+            }).ToList();
         }
     }
 }

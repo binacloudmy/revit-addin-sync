@@ -35,6 +35,7 @@ namespace BinaVibe.Mcp.Tools
         public string Name { get; set; } = "";
         public double X { get; set; }
         public double Y { get; set; }
+        public double Z { get; set; }
         public double Rotation { get; set; }
         public string Layer { get; set; } = "";
         public double XScale { get; set; } = 1;
@@ -62,8 +63,10 @@ namespace BinaVibe.Mcp.Tools
     {
         public double X1 { get; set; }
         public double Y1 { get; set; }
+        public double Z1 { get; set; }
         public double X2 { get; set; }
         public double Y2 { get; set; }
+        public double Z2 { get; set; }
         public string Layer { get; set; } = "";
     }
 
@@ -194,6 +197,7 @@ namespace BinaVibe.Mcp.Tools
                             Name = insert.Block?.Name ?? "",
                             X = Math.Round(insert.InsertPoint.X, 2),
                             Y = Math.Round(insert.InsertPoint.Y, 2),
+                            Z = Math.Round(insert.InsertPoint.Z, 2),
                             Rotation = Math.Round(insert.Rotation * 180 / Math.PI, 2),
                             Layer = insert.Layer?.Name ?? "",
                             XScale = Math.Round(insert.XScale, 3),
@@ -237,8 +241,10 @@ namespace BinaVibe.Mcp.Tools
                         {
                             X1 = line.StartPoint.X,
                             Y1 = line.StartPoint.Y,
+                            Z1 = line.StartPoint.Z,
                             X2 = line.EndPoint.X,
                             Y2 = line.EndPoint.Y,
+                            Z2 = line.EndPoint.Z,
                             Layer = line.Layer?.Name ?? "",
                         });
                         result.LineCount++;
@@ -284,6 +290,7 @@ namespace BinaVibe.Mcp.Tools
         private static void ExtractPolylineSegments(LwPolyline lwp, CadExtractionResult result)
         {
             var layer = lwp.Layer?.Name ?? "";
+            double elevation = lwp.Elevation; // LwPolyline has a single Z elevation
             var verts = lwp.Vertices.ToList();
             if (verts.Count < 2) return;
 
@@ -295,8 +302,10 @@ namespace BinaVibe.Mcp.Tools
                 {
                     X1 = v1.Location.X,
                     Y1 = v1.Location.Y,
+                    Z1 = elevation,
                     X2 = v2.Location.X,
                     Y2 = v2.Location.Y,
+                    Z2 = elevation,
                     Layer = layer,
                 });
                 result.LineCount++;
@@ -310,8 +319,10 @@ namespace BinaVibe.Mcp.Tools
                 {
                     X1 = last.Location.X,
                     Y1 = last.Location.Y,
+                    Z1 = elevation,
                     X2 = first.Location.X,
                     Y2 = first.Location.Y,
+                    Z2 = elevation,
                     Layer = layer,
                 });
                 result.LineCount++;
@@ -324,6 +335,7 @@ namespace BinaVibe.Mcp.Tools
         private static void ExtractPolyline2DSegments(Polyline2D p2d, CadExtractionResult result)
         {
             var layer = p2d.Layer?.Name ?? "";
+            double elevation = p2d.Elevation; // Polyline2D has a single Z elevation
             var verts = p2d.Vertices.ToList();
             if (verts.Count < 2) return;
 
@@ -335,8 +347,10 @@ namespace BinaVibe.Mcp.Tools
                 {
                     X1 = v1.Location.X,
                     Y1 = v1.Location.Y,
+                    Z1 = elevation,
                     X2 = v2.Location.X,
                     Y2 = v2.Location.Y,
+                    Z2 = elevation,
                     Layer = layer,
                 });
                 result.LineCount++;
@@ -350,8 +364,10 @@ namespace BinaVibe.Mcp.Tools
                 {
                     X1 = last.Location.X,
                     Y1 = last.Location.Y,
+                    Z1 = elevation,
                     X2 = first.Location.X,
                     Y2 = first.Location.Y,
+                    Z2 = elevation,
                     Layer = layer,
                 });
                 result.LineCount++;
