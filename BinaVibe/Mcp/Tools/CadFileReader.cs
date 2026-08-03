@@ -131,6 +131,15 @@ namespace BinaVibe.Mcp.Tools
         {
             var result = new CadExtractionResult();
 
+            // Validate the extension BEFORE existence: an unsupported type is
+            // "unsupported" regardless of whether the path happens to exist.
+            var ext = Path.GetExtension(filePath).ToLowerInvariant();
+            if (ext != ".dwg" && ext != ".dxf")
+            {
+                result.Error = $"Unsupported file type: {ext}";
+                return result;
+            }
+
             if (!File.Exists(filePath))
             {
                 result.Error = $"File not found: {filePath}";
@@ -140,16 +149,14 @@ namespace BinaVibe.Mcp.Tools
             CadDocument doc;
             try
             {
-                var ext = Path.GetExtension(filePath).ToLowerInvariant();
                 if (ext == ".dwg")
-                    doc = DwgReader.Read(filePath);
-                else if (ext == ".dxf")
-                    doc = DxfReader.Read(filePath);
+                    // Fully-qualified: BinaVibe.Mcp.Tools has its OWN static DwgReader
+                    // (Revit-based) that would otherwise shadow ACadSharp's. ACadSharp
+                    // 1.1.19 also has no single-arg Read — it needs a
+                    // NotificationEventHandler (nullable).
+                    doc = ACadSharp.IO.DwgReader.Read(filePath, null);
                 else
-                {
-                    result.Error = $"Unsupported file type: {ext}";
-                    return result;
-                }
+                    doc = ACadSharp.IO.DxfReader.Read(filePath);
             }
             catch (Exception ex)
             {
@@ -218,12 +225,15 @@ namespace BinaVibe.Mcp.Tools
                         result.LineCount++;
                         break;
 
-                    case Circle _:
-                        result.CircleCount++;
-                        break;
-
+                    // Arc derives from Circle in ACadSharp, so the more-derived
+                    // Arc case MUST come first — otherwise Circle swallows arcs
+                    // (miscounts them, and makes the Arc case unreachable: CS8120).
                     case Arc _:
                         result.ArcCount++;
+                        break;
+
+                    case Circle _:
+                        result.CircleCount++;
                         break;
 
                     case Dimension _:
