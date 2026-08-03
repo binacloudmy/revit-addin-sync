@@ -5,24 +5,41 @@
 #   → RevitWebAppSync-0.0.2.zip (OTA payload) + RevitCopilot-0.0.2-setup.exe
 #   → uploads them as GitHub workflow artifacts (build record / staging smoke)
 #
-# Two actors, deliberately split — this workflow is ONLY the first half:
+# Three actors now (operator decision 2026-08-04 split an unsigned staging
+# path off the manual one — this workflow's `release` job is still only a
+# build; it never publishes anything itself):
 #
-#   RUNNER (this workflow, automated, self-hosted):
+#   RUNNER (`release` job, automated, GitHub-hosted):
 #     - builds the plugin payload + loaders + installer EXE, UNSIGNED;
-#     - uploads them as GitHub workflow artifacts (build record / staging smoke);
-#     - publishes NOTHING users can download: no GitHub Release, no TM One upload,
-#       no pointer flip. It cannot — it has no cert and no TM One creds.
+#     - uploads them as GitHub workflow artifacts (build record / staging
+#       smoke source, and — for -staging tags — what publish-staging-unsigned
+#       below ships as-is);
+#     - publishes NOTHING itself: no GitHub Release, no TM One upload, no
+#       pointer flip, no cert. (TM One creds now DO exist in GitHub secrets —
+#       see publish-staging-unsigned — but this job never touches them.)
 #
-#   OPERATOR (separate, manual, on the sovereign signing box):
+#   CI, UNSIGNED (`publish-staging-unsigned` job, automated, GitHub-hosted,
+#   STAGING TAGS ONLY): reuses this job's own unsigned zip, uploads it
+#   straight to TM One's staging prefix and flips latest.json — no cert, no
+#   signing box, no human click. Runs only while no self-hosted signer is
+#   registered (vars.SELF_HOSTED_SIGNER != 'true'); the signed staging path
+#   below always wins once one exists, so the two never race. See
+#   installer\publish-unsigned-staging.ps1 for why this is safe for staging
+#   and would not be for prod.
+#
+#   OPERATOR (separate, manual, on the sovereign signing box — always for
+#   PROD, and for STAGING too while SELF_HOSTED_SIGNER=true):
 #     - runs installer\sign-release.ps1, which rebuilds + SIGNS every payload DLL
 #       and the setup EXE, uploads the signed installer + OTA zip to TM One, and
 #       flips the latest.json pointer that bina-ai /addin/download and
-#       /addin/version.json resolve. THIS is go-live.
+#       /addin/version.json resolve. THIS is go-live for prod, always.
 #
-# Why the split: unsigned bytes never reach a user-facing URL (the signing gate);
-# build compute stays in-country; TM One credentials live only on the signing
-# box, never in GitHub secrets. This job is the fast "does the tag build + harvest
-# cleanly" gate the operator relies on before signing.
+# Why the split still matters for prod: unsigned bytes never reach a
+# fleet-facing URL (the signing gate); build compute stays in-country; prod's
+# TM One credentials and the signing cert live only on the signing box, never
+# in GitHub secrets. Staging's TM One creds DO live in GitHub secrets now —
+# that is the 2026-08-04 decision, justified by staging's small blast radius
+# (mandatory:false, a handful of testers) — but prod is untouched by it.
 
 name: release
 
@@ -53,9 +70,12 @@ jobs:
     # this failure mode is silent.
     #
     # Note what this does NOT change: the runner still produces unsigned
-    # artifacts only. Signing, the TM One upload and the latest.json flip stay
-    # on the operator's box, so no key or credential is exposed by building
-    # here rather than in-country.
+    # artifacts only and never publishes them itself. For prod, signing, the
+    # TM One upload and the latest.json flip always stay on the operator's
+    # box, so no prod key or credential is exposed by building here rather
+    # than in-country. Staging is the one exception (operator decision
+    # 2026-08-04, publish-staging-unsigned job, below) — its TM One creds are
+    # deliberately in GitHub secrets, scoped to the staging bucket only.
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -236,10 +256,18 @@ jobs:
           $size = (Get-Item "RevitCopilot-$v-setup.exe").Length
           if ($size -lt 1MB) { throw "Installer is only $([math]::Round($size/1KB)) KB — harvest failed, refusing to release" }
 
-      # No GitHub Release, no TM One upload here — CI produces UNSIGNED bytes.
-      # Publishing is the operator's sign-and-flip step (installer\sign-release.ps1),
-      # which SIGNS the payload + EXE, uploads to TM One and flips the pointer.
-      # This artifact is the build record + a staging smoke source only.
+      # No GitHub Release, no TM One upload HERE — this step produces UNSIGNED
+      # bytes only. What happens to them next depends on the channel:
+      #   * prod, and staging when SELF_HOSTED_SIGNER=true: the operator's
+      #     sign-and-flip step (installer\sign-release.ps1) rebuilds, SIGNS the
+      #     payload + EXE, uploads to TM One and flips the pointer.
+      #   * staging when SELF_HOSTED_SIGNER != 'true' (the default today): the
+      #     publish-staging-unsigned job below re-downloads THIS artifact and
+      #     ships the zip to TM One's staging prefix AS-IS — unsigned, by
+      #     operator decision 2026-08-04. See
+      #     installer\publish-unsigned-staging.ps1.
+      # Either way, this artifact is also the build record + staging smoke
+      # source.
       - name: Upload build artifacts (unsigned build record)
         uses: actions/upload-artifact@v4
         with:
@@ -281,9 +309,12 @@ jobs:
   # it on: register the signing box as a self-hosted runner with the
   # `windows` label, then
   #   gh variable set SELF_HOSTED_SIGNER --body true
-  # Until then, staging publishes the way 0.0.30 did: run
-  # installer\sign-release.ps1 on the signing box by hand. The build job still
-  # runs on windows-latest and still uploads artifacts, so nothing is blocked.
+  # Until then, staging auto-publishes UNSIGNED via publish-staging-unsigned
+  # (below, operator decision 2026-08-04) — that job is gated off the moment
+  # this one turns on, so the two never race. A manual
+  # installer\sign-release.ps1 run on the signing box is still always
+  # available too. The build job itself still runs on windows-latest and
+  # still uploads artifacts either way, so nothing is blocked.
   #
   # Prod is deliberately excluded. A fleet-wide update should have a human
   # in the loop, so `v0.0.31` (no suffix) still goes through
@@ -368,6 +399,96 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "published ${{ github.ref_name }} to TM One"
+          Write-Host "latest.json is flipped — bina-ai /addin/version.json will serve it within its 600s cache"
+
+  # ─── Staging unsigned auto-publish (CI, no signing box) ─────────────────────
+  # STAGING ONLY. Operator decision 2026-08-04: staging-channel releases
+  # publish to TM One WITHOUT signing, straight from this GitHub-hosted
+  # runner — prod keeps the human-gated signing box (sign-prod, below)
+  # completely untouched.
+  #
+  # This closes the gap sign-staging leaves open while no self-hosted signer
+  # is registered: today that means CI "publishes nothing users can
+  # download" (see the header comment above `release:`), so an unsigned
+  # staging tag with no signer box would otherwise never reach a tester.
+  # `if:` below is sign-staging's condition with SELF_HOSTED_SIGNER inverted,
+  # so the signed path always wins the moment a signer exists — the two jobs
+  # can never both publish the same tag.
+  #
+  # Why unsigned is acceptable here, and only here: staging mandatory
+  # defaults false (UpdateService never force-restarts a tester's Revit
+  # session over an unsigned build); the staging fleet is a handful of known
+  # testers, not the whole drafter population; and Smart App Control / WDAC
+  # (Enforce) machines blocking an unsigned DLL at load (0x800711C7,
+  # 2026-07-21 incident) is a known, accepted risk for that population only.
+  # Prod cannot take this shortcut — its feeds are mandatory:true and reach
+  # every drafter at their next Revit launch; that path stays fully
+  # human-gated below (sign-prod).
+  #
+  # No rebuild, no re-sign: this job downloads the SAME unsigned artifact the
+  # `release` job above already produced and re-publishes the zip it
+  # contains as-is. See installer\publish-unsigned-staging.ps1 for why that
+  # zip is already byte-identical in shape to what sign-release.ps1 would
+  # produce (just unsigned), and for the OTA-only scope (no setup EXE — fresh
+  # installs still come from the last signed installer).
+  publish-staging-unsigned:
+    needs: release
+    if: >-
+      startsWith(github.ref, 'refs/tags/v')
+      && endsWith(github.ref_name, '-staging')
+      && vars.SELF_HOSTED_SIGNER != 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derive version
+        id: ver
+        shell: pwsh
+        run: |
+          # Mirrors the `release` job's own derivation for a tag push (this
+          # job never runs for workflow_dispatch — see the `if:` above).
+          $v = '${{ github.ref_name }}'.TrimStart('v')
+          "fullversion=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-${{ steps.ver.outputs.fullversion }}
+          path: artifact
+
+      - name: Verify aws CLI
+        shell: pwsh
+        run: |
+          # windows-latest ships aws-cli by default; this is a cheap, legible
+          # failure if that ever stops being true, instead of a confusing
+          # error deep inside the publish script.
+          if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
+            throw "aws CLI not on PATH on windows-latest runner"
+          }
+          aws --version
+
+      - name: Publish unsigned OTA to TM One, flip latest.json
+        shell: pwsh
+        env:
+          TMONE_SERVER: ${{ secrets.TMONE_SERVER }}
+          TMONE_BUCKET: ${{ secrets.TMONE_BUCKET }}
+          TMONE_ACCESS_KEY_ID: ${{ secrets.TMONE_ACCESS_KEY_ID }}
+          TMONE_SECRET_ACCESS_KEY: ${{ secrets.TMONE_SECRET_ACCESS_KEY }}
+          # boto3 >=1.36 and recent AWS CLI v2 add CRC request checksums that
+          # Huawei OBS rejects with XAmzContentSHA256Mismatch — the same trap
+          # sign-staging/sign-prod carry and app/services/family_library.py
+          # (bina-ai) disables in its boto3 client. Load-bearing.
+          AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+          AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+        run: |
+          ./installer/publish-unsigned-staging.ps1 `
+            -Tag '${{ github.ref_name }}' `
+            -PayloadDir artifact
+
+      - name: Report what was published
+        shell: pwsh
+        run: |
+          Write-Host "published ${{ github.ref_name }} (UNSIGNED) to TM One's staging prefix"
           Write-Host "latest.json is flipped — bina-ai /addin/version.json will serve it within its 600s cache"
 
   # ─── Prod publish — same box, but a human says go ───────────────────────────
