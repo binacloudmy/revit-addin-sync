@@ -27,7 +27,18 @@ namespace RevitWebAppSync.UI.Copilot.Model
             var sb = new StringBuilder();
             foreach (var f in files)
             {
-                if (f.Kind == AttachmentKind.Text)
+                // ReadError is checked FIRST, before the kind. A rejected text file
+                // (over the cap, unsupported, locked) would otherwise take the
+                // branch below and emit "[Attached: rules.csv]" followed by nothing
+                // — the agent would believe it received an empty file rather than
+                // no file, and answer without mentioning it.
+                if (f.ReadError != null)
+                {
+                    sb.Append("[").Append(f.BlockLabel).Append(": ").Append(f.Name)
+                      .Append(" — could not be read: ").Append(f.ReadError)
+                      .AppendLine("]");
+                }
+                else if (f.Kind == AttachmentKind.Text)
                 {
                     sb.Append("[Attached: ").Append(f.Name).AppendLine("]");
                     sb.AppendLine(f.Content);
