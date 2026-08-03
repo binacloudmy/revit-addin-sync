@@ -131,7 +131,7 @@ namespace BinaVibe.Mcp.Tools
                         ["y_mm"] = Math.Round(b.Y, 1),
                         ["rotation_deg"] = b.Rotation,
                         ["host_wall_found"] = wall != null,
-                        ["host_wall_id"] = wall?.Id.IntegerValue,
+                        ["host_wall_id"] = wall?.Id.Value,
                     };
                 }).ToList();
 
