@@ -304,6 +304,30 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             RebuildThumbStrip();
         }
 
+        /// <summary>Turn a read failure into something a drafter can act on.
+        ///
+        /// The raw exception text is written for developers: ClosedXML reports a
+        /// renamed .csv as "End of Central Directory record could not be found"
+        /// (measured 2026-08-03 — a drafter had renamed the extension in Explorer
+        /// instead of using Save As). That sentence tells them nothing about what
+        /// to do next, so the two common causes get a plain-language answer and
+        /// everything else falls back to the original message.</summary>
+        private static string DescribeReadFailure(string path, System.Exception ex)
+        {
+            var msg = ex.Message ?? "";
+            bool isXlsx = Model.AttachmentGate.NeedsConversion(path);
+
+            if (isXlsx && (msg.IndexOf("Central Directory", System.StringComparison.OrdinalIgnoreCase) >= 0
+                        || ex is System.IO.InvalidDataException))
+                return "bukan fail .xlsx sebenar — menamakan semula .csv kepada .xlsx tidak cukup; "
+                     + "buka dalam Excel dan guna Save As → Excel Workbook";
+
+            if (ex is System.IO.IOException)
+                return "fail sedang dibuka oleh program lain (tutup Excel dan cuba lagi)";
+
+            return msg;
+        }
+
         /// <summary>Both entry points land here — the Attach dialog and drag-drop
         /// (MentionInput.FileDropped, which has no filter of its own) — so gating
         /// here covers both. A file that cannot be used is KEPT with a reason
@@ -359,7 +383,11 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     // Locked by Excel (the common one — drafters attach the file
                     // they still have open), permission denied, corrupt workbook.
                     // The gate cannot foresee these, and they must not vanish.
-                    _files.Add((name, null, null, kind, $"tidak boleh dibaca: {ex.Message}"));
+                    //
+                    // No "tidak boleh dibaca:" prefix here — RouteText already
+                    // says "could not be read:", and the two stacked read as
+                    // "could not be read: tidak boleh dibaca: ..." (UAT 2026-08-03).
+                    _files.Add((name, null, null, kind, DescribeReadFailure(path, ex)));
                 }
             }
             RebuildThumbStrip();
