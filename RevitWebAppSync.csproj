@@ -92,6 +92,10 @@
          Chosen over a cloud parser so attached PDFs never leave the machine and
          cost nothing per page; see docs on the attachment channel. -->
     <PackageReference Include="PdfPig" Version="0.1.*" />
+    <!-- DWG/DXF READING for CAD attachments (CadFileReader.cs). MIT, pure C#,
+         reads DWG directly without ODA or conversion. Extracts block names, text
+         content, attributes that Revit's ImportInstance API cannot access. -->
+    <PackageReference Include="ACadSharp" Version="1.*" />
     <!-- True-color emoji glyphs for the Copilot chat pane (MarkdownRenderer.cs)
          — WPF has no native color-font support, so heading/body emoji ("###
          🛠️ Tindakan") otherwise render as monochrome outline glyphs. Package
