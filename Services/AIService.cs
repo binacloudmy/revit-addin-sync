@@ -8,6 +8,10 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+// Planning/massing wire DTOs live with the pane's other models (Revit-free so the
+// tests can link them). Aliased rather than `using`-imported to keep them clearly
+// distinct from RevitWebAppSync.Models.
+using PlanningDtos = RevitWebAppSync.UI.Copilot.Model;
 
 namespace RevitWebAppSync.Services
 {
@@ -28,8 +32,9 @@ namespace RevitWebAppSync.Services
         };
 
         // The dev/local bina-ai backend is multi-tenant and requires an
-        // X-Tenant-Id header on /agents/revit-ai/* and /credits/* (missing it →
-        // HTTP 400 / a "login required" 401); cloud staging ignores it. Send the
+        // X-Tenant-Id header on /agents/revit-ai/*, /credits/* and
+        // /planning/suggest (missing it → HTTP 400 {"detail":"X-Tenant-Id header
+        // required"} / a "login required" 401); cloud staging ignores it. Send the
         // per-machine tenant (vibe.json, default "default") on every call from the
         // shared client — same value the MCP tunnel already forwards.
         static AIService()
@@ -110,6 +115,105 @@ namespace RevitWebAppSync.Services
             [JsonProperty("progress")] public int Progress { get; set; }   // 0–100
             [JsonProperty("done")] public int Done { get; set; }
             [JsonProperty("total")] public int Total { get; set; }
+        }
+
+        // ─── Massing / space planning (Copilot "/massing" flow) ───────────────
+
+        /// <summary>
+        /// POST /planning/suggest — turn a plain-language building brief into a
+        /// Schedule of Accommodation plus candidate block schemes.
+        ///
+        /// Builds the URL DIRECTLY (like GetSeedStatusAsync above), NOT via
+        /// AiUrl.Build: that prefixes /agents/revit-ai/ and would 404 here.
+        ///
+        /// Never throws — a backend outage, a timeout or an HTTP error all come back
+        /// as a typed <c>Success = false</c> result so the pane can show the message
+        /// inline and stay on Home (same contract as RouteAsync's soft failures).
+        /// </summary>
+        public async Task<PlanningDtos.SuggestResult> SuggestPlanningAsync(
+            PlanningDtos.SuggestRequest request, string accessToken,
+            CancellationToken cancellationToken = default)
+        {
+            if (request == null || string.IsNullOrWhiteSpace(request.Brief))
+                return PlanningDtos.SuggestResult.Fail("Describe the building first — e.g. \"sekolah rendah, Tahun 1-6, 3 kelas each\".");
+
+            try
+            {
+                var json = JsonConvert.SerializeObject(request);
+                using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/planning/suggest")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                };
+                if (!string.IsNullOrEmpty(accessToken))
+                    req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var resp = await _httpClient.SendAsync(req, cancellationToken);
+                var body = await resp.Content.ReadAsStringAsync();
+                if (!resp.IsSuccessStatusCode)
+                    return PlanningDtos.SuggestResult.Fail(Explain(resp.StatusCode, body));
+
+                var result = JsonConvert.DeserializeObject<PlanningDtos.SuggestResult>(body);
+                if (result == null)
+                    return PlanningDtos.SuggestResult.Fail("Planning backend returned an empty response.");
+                return result;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return PlanningDtos.SuggestResult.Fail("Cancelled.");
+            }
+            catch (TaskCanceledException)
+            {
+                // HttpClient.Timeout elapsed (no user cancel) — soft failure.
+                return PlanningDtos.SuggestResult.Fail(
+                    "The planning request timed out. Try again, or shorten the brief.");
+            }
+            catch (HttpRequestException ex)
+            {
+                return PlanningDtos.SuggestResult.Fail(
+                    $"Can't reach the planning backend: {ex.Message}");
+            }
+            catch (Exception ex)
+            {
+                return PlanningDtos.SuggestResult.Fail($"Planning failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>Convenience overload — brief + user id is the whole v1 request.</summary>
+        public Task<PlanningDtos.SuggestResult> SuggestPlanningAsync(
+            string brief, int? userId, string accessToken,
+            CancellationToken cancellationToken = default) =>
+            SuggestPlanningAsync(
+                new PlanningDtos.SuggestRequest { Brief = brief, UserId = userId },
+                accessToken, cancellationToken);
+
+        // Error bodies can be a whole HTML page — keep the inline notice readable.
+        private static string Trim(string body) =>
+            string.IsNullOrWhiteSpace(body) ? "" :
+            body.Length <= 200 ? body.Trim() : body.Substring(0, 200).Trim() + "…";
+
+        /// <summary>
+        /// Turn an error response into something a user can act on. FastAPI puts the
+        /// human-readable reason in {"detail": "..."} — a 400 for an empty brief says
+        /// "Provide `brief` or `needs`.", which is far more use than the raw JSON we
+        /// used to paste into the pane.
+        /// </summary>
+        private static string Explain(HttpStatusCode status, string body)
+        {
+            string detail = null;
+            try
+            {
+                var o = JsonConvert.DeserializeObject<Newtonsoft.Json.Linq.JObject>(body);
+                // `detail` is a string for HTTPException, but an array of field errors
+                // for a validation failure — only the string form is user-facing.
+                if (o?["detail"] is Newtonsoft.Json.Linq.JValue v && v.Type == Newtonsoft.Json.Linq.JTokenType.String)
+                    detail = v.Value as string;
+            }
+            catch { /* not JSON — fall back to the trimmed body */ }
+
+            if (!string.IsNullOrWhiteSpace(detail))
+                return detail.Replace("`", "").Trim();
+
+            return $"Planning backend error (HTTP {(int)status}). {Trim(body)}";
         }
 
         /// <summary>

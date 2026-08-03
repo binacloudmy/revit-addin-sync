@@ -10,8 +10,12 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
+        <!-- Row 0 stacks the subheader and the resume bar; they must never share a
+             cell or they render on top of each other. -->
+        <StackPanel Grid.Row="0">
+
         <!-- Subheader (only with a thread) -->
-        <Border x:Name="SubHeader" Grid.Row="0" BorderBrush="{DynamicResource Cp.LineSoft}" BorderThickness="0,0,0,1"
+        <Border x:Name="SubHeader" BorderBrush="{DynamicResource Cp.LineSoft}" BorderThickness="0,0,0,1"
                 Padding="14,7" Visibility="Collapsed">
             <Grid>
                 <TextBlock x:Name="ConvCount" FontSize="11.5" Foreground="{DynamicResource Cp.Text}" VerticalAlignment="Center"/>
@@ -20,6 +24,96 @@
                         Content="+ New chat"/>
             </Grid>
         </Border>
+
+        <!-- Return to a space plan that is still loaded. Asking any follow-up
+             question routes back to the chat (ChatSend resets Screen to Home), which
+             used to strand the SOA, the schemes and the preview with no way back
+             even though the result was still in memory. -->
+        <Border x:Name="ResumePlanBar" Padding="0"
+                Background="{DynamicResource Cp.PurpleSoft}"
+                BorderBrush="{DynamicResource Cp.PurpleLine}" BorderThickness="0,0,0,1"
+                Visibility="Collapsed">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Resume. MinHeight 36 keeps a comfortable pointer target; the
+                     focus border is transparent until focused so keyboard users get
+                     a visible ring (UX #28) without a permanent outline. -->
+                <Button Grid.Column="0" Cursor="Hand" Command="{Binding ResumePlanningCommand}"
+                        Background="Transparent" BorderThickness="0" MinHeight="36" Padding="12,7"
+                        HorizontalContentAlignment="Stretch"
+                        AutomationProperties.Name="View the space plan that is still open">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                    BorderBrush="Transparent" BorderThickness="1" CornerRadius="4"
+                                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                                <ContentPresenter VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Cp.PurpleDeep}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <!-- Stacked-plates mark: meaning must not ride on colour alone
+                             (UX #37), so the bar carries icon + summary text + "View". -->
+                        <Path Grid.Column="0" Width="13" Height="13" Stretch="Uniform"
+                              Stroke="{DynamicResource Cp.PurpleDeep}" StrokeThickness="1.7"
+                              StrokeLineJoin="Round" VerticalAlignment="Center" Margin="0,0,8,0"
+                              Data="M12,2 l9,5 -9,5 -9,-5 z M3,12 l9,5 9,-5 M3,17 l9,5 9,-5"/>
+                        <TextBlock x:Name="ResumePlanText" Grid.Column="1" FontSize="11.5" FontWeight="Medium"
+                                   Foreground="{DynamicResource Cp.PurpleDeep}" VerticalAlignment="Center"
+                                   TextTrimming="CharacterEllipsis" Margin="0,0,10,0"/>
+                        <TextBlock Grid.Column="2" Text="View" FontSize="11.5" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Cp.PurpleDeep}" VerticalAlignment="Center"/>
+                    </Grid>
+                </Button>
+
+                <!-- Dismiss. The plan is NOT discarded — it stays reachable from
+                     History; this only hides the bar. -->
+                <Button Grid.Column="1" Cursor="Hand" Command="{Binding DismissPlanningBannerCommand}"
+                        Background="Transparent" BorderThickness="0" MinWidth="34" MinHeight="36"
+                        ToolTip="Hide this (the plan stays in History)"
+                        AutomationProperties.Name="Hide the space plan bar">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="db" Background="{TemplateBinding Background}"
+                                    BorderBrush="Transparent" BorderThickness="1" CornerRadius="4">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="db" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                </Trigger>
+                                <Trigger Property="IsKeyboardFocused" Value="True">
+                                    <Setter TargetName="db" Property="BorderBrush" Value="{DynamicResource Cp.PurpleDeep}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <Path Width="10" Height="10" Stretch="Uniform"
+                          Stroke="{DynamicResource Cp.PurpleDeep}" StrokeThickness="1.7"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Data="M6,6 L18,18 M18,6 L6,18"/>
+                </Button>
+            </Grid>
+        </Border>
+
+        </StackPanel>
 
         <ScrollViewer x:Name="Scroller" Grid.Row="1" VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled" ScrollChanged="OnScroll">

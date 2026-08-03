@@ -503,21 +503,13 @@ namespace BinaVibe.Mcp.Tools
                 .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
                 ?? throw new ArgumentException($"level '{levelName}' not found");
 
-            WallType? wallType = null;
-            if (!string.IsNullOrEmpty(typeName))
-            {
-                wallType = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
-                    .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase));
-            }
+            var wallType = ResolveWallType(doc, typeName);
 
             using var tx = new Transaction(doc, "BinaVibe: create_wall");
             TxGuard.StartSwallowing(tx);
             try
             {
-                var line = Line.CreateBound(p1, p2);
-                var wall = wallType != null
-                    ? Wall.Create(doc, line, wallType.Id, level.Id, height, 0, false, false)
-                    : Wall.Create(doc, line, level.Id, false);
+                var wallId = CreateWallCore(doc, p1, p2, level.Id, wallType?.Id, height);
                 // Probe: tx.Commit() triggers the regen. Isolates the regen
                 // cost from the Wall.Create call. Big commit time => (B) regen tax.
                 var _swCommit = System.Diagnostics.Stopwatch.StartNew();
@@ -528,12 +520,39 @@ namespace BinaVibe.Mcp.Tools
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
-                    ["created_id"] = wall.Id.Value,
+                    ["created_id"] = wallId.Value,
                     ["level"] = levelName,
                     ["type_name"] = wallType?.Name ?? "<default>",
                 };
             }
             catch { tx.RollBack(); throw; }
+        }
+
+        /// <summary>Named wall type, or null for "let Revit pick the default".
+        /// Deliberately does NOT throw on a miss — create_wall's historical
+        /// behaviour is to fall back to the default type.</summary>
+        internal static WallType? ResolveWallType(Document doc, string? typeName)
+        {
+            if (string.IsNullOrEmpty(typeName)) return null;
+            return new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
+                .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// TRANSACTION-FREE wall creation — the caller MUST already be inside an
+        /// open Transaction. Split out of CreateWall so multi-element builders
+        /// (place_massing_scheme) can put many elements in ONE transaction / one
+        /// undo step; CreateWall opens its own and cannot be called from inside one.
+        /// Points are in FEET (ArgsHelp.GetPointMm already converted), height in FEET.
+        /// </summary>
+        internal static ElementId CreateWallCore(
+            Document doc, XYZ startFt, XYZ endFt, ElementId levelId, ElementId? wallTypeId, double heightFt)
+        {
+            var line = Line.CreateBound(startFt, endFt);
+            var wall = wallTypeId != null && wallTypeId != ElementId.InvalidElementId
+                ? Wall.Create(doc, line, wallTypeId, levelId, heightFt, 0, false, false)
+                : Wall.Create(doc, line, levelId, false);
+            return wall.Id;
         }
 
         // ─── place_family_instance ──────────────────────────────────────
@@ -992,8 +1011,7 @@ namespace BinaVibe.Mcp.Tools
             TxGuard.StartSwallowing(tx);
             try
             {
-                var level = Level.Create(doc, elevation);
-                level.Name = name;
+                var level = CreateLevelCore(doc, name, elevation);
                 tx.Commit();
                 return new Dictionary<string, object?>
                 {
@@ -1004,6 +1022,48 @@ namespace BinaVibe.Mcp.Tools
                 };
             }
             catch { tx.RollBack(); throw; }
+        }
+
+        /// <summary>
+        /// TRANSACTION-FREE level creation — caller MUST be inside an open
+        /// Transaction. Elevation in FEET.
+        /// </summary>
+        internal static Level CreateLevelCore(Document doc, string name, double elevationFt)
+        {
+            var level = Level.Create(doc, elevationFt);
+            level.Name = name;
+            return level;
+        }
+
+        /// <summary>
+        /// TRANSACTION-FREE resolve-or-create by name — caller MUST be inside an open
+        /// Transaction. Elevation in FEET.
+        ///
+        /// Match order is deliberate: (1) an existing level with this NAME, (2) an
+        /// existing level at this ELEVATION (±1mm), (3) create. Step 2 matters for
+        /// non-destructiveness — a model whose ground floor is called "Level 1"
+        /// would otherwise get a second datum called "Tingkat 1" stacked on it.
+        /// <paramref name="created"/> tells the caller whether the level is new;
+        /// only new ones may be reported as this run's additions.
+        /// </summary>
+        internal static Level ResolveOrCreateLevelCore(
+            Document doc, string name, double elevationFt, out bool created)
+        {
+            var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
+
+            var byName = levels.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (byName != null) { created = false; return byName; }
+
+            const double oneMmInFeet = 1.0 / 304.8;
+            var byElevation = levels.FirstOrDefault(l => Math.Abs(l.Elevation - elevationFt) < oneMmInFeet);
+            if (byElevation != null) { created = false; return byElevation; }
+
+            var level = Level.Create(doc, elevationFt);
+            // A name clash is impossible here (we just checked), but Revit also
+            // rejects reserved/empty names — keep the level rather than fail the build.
+            try { level.Name = name; } catch { /* keep Revit's auto name */ }
+            created = true;
+            return level;
         }
 
         // ─── create_grid ────────────────────────────────────────────────
@@ -1986,43 +2046,446 @@ namespace BinaVibe.Mcp.Tools
             if (points.Count < 3)
                 throw new ArgumentException("boundary must have at least 3 points");
 
-            // Build CurveLoop (close it: last point back to first).
-            var loop = BuildCurveLoop(points);
-
             // Resolve level.
             var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
                 .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
                 ?? throw new ArgumentException($"level '{levelName}' not found");
 
-            // Resolve floor type — named or first available.
-            ElementId floorTypeId;
-            if (!string.IsNullOrEmpty(typeName))
-            {
-                var ft = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()
-                    .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
-                    ?? throw new ArgumentException($"floor type '{typeName}' not found");
-                floorTypeId = ft.Id;
-            }
-            else
-            {
-                var first = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).FirstOrDefault()
-                    ?? throw new InvalidOperationException("no FloorType found in document");
-                floorTypeId = first.Id;
-            }
+            var floorTypeId = ResolveFloorTypeId(doc, typeName);
 
             using var tx = new Transaction(doc, "BinaVibe: create_floor");
             TxGuard.StartSwallowing(tx);
             try
             {
-                // Revit 2022+ API: Floor.Create(doc, IList<CurveLoop>, ElementId typeId, ElementId levelId)
-                var floor = Floor.Create(doc, new List<CurveLoop> { loop }, floorTypeId, level.Id);
+                var floorId = CreateFloorCore(doc, points, level.Id, floorTypeId);
                 tx.Commit();
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
-                    ["floor_id"] = floor.Id.Value,
+                    ["floor_id"] = floorId.Value,
                     ["level"] = levelName,
                     ["type_name"] = typeName ?? "(default)",
+                };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
+        /// <summary>Named floor type, or the first one in the document. Throws when a
+        /// named type is missing (a silent substitution would build the wrong slab).</summary>
+        internal static ElementId ResolveFloorTypeId(Document doc, string? typeName)
+        {
+            if (!string.IsNullOrEmpty(typeName))
+            {
+                var ft = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()
+                    .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"floor type '{typeName}' not found");
+                return ft.Id;
+            }
+            // MUST filter to OST_Floors. FloorType also covers FOUNDATION SLABS
+            // (category Structural Foundations) and slab-edge types, and template
+            // ordering is arbitrary — picking "the first FloorType" silently built
+            // 40 structural foundations instead of floors, which then made the model
+            // read as "0 floors" to every by-category query and schedule while the
+            // slabs sat there visibly in 3D. Prefer a real floor type, and only fall
+            // back to any FloorType if the document genuinely has none.
+            var floorTypes = new FilteredElementCollector(doc).OfClass(typeof(FloorType))
+                .Cast<FloorType>().ToList();
+            var real = floorTypes.FirstOrDefault(
+                t => t.Category != null
+                     && t.Category.Id.Value == (long)BuiltInCategory.OST_Floors);
+            var chosen = real ?? floorTypes.FirstOrDefault()
+                ?? throw new InvalidOperationException("no FloorType found in document");
+            return chosen.Id;
+        }
+
+        /// <summary>
+        /// TRANSACTION-FREE floor creation — the caller MUST already be inside an
+        /// open Transaction (see CreateWallCore for why). Points are in FEET.
+        /// </summary>
+        internal static ElementId CreateFloorCore(
+            Document doc, List<XYZ> pointsFt, ElementId levelId, ElementId floorTypeId)
+        {
+            // Build CurveLoop (close it: last point back to first).
+            var loop = BuildCurveLoop(pointsFt);
+            // Revit 2022+ API: Floor.Create(doc, IList<CurveLoop>, ElementId typeId, ElementId levelId)
+            return Floor.Create(doc, new List<CurveLoop> { loop }, floorTypeId, levelId).Id;
+        }
+
+        // ─── LOD 100 conceptual massing ──────────────────────────────────
+        // At LOD 100 the deliverable is a GENERIC representation of the building
+        // form — not building elements. Placing real Floors would be LOD 200
+        // geometry (specific size/shape/location) wearing an LOD 100 label, so the
+        // massing scheme is built as DirectShape extrusions instead.
+        //
+        // Consequence to be aware of: these are NOT floors, so they never appear in
+        // a floor schedule and Revit will not compute GFA from them. That is correct
+        // for LOD 100 — area at this stage is approximate and derived (the pane's
+        // SOA carries the authoritative figures) — but it does mean the model can't
+        // be used for a floor-area takeoff. See PlaceMassingScheme's result payload.
+
+        /// <summary>
+        /// Category for the conceptual masses. Prefers Mass; falls back to Generic
+        /// Models because DirectShape refuses some categories depending on the
+        /// document/discipline, and a hard failure here would lose the whole scheme.
+        /// </summary>
+        internal static Category ResolveMassCategory(Document doc, bool preferMass = false)
+        {
+            // GENERIC MODELS by default, not Mass — decided by measurement, not taste.
+            //
+            // Mass IS accepted by DirectShape and groups fine. The problem is purely
+            // visibility: Revit's templates ship the Mass category HIDDEN in every
+            // view. A run on 2026-07-30 returned
+            //   revealed_in: ["L1 - Architectural (was hidden)",
+            //                 "Cover Sheet View (was hidden)"]
+            // — i.e. hidden in both views that existed. Un-hiding per view cannot fix
+            // this, because Revit creates views lazily: the default {3D} view did not
+            // exist at build time, was created afterwards from the template, and so
+            // still hid the masses. Any view the user makes later has the same
+            // problem, forever.
+            //
+            // Generic Models is visible by default in every view, including views that
+            // don't exist yet, and is still a "generic representation" — exactly the
+            // wording LOD 100 asks for. The LOD is carried by the stamped Comments,
+            // not by the category name. Pass prefer_mass=true to force Mass.
+            foreach (var bic in preferMass
+                ? new[] { BuiltInCategory.OST_Mass, BuiltInCategory.OST_GenericModel }
+                : new[] { BuiltInCategory.OST_GenericModel, BuiltInCategory.OST_Mass })
+            {
+                Category cat;
+                try { cat = Category.GetCategory(doc, bic); }
+                catch { continue; }
+                if (cat?.Id == null) continue;
+                try { if (DirectShape.IsValidCategoryId(cat.Id, doc)) return cat; }
+                catch { /* try the next one */ }
+            }
+            throw new InvalidOperationException(
+                "no DirectShape-capable category available for conceptual massing (tried Mass, Generic Models)");
+        }
+
+        /// <summary>
+        /// TRANSACTION-FREE conceptual mass — the caller MUST already be inside an
+        /// open Transaction. Boundary points are in FEET at any Z (Z is ignored); the
+        /// solid is extruded upward from <paramref name="baseZFt"/>.
+        /// </summary>
+        internal static ElementId CreateMassCore(
+            Document doc, List<XYZ> pointsFt, double baseZFt, double heightFt,
+            ElementId categoryId, string label, string comments)
+        {
+            if (heightFt <= 1e-6)
+                throw new ArgumentException("mass height must be greater than zero");
+
+            // Flatten to the base plane first: an extrusion loop must be planar, and
+            // the incoming points may carry stray Z from the caller.
+            var flat = pointsFt.Select(p => new XYZ(p.X, p.Y, baseZFt)).ToList();
+            var loop = BuildCurveLoop(flat);
+
+            var solid = GeometryCreationUtilities.CreateExtrusionGeometry(
+                new List<CurveLoop> { loop }, XYZ.BasisZ, heightFt);
+
+            var ds = DirectShape.CreateElement(doc, categoryId);
+            ds.SetShape(new List<GeometryObject> { solid });
+
+            // Name is rejected for some characters/duplicates — the label also goes
+            // into Comments, so losing it here is cosmetic, not data loss.
+            if (!string.IsNullOrWhiteSpace(label))
+                try { ds.Name = label; } catch { /* keep Revit's default */ }
+
+            if (!string.IsNullOrWhiteSpace(comments))
+                try
+                {
+                    ds.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)?.Set(comments);
+                }
+                catch { /* parameter read-only in this template */ }
+
+            return ds.Id;
+        }
+
+        // ─── place_massing_scheme ────────────────────────────────────────
+        /// <summary>
+        /// args: {
+        ///   option_name: string,
+        ///   levels: [{ name, elevation_mm, level? }],
+        ///   rooms:  [{ label, type, boundary_mm:[[x,y],...], level, height_mm? }],
+        ///   make_walls?: bool, floor_type_name?: string, wall_type_name?: string
+        /// }
+        /// All lengths in MILLIMETRES (the pane's args-builder does the one and only
+        /// metres→mm multiply — see UI/Copilot/Model/MassingPlan.cs).
+        ///
+        /// Places a space-planning scheme as a NAMED MODEL GROUP: one floor slab per
+        /// room (plus optional perimeter walls), everything in ONE Transaction so the
+        /// whole scheme is a single undo step, and the floors/walls collected into
+        /// doc.Create.NewGroup so the drafter can remove the entire proposal in one
+        /// action.
+        ///
+        /// WHY A GROUP AND NOT A DESIGN OPTION: the Revit API exposes Design Options
+        /// read-only in every target year (2023/2025/2027) — there is no
+        /// DesignOption.Create / DesignOptionSet.Create / activate setter, which is
+        /// also why Inspectors.ListDesignOptions is read-only. The arg and result
+        /// field stay named `option_name` so the contract survives if a future Revit
+        /// ever exposes the write API.
+        ///
+        /// Rooms of type "padang" are skipped (site area, not floor area — a slab
+        /// there would both misstate GFA and drop a plate on the field).
+        ///
+        /// Levels are resolved-or-created by name, but are NEVER group members:
+        /// Revit refuses to group datum elements, and a grouped pre-existing level
+        /// would be deleted with the group. Newly created levels therefore survive
+        /// a group delete and are reported separately in `created_levels`.
+        ///
+        /// Returns {ok, option_name, group_id, floor_count, wall_count, level_count,
+        ///          created_levels, skipped_count}.
+        /// </summary>
+        public static Dictionary<string, object?> PlaceMassingScheme(Document doc, JsonElement args)
+        {
+            var optionName = ArgsHelp.GetString(args, "option_name") ?? "Massing Scheme";
+            bool makeWalls = ArgsHelp.GetBool(args, "make_walls") ?? false;
+
+            // ── Parse the level specs (name + elevation + which scheme level it is).
+            var levelSpecs = new List<(int level, string name, double elevationFt)>();
+            if (args.ValueKind == JsonValueKind.Object &&
+                args.TryGetProperty("levels", out var levelsEl) && levelsEl.ValueKind == JsonValueKind.Array)
+            {
+                int position = 0;
+                foreach (var el in levelsEl.EnumerateArray())
+                {
+                    if (el.ValueKind != JsonValueKind.Object) continue;
+                    position++;
+                    var name = ArgsHelp.GetString(el, "name") ?? $"Tingkat {position}";
+                    var elevationFt = ArgsHelp.GetLengthMm(el, "elevation_mm") ?? 0.0;
+                    // `level` is the scheme's own 1|2 index. Fall back to array
+                    // position so an older/hand-written payload still maps.
+                    var index = (int)(ArgsHelp.GetLong(el, "level") ?? position);
+                    levelSpecs.Add((index, name, elevationFt));
+                }
+            }
+
+            // ── Parse the rooms.
+            var rooms = new List<(string label, string type, List<XYZ> boundaryFt, int level, double heightFt)>();
+            if (args.ValueKind == JsonValueKind.Object &&
+                args.TryGetProperty("rooms", out var roomsEl) && roomsEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var el in roomsEl.EnumerateArray())
+                {
+                    if (el.ValueKind != JsonValueKind.Object) continue;
+                    var boundary = ArgsHelp.GetPointListMm(el, "boundary_mm");
+                    if (boundary.Count < 3) continue;   // not a slab — ignore silently
+                    rooms.Add((
+                        ArgsHelp.GetString(el, "label") ?? "",
+                        ArgsHelp.GetString(el, "type") ?? "",
+                        boundary,
+                        (int)(ArgsHelp.GetLong(el, "level") ?? 1),
+                        ArgsHelp.GetLengthMm(el, "height_mm") ?? (3000.0 / 304.8)));
+                }
+            }
+            if (rooms.Count == 0)
+                throw new ArgumentException("rooms must contain at least one room with a boundary_mm of 3+ points");
+
+            // Floor-to-floor height for the extrusions: masses stack flush so the
+            // scheme reads as a building rather than as floating trays. Falls back to
+            // the per-room height, then the 4 m storey rule the pane's builder uses.
+            var storeyHeightFt = ArgsHelp.GetLengthMm(args, "storey_height_mm")
+                ?? rooms.Max(r => r.heightFt);
+            if (storeyHeightFt <= 1e-6) storeyHeightFt = 4000.0 / 304.8;
+
+            var massCategory = ResolveMassCategory(
+                doc, ArgsHelp.GetBool(args, "prefer_mass") ?? false);
+            var wallType = makeWalls ? ResolveWallType(doc, ArgsHelp.GetString(args, "wall_type_name")) : null;
+            var lod = ArgsHelp.GetString(args, "lod") ?? "LOD 100";
+
+            // Group type names in use BEFORE we add ours — the uniqueness counter
+            // below reads this set (Revit throws on a duplicate GroupType name).
+            var takenGroupNames = new FilteredElementCollector(doc)
+                .OfClass(typeof(GroupType))
+                .Select(gt => gt.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            // ── Where to put this scheme ────────────────────────────────────
+            // The backend always emits coordinates from the same origin (rooms start
+            // at x=6m, y=6m in EVERY response), so two Builds land exactly on top of
+            // each other. That matters because the generator caps out around
+            // 3,530 m2: a programme larger than that can only be modelled by
+            // splitting it into several briefs — and stacking them is useless.
+            //
+            // offset_x_mm / offset_y_mm place a scheme explicitly. auto_offset steps
+            // each subsequent scheme clear of the last by its own width plus a gap,
+            // so repeated Builds line up side by side instead of overlapping.
+            double offsetXFt = ArgsHelp.GetLengthMm(args, "offset_x_mm") ?? 0.0;
+            double offsetYFt = ArgsHelp.GetLengthMm(args, "offset_y_mm") ?? 0.0;
+
+            if ((ArgsHelp.GetBool(args, "auto_offset") ?? false) && offsetXFt == 0.0)
+            {
+                int placed = takenGroupNames.Count(n =>
+                    n != null && n.StartsWith("Massing", StringComparison.OrdinalIgnoreCase));
+                if (placed > 0)
+                {
+                    double maxX = 0, minX = double.MaxValue;
+                    foreach (var r in rooms)
+                        foreach (var p in r.boundaryFt)
+                        { if (p.X > maxX) maxX = p.X; if (p.X < minX) minX = p.X; }
+                    double widthFt = maxX > minX ? maxX - minX : 0;
+                    const double gapFt = 12000.0 / 304.8;   // 12 m between blocks
+                    offsetXFt = placed * (widthFt + gapFt);
+                }
+            }
+
+            if (offsetXFt != 0.0 || offsetYFt != 0.0)
+            {
+                var shift = new XYZ(offsetXFt, offsetYFt, 0);
+                for (int i = 0; i < rooms.Count; i++)
+                {
+                    var moved = rooms[i].boundaryFt.Select(p => p + shift).ToList();
+                    rooms[i] = (rooms[i].label, rooms[i].type, moved, rooms[i].level, rooms[i].heightFt);
+                }
+            }
+
+            using var tx = new Transaction(doc, $"BINA: place massing scheme ({optionName})");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                // 1 ─ Levels: resolve-or-create, keyed by the scheme's level index.
+                var levelIds = new Dictionary<int, ElementId>();
+                var createdLevels = new List<string>();
+                foreach (var spec in levelSpecs)
+                {
+                    if (levelIds.ContainsKey(spec.level)) continue;
+                    var level = ResolveOrCreateLevelCore(doc, spec.name, spec.elevationFt, out var created);
+                    levelIds[spec.level] = level.Id;
+                    if (created) createdLevels.Add(level.Name);
+                }
+
+                // 2 ─ One conceptual mass per room (+ optional perimeter walls).
+                var groupMembers = new List<ElementId>();
+                int massCount = 0, wallCount = 0, skipped = 0;
+
+                foreach (var room in rooms)
+                {
+                    if (string.Equals(room.type, "padang", StringComparison.OrdinalIgnoreCase))
+                    {
+                        skipped++;   // site-only, no slab (v1)
+                        continue;
+                    }
+
+                    // A room on a level the payload never declared: create it from
+                    // the same 4m storey rule the pane's builder uses, so a partial
+                    // payload still lands somewhere sane instead of throwing.
+                    if (!levelIds.TryGetValue(room.level, out var levelId))
+                    {
+                        var fallback = ResolveOrCreateLevelCore(
+                            doc, $"Tingkat {room.level}", (room.level - 1) * 4000.0 / 304.8, out var created);
+                        levelId = fallback.Id;
+                        levelIds[room.level] = levelId;
+                        if (created) createdLevels.Add(fallback.Name);
+                    }
+
+                    // Extrude from the resolved level's ACTUAL elevation, not the
+                    // payload's — a reused datum (an existing "L1" at 0) is the real
+                    // base, and mixing the two would float the masses off the level.
+                    var baseZFt = (doc.GetElement(levelId) as Level)?.Elevation ?? 0.0;
+                    var comments = string.Join(" · ", new[]
+                    {
+                        lod,
+                        string.IsNullOrWhiteSpace(room.type) ? null : room.type,
+                        string.IsNullOrWhiteSpace(room.label) ? null : room.label,
+                        optionName,
+                    }.Where(s => !string.IsNullOrWhiteSpace(s)));
+
+                    var massId = CreateMassCore(
+                        doc, room.boundaryFt, baseZFt, storeyHeightFt,
+                        massCategory.Id, room.label, comments);
+                    groupMembers.Add(massId);
+                    massCount++;
+
+                    if (!makeWalls) continue;
+                    for (int i = 0; i < room.boundaryFt.Count; i++)
+                    {
+                        var a = room.boundaryFt[i];
+                        var b = room.boundaryFt[(i + 1) % room.boundaryFt.Count];
+                        if (a.DistanceTo(b) < 1e-6) continue;   // skip a duplicated closing point
+                        var wallId = CreateWallCore(doc, a, b, levelId, wallType?.Id, room.heightFt);
+                        groupMembers.Add(wallId);
+                        wallCount++;
+                    }
+                }
+
+                if (groupMembers.Count == 0)
+                    throw new InvalidOperationException(
+                        "nothing to place — every room was site-only (padang) or had an invalid boundary");
+
+                // 3 ─ Make the masses VISIBLE.
+                // Revit hides the Mass category by default ("Show Mass" off), so a
+                // perfectly successful placement renders as an empty view — and
+                // because TxGuard swallows warnings, the notice Revit would normally
+                // raise never reaches the user either. Unhide the category in the
+                // active view and in every 3D view, so the result is visible where
+                // the user actually is and where they'd go to look at massing.
+                var revealedIn = new List<string>();
+                var viewsToReveal = new List<View>();
+                try { if (doc.ActiveView != null) viewsToReveal.Add(doc.ActiveView); } catch { }
+                try
+                {
+                    viewsToReveal.AddRange(new FilteredElementCollector(doc)
+                        .OfClass(typeof(View3D)).Cast<View3D>().Where(v => !v.IsTemplate));
+                }
+                catch { /* no 3D views in this template */ }
+
+                foreach (var view in viewsToReveal)
+                {
+                    try
+                    {
+                        if (!view.CanCategoryBeHidden(massCategory.Id)) continue;
+                        // Record the state BEFORE touching it, and set it
+                        // unconditionally. The previous version skipped when V/G
+                        // reported "not hidden" — which is exactly what V/G reports
+                        // for Mass while the global Show Mass mode keeps it invisible,
+                        // so the fix silently did nothing and reported nothing.
+                        bool wasHidden = view.GetCategoryHidden(massCategory.Id);
+                        view.SetCategoryHidden(massCategory.Id, false);
+                        revealedIn.Add($"{view.Name} (was {(wasHidden ? "hidden" : "visible")})");
+                    }
+                    catch (Exception ex)
+                    {
+                        revealedIn.Add($"{view.Name} (FAILED: {ex.GetType().Name})");
+                    }
+                }
+
+                // 4 ─ One named Model Group holding the whole scheme.
+                var group = doc.Create.NewGroup(groupMembers);
+                var uniqueName = optionName;
+                for (int n = 2; takenGroupNames.Contains(uniqueName); n++)
+                    uniqueName = $"{optionName} ({n})";
+                try { group.GroupType.Name = uniqueName; }
+                catch { uniqueName = group.GroupType.Name; }   // keep Revit's auto name
+
+                tx.Commit();
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["option_name"] = uniqueName,
+                    ["group_id"] = group.Id.Value,
+                    ["mass_count"] = massCount,
+                    // Kept so an older caller reading floor_count still sees the
+                    // element count rather than silently reading 0.
+                    ["floor_count"] = massCount,
+                    ["wall_count"] = wallCount,
+                    ["level_count"] = levelIds.Count,
+                    ["created_levels"] = createdLevels,
+                    ["skipped_count"] = skipped,
+                    ["storey_height_mm"] = storeyHeightFt * 304.8,
+                    // Where this scheme actually landed. Non-zero means it was moved
+                    // clear of an earlier one — say so, or the user measures from the
+                    // wrong origin and thinks the units are wrong.
+                    ["offset_x_mm"] = offsetXFt * 304.8,
+                    ["offset_y_mm"] = offsetYFt * 304.8,
+                    ["lod"] = lod,
+                    // Which views had the Mass category unhidden. Empty means it was
+                    // already visible everywhere we looked — NOT that nothing showed.
+                    ["revealed_in"] = revealedIn,
+                    // Report the category actually used, always. Placing 40 foundation
+                    // slabs instead of 40 floors once looked identical to success from
+                    // the pane — it took a journal plus a by-category query to notice.
+                    // Naming the category in the payload makes that visible up front,
+                    // and it also tells the user these are masses, not floors.
+                    ["category"] = massCategory.Name,
                 };
             }
             catch { tx.RollBack(); throw; }

@@ -325,8 +325,23 @@ namespace RevitWebAppSync.Services
                 // calls up to the pane for the Ya/Tidak card. The pane re-enters
                 // via ResumeWithConfirmationAsync. (Skipped exactly once when
                 // re-entering with an already-approved batch.)
+                // Trace what the backend actually handed us. A parked or rejected
+                // batch never reaches ToolRegistry.Invoke, so without this line the
+                // symptom is indistinguishable from "Revit never responded".
+                var traced = new System.Text.StringBuilder();
+                foreach (var c in turn.Pending)
+                {
+                    if (traced.Length > 0) traced.Append(", ");
+                    traced.Append(c?.Tool).Append("(mutate=").Append(c?.Mutate).Append(')');
+                }
+                BinaVibe.Mcp.Tools.McpCallLog.Note(
+                    $"turn status={turn.Status} run={turn.RunId} pending={turn.Pending.Count} [{traced}]");
+
                 if (!approvedOnce && ConfirmGate.RequiresConfirmation(turn.Pending))
                 {
+                    BinaVibe.Mcp.Tools.McpCallLog.Note(
+                        "PARKED awaiting user confirmation — nothing executed; "
+                        + "typing another message auto-rejects this batch");
                     outcome.AwaitingConfirmation = true;
                     outcome.RunId = turn.RunId;
                     outcome.SessionId = string.IsNullOrEmpty(turn.SessionId) ? sessionFallback : turn.SessionId;
@@ -430,17 +445,49 @@ namespace RevitWebAppSync.Services
             };
             McpJobPump.Enqueue(job);   // sets TEnqueued, queues, kicks, arms the watchdog
 
-            // Await completion with a bounded execution timeout. Task.WhenAny +
-            // Task.Delay (not Task.WaitAsync) so this compiles on .NET Framework
-            // Revit targets too.
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            var delay = Task.Delay(JobMaxWait, timeoutCts.Token);
-            var winner = await Task.WhenAny(job.Done.Task, delay).ConfigureAwait(false);
-            timeoutCts.Cancel();                       // stop the delay if the job won
-            try { await delay.ConfigureAwait(false); } catch { /* observe the cancelled delay */ }
-
-            if (winner != job.Done.Task)
+            // Await completion with a bounded EXECUTION timeout.
+            //
+            // The budget is only spent while the job can actually make progress.
+            // Revit raises Idling — and therefore drains this queue — only while it
+            // is the foreground window, so a user who asks a question and switches
+            // to another app leaves the job parked through no fault of its own.
+            // Charging that wait against JobMaxWait failed healthy work: measured
+            // 2026-07-31, a bounding-box query died at 49.3s purely because the user
+            // was reading the answer in another window. JobMaxWait is the ceiling
+            // for a tool that is RUNNING (its own comment says so), not for one
+            // waiting its turn.
+            //
+            // The overall wall-clock is still bounded: McpJobPump's background grace
+            // fails the job itself once Revit has been away too long, which
+            // completes job.Done and ends this loop.
+            var budget = TimeSpan.Zero;
+            var slice = TimeSpan.FromMilliseconds(500);
+            bool timedOut = false;
+            while (true)
             {
+                using var sliceCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var delay = Task.Delay(slice, sliceCts.Token);
+                var winner = await Task.WhenAny(job.Done.Task, delay).ConfigureAwait(false);
+                sliceCts.Cancel();
+                try { await delay.ConfigureAwait(false); } catch { /* observe the cancelled delay */ }
+
+                if (winner == job.Done.Task) break;
+                if (ct.IsCancellationRequested) break;
+
+                // Spend budget only when the job has actually started, or when Revit
+                // is focused and simply slow. A backgrounded, not-yet-started job
+                // accrues nothing.
+                if (job.TStarted > 0 || BinaVibe.Mcp.McpJobPump.IsRevitForeground())
+                    budget += slice;
+
+                if (budget >= JobMaxWait) { timedOut = true; break; }
+            }
+
+            if (timedOut || !job.Done.Task.IsCompleted)
+            {
+                BinaVibe.Mcp.Tools.McpCallLog.Note(
+                    $"TIMEOUT {call.Tool} after {JobMaxWait.TotalSeconds:F0}s — job enqueued but never drained "
+                    + $"(cancelled={ct.IsCancellationRequested})");
                 // Timed out or the user hit Stop. Mark abandoned so a late drain
                 // skips it and can't jam later turns.
                 job.Abandoned = true;
@@ -449,7 +496,13 @@ namespace RevitWebAppSync.Services
                 return new ToolResultDto
                 {
                     ToolCallId = call.ToolCallId, Ok = false,
-                    Error = $"Revit did not finish {call.Tool} within {JobMaxWait.TotalSeconds:F0}s — it may be busy or have a dialog open.",
+                    // Name the likeliest cause FIRST. Revit only services the queue
+                    // while it is the foreground window, so "switched to another
+                    // app" is far more common than "busy" — and the old wording sent
+                    // people hunting for a heavy operation that was never running.
+                    Error = $"Revit did not run {call.Tool} within {JobMaxWait.TotalSeconds:F0}s. "
+                          + "Revit only processes add-in work while it is the active window — "
+                          + "click into Revit and ask again. (It may also be mid-operation or showing a dialog.)",
                 };
             }
 

@@ -169,6 +169,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private void OnVmProp(object s, System.ComponentModel.PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(CopilotViewModel.IsSending)) UpdateUsage();
+            // The bar has to react to the plan arriving, the screen changing and the
+            // user dismissing it — Rebuild() only runs when the thread changes.
+            else if (e.PropertyName == nameof(CopilotViewModel.CanResumePlanning)
+                  || e.PropertyName == nameof(CopilotViewModel.PlanningResumeSummary))
+                UpdateResumePlanBar();
         }
 
         /// <summary>Drives BOTH usage surfaces in the bottom band from one snapshot:
@@ -292,11 +297,26 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         private int _lastMsgCount;
 
+        /// <summary>
+        /// Show/hide the "space plan ready" bar. Shown whenever a plan is loaded and
+        /// we are not looking at it: asking a follow-up question resets the screen to
+        /// Home, which otherwise strands a completed plan with no way back.
+        /// </summary>
+        private void UpdateResumePlanBar()
+        {
+            if (ResumePlanBar == null) return;
+            var vm = Vm;
+            bool show = vm != null && vm.CanResumePlanning;
+            ResumePlanBar.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            if (show) ResumePlanText.Text = vm.PlanningResumeSummary;
+        }
+
         private void Rebuild()
         {
             if (Vm == null || BodyHost == null) return;
             bool empty = Vm.Thread.Count == 0;
             SubHeader.Visibility = empty ? Visibility.Collapsed : Visibility.Visible;
+            UpdateResumePlanBar();
             BodyHost.Children.Clear();
 
             // A message was appended (vs. resize/re-hook rebuilds): the new row

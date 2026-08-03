@@ -4,7 +4,9 @@ using System.Collections.Generic;
 namespace RevitWebAppSync.UI.Copilot.Model
 {
     // ─── Enums (mirror the prototype state machine) ──────────────────────────
-    public enum CpScreen { Home, ToolForm, ToolReview, Running, Result }
+    // Planning = the massing / space-planning screen (SOA + scheme schemes +
+    // floor-plan preview). Reached from the /massing slash command via Running.
+    public enum CpScreen { Home, ToolForm, ToolReview, Running, Result, Planning }
     public enum CpTab { Chat, Library, History, Saved }
     public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, AiReply, ConfirmActions }
     // AiReply = plain-text AI response (no card, no Save/Copy/Undo). Used

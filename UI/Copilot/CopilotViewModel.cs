@@ -69,6 +69,26 @@ namespace RevitWebAppSync.UI.Copilot
             ChatRunCommand = new RelayCommand(p => ChatRun(p as ChatMessage));
             ChatRegenerateCommand = new RelayCommand(p => ChatRegenerate(p as ChatMessage));
             ChatOpenEditorCommand = new RelayCommand(p => OpenTool((p as ChatMessage)?.ToolId));
+            // Massing: card click selects (redraws the canvas), the segmented
+            // control switches the drawn level, Build writes to the model.
+            SelectSchemeCommand = new RelayCommand(p => { if (p is MassingScheme s) SelectedScheme = s; });
+            SelectLevelCommand = new RelayCommand(p =>
+            {
+                if (p is int n) SelectedLevel = n;
+                else if (int.TryParse(p as string, out var parsed)) SelectedLevel = parsed;
+            });
+            BuildMassingCommand = new RelayCommand(_ => _ = BuildMassingAsync());
+            ResumePlanningCommand = new RelayCommand(_ =>
+            {
+                if ((Planning?.Schemes?.Count ?? 0) == 0) return;
+                Prev = CpScreen.Home;      // back from the plan returns to the chat
+                Screen = CpScreen.Planning;
+            });
+            DismissPlanningBannerCommand = new RelayCommand(_ =>
+            {
+                _planBannerDismissed = true;
+                Raise(nameof(CanResumePlanning));
+            });
         }
 
         // ─── Injected context ────────────────────────────────────────────────
@@ -89,7 +109,13 @@ namespace RevitWebAppSync.UI.Copilot
         public CpScreen Screen
         {
             get => _screen;
-            set { if (_screen == value) return; _screen = value; Raise(); Raise(nameof(IsSubScreen)); Raise(nameof(ShowBreadcrumb)); }
+            set
+            {
+                if (_screen == value) return;
+                _screen = value; Raise(); Raise(nameof(IsSubScreen)); Raise(nameof(ShowBreadcrumb));
+                // The resume bar hides itself while the plan is on screen.
+                Raise(nameof(CanResumePlanning));
+            }
         }
 
         private CpTab _tab = CpTab.Chat;
@@ -398,7 +424,8 @@ namespace RevitWebAppSync.UI.Copilot
         // ─── Derived ─────────────────────────────────────────────────────────
         public bool IsSubScreen =>
             Screen == CpScreen.ToolForm || Screen == CpScreen.ToolReview ||
-            Screen == CpScreen.Running || Screen == CpScreen.Result;
+            Screen == CpScreen.Running || Screen == CpScreen.Result ||
+            Screen == CpScreen.Planning;
 
         public bool ShowBreadcrumb => Screen == CpScreen.ToolForm || Screen == CpScreen.ToolReview;
 
@@ -469,6 +496,371 @@ namespace RevitWebAppSync.UI.Copilot
         public RelayCommand ChatRunCommand { get; }
         public RelayCommand ChatRegenerateCommand { get; }
         public RelayCommand ChatOpenEditorCommand { get; }
+
+        // ══════════ Massing / space planning (/massing) ══════════
+        //
+        // Flow: slash submit → Running → POST /planning/suggest → Planning screen.
+        // The pane draws the returned schemes as pixels; the ONLY write to the
+        // Revit document is BuildMassingAsync (place_massing_scheme).
+
+        private SuggestResult _planning;
+        /// <summary>The last /planning/suggest response driving the Planning screen.</summary>
+        public SuggestResult Planning
+        {
+            get => _planning;
+            private set
+            {
+                _planning = value; Raise();
+                Raise(nameof(PlanningSchemes)); Raise(nameof(PlanningRejected));
+                Raise(nameof(PlanningSoa)); Raise(nameof(HasRejected));
+                // A new plan un-dismisses the resume bar: the user dismissed the
+                // PREVIOUS result, not this one.
+                _planBannerDismissed = false;
+                Raise(nameof(CanResumePlanning)); Raise(nameof(PlanningResumeSummary));
+            }
+        }
+
+        // ── Resuming a stranded plan ─────────────────────────────────────────
+        // ChatSend resets Screen to Home for every message, so asking any follow-up
+        // question navigates away from the Planning screen. The result is still held
+        // right here in the view-model, but before this there was no route back to it
+        // — the SOA, the schemes and the preview were simply gone. (UX rule #4:
+        // back navigation must be predictable; losing a completed task is not.)
+        private bool _planBannerDismissed;
+
+        /// <summary>Show the "space plan ready" bar: a plan exists, we are not already
+        /// looking at it, and the user has not dismissed it.</summary>
+        public bool CanResumePlanning =>
+            !_planBannerDismissed
+            && Screen != CpScreen.Planning
+            && (Planning?.Schemes?.Count ?? 0) > 0;
+
+        /// <summary>Bar text. Carries the numbers so it is meaningful on its own —
+        /// it must not rely on the accent colour to say "there is something here".</summary>
+        public string PlanningResumeSummary
+        {
+            get
+            {
+                var n = Planning?.Schemes?.Count ?? 0;
+                if (n == 0) return null;
+                var target = Planning?.Soa?.TotalGfaM2 ?? 0;
+                var plural = n == 1 ? "scheme" : "schemes";
+                return target > 0
+                    ? $"Space plan ready — {n} {plural} · {target:N0} m² target"
+                    : $"Space plan ready — {n} {plural}";
+            }
+        }
+
+        public List<MassingScheme> PlanningSchemes => _planning?.Schemes ?? new List<MassingScheme>();
+        public List<RejectedScheme> PlanningRejected => _planning?.Rejected ?? new List<RejectedScheme>();
+        public Soa PlanningSoa => _planning?.Soa;
+        public bool HasRejected => PlanningRejected.Count > 0;
+
+        private MassingScheme _selectedScheme;
+        /// <summary>The scheme the preview canvas draws and Build would place.</summary>
+        public MassingScheme SelectedScheme
+        {
+            get => _selectedScheme;
+            set
+            {
+                if (ReferenceEquals(_selectedScheme, value)) return;
+                _selectedScheme = value;
+                Raise(); Raise(nameof(CanBuildMassing)); Raise(nameof(SelectedSchemeLevels));
+                // A 2-storey scheme followed by a 1-storey one must not leave the
+                // toggle pointing at a level the new scheme doesn't have.
+                var levels = SelectedSchemeLevels;
+                if (levels.Count > 0 && !levels.Contains(SelectedLevel)) SelectedLevel = levels[0];
+            }
+        }
+
+        public List<int> SelectedSchemeLevels => _selectedScheme?.Levels() ?? new List<int>();
+
+        private int _selectedLevel = 1;
+        /// <summary>Which storey the preview draws (the L1/L2 toggle).</summary>
+        public int SelectedLevel
+        {
+            get => _selectedLevel;
+            set { if (_selectedLevel == value) return; _selectedLevel = value; Raise(); }
+        }
+
+        private bool _isBuildingMassing;
+        public bool IsBuildingMassing
+        {
+            get => _isBuildingMassing;
+            private set { _isBuildingMassing = value; Raise(); Raise(nameof(CanBuildMassing)); }
+        }
+
+        public bool CanBuildMassing => _selectedScheme != null && !_isBuildingMassing;
+
+        /// <summary>The brief that produced the current Planning result — echoed in
+        /// the screen header so the user can see what was interpreted.</summary>
+        public string PlanningBrief { get; private set; }
+
+        public RelayCommand SelectSchemeCommand { get; }
+        public RelayCommand SelectLevelCommand { get; }
+        public RelayCommand BuildMassingCommand { get; }
+
+        /// <summary>Return to a space plan that is still loaded.</summary>
+        public RelayCommand ResumePlanningCommand { get; }
+
+        /// <summary>Hide the resume bar without discarding the plan — a persistent bar
+        /// the user cannot get rid of is its own problem.</summary>
+        public RelayCommand DismissPlanningBannerCommand { get; }
+
+        // ── Running-screen copy for flows with no CopilotCatalog ToolDef ──────
+        // RunningView falls back to these when CurrentTool is null.
+        public string RunningTitle { get; private set; }
+        public string RunningGlyph { get; private set; }
+        public string RunningInfo { get; private set; }
+        public string[] RunningSteps { get; private set; }
+
+        private void SetRunningCopy(string title, string glyph, string info, string[] steps)
+        {
+            RunningTitle = title; RunningGlyph = glyph; RunningInfo = info; RunningSteps = steps;
+            Raise(nameof(RunningTitle)); Raise(nameof(RunningGlyph));
+            Raise(nameof(RunningInfo)); Raise(nameof(RunningSteps));
+        }
+
+        /// <summary>
+        /// /massing &lt;brief&gt; — ask the backend for a Schedule of Accommodation and
+        /// candidate block schemes, then show the Planning screen.
+        ///
+        /// Never throws: SuggestPlanningAsync returns a typed soft failure, and a
+        /// backend outage lands back on Home with the reason in the thread
+        /// (acceptance criterion 3).
+        /// </summary>
+        public async Task BeginPlanningAsync(string brief)
+        {
+            PlanningBrief = brief;
+            Raise(nameof(PlanningBrief));
+            LastPrompt = brief;
+            Prev = CpScreen.Home;
+            SetRunningCopy(
+                "Massing / Space Planning", "layers",
+                "Reading the brief against JKR/KPM modules and UBBL — nothing is written to your model yet.",
+                new[]
+                {
+                    "Parsing the building brief",
+                    "Deriving the Schedule of Accommodation",
+                    "Checking sanitary provision (UBBL)",
+                    "Generating block schemes",
+                    "Scoring against target GFA",
+                });
+            Screen = CpScreen.Running;
+            _runClock = System.Diagnostics.Stopwatch.StartNew();
+
+            // Cancel replaces any in-flight suggest — without this, hitting Cancel
+            // returned to Home and then the late response yanked the user onto the
+            // Planning screen anyway.
+            _planningCts?.Cancel();
+            var cts = _planningCts = new System.Threading.CancellationTokenSource();
+
+            var cfg = BinaConfig.Load();
+            SuggestResult result;
+            try
+            {
+                result = await new AIService().SuggestPlanningAsync(
+                    brief, cfg?.UserId, cfg?.AccessToken, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                // Defence in depth — SuggestPlanningAsync already soft-fails.
+                result = SuggestResult.Fail(ex.Message);
+            }
+
+            StopRunClock();
+            if (cts.IsCancellationRequested) return;   // user cancelled — stay put
+
+            if (result == null || !result.Success || result.Soa == null)
+            {
+                Screen = CpScreen.Home;
+                AddAi(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = "Couldn't build the space plan — " +
+                           (string.IsNullOrWhiteSpace(result?.Error) ? "the planning service didn't respond." : result.Error),
+                    Time = DateTime.Now.ToString("h:mm tt"),
+                });
+                return;
+            }
+
+            Planning = result;
+            // Default to the first PASSING scheme; fall back to the first scheme so
+            // a result where nothing meets GFA still previews something.
+            SelectedScheme = result.Schemes.FirstOrDefault(s => s.MeetsGfa) ?? result.Schemes.FirstOrDefault();
+            var levels = SelectedSchemeLevels;
+            SelectedLevel = levels.Contains(1) ? 1 : (levels.Count > 0 ? levels[0] : 1);
+            Screen = CpScreen.Planning;
+
+            AppendToCurrentSession(
+                brief,
+                $"{result.Schemes.Count} scheme(s) proposed · target {result.Soa.TotalGfaM2:N0} m² GFA",
+                "ok", new List<string> { MassingToolId });
+        }
+
+        /// <summary>
+        /// Drop a ready-made result straight onto the Planning screen, no backend
+        /// call. For the UiHarness preview (and any future screenshot test) so the
+        /// whole screen can be built and iterated before /planning/suggest is live —
+        /// same reason UsageService is overridable for a stub.
+        /// </summary>
+        public void ShowPlanningPreview(SuggestResult result, string brief = null)
+        {
+            if (result == null) return;
+            PlanningBrief = brief;
+            Raise(nameof(PlanningBrief));
+            Planning = result;
+            SelectedScheme = result.Schemes.FirstOrDefault(s => s.MeetsGfa) ?? result.Schemes.FirstOrDefault();
+            var levels = SelectedSchemeLevels;
+            SelectedLevel = levels.Contains(1) ? 1 : (levels.Count > 0 ? levels[0] : 1);
+            Screen = CpScreen.Planning;
+        }
+
+        /// <summary>
+        /// Build — place the selected scheme into the model. Runs the geometry on
+        /// Revit's main thread through the MCP job pump (never from this async
+        /// continuation) and lands on the standard Result card.
+        /// </summary>
+        public async Task BuildMassingAsync()
+        {
+            var scheme = SelectedScheme;
+            if (scheme == null || IsBuildingMassing) return;
+
+            IsBuildingMassing = true;
+            var optionName = MassingArgs.OptionName(scheme);
+            SetRunningCopy(
+                "Placing massing scheme", "layers",
+                "One transaction, one undo step. Everything lands in a named Model Group you can delete in one action.",
+                new[]
+                {
+                    "Resolving levels",
+                    "Creating conceptual masses",
+                    "Grouping the scheme",
+                    "Committing the transaction",
+                });
+            Prev = CpScreen.Planning;
+            Screen = CpScreen.Running;
+            _runClock = System.Diagnostics.Stopwatch.StartNew();
+
+            try
+            {
+                var args = MassingArgs.Build(scheme, makeWalls: false, optionName: optionName);
+                var json = await RunLocalToolAsync("place_massing_scheme", args);
+                StopRunClock();
+
+                RunResult = BuildMassingResult(scheme, optionName, json);
+                Screen = CpScreen.Result;
+                AppendToCurrentSession(
+                    $"Build {optionName}", SummaryOf(RunResult), "ok", new List<string> { MassingToolId });
+            }
+            catch (Exception ex)
+            {
+                StopRunClock();
+                RunResult = new ResultModel
+                {
+                    Kind = CpResultKind.Plain,
+                    Headline = "Build failed",
+                    Sub = ex.Message,
+                };
+                Screen = CpScreen.Result;
+                AppendToCurrentSession($"Build {optionName}", "Build failed", "warn", new List<string> { MassingToolId });
+            }
+            finally
+            {
+                IsBuildingMassing = false;
+            }
+        }
+
+        /// <summary>Result card for a completed Build — group name + what landed.</summary>
+        private static ResultModel BuildMassingResult(
+            MassingScheme scheme, string optionName, System.Text.Json.JsonElement? json)
+        {
+            int floors = 0, walls = 0, levels = 0, skipped = 0;
+            string groupName = optionName;
+            if (json.HasValue && json.Value.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                var o = json.Value;
+                if (o.TryGetProperty("floor_count", out var f) && f.TryGetInt32(out var fi)) floors = fi;
+                if (o.TryGetProperty("wall_count", out var w) && w.TryGetInt32(out var wi)) walls = wi;
+                if (o.TryGetProperty("level_count", out var l) && l.TryGetInt32(out var li)) levels = li;
+                if (o.TryGetProperty("skipped_count", out var s) && s.TryGetInt32(out var si)) skipped = si;
+                if (o.TryGetProperty("option_name", out var n) && n.ValueKind == System.Text.Json.JsonValueKind.String)
+                    groupName = n.GetString() ?? optionName;
+            }
+
+            string category = null, lod = null;
+            var revealed = new List<string>();
+            if (json.HasValue && json.Value.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                var o2 = json.Value;
+                if (o2.TryGetProperty("category", out var c) && c.ValueKind == System.Text.Json.JsonValueKind.String)
+                    category = c.GetString();
+                if (o2.TryGetProperty("lod", out var l2) && l2.ValueKind == System.Text.Json.JsonValueKind.String)
+                    lod = l2.GetString();
+                if (o2.TryGetProperty("mass_count", out var m) && m.TryGetInt32(out var mi)) floors = mi;
+                if (o2.TryGetProperty("revealed_in", out var rv) && rv.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    foreach (var v in rv.EnumerateArray())
+                        if (v.ValueKind == System.Text.Json.JsonValueKind.String)
+                            revealed.Add(v.GetString());
+            }
+
+            var details = new System.Text.StringBuilder();
+            details.AppendLine($"**Model Group:** {groupName}");
+            details.AppendLine();
+            details.AppendLine($"- {floors} conceptual mass(es) across {levels} level(s)");
+            // Always name the category. A wrong category once looked exactly like
+            // success from here — it took a journal plus a by-category query to spot
+            // that 40 "floor plates" were actually structural foundations.
+            if (!string.IsNullOrEmpty(category))
+                details.AppendLine($"- Category: {category}"
+                    + (string.IsNullOrEmpty(lod) ? "" : $" · {lod}"));
+            // Say when the scheme was stepped clear of an earlier one, or the user
+            // measures from the wrong origin and concludes the units are broken.
+            double offX = 0, offY = 0;
+            if (json.HasValue && json.Value.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                var o3 = json.Value;
+                if (o3.TryGetProperty("offset_x_mm", out var ox) && ox.TryGetDouble(out var oxv)) offX = oxv;
+                if (o3.TryGetProperty("offset_y_mm", out var oy) && oy.TryGetDouble(out var oyv)) offY = oyv;
+            }
+            if (Math.Abs(offX) > 1 || Math.Abs(offY) > 1)
+                details.AppendLine(
+                    $"- Placed {offX / 1000.0:N0} m east / {offY / 1000.0:N0} m north of the model origin, "
+                    + "clear of the previously built scheme");
+
+            if (walls > 0) details.AppendLine($"- {walls} wall(s)");
+            if (skipped > 0) details.AppendLine($"- {skipped} site-only room(s) skipped (padang — no mass)");
+            // Revit hides the Mass category by default, so say plainly where it was
+            // turned on — otherwise a correct build reads as "nothing happened".
+            if (revealed.Count > 0)
+                details.AppendLine($"- Made Mass visible in: {string.Join(", ", revealed)}");
+            details.AppendLine($"- Scheme {scheme.Id}: {scheme.Title} · {scheme.TotalGfaM2:N0} m² GFA (from the SOA)");
+            details.AppendLine();
+            details.AppendLine(
+                $"{lod ?? MassingArgs.Lod} — these are generic conceptual masses, not building elements, "
+                + "so they will NOT appear in a floor schedule and Revit will not derive GFA from them. "
+                + "The area figures above come from the schedule of accommodation. "
+                + $"Each mass carries \"{lod ?? MassingArgs.Lod}\" in its Comments.");
+            details.AppendLine();
+            details.AppendLine("Delete the group to remove the whole proposal. Levels created for it stay (Revit does not allow datums in a group).");
+
+            return new ResultModel
+            {
+                Kind = CpResultKind.Count,
+                Headline = floors.ToString(),
+                Unit = floors == 1 ? "conceptual mass placed" : "conceptual masses placed",
+                Sub = groupName,
+                Details = details.ToString(),
+            };
+        }
+
+        private void StopRunClock()
+        {
+            if (_runClock == null) return;
+            _runClock.Stop();
+            LastRunElapsed = _runClock.Elapsed.TotalSeconds.ToString("0.0") + "s";
+            _runClock = null;
+        }
 
         private static CpTab ParseTab(object p)
         {
@@ -573,8 +965,14 @@ namespace RevitWebAppSync.UI.Copilot
 
         public void CancelRun()
         {
+            // A /planning/suggest in flight is abandoned here; a Build already
+            // committing on Revit's thread is NOT cancellable and still resolves to
+            // its Result card (the model really did change).
+            try { _planningCts?.Cancel(); } catch { /* already disposed */ }
             Screen = Prev == CpScreen.Running ? CpScreen.Home : Prev;
         }
+
+        private System.Threading.CancellationTokenSource _planningCts;
 
         public void FinishRun(ExecOutcome outcome)
         {
@@ -873,10 +1271,41 @@ namespace RevitWebAppSync.UI.Copilot
         public void ChatSendSlashCommand(SlashTool tool, string args)
         {
             if (tool == null) return;
+            var text = (args ?? "").Trim();
+
+            // /massing is handled entirely in-addin: its own backend endpoint
+            // (/planning/suggest) and its own screen, so it must NOT go through
+            // ChatSend → RouteAsync. The user turn still lands in the thread (with
+            // the command chip) so the history reads normally.
+            if (tool.Id == MassingToolId)
+            {
+                if (string.IsNullOrWhiteSpace(text))
+                {
+                    AddAi(new ChatMessage
+                    {
+                        Role = "ai", Kind = CpMsgKind.AiReply,
+                        Text = "Describe the building after the command — e.g. `/massing sekolah rendah, Tahun 1–6 with 3 kelas each, plus pejabat, bilik guru, kantin, 4 tandas blocks`.",
+                        Time = DateTime.Now.ToString("h:mm tt"),
+                    });
+                    return;
+                }
+                Thread.Add(new ChatMessage
+                {
+                    Role = "user", Kind = CpMsgKind.User, Text = text,
+                    SlashCommand = tool, Time = DateTime.Now.ToString("h:mm tt"),
+                });
+                _ = BeginPlanningAsync(text);
+                return;
+            }
+
             // ChatSend does the routing; the chip rides the user bubble and the
             // backend command id is handed to the router just before RouteAsync.
-            ChatSend((args ?? "").Trim(), slashChip: tool);
+            ChatSend(text, slashChip: tool);
         }
+
+        /// <summary>Slash id of the massing flow — branched above and used as the
+        /// history tool tag. Matches the ToolCatalog entry.</summary>
+        public const string MassingToolId = "massing";
 
         /// <summary>Prompt string sent to the backend — see RouteText.Build for
         /// the block format (it lives in Model/ so the wire format is testable

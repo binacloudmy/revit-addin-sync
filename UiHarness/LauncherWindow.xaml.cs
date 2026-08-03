@@ -102,6 +102,29 @@ namespace UiHarness
                 Content = new Frame { Content = new RevitWebAppSync.UI.Copilot.CopilotPanel() },
             });
 
+        // Massing / space planning. Seeded with the frozen /planning/suggest sample
+        // payload (spec §2) so the whole screen — SOA rows with citations, scheme
+        // cards, the rejected list and the floor-plan canvas — can be built and
+        // reviewed without Revit and before the backend endpoint exists.
+        private void OpenPlanning(object sender, RoutedEventArgs e) =>
+            Open(() =>
+            {
+                var panel = new RevitWebAppSync.UI.Copilot.CopilotPanel();
+                var win = new Window
+                {
+                    Title = "Copilot — Planning / Massing",
+                    Width = 440,
+                    Height = 900,
+                    Content = new Frame { Content = panel },
+                };
+                win.Loaded += (_, __) => panel.ViewModel.ShowPlanningPreview(
+                    MassingSample.School(),
+                    "sekolah rendah, Tahun 1–6 with 3 kelas each, plus pejabat, bilik guru, " +
+                    "bimbingan, keselamatan, bilik sukan, koku, 2 stor, dewan perhimpunan, " +
+                    "kantin, 4 tandas blocks");
+                return win;
+            });
+
         // The upgrade sheet's only in-product entry point is the at-limit blocked
         // view, which needs a live usage API. Call it directly so the sheet (and
         // its real Process.Start redirect) can be exercised without one.

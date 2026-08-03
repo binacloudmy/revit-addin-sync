@@ -64,6 +64,7 @@ namespace RevitWebAppSync.Services
             ["place_in_each_room"]         = "Placing elements in rooms",
             ["place_view_on_sheet"]        = "Placing the view on the sheet",
             ["place_text_note"]            = "Placing a text note",
+            ["place_massing_scheme"]       = "Placing the massing scheme",
             ["tag_all_in_view"]            = "Tagging elements in the view",
             ["tag_elements"]               = "Tagging elements",
             ["set_parameter"]              = "Setting a parameter",

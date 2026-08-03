@@ -37,6 +37,7 @@ namespace RevitWebAppSync.UI.Copilot
         private ToolReviewView _toolReview;
         private RunningView _running;
         private ResultView _result;
+        private PlanningView _planning;
         private ChatView _chat;
         private HistoryView _history;
         private SavedView _saved;
@@ -199,6 +200,7 @@ namespace RevitWebAppSync.UI.Copilot
                 case CpScreen.ToolReview: BodyHost.Content = View(ref _toolReview); return;
                 case CpScreen.Running: BodyHost.Content = View(ref _running); return;
                 case CpScreen.Result: BodyHost.Content = View(ref _result); return;
+                case CpScreen.Planning: BodyHost.Content = View(ref _planning); return;
             }
 
             switch (_vm.Tab)

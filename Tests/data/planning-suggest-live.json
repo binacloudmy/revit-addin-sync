@@ -1,0 +1,1595 @@
+{
+  "success": true,
+  "error": null,
+  "soa": {
+    "items": [
+      {
+        "key": "bilik_darjah",
+        "label_ms": "Bilik Darjah",
+        "count": 18,
+        "unit_area_m2": 64.8,
+        "total_area_m2": 1166.4,
+        "level": null,
+        "levels": [
+          1,
+          2
+        ],
+        "source": "JKR Sekolah Modul",
+        "clause": "bay 7.2 x 9.0 m",
+        "advisory": true
+      },
+      {
+        "key": "bilik_sokongan",
+        "label_ms": "Bilik Sokongan",
+        "count": 8,
+        "unit_area_m2": 48.6,
+        "total_area_m2": 388.8,
+        "level": null,
+        "levels": [
+          1,
+          2
+        ],
+        "source": "JKR Sekolah Modul",
+        "clause": "support bay 5.4 x 9.0 m",
+        "advisory": true
+      },
+      {
+        "key": "tandas",
+        "label_ms": "Blok Tandas",
+        "count": 4,
+        "unit_area_m2": 64.8,
+        "total_area_m2": 259.2,
+        "level": null,
+        "levels": [
+          1,
+          2
+        ],
+        "source": "JKR Sekolah Modul",
+        "clause": "toilet block bay",
+        "advisory": true
+      },
+      {
+        "key": "perhimpunan",
+        "label_ms": "Dewan Perhimpunan",
+        "count": 1,
+        "unit_area_m2": 414,
+        "total_area_m2": 414,
+        "level": 1,
+        "levels": [
+          1
+        ],
+        "source": "JKR/KPM",
+        "clause": "assembly hall min. area",
+        "advisory": true
+      },
+      {
+        "key": "kantin",
+        "label_ms": "Kantin",
+        "count": 1,
+        "unit_area_m2": 144,
+        "total_area_m2": 144,
+        "level": 1,
+        "levels": [
+          1
+        ],
+        "source": "JKR/KPM",
+        "clause": "canteen 12 x 12 m",
+        "advisory": true
+      },
+      {
+        "key": "padang",
+        "label_ms": "Padang",
+        "count": 1,
+        "unit_area_m2": 900,
+        "total_area_m2": 0,
+        "level": 1,
+        "levels": [
+          1
+        ],
+        "source": "JKR/KPM",
+        "clause": "field min. 30 x 30 m (site, no GFA)",
+        "advisory": true
+      }
+    ],
+    "total_gfa_m2": 2372.4,
+    "sanitary": [
+      {
+        "fixture": "wc",
+        "gender": "male",
+        "count": 7,
+        "source": "UBBL 1984",
+        "clause": "Eighth Schedule (By-law 47), educational"
+      },
+      {
+        "fixture": "wc",
+        "gender": "female",
+        "count": 11,
+        "source": "UBBL 1984",
+        "clause": "Eighth Schedule (By-law 47), educational"
+      },
+      {
+        "fixture": "urinal",
+        "gender": "male",
+        "count": 11,
+        "source": "UBBL 1984",
+        "clause": "Eighth Schedule (By-law 47), educational"
+      },
+      {
+        "fixture": "wash_basin",
+        "gender": "all",
+        "count": 14,
+        "source": "UBBL 1984",
+        "clause": "Eighth Schedule (By-law 47), educational"
+      }
+    ],
+    "notes": "Counts and areas are auto-derived from Malaysian standards (UBBL 1984, JKR/KPM) and are ADVISORY — verify against the Authority Having Jurisdiction."
+  },
+  "schemes": [
+    {
+      "id": "A",
+      "title": "Dua Blok Selari",
+      "rooms": [
+        {
+          "label": "1A",
+          "type": "kelas",
+          "x": 6,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "1B",
+          "type": "kelas",
+          "x": 13.2,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "1C",
+          "type": "kelas",
+          "x": 20.4,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "2A",
+          "type": "kelas",
+          "x": 27.6,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "2B",
+          "type": "kelas",
+          "x": 34.8,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "2C",
+          "type": "kelas",
+          "x": 42,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tangga",
+          "type": "selasar",
+          "x": 49.2,
+          "y": 6,
+          "w": 3.6,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tandas",
+          "type": "tandas",
+          "x": 52.8,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 6,
+          "y": 15,
+          "w": 54,
+          "h": 2.4,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 6,
+          "y": 24,
+          "w": 54,
+          "h": 2.4,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "3A",
+          "type": "kelas",
+          "x": 6,
+          "y": 26.4,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "3B",
+          "type": "kelas",
+          "x": 13.2,
+          "y": 26.4,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "3C",
+          "type": "kelas",
+          "x": 20.4,
+          "y": 26.4,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tangga",
+          "type": "selasar",
+          "x": 27.6,
+          "y": 26.4,
+          "w": 3.6,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Pejabat",
+          "type": "sokongan",
+          "x": 31.2,
+          "y": 26.4,
+          "w": 5.4,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Bilik Sukan",
+          "type": "sokongan",
+          "x": 36.6,
+          "y": 26.4,
+          "w": 5.4,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Stor 1",
+          "type": "sokongan",
+          "x": 42,
+          "y": 26.4,
+          "w": 5.4,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Stor 2",
+          "type": "sokongan",
+          "x": 47.400000000000006,
+          "y": 26.4,
+          "w": 5.4,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tandas",
+          "type": "tandas",
+          "x": 52.8,
+          "y": 26.4,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Perhimpunan (covered court)",
+          "type": "perhimpunan",
+          "x": 6,
+          "y": 17.4,
+          "w": 54,
+          "h": 6.6,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Padang",
+          "type": "padang",
+          "x": 66,
+          "y": 6,
+          "w": 28,
+          "h": 34,
+          "level": 1,
+          "counts_as_gfa": false
+        },
+        {
+          "label": "Kantin",
+          "type": "kantin",
+          "x": 6,
+          "y": 40,
+          "w": 12,
+          "h": 12,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "4A",
+          "type": "kelas",
+          "x": 6,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "4B",
+          "type": "kelas",
+          "x": 13.2,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "4C",
+          "type": "kelas",
+          "x": 20.4,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "5A",
+          "type": "kelas",
+          "x": 27.6,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "5B",
+          "type": "kelas",
+          "x": 34.8,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "5C",
+          "type": "kelas",
+          "x": 42,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tangga",
+          "type": "selasar",
+          "x": 49.2,
+          "y": 6,
+          "w": 3.6,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tandas",
+          "type": "tandas",
+          "x": 52.8,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 6,
+          "y": 15,
+          "w": 54,
+          "h": 2.4,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 6,
+          "y": 24,
+          "w": 54,
+          "h": 2.4,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "6A",
+          "type": "kelas",
+          "x": 6,
+          "y": 26.4,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "6B",
+          "type": "kelas",
+          "x": 13.2,
+          "y": 26.4,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "6C",
+          "type": "kelas",
+          "x": 20.4,
+          "y": 26.4,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tangga",
+          "type": "selasar",
+          "x": 27.6,
+          "y": 26.4,
+          "w": 3.6,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Bilik Guru",
+          "type": "sokongan",
+          "x": 31.2,
+          "y": 26.4,
+          "w": 5.4,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Bilik Bimbingan",
+          "type": "sokongan",
+          "x": 36.6,
+          "y": 26.4,
+          "w": 5.4,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Bilik Koku",
+          "type": "sokongan",
+          "x": 42,
+          "y": 26.4,
+          "w": 5.4,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Bilik Keselamatan",
+          "type": "sokongan",
+          "x": 47.400000000000006,
+          "y": 26.4,
+          "w": 5.4,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tandas",
+          "type": "tandas",
+          "x": 52.8,
+          "y": 26.4,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Padang",
+          "type": "padang",
+          "x": 66,
+          "y": 6,
+          "w": 28,
+          "h": 34,
+          "level": 2,
+          "counts_as_gfa": false
+        },
+        {
+          "label": "Kantin below",
+          "type": "selasar",
+          "x": 6,
+          "y": 40,
+          "w": 12,
+          "h": 12,
+          "level": 2,
+          "counts_as_gfa": false
+        }
+      ],
+      "level_areas_m2": {
+        "1": 1731.6,
+        "2": 1231.2
+      },
+      "total_gfa_m2": 2962.8,
+      "footprint_m2": 1731.6,
+      "target_gfa_m2": 2372.4,
+      "margin_m2": 590.4,
+      "meets_gfa": true,
+      "warnings": []
+    },
+    {
+      "id": "B",
+      "title": "Sisir",
+      "rooms": [
+        {
+          "label": "Selasar utama",
+          "type": "selasar",
+          "x": 6,
+          "y": 6,
+          "w": 58.8,
+          "h": 3.6,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 6,
+          "y": 9.6,
+          "w": 2.4,
+          "h": 27,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "1A",
+          "type": "kelas",
+          "x": 8.4,
+          "y": 9.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "1B",
+          "type": "kelas",
+          "x": 8.4,
+          "y": 18.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "1C",
+          "type": "kelas",
+          "x": 8.4,
+          "y": 27.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 24,
+          "y": 9.6,
+          "w": 2.4,
+          "h": 27,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "2A",
+          "type": "kelas",
+          "x": 26.4,
+          "y": 9.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "2B",
+          "type": "kelas",
+          "x": 26.4,
+          "y": 18.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "2C",
+          "type": "kelas",
+          "x": 26.4,
+          "y": 27.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 42,
+          "y": 9.6,
+          "w": 2.4,
+          "h": 27,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "3A",
+          "type": "kelas",
+          "x": 44.4,
+          "y": 9.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "3B",
+          "type": "kelas",
+          "x": 44.4,
+          "y": 18.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "3C",
+          "type": "kelas",
+          "x": 44.4,
+          "y": 27.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tandas",
+          "type": "tandas",
+          "x": 15.6,
+          "y": 9.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tandas",
+          "type": "tandas",
+          "x": 33.6,
+          "y": 9.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Pejabat",
+          "type": "sokongan",
+          "x": 54,
+          "y": 9.6,
+          "w": 10.8,
+          "h": 5.4,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Bilik Sukan",
+          "type": "sokongan",
+          "x": 54,
+          "y": 15,
+          "w": 10.8,
+          "h": 5.4,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Stor 1",
+          "type": "sokongan",
+          "x": 54,
+          "y": 20.4,
+          "w": 10.8,
+          "h": 5.4,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Stor 2",
+          "type": "sokongan",
+          "x": 54,
+          "y": 25.800000000000004,
+          "w": 10.8,
+          "h": 5.4,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Dewan (perhimpunan)",
+          "type": "perhimpunan",
+          "x": 6,
+          "y": 40,
+          "w": 36,
+          "h": 11.5,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Padang",
+          "type": "padang",
+          "x": 48,
+          "y": 40,
+          "w": 44,
+          "h": 12,
+          "level": 1,
+          "counts_as_gfa": false
+        },
+        {
+          "label": "Kantin",
+          "type": "kantin",
+          "x": 78,
+          "y": 20,
+          "w": 12,
+          "h": 12,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar utama",
+          "type": "selasar",
+          "x": 6,
+          "y": 6,
+          "w": 58.8,
+          "h": 3.6,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 6,
+          "y": 9.6,
+          "w": 2.4,
+          "h": 27,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "4A",
+          "type": "kelas",
+          "x": 8.4,
+          "y": 9.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "4B",
+          "type": "kelas",
+          "x": 8.4,
+          "y": 18.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "4C",
+          "type": "kelas",
+          "x": 8.4,
+          "y": 27.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 24,
+          "y": 9.6,
+          "w": 2.4,
+          "h": 27,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "5A",
+          "type": "kelas",
+          "x": 26.4,
+          "y": 9.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "5B",
+          "type": "kelas",
+          "x": 26.4,
+          "y": 18.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "5C",
+          "type": "kelas",
+          "x": 26.4,
+          "y": 27.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 42,
+          "y": 9.6,
+          "w": 2.4,
+          "h": 27,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "6A",
+          "type": "kelas",
+          "x": 44.4,
+          "y": 9.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "6B",
+          "type": "kelas",
+          "x": 44.4,
+          "y": 18.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "6C",
+          "type": "kelas",
+          "x": 44.4,
+          "y": 27.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tandas",
+          "type": "tandas",
+          "x": 15.6,
+          "y": 9.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tandas",
+          "type": "tandas",
+          "x": 33.6,
+          "y": 9.6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Bilik Guru",
+          "type": "sokongan",
+          "x": 54,
+          "y": 9.6,
+          "w": 10.8,
+          "h": 5.4,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Bilik Bimbingan",
+          "type": "sokongan",
+          "x": 54,
+          "y": 15,
+          "w": 10.8,
+          "h": 5.4,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Bilik Koku",
+          "type": "sokongan",
+          "x": 54,
+          "y": 20.4,
+          "w": 10.8,
+          "h": 5.4,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Bilik Keselamatan",
+          "type": "sokongan",
+          "x": 54,
+          "y": 25.800000000000004,
+          "w": 10.8,
+          "h": 5.4,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Dewan below - single storey",
+          "type": "selasar",
+          "x": 6,
+          "y": 40,
+          "w": 36,
+          "h": 11.5,
+          "level": 2,
+          "counts_as_gfa": false
+        },
+        {
+          "label": "Padang",
+          "type": "padang",
+          "x": 48,
+          "y": 40,
+          "w": 44,
+          "h": 12,
+          "level": 2,
+          "counts_as_gfa": false
+        },
+        {
+          "label": "Kantin below",
+          "type": "selasar",
+          "x": 78,
+          "y": 20,
+          "w": 12,
+          "h": 12,
+          "level": 2,
+          "counts_as_gfa": false
+        }
+      ],
+      "level_areas_m2": {
+        "1": 1910.2,
+        "2": 1352.2
+      },
+      "total_gfa_m2": 3262.3,
+      "footprint_m2": 1910.2,
+      "target_gfa_m2": 2372.4,
+      "margin_m2": 889.9,
+      "meets_gfa": true,
+      "warnings": [
+        "Over-provisioned: GFA is 38% above the program target (+890 m2) — a smaller footprint may cut cost."
+      ]
+    },
+    {
+      "id": "C",
+      "title": "Courtyard",
+      "rooms": [
+        {
+          "label": "1A",
+          "type": "kelas",
+          "x": 12,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "1B",
+          "type": "kelas",
+          "x": 19.2,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "1C",
+          "type": "kelas",
+          "x": 26.4,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "2A",
+          "type": "kelas",
+          "x": 33.6,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "2B",
+          "type": "kelas",
+          "x": 40.8,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tangga",
+          "type": "selasar",
+          "x": 48,
+          "y": 6,
+          "w": 3.6,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tandas",
+          "type": "tandas",
+          "x": 51.6,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 12,
+          "y": 15,
+          "w": 46.8,
+          "h": 2.4,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "2C",
+          "type": "kelas",
+          "x": 12,
+          "y": 17.4,
+          "w": 9,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tangga",
+          "type": "selasar",
+          "x": 12,
+          "y": 26.4,
+          "w": 9,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 21,
+          "y": 17.4,
+          "w": 2.4,
+          "h": 18,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "3A",
+          "type": "kelas",
+          "x": 49.8,
+          "y": 17.4,
+          "w": 9,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tangga",
+          "type": "selasar",
+          "x": 49.8,
+          "y": 26.4,
+          "w": 9,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 47.4,
+          "y": 17.4,
+          "w": 2.4,
+          "h": 18,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 12,
+          "y": 35.4,
+          "w": 46.8,
+          "h": 2.4,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "3B",
+          "type": "kelas",
+          "x": 12,
+          "y": 37.8,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "3C",
+          "type": "kelas",
+          "x": 19.2,
+          "y": 37.8,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tangga",
+          "type": "selasar",
+          "x": 26.4,
+          "y": 37.8,
+          "w": 3.6,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Pejabat",
+          "type": "sokongan",
+          "x": 30,
+          "y": 37.8,
+          "w": 5.4,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Bilik Sukan",
+          "type": "sokongan",
+          "x": 35.4,
+          "y": 37.8,
+          "w": 5.4,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Stor 1",
+          "type": "sokongan",
+          "x": 40.8,
+          "y": 37.8,
+          "w": 5.4,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Stor 2",
+          "type": "sokongan",
+          "x": 46.2,
+          "y": 37.8,
+          "w": 5.4,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tandas",
+          "type": "tandas",
+          "x": 51.6,
+          "y": 37.8,
+          "w": 7.2,
+          "h": 9,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Perhimpunan",
+          "type": "perhimpunan",
+          "x": 23.4,
+          "y": 17.4,
+          "w": 24,
+          "h": 18,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Padang",
+          "type": "padang",
+          "x": 64,
+          "y": 6,
+          "w": 30,
+          "h": 30,
+          "level": 1,
+          "counts_as_gfa": false
+        },
+        {
+          "label": "Kantin",
+          "type": "kantin",
+          "x": 70,
+          "y": 40,
+          "w": 12,
+          "h": 12,
+          "level": 1,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "4A",
+          "type": "kelas",
+          "x": 12,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "4B",
+          "type": "kelas",
+          "x": 19.2,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "4C",
+          "type": "kelas",
+          "x": 26.4,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "5A",
+          "type": "kelas",
+          "x": 33.6,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "5B",
+          "type": "kelas",
+          "x": 40.8,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tangga",
+          "type": "selasar",
+          "x": 48,
+          "y": 6,
+          "w": 3.6,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tandas",
+          "type": "tandas",
+          "x": 51.6,
+          "y": 6,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 12,
+          "y": 15,
+          "w": 46.8,
+          "h": 2.4,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "5C",
+          "type": "kelas",
+          "x": 12,
+          "y": 17.4,
+          "w": 9,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tangga",
+          "type": "selasar",
+          "x": 12,
+          "y": 26.4,
+          "w": 9,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 21,
+          "y": 17.4,
+          "w": 2.4,
+          "h": 18,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "6A",
+          "type": "kelas",
+          "x": 49.8,
+          "y": 17.4,
+          "w": 9,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tangga",
+          "type": "selasar",
+          "x": 49.8,
+          "y": 26.4,
+          "w": 9,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 47.4,
+          "y": 17.4,
+          "w": 2.4,
+          "h": 18,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Selasar",
+          "type": "selasar",
+          "x": 12,
+          "y": 35.4,
+          "w": 46.8,
+          "h": 2.4,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "6B",
+          "type": "kelas",
+          "x": 12,
+          "y": 37.8,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "6C",
+          "type": "kelas",
+          "x": 19.2,
+          "y": 37.8,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tangga",
+          "type": "selasar",
+          "x": 26.4,
+          "y": 37.8,
+          "w": 3.6,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Bilik Guru",
+          "type": "sokongan",
+          "x": 30,
+          "y": 37.8,
+          "w": 5.4,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Bilik Bimbingan",
+          "type": "sokongan",
+          "x": 35.4,
+          "y": 37.8,
+          "w": 5.4,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Bilik Koku",
+          "type": "sokongan",
+          "x": 40.8,
+          "y": 37.8,
+          "w": 5.4,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Bilik Keselamatan",
+          "type": "sokongan",
+          "x": 46.2,
+          "y": 37.8,
+          "w": 5.4,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Tandas",
+          "type": "tandas",
+          "x": 51.6,
+          "y": 37.8,
+          "w": 7.2,
+          "h": 9,
+          "level": 2,
+          "counts_as_gfa": true
+        },
+        {
+          "label": "Padang",
+          "type": "padang",
+          "x": 64,
+          "y": 6,
+          "w": 30,
+          "h": 30,
+          "level": 2,
+          "counts_as_gfa": false
+        },
+        {
+          "label": "Kantin below",
+          "type": "selasar",
+          "x": 70,
+          "y": 40,
+          "w": 12,
+          "h": 12,
+          "level": 2,
+          "counts_as_gfa": false
+        }
+      ],
+      "level_areas_m2": {
+        "1": 2053.4,
+        "2": 1477.4
+      },
+      "total_gfa_m2": 3530.9,
+      "footprint_m2": 2053.4,
+      "target_gfa_m2": 2372.4,
+      "margin_m2": 1158.5,
+      "meets_gfa": true,
+      "warnings": [
+        "Over-provisioned: GFA is 49% above the program target (+1158 m2) — a smaller footprint may cut cost."
+      ]
+    }
+  ],
+  "rejected": [
+    {
+      "id": "A1",
+      "title": "Dua Blok Selari - 1 tingkat",
+      "total_gfa_m2": 1731.6,
+      "gap_m2": 640.8,
+      "reason": "below_target_gfa"
+    },
+    {
+      "id": "B1",
+      "title": "Sisir - 1 tingkat",
+      "total_gfa_m2": 1910.2,
+      "gap_m2": 462.2,
+      "reason": "below_target_gfa"
+    },
+    {
+      "id": "C1",
+      "title": "Courtyard - 1 tingkat",
+      "total_gfa_m2": 2053.4,
+      "gap_m2": 319,
+      "reason": "below_target_gfa"
+    }
+  ],
+  "stats": {
+    "target_gfa_m2": 2372.4,
+    "scheme_count": 6,
+    "passing_count": 3,
+    "rejected_count": 3,
+    "best_margin_m2": 1158.5
+  },
+  "site_area_m2": 5800,
+  "setback_m": 6,
+  "target_gfa_m2": 2372.4,
+  "building_type": "sekolah_rendah"
+}

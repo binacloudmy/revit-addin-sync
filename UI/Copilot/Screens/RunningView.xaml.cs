@@ -50,16 +50,31 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private void StartIfRunning()
         {
             var vm = Vm; var tool = vm?.CurrentTool;
-            if (tool == null || vm.Screen != CpScreen.Running || StepsHost == null) return;
+            if (vm == null || vm.Screen != CpScreen.Running || StepsHost == null) return;
+            // No catalog ToolDef: a flow that runs off a SlashTool instead (the
+            // massing/planning path). It supplies its own title + step labels;
+            // without this the screen rendered blank.
+            if (tool == null && vm.RunningSteps == null) return;
 
             Header.Tool = tool;
-            bool vetted = tool.Tier == 1;
-            _steps = vetted
-                ? new[] { "Starting Revit transaction", $"Applying {tool.Title.ToLowerInvariant()}", "Committing changes" }
-                : new[] { "Compiling generated C#", "Starting transaction", "Collecting elements · scanning", "Executing logic", "Returning results" };
-            InfoText.Text = vetted
-                ? "Vetted operation — wrapped in an undoable transaction."
-                : "AI run — if it fails, Copilot reads the error and retries once.";
+            if (tool == null)
+            {
+                Header.TitleText = vm.RunningTitle;
+                Header.GlyphKey = vm.RunningGlyph;
+                Header.TileBgHex = "#e0e7ff"; Header.TileFgHex = "#4338ca";
+                _steps = vm.RunningSteps;
+                InfoText.Text = vm.RunningInfo ?? "";
+            }
+            else
+            {
+                bool vetted = tool.Tier == 1;
+                _steps = vetted
+                    ? new[] { "Starting Revit transaction", $"Applying {tool.Title.ToLowerInvariant()}", "Committing changes" }
+                    : new[] { "Compiling generated C#", "Starting transaction", "Collecting elements · scanning", "Executing logic", "Returning results" };
+                InfoText.Text = vetted
+                    ? "Vetted operation — wrapped in an undoable transaction."
+                    : "AI run — if it fails, Copilot reads the error and retries once.";
+            }
 
             _step = 0;
             RenderSteps();

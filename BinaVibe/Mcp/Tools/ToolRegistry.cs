@@ -29,6 +29,17 @@ namespace BinaVibe.Mcp.Tools
             if (doc == null || uidoc == null)
                 throw new InvalidOperationException("no active document — open a Revit project first");
 
+            // Log the RESULT of a mutate as well as the call. Without this, a mutator
+            // that reports "40 placed" while the model looks empty gives us nothing to
+            // read back — see McpCallLog.WriteResult.
+            var result = Dispatch(app, doc, uidoc, tool, args);
+            McpCallLog.WriteResult(tool, result);
+            return result;
+        }
+
+        private static Dictionary<string, object?> Dispatch(
+            UIApplication app, Document doc, UIDocument uidoc, string tool, JsonElement args)
+        {
             return tool switch
             {
                 // INSPECT — 20 tools, all live
@@ -162,6 +173,9 @@ namespace BinaVibe.Mcp.Tools
                 "create_view_filter"            => Mutators.CreateViewFilter(doc, args),
                 "apply_view_filter"             => Mutators.ApplyViewFilter(doc, args),
                 "create_floor"                  => Mutators.CreateFloor(doc, args),
+                // Space-planning Build: whole scheme, ONE transaction, one named
+                // Model Group (see the method's note on why not a Design Option).
+                "place_massing_scheme"          => Mutators.PlaceMassingScheme(doc, args),
                 "create_ceiling"                => Mutators.CreateCeiling(doc, args),
                 "create_roof"                   => Mutators.CreateRoof(doc, args),
                 "create_beam_system"            => MutatorsStructure.CreateBeamSystem(doc, args),
