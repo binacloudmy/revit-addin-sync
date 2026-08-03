@@ -56,6 +56,18 @@ namespace BinaVibe.Mcp.Tools
     }
 
     /// <summary>
+    /// A line segment extracted from CAD (in CAD units, typically mm).
+    /// </summary>
+    public class CadLine
+    {
+        public double X1 { get; set; }
+        public double Y1 { get; set; }
+        public double X2 { get; set; }
+        public double Y2 { get; set; }
+        public string Layer { get; set; } = "";
+    }
+
+    /// <summary>
     /// Full extraction result from a CAD file.
     /// </summary>
     public class CadExtractionResult
@@ -66,6 +78,7 @@ namespace BinaVibe.Mcp.Tools
         public List<string> Layers { get; set; } = new();
         public List<CadBlock> Blocks { get; set; } = new();
         public List<CadText> Texts { get; set; } = new();
+        public List<CadLine> Lines { get; set; } = new();
         public int LineCount { get; set; }
         public int CircleCount { get; set; }
         public int ArcCount { get; set; }
@@ -219,10 +232,24 @@ namespace BinaVibe.Mcp.Tools
                         });
                         break;
 
-                    case Line _:
-                    case LwPolyline _:
-                    case Polyline2D _:
+                    case Line line:
+                        result.Lines.Add(new CadLine
+                        {
+                            X1 = line.StartPoint.X,
+                            Y1 = line.StartPoint.Y,
+                            X2 = line.EndPoint.X,
+                            Y2 = line.EndPoint.Y,
+                            Layer = line.Layer?.Name ?? "",
+                        });
                         result.LineCount++;
+                        break;
+
+                    case LwPolyline lwp:
+                        ExtractPolylineSegments(lwp, result);
+                        break;
+
+                    case Polyline2D p2d:
+                        ExtractPolyline2DSegments(p2d, result);
                         break;
 
                     // Arc derives from Circle in ACadSharp, so the more-derived
@@ -247,6 +274,112 @@ namespace BinaVibe.Mcp.Tools
             }
 
             return result;
+        }
+
+        /// <summary>
+        /// Extract line segments from an LwPolyline (lightweight polyline).
+        /// Each straight segment becomes a CadLine. Bulge (arc) segments are
+        /// approximated as straight chords (v1 simplification).
+        /// </summary>
+        private static void ExtractPolylineSegments(LwPolyline lwp, CadExtractionResult result)
+        {
+            var layer = lwp.Layer?.Name ?? "";
+            var verts = lwp.Vertices.ToList();
+            if (verts.Count < 2) return;
+
+            for (int i = 0; i < verts.Count - 1; i++)
+            {
+                var v1 = verts[i];
+                var v2 = verts[i + 1];
+                result.Lines.Add(new CadLine
+                {
+                    X1 = v1.Location.X,
+                    Y1 = v1.Location.Y,
+                    X2 = v2.Location.X,
+                    Y2 = v2.Location.Y,
+                    Layer = layer,
+                });
+                result.LineCount++;
+            }
+            // Close if flagged
+            if (lwp.IsClosed && verts.Count > 2)
+            {
+                var first = verts[0];
+                var last = verts[verts.Count - 1];
+                result.Lines.Add(new CadLine
+                {
+                    X1 = last.Location.X,
+                    Y1 = last.Location.Y,
+                    X2 = first.Location.X,
+                    Y2 = first.Location.Y,
+                    Layer = layer,
+                });
+                result.LineCount++;
+            }
+        }
+
+        /// <summary>
+        /// Extract line segments from a Polyline2D.
+        /// </summary>
+        private static void ExtractPolyline2DSegments(Polyline2D p2d, CadExtractionResult result)
+        {
+            var layer = p2d.Layer?.Name ?? "";
+            var verts = p2d.Vertices.ToList();
+            if (verts.Count < 2) return;
+
+            for (int i = 0; i < verts.Count - 1; i++)
+            {
+                var v1 = verts[i];
+                var v2 = verts[i + 1];
+                result.Lines.Add(new CadLine
+                {
+                    X1 = v1.Location.X,
+                    Y1 = v1.Location.Y,
+                    X2 = v2.Location.X,
+                    Y2 = v2.Location.Y,
+                    Layer = layer,
+                });
+                result.LineCount++;
+            }
+            // Close if flagged
+            if (p2d.IsClosed && verts.Count > 2)
+            {
+                var first = verts[0];
+                var last = verts[verts.Count - 1];
+                result.Lines.Add(new CadLine
+                {
+                    X1 = last.Location.X,
+                    Y1 = last.Location.Y,
+                    X2 = first.Location.X,
+                    Y2 = first.Location.Y,
+                    Layer = layer,
+                });
+                result.LineCount++;
+            }
+        }
+
+        /// <summary>
+        /// Get lines from specific layer(s) for wall extraction.
+        /// Returns lines in CAD units (typically mm).
+        /// </summary>
+        public static List<CadLine> GetLinesForLayer(string filePath, string? layerFilter)
+        {
+            var extraction = Extract(filePath);
+            if (!extraction.Ok) return new List<CadLine>();
+
+            if (string.IsNullOrEmpty(layerFilter))
+                return extraction.Lines;
+
+            // Support comma-separated or single layer filter
+            var filters = layerFilter.Split(',')
+                .Select(f => f.Trim())
+                .Where(f => !string.IsNullOrEmpty(f))
+                .ToList();
+
+            return extraction.Lines
+                .Where(l => filters.Any(f =>
+                    l.Layer.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0))
+                .ToList();
         }
 
         /// <summary>
