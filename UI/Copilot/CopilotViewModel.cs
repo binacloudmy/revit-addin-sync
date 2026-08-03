@@ -1446,6 +1446,23 @@ namespace RevitWebAppSync.UI.Copilot
                         },
                     };
                 }
+                // Terminal script failure (self-heal retries exhausted): the answer bubble
+                // is now a clean drafter-facing line (see FormatResultAsText) — the raw
+                // compiler/runtime error is NOT discarded, it's tucked into a reasoning
+                // step ("Error detail") so it's one expand away, same as any other working
+                // note. The retry lane itself (RevitCopilotExecutor.RunWithSelfHeal) still
+                // sends the full raw error to the backend on every attempt — untouched.
+                if (outcome != null && !outcome.Success && !string.IsNullOrWhiteSpace(outcome.Error))
+                {
+                    finalReasoningSteps = new List<ReasoningStep>(finalReasoningSteps ?? new List<ReasoningStep>())
+                    {
+                        new ReasoningStep
+                        {
+                            StepId = "error-detail", Label = "Error detail",
+                            Text = outcome.Error.Trim(), State = ReasoningState.Done,
+                        },
+                    };
+                }
                 ReplaceLastThinking(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
@@ -1646,11 +1663,18 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         /// <summary>Reformulate the structured result as one conversational line for the
-        /// AiReply chat bubble. Falls back to the headline when no richer shape applies.</summary>
+        /// AiReply chat bubble. Falls back to the headline when no richer shape applies.
+        ///
+        /// On failure this deliberately does NOT surface outcome.Error — that's the raw
+        /// Roslyn compiler output ("Line 6: ... cannot be declared", "does not contain a
+        /// definition for ...") from CodeExecutor.CompileCheck, useful for debugging but
+        /// meaningless to a drafter and a violation of the "drafter is not the debugger"
+        /// reply rule. The caller (ExecuteAsChatReply) attaches the raw text as an
+        /// "Error detail" reasoning step instead, so it's one expand away.</summary>
         private static string FormatResultAsText(ResultModel r, ExecOutcome outcome)
         {
             if (outcome != null && !outcome.Success)
-                return "Sorry — that didn't run. " + (outcome.Error ?? "");
+                return "Tak dapat siapkan skrip untuk tugasan ini selepas beberapa percubaan.";
             if (r == null) return "Done.";
             string text;
             switch (r.Kind)
