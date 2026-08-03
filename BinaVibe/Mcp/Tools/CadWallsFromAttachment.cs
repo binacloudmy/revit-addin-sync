@@ -103,6 +103,16 @@ namespace BinaVibe.Mcp.Tools
                     ["source_layer"] = c.Layer,
                 }).ToList();
 
+                // Build thickness histogram for type mapping guidance
+                var thicknesses = solved.Walls.Select(c => Math.Round(c.ThicknessFt * MmPerFoot, 0)).ToList();
+                var histogram = BuildThicknessHistogram(thicknesses);
+                var stats = new Dictionary<string, object?>
+                {
+                    ["min_mm"] = thicknesses.Count > 0 ? thicknesses.Min() : 0,
+                    ["max_mm"] = thicknesses.Count > 0 ? thicknesses.Max() : 0,
+                    ["median_mm"] = thicknesses.Count > 0 ? Median(thicknesses) : 0,
+                };
+
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
@@ -114,7 +124,10 @@ namespace BinaVibe.Mcp.Tools
                     ["segments_in"] = cadLines.Count,
                     ["unpaired_segments"] = solved.UnpairedSegments,
                     ["junctions_snapped"] = solved.JunctionsSnapped,
-                    ["note"] = "preview only — pass create=true to build walls. No Revit link needed.",
+                    ["thickness_histogram"] = histogram,
+                    ["thickness_stats"] = stats,
+                    ["note"] = "Preview only. Use thickness_histogram to suggest thickness_to_type mapping. "
+                        + "Pass create=true with thickness_to_type:[{min_mm, max_mm, type_name}] to build walls.",
                 };
             }
 
@@ -220,5 +233,39 @@ namespace BinaVibe.Mcp.Tools
         private static double? GetD(JsonElement o, string key)
             => o.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var d)
                 ? d : (double?)null;
+
+        /// <summary>
+        /// Build thickness histogram with suggested bands for type mapping.
+        /// Groups into 50mm buckets to reveal natural clusters.
+        /// </summary>
+        private static List<Dictionary<string, object>> BuildThicknessHistogram(List<double> thicknesses)
+        {
+            if (thicknesses.Count == 0) return new List<Dictionary<string, object>>();
+
+            // Group into 50mm buckets
+            var buckets = thicknesses
+                .GroupBy(t => Math.Floor(t / 50) * 50)
+                .OrderBy(g => g.Key)
+                .Select(g => new Dictionary<string, object>
+                {
+                    ["range_mm"] = $"{g.Key:0}-{g.Key + 50:0}",
+                    ["min_mm"] = g.Key,
+                    ["max_mm"] = g.Key + 50,
+                    ["count"] = g.Count(),
+                    ["percent"] = Math.Round(100.0 * g.Count() / thicknesses.Count, 1),
+                })
+                .ToList();
+
+            return buckets;
+        }
+
+        private static double Median(List<double> values)
+        {
+            var sorted = values.OrderBy(v => v).ToList();
+            int mid = sorted.Count / 2;
+            return sorted.Count % 2 == 0
+                ? (sorted[mid - 1] + sorted[mid]) / 2.0
+                : sorted[mid];
+        }
     }
 }
