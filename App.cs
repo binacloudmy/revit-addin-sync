@@ -576,6 +576,8 @@ namespace RevitWebAppSync
             try { BinaVibe.Mcp.Tools.DwgScratchCache.CloseAll(); } catch { }
             try { BinaVibe.Mcp.Tools.PdfAttachmentCache.CloseAll(); } catch { }
             try { BinaVibe.Mcp.Tools.Electrical.SocketPlanCache.CloseAll(); } catch { }
+            try { BinaVibe.Mcp.Tools.Electrical.CircuitPlanCache.CloseAll(); } catch { }
+            try { BinaVibe.Mcp.Tools.Electrical.RoutePlanCache.CloseAll(); } catch { }
 
             // 'clean' shutdown marker: a session with 'started' but neither
             // 'ready' nor 'clean' reads as a dirty exit in the scorecard.

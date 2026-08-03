@@ -103,6 +103,32 @@ namespace BinaVibe.Mcp.Tools
                 // place_socket_points commits them. Same two-step shape as
                 // fill_audit -> draft_export.
                 "suggest_socket_points"         => Electrical.SocketCandidates.Suggest(doc, args),
+                // Circuit proposals. Read-only (no Transaction): caches a plan
+                // and returns reviewable circuits; create_circuits commits.
+                // Same two-step shape as suggest/place_socket_points.
+                "suggest_circuits"              => Electrical.CircuitCandidates.Suggest(doc, args),
+                // Route proposals. Read-only (no Transaction): Manhattan legs
+                // + per-leg obstruction rows (check_corridor's arithmetic via
+                // CorridorCheck.ScanSegment); create_circuit_routes commits.
+                "suggest_circuit_routes"        => Electrical.RoutePlanner.Suggest(doc, args),
+                // Electrical validators. Read-only, findings-shaped results;
+                // thresholds all arrive as args (jurisdiction lives in the
+                // backend recipe, never here).
+                // What the project actually defines: voltage definitions,
+                // distribution systems, panels. The look before setting a
+                // panel's distribution system or a family's connector voltage.
+                "list_electrical_settings"      => Electrical.ElecSettings.List(doc, args),
+                "validate_panel_schedule"       => Electrical.ElecValidation.ValidatePanelSchedule(doc, args),
+                "check_circuit_loads"           => Electrical.ElecValidation.CheckCircuitLoads(doc, args),
+                "check_code_compliance"         => Electrical.ElecValidation.CheckCodeCompliance(doc, args),
+                // Route clearance along a segment, host doc + loaded links.
+                // Read-only (no Transaction): the look before the create_* MEP
+                // tools leap — must never fire the Ya/Tidak confirm card.
+                "check_corridor"                => CorridorCheck.Run(doc, args),
+                // Connector-graph walk. Read-only (no Transaction): replaces
+                // the get_model_warnings proxy for connectivity, and makes the
+                // no-connectors-at-all element visible for the first time.
+                "trace_mep_connections"         => Mep.TraceMep.Run(doc, args),
                 "audit_parameters"              => Inspectors.AuditParameters(doc, args),
                 "audit_view_names"              => Inspectors.AuditViewNames(doc, args),
                 "audit_family_names"            => Inspectors.AuditFamilyNames(doc, args),
@@ -146,6 +172,20 @@ namespace BinaVibe.Mcp.Tools
                 // the model re-emitting them.
                 "place_socket_points"    => Electrical.SocketPlacement.PlaceSocketPoints(doc, args),
                 "place_socket_on_wall"   => Electrical.SocketPlacement.PlaceSocketOnWall(doc, args),
+                // Circuits: one TransactionGroup, single undo, per-circuit
+                // failure tolerance. Grouping comes from the cached plan,
+                // never from the model re-emitting device lists.
+                "create_circuits"        => Electrical.CircuitCommit.CreateCircuits(doc, args),
+                // Routes: conduits + elbow fittings + wires + circuit path per
+                // circuit, one Transaction each inside the group — a
+                // half-routed circuit rolls back alone, the rest survive.
+                "create_circuit_routes"  => Electrical.RouteCommit.Run(doc, args),
+                // The two circuiting unblockers. set_distribution_system
+                // writes an ElementId parameter set_parameter cannot reach;
+                // set_connector_electrical_data does an EditFamily round-trip
+                // and RELOADS the family, so it touches every instance.
+                "set_distribution_system" => Electrical.ElecSettings.SetDistributionSystem(doc, args),
+                "set_connector_electrical_data" => Electrical.ElecSettings.SetConnectorElectricalData(doc, args),
                 "create_wall"            => Mutators.CreateWall(doc, args),
                 "create_room"            => Mutators.CreateRoomXY(doc, args),
                 "create_level"           => Mutators.CreateLevel(doc, args),
@@ -179,6 +219,7 @@ namespace BinaVibe.Mcp.Tools
                 "create_beam"                   => MutatorsStructure.CreateBeam(doc, args),
                 "create_duct"                   => MutatorsMep.CreateDuct(doc, args),
                 "create_pipe"                   => MutatorsMep.CreatePipe(doc, args),
+                "create_conduit"                => MutatorsMep.CreateConduit(doc, args),
                 "create_dimensions"             => Dimensioning.CreateDimensions(app, doc, args),
 
                 // Generic OSS-compatible wrappers — dispatch to typed tools.
@@ -344,6 +385,7 @@ namespace BinaVibe.Mcp.Tools
         //   create_beam (MutatorsStructure) reads beam_type_name.
         //   create_pipe (MutatorsMep) reads pipe_type_name.
         //   create_duct (MutatorsMep) reads duct_type_name.
+        //   create_conduit (MutatorsMep) reads conduit_type_name.
         private static Dictionary<string, object?> CreateLineElement(UIApplication app, JsonElement args)
         {
             var category = ArgsHelp.GetString(args, "category")?.ToLowerInvariant();
@@ -356,8 +398,10 @@ namespace BinaVibe.Mcp.Tools
                     RemapArgs(args, ("type_name", "pipe_type_name"))),
                 "ductcurves" or "ost_ductcurves" or "ducts" => Invoke(app, "create_duct",
                     RemapArgs(args, ("type_name", "duct_type_name"))),
+                "conduit" or "ost_conduit" or "conduits" => Invoke(app, "create_conduit",
+                    RemapArgs(args, ("type_name", "conduit_type_name"))),
                 _ => throw new InvalidOperationException(
-                    "create_line_element category must be Walls|StructuralFraming|PipeCurves|DuctCurves"),
+                    "create_line_element category must be Walls|StructuralFraming|PipeCurves|DuctCurves|Conduit"),
             };
         }
 

@@ -3,11 +3,14 @@
 // CreateLineElementEventHandler.cs OST_DuctCurves case. Kept: rectangular-
 // duct-type fallback, MEPSystemType requirement, RBS_OFFSET_PARAM offset.
 // create_pipe: ours, shaped like the duct case (their handler has no pipe).
+// create_conduit: ours, shaped like the pipe case — but Conduit.Create takes
+// no MEPSystemType, so the system-type lookup step disappears entirely.
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Electrical;
 using Autodesk.Revit.DB.Mechanical;
 using Autodesk.Revit.DB.Plumbing;
 
@@ -42,7 +45,7 @@ namespace BinaVibe.Mcp.Tools
                     duct.get_Parameter(BuiltInParameter.RBS_CURVE_WIDTH_PARAM)?.Set(widthFt.Value);
                 if (heightFt.HasValue)
                     duct.get_Parameter(BuiltInParameter.RBS_CURVE_HEIGHT_PARAM)?.Set(heightFt.Value);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
 
                 return new Dictionary<string, object?>
                 {
@@ -77,12 +80,45 @@ namespace BinaVibe.Mcp.Tools
                 var diaFt = ArgsHelp.GetLengthMm(args, "diameter_mm");
                 if (diaFt.HasValue)
                     pipe.get_Parameter(BuiltInParameter.RBS_PIPE_DIAMETER_PARAM)?.Set(diaFt.Value);
-                tx.Commit();
+                TxGuard.CommitOrThrow(tx);
 
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true, ["new_ids"] = new List<long> { pipe.Id.Value },
                     ["pipe_type"] = pipeType.Name, ["level"] = level.Name,
+                };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
+        public static Dictionary<string, object?> CreateConduit(Document doc, JsonElement args)
+        {
+            var (start, end, level, offsetFt) = ParseRun(doc, args);
+            var typeName = ArgsHelp.GetString(args, "conduit_type_name");
+            var conduitType = new FilteredElementCollector(doc).OfClass(typeof(ConduitType)).Cast<ConduitType>()
+                .FirstOrDefault(c => typeName == null
+                    || string.Equals(c.Name, typeName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new InvalidOperationException(typeName != null
+                    ? $"conduit type '{typeName}' not found (use list_family_types(\"OST_Conduit\"))"
+                    : "no conduit types in project");
+
+            using var tx = new Transaction(doc, "BINA: create conduit");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                // Unlike Duct.Create/Pipe.Create there is no MEPSystemType, and
+                // the arg order differs: type first, level LAST.
+                var conduit = Conduit.Create(doc, conduitType.Id, start, end, level.Id);
+                SetOffset(conduit, offsetFt);
+                var diaFt = ArgsHelp.GetLengthMm(args, "diameter_mm");
+                if (diaFt.HasValue)
+                    conduit.get_Parameter(BuiltInParameter.RBS_CONDUIT_DIAMETER_PARAM)?.Set(diaFt.Value);
+                TxGuard.CommitOrThrow(tx);
+
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["new_ids"] = new List<long> { conduit.Id.Value },
+                    ["conduit_type"] = conduitType.Name, ["level"] = level.Name,
                 };
             }
             catch { tx.RollBack(); throw; }

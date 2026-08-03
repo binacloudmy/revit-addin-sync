@@ -105,6 +105,28 @@
          inward-facing rules are testable here. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\SocketLayout.cs" Link="SocketLayout.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\SocketPlanCache.cs" Link="SocketPlanCache.cs" />
+    <!-- Electrical circuiting/routing decision core: System only, mm/VA
+         throughout. Split out of CircuitCandidates.cs / RoutePlanner.cs /
+         ElecValidation.cs (which need a live Revit Document) precisely so the
+         grouping, phase-balance, path, sizing and finding rules are testable
+         here. RoutePath.cs uses Pt3Mm from GeomMm.cs (linked above). -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CircuitGrouping.cs" Link="CircuitGrouping.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\PhaseBalance.cs" Link="PhaseBalance.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\RoutePath.cs" Link="RoutePath.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\WireSizing.cs" Link="WireSizing.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\ElecFindings.cs" Link="ElecFindings.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CircuitPlanCache.cs" Link="CircuitPlanCache.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\RoutePlanCache.cs" Link="RoutePlanCache.cs" />
+    <!-- Obstruction-query math: System only, mm throughout. Split out of
+         QueryGeometry.cs/CorridorCheck.cs (which need a live Revit Document)
+         precisely so the AABB re-hull, clash overlap and segment-distance
+         rules are testable here. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\GeomMm.cs" Link="GeomMm.cs" />
+    <!-- MEP connector-graph model + BFS: System only. Split out of
+         TraceMep.cs (which needs a live Revit Document) precisely so the
+         walk, caps, cycle handling and open-end/panel classification are
+         testable here. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Mep\MepGraph.cs" Link="MepGraph.cs" />
     <!-- Lean-context wire contract: AIRequest/ModelContext (pure Newtonsoft
          DTOs). No Revit refs. -->
     <Compile Include="..\Models\AIRequest.cs" Link="AIRequest.cs" />

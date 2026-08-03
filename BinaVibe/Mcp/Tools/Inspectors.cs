@@ -2577,6 +2577,10 @@ namespace BinaVibe.Mcp.Tools
                     bic = BuiltInCategory.OST_MechanicalEquipment; break;
                 case "electrical_fixture": case "electrical fixtures":
                     bic = BuiltInCategory.OST_ElectricalFixtures; break;
+                case "electrical_equipment": case "electrical equipment": case "panel": case "panels":
+                    bic = BuiltInCategory.OST_ElectricalEquipment; break;
+                case "conduit_fitting": case "conduit fittings":
+                    bic = BuiltInCategory.OST_ConduitFitting; break;
                 default:
                     return new Dictionary<string, object?>
                     {
@@ -2588,6 +2592,7 @@ namespace BinaVibe.Mcp.Tools
                             "duct_fitting", "pipe_accessory", "sprinkler",
                             "air_terminal", "plumbing_fixture",
                             "mechanical_equipment", "electrical_fixture",
+                            "electrical_equipment", "conduit_fitting",
                         },
                     };
             }

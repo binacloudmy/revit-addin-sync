@@ -51,6 +51,15 @@ namespace BinaVibe.Mcp.Tools
             if (aspects.Contains("nearest_walls")) want.Add("nearest:wall");
             if (aspects.Contains("clashes")) want.Add("clashes");
 
+            // Clashes look into LOADED links too (most obstructions live there
+            // on an MEP model). Resolve the link contexts ONCE per call, not
+            // per element, and surface the unloaded ones — an unsearchable
+            // link must never read as "clear".
+            List<LinkCtx>? linkCtx = null;
+            List<string> linksUnloaded = new List<string>();
+            if (want.Contains("clashes"))
+                linkCtx = LinkGeom.Build(doc, out linksUnloaded);
+
             var rows = new List<object?>();
             var skipped = new List<long>();
             foreach (var id in ids)
@@ -63,7 +72,7 @@ namespace BinaVibe.Mcp.Tools
                 try
                 {
                     foreach (var kv in PlacementFacts(doc, el)) row[kv.Key] = kv.Value;
-                    foreach (var w in want) ApplyWant(doc, el, w, row);
+                    foreach (var w in want) ApplyWant(doc, el, w, row, linkCtx);
                 }
                 catch (System.Exception ex)
                 {
@@ -74,15 +83,22 @@ namespace BinaVibe.Mcp.Tools
 
             var result = new Dictionary<string, object?> { ["ok"] = true, ["elements"] = rows };
             if (skipped.Count > 0) result["skipped_ids"] = skipped;
+            if (linksUnloaded.Count > 0) result["links_unloaded"] = linksUnloaded.Cast<object?>().ToList();
             return result;
         }
 
         // Dispatch one ``want`` primitive onto the element's result row. Unknown
         // primitives are ignored (forward-compatible). Every relation writes
         // NUMBERS, never a verdict.
-        private static void ApplyWant(Document doc, Element el, string want, Dictionary<string, object?> row)
+        private static void ApplyWant(Document doc, Element el, string want,
+                                      Dictionary<string, object?> row, List<LinkCtx>? linkCtx)
         {
-            if (want == "clashes") { row["clashes"] = Clashes(doc, el); return; }
+            if (want == "clashes")
+            {
+                row["clashes"] = Clashes(doc, el, linkCtx, out bool truncated);
+                if (truncated) row["clashes_truncated"] = true;
+                return;
+            }
             if (want == "in_room") { row["in_room"] = InRoom(doc, el); return; }
             if (want == "hosted_on") { row["hosted_on"] = HostedOn(el); return; }
             if (want.StartsWith("nearest:"))
@@ -305,73 +321,120 @@ namespace BinaVibe.Mcp.Tools
         // clear in ONE move_elements call and re-verify. Flush contact (< TOL) and
         // the element's OWN host wall are excluded so a correctly-mounted fixture is
         // never a false alarm. Read-only — NO Transaction.
-        private const double CLASH_TOL_FT = 0.082;  // ~25mm; below this is contact, not a clash
+        //
+        // Covers the HOST document and every LOADED link: on an MEP model the
+        // architectural walls are a link, and a host-only check is blind to
+        // exactly the obstructions that matter. Link hits carry link_element_id
+        // and deliberately NO "id" — a link element id must never reach a
+        // mutate tool. push_out stays valid for link hits: it moves the HOST
+        // element. Overlap arithmetic lives in GeomMm (Revit-free, tested).
+        private const int ClashCap = 20;
 
-        private static List<object?> Clashes(Document doc, Element el)
+        private static readonly long[] ClashCats =
         {
+            (long)BuiltInCategory.OST_Walls,
+            (long)BuiltInCategory.OST_Columns,
+            (long)BuiltInCategory.OST_StructuralColumns,
+        };
+
+        private static List<object?> Clashes(Document doc, Element el,
+                                             List<LinkCtx>? linkCtx, out bool truncated)
+        {
+            truncated = false;
             var bb = el.get_BoundingBox(null);
             if (bb == null) return new List<object?>();
             long hostId = (el as FamilyInstance)?.Host?.Id.Value ?? -1;
-            var elCenter = (bb.Min + bb.Max) * 0.5;
+            var elMm = LinkGeom.ToMmBox(bb);
 
-            var outline = new Outline(bb.Min, bb.Max);
-            var filter = new BoundingBoxIntersectsFilter(outline);
-            var hits = new FilteredElementCollector(doc)
+            var result = new List<object?>();
+
+            // ── host document ──
+            var filter = new BoundingBoxIntersectsFilter(new Outline(bb.Min, bb.Max));
+            var hostHits = new FilteredElementCollector(doc)
                 .WhereElementIsNotElementType()
                 .WherePasses(filter)
                 .Where(e => e.Id.Value != el.Id.Value && e.Id.Value != hostId && e.Category != null)
-                .Where(e => e.Category.Id.Value == (long)BuiltInCategory.OST_Walls
-                         || e.Category.Id.Value == (long)BuiltInCategory.OST_Columns
-                         || e.Category.Id.Value == (long)BuiltInCategory.OST_StructuralColumns)
-                .Take(20);
-
-            var result = new List<object?>();
-            foreach (var e in hits)
+                .Where(e => ClashCats.Contains(e.Category.Id.Value));
+            foreach (var e in hostHits)
             {
+                if (result.Count >= ClashCap) { truncated = true; break; }
                 var wb = e.get_BoundingBox(null);
                 if (wb == null) continue;
-                double ox = System.Math.Min(bb.Max.X, wb.Max.X) - System.Math.Max(bb.Min.X, wb.Min.X);
-                double oy = System.Math.Min(bb.Max.Y, wb.Max.Y) - System.Math.Max(bb.Min.Y, wb.Min.Y);
-                double oz = System.Math.Min(bb.Max.Z, wb.Max.Z) - System.Math.Max(bb.Min.Z, wb.Min.Z);
-                if (ox <= 0 || oy <= 0 || oz <= 0) continue;   // no true 3D overlap
+                var hit = GeomMm.Overlap(elMm, LinkGeom.ToMmBox(wb));
+                if (hit == null) continue;
+                result.Add(ClashRow(hit, e.Category?.Name, source: "host",
+                                    id: e.Id.Value, linkId: null, linkName: null));
+            }
 
-                // Penetration = smaller horizontal overlap; push out along that axis,
-                // away from the wall's centre. (A deep overlap on ONE axis = buried.)
-                var wCenter = (wb.Min + wb.Max) * 0.5;
-                double pen; XYZ push;
-                if (ox <= oy)
+            // ── loaded links ──
+            if (linkCtx != null)
+            {
+                foreach (var lc in linkCtx)
                 {
-                    pen = ox;
-                    push = new XYZ((elCenter.X >= wCenter.X ? 1.0 : -1.0) * ox, 0, 0);
-                }
-                else
-                {
-                    pen = oy;
-                    push = new XYZ(0, (elCenter.Y >= wCenter.Y ? 1.0 : -1.0) * oy, 0);
-                }
-                if (pen < CLASH_TOL_FT) continue;   // flush contact, not a real clash
+                    if (result.Count >= ClashCap) { truncated = true; break; }
+                    // Cheap cull: skip a link whose whole footprint misses the element.
+                    if (lc.HostBox != null && !BoxesTouch(elMm, LinkGeom.ToMmBox(lc.HostBox)))
+                        continue;
 
-                result.Add(new Dictionary<string, object?>
-                {
-                    ["id"] = e.Id.Value,
-                    ["category"] = e.Category?.Name,
-                    ["penetration_ft"] = System.Math.Round(pen, 3),
-                    ["penetration_mm"] = System.Math.Round(pen * 304.8, 0),
-                    ["push_out_ft"] = new[]
+                    var lFilter = new BoundingBoxIntersectsFilter(LinkGeom.ToLinkOutline(elMm, lc.ToLink));
+                    var linkHits = new FilteredElementCollector(lc.Doc)
+                        .WhereElementIsNotElementType()
+                        .WherePasses(lFilter)
+                        .Where(e => e.Category != null && ClashCats.Contains(e.Category.Id.Value));
+                    foreach (var e in linkHits)
                     {
-                        System.Math.Round(push.X, 3),
-                        System.Math.Round(push.Y, 3),
-                        System.Math.Round(push.Z, 3),
-                    },
-                    ["push_out_mm"] = new[]
-                    {
-                        System.Math.Round(push.X * 304.8, 0),
-                        System.Math.Round(push.Y * 304.8, 0),
-                        System.Math.Round(push.Z * 304.8, 0),
-                    },
-                });
+                        if (result.Count >= ClashCap) { truncated = true; break; }
+                        var wb = e.get_BoundingBox(null);
+                        if (wb == null) continue;
+                        // Link bbox back into HOST space via all 8 corners.
+                        var hit = GeomMm.Overlap(elMm, LinkGeom.ToMmBox(wb, lc.ToHost));
+                        if (hit == null) continue;
+                        result.Add(ClashRow(hit, e.Category?.Name, source: "link",
+                                            id: null, linkId: lc.LinkId, linkName: lc.Name,
+                                            linkElementId: e.Id.Value));
+                    }
+                }
             }
             return result;
+        }
+
+        private static bool BoxesTouch(BoxMm a, BoxMm b)
+            => a.Min.X <= b.Max.X && a.Max.X >= b.Min.X
+            && a.Min.Y <= b.Max.Y && a.Max.Y >= b.Min.Y
+            && a.Min.Z <= b.Max.Z && a.Max.Z >= b.Min.Z;
+
+        private static Dictionary<string, object?> ClashRow(
+            ClashHitMm hit, string? category, string source,
+            long? id, long? linkId, string? linkName, long? linkElementId = null)
+        {
+            const double MmPerFoot = 304.8;
+            var row = new Dictionary<string, object?>
+            {
+                ["source"] = source,
+                ["category"] = category,
+                ["penetration_ft"] = System.Math.Round(hit.PenetrationMm / MmPerFoot, 3),
+                ["penetration_mm"] = System.Math.Round(hit.PenetrationMm, 0),
+                ["push_out_ft"] = new[]
+                {
+                    System.Math.Round(hit.PushX / MmPerFoot, 3),
+                    System.Math.Round(hit.PushY / MmPerFoot, 3),
+                    System.Math.Round(hit.PushZ / MmPerFoot, 3),
+                },
+                ["push_out_mm"] = new[]
+                {
+                    System.Math.Round(hit.PushX, 0),
+                    System.Math.Round(hit.PushY, 0),
+                    System.Math.Round(hit.PushZ, 0),
+                },
+            };
+            if (id.HasValue) row["id"] = id.Value;
+            if (linkId.HasValue)
+            {
+                row["link_id"] = linkId.Value;
+                row["link_name"] = linkName;
+                row["link_element_id"] = linkElementId;
+            }
+            return row;
         }
     }
 }

@@ -37,6 +37,28 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// the instance as well as turning it, and has to be undone.</summary>
         private const double MoveTolFt = 0.5 / MmPerFoot;
 
+        /// <summary>THE FAMILY AXIS IS BACKWARDS, AND THIS IS THE WORKAROUND.
+        ///
+        /// Every socket family loaded into these projects so far reports a
+        /// FamilyInstance.FacingOrientation that points OPPOSITE the visible
+        /// faceplate. Aim that nominal axis into the room — the geometrically
+        /// obvious thing, and what this tool did until now — and the faceplate
+        /// ends up buried in the wall while every number in the result reads
+        /// clean, because every number is derived from the same lying axis.
+        ///
+        /// So the tool now deliberately aims the nominal axis AT THE WALL. The
+        /// faceplate then lands in the room, which is the only thing the
+        /// drafter can actually see. `facing`, `facing_target` and
+        /// `facing_error_deg` therefore describe a WALL-WARD vector on purpose;
+        /// `room_normal` is reported alongside so the true inward direction is
+        /// never lost.
+        ///
+        /// This compensates for how the families are AUTHORED AND LOADED, not
+        /// for room geometry. Fix the families and this must be turned off with
+        /// family_axis_reversed=false, or every socket flips back into the
+        /// wall. Verify visually — facing_error_deg cannot settle it.</summary>
+        private const double FamilyAxisReversedDeg = 180.0;
+
         // ─── place_socket_points ────────────────────────────────────────
         public static Dictionary<string, object?> PlaceSocketPoints(Document doc, JsonElement args)
         {
@@ -66,6 +88,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var levelOverride = ArgsHelp.GetString(args, "level");
             double? mountOverrideMm = ArgsHelp.GetDouble(args, "mount_height_mm");
             double facingOffsetDeg = ArgsHelp.GetDouble(args, "facing_offset_deg") ?? 0.0;
+            // Default TRUE: see FamilyAxisReversedDeg. The families in use are
+            // authored back-to-front, so the honest default is the one that
+            // puts the faceplate in the room.
+            bool axisReversed = ArgsHelp.GetBool(args, "family_axis_reversed") ?? true;
 
             var created = new List<object>();
             var failed = new List<object>();
@@ -80,7 +106,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     try
                     {
                         var row = PlaceOne(doc, symbol, placement, p, levelOverride,
-                                           mountOverrideMm, facingOffsetDeg);
+                                           mountOverrideMm, facingOffsetDeg, axisReversed);
                         created.Add(row);
                     }
                     catch (Exception ex)
@@ -111,6 +137,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["plan_id"] = planId,
                 ["family_type"] = familyType,
                 ["facing_offset_deg"] = facingOffsetDeg,
+                ["family_axis_reversed"] = axisReversed,
+                ["facing_aimed_at"] = axisReversed ? "wall" : "room",
                 ["count"] = created.Count,
                 ["created"] = created,
                 ["failed"] = failed,
@@ -122,7 +150,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
         private static Dictionary<string, object?> PlaceOne(
             Document doc, FamilySymbol symbol, FamilyPlacementType placement,
             PlannedPoint p, string? levelOverride, double? mountOverrideMm,
-            double facingOffsetDeg)
+            double facingOffsetDeg, bool axisReversed)
         {
             double mountMm = mountOverrideMm ?? p.MountHeightMm;
             // ZMm was computed as floor + the plan's mount height; swapping the
@@ -130,10 +158,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
             double zMm = p.ZMm - p.MountHeightMm + mountMm;
             var pt = new XYZ(p.XMm / MmPerFoot, p.YMm / MmPerFoot, zMm / MmPerFoot);
 
-            // facing_offset_deg describes the FAMILY (a front axis authored the
-            // wrong way round), not the room, so it is applied to the target
-            // before any correction is attempted.
-            SocketLayout.ApplyOffsetDeg(p.FacingDx, p.FacingDy, facingOffsetDeg,
+            // Both corrections describe the FAMILY, not the room, so both are
+            // applied to the target before any rotation is attempted.
+            // FamilyAxisReversedDeg turns the aim around to point at the wall
+            // (see its summary — the visible faceplate is opposite the nominal
+            // axis); facing_offset_deg is the drafter's per-family top-up on
+            // whatever is left.
+            double aimOffsetDeg = facingOffsetDeg + (axisReversed ? FamilyAxisReversedDeg : 0.0);
+            SocketLayout.ApplyOffsetDeg(p.FacingDx, p.FacingDy, aimOffsetDeg,
                                         out double targetDx, out double targetDy);
             var facing = new XYZ(targetDx, targetDy, 0);
 
@@ -190,13 +222,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["host_wall_id"] = p.HostWallId,
                     ["host"] = host != null ? "wall" : "unhosted",
                     ["flipped"] = orient.Method == "flip",
+                    // facing / facing_target / facing_error_deg are all about the
+                    // NOMINAL axis, which is aimed at the wall on purpose when
+                    // axisReversed. room_normal is the real inward direction the
+                    // faceplate should end up in.
                     ["facing"] = new List<object> { Math.Round(orient.Dx, 4), Math.Round(orient.Dy, 4) },
                     ["facing_target"] = new List<object> { Math.Round(targetDx, 4), Math.Round(targetDy, 4) },
+                    ["facing_aimed_at"] = axisReversed ? "wall" : "room",
+                    ["room_normal"] = new List<object> { Math.Round(p.FacingDx, 4), Math.Round(p.FacingDy, 4) },
                     ["facing_error_deg"] = Math.Round(orient.ErrorDeg, 2),
                     ["facing_method"] = orient.Method,
-                    // Geometry, not the nominal axis — the only field that can
-                    // catch a family authored back-to-front.
-                    ["visible_profile"] = VisibleProfile(fi, host, facing),
                     ["elevation_set_via"] = elevationVia,
                 };
             }
@@ -232,6 +267,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
             double? mountMm = ArgsHelp.GetDouble(args, "mount_height_mm");
             double facingOffsetDeg = ArgsHelp.GetDouble(args, "facing_offset_deg") ?? 0.0;
             bool deriveFacing = ArgsHelp.GetBool(args, "derive_facing") ?? true;
+            // Default TRUE, same reasoning as place_socket_points. Note this
+            // also turns an explicitly supplied `facing` around: the arg means
+            // "which way the faceplate should point", not "which way to aim the
+            // family's axis", and those are opposites on these families.
+            bool axisReversed = ArgsHelp.GetBool(args, "family_axis_reversed") ?? true;
 
             // Resolve the target direction BEFORE the transaction — the
             // derivation is strictly read-only, and keeping it out here means a
@@ -289,7 +329,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 double? aimedDx = null, aimedDy = null;
                 if (targetDx.HasValue)
                 {
-                    SocketLayout.ApplyOffsetDeg(targetDx.Value, targetDy!.Value, facingOffsetDeg,
+                    double aimOffsetDeg = facingOffsetDeg
+                                        + (axisReversed ? FamilyAxisReversedDeg : 0.0);
+                    SocketLayout.ApplyOffsetDeg(targetDx.Value, targetDy!.Value, aimOffsetDeg,
                                                 out double tdx, out double tdy);
                     aimedDx = tdx; aimedDy = tdy;
                     orient = OrientToFace(doc, fi, new XYZ(tdx, tdy, 0));
@@ -321,11 +363,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["facing_target"] = aimedDx.HasValue
                         ? new List<object> { Math.Round(aimedDx.Value, 4), Math.Round(aimedDy!.Value, 4) }
                         : null,
+                    ["facing_aimed_at"] = targetDx.HasValue
+                        ? (axisReversed ? "wall" : "room")
+                        : null,
+                    ["room_normal"] = targetDx.HasValue
+                        ? new List<object> { Math.Round(targetDx.Value, 4), Math.Round(targetDy!.Value, 4) }
+                        : null,
                     ["facing_room_id"] = facingRoomId,
                     ["facing_derivation_error"] = deriveError,
-                    ["visible_profile"] = VisibleProfile(
-                        fi, host, aimedDx.HasValue ? new XYZ(aimedDx.Value, aimedDy!.Value, 0) : null),
                     ["facing_offset_deg"] = facingOffsetDeg,
+                    ["family_axis_reversed"] = axisReversed,
                     ["elevation_set_via"] = elevationVia,
                 };
             }
@@ -462,74 +509,6 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             double err = SocketLayout.AbsAngleDeg(dx, dy, target.X, target.Y);
             return new Orientation(dx, dy, err, "measured");
-        }
-
-        /// <summary>Where the instance's visible mass actually sits, measured
-        /// along the target normal from the WALL CENTRELINE, in mm.
-        ///
-        /// Every other facing check in this file reads FamilyInstance
-        /// FacingOrientation, which is a NOMINAL axis: a family authored with
-        /// its faceplate on the opposite side still reports a clean
-        /// facing_error_deg after OrientToFace has aimed that axis into the
-        /// room, and the drafter gets a socket buried in the wall with nothing
-        /// complaining. This is the only field that looks at geometry instead.
-        ///
-        /// Measured from the wall centreline rather than the insertion point on
-        /// purpose. A correct wall socket has a back box INSIDE the wall and a
-        /// thin plate outside it, so relative to the insertion point its mass
-        /// sits on the wall side even when it is right — a sign test there
-        /// would flip good sockets. Past the two wall faces the picture is
-        /// unambiguous: a correct socket protrudes a plate thickness into the
-        /// room and nothing out the back, a reversed one protrudes a box depth.
-        ///
-        /// REPORT ONLY for now. No correction fires off these numbers until
-        /// real families have been measured — see the socket_placement recipe.
-        /// Null when there is no host, no target, or no bounding box.</summary>
-        private static Dictionary<string, object?>? VisibleProfile(
-            FamilyInstance fi, Wall? host, XYZ? target)
-        {
-            if (host == null || target == null) return null;
-
-            double len = Math.Sqrt(target.X * target.X + target.Y * target.Y);
-            if (len < 1e-9) return null;
-            var n = new XYZ(target.X / len, target.Y / len, 0);
-
-            var ip = (fi.Location as LocationPoint)?.Point;
-            var axis = (host.Location as LocationCurve)?.Curve;
-            if (ip == null || axis == null) return null;
-
-            XYZ centre;
-            try { centre = axis.Project(ip)?.XYZPoint ?? ip; } catch { return null; }
-
-            var bb = fi.get_BoundingBox(null);
-            if (bb == null) return null;
-            var t = bb.Transform ?? Transform.Identity;
-
-            double hi = double.MinValue, lo = double.MaxValue;
-            foreach (var x in new[] { bb.Min.X, bb.Max.X })
-                foreach (var y in new[] { bb.Min.Y, bb.Max.Y })
-                    foreach (var z in new[] { bb.Min.Z, bb.Max.Z })
-                    {
-                        var c = t.OfPoint(new XYZ(x, y, z));
-                        double s = (c - centre).DotProduct(n);
-                        if (s > hi) hi = s;
-                        if (s < lo) lo = s;
-                    }
-            if (hi == double.MinValue) return null;
-
-            double halfWidthFt;
-            try { halfWidthFt = host.Width / 2.0; } catch { return null; }
-
-            return new Dictionary<string, object?>
-            {
-                ["wall_width_mm"] = Math.Round(halfWidthFt * 2.0 * MmPerFoot, 1),
-                // Positive = sticks out past that face. A correct socket should
-                // be a small positive on the room side and <= 0 out the back.
-                ["protrude_room_mm"] = Math.Round((hi - halfWidthFt) * MmPerFoot, 1),
-                ["protrude_back_mm"] = Math.Round((-lo - halfWidthFt) * MmPerFoot, 1),
-                // Signed offset of the bbox centre from the wall centreline.
-                ["centre_offset_mm"] = Math.Round((hi + lo) / 2.0 * MmPerFoot, 1),
-            };
         }
 
         /// <summary>Confirm the instance actually sits at the requested height,
