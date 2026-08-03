@@ -1,7 +1,9 @@
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -13,6 +15,14 @@ namespace RevitWebAppSync.Services
     /// </summary>
     public class ComplianceService
     {
+        // Shown for every 401 from the JKR/compliance routes — the backend now
+        // enforces a bearer token (app/routers/jkr.py's require_user) instead of
+        // running these calls anonymously. Surfaced verbatim through each
+        // response DTO's Error field so it reaches the panel via the same
+        // ShowStatus/TaskDialog paths that already render Error, rather than a
+        // generic "Server error: 401" or a silently empty dashboard.
+        internal const string LoginRequiredMessage = "Sila log masuk untuk guna JKR Compliance";
+
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
 
@@ -21,6 +31,19 @@ namespace RevitWebAppSync.Services
             // Cloud base: the local engine serves no /v1/compliance routes.
             _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedCloudBaseUrl;
             _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
+        }
+
+        /// <summary>
+        /// Attaches the caller's current bina-ai access token, same as AIService's
+        /// per-request Bearer pattern. Read fresh from BinaConfig.Load() on every
+        /// call (not cached at construction) so a login that happens after this
+        /// service was instantiated is picked up on the very next request.
+        /// </summary>
+        private static void AttachAuth(HttpRequestMessage req)
+        {
+            var token = BinaConfig.Load().AccessToken;
+            if (!string.IsNullOrEmpty(token))
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         }
 
         public async Task<bool> IsAvailableAsync()
@@ -41,12 +64,19 @@ namespace RevitWebAppSync.Services
             try
             {
                 var json = JsonConvert.SerializeObject(request);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var resp = await _httpClient.PostAsync($"{_baseUrl}/v1/compliance/fire-check", content);
+                using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/compliance/fire-check")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                };
+                AttachAuth(req);
+                var resp = await _httpClient.SendAsync(req);
                 var body = await resp.Content.ReadAsStringAsync();
 
                 if (resp.IsSuccessStatusCode)
                     return JsonConvert.DeserializeObject<ComplianceCheckResponse>(body);
+
+                if (resp.StatusCode == HttpStatusCode.Unauthorized)
+                    return new ComplianceCheckResponse { Error = LoginRequiredMessage };
 
                 return new ComplianceCheckResponse { Error = $"Server error: {resp.StatusCode}" };
             }
@@ -80,12 +110,19 @@ namespace RevitWebAppSync.Services
             try
             {
                 var json = JsonConvert.SerializeObject(request);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var resp = await _httpClient.PostAsync($"{_baseUrl}/v1/compliance/check-model", content);
+                using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/compliance/check-model")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                };
+                AttachAuth(req);
+                var resp = await _httpClient.SendAsync(req);
                 var body = await resp.Content.ReadAsStringAsync();
 
                 if (resp.IsSuccessStatusCode)
                     return JsonConvert.DeserializeObject<ModelCheckResponse>(body);
+
+                if (resp.StatusCode == HttpStatusCode.Unauthorized)
+                    return new ModelCheckResponse { Error = LoginRequiredMessage };
 
                 return new ModelCheckResponse { Error = $"Server error: {resp.StatusCode}" };
             }
@@ -104,12 +141,19 @@ namespace RevitWebAppSync.Services
             {
                 var request = new { schedule, purpose_group = purposeGroup };
                 var json = JsonConvert.SerializeObject(request);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var resp = await _httpClient.PostAsync($"{_baseUrl}/v1/compliance/lookup", content);
+                using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/compliance/lookup")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                };
+                AttachAuth(req);
+                var resp = await _httpClient.SendAsync(req);
                 var body = await resp.Content.ReadAsStringAsync();
 
                 if (resp.IsSuccessStatusCode)
                     return JsonConvert.DeserializeObject<ComplianceLookupResponse>(body);
+
+                if (resp.StatusCode == HttpStatusCode.Unauthorized)
+                    return new ComplianceLookupResponse { Notes = new List<string> { LoginRequiredMessage } };
 
                 return new ComplianceLookupResponse { Notes = new List<string> { $"Error: {resp.StatusCode}" } };
             }

@@ -118,6 +118,18 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Instrument Sans + JetBrains Mono for the copilot-reasoning UI
+         (2026-08-02 spec), embedded so the pack URIs in CopilotTokens.xaml
+         (Cp.Reasoning.Font / Cp.Reasoning.FontMono) resolve — see
+         Fonts\README.txt. Wildcard, not named files: the folder is empty
+         until a Windows builder drops the real .ttf files in, and a glob
+         with zero matches is a no-op (unlike a missing explicit path, which
+         fails the build). -->
+    <Resource Include="Fonts\*.ttf" />
+    <Resource Include="Fonts\*.otf" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- JKR BIM spec PDFs — deployed alongside the addin DLL rather than embedded
          because ~170MB of PDF would bloat the DLL and slow every build. The bootstrap
          locates them via the addin's runtime directory. -->

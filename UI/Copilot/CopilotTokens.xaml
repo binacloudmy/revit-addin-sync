@@ -123,4 +123,100 @@
     <!-- ═══════════ DIMENSIONS ═══════════ -->
     <sys:Double x:Key="Cp.PanelWidth">440</sys:Double>
 
+    <!-- ══════════════════════════════════════════════════════════════════════
+         REASONING UI (docs/design/copilot-reasoning/README.md, canonical
+         "BINA Copilot Thinking v2.dc.html") — 2026-08-02 spec.
+         Separate Cp.Reasoning.*/Cp.System.* namespace, NOT a re-theme of the
+         Cp.* palette above: the handoff's colors/type/spacing are FINAL for
+         the reasoning timeline, approval card, and result card ONLY. Existing
+         Cp.* keys (Cp.Accent, Cp.Font, …) keep every other screen unchanged —
+         per the operator's override, this feature keeps the current BINA icon
+         and does not restyle the rest of the panel.
+         ══════════════════════════════════════════════════════════════════════ -->
+
+    <!-- Ink / text -->
+    <SolidColorBrush x:Key="Cp.Reasoning.Ink"          Color="#0b0b0f"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.InkHover"     Color="#26262e"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.TextPrimary"  Color="#15151b"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.TextSecondary" Color="#4a4a55"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.Text"         Color="#7a7a86"/>   <!-- reasoning body -->
+    <SolidColorBrush x:Key="Cp.Reasoning.TextMuted"    Color="#8b8b95"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.TextRowCount" Color="#6e6e78"/>   <!-- result card row count (task 16 polish; distinct from TextMuted per handoff) -->
+    <SolidColorBrush x:Key="Cp.Reasoning.TextFaint"    Color="#a5a5ae"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.TextFaint2"   Color="#b4b4bd"/>
+
+    <!-- Borders / surfaces -->
+    <SolidColorBrush x:Key="Cp.Reasoning.Border"       Color="#e6e6ea"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.Border2"      Color="#eaeaee"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.Border3"      Color="#ebebef"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.BorderSubtle" Color="#f0f0f2"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.BorderSubtle2" Color="#f3f3f6"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.RailLine"     Color="#eeeef1"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.Surface"      Color="#ffffff"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.SurfaceSunken" Color="#fcfcfd"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.SurfaceSunken2" Color="#f4f4f6"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.Hover"        Color="#f5f5f7"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.Hover2"       Color="#fafafb"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.Badge"        Color="#f1f1f4"/>   <!-- "N steps" mono pill bg -->
+    <SolidColorBrush x:Key="Cp.Reasoning.BarTrack"     Color="#f0f0f3"/>   <!-- result card proportion-bar track -->
+
+    <!-- Accent (indigo — the reasoning module's own accent, distinct from
+         Cp.Accent's blue used everywhere else) -->
+    <SolidColorBrush x:Key="Cp.Reasoning.Accent"       Color="#4f46e5"/>
+    <LinearGradientBrush x:Key="Cp.Reasoning.AccentGrad" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0"    Color="#6366f1"/>
+        <GradientStop Offset="0.55" Color="#4f46e5"/>
+        <GradientStop Offset="1"    Color="#7c3aed"/>
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="Cp.Reasoning.Success"      Color="#10b981"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.WarnBg"       Color="#fef3c7"/>
+    <SolidColorBrush x:Key="Cp.Reasoning.WarnFg"       Color="#a16207"/>
+
+    <!-- Result-card system colours (color_hint -> token; "none"/unmapped falls
+         back to Cp.System.None). Fixed hex per the handoff — do NOT theme-shift. -->
+    <SolidColorBrush x:Key="Cp.System.Supply"          Color="#2563eb"/>
+    <SolidColorBrush x:Key="Cp.System.Return"          Color="#dc2626"/>
+    <SolidColorBrush x:Key="Cp.System.Exhaust"         Color="#eab308"/>
+    <SolidColorBrush x:Key="Cp.System.None"            Color="#d4d4da"/>
+
+    <!-- Approval card "Needs permission" amber badge -->
+    <LinearGradientBrush x:Key="Cp.Reasoning.WarnHeadGrad" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#fffdf8"/>
+        <GradientStop Offset="1" Color="#ffffff"/>
+    </LinearGradientBrush>
+
+    <!-- Typography — Instrument Sans (UI) + JetBrains Mono (metadata/counts/
+         timers/mono labels). Self-hosted per the handoff ("the WebView may be
+         offline" — same reasoning applies to a Revit dockable pane with no
+         guaranteed internet/font access on a locked-down drafting machine).
+         Pack-URI-first with the same OS fallback chain as Cp.Font/Cp.FontMono
+         above: until the real .ttf files land in Fonts\ (see Fonts\README.txt),
+         WPF can't resolve the pack URI family and silently falls through to
+         the fallback names — dropping the files in later "just works" with NO
+         further code change, matching the Cp.Font precedent (Task 17). -->
+    <FontFamily x:Key="Cp.Reasoning.Font">pack://application:,,,/RevitWebAppSync;component/Fonts/#Instrument Sans, Segoe UI, system-ui, sans-serif</FontFamily>
+    <FontFamily x:Key="Cp.Reasoning.FontMono">pack://application:,,,/RevitWebAppSync;component/Fonts/#JetBrains Mono, Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
+
+    <!-- Spacing scale (README: 4/6/8/9/10/11/13/14/16/20/22px) — exposed as
+         named doubles for code-behind consumers (ReasoningTimelineView etc.);
+         XAML call sites mostly hardcode Margin/Padding thicknesses directly. -->
+    <sys:Double x:Key="Cp.Reasoning.Space.xs">4</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Space.sm">8</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Space.md">13</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Space.lg">16</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Space.xl">20</sys:Double>
+
+    <!-- Radii (README: 3 swatch / 5 / 7 / 8 / 9 buttons / 13-14 cards / 99 pill) -->
+    <sys:Double x:Key="Cp.Reasoning.Radius.Swatch">3</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Radius.Sm">7</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Radius.Md">9</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Radius.Card">13</sys:Double>
+    <sys:Double x:Key="Cp.Reasoning.Radius.Pill">999</sys:Double>
+
+    <!-- Card / composer shadows (DropShadowEffect — WPF has no multi-layer
+         box-shadow, so this approximates the handoff's two-layer card shadow
+         with one blurred, low-opacity drop). -->
+    <DropShadowEffect x:Key="Cp.Reasoning.CardShadow"
+                       Color="#0b0b0f" Opacity="0.14" BlurRadius="20" ShadowDepth="4" Direction="270"/>
+
 </ResourceDictionary>

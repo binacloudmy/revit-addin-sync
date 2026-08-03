@@ -23,6 +23,7 @@ namespace BinaVibe.Mcp.Tools
             var visibleInView = ArgsHelp.GetBool(args, "visible_in_current_view") ?? false;
             var bboxMin = ArgsHelp.GetPointMm(args, "bbox_min_mm");
             var bboxMax = ArgsHelp.GetPointMm(args, "bbox_max_mm");
+            var connectivity = ArgsHelp.GetString(args, "connectivity");
             var maxElements = (int)(ArgsHelp.GetLong(args, "max_elements") ?? 50);
 
             if (category == null && elementType == null && !familySymbolId.HasValue)
@@ -30,6 +31,10 @@ namespace BinaVibe.Mcp.Tools
                     "filter_elements needs at least one of: category, element_type, family_symbol_id");
             if ((bboxMin != null) != (bboxMax != null))
                 throw new InvalidOperationException("bbox_min_mm and bbox_max_mm must be passed together");
+            if (connectivity != null
+                && connectivity != "connected" && connectivity != "unconnected" && connectivity != "no_connectors")
+                throw new InvalidOperationException(
+                    "connectivity must be one of: connected, unconnected, no_connectors");
 
             var all = new List<Element>();
             if (includeInstances) all.AddRange(Collect(app, doc, category, visibleInView, types: false));
@@ -58,6 +63,8 @@ namespace BinaVibe.Mcp.Tools
                           || bb.Max.Z < outline.MinimumPoint.Z || bb.Min.Z > outline.MaximumPoint.Z);
                 });
             }
+            if (connectivity != null)
+                filtered = filtered.Where(e => ClassifyConnectivity(e) == connectivity);
 
             var list = filtered.ToList();
             var truncated = list.Count > maxElements;
@@ -76,6 +83,25 @@ namespace BinaVibe.Mcp.Tools
             if (truncated)
                 result["truncated"] = $"showing {maxElements} of {list.Count} — narrow the filter or raise max_elements";
             return result;
+        }
+
+        // "connected" | "unconnected" | "no_connectors" — mirrors the
+        // connectivity dimension in Inspectors.CountByDimensionKey (count_by)
+        // so the two tools never disagree on what "unconnected" means. No
+        // ConnectorManager, or one with an empty connector set (placeholder
+        // families), is "no_connectors" — never mislabeled as connected.
+        private static string ClassifyConnectivity(Element e)
+        {
+            var cm = MutatorsMepRouting.GetConnectorManager(e);
+            if (cm == null) return "no_connectors";
+            bool sawAny = false, sawFree = false;
+            foreach (Connector c in cm.Connectors)
+            {
+                sawAny = true;
+                if (!c.IsConnected) sawFree = true;
+            }
+            if (!sawAny) return "no_connectors";
+            return sawFree ? "unconnected" : "connected";
         }
 
         private static List<Element> Collect(UIApplication app, Document doc, string? category,

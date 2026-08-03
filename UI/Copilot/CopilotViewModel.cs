@@ -76,6 +76,17 @@ namespace RevitWebAppSync.UI.Copilot
         public IChatRouter Router { get; set; }
         public string UserFirstName { get; set; } = "there";
         public string ModelName { get; set; } = "Main Model";
+        // 2026-08-02 defect #9 fix: the header subline is "«connection label»
+        // · «active document title»" — ModelName above IS the connection
+        // label (and doubles as feedback-log context elsewhere, unrelated to
+        // the header), but it does NOT hold the document title. It used to:
+        // the header bound BOTH halves to ModelName, and ModelName's own
+        // fallback (before SetRevitContext populates it, or if doc.Title is
+        // ever empty) is literally the string "Main Model" too — so the
+        // subline could read "Main Model · Main Model". DocumentTitle is a
+        // separate property, set only from the live Document.Title (see
+        // CopilotPanel.SetRevitContext), so the two halves can never collide.
+        public string DocumentTitle { get; set; } = "";
 
         /// <summary>Raised when the user taps the inline "rate" nudge under a
         /// reply. The panel listens and slides up the Rate sheet (which owns the
@@ -450,14 +461,15 @@ namespace RevitWebAppSync.UI.Copilot
         // typed-steps snapshot from RevitChatRouter.OnSteps (null until the
         // backend emits at least one steps frame — older backends never set
         // this, which is how the legacy OnProgress fallback below detects it
-        // should keep driving the trail). _streamText mirrors whatever reply
-        // prose OnCodeStream has accumulated so far, so OnSteps can keep the
-        // growing answer visible under the trail instead of blanking it.
-        // Both reset at the start of every turn (ChatSend) — never mid-turn,
-        // so a late OnProgress tick from an old-style backend can't clobber
-        // a newer OnSteps-driven trail once one has arrived this turn.
+        // should keep driving the trail). Reset at the start of every turn
+        // (ChatSend) — never mid-turn, so a late OnProgress tick from an
+        // old-style backend can't clobber a newer OnSteps-driven trail once
+        // one has arrived this turn.
         private IReadOnlyList<ProgressStep> _lastSteps;
-        private string _streamText;
+        // Live REASONING trail state for the current turn — same reset/lifecycle
+        // as _lastSteps above, but a separate collection (see ReasoningStep):
+        // the working-narrative timeline, not the terse tool/status trail.
+        private IReadOnlyList<ReasoningStep> _lastReasoning;
 
         /// <summary>User clicked Stop — abort the streaming reply. The router's
         /// RouteAsync then returns a "Cancelled." result which resolves the bubble;
@@ -717,7 +729,7 @@ namespace RevitWebAppSync.UI.Copilot
             // }
 
             _lastSteps = null;
-            _streamText = null;
+            _lastReasoning = null;
             // P2 slash command: hand the backend command id to the router BEFORE
             // routing kicks off. The field persists until RouteAsync consumes and
             // clears it (sends are serial, so it can't leak into another turn).
@@ -1166,28 +1178,51 @@ namespace RevitWebAppSync.UI.Copilot
                         ReplaceLastThinking(new ChatMessage
                         {
                             Role = "ai", Kind = CpMsgKind.Thinking,
-                            Text = _streamText ?? "",
-                            StreamingReply = !string.IsNullOrEmpty(_streamText),
                             LiveSteps = steps,
+                            LiveReasoningSteps = _lastReasoning,
                         });
                     };
+                    // Streaming reasoning ("working narrative") timeline — a
+                    // SEPARATE trail from OnSteps above (see ReasoningStep). Same
+                    // marshal contract: ReasoningStep is shared/mutable but the
+                    // control only ever reads its current values synchronously on
+                    // the UI thread, never binds to its INPC.
+                    revitRouter.OnReasoning = steps =>
+                    {
+                        _lastReasoning = steps;
+                        if (CopilotPrefs.Load().ReasoningEnabled == false) return;
+                        ReplaceLastThinking(new ChatMessage
+                        {
+                            Role = "ai", Kind = CpMsgKind.Thinking,
+                            LiveSteps = _lastSteps,
+                            LiveReasoningSteps = steps,
+                        });
+                    };
+                    // 2026-08-02 "intermediate prose leak" fix: this callback's
+                    // cumulative reply_partial text used to render as a growing
+                    // full-size ANSWER bubble mid-turn (StreamingReply=true) — but
+                    // every round's reply streams here, not just the truly final
+                    // one, so an intermediate round's prose ("Tiada tool sedia
+                    // untuk permintaan ini…") rendered as if it were the answer,
+                    // sometimes duplicated when a later round's text arrived on
+                    // top. It never does that anymore: the backend's `reasoning`
+                    // frames (OnReasoning above) already carry the honest working
+                    // narrative for the reasoning card, and RenderRouteResult
+                    // builds the ONE real answer message from the terminal
+                    // done-frame's reply once the turn actually finishes — so this
+                    // handler now only keeps the reasoning card's liveness ticking
+                    // (same ReplaceLastThinking the other two handlers use) and
+                    // flags replyStreaming so the legacy single-line OnProgress
+                    // fallback (older backends with no typed steps) stays quiet.
                     revitRouter.OnCodeStream = (cumulative) =>
                     {
                         if (string.IsNullOrWhiteSpace(cumulative)) return;
                         replyStreaming = true;
-                        _streamText = cumulative;
-                        // StreamingReply: still Kind=Thinking so ReplaceLastThinking
-                        // keeps growing THIS bubble, but flagged so ChatView renders
-                        // the prose as the reply (markdown) — not the steps trail.
-                        // LiveSteps carries along whatever trail has arrived so far
-                        // so the ticking rows stay visible ABOVE the growing answer
-                        // instead of disappearing the moment prose starts.
                         ReplaceLastThinking(new ChatMessage
                         {
                             Role = "ai", Kind = CpMsgKind.Thinking,
-                            Text = cumulative,
-                            StreamingReply = true,
                             LiveSteps = _lastSteps,
+                            LiveReasoningSteps = _lastReasoning,
                         });
                     };
                 }
@@ -1199,6 +1234,7 @@ namespace RevitWebAppSync.UI.Copilot
             revitRouter.OnProgress = null;
             revitRouter.OnCodeStream = null;
             revitRouter.OnSteps = null;
+            revitRouter.OnReasoning = null;
         }
 
         /// <summary>Render a resolved RouteResult into the thread — clarify card,
@@ -1232,17 +1268,35 @@ namespace RevitWebAppSync.UI.Copilot
             // so the loop parked BEFORE executing. Render the Ya/Tidak card listing
             // the proposed actions; AcceptActions/DeclineActions resolve it via the
             // router's ResolvePendingActionsAsync.
+            //
+            // Action Mode addendum (2026-08-02): in Auto mode, a batch where EVERY
+            // call opted out of confirmation (rr.AutoApprovable) skips the
+            // interactive card entirely — approved programmatically through the
+            // SAME accept path a click would use (RunResolution below), with a
+            // compact "Auto-approved" card left in the transcript as the audit
+            // trail. Anything else (Ask-first mode, or ANY call still requiring
+            // confirmation) shows the normal interactive card — v1 simplicity,
+            // no partial auto per the spec.
             if (rr != null && rr.NeedsActionConfirmation)
             {
-                ReplaceLastThinking(new ChatMessage
+                bool auto = CopilotPrefs.Load().AutoApproveWrites && rr.AutoApprovable;
+                var confirmMsg = new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.ConfirmActions,
                     Text = rr.Reply ?? "",   // agent narration above the card, may be empty
                     ActionLabels = rr.ActionLabels ?? new List<string>(),
                     Steps = rr.Steps,
+                    ReasoningSteps = rr.ReasoningSteps,
+                    ReasoningElapsedSeconds = rr.ReasoningElapsedSeconds,
                     Time = System.DateTime.Now.ToString("h:mm tt"),
-                });
-                AppendToCurrentSession(displayText, "Menunggu pengesahan tindakan", "ok", null, historyFiles);
+                    ActionsResolved = auto,
+                    ActionsApproved = auto ? (bool?)true : null,
+                    AutoApproved = auto,
+                };
+                ReplaceLastThinking(confirmMsg);
+                AppendToCurrentSession(displayText,
+                    auto ? "Auto-approved" : "Menunggu pengesahan tindakan", "ok", null, historyFiles);
+                if (auto) RunResolution(confirmMsg, approve: true);
                 return;
             }
 
@@ -1268,6 +1322,10 @@ namespace RevitWebAppSync.UI.Copilot
                     Text = !string.IsNullOrWhiteSpace(rr.Reply) ? rr.Reply : "Done.",
                     ToolCallTrace = rr.ToolCallTrace,
                     Steps = rr.Steps,
+                    ReasoningSteps = rr.ReasoningSteps,
+                    ReasoningElapsedSeconds = rr.ReasoningElapsedSeconds,
+                    Followups = rr.Followups,
+                    ResultSummary = rr.ResultSummary,
                     Verdict = rr.Verdict,
                     Interrupted = rr.Interrupted,
                     Time = System.DateTime.Now.ToString("h:mm tt"),
@@ -1278,13 +1336,50 @@ namespace RevitWebAppSync.UI.Copilot
                 return;
             }
 
-            // AI-generated code (query OR action): auto-run and show the
-            // result. Deletion is gated server-side (delete_elements →
-            // approval card), so any C# the agent emits here is non-delete
-            // and runs automatically — no Run button.
+            // AI-generated code (query OR action): codegen follows Action Mode
+            // like everything else (operator override, 2026-08-02 — supersedes
+            // the earlier "always show the card" pass). The card shows iff
+            // Ask-first mode OR the backend flagged THIS script as destructive
+            // (rr.CodeRequiresConfirmation true — backend is moving this from a
+            // hardcoded constant to a .Delete/purge/workset pattern heuristic; a
+            // missing/absent flag defaults true, i.e. still gated, fail-safe).
+            // Auto mode + a clean flag runs immediately — same "already resolved
+            // on first paint" pattern RenderRouteResult uses for the MUTATE-batch
+            // auto-approve above, and the SAME shared execution path
+            // (RunCodeExecution) whether a drafter clicked Allow or Auto ran it,
+            // so the audit trail reads identically either way.
             if (rr != null && !string.IsNullOrWhiteSpace(rr.Code))
             {
-                ExecuteAsChatReply(tool, rr.Code, routeText, displayText, historyFiles, rr.Reply, rr.Tindakan);
+                bool autoMode = CopilotPrefs.Load().AutoApproveWrites;
+                bool showCard = !autoMode || rr.CodeRequiresConfirmation;
+                int lines = rr.Code.Split('\n').Length;
+                var codeMsg = new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.ConfirmActions, ToolId = tool.Id,
+                    Text = rr.Reply ?? "",
+                    ActionLabels = new List<string> { $"Run generated code ({lines} line{(lines == 1 ? "" : "s")})" },
+                    Steps = rr.Steps,
+                    ReasoningSteps = rr.ReasoningSteps,
+                    ReasoningElapsedSeconds = rr.ReasoningElapsedSeconds,
+                    Followups = rr.Followups,
+                    ResultSummary = rr.ResultSummary,
+                    Tindakan = rr.Tindakan ?? "",
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
+                    PendingCode = rr.Code,
+                    PendingCodeRoutePrompt = routeText,
+                    PendingCodeDisplayPrompt = displayText,
+                    PendingCodeHistoryFiles = historyFiles,
+                };
+                if (!showCard)
+                {
+                    codeMsg.ActionsResolved = true;
+                    codeMsg.ActionsApproved = true;
+                    codeMsg.AutoApproved = true;
+                }
+                ReplaceLastThinking(codeMsg);
+                AppendToCurrentSession(displayText,
+                    showCard ? "Menunggu pengesahan kod" : "Auto-approved", "ok", null, historyFiles);
+                if (!showCard) RunCodeExecution(codeMsg);
                 return;
             }
 
@@ -1302,7 +1397,10 @@ namespace RevitWebAppSync.UI.Copilot
             AppendToCurrentSession(displayText, text2, "ok", new List<string> { tool.Id }, historyFiles);
         }
 
-        private void ExecuteAsChatReply(ToolDef tool, string code, string routePrompt = null, string displayPrompt = null, List<HistoryFile> historyFiles = null, string streamedReply = null, string tindakan = null)
+        private void ExecuteAsChatReply(ToolDef tool, string code, string routePrompt = null, string displayPrompt = null,
+            List<HistoryFile> historyFiles = null, string streamedReply = null, string tindakan = null,
+            List<ReasoningStep> reasoningSteps = null, double reasoningElapsedSeconds = 0,
+            List<FollowupAction> followups = null, ResultSummaryModel resultSummary = null)
         {
             ToolId = tool.Id;
             _runClock = System.Diagnostics.Stopwatch.StartNew();
@@ -1325,24 +1423,61 @@ namespace RevitWebAppSync.UI.Copilot
             {
                 var result = BuildResult(tool, outcome);
                 var resultText = FormatResultAsText(result, outcome);
-                // ONE growing bubble: keep the model's streamed narration ("Tingkap
-                // diasingkan… Sekarang warnakan…") and APPEND the code's result under
-                // it, instead of REPLACING the narration with the result.
-                var reply = (!string.IsNullOrWhiteSpace(streamedReply)
-                             && streamedReply.Trim() != resultText.Trim())
-                    ? streamedReply.Trim() + "\n\n" + resultText
-                    : resultText;
+                // 2026-08-02 fix (acceptance-test item for the reasoning-UI round):
+                // streamedReply here is the pre-execution placeholder narration
+                // ("Tiada tool sedia untuk permintaan ini, jadi saya jana skrip
+                // C#…") — TRANSIENT commentary about what's ABOUT to happen, not
+                // part of the answer. It used to be PREPENDED to the execution
+                // result, so the real result ended up "one buried line at the
+                // bottom" under the placeholder text. Now the execution result
+                // REPLACES it as the turn's single answer block; the placeholder
+                // is preserved instead as a reasoning step (same routing defect
+                // #1 uses for other intermediate prose) so it's still visible if
+                // the drafter expands the reasoning card.
+                var finalReasoningSteps = reasoningSteps;
+                if (!string.IsNullOrWhiteSpace(streamedReply) && streamedReply.Trim() != resultText.Trim())
+                {
+                    finalReasoningSteps = new List<ReasoningStep>(reasoningSteps ?? new List<ReasoningStep>())
+                    {
+                        new ReasoningStep
+                        {
+                            StepId = "codegen-note", Label = "Working notes",
+                            Text = streamedReply.Trim(), State = ReasoningState.Done,
+                        },
+                    };
+                }
+                // Terminal script failure (self-heal retries exhausted): the answer bubble
+                // is now a clean drafter-facing line (see FormatResultAsText) — the raw
+                // compiler/runtime error is NOT discarded, it's tucked into a reasoning
+                // step ("Error detail") so it's one expand away, same as any other working
+                // note. The retry lane itself (RevitCopilotExecutor.RunWithSelfHeal) still
+                // sends the full raw error to the backend on every attempt — untouched.
+                if (outcome != null && !outcome.Success && !string.IsNullOrWhiteSpace(outcome.Error))
+                {
+                    finalReasoningSteps = new List<ReasoningStep>(finalReasoningSteps ?? new List<ReasoningStep>())
+                    {
+                        new ReasoningStep
+                        {
+                            StepId = "error-detail", Label = "Error detail",
+                            Text = outcome.Error.Trim(), State = ReasoningState.Done,
+                        },
+                    };
+                }
                 ReplaceLastThinking(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id,
-                    Text = reply,
+                    Text = resultText,
                     // Carry the offer through the codegen path too — without this
                     // a done frame with BOTH code and tindakan dropped the offer
-                    // and the Ya/Tidak row never rendered (the reply-only branch
-                    // already set it).
+                    // and the follow-up chip never rendered (the reply-only
+                    // branch already set it).
                     Tindakan = tindakan ?? "",
+                    ReasoningSteps = finalReasoningSteps,
+                    ReasoningElapsedSeconds = reasoningElapsedSeconds,
+                    Followups = followups,
+                    ResultSummary = resultSummary,
                 });
-                AppendToCurrentSession(displayPrompt ?? tool.Title, reply, "ok", new List<string> { tool.Id }, historyFiles);
+                AppendToCurrentSession(displayPrompt ?? tool.Title, resultText, "ok", new List<string> { tool.Id }, historyFiles);
                 PopulateHighlights(tool.Id);
             }
 
@@ -1351,17 +1486,23 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         // ─── Tindakan (one-tap next-step offer) ────────────────────────────────
-        // The agent's reply can end with a "next step" offer ("Nak saya
-        // lanjutkan?"); the pane renders it as [✓ Ya, teruskan] / [Tidak] under
-        // the LAST AiReply while unresolved (ChatView gates the buttons — see
-        // IsLastAiReply). Ya re-sends the offer text as if the drafter typed it
-        // — SAME path as a normal ChatSend, so it goes through the tool loop,
-        // history, feedback, everything unchanged. Tidak just dismisses.
+        // Old-backend fallback only (a turn with no Followups list — see
+        // ChatView's hasTindakan gate). The agent's reply can end with a "next
+        // step" offer ("Nak saya lanjutkan?"); the pane renders it as a
+        // follow-up CHIP under the LAST AiReply while unresolved (ChatView
+        // gates it — see IsLastAiReply) — 2026-08-02: no longer the old blue
+        // "✓ Ya, teruskan"/"Tidak" buttons (defect #4, unified into the
+        // reasoning-UI's chip row). Task 12 (2026-08-02): sends the FULL
+        // m.Tindakan text verbatim, matching every other follow-up chip's
+        // "what's shown [before truncation] is what gets sent" contract — a
+        // bare "Continue" placeholder lost the offer's content on send, and the
+        // multi-bullet Followups path never used one, so this fallback
+        // shouldn't either.
         public void AcceptTindakan(ChatMessage m)
         {
             if (m == null || string.IsNullOrWhiteSpace(m.Tindakan) || m.TindakanResolved) return;
             m.TindakanResolved = true;
-            ChatSend("Ya, teruskan: " + m.Tindakan);
+            ChatSend(m.Tindakan);
         }
 
         public void DeclineTindakan(ChatMessage m)
@@ -1388,18 +1529,31 @@ namespace RevitWebAppSync.UI.Copilot
 
         public void DeclineActions(ChatMessage m) => ResolveActions(m, approve: false);
 
-        private async void ResolveActions(ChatMessage m, bool approve)
+        private void ResolveActions(ChatMessage m, bool approve)
         {
             if (m == null || m.ActionsResolved) return;
             m.ActionsResolved = true;
+            m.ActionsApproved = approve;
+            RunResolution(m, approve);
+        }
+
+        /// <summary>Continue the tool loop after a MUTATE batch is resolved —
+        /// either by a drafter click (ResolveActions, above) or programmatically
+        /// by Auto mode (RenderRouteResult's AutoApprovable branch, which marks
+        /// the message resolved/approved and passes it straight in here without
+        /// ever showing the interactive card). Same redraw-then-resume-then-
+        /// render tail either way, so both paths produce an identical follow-on
+        /// (another confirm card, a clarify question, or the final reply).</summary>
+        private async void RunResolution(ChatMessage m, bool approve)
+        {
             int i = Thread.IndexOf(m);
-            if (i >= 0) Thread[i] = Thread[i];   // redraw: kill the card's buttons
+            if (i >= 0) Thread[i] = Thread[i];   // redraw: kill the card's buttons / show resolved state
 
             var revitRouter = Router as RevitChatRouter;
             if (revitRouter == null) return;
 
             _lastSteps = null;
-            _streamText = null;
+            _lastReasoning = null;
             Thread.Add(new ChatMessage
             {
                 Role = "ai", Kind = CpMsgKind.Thinking,
@@ -1430,6 +1584,49 @@ namespace RevitWebAppSync.UI.Copilot
             // displayText: the user's side of this turn is the button click, not a
             // typed prompt — persist it as the Malay Ya/Tidak line.
             RenderRouteResult(rr, LastPrompt, approve ? "Ya, teruskan" : "Tidak", "ai-generated", null);
+        }
+
+        // ─── Codegen approval gate (Action Mode addendum, 2026-08-02) ──────────
+        // Distinct from the MUTATE-batch confirm flow above: there is no server
+        // round-trip to make here — the code already exists (RenderRouteResult
+        // either stashes it on an interactive card, or — Auto mode + a clean
+        // flag — pre-resolves the message and runs it immediately via
+        // RunCodeExecution below). Allow == the immediate-run path, just
+        // triggered by a click instead of the mode check. Reject is a pure
+        // local no-op (mark resolved, never run) — only reachable when a card
+        // was actually shown.
+        public void AcceptCodeApproval(ChatMessage m)
+        {
+            if (m == null || m.ActionsResolved || string.IsNullOrEmpty(m.PendingCode)) return;
+            m.ActionsResolved = true;
+            m.ActionsApproved = true;
+            int i = Thread.IndexOf(m);
+            if (i >= 0) Thread[i] = Thread[i];   // redraw: kill the card's buttons
+            RunCodeExecution(m);
+        }
+
+        /// <summary>Actually run a gated codegen script — shared by a drafter's
+        /// Allow click (AcceptCodeApproval, above) and Auto mode's immediate-run
+        /// path (RenderRouteResult, when showCard is false), same "one execution
+        /// path, one audit trail" pattern as RunResolution for the MUTATE-batch
+        /// flow. Caller is responsible for the message's resolved/approved state
+        /// — this only runs the code.</summary>
+        private void RunCodeExecution(ChatMessage m)
+        {
+            var tool = CopilotCatalog.Find(m.ToolId);
+            if (tool == null) return;
+            ExecuteAsChatReply(tool, m.PendingCode, m.PendingCodeRoutePrompt, m.PendingCodeDisplayPrompt,
+                m.PendingCodeHistoryFiles, m.Text, m.Tindakan,
+                m.ReasoningSteps, m.ReasoningElapsedSeconds, m.Followups, m.ResultSummary);
+        }
+
+        public void DeclineCodeApproval(ChatMessage m)
+        {
+            if (m == null || m.ActionsResolved) return;
+            m.ActionsResolved = true;
+            m.ActionsApproved = false;
+            int i = Thread.IndexOf(m);
+            if (i >= 0) Thread[i] = Thread[i];
         }
 
         // ─── Feedback (👍/👎) ───────────────────────────────────────────────────
@@ -1466,11 +1663,18 @@ namespace RevitWebAppSync.UI.Copilot
         }
 
         /// <summary>Reformulate the structured result as one conversational line for the
-        /// AiReply chat bubble. Falls back to the headline when no richer shape applies.</summary>
+        /// AiReply chat bubble. Falls back to the headline when no richer shape applies.
+        ///
+        /// On failure this deliberately does NOT surface outcome.Error — that's the raw
+        /// Roslyn compiler output ("Line 6: ... cannot be declared", "does not contain a
+        /// definition for ...") from CodeExecutor.CompileCheck, useful for debugging but
+        /// meaningless to a drafter and a violation of the "drafter is not the debugger"
+        /// reply rule. The caller (ExecuteAsChatReply) attaches the raw text as an
+        /// "Error detail" reasoning step instead, so it's one expand away.</summary>
         private static string FormatResultAsText(ResultModel r, ExecOutcome outcome)
         {
             if (outcome != null && !outcome.Success)
-                return "Sorry — that didn't run. " + (outcome.Error ?? "");
+                return "Tak dapat siapkan skrip untuk tugasan ini selepas beberapa percubaan.";
             if (r == null) return "Done.";
             string text;
             switch (r.Kind)

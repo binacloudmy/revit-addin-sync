@@ -19,6 +19,40 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public PromptBar()
         {
             InitializeComponent();
+            // Reasoning toggle (2026-08-02 spec): persisted via CopilotPrefs,
+            // read once here (a settings write is cheap but this is a hot ctor
+            // path — PromptBar is reused, not recreated per turn). Dot: filled
+            // accent when on, hollow/faint outline when off.
+            UpdateReasoningDot();
+            ReasoningBtn.Click += (_, __) =>
+            {
+                var prefs = RevitWebAppSync.UI.Copilot.Model.CopilotPrefs.Load();
+                prefs.ReasoningEnabled = !prefs.ReasoningEnabled;
+                prefs.Save();
+                UpdateReasoningDot();
+            };
+            // Action Mode chip + popover (2026-08-02 addendum). ActionModeBtn opens
+            // the popup (StaysOpen="False" in XAML already closes it on outside
+            // click); the two option rows persist the choice and close it; Esc
+            // closes it too (OnActionModePopupKeyDown, wired via the Border's
+            // KeyDown in XAML — needs keyboard focus inside the popup, so we grab
+            // it on open).
+            UpdateActionModeChip();
+            ActionModeBtn.Click += (_, __) =>
+            {
+                // Respect reduced motion: skip the fade entrance. Must be set
+                // BEFORE IsOpen flips true — PopupAnimation governs the OPEN
+                // transition, so setting it in an Opened handler would be one
+                // frame too late (same "drop the motion, keep function" rule
+                // the reasoning-UI's BeginAnimation call sites use).
+                ActionModePopup.PopupAnimation = CopilotTheme.ReducedMotion
+                    ? System.Windows.Controls.Primitives.PopupAnimation.None
+                    : System.Windows.Controls.Primitives.PopupAnimation.Fade;
+                ActionModePopup.IsOpen = true;
+                ActionModeCard.Focus();
+            };
+            AskFirstOption.Click += (_, __) => SetActionMode(auto: false);
+            AutoOption.Click += (_, __) => SetActionMode(auto: true);
             SendBtn.Click += (_, __) =>
             {
                 // Busy → the button is a Stop: cancel the in-flight reply instead
@@ -476,17 +510,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         }
 
         // Idle (no text): transparent circle + faint arrow. Armed (text present)
-        // or Busy (stop): accent-gradient circle + white glyph.
+        // or Busy (stop): ink-black circle + white glyph (2026-08-02 defect #6
+        // fix — the artifact's composer send button is always ink-black when
+        // armed, not the accent gradient the rest of the pane uses elsewhere).
         private void UpdateSendVisual()
         {
             if (SendBtn == null || SendIcon == null || Input?.Editor == null) return;
             bool armed = Busy || _pendingTool != null || !string.IsNullOrWhiteSpace(Input.Editor.Text);
             if (armed)
             {
-                SendBtn.Background = TryFindResource("Cp.AccentGrad") as System.Windows.Media.Brush ?? Brushes.RoyalBlue;
+                SendBtn.Background = TryFindResource("Cp.Reasoning.Ink") as System.Windows.Media.Brush ?? Brushes.Black;
                 // Always white — NOT Cp.AccentContrast (which is near-black in dark theme,
                 // giving a black glyph on the blue button). A send/stop glyph reads best
-                // white on the accent gradient in both themes.
+                // white on an ink-black button in both themes.
                 SendIcon.Fill = Brushes.White;
             }
             else
@@ -496,9 +532,59 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
         }
 
+        // Reasoning toggle chip dot: filled indigo when on, hollow faint outline
+        // when off — TryFindResource (not SetResourceReference) so the paint is a
+        // one-shot snapshot like UpdateSendVisual above, consistent with this
+        // file's existing theme-read pattern.
+        private void UpdateReasoningDot()
+        {
+            if (ReasoningDot == null) return;
+            bool on = RevitWebAppSync.UI.Copilot.Model.CopilotPrefs.Load().ReasoningEnabled;
+            var accent = TryFindResource("Cp.Reasoning.Accent") as System.Windows.Media.Brush ?? Brushes.MediumPurple;
+            var faint = TryFindResource("Cp.Faint") as System.Windows.Media.Brush ?? Brushes.Gray;
+            ReasoningDot.Fill = on ? accent : Brushes.Transparent;
+            ReasoningDot.Stroke = on ? accent : faint;
+            ReasoningDot.StrokeThickness = on ? 0 : 1;
+        }
+
+        // Action Mode chip (2026-08-02 addendum): amber dot + "Ask first" when
+        // AutoApproveWrites is off (default), green dot + "Auto" when on. Same
+        // one-shot TryFindResource snapshot pattern as UpdateReasoningDot/
+        // UpdateSendVisual above.
+        private static readonly System.Windows.Media.Color AmberDot = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#eab308");
+        private static readonly System.Windows.Media.Color GreenDot = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#10b981");
+
+        private void UpdateActionModeChip()
+        {
+            if (ActionModeDot == null) return;
+            bool auto = RevitWebAppSync.UI.Copilot.Model.CopilotPrefs.Load().AutoApproveWrites;
+            ActionModeDot.Fill = new SolidColorBrush(auto ? GreenDot : AmberDot);
+            ActionModeLabel.Text = auto ? "Auto" : "Ask first";
+        }
+
+        private void SetActionMode(bool auto)
+        {
+            var prefs = RevitWebAppSync.UI.Copilot.Model.CopilotPrefs.Load();
+            prefs.AutoApproveWrites = auto;
+            prefs.Save();
+            UpdateActionModeChip();
+            ActionModePopup.IsOpen = false;
+        }
+
+        private void OnActionModePopupKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape)
+            {
+                ActionModePopup.IsOpen = false;
+                e.Handled = true;
+            }
+        }
+
+        // "Ask Copilot" (no ellipsis) — 2026-08-02 defect #6, matches the
+        // artifact's composer 1:1 exactly.
         public static readonly DependencyProperty PlaceholderProperty = DependencyProperty.Register(
             nameof(Placeholder), typeof(string), typeof(PromptBar),
-            new PropertyMetadata("Ask Copilot…", OnPlaceholderChanged));
+            new PropertyMetadata("Ask Copilot", OnPlaceholderChanged));
         public string Placeholder { get => (string)GetValue(PlaceholderProperty); set => SetValue(PlaceholderProperty, value); }
 
         private static void OnPlaceholderChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)

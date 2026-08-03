@@ -56,6 +56,14 @@ namespace RevitWebAppSync.UI
         private bool _disciplineUserSet;
         private bool _syncingDiscipline;
 
+        // Set when a scan comes back 401 (JkrComplianceService.LoginRequiredMessage).
+        // RenderAll() checks this BEFORE the generic empty-state branch — without it, a
+        // 401 leaves _vm.Filtered at its prior count (often 0 on first scan) and
+        // RenderAll's default empty copy is "All clear — no open issues.", which would
+        // tell a logged-out drafter their model passed compliance. Cleared on the next
+        // successful scan so a later login+rescan removes the banner.
+        private bool _authRequired;
+
         public JkrComplianceDashboardPanel()
         {
             JkrTheme.EnsureLoaded();
@@ -188,7 +196,18 @@ namespace RevitWebAppSync.UI
             SearchClear.Visibility = string.IsNullOrEmpty(SearchInput.Text) ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
 
             // Empty state
-            if (_vm.Filtered.Count == 0)
+            if (_authRequired)
+            {
+                // Not logged in (last scan came back 401) — takes priority over the
+                // generic empty-state branch below so this never gets mistaken for
+                // "All clear", "no results match this filter", etc.
+                EmptyState.Visibility = System.Windows.Visibility.Visible;
+                IssuesScroll.Visibility = System.Windows.Visibility.Collapsed;
+                EmptyIcon.Glyph = "warning";
+                EmptyMessage.Text = JkrComplianceService.LoginRequiredMessage;
+                EmptyClearFilters.Visibility = System.Windows.Visibility.Collapsed;
+            }
+            else if (_vm.Filtered.Count == 0)
             {
                 EmptyState.Visibility = System.Windows.Visibility.Visible;
                 IssuesScroll.Visibility = System.Windows.Visibility.Collapsed;
@@ -803,9 +822,19 @@ namespace RevitWebAppSync.UI
                 : await _jkrService.CheckJkrComplianceV2Async(request, skipAi: true);
             if (!string.IsNullOrEmpty(response?.Error))
             {
+                if (response.Error == JkrComplianceService.LoginRequiredMessage)
+                {
+                    // Persistent state, not a dismissable dialog: a TaskDialog here
+                    // would leave the empty-state banner behind it showing "All clear"
+                    // once the user dismisses it (see _authRequired's doc comment).
+                    _authRequired = true;
+                    RenderAll();
+                    return;
+                }
                 TaskDialog.Show("BINA JKR Compliance", $"Scan failed:\n\n{response.Error}");
                 return;
             }
+            _authRequired = false;
 
             var issues = IssueMapper.MapAll(response);
 
