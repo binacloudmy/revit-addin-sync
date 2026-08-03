@@ -24,6 +24,9 @@
          tests themselves (PdfDocumentBuilder) to generate fixture PDFs — no
          checked-in binaries, no SkiaSharp/native dependency in the test host. -->
     <PackageReference Include="PdfPig" Version="0.1.*" />
+    <!-- ACadSharp: needed by the linked CadFileReader source below. MIT, pure C#,
+         reads DWG/DXF directly — extracts block names, text, attributes. -->
+    <PackageReference Include="ACadSharp" Version="1.*" />
   </ItemGroup>
 
   <ItemGroup>
@@ -94,6 +97,10 @@
     <!-- CadWallBanding: pure thickness→type selection for the create mode (System
          only, no Revit) — the Wall.Create loop that consumes it is not testable here. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\CadWallBanding.cs" Link="CadWallBanding.cs" />
+    <!-- CadFileReader: DWG/DXF reading via ACadSharp — extracts block names, text
+         content, attributes. Pure (ACadSharp + System), no Revit — testable here
+         against sample DWG/DXF files. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\CadFileReader.cs" Link="CadFileReader.cs" />
     <!-- PDF attachment reading: PdfPig + System only, no Revit and no WPF, so
          the extractor and its caps are testable here. (DwgReader is not — it
          needs live Revit Document/ImportInstance objects.) -->
