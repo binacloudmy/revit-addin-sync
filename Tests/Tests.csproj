@@ -113,6 +113,11 @@
          inward-facing rules are testable here. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\SocketLayout.cs" Link="SocketLayout.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\SocketPlanCache.cs" Link="SocketPlanCache.cs" />
+    <!-- read_schedule / write_schedule decision logic: which updates survive
+         validation, where the row window falls, whether rows map 1:1 to
+         elements. Split out of Schedules.cs (which needs a live Document) for
+         the same reason as SocketLayout above. System.Text.Json only. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\ScheduleLogic.cs" Link="ScheduleLogic.cs" />
     <!-- Lean-context wire contract: AIRequest/ModelContext (pure Newtonsoft
          DTOs). No Revit refs. -->
     <Compile Include="..\Models\AIRequest.cs" Link="AIRequest.cs" />

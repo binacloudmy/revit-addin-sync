@@ -58,6 +58,10 @@ namespace BinaVibe.Mcp.Tools
                 "list_views"                    => Inspectors.ListViews(doc),
                 "list_sheets"                   => Inspectors.ListSheets(doc),
                 "list_schedules"                => Inspectors.ListSchedules(doc),
+                // Cells AND the element ids behind them — export_schedule_to_excel
+                // reads the same cells but hands back a file, so the rows never
+                // reach the agent.
+                "read_schedule"                 => Schedules.Read(doc, args),
                 "list_grids"                    => Inspectors.ListGrids(doc),
                 "analyze_model_statistics"      => Inspectors.AnalyzeModelStatistics(doc),
                 "find_elements_by_parameter"    => Inspectors.FindElementsByParameter(doc, args),
@@ -136,6 +140,9 @@ namespace BinaVibe.Mcp.Tools
                 "execute_revit_batch"    => BatchExecutor.Run(app, args),
                 "set_parameter"          => Mutators.SetParameter(doc, args),
                 "set_parameter_bulk"     => Mutators.SetParameterBulk(doc, args),
+                // Writes element parameters behind schedule columns (Revit has
+                // no settable cell); fields validated against the schedule.
+                "write_schedule"         => Schedules.Write(doc, args),
                 "change_type"            => Mutators.ChangeType(doc, args),
                 "delete_elements"        => Mutators.DeleteElements(doc, args),
                 "duplicate_view"         => Mutators.DuplicateView(doc, args),

@@ -2361,7 +2361,10 @@ namespace BinaVibe.Mcp.Tools
 
         // ─── value helpers ──────────────────────────────────────────────
 
-        private static void SetParamValue(Parameter p, object? value)
+        // internal, not private: Schedules.Write reuses the exact same
+        // storage-type + display-unit handling, so a schedule write and a
+        // set_parameter write can never disagree about what "3000" means.
+        internal static void SetParamValue(Parameter p, object? value)
         {
             if (value == null) { p.Set(""); return; }
             switch (p.StorageType)
