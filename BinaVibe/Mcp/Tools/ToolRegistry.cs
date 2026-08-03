@@ -51,6 +51,13 @@ namespace BinaVibe.Mcp.Tools
                 "extract_cad_geometry"          => CadExtract.Run(uidoc, args),
                 "compare_levels"                => LevelCompare.Run(uidoc, args),
                 "batch_link_models"             => BatchLink.Run(uidoc, args),
+                // link_file: link ONE CAD/IFC/Revit file by path, dispatched by
+                // extension — the "link this file the drafter just received"
+                // counterpart to batch_link_models's folder scan. MUTATE (it
+                // adds a link to the document), but grouped here next to
+                // batch_link_models since it shares BatchLink.cs's link+verify
+                // machinery. See BatchLink.RunLinkFile for the per-format notes.
+                "link_file"                     => BatchLink.RunLinkFile(uidoc, args),
                 "get_current_selection"         => Inspectors.GetCurrentSelection(uidoc),
                 "get_active_view"               => Inspectors.GetActiveView(doc),
                 "get_current_view_elements"     => Inspectors.GetCurrentViewElements(uidoc),
