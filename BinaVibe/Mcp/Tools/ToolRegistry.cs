@@ -49,6 +49,10 @@ namespace BinaVibe.Mcp.Tools
                 "measure_wall_openings"         => WallOpenings.Run(doc, args),
                 "filter_elements"               => ElementFilter.Run(app, doc, args),
                 "extract_cad_geometry"          => CadExtract.Run(uidoc, args),
+                "cad_walls_to_centerlines"      => CadWallsToCenterlines.Run(uidoc, args),
+                "cad_walls_from_attachment"     => CadWallsFromAttachment.Run(uidoc, args),
+                "cad_doors_from_attachment"     => CadDoorsFromAttachment.Run(uidoc, args),
+                "cad_windows_from_attachment"   => CadWindowsFromAttachment.Run(uidoc, args),
                 "compare_levels"                => LevelCompare.Run(uidoc, args),
                 "batch_link_models"             => BatchLink.Run(uidoc, args),
                 // link_file: link ONE CAD/IFC/Revit file by path, dispatched by
@@ -86,6 +90,11 @@ namespace BinaVibe.Mcp.Tools
                 "get_dwg_summary"               => DwgSummary(app, doc, args),
                 "get_dwg_layer_detail"          => DwgLayerDetail(app, doc, args),
                 "get_dwg_blocks"                => DwgBlocks(app, doc, args),
+                // Enhanced DWG reads via ACadSharp — block NAMES, text content,
+                // attributes. Only works for attachments (att:<guid>); model CAD
+                // has no local file to read. Returns error for model refs.
+                "get_dwg_block_names"           => DwgBlockNames(args),
+                "get_dwg_texts"                 => DwgTexts(args),
                 // Pane-only: opens an attached DWG and hands back its ref +
                 // summary. Deliberately NOT advertised to the model (it takes a
                 // local file path), so it has no entry in the agent's catalog.
@@ -278,7 +287,146 @@ namespace BinaVibe.Mcp.Tools
             var dwgRef = DwgScratchCache.OpenAttachment(app, path);
             var doc = app.ActiveUIDocument?.Document
                 ?? throw new InvalidOperationException("no active document — open a Revit project first");
-            return WithDwg(app, doc, dwgRef, (d, imp, source) => DwgReader.Summarize(d, imp, dwgRef, source));
+            var summary = WithDwg(app, doc, dwgRef, (d, imp, source) => DwgReader.Summarize(d, imp, dwgRef, source));
+
+            // Enrich with ACadSharp data if available — block names, text preview.
+            var acadData = DwgScratchCache.GetAcadSharpData(dwgRef);
+            if (acadData?.Ok == true)
+            {
+                summary["has_enhanced_data"] = true;
+                summary["block_names_available"] = acadData.Blocks.Count > 0;
+                summary["text_content_available"] = acadData.Texts.Count > 0;
+                summary["unique_block_names"] = acadData.Blocks
+                    .Select(b => b.Name).Distinct().Take(20).ToList<object>();
+                summary["text_count"] = acadData.Texts.Count;
+                if (acadData.SourceInfo != null)
+                {
+                    summary["source_app"] = acadData.SourceInfo.Source;
+                    if (!acadData.SourceInfo.Supported)
+                        summary["source_warning"] = acadData.SourceInfo.Warning;
+                }
+            }
+
+            return summary;
+        }
+
+        // ─── Enhanced DWG reads (ACadSharp) ─────────────────────────────
+        // Block NAMES, text CONTENT, attributes — what Revit API cannot read.
+        // Only works for attachments (we have the file path); model CAD would
+        // require exporting the ImportInstance back to DWG, which Revit cannot do.
+
+        private static Dictionary<string, object?> DwgBlockNames(JsonElement args)
+        {
+            var dwgRef = ArgsHelp.GetString(args, "dwg_ref") ?? "";
+            if (!DwgScratchCache.IsAttachmentRef(dwgRef))
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = "get_dwg_block_names only works for attachments (att:<guid>). " +
+                        "For model CAD, use get_dwg_blocks (returns positions but not names).",
+                };
+
+            var data = DwgScratchCache.GetAcadSharpData(dwgRef);
+            if (data == null || !data.Ok)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = data?.Error ?? "ACadSharp extraction failed for this file",
+                };
+
+            var limit = (int)(ArgsHelp.GetLong(args, "limit") ?? 100);
+            var layerFilter = ArgsHelp.GetString(args, "layer");
+
+            var blocks = data.Blocks.AsEnumerable();
+            if (!string.IsNullOrEmpty(layerFilter))
+                blocks = blocks.Where(b => b.Layer.IndexOf(layerFilter, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            var result = blocks.Take(limit).Select(b => new Dictionary<string, object?>
+            {
+                ["name"] = b.Name,
+                ["x"] = b.X,
+                ["y"] = b.Y,
+                ["rotation"] = b.Rotation,
+                ["layer"] = b.Layer,
+                ["attributes"] = b.Attributes.Count > 0 ? b.Attributes : null,
+            }).ToList<object>();
+
+            // Block census (name -> count)
+            var census = data.Blocks
+                .GroupBy(b => b.Name)
+                .OrderByDescending(g => g.Count())
+                .Take(50)
+                .Select(g => new Dictionary<string, object> { ["name"] = g.Key, ["count"] = g.Count() })
+                .ToList<object>();
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["dwg_ref"] = dwgRef,
+                ["blocks"] = result,
+                ["count"] = result.Count,
+                ["total"] = data.Blocks.Count,
+                ["truncated"] = data.Blocks.Count > result.Count,
+                ["block_census"] = census,
+                ["note"] = "Block NAMES are now available (via ACadSharp). Use for door/window type mapping.",
+            };
+        }
+
+        private static Dictionary<string, object?> DwgTexts(JsonElement args)
+        {
+            var dwgRef = ArgsHelp.GetString(args, "dwg_ref") ?? "";
+            if (!DwgScratchCache.IsAttachmentRef(dwgRef))
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = "get_dwg_texts only works for attachments (att:<guid>). " +
+                        "Text content is not readable from model CAD via Revit API.",
+                };
+
+            var data = DwgScratchCache.GetAcadSharpData(dwgRef);
+            if (data == null || !data.Ok)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = data?.Error ?? "ACadSharp extraction failed for this file",
+                };
+
+            var limit = (int)(ArgsHelp.GetLong(args, "limit") ?? 200);
+            var layerFilter = ArgsHelp.GetString(args, "layer");
+
+            var texts = data.Texts.AsEnumerable();
+            if (!string.IsNullOrEmpty(layerFilter))
+                texts = texts.Where(t => t.Layer.IndexOf(layerFilter, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            var result = texts.Take(limit).Select(t => new Dictionary<string, object?>
+            {
+                ["type"] = t.Type,
+                ["content"] = t.Content,
+                ["x"] = t.X,
+                ["y"] = t.Y,
+                ["layer"] = t.Layer,
+            }).ToList<object>();
+
+            // Group by layer
+            var byLayer = data.Texts
+                .GroupBy(t => t.Layer)
+                .OrderByDescending(g => g.Count())
+                .Take(20)
+                .ToDictionary(
+                    g => g.Key,
+                    g => g.Count() as object);
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["dwg_ref"] = dwgRef,
+                ["texts"] = result,
+                ["count"] = result.Count,
+                ["total"] = data.Texts.Count,
+                ["truncated"] = data.Texts.Count > result.Count,
+                ["by_layer"] = byLayer,
+                ["note"] = "Text CONTENT is now available (via ACadSharp). Use for room names, grid labels.",
+            };
         }
 
         // ─── PDF dispatch ───────────────────────────────────────────────
