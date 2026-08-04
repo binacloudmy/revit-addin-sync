@@ -219,9 +219,24 @@ namespace BinaVibe.Mcp.Tools
                     try
                     {
                         // Convert CAD coords to Revit (assume CAD is mm)
-                        var location = new XYZ(block.X / MmPerFoot, block.Y / MmPerFoot, 0);
+                        var cadPoint = new XYZ(block.X / MmPerFoot, block.Y / MmPerFoot, 0);
 
-                        // Create door
+                        // Project point onto wall centerline for proper placement
+                        var locCurve = hostWall.Location as LocationCurve;
+                        var wallCurve = locCurve?.Curve;
+                        XYZ location;
+                        if (wallCurve != null)
+                        {
+                            // Find nearest point on wall curve
+                            var result = wallCurve.Project(cadPoint);
+                            location = result?.XYZPoint ?? cadPoint;
+                        }
+                        else
+                        {
+                            location = cadPoint;
+                        }
+
+                        // Create door - Revit will orient it perpendicular to wall
                         var door = doc.Create.NewFamilyInstance(
                             location,
                             doorType,

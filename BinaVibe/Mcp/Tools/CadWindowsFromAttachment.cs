@@ -220,9 +220,25 @@ namespace BinaVibe.Mcp.Tools
                     try
                     {
                         // Convert CAD coords to Revit (assume CAD is mm)
-                        var location = new XYZ(block.X / MmPerFoot, block.Y / MmPerFoot, sillHeightFt);
+                        var cadPoint = new XYZ(block.X / MmPerFoot, block.Y / MmPerFoot, 0);
 
-                        // Create window
+                        // Project point onto wall centerline for proper placement
+                        var locCurve = hostWall.Location as LocationCurve;
+                        var wallCurve = locCurve?.Curve;
+                        XYZ location;
+                        if (wallCurve != null)
+                        {
+                            // Find nearest point on wall curve, then add sill height
+                            var result = wallCurve.Project(cadPoint);
+                            var onWall = result?.XYZPoint ?? cadPoint;
+                            location = new XYZ(onWall.X, onWall.Y, sillHeightFt);
+                        }
+                        else
+                        {
+                            location = new XYZ(cadPoint.X, cadPoint.Y, sillHeightFt);
+                        }
+
+                        // Create window - Revit will orient it perpendicular to wall
                         var window = doc.Create.NewFamilyInstance(
                             location,
                             windowType,
