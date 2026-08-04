@@ -509,6 +509,18 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
             figures.Children.Add(MarginBadge(scheme));
             body.Children.Add(figures);
 
+            // What the GFA is MADE OF. The margin compares program against the
+            // target, so the circulation has to be visible somewhere or the GFA
+            // headline and the margin look like they contradict each other.
+            if (scheme.CirculationM2 > 0)
+                body.Children.Add(new TextBlock
+                {
+                    Text = $"program {scheme.ProgramAreaM2:N0} m² + circulation "
+                         + $"{scheme.CirculationM2:N0} m² ({scheme.CirculationPct:P0})",
+                    FontSize = 11, Foreground = Faint(), Margin = new Thickness(0, 3, 0, 0),
+                    TextWrapping = TextWrapping.Wrap,
+                });
+
             // Per-level breakdown — what the L1/L2 toggle will show.
             var levels = scheme.Levels();
             if (levels.Count > 0)
@@ -740,7 +752,14 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
         {
             bool ok = scheme.MeetsGfa;
             string sign = scheme.MarginM2 >= 0 ? "+" : "−";
-            string text = $"{sign}{Math.Abs(scheme.MarginM2):N0} m² vs target";
+            // The margin is PROGRAM vs target. With no explicit target the target
+            // IS the SOA total, so a scheme that placed the schedule exactly lands
+            // on zero — say that, rather than showing a bare "+0 m²" that reads
+            // like a bug. A real number only appears when the drafter typed a
+            // target of their own, which is the case where it means something.
+            string text = Math.Abs(scheme.MarginM2) < 0.5
+                ? "program matches target"
+                : $"{sign}{Math.Abs(scheme.MarginM2):N0} m² vs target";
             return new Border
             {
                 Background = ok ? Brush("Cp.OkBg") : Brush("Cp.Tool.RepBg"),

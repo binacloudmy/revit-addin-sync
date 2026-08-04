@@ -159,7 +159,23 @@ namespace RevitWebAppSync.UI.SpacePlanning.Model
         [JsonProperty("rooms")] public List<MassingRoom> Rooms { get; set; } = new List<MassingRoom>();
         // Keys arrive as STRINGS ("1", "2") — JSON object keys always are.
         [JsonProperty("level_areas_m2")] public Dictionary<string, double> LevelAreasM2 { get; set; } = new Dictionary<string, double>();
+
+        /// <summary>GROSS floor area — program PLUS circulation.</summary>
         [JsonProperty("total_gfa_m2")] public double TotalGfaM2 { get; set; }
+
+        /// <summary>The half of <see cref="TotalGfaM2"/> the Schedule of
+        /// Accommodation actually asked for, and the ONLY one comparable to the
+        /// target (the SOA total carries no circulation). <see cref="MarginM2"/>
+        /// and <see cref="MeetsGfa"/> are measured on this. Added 2026-08-04: the
+        /// margin used to be gross-vs-target, which is a scheme measured against
+        /// itself plus its corridors — always positive, never able to fail.</summary>
+        [JsonProperty("program_area_m2")] public double ProgramAreaM2 { get; set; }
+
+        /// <summary>Corridors and stairs. Real floor area, but not in the SOA.</summary>
+        [JsonProperty("circulation_m2")] public double CirculationM2 { get; set; }
+
+        /// <summary>Circulation as a fraction of program area, e.g. 0.10 = 10%.</summary>
+        [JsonProperty("circulation_pct")] public double CirculationPct { get; set; }
         [JsonProperty("footprint_m2")] public double FootprintM2 { get; set; }
         [JsonProperty("target_gfa_m2")] public double TargetGfaM2 { get; set; }
         [JsonProperty("margin_m2")] public double MarginM2 { get; set; }
