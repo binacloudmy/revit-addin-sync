@@ -229,7 +229,30 @@ namespace BinaVibe.Mcp.Tools
                         {
                             // Find nearest point on wall curve
                             var result = wallCurve.Project(cadPoint);
-                            location = result?.XYZPoint ?? cadPoint;
+                            var onWall = result?.XYZPoint ?? cadPoint;
+
+                            // CAD door insertion = hinge point (edge of opening)
+                            // Revit door placement = center of opening
+                            // Offset by half door width along wall direction
+                            var doorWidthMm = DetectWidthFromName(block.Name)
+                                ?? DetectWidthFromAttributes(block.Attributes)
+                                ?? 900; // default 900mm if unknown
+                            var halfWidthFt = (doorWidthMm / 2.0) / MmPerFoot;
+
+                            // Get wall direction
+                            var p0 = wallCurve.GetEndPoint(0);
+                            var p1 = wallCurve.GetEndPoint(1);
+                            var wallDir = (p1 - p0).Normalize();
+
+                            // Offset from hinge to center (direction based on CAD rotation)
+                            // CAD rotation 0° = door swings right, rotation 180° = swings left
+                            // Simplified: always offset in positive wall direction, Revit will handle flip
+                            // If door is near wall end, offset toward wall center
+                            var paramOnWall = result?.Parameter ?? 0.5;
+                            var wallLen = wallCurve.Length;
+                            var offsetDir = paramOnWall < 0.5 ? 1.0 : -1.0; // offset toward center
+
+                            location = onWall + offsetDir * halfWidthFt * wallDir;
                         }
                         else
                         {

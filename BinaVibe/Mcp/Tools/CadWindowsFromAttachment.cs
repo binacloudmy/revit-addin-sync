@@ -228,10 +228,29 @@ namespace BinaVibe.Mcp.Tools
                         XYZ location;
                         if (wallCurve != null)
                         {
-                            // Find nearest point on wall curve, then add sill height
+                            // Find nearest point on wall curve
                             var result = wallCurve.Project(cadPoint);
                             var onWall = result?.XYZPoint ?? cadPoint;
-                            location = new XYZ(onWall.X, onWall.Y, sillHeightFt);
+
+                            // CAD window insertion may be at corner of opening
+                            // Revit window placement = center of opening
+                            // Offset by half window width along wall direction
+                            var windowWidthMm = DetectWidthFromName(block.Name)
+                                ?? DetectWidthFromAttributes(block.Attributes)
+                                ?? 1200; // default 1200mm if unknown
+                            var halfWidthFt = (windowWidthMm / 2.0) / MmPerFoot;
+
+                            // Get wall direction
+                            var p0 = wallCurve.GetEndPoint(0);
+                            var p1 = wallCurve.GetEndPoint(1);
+                            var wallDir = (p1 - p0).Normalize();
+
+                            // Offset toward wall center
+                            var paramOnWall = result?.Parameter ?? 0.5;
+                            var offsetDir = paramOnWall < 0.5 ? 1.0 : -1.0;
+
+                            var centerOnWall = onWall + offsetDir * halfWidthFt * wallDir;
+                            location = new XYZ(centerOnWall.X, centerOnWall.Y, sillHeightFt);
                         }
                         else
                         {
