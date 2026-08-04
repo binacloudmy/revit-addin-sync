@@ -381,7 +381,11 @@ namespace RevitWebAppSync.UI.SpacePlanning
 
             try
             {
-                var args = MassingArgs.Build(scheme, makeWalls: false, optionName: optionName);
+                // Build to the height the SOA's volume was computed from, so the
+                // placed geometry and the reported isipadu describe one building.
+                var args = MassingArgs.Build(
+                    scheme, makeWalls: false, optionName: optionName,
+                    storeyHeightMm: MassingArgs.StoreyHeightMmFor(Planning));
                 var json = await RunLocalToolAsync("place_massing_scheme", args);
                 BuildOutcome = ReadBuildOutcome(optionName, json);
             }

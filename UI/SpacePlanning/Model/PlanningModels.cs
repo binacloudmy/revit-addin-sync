@@ -61,6 +61,14 @@ namespace RevitWebAppSync.UI.SpacePlanning.Model
         [JsonProperty("target_gfa_m2")] public double? TargetGfaM2 { get; set; }
         [JsonProperty("building_type")] public string BuildingType { get; set; }
 
+        /// <summary>Floor-to-floor height in METRES — the same figure the SOA's
+        /// volume is derived from. Build extrudes and stacks to this so the model
+        /// matches the reported isipadu. Null from a backend that predates the
+        /// field, in which case <see cref="MassingArgs.DefaultStoreyHeightMm"/>
+        /// applies. Added 2026-08-04: the two sides had disagreed silently (SOA at
+        /// 3.6 m, masses built at 4.0 m).</summary>
+        [JsonProperty("floor_height_m")] public double? FloorHeightM { get; set; }
+
         /// <summary>"sekolah_rendah" → "Sekolah rendah" for display.</summary>
         public string BuildingTypeLabel
         {

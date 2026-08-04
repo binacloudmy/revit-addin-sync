@@ -150,8 +150,23 @@ namespace RevitWebAppSync.UI.SpacePlanning.Model
     {
         public const double MmPerMetre = 1000.0;
 
-        /// <summary>Floor-to-floor height. Level 1 sits at 0, level n at (n-1)×this.</summary>
-        public const double StoreyHeightMm = 4000.0;
+        /// <summary>Floor-to-floor height used when the backend does not publish one.
+        /// Level 1 sits at 0, level n at (n-1)×this.
+        ///
+        /// PREFER the response's <c>floor_height_m</c>: it is the figure the SOA's
+        /// volume was computed from, so building to anything else makes the reported
+        /// isipadu describe a different building. This constant only covers a backend
+        /// that predates the field.</summary>
+        public const double DefaultStoreyHeightMm = 4000.0;
+
+        /// <summary>Back-compat alias — the old name for the default.</summary>
+        public const double StoreyHeightMm = DefaultStoreyHeightMm;
+
+        /// <summary>Storey height in mm for a result: the backend's figure when it
+        /// sent one, else the default. Non-positive values are ignored rather than
+        /// producing a zero-height extrusion the mutator would reject.</summary>
+        public static double StoreyHeightMmFor(SuggestResult result) =>
+            result?.FloorHeightM is double m && m > 0 ? m * MmPerMetre : DefaultStoreyHeightMm;
 
         /// <summary>Wall height used when make_walls is on.</summary>
         public const double RoomHeightMm = 3000.0;
@@ -179,9 +194,14 @@ namespace RevitWebAppSync.UI.SpacePlanning.Model
         /// </summary>
         public static Dictionary<string, object> Build(
             MassingScheme scheme, bool makeWalls = false, string optionName = null,
-            bool autoOffset = true)
+            bool autoOffset = true, double? storeyHeightMm = null)
         {
             if (scheme == null) throw new ArgumentNullException(nameof(scheme));
+
+            // Backend figure when the caller passes one (see StoreyHeightMmFor);
+            // otherwise the default. Guarded so a bad value cannot produce a
+            // zero-height extrusion, which the mutator rejects outright.
+            double storeyMm = storeyHeightMm is double h && h > 0 ? h : DefaultStoreyHeightMm;
 
             var buildable = (scheme.Rooms ?? new List<MassingRoom>())
                 .Where(r => r != null && r.CountsAsGfa)
@@ -194,7 +214,7 @@ namespace RevitWebAppSync.UI.SpacePlanning.Model
                 .Select(n => (object)new Dictionary<string, object>
                 {
                     ["name"] = LevelName(n),
-                    ["elevation_mm"] = (n - 1) * StoreyHeightMm,
+                    ["elevation_mm"] = (n - 1) * storeyMm,
                     // The scheme's own 1|2 index, so the mutator can map a room's
                     // "level" to a level spec by VALUE rather than by array position
                     // (a level-2-only scheme has one entry, at index 0).
@@ -222,7 +242,7 @@ namespace RevitWebAppSync.UI.SpacePlanning.Model
                 // LOD 100 deliverable: the scheme is placed as generic conceptual
                 // masses (DirectShape extrusions), not as floors/walls. Floor-to-floor
                 // height so the masses stack flush into a readable building form.
-                ["storey_height_mm"] = StoreyHeightMm,
+                ["storey_height_mm"] = storeyMm,
                 ["lod"] = Lod,
                 // The backend emits every scheme from the same origin, so two Builds
                 // would land on top of each other. Step each one clear of the last.

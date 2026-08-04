@@ -405,6 +405,44 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void StoreyHeight_ComesFromTheBackendWhenItSendsOne()
+        {
+            // The seam this closes: the SOA's volume_m3 is area x floor height, and
+            // the backend computes it at 3.6 m. The addin used to extrude and stack
+            // at a hardcoded 4.0 m regardless, so a scheme's reported isipadu
+            // described a building 11% taller than the one on screen.
+            var live = Live();
+            live.FloorHeightM = 3.6;
+
+            var args = MassingArgs.Build(
+                live.Schemes[0], storeyHeightMm: MassingArgs.StoreyHeightMmFor(live));
+
+            Assert.Equal(3600.0, (double)args["storey_height_mm"]);
+
+            // Levels stack to the same figure — otherwise the masses float or overlap.
+            var levels = (List<object>)args["levels"];
+            var second = levels
+                .Cast<Dictionary<string, object>>()
+                .FirstOrDefault(l => (int)l["level"] == 2);
+            if (second != null) Assert.Equal(3600.0, (double)second["elevation_mm"], 6);
+        }
+
+        [Theory]
+        [InlineData(null)]      // backend predates the field
+        [InlineData(0.0)]       // present but meaningless
+        [InlineData(-3.0)]      // present and nonsense
+        public void StoreyHeight_FallsBackWhenTheBackendFigureIsUnusable(double? sent)
+        {
+            // A zero or negative height would reach CreateMassCore and throw
+            // "mass height must be greater than zero", losing the whole scheme. Far
+            // better to build at the default than to fail the Build outright.
+            var live = Live();
+            live.FloorHeightM = sent;
+
+            Assert.Equal(MassingArgs.DefaultStoreyHeightMm, MassingArgs.StoreyHeightMmFor(live));
+        }
+
+        [Fact]
         public void BuildArgs_DeclareTheLod100Contract()
         {
             // The deliverable is LOD 100: generic conceptual masses, NOT floors or
@@ -415,7 +453,9 @@ namespace RevitWebAppSync.Tests
             var args = MassingArgs.Build(Live().Schemes[0]);
 
             Assert.Equal("LOD 100", args["lod"]);
-            Assert.Equal(MassingArgs.StoreyHeightMm, (double)args["storey_height_mm"]);
+            // No height passed => the default. A backend that predates
+            // floor_height_m still gets the behaviour this suite was written against.
+            Assert.Equal(MassingArgs.DefaultStoreyHeightMm, (double)args["storey_height_mm"]);
             Assert.Equal(4000.0, (double)args["storey_height_mm"]);
             Assert.False((bool)args["make_walls"]);   // walls would be LOD 200
 
