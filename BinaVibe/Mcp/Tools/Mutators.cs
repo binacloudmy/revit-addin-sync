@@ -2449,6 +2449,11 @@ namespace BinaVibe.Mcp.Tools
             // was built. Off for a caller that wants to tag on its own terms.
             bool tagRooms = ArgsHelp.GetBool(args, "tag_rooms") ?? true;
 
+            // Colour the rooms by name in the plans we touch. On by default: an
+            // uncoloured plan of 40 outlines is what the drafter reported as "not
+            // rich enough". Cosmetic and view-only — the model is correct either way.
+            bool colorRooms = ArgsHelp.GetBool(args, "color_rooms") ?? true;
+
             var output = (ArgsHelp.GetString(args, "output") ?? "masses").Trim().ToLowerInvariant();
             if (output != "rooms" && output != "masses" && output != "both")
                 throw new ArgumentException($"output must be rooms|masses|both, got '{output}'");
@@ -2536,6 +2541,7 @@ namespace BinaVibe.Mcp.Tools
                 var planViews = new Dictionary<int, View>();
                 var drawnEdges = new Dictionary<int, HashSet<string>>();
                 var sketchPlanes = new Dictionary<int, SketchPlane>();
+                var wallEdges = new Dictionary<int, HashSet<string>>();
 
                 foreach (var room in rooms)
                 {
@@ -2608,11 +2614,18 @@ namespace BinaVibe.Mcp.Tools
                     }
 
                     if (!makeWalls) continue;
+                    if (!wallEdges.TryGetValue(room.level, out var builtWalls))
+                        builtWalls = wallEdges[room.level] = new HashSet<string>();
                     for (int i = 0; i < room.boundaryFt.Count; i++)
                     {
                         var a = room.boundaryFt[i];
                         var b = room.boundaryFt[(i + 1) % room.boundaryFt.Count];
                         if (a.DistanceTo(b) < 1e-6) continue;   // skip a duplicated closing point
+                        // Two rooms sharing a boundary must share ONE wall. Without
+                        // this every internal partition is built twice, exactly
+                        // overlapping — Revit flags the pair as duplicates and the
+                        // drafter inherits a model with 40-odd invisible clashes.
+                        if (!builtWalls.Add(EdgeKey(a, b, baseZFt))) continue;
                         var wallId = CreateWallCore(doc, a, b, levelId, wallType?.Id, room.heightFt);
                         groupMembers.Add(wallId);
                         wallCount++;
@@ -2738,6 +2751,17 @@ namespace BinaVibe.Mcp.Tools
                     catch { uniqueName = group.GroupType.Name; }   // keep Revit's auto name
                 }
 
+                // 4b ─ Colour the rooms by name, in every plan we touched, so the
+                // result reads as a space plan instead of an outline. Applying a
+                // colour scheme IS a document edit, so it belongs inside the
+                // transaction — unlike the view activation in step 5. Isolated in
+                // RoomColorScheme (see the note at the top of that file) and it
+                // never throws: a missing colour must not lose a correct build.
+                int colouredViews = 0;
+                if (wantRooms && colorRooms)
+                    foreach (var pv in planViews.Values)
+                        if (RoomColorScheme.Apply(doc, pv) > 0) colouredViews++;
+
                 tx.Commit();
 
                 // 5 ─ Land the user on the plan the scheme was placed in.
@@ -2764,6 +2788,7 @@ namespace BinaVibe.Mcp.Tools
                     // where to look rather than leaving the user to hunt.
                     ["opened_view"] = openedView,
                     ["tag_count"] = tagCount,
+                    ["coloured_view_count"] = colouredViews,
                     ["tag_failure_count"] = tagFailures,
                     ["mass_count"] = massCount,
                     // Rooms-mode counts.

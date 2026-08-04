@@ -522,7 +522,11 @@ namespace RevitWebAppSync.Tests
             // floor_height_m still gets the behaviour this suite was written against.
             Assert.Equal(MassingArgs.DefaultStoreyHeightMm, (double)args["storey_height_mm"]);
             Assert.Equal(4000.0, (double)args["storey_height_mm"]);
-            Assert.False((bool)args["make_walls"]);   // walls would be LOD 200
+            // The BUILDER still defaults to no walls; the pane opts in explicitly
+            // (SpacePlanningViewModel passes makeWalls: true) because a plan of bare
+            // separation lines reads as an empty drawing. Walls are LOD 200 — the
+            // default stays off so any other caller has to ask for them on purpose.
+            Assert.False((bool)args["make_walls"]);
 
             // Every scheme the backend emits starts at the same origin, so without
             // this two Builds land exactly on top of each other — which is also the

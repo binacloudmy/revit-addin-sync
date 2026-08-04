@@ -402,8 +402,13 @@ namespace RevitWebAppSync.UI.SpacePlanning
             {
                 // Build to the height the SOA's volume was computed from, so the
                 // placed geometry and the reported isipadu describe one building.
+                // Walls ON. Room-separation lines alone draw as thin dashes, which
+                // a drafter reads as "nothing was built"; walls are what make a plan
+                // look like a plan. NOTE this crosses LOD 100 (space boundaries) into
+                // LOD 200 (building elements) — see the plan doc, it is a decision the
+                // SV owns, not a detail.
                 var args = MassingArgs.Build(
-                    scheme, makeWalls: false, optionName: optionName,
+                    scheme, makeWalls: true, optionName: optionName,
                     storeyHeightMm: MassingArgs.StoreyHeightMmFor(Planning));
                 var json = await RunLocalToolAsync("place_massing_scheme", args);
                 BuildOutcome = ReadBuildOutcome(optionName, json);
