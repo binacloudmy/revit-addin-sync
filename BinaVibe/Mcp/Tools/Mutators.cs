@@ -2218,9 +2218,16 @@ namespace BinaVibe.Mcp.Tools
             Document doc, ElementId levelId, out bool created)
         {
             created = false;
+            // ViewType MATTERS: ViewPlan also covers ceiling plans, structural
+            // (engineering) plans, area plans and site plans. Reusing one of those
+            // put the scheme's separation lines somewhere an architect never looks —
+            // measured 2026-08-04, a build reported "views created: Tingkat 3,
+            // Tingkat 4" and the drafter could find no Tingkat 1 or 2 plan at all,
+            // because those two levels had matched a non-architectural plan.
             var existing = new FilteredElementCollector(doc)
                 .OfClass(typeof(ViewPlan)).Cast<ViewPlan>()
                 .FirstOrDefault(v => !v.IsTemplate
+                                     && v.ViewType == ViewType.FloorPlan
                                      && v.GenLevel != null
                                      && v.GenLevel.Id == levelId);
             if (existing != null) return existing;
@@ -2373,8 +2380,9 @@ namespace BinaVibe.Mcp.Tools
         /// Returns {ok, option_name, group_id, floor_count, wall_count, level_count,
         ///          created_levels, skipped_count}.
         /// </summary>
-        public static Dictionary<string, object?> PlaceMassingScheme(Document doc, JsonElement args)
+        public static Dictionary<string, object?> PlaceMassingScheme(UIDocument uidoc, JsonElement args)
         {
+            var doc = uidoc.Document;
             var optionName = ArgsHelp.GetString(args, "option_name") ?? "Massing Scheme";
             bool makeWalls = ArgsHelp.GetBool(args, "make_walls") ?? false;
 
@@ -2436,6 +2444,11 @@ namespace BinaVibe.Mcp.Tools
             //            reads as a plan. What ticket 86eyeh4g3 actually asks for.
             //   masses — DirectShape extrusions. Pure massing review; not editable.
             //   both   — masses AND rooms, for comparing the two.
+            // Tag every placed room so the plan actually reads. Default on: an
+            // untagged Revit Room draws as a bare outline, which looks like nothing
+            // was built. Off for a caller that wants to tag on its own terms.
+            bool tagRooms = ArgsHelp.GetBool(args, "tag_rooms") ?? true;
+
             var output = (ArgsHelp.GetString(args, "output") ?? "masses").Trim().ToLowerInvariant();
             if (output != "rooms" && output != "masses" && output != "both")
                 throw new ArgumentException($"output must be rooms|masses|both, got '{output}'");
@@ -2515,6 +2528,7 @@ namespace BinaVibe.Mcp.Tools
                 var groupMembers = new List<ElementId>();
                 int massCount = 0, wallCount = 0, skipped = 0;
                 int roomCount = 0, separationCount = 0, unenclosed = 0, roomFailures = 0;
+                int tagCount = 0, tagFailures = 0;
                 var createdViews = new List<string>();
                 // Plan view per level (separation lines need one) and the set of edges
                 // already drawn on that level, so a boundary shared by two rooms is
@@ -2643,6 +2657,26 @@ namespace BinaVibe.Mcp.Tools
                         // plan and then schedules as nothing.
                         try { if (placed.Area <= 1e-6) unenclosed++; } catch { unenclosed++; }
 
+                        // Tag it. A Room carries its name and area as DATA; without a
+                        // tag the plan shows an empty outline, which reads as "nothing
+                        // was placed" even when 40 rooms are sitting right there.
+                        if (tagRooms && planViews.TryGetValue(room.level, out var tagView))
+                        {
+                            try
+                            {
+                                doc.Create.NewRoomTag(
+                                    new LinkElementId(placed.Id), new UV(cx, cy), tagView.Id);
+                                tagCount++;
+                            }
+                            catch
+                            {
+                                // Most often: no room tag family loaded in this
+                                // template. Counted, never fatal — the rooms are
+                                // already placed and a schedule reads them fine.
+                                tagFailures++;
+                            }
+                        }
+
                         // Rooms cannot be grouped with model elements, so they are NOT
                         // group members — same reason levels are not. Deleting the
                         // group leaves them; the result says so.
@@ -2705,12 +2739,32 @@ namespace BinaVibe.Mcp.Tools
                 }
 
                 tx.Commit();
+
+                // 5 ─ Land the user on the plan the scheme was placed in.
+                // Rooms draw nothing in whatever view happened to be active — the
+                // drafter's last build reported 40 rooms while they were looking at a
+                // structural plan, which reads as "nothing happened". View activation
+                // is not a document edit, so it goes AFTER the commit (same as
+                // Create3dView).
+                string openedView = null;
+                if (wantRooms && planViews.Count > 0)
+                {
+                    var lowest = planViews.OrderBy(kv => kv.Key).First().Value;
+                    try { uidoc.ActiveView = lowest; openedView = lowest.Name; }
+                    catch { /* view can't be activated — not worth failing the build */ }
+                }
+
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
                     ["option_name"] = uniqueName,
                     ["group_id"] = group?.Id.Value,
                     ["output"] = output,
+                    // Which view the pane switched Revit to, so the result can say
+                    // where to look rather than leaving the user to hunt.
+                    ["opened_view"] = openedView,
+                    ["tag_count"] = tagCount,
+                    ["tag_failure_count"] = tagFailures,
                     ["mass_count"] = massCount,
                     // Rooms-mode counts.
                     ["room_count"] = roomCount,

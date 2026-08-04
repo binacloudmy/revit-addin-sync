@@ -88,8 +88,15 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
             if (outcome.MassCount > 0) AddRow("Masses placed", outcome.MassCount.ToString());
             if (outcome.WallCount > 0) AddRow("Walls placed", outcome.WallCount.ToString());
             if (outcome.LevelCount > 0) AddRow("Levels used", outcome.LevelCount.ToString());
+            if (outcome.TagCount > 0) AddRow("Rooms tagged", outcome.TagCount.ToString());
             if (outcome.CreatedViews != null && outcome.CreatedViews.Count > 0)
                 AddRow("Views created", string.Join(", ", outcome.CreatedViews));
+            // Say where to look. Without this the drafter is left hunting a browser
+            // full of plans for the one the scheme actually landed in.
+            if (!string.IsNullOrWhiteSpace(outcome.OpenedView))
+                AddRow("Now showing", outcome.OpenedView);
+            if (outcome.TagFailureCount > 0)
+                AddRow("⚠ Untagged", $"{outcome.TagFailureCount} room(s) — no room tag family loaded?");
             if (outcome.SkippedCount > 0)
                 AddRow("Skipped", $"{outcome.SkippedCount} (site-only, e.g. the padang)");
             if (outcome.CreatedLevels != null && outcome.CreatedLevels.Count > 0)

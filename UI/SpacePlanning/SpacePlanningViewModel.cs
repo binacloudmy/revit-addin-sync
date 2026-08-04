@@ -253,6 +253,11 @@ namespace RevitWebAppSync.UI.SpacePlanning
             public int UnenclosedCount;
             public int RoomFailureCount;
             public List<string> CreatedViews = new List<string>();
+            /// <summary>The plan view Revit was switched to. Rooms draw nothing in an
+            /// unrelated view, so a build with nowhere to look reads as a failure.</summary>
+            public string OpenedView;
+            public int TagCount;
+            public int TagFailureCount;
             /// <summary>Rooms cannot be group members — Revit refuses. Deleting the
             /// group removes the separation lines and masses and LEAVES the rooms.</summary>
             public bool RoomsInGroup;
@@ -458,6 +463,10 @@ namespace RevitWebAppSync.UI.SpacePlanning
                 if (o.TryGetProperty("room_failure_count", out var fc) && fc.TryGetInt32(out var fci)) outcome.RoomFailureCount = fci;
                 if (o.TryGetProperty("rooms_in_group", out var rg) && rg.ValueKind == System.Text.Json.JsonValueKind.True)
                     outcome.RoomsInGroup = true;
+                if (o.TryGetProperty("opened_view", out var ov) && ov.ValueKind == System.Text.Json.JsonValueKind.String)
+                    outcome.OpenedView = ov.GetString();
+                if (o.TryGetProperty("tag_count", out var tc) && tc.TryGetInt32(out var tci)) outcome.TagCount = tci;
+                if (o.TryGetProperty("tag_failure_count", out var tf) && tf.TryGetInt32(out var tfi)) outcome.TagFailureCount = tfi;
                 if (o.TryGetProperty("created_views", out var cv) && cv.ValueKind == System.Text.Json.JsonValueKind.Array)
                     foreach (var item in cv.EnumerateArray())
                         if (item.ValueKind == System.Text.Json.JsonValueKind.String)

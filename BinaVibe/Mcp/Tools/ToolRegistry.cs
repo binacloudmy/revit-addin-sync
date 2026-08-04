@@ -175,7 +175,10 @@ namespace BinaVibe.Mcp.Tools
                 "create_floor"                  => Mutators.CreateFloor(doc, args),
                 // Space-planning Build: whole scheme, ONE transaction, one named
                 // Model Group (see the method's note on why not a Design Option).
-                "place_massing_scheme"          => Mutators.PlaceMassingScheme(doc, args),
+                // uidoc, not doc: after committing it opens the plan view the scheme
+                // landed on. Rooms are invisible in whatever view happened to be
+                // active, so a successful build otherwise reads as nothing happening.
+                "place_massing_scheme"          => Mutators.PlaceMassingScheme(uidoc, args),
                 "create_ceiling"                => Mutators.CreateCeiling(doc, args),
                 "create_roof"                   => Mutators.CreateRoof(doc, args),
                 "create_beam_system"            => MutatorsStructure.CreateBeamSystem(doc, args),
