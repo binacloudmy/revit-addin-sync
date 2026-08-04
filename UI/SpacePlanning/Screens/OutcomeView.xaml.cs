@@ -23,11 +23,19 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
             BackBtn.Click += (_, __) => Vm?.BackToPlanCommand?.Execute(null);
             NewBtn.Click += (_, __) => Vm?.NewPlanCommand?.Execute(null);
             DataContextChanged += (_, __) => Hook();
-            Loaded += (_, __) => Hook();
+            Loaded += (_, __) =>
+            {
+                Hook();
+                // Rows are drawn in code with resolved brushes, so a theme flip has
+                // to redraw them — a DynamicResource would have handled itself.
+                Copilot.CopilotTheme.ThemeChanged -= Render;
+                Copilot.CopilotTheme.ThemeChanged += Render;
+            };
             Unloaded += (_, __)  =>
             {
                 if (_hooked != null) _hooked.PropertyChanged -= OnVm;
                 _hooked = null;
+                Copilot.CopilotTheme.ThemeChanged -= Render;
             };
         }
 
