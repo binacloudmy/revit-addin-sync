@@ -72,7 +72,8 @@ namespace BinaVibe.Mcp.Tools
     public sealed class SolveResult
     {
         public List<Centerline> Walls = new();
-        public int UnpairedSegments;
+        public List<WallSeg> UnpairedSegs = new();
+        public int UnpairedSegments => UnpairedSegs.Count;
         public int JunctionsSnapped;
     }
 
@@ -157,7 +158,7 @@ namespace BinaVibe.Mcp.Tools
                 used[c.I] = used[c.J] = true;
                 result.Walls.Add(BuildCenterline(segs[c.I], dirs[c.I], segs[c.J], dirs[c.J], c));
             }
-            for (int i = 0; i < segs.Count; i++) if (!used[i]) result.UnpairedSegments++;
+            for (int i = 0; i < segs.Count; i++) if (!used[i]) result.UnpairedSegs.Add(segs[i]);
 
             // Steps: junction cleanup.
             result.JunctionsSnapped = CleanupJunctions(result.Walls, opt);

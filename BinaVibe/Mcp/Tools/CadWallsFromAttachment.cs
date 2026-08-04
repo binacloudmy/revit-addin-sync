@@ -155,8 +155,17 @@ namespace BinaVibe.Mcp.Tools
                     ["thickness_histogram"] = histogram,
                     ["thickness_stats"] = stats,
                     ["note"] = "Preview only. Use thickness_histogram to suggest thickness_to_type mapping. "
-                        + "Pass create=true with thickness_to_type:[{min_mm, max_mm, type_name}] to build walls.",
+                        + "Pass create=true with thickness_to_type:[{min_mm, max_mm, type_name}] to build walls. "
+                        + "To include single-line walls, pass include_unpaired=true with unpaired_type_name.",
                 };
+
+                // Add unpaired segment info if any
+                if (solved.UnpairedSegments > 0)
+                {
+                    result["unpaired_note"] = $"{solved.UnpairedSegments} single-line segments (no parallel pair). "
+                        + "These may be walls drawn as single lines. To include them, pass include_unpaired=true "
+                        + "and unpaired_type_name (e.g. 'Generic - 150mm').";
+                }
 
                 // Add floor cluster info if multiple floors detected
                 if (floorClusters.Count > 1)
@@ -191,13 +200,19 @@ namespace BinaVibe.Mcp.Tools
             }
 
             int created = 0, skippedWindow = 0, skippedNoType = 0, skippedDegenerate = 0, failed = 0;
+            int unpairedCreated = 0;
             string? firstError = null;
             var byType = new Dictionary<string, int>();
+
+            // Check if user wants unpaired segments included
+            bool includeUnpaired = ArgsHelp.GetBool(args, "include_unpaired") == true;
+            string? unpairedTypeName = ArgsHelp.GetString(args, "unpaired_type_name");
 
             using var tx = new Transaction(doc, "BinaVibe: cad_walls_from_attachment");
             TxGuard.StartSwallowing(tx);
             try
             {
+                // Create walls from paired segments (detected thickness)
                 foreach (var c in solved.Walls)
                 {
                     double th = c.ThicknessFt * MmPerFoot;
@@ -225,6 +240,32 @@ namespace BinaVibe.Mcp.Tools
                     }
                     catch (Exception ex) { failed++; firstError ??= ex.Message; }
                 }
+
+                // Create walls from unpaired segments (single-line walls)
+                if (includeUnpaired && !string.IsNullOrEmpty(unpairedTypeName))
+                {
+                    var unpairedWt = ResolveType(unpairedTypeName);
+                    if (unpairedWt != null)
+                    {
+                        foreach (var seg in solved.UnpairedSegs)
+                        {
+                            double len = seg.Len;
+                            if (len < 1e-3) { skippedDegenerate++; continue; }
+
+                            try
+                            {
+                                var line = Line.CreateBound(
+                                    new XYZ(seg.Ax, seg.Ay, 0),
+                                    new XYZ(seg.Bx, seg.By, 0));
+                                Wall.Create(doc, line, unpairedWt.Id, levelEl.Id, heightFt, 0, false, false);
+                                unpairedCreated++;
+                                byType[unpairedTypeName] = byType.TryGetValue(unpairedTypeName, out var n) ? n + 1 : 1;
+                            }
+                            catch (Exception ex) { failed++; firstError ??= ex.Message; }
+                        }
+                    }
+                }
+
                 TxGuard.CommitOrThrow(tx);
             }
             catch (Exception) { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
@@ -238,15 +279,19 @@ namespace BinaVibe.Mcp.Tools
                 ["level"] = levelName,
                 ["proposed_count"] = solved.Walls.Count,
                 ["created_count"] = created,
+                ["unpaired_created"] = unpairedCreated,
+                ["total_created"] = created + unpairedCreated,
                 ["by_type"] = byType,
                 ["skipped_out_of_window"] = skippedWindow,
                 ["skipped_no_type_match"] = skippedNoType,
                 ["skipped_degenerate"] = skippedDegenerate,
                 ["failed"] = failed,
                 ["first_error"] = firstError,
-                ["unpaired_segments"] = solved.UnpairedSegments,
+                ["unpaired_segments_remaining"] = solved.UnpairedSegments - unpairedCreated,
                 ["junctions_snapped"] = solved.JunctionsSnapped,
-                ["note"] = "walls created from attachment — no Revit link needed.",
+                ["note"] = unpairedCreated > 0
+                    ? $"walls created from attachment — {unpairedCreated} single-line walls included."
+                    : "walls created from attachment — no Revit link needed.",
             };
         }
 
