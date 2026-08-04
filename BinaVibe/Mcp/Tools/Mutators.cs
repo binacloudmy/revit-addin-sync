@@ -2488,17 +2488,36 @@ namespace BinaVibe.Mcp.Tools
 
             if ((ArgsHelp.GetBool(args, "auto_offset") ?? false) && offsetXFt == 0.0)
             {
-                int placed = takenGroupNames.Count(n =>
-                    n != null && n.StartsWith("Massing", StringComparison.OrdinalIgnoreCase));
-                if (placed > 0)
+                // Measure from the massing that is ACTUALLY IN THE MODEL, not from
+                // how many group TYPES exist.
+                //
+                // A GroupType survives deleting every instance of its group — it only
+                // goes away on Purge Unused. Counting types therefore added another
+                // block-width of offset on every rebuild even when the drafter had
+                // deleted the previous scheme, so the plan marched east a few hundred
+                // metres over an afternoon's testing and ended up off the site
+                // (reported 2026-08-04, after ~5 rebuilds).
+                double occupiedMaxX = double.MinValue;
+                foreach (var g in new FilteredElementCollector(doc).OfClass(typeof(Group)).Cast<Group>())
                 {
-                    double maxX = 0, minX = double.MaxValue;
+                    string gname;
+                    try { gname = g.GroupType?.Name; } catch { continue; }
+                    if (gname == null || !gname.StartsWith("Massing", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    BoundingBoxXYZ bb;
+                    try { bb = g.get_BoundingBox(null); } catch { continue; }
+                    if (bb != null && bb.Max.X > occupiedMaxX) occupiedMaxX = bb.Max.X;
+                }
+
+                if (occupiedMaxX > double.MinValue)
+                {
+                    double minX = double.MaxValue;
                     foreach (var r in rooms)
                         foreach (var p in r.boundaryFt)
-                        { if (p.X > maxX) maxX = p.X; if (p.X < minX) minX = p.X; }
-                    double widthFt = maxX > minX ? maxX - minX : 0;
+                            if (p.X < minX) minX = p.X;
                     const double gapFt = 12000.0 / 304.8;   // 12 m between blocks
-                    offsetXFt = placed * (widthFt + gapFt);
+                    // Land this scheme's LEFT edge clear of the rightmost existing one.
+                    offsetXFt = occupiedMaxX + gapFt - (minX == double.MaxValue ? 0 : minX);
                 }
             }
 
