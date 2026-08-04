@@ -67,11 +67,19 @@ namespace BinaVibe.Mcp.Tools
             }
 
             // 3. Convert to WallSeg (solver expects feet)
-            var segs = cadLines.Select(l => new WallSeg(
+            var segsRaw = cadLines.Select(l => new WallSeg(
                 l.X1 / MmPerFoot, l.Y1 / MmPerFoot,
                 l.X2 / MmPerFoot, l.Y2 / MmPerFoot,
                 l.Layer
             )).ToList();
+
+            // 3b. Stitch collinear segments across door gaps + filter column pads
+            var stitchOpt = StitchOptions.FromMm(
+                maxGapMm: ArgsHelp.GetDouble(args, "max_stitch_gap_mm") ?? 1500,
+                collinearTolMm: ArgsHelp.GetDouble(args, "collinear_tol_mm") ?? 50,
+                maxColumnSizeMm: ArgsHelp.GetDouble(args, "max_column_size_mm") ?? 800);
+            var stitched = CadSegmentStitcher.Stitch(segsRaw, stitchOpt);
+            var segs = stitched.Segments;
 
             // 4. Solve centerlines
             var opt = SolveOptions.FromMm(
@@ -139,6 +147,9 @@ namespace BinaVibe.Mcp.Tools
                     ["proposed_walls"] = proposed,
                     ["wall_count"] = proposed.Count,
                     ["segments_in"] = cadLines.Count,
+                    ["segments_after_stitch"] = segs.Count,
+                    ["segments_merged"] = stitched.MergedCount,
+                    ["column_pads_filtered"] = stitched.FilteredRectangles,
                     ["unpaired_segments"] = solved.UnpairedSegments,
                     ["junctions_snapped"] = solved.JunctionsSnapped,
                     ["thickness_histogram"] = histogram,
