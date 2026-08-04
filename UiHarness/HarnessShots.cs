@@ -9,6 +9,7 @@ using System.Windows.Threading;
 using RevitWebAppSync.UI.Copilot;
 using RevitWebAppSync.UI.Copilot.Model;
 using RevitWebAppSync.UI.Copilot.Services;
+using RevitWebAppSync.UI.SpacePlanning;
 
 namespace UiHarness
 {
@@ -68,35 +69,37 @@ namespace UiHarness
                 KebabShot(dir, $"copilot-kebab{s}.png", dark);
             }
 
-            // Massing / space planning, seeded with the frozen sample payload. Two
-            // extra shots for the states that are easy to regress: the plan drawn on
-            // the upper storey, and the rejected list expanded.
+            // Space planning, seeded with the frozen sample payload. Shot through
+            // PlanShot: this is its OWN pane now (own ribbon button), not a Copilot
+            // screen, so it is built and captured independently of the chat panel.
             foreach (var dark in new[] { false, true })
             {
                 string s = dark ? "-dark" : "";
-                Shot(dir, $"copilot-planning{s}.png", dark, configure: p => SeedPlanning(p));
-                // Backend unreachable: the suggest call must soft-fail to Home with
-                // the reason in the thread — never a crash and never a dead Running
-                // screen. Needs no live backend precisely because that IS the case
-                // under test (harness runs with no tunnel).
-                Shot(dir, $"copilot-planning-offline{s}.png", dark, configure: p =>
+                PlanShot(dir, $"planning{s}.png", dark, configure: p => SeedPlanning(p));
+                // The brief form itself — the entry point that replaced "/massing".
+                PlanShot(dir, $"planning-brief{s}.png", dark);
+                // Backend unreachable: the suggest call must soft-fail back to the
+                // brief form with the reason inline — never a crash and never a dead
+                // Running screen. Needs no live backend precisely because that IS the
+                // case under test (harness runs with no tunnel).
+                PlanShot(dir, $"planning-offline{s}.png", dark, configure: p =>
                 {
-                    _ = p.ViewModel.BeginPlanningAsync("sekolah rendah, Tahun 1–6 with 3 kelas each");
+                    _ = p.Vm.BeginPlanningAsync("sekolah rendah, Tahun 1–6 with 3 kelas each");
                     return 900;
                 });
 
                 // Scrolled to the plan canvas — the top of the screen is the SOA, so
                 // an unscrolled shot never shows the preview at all.
-                Shot(dir, $"copilot-planning-preview{s}.png", dark, configure: p =>
+                PlanShot(dir, $"planning-preview{s}.png", dark, configure: p =>
                 {
                     SeedPlanning(p);
                     ScrollPlanningToEnd(p);
                     return 400;
                 });
-                Shot(dir, $"copilot-planning-preview-l2{s}.png", dark, configure: p =>
+                PlanShot(dir, $"planning-preview-l2{s}.png", dark, configure: p =>
                 {
                     SeedPlanning(p);
-                    p.ViewModel.SelectedLevel = 2;
+                    p.Vm.SelectedLevel = 2;
                     ScrollPlanningToEnd(p);
                     return 400;
                 });
@@ -104,36 +107,28 @@ namespace UiHarness
                 // Zero-scheme state: a brief too large for the generator (SK
                 // Cyberjaya scale, 84 classrooms). Real backend response — every
                 // candidate rejected. The screen must explain WHY, with numbers.
-                Shot(dir, $"copilot-planning-noschemes{s}.png", dark, configure: p =>
+                PlanShot(dir, $"planning-noschemes{s}.png", dark, configure: p =>
                 {
-                    p.ViewModel.ShowPlanningPreview(
+                    p.ShowPlanningPreview(
                         MassingSample.Oversized(),
                         "sekolah rendah, Tahun 1-6 with 14 kelas each, tapak 20000 m2, setback 10 m");
                     ScrollPlanningToSchemes(p);
                     return 450;
                 });
 
-                // The "space plan ready" bar: a plan is loaded but the user has
-                // navigated back to the chat (which is what asking any follow-up
-                // question does). Without this bar the plan is unreachable.
-                Shot(dir, $"copilot-planning-resume{s}.png", dark, configure: p =>
-                {
-                    SeedPlanning(p);
-                    // Exactly what a follow-up question does: ChatSend resets Screen
-                    // to Home, stranding the plan.
-                    p.ViewModel.ChatSend("what is the bounding box of the selected element in mm?");
-                    return 500;
-                });
+                // NOTE: the "space plan ready" resume-bar shot is gone with the bar
+                // itself. It existed because asking a follow-up question in the chat
+                // stranded the plan; a pane that only does planning cannot strand it.
 
                 // Per-scheme rows: Preview + Build on each card, "In plan" chip, and
                 // the expandable storey breakdown.
-                Shot(dir, $"copilot-planning-schemes{s}.png", dark, configure: p =>
+                PlanShot(dir, $"planning-schemes{s}.png", dark, configure: p =>
                 {
                     SeedPlanning(p);
                     ScrollPlanningToSchemes(p);
                     return 400;
                 });
-                Shot(dir, $"copilot-planning-schemes-open{s}.png", dark, configure: p =>
+                PlanShot(dir, $"planning-schemes-open{s}.png", dark, configure: p =>
                 {
                     SeedPlanning(p);
                     ScrollPlanningToSchemes(p, expandFirst: true);
@@ -158,9 +153,9 @@ namespace UiHarness
         }
 
         // Drop the sample /planning/suggest result onto the Planning screen.
-        private static int SeedPlanning(CopilotPanel panel)
+        private static int SeedPlanning(SpacePlanningPanel panel)
         {
-            panel.ViewModel.ShowPlanningPreview(
+            panel.ShowPlanningPreview(
                 MassingSample.School(),
                 "sekolah rendah, Tahun 1–6 with 3 kelas each, plus pejabat, bilik guru, " +
                 "bimbingan, keselamatan, bilik sukan, koku, 2 stor, dewan perhimpunan, " +
@@ -171,10 +166,10 @@ namespace UiHarness
         // Scroll the Planning screen's own ScrollViewer to the bottom (the plan
         // canvas + actions). Searched from the PlanningView, not the panel, so it
         // can't grab the chat thread's scroller instead.
-        private static void ScrollPlanningToEnd(CopilotPanel panel)
+        private static void ScrollPlanningToEnd(SpacePlanningPanel panel)
         {
             Settle(250);   // let the screen swap in and lay out
-            var screen = FindDescendant<RevitWebAppSync.UI.Copilot.Screens.PlanningView>(panel);
+            var screen = FindDescendant<RevitWebAppSync.UI.SpacePlanning.Screens.PlanningView>(panel);
             FindDescendant<ScrollViewer>(screen)?.ScrollToEnd();
         }
 
@@ -182,10 +177,10 @@ namespace UiHarness
         // SOA and the plan, so neither the top-of-screen nor the scroll-to-end shot
         // shows them. Optionally expands a row's storey breakdown first by clicking
         // its real chevron, so the shot proves the expand path works.
-        private static void ScrollPlanningToSchemes(CopilotPanel panel, bool expandFirst = false)
+        private static void ScrollPlanningToSchemes(SpacePlanningPanel panel, bool expandFirst = false)
         {
             Settle(250);
-            var screen = FindDescendant<RevitWebAppSync.UI.Copilot.Screens.PlanningView>(panel);
+            var screen = FindDescendant<RevitWebAppSync.UI.SpacePlanning.Screens.PlanningView>(panel);
             var host = screen?.FindName("SchemesHost") as FrameworkElement;
             if (expandFirst && host != null)
             {
@@ -276,7 +271,7 @@ namespace UiHarness
         private static void SchemePreviewShot(string dir, string file, bool dark, int level = 1, bool collapsed = false)
         {
             CopilotTheme.SetDark(dark);
-            var win = new RevitWebAppSync.UI.Copilot.Windows.SchemePreviewWindow
+            var win = new RevitWebAppSync.UI.SpacePlanning.Windows.SchemePreviewWindow
             {
                 Width = 560, Height = 400, Left = -4000, Top = -4000,
             };
@@ -352,6 +347,35 @@ namespace UiHarness
                 });
             }
             return 500;
+        }
+
+        /// <summary>Shot of the standalone Space Planning pane. Same recipe as
+        /// <see cref="Shot"/>, but this pane is its own top-level surface now, so it
+        /// is built directly rather than driven through the Copilot panel.</summary>
+        private static void PlanShot(string dir, string file, bool dark, Func<SpacePlanningPanel, int> configure = null)
+        {
+            CopilotTheme.SetDark(dark);
+
+            var panel = new SpacePlanningPanel();
+            var frame = new Frame { Content = panel };
+            var win = new Window
+            {
+                Width = 430, Height = 860, Content = frame,
+                WindowStyle = WindowStyle.None, ShowInTaskbar = false,
+                Left = -4000, Top = -4000, ResizeMode = ResizeMode.NoResize,
+            };
+            win.Show();
+            Settle(200);
+
+            if (configure != null)
+            {
+                int extra = 0;
+                try { extra = configure(panel); } catch { /* state seeding is best-effort */ }
+                Settle(Math.Max(200, extra));
+            }
+
+            Save(frame, Path.Combine(dir, file));
+            win.Close();
         }
 
         private static void Shot(string dir, string file, bool dark, Func<CopilotPanel, int> configure = null)

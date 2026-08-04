@@ -36,6 +36,9 @@ namespace RevitWebAppSync
         // Revit Copilot dockable pane host (right-docked side panel)
         public static CopilotPaneHost CopilotPaneHost { get; private set; }
 
+        // Space Planning dockable pane host (right-docked side panel, own button)
+        public static UI.SpacePlanning.SpacePlanningPaneHost SpacePlanningPaneHost { get; private set; }
+
         // Live UIApplication captured on Idling (a valid Revit API context).
         // Fallback for the dockable Copilot pane: its _uiApp is only pushed by
         // OpenCopilotCommand, so it stays NULL when Revit auto-restores the
@@ -333,6 +336,24 @@ namespace RevitWebAppSync
                         new { name = "copilot_pane", error_class = copilotEx.GetType().Name });
                 }
 
+                // Register Space Planning dockable pane. Its own pane, not a Copilot
+                // screen: the massing flow has its own backend endpoint and its own
+                // ribbon button, and the two panes can be open at the same time.
+                try
+                {
+                    SpacePlanningPaneHost = new SpacePlanningPaneHost();
+                    application.RegisterDockablePane(
+                        SpacePlanningPaneHost.PaneId,
+                        "BINA Space Planning",
+                        SpacePlanningPaneHost);
+                }
+                catch (Exception planningEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Space Planning dockable pane registration failed: {planningEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "space_planning_pane", error_class = planningEx.GetType().Name });
+                }
+
                 // Subscribe to document changes for live cost updates
                 try
                 {
@@ -605,6 +626,7 @@ namespace RevitWebAppSync
             // Labeled panel groups instead of one flat "Sync Tools" strip
             RibbonPanel cloudPanel = application.CreateRibbonPanel(tabName, "BINA Cloud");
             RibbonPanel aiPanel = application.CreateRibbonPanel(tabName, "AI");
+            RibbonPanel planningPanel = application.CreateRibbonPanel(tabName, "Planning");
             RibbonPanel compliancePanel = application.CreateRibbonPanel(tabName, "Compliance");
 
             PushButtonData buttonData = new PushButtonData(
@@ -666,6 +688,20 @@ namespace RevitWebAppSync
             {
                 ToolTip = "Open BINA AI Copilot",
                 LongDescription = "Open the BINA AI Copilot side panel to run vetted tools or AI commands with natural language. Examples: Count doors by level, Rename levels, Find walls missing fire rating.",
+                Image = LoadImage("RevitWebAppSync.Resources.aiAssistant.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.aiAssistant.png", 32)
+            };
+
+            // Space Planning — its own button, NOT a Copilot screen. The flow has its
+            // own backend endpoint (/planning/suggest) and never touches the tool-loop.
+            PushButtonData spacePlanningButtonData = new PushButtonData(
+                "SpacePlanning",
+                "Space\nPlanning",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.Commands.OpenSpacePlanningCommand")
+            {
+                ToolTip = "Propose a space plan from a building brief (LOD 100)",
+                LongDescription = "Turn a plain-language brief into a Schedule of Accommodation derived from Malaysian standards (UBBL 1984 sanitary provision, JKR/KPM bay modules) plus candidate block schemes. Preview a floor plan per scheme, then place the chosen one as a named Model Group. Sekolah rendah only in this release.",
                 Image = LoadImage("RevitWebAppSync.Resources.aiAssistant.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.aiAssistant.png", 32)
             };
@@ -738,6 +774,9 @@ namespace RevitWebAppSync
 
             // AI: copilot
             aiPanel.AddItem(askAiButtonData);
+
+            // Planning: space planning / massing
+            planningPanel.AddItem(spacePlanningButtonData);
 
             // Compliance: JKR (Cost/Fire hidden below)
             compliancePanel.AddItem(jkrComplianceButtonData);

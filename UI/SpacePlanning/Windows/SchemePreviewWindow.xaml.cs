@@ -5,9 +5,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
-using RevitWebAppSync.UI.Copilot.Model;
+using RevitWebAppSync.UI.SpacePlanning.Model;
 
-namespace RevitWebAppSync.UI.Copilot.Windows
+namespace RevitWebAppSync.UI.SpacePlanning.Windows
 {
     /// <summary>
     /// The floating "Scheme Preview" window from the design: a schematic plan of one

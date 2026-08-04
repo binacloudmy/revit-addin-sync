@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 // Planning/massing wire DTOs live with the pane's other models (Revit-free so the
 // tests can link them). Aliased rather than `using`-imported to keep them clearly
 // distinct from RevitWebAppSync.Models.
-using PlanningDtos = RevitWebAppSync.UI.Copilot.Model;
+using PlanningDtos = RevitWebAppSync.UI.SpacePlanning.Model;
 
 namespace RevitWebAppSync.Services
 {

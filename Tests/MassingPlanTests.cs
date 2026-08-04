@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Newtonsoft.Json;
-using RevitWebAppSync.UI.Copilot.Model;
+using RevitWebAppSync.UI.SpacePlanning.Model;
 using Xunit;
 
 namespace RevitWebAppSync.Tests

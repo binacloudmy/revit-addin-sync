@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
-using RevitWebAppSync.UI.Copilot.Model;
+using RevitWebAppSync.UI.SpacePlanning.Model;
 
 namespace UiHarness
 {

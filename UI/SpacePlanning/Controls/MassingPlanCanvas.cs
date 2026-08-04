@@ -4,9 +4,9 @@ using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Media;
-using RevitWebAppSync.UI.Copilot.Model;
+using RevitWebAppSync.UI.SpacePlanning.Model;
 
-namespace RevitWebAppSync.UI.Copilot.Controls
+namespace RevitWebAppSync.UI.SpacePlanning.Controls
 {
     /// <summary>
     /// Draw-only floor-plan preview for one level of a massing scheme. Pure pixels:

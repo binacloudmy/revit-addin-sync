@@ -2,7 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
 
-namespace RevitWebAppSync.UI.Copilot.Model
+namespace RevitWebAppSync.UI.SpacePlanning.Model
 {
     // ─── Wire shapes for POST {AIBaseUrl}/planning/suggest ────────────────────
     //

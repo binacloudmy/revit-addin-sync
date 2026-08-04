@@ -6,11 +6,12 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Shapes;
-using RevitWebAppSync.UI.Copilot.Controls;
-using RevitWebAppSync.UI.Copilot.Model;
-using CpWindows = RevitWebAppSync.UI.Copilot.Windows;
+using RevitWebAppSync.UI.Copilot;                    // CopilotTheme (shared chrome)
+using RevitWebAppSync.UI.Copilot.Controls;            // ToolHeader (shared chrome)
+using RevitWebAppSync.UI.SpacePlanning.Model;
+using CpWindows = RevitWebAppSync.UI.SpacePlanning.Windows;
 
-namespace RevitWebAppSync.UI.Copilot.Screens
+namespace RevitWebAppSync.UI.SpacePlanning.Screens
 {
     /// <summary>
     /// Massing / space-planning screen: the Schedule of Accommodation (with the
@@ -26,8 +27,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
     /// </summary>
     public partial class PlanningView : UserControl
     {
-        private CopilotViewModel Vm => DataContext as CopilotViewModel;
-        private CopilotViewModel _hooked;
+        private SpacePlanningViewModel Vm => DataContext as SpacePlanningViewModel;
+        private SpacePlanningViewModel _hooked;
 
         public PlanningView()
         {
@@ -65,19 +66,19 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         {
             switch (e.PropertyName)
             {
-                case nameof(CopilotViewModel.Planning):
+                case nameof(SpacePlanningViewModel.Planning):
                     Render();
                     break;
-                case nameof(CopilotViewModel.SelectedScheme):
+                case nameof(SpacePlanningViewModel.SelectedScheme):
                     RenderSchemes();
                     RenderLevelToggle();
                     RepointPreview();
                     break;
-                case nameof(CopilotViewModel.SelectedLevel):
+                case nameof(SpacePlanningViewModel.SelectedLevel):
                     RenderLevelToggle();
                     RepointPreview();
                     break;
-                case nameof(CopilotViewModel.IsBuildingMassing):
+                case nameof(SpacePlanningViewModel.IsBuildingMassing):
                     // Row buttons carry the label now, so re-render them (they also
                     // disable while a build is in flight) and show the footer status.
                     BuildStatus.Visibility = Vm != null && Vm.IsBuildingMassing

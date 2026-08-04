@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace RevitWebAppSync.UI.Copilot.Model
+namespace RevitWebAppSync.UI.SpacePlanning.Model
 {
     /// <summary>
     /// Pure (no WPF, no Revit) helpers shared by the Planning screen, the preview

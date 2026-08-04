@@ -1,7 +1,8 @@
-<UserControl x:Class="RevitWebAppSync.UI.Copilot.Screens.PlanningView"
+<UserControl x:Class="RevitWebAppSync.UI.SpacePlanning.Screens.PlanningView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
+             xmlns:sp="clr-namespace:RevitWebAppSync.UI.SpacePlanning.Controls"
              FontFamily="{DynamicResource Cp.Font}">
     <UserControl.Resources>
         <!-- Same shape as Cp.Card, but the hover fill uses the theme-aware Cp.Hover
@@ -117,7 +118,7 @@
                 </Grid>
 
                 <!-- (d) Draw-only floor plan. NOTHING here touches the document. -->
-                <ctl:MassingPlanCanvas x:Name="Plan" Height="300" Margin="0,0,0,10"
+                <sp:MassingPlanCanvas x:Name="Plan" Height="300" Margin="0,0,0,10"
                                        Scheme="{Binding SelectedScheme}"
                                        Level="{Binding SelectedLevel}"/>
 

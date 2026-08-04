@@ -109,15 +109,15 @@ namespace UiHarness
         private void OpenPlanning(object sender, RoutedEventArgs e) =>
             Open(() =>
             {
-                var panel = new RevitWebAppSync.UI.Copilot.CopilotPanel();
+                var panel = new RevitWebAppSync.UI.SpacePlanning.SpacePlanningPanel();
                 var win = new Window
                 {
-                    Title = "Copilot — Planning / Massing",
+                    Title = "Space Planning",
                     Width = 440,
                     Height = 900,
                     Content = new Frame { Content = panel },
                 };
-                win.Loaded += (_, __) => panel.ViewModel.ShowPlanningPreview(
+                win.Loaded += (_, __) => panel.ShowPlanningPreview(
                     MassingSample.School(),
                     "sekolah rendah, Tahun 1–6 with 3 kelas each, plus pejabat, bilik guru, " +
                     "bimbingan, keselamatan, bilik sukan, koku, 2 stor, dewan perhimpunan, " +

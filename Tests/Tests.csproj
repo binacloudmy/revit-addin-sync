@@ -84,8 +84,8 @@
          doubled ×1000 is a 1000× scale bug in the model) and the preview canvas's
          auto-fit transform. Newtonsoft + System.Linq only: no Revit, no WPF, so
          the frozen contract is testable before the backend exists. -->
-    <Compile Include="..\UI\Copilot\Model\PlanningModels.cs" Link="PlanningModels.cs" />
-    <Compile Include="..\UI\Copilot\Model\MassingPlan.cs" Link="MassingPlan.cs" />
+    <Compile Include="..\UI\SpacePlanning\Model\PlanningModels.cs" Link="PlanningModels.cs" />
+    <Compile Include="..\UI\SpacePlanning\Model\MassingPlan.cs" Link="MassingPlan.cs" />
     <Compile Include="..\AppInfo.cs" Link="AppInfo.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotContext.cs" Link="CopilotContext.cs" />
     <Compile Include="..\UI\Copilot\Model\UsageState.cs" Link="UsageState.cs" />
