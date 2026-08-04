@@ -392,10 +392,43 @@ namespace BinaVibe.Mcp.Tools
                 .Where(f => !string.IsNullOrEmpty(f))
                 .ToList();
 
+            // Match layer names more precisely:
+            // - Exact match: "WALL" matches "WALL"
+            // - Filter as prefix: "WALL" matches "WALL-EXT", "WALL_INT"
+            // - Filter as suffix: "WALL" matches "A-WALL", "S-WALL"
+            // - Filter as word: "WALL" matches "A-WALL-EXT"
+            // But NOT: "WALL" should NOT match "FURNITURE_WALL_MOUNT" where WALL is in the middle
+            //          without delimiters on both sides matching the filter
             return extraction.Lines
-                .Where(l => filters.Any(f =>
-                    l.Layer.IndexOf(f, StringComparison.OrdinalIgnoreCase) >= 0))
+                .Where(l => filters.Any(f => LayerMatches(l.Layer, f)))
                 .ToList();
+        }
+
+        /// <summary>
+        /// Check if a layer name matches a filter.
+        /// Matches if: exact, filter is prefix/suffix, or filter appears as a delimited word.
+        /// </summary>
+        private static bool LayerMatches(string layer, string filter)
+        {
+            if (string.Equals(layer, filter, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // Check if filter appears as a delimited segment
+            // Delimiters: - _ space
+            var delims = new[] { '-', '_', ' ' };
+            var layerUpper = layer.ToUpperInvariant();
+            var filterUpper = filter.ToUpperInvariant();
+
+            int idx = layerUpper.IndexOf(filterUpper);
+            if (idx < 0) return false;
+
+            // Check character before (must be start or delimiter)
+            bool startOk = idx == 0 || delims.Contains(layer[idx - 1]);
+            // Check character after (must be end or delimiter)
+            int endIdx = idx + filter.Length;
+            bool endOk = endIdx >= layer.Length || delims.Contains(layer[endIdx]);
+
+            return startOk && endOk;
         }
 
         /// <summary>
