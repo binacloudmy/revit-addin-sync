@@ -29,10 +29,29 @@
 # just unsigned. This script reuses that zip AS-IS rather than recomposing
 # it; it never touches artifacts/plugin itself.
 #
-# OTA-only: no setup EXE is published here. Fresh installs keep coming from
-# the last SIGNED installer TM One already serves — installer_key is carried
-# forward unchanged from the previous latest.json (never rewritten to point
-# at an unsigned or nonexistent installer).
+# -PublishInstaller (CI passes it): also publishes the setup EXE, so fresh
+# staging installs land on the CURRENT version instead of whatever version
+# the last SIGNED prod/staging release happened to be. This does NOT compile
+# anything here — release.yml's "Build installer (Inno Setup EXE)" step (has
+# existed since 2026-06-11, long before this script) already runs
+# unconditionally for every tag, staging or not, and its output
+# (RevitCopilot-<version>-setup.exe) is already globbed into the SAME
+# `release-<version>` artifact this script's zip comes from — see the
+# `path:` list on the `release` job's "Upload build artifacts" step. So the
+# unsigned setup EXE this switch publishes is not rebuilt, just picked up
+# from -PayloadDir and shipped as-is, exactly like the OTA zip above.
+# Recompiling the .iss a second time on this job (installing Inno Setup here
+# too) would just reproduce byte-identical output for no benefit and one
+# more thing that can flake in CI — so this script never invokes ISCC.
+# Without the switch, installer_key is still carried forward unchanged from
+# the previous latest.json (the pre-existing behavior).
+#
+# Unsigned EXE reality, accepted for staging only (operator decision
+# 2026-08-04): the setup EXE has no Authenticode signature, so Windows
+# SmartScreen shows an "unrecognized app" warning on download/run — the same
+# accepted risk as the unsigned OTA DLLs above, scoped to the staging
+# tester population, never prod (prod installers only ever come from the
+# signed sign-release.ps1 path).
 #
 # Requirements on the runner: aws-cli (present by default on windows-latest),
 # and TM One creds in env (TMONE_SERVER/BUCKET/ACCESS_KEY_ID/SECRET_ACCESS_KEY
@@ -42,6 +61,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Tag,        # vMAJOR.MINOR.PATCH-staging — no other shape accepted
     [Parameter(Mandatory = $true)][string]$PayloadDir, # dir holding the downloaded CI artifact (release-<version>), containing RevitWebAppSync-<version>.zip
+    [switch]$PublishInstaller,                         # also ship RevitCopilot-<version>-setup.exe from -PayloadDir (already built unsigned by release.yml)
     [bool]$Mandatory = $false                          # staging default; explicit -Mandatory always wins (same convention as sign-release.ps1)
 )
 
@@ -65,6 +85,13 @@ $zip = Join-Path $PayloadDir "RevitWebAppSync-$version.zip"
 if (-not (Test-Path $zip)) {
     throw "'$zip' not found under -PayloadDir '$PayloadDir' — expected release.yml's 'Zip payload + feed json' step to have produced it in the downloaded artifact"
 }
+$installerExe = $null
+if ($PublishInstaller) {
+    $installerExe = Join-Path $PayloadDir "RevitCopilot-$version-setup.exe"
+    if (-not (Test-Path $installerExe)) {
+        throw "-PublishInstaller was passed but '$installerExe' not found under -PayloadDir '$PayloadDir' — expected release.yml's 'Build installer (Inno Setup EXE)' step to have produced it in the downloaded artifact"
+    }
+}
 
 # ─── Creds + target, resolved before anything else touches the network ─────
 # Same ordering lesson as sign-release.ps1: check everything cheap first, so
@@ -85,7 +112,11 @@ if ($env:REVIT_RELEASE_PREFIX -and $prefix -ne $defaultPrefix) {
 }
 $endpoint = $env:TMONE_SERVER
 $bucket   = $env:TMONE_BUCKET
-$otaKey   = "ota/RevitWebAppSync-$version.zip"
+$otaKey       = "ota/RevitWebAppSync-$version.zip"
+# Exact same convention as sign-release.ps1's $installerKey — kept identical
+# so a version's installer lands at the same key shape regardless of which
+# script published it (signed via sign-release.ps1, or unsigned via this one).
+$installerKey = "installers/RevitCopilot-$version-setup.exe"
 
 # aws-cli reads AWS_* creds; SigV4 needs a region (derive from the OBS host,
 # e.g. obs.my-kualalumpur-1.alphaedge… -> my-kualalumpur-1). when_required
@@ -102,13 +133,17 @@ else { $env:AWS_DEFAULT_REGION = 'us-east-1' }
 
 # Immutability guard — identical rule to sign-release.ps1: a version key must
 # never be overwritten, so rollback (pointing latest.json back at an earlier
-# version) stays safe. Only the OTA key is checked here; this script never
-# writes an installer_key of its own (see below), so there is no installer
-# key to guard.
-Write-Host "==> Checking $prefix/$otaKey ..." -ForegroundColor Cyan
-aws s3api head-object --endpoint-url $endpoint --bucket $bucket --key "$prefix/$otaKey" *> $null
-if ($LASTEXITCODE -eq 0) {
-    throw "$prefix/$otaKey already exists — version $version is published and immutable. Bump the version; do not overwrite."
+# version) stays safe. The OTA key is always checked; the installer key is
+# only checked when -PublishInstaller is writing one (without the switch this
+# script writes no installer_key of its own, same as before).
+$keysToCheck = @($otaKey)
+if ($PublishInstaller) { $keysToCheck += $installerKey }
+foreach ($k in $keysToCheck) {
+    Write-Host "==> Checking $prefix/$k ..." -ForegroundColor Cyan
+    aws s3api head-object --endpoint-url $endpoint --bucket $bucket --key "$prefix/$k" *> $null
+    if ($LASTEXITCODE -eq 0) {
+        throw "$prefix/$k already exists — version $version is published and immutable. Bump the version; do not overwrite."
+    }
 }
 
 $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
@@ -125,12 +160,19 @@ function S3Cp($localFile, $key, $contentType, $cacheControl) {
 Write-Host "==> Uploading UNSIGNED OTA zip to TM One..." -ForegroundColor Cyan
 S3Cp $zip $otaKey 'application/zip' $null
 
+if ($PublishInstaller) {
+    Write-Host "==> Uploading UNSIGNED installer EXE to TM One..." -ForegroundColor Cyan
+    S3Cp $installerExe $installerKey 'application/octet-stream' $null
+}
+
 # Read the CURRENT pointer first: previous_version for rollback provenance
-# (same as sign-release.ps1), AND installer_key — carried forward unchanged,
-# since this script never publishes a setup EXE. Overwriting it with $null
-# would break fresh installs the moment this runs; keeping it means
-# /addin/download keeps redirecting to the last SIGNED installer while OTA
-# jumps ahead to the new unsigned build.
+# (same as sign-release.ps1), AND installer_key — used as the carry-forward
+# fallback when -PublishInstaller is NOT passed (this script writes no setup
+# EXE of its own in that case; overwriting installer_key with $null would
+# break fresh installs the moment this runs, so /addin/download keeps
+# redirecting to the last SIGNED installer while OTA jumps ahead). When
+# -PublishInstaller IS passed, the freshly-uploaded $installerKey wins
+# instead — fresh installs then get the CURRENT version too.
 $previous = $null
 $carriedInstallerKey = $null
 try {
@@ -141,15 +183,15 @@ try {
         $carriedInstallerKey = $prevObj.installer_key
     }
 } catch { }
+$effectiveInstallerKey = if ($PublishInstaller) { $installerKey } else { $carriedInstallerKey }
 
 # Pointer shape is IDENTICAL to sign-release.ps1's — same fields, same order,
-# same construction. installer_key is the one field this script does not
-# mint itself: it carries forward whatever the last signed publish wrote.
+# same construction.
 $pointer = [ordered]@{
     version          = $version
     channel          = $channel
     tag              = $Tag
-    installer_key    = $carriedInstallerKey
+    installer_key    = $effectiveInstallerKey
     ota_key          = $otaKey
     sha256           = $sha
     notes            = "BINA Sync $version (unsigned, CI-published)"
@@ -164,6 +206,13 @@ S3Cp $pointerFile 'latest.json' 'application/json' 'no-cache, must-revalidate'
 
 Write-Host ""
 Write-Host "Done — $Tag published to TM One (bucket $bucket), UNSIGNED:" -ForegroundColor Green
+if ($PublishInstaller) {
+    Write-Host "  $prefix/$installerKey"
+}
 Write-Host "  $prefix/$otaKey (sha256 $sha)"
-Write-Host "  $prefix/latest.json -> now serving $version (installer_key carried forward: $carriedInstallerKey)"
-Write-Host "  No setup EXE published — fresh installs still come from the last signed installer."
+if ($PublishInstaller) {
+    Write-Host "  $prefix/latest.json -> now serving $version (installer_key updated to THIS version's unsigned EXE)"
+} else {
+    Write-Host "  $prefix/latest.json -> now serving $version (installer_key carried forward: $carriedInstallerKey)"
+    Write-Host "  No setup EXE published — fresh installs still come from the last signed installer."
+}

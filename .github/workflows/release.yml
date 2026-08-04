@@ -19,11 +19,13 @@
 #       see publish-staging-unsigned — but this job never touches them.)
 #
 #   CI, UNSIGNED (`publish-staging-unsigned` job, automated, GitHub-hosted,
-#   STAGING TAGS ONLY): reuses this job's own unsigned zip, uploads it
-#   straight to TM One's staging prefix and flips latest.json — no cert, no
-#   signing box, no human click. Runs only while no self-hosted signer is
-#   registered (vars.SELF_HOSTED_SIGNER != 'true'); the signed staging path
-#   below always wins once one exists, so the two never race. See
+#   STAGING TAGS ONLY): reuses this job's own unsigned zip AND setup EXE,
+#   uploads both straight to TM One's staging prefix and flips latest.json
+#   with the CURRENT version's installer_key — no cert, no signing box, no
+#   human click, and fresh installs (not just OTA updates) land on the
+#   current version. Runs only while no self-hosted signer is registered
+#   (vars.SELF_HOSTED_SIGNER != 'true'); the signed staging path below
+#   always wins once one exists, so the two never race. See
 #   installer\publish-unsigned-staging.ps1 for why this is safe for staging
 #   and would not be for prod.
 #
@@ -263,11 +265,12 @@ jobs:
       #     payload + EXE, uploads to TM One and flips the pointer.
       #   * staging when SELF_HOSTED_SIGNER != 'true' (the default today): the
       #     publish-staging-unsigned job below re-downloads THIS artifact and
-      #     ships the zip to TM One's staging prefix AS-IS — unsigned, by
-      #     operator decision 2026-08-04. See
-      #     installer\publish-unsigned-staging.ps1.
+      #     ships BOTH the zip and the setup EXE built above to TM One's
+      #     staging prefix AS-IS — unsigned, by operator decision 2026-08-04.
+      #     See installer\publish-unsigned-staging.ps1 (-PublishInstaller).
       # Either way, this artifact is also the build record + staging smoke
-      # source.
+      # source. Both files below are load-bearing for publish-staging-unsigned
+      # — do not narrow this glob without checking that job first.
       - name: Upload build artifacts (unsigned build record)
         uses: actions/upload-artifact@v4
         with:
@@ -426,11 +429,20 @@ jobs:
   # human-gated below (sign-prod).
   #
   # No rebuild, no re-sign: this job downloads the SAME unsigned artifact the
-  # `release` job above already produced and re-publishes the zip it
-  # contains as-is. See installer\publish-unsigned-staging.ps1 for why that
-  # zip is already byte-identical in shape to what sign-release.ps1 would
-  # produce (just unsigned), and for the OTA-only scope (no setup EXE — fresh
-  # installs still come from the last signed installer).
+  # `release` job above already produced and re-publishes what it contains
+  # as-is — the OTA zip AND the setup EXE (-PublishInstaller). The `release`
+  # job's "Build installer (Inno Setup EXE)" step already runs unconditionally
+  # for every tag (has since 2026-06-11, well before this job existed) and its
+  # output is already part of the same `release-<version>` artifact this job
+  # downloads, so publishing the installer here costs nothing extra — no
+  # second Inno Setup install, no recompiling the .iss. Without
+  # -PublishInstaller fresh staging installs would stay pinned to whatever
+  # version the last SIGNED release happened to be (installer_key carried
+  # forward) even as OTA updates raced ahead on every subsequent unsigned tag;
+  # -PublishInstaller keeps fresh installs on the CURRENT version instead. See
+  # installer\publish-unsigned-staging.ps1 for the full reasoning, the
+  # installer_key naming convention (identical to sign-release.ps1's), and the
+  # accepted SmartScreen-warning trade-off on the unsigned EXE.
   publish-staging-unsigned:
     needs: release
     if: >-
@@ -467,7 +479,7 @@ jobs:
           }
           aws --version
 
-      - name: Publish unsigned OTA to TM One, flip latest.json
+      - name: Publish unsigned OTA + installer to TM One, flip latest.json
         shell: pwsh
         env:
           TMONE_SERVER: ${{ secrets.TMONE_SERVER }}
@@ -481,15 +493,25 @@ jobs:
           AWS_REQUEST_CHECKSUM_CALCULATION: when_required
           AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
         run: |
+          # -PublishInstaller ships RevitCopilot-<version>-setup.exe from the
+          # SAME downloaded artifact — it is already built unsigned by the
+          # `release` job's "Build installer (Inno Setup EXE)" step above, so
+          # this does not compile anything on this runner (no Inno Setup
+          # install needed here). Accepted trade-off, staging only: the EXE
+          # has no Authenticode signature, so SmartScreen warns on
+          # download/run — operator decision 2026-08-04, same as the unsigned
+          # OTA payload.
           ./installer/publish-unsigned-staging.ps1 `
             -Tag '${{ github.ref_name }}' `
-            -PayloadDir artifact
+            -PayloadDir artifact `
+            -PublishInstaller
 
       - name: Report what was published
         shell: pwsh
         run: |
-          Write-Host "published ${{ github.ref_name }} (UNSIGNED) to TM One's staging prefix"
+          Write-Host "published ${{ github.ref_name }} (UNSIGNED, OTA + installer) to TM One's staging prefix"
           Write-Host "latest.json is flipped — bina-ai /addin/version.json will serve it within its 600s cache"
+          Write-Host "fresh installs now land on this version's unsigned setup EXE too"
 
   # ─── Prod publish — same box, but a human says go ───────────────────────────
   # Identical machinery to sign-staging with one difference that is the whole
