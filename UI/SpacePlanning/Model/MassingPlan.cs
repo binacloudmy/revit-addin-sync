@@ -181,6 +181,39 @@ namespace RevitWebAppSync.UI.SpacePlanning.Model
         /// <summary>Revit level name for a scheme level index (1 → "Tingkat 1").</summary>
         public static string LevelName(int level) => "Tingkat " + level;
 
+        /// <summary>What to place in Revit. "rooms" is the deliverable: Rooms bounded
+        /// by separation lines are editable, schedulable and read as a plan, which
+        /// conceptual masses are not. "masses" and "both" stay available for pure
+        /// massing review.</summary>
+        public const string OutputRooms = "rooms";
+        public const string OutputMasses = "masses";
+        public const string OutputBoth = "both";
+
+        /// <summary>Revit Room NAME for a scheme room.
+        ///
+        /// "BD1".."BD18" are position codes, not names — every classroom is a
+        /// "Bilik Darjah" and the code belongs in the Number. Every other room's
+        /// label already IS its name ("Kantin", "Dewan Perhimpunan"), so it passes
+        /// through.</summary>
+        public static string RoomName(MassingRoom room)
+        {
+            if (room == null) return "";
+            if (string.Equals(room.Type, "kelas", StringComparison.OrdinalIgnoreCase))
+                return MassingPalette.For(room.Type).Label;      // "Bilik Darjah"
+            return string.IsNullOrWhiteSpace(room.Label)
+                ? MassingPalette.For(room.Type).Label
+                : room.Label;
+        }
+
+        /// <summary>Revit Room NUMBER, or null to let the addin generate one.
+        /// Classrooms keep their "BD7" code — it is the only per-instance identity
+        /// the scheme carries, and losing it would make 18 identically-named rooms
+        /// indistinguishable in a schedule.</summary>
+        public static string RoomNumber(MassingRoom room) =>
+            room != null && string.Equals(room.Type, "kelas", StringComparison.OrdinalIgnoreCase)
+                ? room.Label
+                : null;
+
         /// <summary>Group name for the built scheme. Kept Design-Option-shaped
         /// ("option_name") per §6 even though the container is a Model Group.</summary>
         public static string OptionName(MassingScheme scheme) =>
@@ -194,7 +227,8 @@ namespace RevitWebAppSync.UI.SpacePlanning.Model
         /// </summary>
         public static Dictionary<string, object> Build(
             MassingScheme scheme, bool makeWalls = false, string optionName = null,
-            bool autoOffset = true, double? storeyHeightMm = null)
+            bool autoOffset = true, double? storeyHeightMm = null,
+            string output = OutputRooms)
         {
             if (scheme == null) throw new ArgumentNullException(nameof(scheme));
 
@@ -223,13 +257,23 @@ namespace RevitWebAppSync.UI.SpacePlanning.Model
                 .ToList();
 
             var rooms = buildable
-                .Select(r => (object)new Dictionary<string, object>
+                .Select(r =>
                 {
-                    ["label"] = r.Label ?? "",
-                    ["type"] = r.Type ?? "",
-                    ["boundary_mm"] = Boundary(r),
-                    ["level"] = r.Level,
-                    ["height_mm"] = RoomHeightMm,
+                    var dict = new Dictionary<string, object>
+                    {
+                        ["label"] = r.Label ?? "",
+                        ["type"] = r.Type ?? "",
+                        ["boundary_mm"] = Boundary(r),
+                        ["level"] = r.Level,
+                        ["height_mm"] = RoomHeightMm,
+                        ["name"] = RoomName(r),
+                    };
+                    // Omitted rather than sent null: the addin generates T{level}-{nn}
+                    // when there is no number, and a null would have to mean the same
+                    // thing in two places.
+                    var number = RoomNumber(r);
+                    if (!string.IsNullOrWhiteSpace(number)) dict["number"] = number;
+                    return (object)dict;
                 })
                 .ToList();
 
@@ -238,6 +282,10 @@ namespace RevitWebAppSync.UI.SpacePlanning.Model
                 ["option_name"] = optionName ?? OptionName(scheme),
                 ["levels"] = levels,
                 ["rooms"] = rooms,
+                // Rooms, not masses: a DirectShape can be moved but never reshaped, so
+                // a scheme placed as masses cannot be edited in Revit at all — and an
+                // uneditable result blocks the whole edit/regenerate loop.
+                ["output"] = output,
                 ["make_walls"] = makeWalls,
                 // LOD 100 deliverable: the scheme is placed as generic conceptual
                 // masses (DirectShape extrusions), not as floors/walls. Floor-to-floor

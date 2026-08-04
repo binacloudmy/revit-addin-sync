@@ -79,9 +79,17 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
                 ? "Placed as one Model Group."
                 : $"Model Group: {outcome.GroupName}";
 
-            AddRow("Masses placed", outcome.MassCount.ToString());
+            if (outcome.RoomCount > 0)
+            {
+                AddRow("Rooms placed", outcome.RoomCount.ToString());
+                if (outcome.SeparationLineCount > 0)
+                    AddRow("Separation lines", outcome.SeparationLineCount.ToString());
+            }
+            if (outcome.MassCount > 0) AddRow("Masses placed", outcome.MassCount.ToString());
             if (outcome.WallCount > 0) AddRow("Walls placed", outcome.WallCount.ToString());
             if (outcome.LevelCount > 0) AddRow("Levels used", outcome.LevelCount.ToString());
+            if (outcome.CreatedViews != null && outcome.CreatedViews.Count > 0)
+                AddRow("Views created", string.Join(", ", outcome.CreatedViews));
             if (outcome.SkippedCount > 0)
                 AddRow("Skipped", $"{outcome.SkippedCount} (site-only, e.g. the padang)");
             if (outcome.CreatedLevels != null && outcome.CreatedLevels.Count > 0)
@@ -89,13 +97,32 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
             if (!string.IsNullOrWhiteSpace(outcome.Category))
                 AddRow("Category", outcome.Category);
 
+            // An unenclosed room looks correct in plan and then schedules as nothing —
+            // the one failure here that is invisible unless it is stated.
+            if (outcome.UnenclosedCount > 0)
+                AddRow("⚠ Not enclosed", $"{outcome.UnenclosedCount} room(s) — no area");
+            if (outcome.RoomFailureCount > 0)
+                AddRow("⚠ Could not place", $"{outcome.RoomFailureCount} room(s)");
+
             LodCard.Visibility = Visibility.Visible;
-            LodNote.Text =
-                (string.IsNullOrWhiteSpace(outcome.Lod) ? "LOD 100" : outcome.Lod)
-                + " — conceptual masses, not building elements. They carry no floor area, "
-                + "so Revit will not schedule or take off GFA from them; the Schedule of "
-                + "Accommodation holds the authoritative figures. Delete the Model Group "
-                + "to remove the whole proposal in one action.";
+            string lodText = string.IsNullOrWhiteSpace(outcome.Lod) ? "LOD 100" : outcome.Lod;
+            LodNote.Text = outcome.RoomCount > 0
+                ? lodText + " — Rooms bounded by room-separation lines. They carry real "
+                  + "Revit areas and will appear in a room schedule, but they are space "
+                  + "boundaries, not walls: nothing here is a building element yet. The "
+                  + "Schedule of Accommodation remains the authoritative area figure."
+                : lodText + " — conceptual masses, not building elements. They carry no "
+                  + "floor area, so Revit will not schedule or take off GFA from them; the "
+                  + "Schedule of Accommodation holds the authoritative figures. Delete the "
+                  + "Model Group to remove the whole proposal in one action.";
+
+            // Rooms are not group members (Revit refuses to group them), so "delete
+            // the group" does NOT clean them up. Say it here rather than let a user
+            // discover a model full of orphan rooms.
+            if (outcome.RoomCount > 0 && !outcome.RoomsInGroup)
+                LodNote.Text += " Deleting the Model Group removes the separation lines "
+                              + "(and any masses) but LEAVES the rooms — Revit does not "
+                              + "allow rooms in a group. Ctrl+Z undoes the whole Build.";
 
             // A level created in the user's model survives deleting the group (Revit
             // refuses to group datums), so it has to be said out loud.

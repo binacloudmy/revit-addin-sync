@@ -234,6 +234,7 @@ namespace RevitWebAppSync.UI.SpacePlanning
             public bool Ok;
             public string Headline;
             public string GroupName;
+            public string Output;              // rooms | masses | both
             public int MassCount;
             public int WallCount;
             public int LevelCount;
@@ -242,6 +243,19 @@ namespace RevitWebAppSync.UI.SpacePlanning
             public string Lod;
             public List<string> CreatedLevels = new List<string>();
             public string Error;
+
+            // ── rooms mode ──
+            public int RoomCount;
+            public int SeparationLineCount;
+            /// <summary>Rooms Revit created but could not close a boundary around.
+            /// They look fine in plan and then schedule as nothing, so this is
+            /// surfaced rather than left to be found later.</summary>
+            public int UnenclosedCount;
+            public int RoomFailureCount;
+            public List<string> CreatedViews = new List<string>();
+            /// <summary>Rooms cannot be group members — Revit refuses. Deleting the
+            /// group removes the separation lines and masses and LEAVES the rooms.</summary>
+            public bool RoomsInGroup;
         }
 
         private MassingBuildOutcome _buildOutcome;
@@ -435,11 +449,27 @@ namespace RevitWebAppSync.UI.SpacePlanning
                             outcome.CreatedLevels.Add(item.GetString());
                 if (o.TryGetProperty("ok", out var ok) && ok.ValueKind == System.Text.Json.JsonValueKind.False)
                     outcome.Ok = false;
+
+                if (o.TryGetProperty("output", out var outp) && outp.ValueKind == System.Text.Json.JsonValueKind.String)
+                    outcome.Output = outp.GetString();
+                if (o.TryGetProperty("room_count", out var rc) && rc.TryGetInt32(out var rci)) outcome.RoomCount = rci;
+                if (o.TryGetProperty("separation_line_count", out var sc2) && sc2.TryGetInt32(out var sci)) outcome.SeparationLineCount = sci;
+                if (o.TryGetProperty("unenclosed_room_count", out var uc) && uc.TryGetInt32(out var uci)) outcome.UnenclosedCount = uci;
+                if (o.TryGetProperty("room_failure_count", out var fc) && fc.TryGetInt32(out var fci)) outcome.RoomFailureCount = fci;
+                if (o.TryGetProperty("rooms_in_group", out var rg) && rg.ValueKind == System.Text.Json.JsonValueKind.True)
+                    outcome.RoomsInGroup = true;
+                if (o.TryGetProperty("created_views", out var cv) && cv.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    foreach (var item in cv.EnumerateArray())
+                        if (item.ValueKind == System.Text.Json.JsonValueKind.String)
+                            outcome.CreatedViews.Add(item.GetString());
             }
 
-            outcome.Headline = outcome.Ok
-                ? $"Placed {outcome.MassCount} mass{(outcome.MassCount == 1 ? "" : "es")}"
-                : "Build failed";
+            // Lead with whichever thing was actually placed.
+            if (!outcome.Ok) outcome.Headline = "Build failed";
+            else if (outcome.RoomCount > 0)
+                outcome.Headline = $"Placed {outcome.RoomCount} room{(outcome.RoomCount == 1 ? "" : "s")}";
+            else
+                outcome.Headline = $"Placed {outcome.MassCount} mass{(outcome.MassCount == 1 ? "" : "es")}";
             return outcome;
         }
 

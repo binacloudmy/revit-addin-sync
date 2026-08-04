@@ -2200,14 +2200,152 @@ namespace BinaVibe.Mcp.Tools
             return ds.Id;
         }
 
+        // ─── LOD 100 as ROOMS ────────────────────────────────────────────
+        // A DirectShape mass can be moved but not reshaped, so a scheme placed as
+        // masses cannot be edited in Revit at all — which also blocks any
+        // "regenerate around my edits" flow. Rooms bounded by room-separation lines
+        // are editable, schedulable, carry a real Revit area, and read as a plan.
+        // Ticket 86eyeh4g3 asks for exactly this: "room boundaries (Room-bounding
+        // lines or mass/floor-plan blocking), not detailed walls".
+
+        /// <summary>
+        /// A floor plan view for a level — room separation lines have to be drawn in
+        /// one. Prefers an existing non-template plan on that level (so we don't
+        /// litter the browser); creates one only when the level has none.
+        /// TRANSACTION-FREE: the caller must already be inside a Transaction.
+        /// </summary>
+        internal static ViewPlan ResolveOrCreatePlanViewCore(
+            Document doc, ElementId levelId, out bool created)
+        {
+            created = false;
+            var existing = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewPlan)).Cast<ViewPlan>()
+                .FirstOrDefault(v => !v.IsTemplate
+                                     && v.GenLevel != null
+                                     && v.GenLevel.Id == levelId);
+            if (existing != null) return existing;
+
+            var vft = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
+                .FirstOrDefault(t => t.ViewFamily == ViewFamily.FloorPlan)
+                ?? throw new InvalidOperationException(
+                    "no floor-plan view family type in this project");
+
+            var view = ViewPlan.Create(doc, vft.Id, levelId);
+            created = true;
+            return view;
+        }
+
+        /// <summary>
+        /// Draw a closed loop of ROOM SEPARATION lines. TRANSACTION-FREE.
+        ///
+        /// <paramref name="drawn"/> carries the edges already drawn on this level so
+        /// a shared boundary between two adjacent rooms is drawn ONCE. Without it a
+        /// 40-room scheme emits ~160 curves, many exactly coincident, which Revit
+        /// reports as duplicate geometry — and TxGuard swallows the warning, so the
+        /// only symptom would be a model full of stacked lines.
+        ///
+        /// <paramref name="sketch"/> is passed in and cached per level by the caller:
+        /// creating one per room would leave a stray SketchPlane behind for every
+        /// room in the scheme.
+        /// </summary>
+        internal static List<ElementId> CreateRoomSeparationCore(
+            Document doc, List<XYZ> pointsFt, double baseZFt, View view,
+            HashSet<string> drawn, SketchPlane sketch)
+        {
+            var ids = new List<ElementId>();
+            var arr = new CurveArray();
+            for (int i = 0; i < pointsFt.Count; i++)
+            {
+                var a = pointsFt[i];
+                var b = pointsFt[(i + 1) % pointsFt.Count];
+                if (a.DistanceTo(b) < 1e-6) continue;          // degenerate edge
+
+                if (drawn != null && !drawn.Add(EdgeKey(a, b, baseZFt))) continue;  // already drawn
+
+                arr.Append(Line.CreateBound(
+                    new XYZ(a.X, a.Y, baseZFt), new XYZ(b.X, b.Y, baseZFt)));
+            }
+            if (arr.Size == 0) return ids;                     // every edge was shared
+
+            var curves = doc.Create.NewRoomBoundaryLines(sketch, arr, view);
+            if (curves != null)
+                foreach (ModelCurve c in curves)
+                    if (c != null) ids.Add(c.Id);
+            return ids;
+        }
+
+        /// <summary>Direction-independent key for an edge, rounded to 0.1 mm so two
+        /// rooms sharing a boundary produce the same key from either side.</summary>
+        private static string EdgeKey(XYZ a, XYZ b, double z)
+        {
+            string P(XYZ p) => $"{Math.Round(p.X, 5)},{Math.Round(p.Y, 5)}";
+            var one = P(a);
+            var two = P(b);
+            // Order the endpoints so a->b and b->a collapse to one key.
+            var lo = string.CompareOrdinal(one, two) <= 0 ? one : two;
+            var hi = ReferenceEquals(lo, one) ? two : one;
+            return $"{Math.Round(z, 5)}|{lo}|{hi}";
+        }
+
+        /// <summary>
+        /// Place a Room at a point. TRANSACTION-FREE.
+        ///
+        /// Returns null when Revit declines (most often "not enclosed" — the point
+        /// is not inside a closed boundary). The caller counts those rather than
+        /// failing: one unenclosed room must not lose the other 39.
+        /// </summary>
+        internal static Room CreateRoomCore(
+            Document doc, Level level, XYZ pointFt, string name, string number)
+        {
+            Room room;
+            try { room = doc.Create.NewRoom(level, new UV(pointFt.X, pointFt.Y)); }
+            catch { return null; }
+            if (room == null) return null;
+
+            // Set through the parameter, not room.Name — the property throws on some
+            // templates where the parameter is merely read-only. Same pattern as
+            // CreateRoomXY, which is the proven path in this file.
+            if (!string.IsNullOrWhiteSpace(name))
+                try
+                {
+                    var p = room.LookupParameter("Name");
+                    if (p != null && !p.IsReadOnly) p.Set(name);
+                }
+                catch { /* keep Revit's default name */ }
+
+            if (!string.IsNullOrWhiteSpace(number))
+                try
+                {
+                    var p = room.get_Parameter(BuiltInParameter.ROOM_NUMBER);
+                    if (p != null && !p.IsReadOnly) p.Set(number);
+                }
+                catch { /* duplicate number, or read-only */ }
+
+            return room;
+        }
+
         // ─── place_massing_scheme ────────────────────────────────────────
         /// <summary>
         /// args: {
         ///   option_name: string,
         ///   levels: [{ name, elevation_mm, level? }],
-        ///   rooms:  [{ label, type, boundary_mm:[[x,y],...], level, height_mm? }],
+        ///   rooms:  [{ label, type, boundary_mm:[[x,y],...], level, height_mm?,
+        ///              name?, number? }],
+        ///   output?: "masses" | "rooms" | "both",   // default "masses"
         ///   make_walls?: bool, floor_type_name?: string, wall_type_name?: string
         /// }
+        ///
+        /// OUTPUT MODES
+        ///   masses — DirectShape extrusions. The original behaviour and still the
+        ///            default so a hand-written payload is unaffected. Good for pure
+        ///            massing review; a DirectShape cannot be reshaped, so a scheme
+        ///            placed this way cannot be edited in Revit at all.
+        ///   rooms  — room-separation lines + a Room per cell, named and numbered.
+        ///            Editable, schedulable, carries a real Revit area, and reads as
+        ///            a plan. What ticket 86eyeh4g3 asks for, and the prerequisite for
+        ///            any "regenerate around my edits" flow. The pane sends this.
+        ///   both   — both, for comparing them side by side.
         /// All lengths in MILLIMETRES (the pane's args-builder does the one and only
         /// metres→mm multiply — see UI/Copilot/Model/MassingPlan.cs).
         ///
@@ -2260,7 +2398,8 @@ namespace BinaVibe.Mcp.Tools
             }
 
             // ── Parse the rooms.
-            var rooms = new List<(string label, string type, List<XYZ> boundaryFt, int level, double heightFt)>();
+            var rooms = new List<(string label, string type, List<XYZ> boundaryFt, int level,
+                                  double heightFt, string name, string number)>();
             if (args.ValueKind == JsonValueKind.Object &&
                 args.TryGetProperty("rooms", out var roomsEl) && roomsEl.ValueKind == JsonValueKind.Array)
             {
@@ -2274,7 +2413,11 @@ namespace BinaVibe.Mcp.Tools
                         ArgsHelp.GetString(el, "type") ?? "",
                         boundary,
                         (int)(ArgsHelp.GetLong(el, "level") ?? 1),
-                        ArgsHelp.GetLengthMm(el, "height_mm") ?? (3000.0 / 304.8)));
+                        ArgsHelp.GetLengthMm(el, "height_mm") ?? (3000.0 / 304.8),
+                        // Room Name / Number when output=rooms. Optional: fall back to
+                        // the label so an older payload still produces named rooms.
+                        ArgsHelp.GetString(el, "name"),
+                        ArgsHelp.GetString(el, "number")));
                 }
             }
             if (rooms.Count == 0)
@@ -2287,8 +2430,21 @@ namespace BinaVibe.Mcp.Tools
                 ?? rooms.Max(r => r.heightFt);
             if (storeyHeightFt <= 1e-6) storeyHeightFt = 4000.0 / 304.8;
 
-            var massCategory = ResolveMassCategory(
-                doc, ArgsHelp.GetBool(args, "prefer_mass") ?? false);
+            // What to place. "masses" is the original behaviour and stays the default
+            // so a hand-written payload is unaffected; the pane sends "rooms".
+            //   rooms  — room-separation lines + a Room per cell. Editable, schedulable,
+            //            reads as a plan. What ticket 86eyeh4g3 actually asks for.
+            //   masses — DirectShape extrusions. Pure massing review; not editable.
+            //   both   — masses AND rooms, for comparing the two.
+            var output = (ArgsHelp.GetString(args, "output") ?? "masses").Trim().ToLowerInvariant();
+            if (output != "rooms" && output != "masses" && output != "both")
+                throw new ArgumentException($"output must be rooms|masses|both, got '{output}'");
+            bool wantMasses = output == "masses" || output == "both";
+            bool wantRooms = output == "rooms" || output == "both";
+
+            var massCategory = wantMasses
+                ? ResolveMassCategory(doc, ArgsHelp.GetBool(args, "prefer_mass") ?? false)
+                : null;
             var wallType = makeWalls ? ResolveWallType(doc, ArgsHelp.GetString(args, "wall_type_name")) : null;
             var lod = ArgsHelp.GetString(args, "lod") ?? "LOD 100";
 
@@ -2334,7 +2490,8 @@ namespace BinaVibe.Mcp.Tools
                 for (int i = 0; i < rooms.Count; i++)
                 {
                     var moved = rooms[i].boundaryFt.Select(p => p + shift).ToList();
-                    rooms[i] = (rooms[i].label, rooms[i].type, moved, rooms[i].level, rooms[i].heightFt);
+                    rooms[i] = (rooms[i].label, rooms[i].type, moved, rooms[i].level,
+                                rooms[i].heightFt, rooms[i].name, rooms[i].number);
                 }
             }
 
@@ -2353,9 +2510,18 @@ namespace BinaVibe.Mcp.Tools
                     if (created) createdLevels.Add(level.Name);
                 }
 
-                // 2 ─ One conceptual mass per room (+ optional perimeter walls).
+                // 2 ─ One conceptual mass per room (+ optional perimeter walls), and/or
+                //     room-separation lines + a Room per cell.
                 var groupMembers = new List<ElementId>();
                 int massCount = 0, wallCount = 0, skipped = 0;
+                int roomCount = 0, separationCount = 0, unenclosed = 0, roomFailures = 0;
+                var createdViews = new List<string>();
+                // Plan view per level (separation lines need one) and the set of edges
+                // already drawn on that level, so a boundary shared by two rooms is
+                // drawn once rather than twice.
+                var planViews = new Dictionary<int, View>();
+                var drawnEdges = new Dictionary<int, HashSet<string>>();
+                var sketchPlanes = new Dictionary<int, SketchPlane>();
 
                 foreach (var room in rooms)
                 {
@@ -2389,11 +2555,43 @@ namespace BinaVibe.Mcp.Tools
                         optionName,
                     }.Where(s => !string.IsNullOrWhiteSpace(s)));
 
-                    var massId = CreateMassCore(
-                        doc, room.boundaryFt, baseZFt, storeyHeightFt,
-                        massCategory.Id, room.label, comments);
-                    groupMembers.Add(massId);
-                    massCount++;
+                    if (wantMasses)
+                    {
+                        var massId = CreateMassCore(
+                            doc, room.boundaryFt, baseZFt, storeyHeightFt,
+                            massCategory.Id, room.label, comments);
+                        groupMembers.Add(massId);
+                        massCount++;
+                    }
+
+                    if (wantRooms)
+                    {
+                        if (!planViews.TryGetValue(room.level, out var planView))
+                        {
+                            planView = ResolveOrCreatePlanViewCore(doc, levelId, out var viewMade);
+                            planViews[room.level] = planView;
+                            if (viewMade) createdViews.Add(planView.Name);
+                        }
+                        if (!drawnEdges.TryGetValue(room.level, out var edges))
+                            edges = drawnEdges[room.level] = new HashSet<string>();
+                        if (!sketchPlanes.TryGetValue(room.level, out var sketch))
+                            sketch = sketchPlanes[room.level] = SketchPlane.Create(
+                                doc, Plane.CreateByNormalAndOrigin(XYZ.BasisZ, new XYZ(0, 0, baseZFt)));
+
+                        // Separation lines JOIN the group, so deleting the group takes
+                        // the drawn boundary with it. The Rooms themselves cannot be
+                        // grouped (Revit refuses), so they survive — the result payload
+                        // says so rather than letting it surprise anyone.
+                        var sepIds = CreateRoomSeparationCore(
+                            doc, room.boundaryFt, baseZFt, planView, edges, sketch);
+                        groupMembers.AddRange(sepIds);
+                        separationCount += sepIds.Count;
+
+                        // Rooms are placed AFTER every separation line exists — see the
+                        // second pass below. A Room dropped before its neighbours' lines
+                        // are drawn reports "not enclosed" and keeps a zero area even
+                        // once the boundary is finished.
+                    }
 
                     if (!makeWalls) continue;
                     for (int i = 0; i < room.boundaryFt.Count; i++)
@@ -2407,7 +2605,51 @@ namespace BinaVibe.Mcp.Tools
                     }
                 }
 
-                if (groupMembers.Count == 0)
+                // 2b ─ SECOND PASS: place the Rooms.
+                //
+                // Deliberately after every separation line is drawn. A Room dropped
+                // while its neighbours' boundaries are still missing is created
+                // "not enclosed" and keeps a zero area even once the boundary is
+                // finished — Revit does not re-evaluate it. Regenerate first so the
+                // enclosed regions actually exist to be found.
+                if (wantRooms)
+                {
+                    doc.Regenerate();
+
+                    var numberByLevel = new Dictionary<int, int>();
+                    foreach (var room in rooms)
+                    {
+                        if (string.Equals(room.type, "padang", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (!levelIds.TryGetValue(room.level, out var levelId)) continue;
+                        if (!(doc.GetElement(levelId) is Level level)) continue;
+
+                        // Centroid of the rectangle — inside it for any convex cell.
+                        double cx = room.boundaryFt.Average(p => p.X);
+                        double cy = room.boundaryFt.Average(p => p.Y);
+
+                        numberByLevel.TryGetValue(room.level, out var seq);
+                        numberByLevel[room.level] = ++seq;
+                        var number = string.IsNullOrWhiteSpace(room.number)
+                            ? $"T{room.level}-{seq:00}"
+                            : room.number;
+                        var name = string.IsNullOrWhiteSpace(room.name) ? room.label : room.name;
+
+                        var placed = CreateRoomCore(doc, level, new XYZ(cx, cy, 0), name, number);
+                        if (placed == null) { roomFailures++; continue; }
+
+                        roomCount++;
+                        // Area 0 means Revit could not close a boundary around the
+                        // point. Report it — a silently unenclosed room looks fine in
+                        // plan and then schedules as nothing.
+                        try { if (placed.Area <= 1e-6) unenclosed++; } catch { unenclosed++; }
+
+                        // Rooms cannot be grouped with model elements, so they are NOT
+                        // group members — same reason levels are not. Deleting the
+                        // group leaves them; the result says so.
+                    }
+                }
+
+                if (groupMembers.Count == 0 && roomCount == 0)
                     throw new InvalidOperationException(
                         "nothing to place — every room was site-only (padang) or had an invalid boundary");
 
@@ -2428,7 +2670,7 @@ namespace BinaVibe.Mcp.Tools
                 }
                 catch { /* no 3D views in this template */ }
 
-                foreach (var view in viewsToReveal)
+                foreach (var view in wantMasses ? viewsToReveal : new List<View>())
                 {
                     try
                     {
@@ -2448,21 +2690,41 @@ namespace BinaVibe.Mcp.Tools
                     }
                 }
 
-                // 4 ─ One named Model Group holding the whole scheme.
-                var group = doc.Create.NewGroup(groupMembers);
+                // 4 ─ One named Model Group holding the groupable elements.
+                // NewGroup throws on an empty list, which is reachable when every
+                // separation edge was shared and nothing else was placed.
+                Group group = null;
                 var uniqueName = optionName;
-                for (int n = 2; takenGroupNames.Contains(uniqueName); n++)
-                    uniqueName = $"{optionName} ({n})";
-                try { group.GroupType.Name = uniqueName; }
-                catch { uniqueName = group.GroupType.Name; }   // keep Revit's auto name
+                if (groupMembers.Count > 0)
+                {
+                    group = doc.Create.NewGroup(groupMembers);
+                    for (int n = 2; takenGroupNames.Contains(uniqueName); n++)
+                        uniqueName = $"{optionName} ({n})";
+                    try { group.GroupType.Name = uniqueName; }
+                    catch { uniqueName = group.GroupType.Name; }   // keep Revit's auto name
+                }
 
                 tx.Commit();
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
                     ["option_name"] = uniqueName,
-                    ["group_id"] = group.Id.Value,
+                    ["group_id"] = group?.Id.Value,
+                    ["output"] = output,
                     ["mass_count"] = massCount,
+                    // Rooms-mode counts.
+                    ["room_count"] = roomCount,
+                    ["separation_line_count"] = separationCount,
+                    // Rooms Revit created but could not close a boundary around. They
+                    // look fine in plan and then schedule as nothing, so they are
+                    // reported rather than left to be discovered later.
+                    ["unenclosed_room_count"] = unenclosed,
+                    ["room_failure_count"] = roomFailures,
+                    ["created_views"] = createdViews,
+                    // Rooms cannot be group members (Revit refuses), so deleting the
+                    // group removes the separation lines and any masses, and LEAVES the
+                    // rooms behind — same caveat as the levels.
+                    ["rooms_in_group"] = false,
                     // Kept so an older caller reading floor_count still sees the
                     // element count rather than silently reading 0.
                     ["floor_count"] = massCount,
@@ -2485,7 +2747,7 @@ namespace BinaVibe.Mcp.Tools
                     // the pane — it took a journal plus a by-category query to notice.
                     // Naming the category in the payload makes that visible up front,
                     // and it also tells the user these are masses, not floors.
-                    ["category"] = massCategory.Name,
+                    ["category"] = massCategory?.Name,
                 };
             }
             catch { tx.RollBack(); throw; }

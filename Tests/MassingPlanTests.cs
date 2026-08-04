@@ -443,6 +443,71 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
+        public void BuildArgs_AskForRoomsNotMasses()
+        {
+            // The deliverable changed: a DirectShape mass can be moved but never
+            // reshaped, so a scheme placed as masses cannot be edited in Revit at all
+            // — which also blocks any "regenerate around my edits" flow. Rooms bounded
+            // by separation lines are editable, schedulable and read as a plan.
+            var args = MassingArgs.Build(Live().Schemes[0]);
+            Assert.Equal(MassingArgs.OutputRooms, args["output"]);
+
+            // Still selectable for pure massing review.
+            Assert.Equal(MassingArgs.OutputMasses,
+                MassingArgs.Build(Live().Schemes[0], output: MassingArgs.OutputMasses)["output"]);
+        }
+
+        [Fact]
+        public void EveryRoomCarriesAName()
+        {
+            var rooms = ((List<object>)MassingArgs.Build(Live().Schemes[0])["rooms"])
+                .Cast<Dictionary<string, object>>().ToList();
+            Assert.NotEmpty(rooms);
+            foreach (var r in rooms)
+                Assert.False(string.IsNullOrWhiteSpace((string)r["name"]),
+                    "an unnamed Room schedules as a blank line");
+        }
+
+        [Fact]
+        public void ClassroomsAreNamedByTypeAndNumberedByCode()
+        {
+            // "BD1".."BD18" are position codes, not names. Every classroom is a
+            // "Bilik Darjah"; the code is what tells 18 identically-named rooms apart
+            // in a schedule, so it belongs in the Number.
+            var rooms = ((List<object>)MassingArgs.Build(Live().Schemes[0])["rooms"])
+                .Cast<Dictionary<string, object>>()
+                .Where(r => (string)r["type"] == "kelas")
+                .ToList();
+            Assert.NotEmpty(rooms);
+            foreach (var r in rooms)
+            {
+                Assert.Equal("Bilik Darjah", (string)r["name"]);
+                Assert.StartsWith("BD", (string)r["number"]);
+            }
+            // Numbers must be unique or Revit renumbers them behind your back.
+            var numbers = rooms.Select(r => (string)r["number"]).ToList();
+            Assert.Equal(numbers.Count, numbers.Distinct().Count());
+        }
+
+        [Fact]
+        public void NonClassroomRoomsKeepTheirOwnLabelAndLetTheAddinNumberThem()
+        {
+            var rooms = ((List<object>)MassingArgs.Build(Live().Schemes[0])["rooms"])
+                .Cast<Dictionary<string, object>>()
+                .Where(r => (string)r["type"] != "kelas")
+                .ToList();
+            Assert.NotEmpty(rooms);
+            foreach (var r in rooms)
+            {
+                // "Kantin" / "Dewan Perhimpunan" are already names — pass them through.
+                Assert.False(string.IsNullOrWhiteSpace((string)r["name"]));
+                // No number sent => the addin generates T{level}-{nn}. Omitted rather
+                // than null so "generate one" is expressed in exactly one way.
+                Assert.False(r.ContainsKey("number"));
+            }
+        }
+
+        [Fact]
         public void BuildArgs_DeclareTheLod100Contract()
         {
             // The deliverable is LOD 100: generic conceptual masses, NOT floors or
