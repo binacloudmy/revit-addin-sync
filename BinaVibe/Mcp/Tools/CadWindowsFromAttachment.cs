@@ -22,9 +22,12 @@ namespace BinaVibe.Mcp.Tools
 
         public static Dictionary<string, object?> Run(UIDocument uidoc, JsonElement args)
         {
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var timings = new Dictionary<string, long>();
             var doc = uidoc.Document;
 
             // 1. Get attachment path and ACadSharp data
+            var extractStart = sw.ElapsedMilliseconds;
             var dwgRef = ArgsHelp.GetString(args, "dwg_ref");
             if (string.IsNullOrEmpty(dwgRef))
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "dwg_ref required" };
@@ -73,6 +76,8 @@ namespace BinaVibe.Mcp.Tools
                     ["available_block_names"] = allNames,
                 };
             }
+
+            timings["extract_ms"] = sw.ElapsedMilliseconds - extractStart;
 
             // 3. Build census and detect sizes
             var census = BuildWindowCensus(windowBlocks);
@@ -151,6 +156,11 @@ namespace BinaVibe.Mcp.Tools
                     ["walls_at_level"] = wallsAtLevel.Count,
                     ["note"] = "Preview only. Pass create=true with name_to_type mapping to place windows. "
                         + "name_to_type: {\"W900\": \"Fixed 900 x 1200mm\", ...}",
+                    ["_diagnostics"] = new Dictionary<string, object?>
+                    {
+                        ["timings_ms"] = timings,
+                        ["total_ms"] = sw.ElapsedMilliseconds,
+                    },
                 };
             }
 
@@ -185,6 +195,7 @@ namespace BinaVibe.Mcp.Tools
             string? firstError = null;
             var byType = new Dictionary<string, int>();
 
+            var createStart = sw.ElapsedMilliseconds;
             using var tx = new Transaction(doc, "BinaVibe: cad_windows_from_attachment");
             TxGuard.StartSwallowing(tx);
             try
@@ -278,6 +289,8 @@ namespace BinaVibe.Mcp.Tools
             }
             catch (Exception) { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
 
+            timings["create_ms"] = sw.ElapsedMilliseconds - createStart;
+
             return new Dictionary<string, object?>
             {
                 ["ok"] = true,
@@ -292,6 +305,11 @@ namespace BinaVibe.Mcp.Tools
                 ["failed"] = failed,
                 ["first_error"] = firstError,
                 ["sill_height_mm"] = sillHeightMm,
+                ["_diagnostics"] = new Dictionary<string, object?>
+                {
+                    ["timings_ms"] = timings,
+                    ["total_ms"] = sw.ElapsedMilliseconds,
+                },
             };
         }
 
