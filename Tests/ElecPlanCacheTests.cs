@@ -2,7 +2,7 @@
 // circuiting and routing. Same contract as SocketPlanCache: doc-key guarded,
 // id-prefixed, recoverable error text. Only the behaviors that could drift
 // from the template are pinned per cache; the shared mechanics get one
-// representative test each.
+// representative test each, plus PlanCacheTests below for the generic itself.
 
 using System;
 using System.Collections.Generic;
@@ -127,6 +127,108 @@ namespace RevitWebAppSync.Tests
             var id = RoutePlanCache.Store(Plan(), "m.rvt");
             RoutePlanCache.CloseAll();
             Assert.Throws<InvalidOperationException>(() => RoutePlanCache.Get(id, "m.rvt"));
+        }
+    }
+
+    /// <summary>The generic behind all three facades. Tested through its own
+    /// plan type so a change here cannot be masked by a caller's specifics.</summary>
+    public class PlanCacheTests
+    {
+        private sealed class ThingPlan : PlanBase
+        {
+            public string Payload = "";
+        }
+
+        private static PlanCache<ThingPlan> Cache() =>
+            new("thing_plan:", "suggest_things");
+
+        [Fact]
+        public void Store_stamps_the_id_doc_key_and_time_onto_the_plan()
+        {
+            var cache = Cache();
+            var plan = new ThingPlan { Payload = "x" };
+            var before = DateTime.UtcNow;
+
+            var id = cache.Store(plan, @"C:\models\tower.rvt");
+
+            Assert.StartsWith("thing_plan:", id);
+            Assert.Equal(id, plan.PlanId);
+            Assert.Equal(@"C:\models\tower.rvt", plan.DocKey);
+            Assert.InRange(plan.CreatedUtc, before.AddSeconds(-5), DateTime.UtcNow.AddSeconds(5));
+        }
+
+        [Fact]
+        public void Store_refuses_a_null_plan()
+        {
+            Assert.Throws<ArgumentNullException>(() => Cache().Store(null, "m.rvt"));
+        }
+
+        [Fact]
+        public void A_null_doc_key_is_stored_as_empty_not_null()
+        {
+            var cache = Cache();
+            var plan = new ThingPlan();
+            cache.Store(plan, null);
+            Assert.Equal("", plan.DocKey);
+        }
+
+        [Fact]
+        public void Get_matches_the_doc_key_case_insensitively()
+        {
+            // Windows paths reach us with inconsistent casing; a case flip is
+            // not a different model and must not cost the drafter their plan.
+            var cache = Cache();
+            var id = cache.Store(new ThingPlan { Payload = "x" }, @"C:\Models\Tower.rvt");
+
+            Assert.Equal("x", cache.Get(id, @"c:\models\tower.rvt").Payload);
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData("   ")]
+        [InlineData("thing_plan:never-stored")]
+        public void An_unusable_id_names_the_tool_that_rebuilds_the_plan(string planId)
+        {
+            var ex = Assert.Throws<InvalidOperationException>(() => Cache().Get(planId, "m.rvt"));
+
+            Assert.Contains("run suggest_things again", ex.Message);
+            Assert.Contains("expire after 2 hours", ex.Message);
+        }
+
+        [Fact]
+        public void A_doc_mismatch_names_the_model_the_plan_was_built_against()
+        {
+            var cache = Cache();
+            var id = cache.Store(new ThingPlan(), @"C:\models\tower.rvt");
+
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => cache.Get(id, @"C:\models\podium.rvt"));
+
+            Assert.Contains("different model", ex.Message);
+            Assert.Contains(@"C:\models\tower.rvt", ex.Message);
+            Assert.Contains("run suggest_things again in this model", ex.Message);
+        }
+
+        [Fact]
+        public void An_unsaved_model_is_named_rather_than_left_blank()
+        {
+            var cache = Cache();
+            var id = cache.Store(new ThingPlan(), "");
+
+            var ex = Assert.Throws<InvalidOperationException>(() => cache.Get(id, "m.rvt"));
+
+            Assert.Contains("<unsaved>", ex.Message);
+        }
+
+        [Fact]
+        public void Each_cache_instance_holds_its_own_entries()
+        {
+            var a = Cache();
+            var b = Cache();
+            var id = a.Store(new ThingPlan(), "m.rvt");
+
+            Assert.Throws<InvalidOperationException>(() => b.Get(id, "m.rvt"));
         }
     }
 }

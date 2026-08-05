@@ -4,7 +4,7 @@
 // "route_plan:<guid>" so create_circuit_routes builds the EXACT legs the
 // drafter reviewed (including which legs were flagged obstructed).
 // Coordinates never travel back through the model — plan_id plus indices
-// only, same rationale as SocketPlanCache/CircuitPlanCache.
+// only. Mechanics are PlanCache.cs; this file is the DTOs plus a facade.
 //
 // Legs carry raw mm doubles rather than Pt3Mm because these classes are
 // public wire-adjacent DTOs while Pt3Mm is internal to GeomMm.
@@ -70,11 +70,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
     }
 
     /// <summary>Everything one suggest_circuit_routes run produced.</summary>
-    public sealed class RoutePlan
+    public sealed class RoutePlan : PlanBase
     {
-        public string PlanId = "";
-        public string DocKey = "";
-        public DateTime CreatedUtc;
         public List<PlannedRoute> Routes = new();
         public Dictionary<string, object?> ParamsUsed = new();
         public double RoutingElevationMm;
@@ -82,55 +79,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
     public static class RoutePlanCache
     {
-        private sealed class Entry
-        {
-            public RoutePlan Plan = new();
-            public DateTime LastUsed;
-        }
+        private static readonly PlanCache<RoutePlan> _cache =
+            new("route_plan:", "suggest_circuit_routes");
 
-        private static readonly Dictionary<string, Entry> _entries = new(StringComparer.Ordinal);
-        private static readonly TimeSpan Ttl = TimeSpan.FromHours(2);
-
-        public static string Store(RoutePlan plan, string docKey)
-        {
-            if (plan == null) throw new ArgumentNullException(nameof(plan));
-            Sweep();
-            var id = "route_plan:" + Guid.NewGuid().ToString("N");
-            plan.PlanId = id;
-            plan.DocKey = docKey ?? "";
-            plan.CreatedUtc = DateTime.UtcNow;
-            _entries[id] = new Entry { Plan = plan, LastUsed = DateTime.UtcNow };
-            return id;
-        }
-
-        /// <summary>Retrieve a plan for the document it was built against.
-        /// Throws — with drafter-readable guidance — on an unknown/expired id
-        /// or a document mismatch.</summary>
-        public static RoutePlan Get(string planId, string docKey)
-        {
-            if (string.IsNullOrWhiteSpace(planId) || !_entries.TryGetValue(planId, out var e))
-                throw new InvalidOperationException(
-                    "unknown plan_id " + planId +
-                    " — run suggest_circuit_routes again (plans expire after 2 hours)");
-
-            if (!string.Equals(e.Plan.DocKey, docKey ?? "", StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException(
-                    "plan_id " + planId + " was generated for a different model (" +
-                    (string.IsNullOrEmpty(e.Plan.DocKey) ? "<unsaved>" : e.Plan.DocKey) +
-                    ") — run suggest_circuit_routes again in this model");
-
-            e.LastUsed = DateTime.UtcNow;
-            return e.Plan;
-        }
-
-        public static void CloseAll() => _entries.Clear();
-
-        private static void Sweep()
-        {
-            var stale = new List<string>();
-            foreach (var kv in _entries)
-                if (DateTime.UtcNow - kv.Value.LastUsed > Ttl) stale.Add(kv.Key);
-            foreach (var key in stale) _entries.Remove(key);
-        }
+        public static string Store(RoutePlan plan, string docKey) => _cache.Store(plan, docKey);
+        public static RoutePlan Get(string planId, string docKey) => _cache.Get(planId, docKey);
+        public static void CloseAll() => _cache.CloseAll();
     }
 }

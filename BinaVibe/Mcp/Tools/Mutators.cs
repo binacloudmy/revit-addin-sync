@@ -3301,6 +3301,16 @@ namespace BinaVibe.Mcp.Tools
             return ids;
         }
 
+        public static List<double> GetDoubleList(JsonElement el, string name)
+        {
+            var vals = new List<double>();
+            if (el.ValueKind != JsonValueKind.Object) return vals;
+            if (!el.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Array) return vals;
+            foreach (var item in v.EnumerateArray())
+                if (item.ValueKind == JsonValueKind.Number && item.TryGetDouble(out var d)) vals.Add(d);
+            return vals;
+        }
+
         public static XYZ? GetXyz(JsonElement el, string name)
         {
             if (el.ValueKind != JsonValueKind.Object) return null;

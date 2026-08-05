@@ -26,6 +26,7 @@ using System.Linq;
 using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Electrical;
+using static BinaVibe.Mcp.Tools.Electrical.ElecReads;
 
 namespace BinaVibe.Mcp.Tools.Electrical
 {
@@ -126,19 +127,19 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["device_ids"] = memberIds.Cast<object>().ToList(),
                 ["device_count"] = memberIds.Count,
                 ["is_empty"] = memberIds.Count == 0,
-                ["rating_a"] = Round(ElecValidation.ParamAs(
+                ["rating_a"] = Round(ParamAs(
                     sys, BuiltInParameter.RBS_ELEC_CIRCUIT_RATING_PARAM, UnitTypeId.Amperes), 1),
-                ["apparent_load_va"] = Round(ElecValidation.ParamAs(
+                ["apparent_load_va"] = Round(ParamAs(
                     sys, BuiltInParameter.RBS_ELEC_APPARENT_LOAD, UnitTypeId.VoltAmperes), 0),
-                ["voltage_v"] = Round(ElecValidation.ParamAs(
+                ["voltage_v"] = Round(ParamAs(
                     sys, BuiltInParameter.RBS_ELEC_VOLTAGE, UnitTypeId.Volts), 1),
-                ["poles"] = ElecValidation.SafePoles(sys),
+                ["poles"] = SafePoles(sys),
                 ["start_slot"] = SafeStartSlot(sys),
-                ["length_mm"] = Round(ElecValidation.SafeLengthMm(sys), 0),
+                ["length_mm"] = Round(SafeLengthMm(sys), 0),
                 // routed == a custom circuit path, which create_circuit_routes
                 // sets with SetCircuitPath. check_circuit_loads refuses a
                 // voltage-drop verdict without it.
-                ["routed"] = ElecValidation.SafePathMode(sys) == ElectricalCircuitPathMode.Custom,
+                ["routed"] = SafePathMode(sys) == ElectricalCircuitPathMode.Custom,
             };
             if (panel == null)
                 row["note"] = "orphaned: this circuit is assigned to no panel — " +
@@ -173,38 +174,5 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return null;
         }
 
-        // ─── guarded reads ──────────────────────────────────────────────
-        internal static Element? SafeBaseEquipment(ElectricalSystem sys)
-        {
-            try { return sys.BaseEquipment; }
-            catch { return null; }
-        }
-
-        private static ElectricalSystemType SafeSystemType(ElectricalSystem sys)
-        {
-            try { return sys.SystemType; }
-            catch { return ElectricalSystemType.UndefinedSystemType; }
-        }
-
-        internal static string SafeCircuitNumber(ElectricalSystem sys)
-        {
-            try { return sys.CircuitNumber ?? ""; }
-            catch { return ""; }
-        }
-
-        private static string SafeName(ElectricalSystem sys)
-        {
-            try { return sys.Name ?? ""; }
-            catch { return ""; }
-        }
-
-        private static object? SafeStartSlot(ElectricalSystem sys)
-        {
-            try { return sys.StartSlot; }
-            catch { return null; }
-        }
-
-        private static object? Round(double v, int digits) =>
-            double.IsNaN(v) || double.IsInfinity(v) ? null : (object)Math.Round(v, digits);
     }
 }

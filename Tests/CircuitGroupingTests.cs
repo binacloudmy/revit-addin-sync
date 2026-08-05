@@ -1,7 +1,7 @@
-// CircuitGrouping + PhaseBalance — the decision core of suggest_circuits.
+// CircuitGrouping — the grouping half of suggest_circuits' decision core.
 // Determinism matters as much as correctness here: the same model must always
 // produce the same plan, or the drafter reviews one grouping and commits
-// another.
+// another. PhaseBalance, the other half, is in PhaseBalanceTests.cs.
 
 using System.Collections.Generic;
 using System.Linq;
@@ -120,89 +120,6 @@ namespace RevitWebAppSync.Tests
         public void Empty_input_yields_no_groups()
         {
             Assert.Empty(CircuitGrouping.Group(new List<ElecDevice>(), 0, 0, Opt()));
-        }
-    }
-
-    public class PhaseBalanceTests
-    {
-        private static CircuitGroup Circuit(int index, double va)
-            => new() { Index = index, TotalVa = va, LoadClass = "receptacle" };
-
-        [Fact]
-        public void Single_phase_panel_always_proposes_phase_zero()
-        {
-            var panels = new List<PanelInfo> { new() { Id = 10, Phases = 1, MainsA = 63 } };
-            var res = PhaseBalance.Assign(new[] { Circuit(0, 1000), Circuit(1, 500) }, panels, 230);
-
-            Assert.All(res, a => Assert.Equal(0, a.ProposedPhase));
-            Assert.All(res, a => Assert.True(a.Feasible));
-        }
-
-        [Fact]
-        public void Three_phase_panel_spreads_circuits_across_lightest_phases()
-        {
-            var panels = new List<PanelInfo>
-            {
-                new() { Id = 10, Phases = 3, MainsA = 63, PhaseVa = new double[3] },
-            };
-            var res = PhaseBalance.Assign(
-                new[] { Circuit(0, 1000), Circuit(1, 1000), Circuit(2, 1000) }, panels, 230);
-
-            Assert.Equal(new[] { 0, 1, 2 }, res.Select(a => a.ProposedPhase).OrderBy(p => p));
-        }
-
-        [Fact]
-        public void Panel_with_most_spare_capacity_wins()
-        {
-            var panels = new List<PanelInfo>
-            {
-                new() { Id = 10, Phases = 1, MainsA = 63, ConnectedVa = 13000 },
-                new() { Id = 20, Phases = 1, MainsA = 63, ConnectedVa = 0 },
-            };
-            var res = PhaseBalance.Assign(new[] { Circuit(0, 1000) }, panels, 230);
-
-            Assert.Equal(20, res.Single().PanelId);
-        }
-
-        [Fact]
-        public void Overflow_is_reported_infeasible_not_silently_assigned()
-        {
-            var panels = new List<PanelInfo>
-            {
-                new() { Id = 10, Phases = 1, MainsA = 6, ConnectedVa = 1000 },  // 1380 VA cap
-            };
-            var res = PhaseBalance.Assign(new[] { Circuit(0, 2000) }, panels, 230);
-
-            var a = res.Single();
-            Assert.False(a.Feasible);
-            Assert.Contains("no panel has spare capacity", a.Reason);
-            Assert.Equal(10, a.PanelId);   // still lands somewhere for reporting
-        }
-
-        [Fact]
-        public void Unknown_mains_rating_is_flagged_not_guessed()
-        {
-            var panels = new List<PanelInfo>
-            {
-                new() { Id = 10, Phases = 1, MainsA = 6, ConnectedVa = 1300 },
-                new() { Id = 20, Phases = 1, MainsA = null },
-            };
-            var res = PhaseBalance.Assign(new[] { Circuit(0, 2000) }, panels, 230);
-
-            var a = res.Single();
-            Assert.Equal(20, a.PanelId);
-            Assert.True(a.Feasible);
-            Assert.Contains("capacity unknown", a.Reason);
-        }
-
-        [Fact]
-        public void Results_come_back_in_circuit_index_order()
-        {
-            var panels = new List<PanelInfo> { new() { Id = 10, Phases = 1, MainsA = 63 } };
-            var res = PhaseBalance.Assign(
-                new[] { Circuit(0, 100), Circuit(1, 9000), Circuit(2, 500) }, panels, 230);
-
-            Assert.Equal(new[] { 0, 1, 2 }, res.Select(a => a.CircuitIndex));
         }
     }
 }

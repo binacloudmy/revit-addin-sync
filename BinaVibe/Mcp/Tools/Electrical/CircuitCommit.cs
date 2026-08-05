@@ -27,6 +27,7 @@ using System.Linq;
 using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Electrical;
+using static BinaVibe.Mcp.Tools.Electrical.ElecReads;
 
 namespace BinaVibe.Mcp.Tools.Electrical
 {
@@ -43,12 +44,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ? plan.Circuits
                 : plan.Circuits.Where(c => wanted.Contains(c.Index)).ToList();
             if (circuits.Count == 0)
-                return new Dictionary<string, object?>
-                {
-                    ["ok"] = false,
-                    ["error"] = $"no circuits selected from plan {planId} " +
-                                $"(plan holds {plan.Circuits.Count} circuits; indices are 0-based)",
-                };
+                return ToolResult.Fail($"no circuits selected from plan {planId} " +
+                    $"(plan holds {plan.Circuits.Count} circuits; indices are 0-based)");
 
             var namePrefix = ArgsHelp.GetString(args, "load_name_prefix");
 
@@ -59,21 +56,20 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var allowInfeasible = ArgsHelp.GetBool(args, "allow_infeasible") ?? false;
             var infeasible = circuits.Where(c => !c.Feasible).ToList();
             if (infeasible.Count > 0 && !allowInfeasible)
-                return new Dictionary<string, object?>
-                {
-                    ["ok"] = false,
-                    ["error"] = infeasible.Count + " of " + circuits.Count + " selected circuit(s) " +
-                                "were proposed as INFEASIBLE (see notes on each: usually no panel has " +
-                                "spare capacity). Committing them overloads the board. Fix the panel " +
-                                "or drop those circuits, or pass allow_infeasible:true to commit anyway.",
-                    ["infeasible"] = infeasible.Select(c => (object)new Dictionary<string, object?>
+                return ToolResult.Fail(infeasible.Count + " of " + circuits.Count + " selected circuit(s) " +
+                    "were proposed as INFEASIBLE (see notes on each: usually no panel has " +
+                    "spare capacity). Committing them overloads the board. Fix the panel " +
+                    "or drop those circuits, or pass allow_infeasible:true to commit anyway.",
+                    new Dictionary<string, object?>
                     {
-                        ["index"] = c.Index,
-                        ["panel_id"] = c.PanelId,
-                        ["total_va"] = Math.Round(c.TotalVa),
-                        ["notes"] = c.Notes.Cast<object>().ToList(),
-                    }).ToList(),
-                };
+                        ["infeasible"] = infeasible.Select(c => (object)new Dictionary<string, object?>
+                        {
+                            ["index"] = c.Index,
+                            ["panel_id"] = c.PanelId,
+                            ["total_va"] = Math.Round(c.TotalVa),
+                            ["notes"] = c.Notes.Cast<object>().ToList(),
+                        }).ToList(),
+                    });
 
             // Round-robin across proposed phases (see file header).
             var commitOrder = RoundRobinByPhase(circuits);
@@ -81,34 +77,18 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var created = new List<object>();
             var failed = new List<object>();
 
-            using var group = new TransactionGroup(doc, "BinaVibe: create_circuits");
-            group.Start();
-            try
-            {
-                foreach (var pc in commitOrder)
+            // committed:false is a promise, not decoration. Every throw out of
+            // CommitOne happens before its commit succeeded (the post-commit
+            // read-back cannot throw — see BuildCreatedRow), so a failed row
+            // means NOTHING reached the model and the devices are still free.
+            TxGuard.ForEachInGroup(doc, "BinaVibe: create_circuits", commitOrder,
+                pc => created.Add(CommitOne(doc, pc, namePrefix)),
+                (pc, ex) => failed.Add(new Dictionary<string, object?>
                 {
-                    try
-                    {
-                        created.Add(CommitOne(doc, pc, namePrefix));
-                    }
-                    catch (Exception ex)
-                    {
-                        // committed:false is a promise, not decoration. Every
-                        // throw out of CommitOne now happens before its commit
-                        // succeeded (the post-commit read-back cannot throw —
-                        // see BuildCreatedRow), so a failed row means NOTHING
-                        // reached the model and the devices are still free.
-                        failed.Add(new Dictionary<string, object?>
-                        {
-                            ["index"] = pc.Index,
-                            ["committed"] = false,
-                            ["reason"] = ex.Message,
-                        });
-                    }
-                }
-                group.Assimilate();
-            }
-            catch { TxGuard.SafeRollBack(group); throw; }
+                    ["index"] = pc.Index,
+                    ["committed"] = false,
+                    ["reason"] = ex.Message,
+                }));
 
             // ok:false when nothing was created. This used to be an
             // unconditional true, so a run where every circuit failed returned
@@ -291,17 +271,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return order;
         }
 
-        private static object? SafeStartSlot(ElectricalSystem sys)
-        {
-            try { return sys.StartSlot; }
-            catch { return null; }   // unassigned / not applicable
-        }
 
-        private static string SafeCircuitNumber(ElectricalSystem sys)
-        {
-            try { return sys.CircuitNumber ?? ""; }
-            catch { return ""; }     // Revit throws on a circuit it considers incomplete
-        }
 
         private static Dictionary<string, object?> Drop(long id, string reason) => new()
         {

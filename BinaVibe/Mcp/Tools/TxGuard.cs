@@ -4,39 +4,27 @@
 // the change back.
 //
 // Warnings ("walls overlap", "room not enclosed", …) block the UI thread on a
-// modal dialog a human often can't even see (the Copilot pane has focus) → an
-// UNBOUNDED freeze. SwallowWarnings deletes them so the commit proceeds.
-//
-// ERRORS ("Instance(s) of … not cutting anything", "cannot be ignored") used to
-// leak past the preprocessor (it returned Continue), so Revit escalated to a
-// modal error dialog — the same freeze, one severity up. Now we mirror the
-// codegen path's __FailHandler (CodeExecutor.cs): on any error we capture the
-// text and return ProceedWithRollBack, so Revit rolls back silently instead of
-// popping a dialog. CommitOrThrow then converts that rollback into a clean
-// exception (surfaced to the agent as a tool error) rather than a false success.
-//
-// Promoted from WarmupHandler.cs (the warm-up edit proved the pattern; this
-// makes it shared so every real Mutators/BatchExecutor write gets it too).
+// modal dialog a human often cannot even see, because the Copilot pane has
+// focus — an UNBOUNDED freeze. SwallowWarnings deletes them. On an ERROR it
+// captures the text and returns ProceedWithRollBack, so Revit rolls back
+// silently instead of escalating to a modal; CommitOrThrow then turns that
+// rollback into a clean exception rather than a false success.
 //
 // SafeRollBack exists because CommitOrThrow throws AFTER Revit has already
-// ENDED the transaction. The idiom every tool wrapped around it —
-//     try { ...; TxGuard.CommitOrThrow(tx); return row; }
-//     catch { tx.RollBack(); throw; }
-// — therefore has two failure modes, and UAT 2026-08-04 hit both:
+// ENDED the transaction, so the obvious `catch { tx.RollBack(); throw; }` has
+// two failure modes:
 //
-//   1. Revit rolled the commit back. tx is already RolledBack, so RollBack()
-//      throws "the transaction has already been ended" and that SECOND
-//      exception is what reaches the agent — Revit's own error text, the one
-//      naming the actual mismatch, is destroyed on the way out.
-//   2. The commit SUCCEEDED and a later line in the same try block threw
-//      (a post-commit read like ElectricalSystem.CircuitNumber). RollBack()
-//      then targets a COMMITTED transaction: it throws, the tool reports the
-//      operation as failed, and the write is still in the model. That is the
-//      "create_circuits errored but the sockets are still assigned" report.
+//   1. Revit rolled the commit back. RollBack() on an already-ended
+//      transaction throws, and THAT second exception reaches the agent —
+//      destroying Revit's own message, the one naming the real mismatch.
+//   2. The commit SUCCEEDED and a later line threw (a post-commit read like
+//      ElectricalSystem.CircuitNumber). RollBack() targets a COMMITTED
+//      transaction, throws, and the tool reports a write that is still in the
+//      model as failed.
 //
-// Rolling back only a still-Started transaction fixes (1) outright and stops
-// (2) from masking; (2) additionally needs the caller to not treat a
-// post-commit failure as a failed write (see CircuitCommit.BuildCreatedRow).
+// Rolling back only a still-Started transaction fixes (1) and stops (2) from
+// masking; (2) additionally needs the caller to keep post-commit reads out of
+// the try block (see CircuitCommit.BuildCreatedRow).
 
 using System;
 using System.Collections.Generic;
@@ -110,6 +98,36 @@ namespace BinaVibe.Mcp.Tools
                 if (ShouldRollBack(group.GetStatus())) group.RollBack();
             }
             catch { }
+        }
+
+        /// <summary>Commit <paramref name="items"/> one at a time inside ONE
+        /// TransactionGroup — the shape every per-item-tolerant mutate tool
+        /// uses. An item that throws is handed to <paramref name="onFailure"/>
+        /// and the loop continues, so one refusal does not cost the others;
+        /// Assimilate() then collapses the survivors into a single undo step.
+        ///
+        /// <paramref name="commitOne"/> owns its own Transaction (StartSwallowing
+        /// / CommitOrThrow / SafeRollBack); this wrapper owns only the GROUP.
+        ///
+        /// The failure list stays in the caller's closure on purpose: each
+        /// tool's failure row has a different key set, and those keys are a
+        /// wire contract with the backend.</summary>
+        public static void ForEachInGroup<T>(
+            Document doc, string groupName, IEnumerable<T> items,
+            Action<T> commitOne, Action<T, Exception> onFailure)
+        {
+            using var group = new TransactionGroup(doc, groupName);
+            group.Start();
+            try
+            {
+                foreach (var item in items)
+                {
+                    try { commitOne(item); }
+                    catch (Exception ex) { onFailure(item, ex); }
+                }
+                group.Assimilate();
+            }
+            catch { SafeRollBack(group); throw; }
         }
 
         /// <summary>The whole decision, separated so it is unit-testable without

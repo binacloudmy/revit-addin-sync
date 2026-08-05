@@ -28,6 +28,7 @@ using System.Linq;
 using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Electrical;
+using static BinaVibe.Mcp.Tools.Electrical.ElecReads;
 
 namespace BinaVibe.Mcp.Tools.Electrical
 {
@@ -46,14 +47,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var name = ArgsHelp.GetString(args, "name");
             var rawConfig = ArgsHelp.GetString(args, "phase_config");
 
-            string? phaseConfig = null;
-            if (!string.IsNullOrWhiteSpace(rawConfig))
-            {
-                phaseConfig = ElecSystemRules.NormalisePhaseConfig(rawConfig);
-                if (phaseConfig == null)
-                    return Fail("phase_config '" + rawConfig +
-                                "' not understood — use wye, delta or undefined");
-            }
+            if (!TryPhaseConfig(rawConfig, out var phaseConfig, out var configRefusal))
+                return configRefusal!;
 
             // Anything the caller left out comes from the Malaysian default for
             // the phase count they asked for (or three-phase, which serves both
@@ -72,12 +67,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
             if (!string.IsNullOrWhiteSpace(name)) spec.Name = name!;
 
             var pairError = ElecSystemRules.ValidatePhaseWire(spec.Phases, spec.Wires);
-            if (pairError != null) return Fail(pairError);
+            if (pairError != null) return ToolResult.Fail(pairError);
 
             if (spec.Phases == 3 && !spec.VoltageLineToLineV.HasValue)
-                return Fail("a 3-phase system needs voltage_line_to_line_v");
+                return ToolResult.Fail("a 3-phase system needs voltage_line_to_line_v");
             if (!spec.VoltageLineToGroundV.HasValue)
-                return Fail("voltage_line_to_ground_v is required");
+                return ToolResult.Fail("voltage_line_to_ground_v is required");
 
             // Idempotency: a same-named system whose values already match is a
             // success with created:false, so a re-run of the same chain is free.
@@ -96,7 +91,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                         ["distribution_system_id"] = existing.Id.Value,
                     };
 
-                return Fail("'" + spec.Name + "' already exists with different values — " +
+                return ToolResult.Fail("'" + spec.Name + "' already exists with different values — " +
                             "change them with edit_distribution_system, or pass a different " +
                             "name. Two systems with near-identical names are worse than one.",
                             extra: new Dictionary<string, object?>
@@ -108,7 +103,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             var settings = ElectricalSetting.GetElectricalSettings(doc);
             if (settings == null)
-                return Fail("this document has no electrical settings — it is probably not a " +
+                return ToolResult.Fail("this document has no electrical settings — it is probably not a " +
                             "project document");
 
             DistributionSysType? created = null;
@@ -138,7 +133,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
 
             if (created == null)
-                return Fail("Revit did not return a distribution system");
+                return ToolResult.Fail("Revit did not return a distribution system");
 
             // A new system changes which panels are usable and what phase count
             // a plan should have been built with. Any plan held from before is
@@ -159,12 +154,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var name = ArgsHelp.GetString(args, "distribution_system");
             var id = ArgsHelp.GetLong(args, "distribution_system_id");
             if (name == null && !id.HasValue)
-                return Fail("pass distribution_system (name) or distribution_system_id — " +
+                return ToolResult.Fail("pass distribution_system (name) or distribution_system_id — " +
                             "call list_electrical_settings for what this project defines");
 
             var target = FindSystem(doc, name, id);
             if (target == null)
-                return Fail("distribution system '" + (name ?? id!.Value.ToString()) +
+                return ToolResult.Fail("distribution system '" + (name ?? id!.Value.ToString()) +
                             "' not found in this project",
                             extra: new Dictionary<string, object?>
                             {
@@ -178,18 +173,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var lineToLine = ArgsHelp.GetDouble(args, "voltage_line_to_line_v");
             var rawConfig = ArgsHelp.GetString(args, "phase_config");
 
-            string? phaseConfig = null;
-            if (!string.IsNullOrWhiteSpace(rawConfig))
-            {
-                phaseConfig = ElecSystemRules.NormalisePhaseConfig(rawConfig);
-                if (phaseConfig == null)
-                    return Fail("phase_config '" + rawConfig +
-                                "' not understood — use wye, delta or undefined");
-            }
+            if (!TryPhaseConfig(rawConfig, out var phaseConfig, out var configRefusal))
+                return configRefusal!;
 
             if (!phases.HasValue && !wires.HasValue && !lineToGround.HasValue &&
                 !lineToLine.HasValue && phaseConfig == null)
-                return Fail("nothing to change — pass phases, wires, phase_config, " +
+                return ToolResult.Fail("nothing to change — pass phases, wires, phase_config, " +
                             "voltage_line_to_ground_v and/or voltage_line_to_line_v");
 
             // Validate against the POST-edit pair, not the args alone: changing
@@ -198,7 +187,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var effectivePhases = phases ?? SafePhases(target);
             var effectiveWires = wires ?? SafeWires(target) ?? 0;
             var pairError = ElecSystemRules.ValidatePhaseWire(effectivePhases, effectiveWires);
-            if (pairError != null) return Fail(pairError);
+            if (pairError != null) return ToolResult.Fail(pairError);
 
             // Editing a system in use re-rates every panel on it. Counted BEFORE
             // the write so the number is what the drafter is actually approving.
@@ -207,7 +196,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             var settings = ElectricalSetting.GetElectricalSettings(doc);
             if (settings == null)
-                return Fail("this document has no electrical settings");
+                return ToolResult.Fail("this document has no electrical settings");
 
             var changed = new List<object>();
             using (var tx = new Transaction(doc, "BinaVibe: edit distribution system"))
@@ -283,6 +272,23 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ElecSystemRules.VoltageName(volts), volts, band.Min, band.Max);
         }
 
+        /// <summary>Normalise the caller's phase_config, or hand back the
+        /// refusal. Omitted is fine — only an unrecognised value is refused.</summary>
+        private static bool TryPhaseConfig(
+            string? raw, out string? phaseConfig, out Dictionary<string, object?>? refusal)
+        {
+            phaseConfig = null;
+            refusal = null;
+            if (string.IsNullOrWhiteSpace(raw)) return true;
+
+            phaseConfig = ElecSystemRules.NormalisePhaseConfig(raw);
+            if (phaseConfig != null) return true;
+
+            refusal = ToolResult.Fail("phase_config '" + raw +
+                        "' not understood — use wye, delta or undefined");
+            return false;
+        }
+
         private static ElectricalPhaseConfiguration ToConfig(string? phaseConfig) =>
             phaseConfig switch
             {
@@ -348,54 +354,5 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
             catch { return 0; }
         }
-
-        private static Dictionary<string, object?> Fail(
-            string error, Dictionary<string, object?>? extra = null)
-        {
-            var row = new Dictionary<string, object?> { ["ok"] = false, ["error"] = error };
-            if (extra != null)
-                foreach (var kv in extra) row[kv.Key] = kv.Value;
-            return row;
-        }
-
-        // Same defensive reads as ElecSettings: a single-phase system's
-        // VoltageLineToLine throws rather than returning null.
-        private static double? SafeVolts(Func<double?> read)
-        {
-            try { return read(); }
-            catch { return null; }
-        }
-
-        private static double SafeActual(VoltageType v)
-        {
-            try { return v.ActualValue; }
-            catch { return double.NaN; }
-        }
-
-        private static int SafePhases(DistributionSysType d)
-        {
-            try { return d.ElectricalPhase == ElectricalPhase.ThreePhase ? 3 : 1; }
-            catch { return 1; }
-        }
-
-        private static int? SafeWires(DistributionSysType d)
-        {
-            try { return d.NumWires; }
-            catch { return null; }
-        }
-
-        private static object? SafeConfig(DistributionSysType d)
-        {
-            try { return d.ElectricalPhaseConfiguration.ToString(); }
-            catch { return null; }
-        }
-
-        private static bool SafeInUse(DistributionSysType d)
-        {
-            try { return d.IsInUse; }
-            catch { return false; }
-        }
-
-        private static object? Round1(double? v) => v.HasValue ? Math.Round(v.Value, 1) : (object?)null;
     }
 }

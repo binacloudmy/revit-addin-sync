@@ -1,39 +1,24 @@
 // remove_from_circuit — free devices from the circuits they are on. MUTATE:
 // the addin's ConfirmGate shows a Ya/Tidak card before this runs.
 //
-// WHY IT EXISTS. suggest_circuits skips a device that is already on a power
-// circuit, and until now NOTHING in either repo could take it off one. The
-// Panel and Circuit Number parameters are read-only (they are driven by the
-// system assignment, not the other way round) so set_parameter cannot clear
-// them either, and delete_elements needs a circuit element id no tool would
-// hand over. UAT 2026-08-04: ten already-circuited sockets, and the only move
-// the agent had left was to delete circuits blind and guess at the fallout.
+// The rules live in CircuitDisconnectPlan (Revit-free, unit-tested); this file
+// is the Revit half. Panel and Circuit Number are read-only parameters driven
+// by the system assignment, so RemoveFromCircuit is the only way off a circuit.
 //
-// The rules live in CircuitDisconnectPlan (Revit-free, unit-tested). This file
-// is the Revit half: one Transaction per circuit inside one TransactionGroup,
-// so one circuit Revit refuses does not cost the others — CircuitCommit's
-// shape, and the same commit-boundary split (nothing after CommitOrThrow may
-// throw, or a completed removal gets reported as a failure).
+// TWO NON-GOALS, neither of which may be "finished":
 //
-// WHAT IT DOES NOT DO, and must never claim to:
+//   * Conduit SURVIVES. No Revit API links an ElectricalSystem to the Conduit
+//     create_circuit_routes drew, so it cannot be found from here — reported as
+//     conduit_note pointing at delete_elements. Fixing this means persistence
+//     (a RouteCommit-written circuit_id -> conduit_ids record), not more API
+//     archaeology.
 //
-//   * Conduit. create_circuit_routes draws Conduit and fittings as INDEPENDENT
-//     geometry; no Revit API links an ElectricalSystem to them, and their ids
-//     exist only in that tool's response. So a routed circuit's conduit
-//     SURVIVES this call and is reported as such (conduit_note), pointing at
-//     delete_elements. If this becomes painful the fix is persistence — a
-//     RouteCommit-written extensible-storage record of circuit_id ->
-//     conduit_ids — not more API archaeology.
-//
-//   * DisconnectPanel(). Deliberate non-goal, do not "finish" this binding.
-//     It leaves the devices as members of a panel-less system, which (a) is
-//     precisely the state validate_panel_schedule reports as orphaned_circuit,
-//     and (b) does NOT unblock suggest_circuits, because GetElectricalSystems()
-//     still returns a PowerCircuit and the devices are still skipped as
-//     already_circuited. The agent would watch a tool succeed and the next call
-//     fail identically — a worse loop than the one this replaces. The real want
-//     behind it, "move this circuit to another board", is SelectPanel on the new
-//     panel and needs no disconnect first; that would be its own tool.
+//   * DisconnectPanel() is deliberately not called. It leaves a panel-less
+//     system, which is the state validate_panel_schedule reports as
+//     orphaned_circuit AND still blocks suggest_circuits — GetElectricalSystems
+//     keeps returning a PowerCircuit, so the devices stay already_circuited.
+//     The real want behind it, "move this circuit to another board", is
+//     SelectPanel on the new panel and needs no disconnect at all.
 
 using System;
 using System.Collections.Generic;
@@ -55,14 +40,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             // A no-arg call must never mean "every circuit in the model".
             if (deviceIds.Count == 0 && circuitIds.Count == 0)
-                return new Dictionary<string, object?>
-                {
-                    ["ok"] = false,
-                    ["error"] = "pass device_ids (free these devices from whatever circuit holds " +
-                                "them) and/or circuit_ids (remove these circuits entirely). This " +
-                                "tool deletes circuits, so it will not act on an empty request — " +
-                                "call list_circuits first if you need the ids.",
-                };
+                return ToolResult.Fail("pass device_ids (free these devices from whatever circuit holds " +
+                    "them) and/or circuit_ids (remove these circuits entirely). This " +
+                    "tool deletes circuits, so it will not act on an empty request — " +
+                    "call list_circuits first if you need the ids.");
 
             // (long) casts, not inference: ElementId.Value is int on the net48
             // target and long on net10, and the planner speaks long.
@@ -71,7 +52,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var memberMap = live
                 .Select(s => (CircuitId: (long)s.Id.Value,
                               MemberIds: (IReadOnlyList<long>)CircuitInventory.MemberIds(
-                                  s, CircuitInventory.SafeBaseEquipment(s))))
+                                  s, ElecReads.SafeBaseEquipment(s))))
                 .ToList();
 
             var plan = CircuitDisconnectPlanner.Build(deviceIds, circuitIds, memberMap);
@@ -80,41 +61,31 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var deviceRows = new List<object>();
             int freed = 0, deleted = 0, modified = 0;
 
-            using var group = new TransactionGroup(doc, "BinaVibe: remove_from_circuit");
-            group.Start();
-            try
-            {
-                foreach (var action in plan.Actions)
+            TxGuard.ForEachInGroup(doc, "BinaVibe: remove_from_circuit", plan.Actions,
+                action =>
                 {
-                    var sys = byId[action.CircuitId];
-                    try
+                    var row = ApplyOne(doc, byId[action.CircuitId], action, deleteEmpty, deleteWires);
+                    circuitRows.Add(row);
+                    freed += action.MembersToRemove.Count;
+                    if (Equals(row["action"], "deleted")) deleted++; else modified++;
+                    foreach (var d in action.MembersToRemove)
+                        deviceRows.Add(DeviceRow(d, "freed", action.CircuitId, null));
+                },
+                (action, ex) =>
+                {
+                    circuitRows.Add(new Dictionary<string, object?>
                     {
-                        var row = ApplyOne(doc, sys, action, deleteEmpty, deleteWires);
-                        circuitRows.Add(row);
-                        freed += action.MembersToRemove.Count;
-                        if (Equals(row["action"], "deleted")) deleted++; else modified++;
-                        foreach (var d in action.MembersToRemove)
-                            deviceRows.Add(DeviceRow(d, "freed", action.CircuitId, null));
-                    }
-                    catch (Exception ex)
-                    {
-                        circuitRows.Add(new Dictionary<string, object?>
-                        {
-                            ["circuit_id"] = action.CircuitId,
-                            ["action"] = "failed",
-                            ["reason"] = ex.Message,
-                        });
-                        // RemoveFromCircuit is all-or-nothing per call, so a
-                        // failure tells us nothing about WHICH device Revit
-                        // objected to. Name them individually rather than let
-                        // the agent assume the whole set is unfixable.
-                        foreach (var d in action.MembersToRemove)
-                            deviceRows.Add(DeviceRow(d, "failed", action.CircuitId, ex.Message));
-                    }
-                }
-                group.Assimilate();
-            }
-            catch { TxGuard.SafeRollBack(group); throw; }
+                        ["circuit_id"] = action.CircuitId,
+                        ["action"] = "failed",
+                        ["reason"] = ex.Message,
+                    });
+                    // RemoveFromCircuit is all-or-nothing per call, so a failure
+                    // tells us nothing about WHICH device Revit objected to. Name
+                    // them individually rather than let the agent assume the
+                    // whole set is unfixable.
+                    foreach (var d in action.MembersToRemove)
+                        deviceRows.Add(DeviceRow(d, "failed", action.CircuitId, ex.Message));
+                });
 
             foreach (var miss in plan.MissedDevices)
                 deviceRows.Add(DeviceRow(miss.DeviceId, "not_circuited", null,
@@ -147,14 +118,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
             bool deleteEmpty, bool deleteWires)
         {
             long circuitId = action.CircuitId;
-            var panel = CircuitInventory.SafeBaseEquipment(sys);
+            var panel = ElecReads.SafeBaseEquipment(sys);
             long? panelId = panel?.Id.Value;
             string panelName = panel?.Name ?? "";
-            string circuitNumber = CircuitInventory.SafeCircuitNumber(sys);
+            string circuitNumber = ElecReads.SafeCircuitNumber(sys);
 
             // Read before mutating — after the members change, the path mode
             // and length no longer describe what the drafter is approving.
-            bool wasRouted = ElecValidation.SafePathMode(sys) == ElectricalCircuitPathMode.Custom;
+            bool wasRouted = ElecReads.SafePathMode(sys) == ElectricalCircuitPathMode.Custom;
 
             // A circuit named in circuit_ids is deleted even when the caller
             // asked to keep empties: delete_empty_circuits governs the circuit

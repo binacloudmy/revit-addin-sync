@@ -18,12 +18,13 @@ using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
 using Autodesk.Revit.DB.Electrical;
+using static BinaVibe.Mcp.Tools.Electrical.ElecReads;
+using static BinaVibe.Mcp.Tools.GeomMm;
 
 namespace BinaVibe.Mcp.Tools.Electrical
 {
     internal static class ElecValidation
     {
-        private const double MmPerFoot = 304.8;
 
         // ─── validate_panel_schedule ────────────────────────────────────
         public static Dictionary<string, object?> ValidatePanelSchedule(Document doc, JsonElement args)
@@ -176,7 +177,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             try { sizing = WireSizing.ParseTable(tableRows!); }
             catch (ArgumentException ex)
             {
-                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = ex.Message };
+                return ToolResult.Fail(ex.Message);
             }
 
             // Diversity margin on the breaker; 1.0 = load may reach the rating.
@@ -391,14 +392,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
         }
 
         // ─── shared plumbing ────────────────────────────────────────────
-        private static Dictionary<string, object?> MissingArgs(List<string> names) => new()
-        {
-            ["ok"] = false,
-            ["error"] = "missing required rule args: " + string.Join(", ", names) +
-                        ". These are jurisdiction-dependent thresholds, not defaults the " +
-                        "addin may assume — take the values from the electrical_validation " +
-                        "recipe and pass them explicitly.",
-        };
+        /// <summary>Thresholds are jurisdiction-dependent, so a rule whose
+        /// numbers were not supplied is refused, never defaulted.</summary>
+        private static Dictionary<string, object?> MissingArgs(List<string> names) =>
+            ToolResult.FailMissingArgs(
+                names, "rule args", "jurisdiction-dependent thresholds",
+                "electrical_validation");
 
         private static Dictionary<string, object?> FindingsResult(
             List<Finding> findings, Dictionary<string, object?> extra)
@@ -434,31 +433,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return rows;
         }
 
-        internal static double ParamAs(Element el, BuiltInParameter bip, ForgeTypeId unit)
-        {
-            var p = el.get_Parameter(bip);
-            return p != null && p.HasValue
-                ? UnitUtils.ConvertFromInternalUnits(p.AsDouble(), unit)
-                : 0.0;
-        }
 
-        internal static double SafeLengthMm(ElectricalSystem sys)
-        {
-            try { return sys.Length * MmPerFoot; }
-            catch { return 0.0; }
-        }
 
-        internal static ElectricalCircuitPathMode SafePathMode(ElectricalSystem sys)
-        {
-            try { return sys.CircuitPathMode; }
-            catch { return ElectricalCircuitPathMode.FarthestDevice; }
-        }
 
-        internal static int SafePoles(ElectricalSystem sys)
-        {
-            try { return sys.PolesNumber; }
-            catch { return 1; }
-        }
 
         /// <summary>All members are lighting fixtures/devices — then the
         /// lighting voltage-drop limit applies.</summary>

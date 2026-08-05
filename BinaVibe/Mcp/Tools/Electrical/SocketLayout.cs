@@ -6,8 +6,8 @@
 // ConfirmGate.cs was split out of ToolLoopService.cs.
 //
 // UNITS: every number that crosses into this file is in mm. Note that
-// ArgsHelp.GetPointMm (Mutators.cs:3348) and ArgsHelp.GetLengthMm
-// (Mutators.cs:3334) read mm from the wire but return FEET for direct Revit
+// ArgsHelp.GetPointMm and ArgsHelp.GetLengthMm read mm from the wire
+// but return FEET for direct Revit
 // API use — so they are NOT the boundary. The single ft<->mm conversion
 // boundary for socket placement is SocketCandidates.cs; nothing in this file
 // ever sees a foot.
@@ -558,7 +558,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// <summary>Signed angle from one plan vector to another, degrees,
         /// CCW positive, in (-180, 180]. Returns 0 if either is degenerate.
         ///
-        /// Same convention as Mutators.ReplaceCrossFamily (Mutators.cs:176):
+        /// Same convention as Mutators.ReplaceCrossFamily:
         /// magnitude from the angle between, sign from the cross product's Z.
         /// Rotating `from` by this result lands exactly on `to`.</summary>
         public static double SignedAngleDeg(double fromDx, double fromDy, double toDx, double toDy)

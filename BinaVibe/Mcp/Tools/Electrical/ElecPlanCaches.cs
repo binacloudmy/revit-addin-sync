@@ -1,16 +1,10 @@
 // One place to drop every electrical propose/commit plan cache.
 //
-// The three caches (socket, circuit, route) hand a plan_id to the drafter and
-// hold element ids plus panel facts behind it. Anything that regenerates
-// element ids, or changes what a panel IS, makes every held plan stale — but
-// the plan_id keeps resolving, and the commit tools only re-check a subset of
-// what they depend on. That combination commits against a model that no longer
-// matches the reviewed proposal.
-//
-// The individual CloseAll()s were being called from one site
-// (set_connector_electrical_data) and forgotten at the others, which is exactly
-// how the distribution-system tools ended up able to invalidate a plan without
-// dropping it. Calling this instead makes the correct behaviour the easy one.
+// A held plan_id keeps resolving after the model has moved under it, and the
+// commit tools only re-check a subset of what they depend on — so anything that
+// regenerates element ids, or changes what a panel IS, must drop all three
+// caches or a commit runs against a model that no longer matches the reviewed
+// proposal. Calling one fan-out makes that the easy thing to get right.
 
 namespace BinaVibe.Mcp.Tools.Electrical
 {

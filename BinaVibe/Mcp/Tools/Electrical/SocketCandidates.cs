@@ -25,12 +25,12 @@ using System.Linq;
 using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Architecture;
+using static BinaVibe.Mcp.Tools.GeomMm;
 
 namespace BinaVibe.Mcp.Tools.Electrical
 {
     internal static class SocketCandidates
     {
-        private const double MmPerFoot = 304.8;
 
         /// <summary>Room-side face rather than wall centreline: the reviewed
         /// point is then where the faceplate actually sits, and it is still
@@ -79,14 +79,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
             if (!mountMm.HasValue) missing.Add("mount_height_mm");
             if (!wetRadiusMm.HasValue) missing.Add("wet_radius_mm");
             if (missing.Count > 0)
-                return new Dictionary<string, object?>
-                {
-                    ["ok"] = false,
-                    ["error"] = "missing required rule args: " + string.Join(", ", missing) +
-                                ". These are placement standards, not defaults the addin may " +
-                                "assume — take the values from the socket_placement_by_room " +
-                                "recipe and pass them explicitly.",
-                };
+                return ToolResult.Fail("missing required rule args: " + string.Join(", ", missing) +
+                    ". These are placement standards, not defaults the addin may " +
+                    "assume — take the values from the socket_placement_by_room " +
+                    "recipe and pass them explicitly.");
 
             // Geometric hygiene, not code compliance — derived from the rule
             // args above so no new constant is asserted here. min_run is

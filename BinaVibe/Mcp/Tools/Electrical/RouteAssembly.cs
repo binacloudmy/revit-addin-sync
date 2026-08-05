@@ -1,24 +1,16 @@
 // How a circuit's legs are laid out — Revit-free, so the topology is
 // unit-tested rather than discovered in UAT.
 //
-// TRUNK + DROPS, not point-to-point. The first version planned every hop
-// independently, device to device: hop k dropped from routing height ONTO
-// device k, and hop k+1 rose from that same device straight back up. Same XY,
-// opposite direction — two conduits occupying the SAME LINE at every
-// intermediate device, and a 180-degree joint between them.
+// TRUNK + DROPS, not point-to-point. The trunk stays UP: rise once at the
+// panel, run at routing elevation through each device's XY in chain order, and
+// take ONE drop off it per device. A device station is therefore a TEE (two
+// runs plus the branch drop), not two elbows — see RouteCommit's joint pass.
 //
-// That cost two things in UAT 2026-08-04. NewElbowFitting rejects a collinear
-// joint outright ("the angle between them must fall within the valid range,
-// typically 2 to 95 degrees"), so a 9-device circuit produced exactly 8 failed
-// fittings — one per device junction — while the 1-device circuit produced
-// none. And the doubled drop was counted twice in TotalLengthMm, inflating the
-// length every voltage-drop number is derived from.
-//
-// So the trunk now stays UP: rise once at the panel, run at routing elevation
-// through each device's XY in chain order, and take ONE drop off the trunk per
-// device. The trunk is continuous through a device station, which makes that
-// station a TEE (two runs plus the branch drop), not two elbows — see
-// RouteCommit's joint pass.
+// Planning hop-by-hop instead puts two conduits on the SAME LINE at every
+// intermediate device (down onto it, straight back up), which NewElbowFitting
+// rejects outright — its valid range is roughly 2 to 95 degrees — and which
+// double-counts the drop in TotalLengthMm, inflating every voltage-drop number
+// derived from it. Do not reintroduce it.
 //
 // CIRCUIT PATH IS A SEPARATE POLYLINE. Revit's SetCircuitPath wants the
 // electrical path THROUGH the devices (panel, down to device 1, up, along, down

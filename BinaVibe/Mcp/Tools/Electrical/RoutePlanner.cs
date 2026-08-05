@@ -25,12 +25,13 @@ using System.Linq;
 using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Electrical;
+using static BinaVibe.Mcp.Tools.Electrical.ElecReads;
+using static BinaVibe.Mcp.Tools.GeomMm;
 
 namespace BinaVibe.Mcp.Tools.Electrical
 {
     internal static class RoutePlanner
     {
-        private const double MmPerFoot = 304.8;
         private const int DefaultMaxHitsPerLeg = 20;
 
         public static Dictionary<string, object?> Suggest(Document doc, JsonElement args)
@@ -45,45 +46,38 @@ namespace BinaVibe.Mcp.Tools.Electrical
             if (!routingHeightMm.HasValue) missing.Add("routing_height_mm");
             if (tableRows == null && tableError == null) missing.Add("sizing_table");
             if (missing.Count > 0)
-                return new Dictionary<string, object?>
-                {
-                    ["ok"] = false,
-                    ["error"] = "missing required standards args: " + string.Join(", ", missing) +
-                                ". These are electrical design standards, not defaults the addin " +
-                                "may assume — take the values from the electrical_circuiting " +
-                                "recipe and pass them explicitly.",
-                };
+                return ToolResult.FailMissingArgs(
+                    missing, "standards args", "electrical design standards",
+                    "electrical_circuiting");
             if (tableError != null)
-                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = tableError };
+                return ToolResult.Fail(tableError);
 
             List<SizingRow> sizing;
             try { sizing = WireSizing.ParseTable(tableRows!); }
             catch (ArgumentException ex)
             {
-                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = ex.Message };
+                return ToolResult.Fail(ex.Message);
             }
 
             var strategyName = ArgsHelp.GetString(args, "strategy");
             var strategy = RouteStrategies.ByName(strategyName);
             if (strategy == null)
-                return new Dictionary<string, object?>
-                {
-                    ["ok"] = false,
-                    ["error"] = "unknown strategy '" + strategyName + "'",
-                    ["supported"] = RouteStrategies.SupportedNames.Cast<object>().ToList(),
-                };
+                return ToolResult.Fail("unknown strategy '" + strategyName + "'",
+                    new Dictionary<string, object?>
+                    {
+                        ["supported"] = RouteStrategies.SupportedNames.Cast<object>().ToList(),
+                    });
 
             bool includeLinks = ArgsHelp.GetBool(args, "include_links") ?? true;
             bool probeObstacles = ArgsHelp.GetBool(args, "probe_obstacles") ?? false;
             int maxHitsPerLeg = (int)(ArgsHelp.GetLong(args, "max_hits_per_leg") ?? DefaultMaxHitsPerLeg);
             var cats = ResolveScanCategories(args, out var unknownCats);
             if (unknownCats.Count > 0)
-                return new Dictionary<string, object?>
-                {
-                    ["ok"] = false,
-                    ["error"] = "unknown categories: " + string.Join(", ", unknownCats),
-                    ["supported"] = CorridorCheck.Cats.Keys.Cast<object>().ToList(),
-                };
+                return ToolResult.Fail("unknown categories: " + string.Join(", ", unknownCats),
+                    new Dictionary<string, object?>
+                    {
+                        ["supported"] = CorridorCheck.Cats.Keys.Cast<object>().ToList(),
+                    });
 
             // ── circuits ──────────────────────────────────────────────────
             var wanted = ArgsHelp.GetLongList(args, "circuit_ids");
@@ -126,13 +120,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
 
             if (plan.Routes.Count == 0)
-                return new Dictionary<string, object?>
-                {
-                    ["ok"] = false,
-                    ["error"] = "no routable circuits — every candidate was skipped " +
-                                "(see skipped_circuits)",
-                    ["skipped_circuits"] = skippedCircuits.Cast<object>().ToList(),
-                };
+                return ToolResult.Fail("no routable circuits — every candidate was skipped " +
+                    "(see skipped_circuits)",
+                    new Dictionary<string, object?>
+                    {
+                        ["skipped_circuits"] = skippedCircuits.Cast<object>().ToList(),
+                    });
 
             var planId = RoutePlanCache.Store(plan, SocketCandidates.DocKey(doc));
 
@@ -430,11 +423,6 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return rows;
         }
 
-        private static int SafePoles(ElectricalSystem sys)
-        {
-            try { return sys.PolesNumber; }
-            catch { return 1; }
-        }
 
         private static double Dist(Pt3Mm a, Pt3Mm b)
         {

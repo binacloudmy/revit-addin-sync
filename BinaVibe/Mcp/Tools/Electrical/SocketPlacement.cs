@@ -12,9 +12,8 @@
 // destroy the other thirty-nine placements. A TransactionGroup here gives the
 // same single Ctrl+Z with per-item tolerance.
 //
-// place_family_instance (Mutators.cs:540) is untouched. It refuses
-// OneLevelBasedHosted families outright; the reasoning is reused below, the
-// code is not.
+// place_family_instance is untouched. It refuses OneLevelBasedHosted families
+// outright; the reasoning is reused below, the code is not.
 
 using System;
 using System.Collections.Generic;
@@ -22,12 +21,12 @@ using System.Linq;
 using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
+using static BinaVibe.Mcp.Tools.GeomMm;
 
 namespace BinaVibe.Mcp.Tools.Electrical
 {
     internal static class SocketPlacement
     {
-        private const double MmPerFoot = 304.8;
         /// <summary>Mounting height is considered honoured within 1 mm.</summary>
         private const double ZTolFt = 1.0 / MmPerFoot;
         /// <summary>A faceplate this far off reads as wrong to a drafter.
@@ -75,12 +74,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 : plan.Points.Where(p => wanted.Contains(p.Index)).ToList();
 
             if (points.Count == 0)
-                return new Dictionary<string, object?>
-                {
-                    ["ok"] = false,
-                    ["error"] = $"no candidates selected from plan {planId} " +
-                                $"(plan holds {plan.Points.Count} points; indices are 0-based)",
-                };
+                return ToolResult.Fail($"no candidates selected from plan {planId} " +
+                    $"(plan holds {plan.Points.Count} points; indices are 0-based)");
 
             var symbol = ResolveSymbol(doc, familyType)
                 ?? throw new ArgumentException($"family type '{familyType}' not found in document");
@@ -97,32 +92,15 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var failed = new List<object>();
             var placement = symbol.Family.FamilyPlacementType;
 
-            using var group = new TransactionGroup(doc, "BinaVibe: place_socket_points");
-            group.Start();
-            try
-            {
-                foreach (var p in points)
+            TxGuard.ForEachInGroup(doc, "BinaVibe: place_socket_points", points,
+                p => created.Add(PlaceOne(doc, symbol, placement, p, levelOverride,
+                                          mountOverrideMm, facingOffsetDeg, axisReversed)),
+                (p, ex) => failed.Add(new Dictionary<string, object?>
                 {
-                    try
-                    {
-                        var row = PlaceOne(doc, symbol, placement, p, levelOverride,
-                                           mountOverrideMm, facingOffsetDeg, axisReversed);
-                        created.Add(row);
-                    }
-                    catch (Exception ex)
-                    {
-                        failed.Add(new Dictionary<string, object?>
-                        {
-                            ["index"] = p.Index,
-                            ["room_id"] = p.RoomId,
-                            ["reason"] = ex.Message,
-                        });
-                    }
-                }
-                // Assimilate: N sockets collapse into one undo step.
-                group.Assimilate();
-            }
-            catch { TxGuard.SafeRollBack(group); throw; }
+                    ["index"] = p.Index,
+                    ["room_id"] = p.RoomId,
+                    ["reason"] = ex.Message,
+                }));
 
             // A run of sideways sockets must not read as a clean success.
             var uncorrected = created
@@ -178,7 +156,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 // Never fall through to the unhosted overload: a hosted family
                 // placed free-standing has a cutting void that intersects
                 // nothing, and Revit rejects the commit outright. Same trap
-                // place_family_instance guards at Mutators.cs:572.
+                // place_family_instance guards against.
                 throw new InvalidOperationException(
                     $"candidate {p.Index} has no local host wall (host={p.Host}) but " +
                     $"'{symbol.Name}' is host-based — the bounding wall lives in a Revit " +
@@ -452,7 +430,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             // General angle. Pivot on the CURRENT insertion point, re-read after
             // placement: a family's insertion point can sit well off its visible
-            // geometry (Mutators.cs:273), so spinning about a stale point would
+            // geometry, so spinning about a stale point would
             // translate the faceplate off the wall face as well as turn it.
             var before = (fi.Location as LocationPoint)?.Point;
             if (before != null)

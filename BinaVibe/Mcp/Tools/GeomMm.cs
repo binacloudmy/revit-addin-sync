@@ -41,6 +41,11 @@ namespace BinaVibe.Mcp.Tools
         /// the old CLASH_TOL_FT (0.082 ft) in QueryGeometry.</summary>
         public const double ClashTolMm = 25.0;
 
+        /// <summary>Revit's internal length unit is the foot. This is the one
+        /// definition of the ratio for the tools that convert at their own
+        /// boundary — it is a constant, not a conversion policy.</summary>
+        public const double MmPerFoot = 304.8;
+
         /// <summary>AABB of a transformed box, from ALL its corners.
         ///
         /// A rotated link's bbox cannot be carried across a transform by

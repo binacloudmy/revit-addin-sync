@@ -99,6 +99,14 @@
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditFormParser.cs" Link="AuditFormParser.cs" />
     <!-- Rename suggestion transform: System only, no Revit — unit-tested here. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditNaming.cs" Link="AuditNaming.cs" />
+    <!-- Tool result envelope: ok:false + error + merged extras. System only.
+         `ok` must stay a real bool — BatchExecutor tests `ok is bool b`, and a
+         string sails past the check that rolls a batch group back. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\ToolResult.cs" Link="ToolResult.cs" />
+    <!-- The propose/commit plan store shared by the three caches below (doc-key
+         guard, 2h TTL, id prefix). Revit-free; the cache files will not compile
+         without it. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\PlanCache.cs" Link="PlanCache.cs" />
     <!-- Socket placement layout math + plan cache: System only, mm throughout.
          Split out of SocketCandidates.cs/SocketPlacement.cs (which need a live
          Revit Document) precisely so the spacing, corner-clearance and
@@ -127,6 +135,13 @@
          Document) precisely so the phase/wire table, the Malaysian defaults and
          the voltage banding are testable here. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\ElecSystemRules.cs" Link="ElecSystemRules.cs" />
+    <!-- suggest_circuits' two dead ends + the panel/device fact DTOs: System
+         only. Split out of CircuitCandidates.cs (live Document) precisely so
+         the "ok:true + blocker, never ok:false" rule and the
+         all_devices_already_circuited / level_filter_excluded_everything /
+         no_circuitable_devices branching are testable here — that rule is what
+         stopped the UAT 2026-08-04 place-and-delete-panels retry loop. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CircuitBlockers.cs" Link="CircuitBlockers.cs" />
     <!-- remove_from_circuit's decision core: System only. Split out of
          CircuitDisconnect.cs (live Document) precisely so the union rule and
          the all-members-gone => delete-the-circuit rule are testable here. -->
