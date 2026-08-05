@@ -1,7 +1,9 @@
 using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -15,6 +17,11 @@ namespace RevitWebAppSync.Services
     /// </summary>
     public class JkrComplianceService
     {
+        // See ComplianceService.LoginRequiredMessage — same backend gate
+        // (app/routers/jkr.py's require_user), same "surface it through the
+        // Error field the panel already renders" approach.
+        internal const string LoginRequiredMessage = ComplianceService.LoginRequiredMessage;
+
         private readonly HttpClient _httpClient;
         private readonly string _baseUrl;
 
@@ -30,6 +37,15 @@ namespace RevitWebAppSync.Services
             // scan died with "Server error: NotFound" (colocate UAT 2026-07-13).
             _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedCloudBaseUrl;
             _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(180) };
+        }
+
+        /// <summary>Same per-request Bearer pattern as ComplianceService.AttachAuth
+        /// and AIService — read fresh from BinaConfig.Load() on every call.</summary>
+        private static void AttachAuth(HttpRequestMessage req)
+        {
+            var token = BinaConfig.Load().AccessToken;
+            if (!string.IsNullOrEmpty(token))
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         }
 
         public async Task<bool> IsAvailableAsync()
@@ -50,12 +66,19 @@ namespace RevitWebAppSync.Services
             try
             {
                 var json = JsonConvert.SerializeObject(request);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var resp = await _httpClient.PostAsync($"{_baseUrl}/v1/compliance/jkr-check", content);
+                using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/compliance/jkr-check")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                };
+                AttachAuth(req);
+                var resp = await _httpClient.SendAsync(req);
                 var body = await resp.Content.ReadAsStringAsync();
 
                 if (resp.IsSuccessStatusCode)
                     return JsonConvert.DeserializeObject<ModelCheckResponse>(body);
+
+                if (resp.StatusCode == HttpStatusCode.Unauthorized)
+                    return new ModelCheckResponse { Error = LoginRequiredMessage };
 
                 return new ModelCheckResponse { Error = $"Server error: {resp.StatusCode} — {body}" };
             }
@@ -80,13 +103,22 @@ namespace RevitWebAppSync.Services
                 LastResponseJson = "";
                 LastCallUtc = DateTime.UtcNow;
 
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var resp = await _httpClient.PostAsync($"{_baseUrl}/v1/compliance/jkr-recheck", content);
+                using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/compliance/jkr-recheck")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                };
+                AttachAuth(req);
+                var resp = await _httpClient.SendAsync(req);
                 var body = await resp.Content.ReadAsStringAsync();
                 LastResponseJson = body;
 
                 if (resp.IsSuccessStatusCode)
                     return ConvertV2ToModelCheckResponse(body);
+
+                // "Login required" beats the 404 fallback below — hitting v2 with the
+                // same missing/expired token would just fail the same way a second time.
+                if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                    return new ModelCheckResponse { Error = LoginRequiredMessage };
 
                 // Only fall back if the endpoint genuinely doesn't exist on this backend.
                 // For 5xx / timeout / auth errors, hitting v2 (and from there v1) just
@@ -116,11 +148,14 @@ namespace RevitWebAppSync.Services
                 LastResponseJson = "";
                 LastCallUtc = DateTime.UtcNow;
 
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-
                 // Try V2 endpoint first
                 var skipParam = skipAi ? "?skip_ai=true" : "";
-                var resp = await _httpClient.PostAsync($"{_baseUrl}/v1/compliance/jkr-check-v2{skipParam}", content);
+                using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/compliance/jkr-check-v2{skipParam}")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                };
+                AttachAuth(req);
+                var resp = await _httpClient.SendAsync(req);
                 var body = await resp.Content.ReadAsStringAsync();
                 LastResponseJson = body;
 
@@ -129,6 +164,11 @@ namespace RevitWebAppSync.Services
                     // V2 response — parse and convert to ModelCheckResponse for UI compat
                     return ConvertV2ToModelCheckResponse(body);
                 }
+
+                // "Login required" beats the 404 fallback below — hitting v1 with the
+                // same missing/expired token would just fail the same way a second time.
+                if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                    return new ModelCheckResponse { Error = LoginRequiredMessage };
 
                 // Fall back to V1 ONLY when the v2 endpoint isn't deployed (404).
                 // For 5xx / timeout / auth errors, hitting v1 won't help and just
@@ -165,13 +205,20 @@ namespace RevitWebAppSync.Services
             try
             {
                 var json = JsonConvert.SerializeObject(request);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-                var resp = await _httpClient.PostAsync($"{_baseUrl}/v1/compliance/jkr-autofix", content);
+                using var req = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/v1/compliance/jkr-autofix")
+                {
+                    Content = new StringContent(json, Encoding.UTF8, "application/json"),
+                };
+                AttachAuth(req);
+                var resp = await _httpClient.SendAsync(req);
                 var body = await resp.Content.ReadAsStringAsync();
 
                 if (resp.IsSuccessStatusCode)
                     return JsonConvert.DeserializeObject<JkrAutoFixResponse>(body)
                         ?? new JkrAutoFixResponse { Error = "Failed to parse AI fix response" };
+
+                if (resp.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+                    return new JkrAutoFixResponse { Error = LoginRequiredMessage };
 
                 if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
                     return new JkrAutoFixResponse { Error = "AI fix endpoint not available on this backend — update bina-ai." };

@@ -30,7 +30,7 @@
     <UseWPF>true</UseWPF>
     <!-- OTA versioning: CI overrides with -p:Version=<git tag>. The updater
          compares this against the update feed. -->
-    <Version Condition="'$(Version)' == ''">0.0.25</Version>
+    <Version Condition="'$(Version)' == ''">0.0.34</Version>
     <!-- Build net8.0-windows + WPF on macOS/Linux (CI and non-Windows dev). -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <!-- Ensure all NuGet dependencies are copied to output -->
@@ -115,6 +115,18 @@
     <EmbeddedResource Include="Resources\revitSave.png" />
     <EmbeddedResource Include="Resources\microchip.png" />
     <EmbeddedResource Include="Resources\aiAssistant.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Instrument Sans + JetBrains Mono for the copilot-reasoning UI
+         (2026-08-02 spec), embedded so the pack URIs in CopilotTokens.xaml
+         (Cp.Reasoning.Font / Cp.Reasoning.FontMono) resolve — see
+         Fonts\README.txt. Wildcard, not named files: the folder is empty
+         until a Windows builder drops the real .ttf files in, and a glob
+         with zero matches is a no-op (unlike a missing explicit path, which
+         fails the build). -->
+    <Resource Include="Fonts\*.ttf" />
+    <Resource Include="Fonts\*.otf" />
   </ItemGroup>
 
   <ItemGroup>

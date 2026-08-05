@@ -19,6 +19,40 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public PromptBar()
         {
             InitializeComponent();
+            // Reasoning toggle (2026-08-02 spec): persisted via CopilotPrefs,
+            // read once here (a settings write is cheap but this is a hot ctor
+            // path — PromptBar is reused, not recreated per turn). Dot: filled
+            // accent when on, hollow/faint outline when off.
+            UpdateReasoningDot();
+            ReasoningBtn.Click += (_, __) =>
+            {
+                var prefs = RevitWebAppSync.UI.Copilot.Model.CopilotPrefs.Load();
+                prefs.ReasoningEnabled = !prefs.ReasoningEnabled;
+                prefs.Save();
+                UpdateReasoningDot();
+            };
+            // Action Mode chip + popover (2026-08-02 addendum). ActionModeBtn opens
+            // the popup (StaysOpen="False" in XAML already closes it on outside
+            // click); the two option rows persist the choice and close it; Esc
+            // closes it too (OnActionModePopupKeyDown, wired via the Border's
+            // KeyDown in XAML — needs keyboard focus inside the popup, so we grab
+            // it on open).
+            UpdateActionModeChip();
+            ActionModeBtn.Click += (_, __) =>
+            {
+                // Respect reduced motion: skip the fade entrance. Must be set
+                // BEFORE IsOpen flips true — PopupAnimation governs the OPEN
+                // transition, so setting it in an Opened handler would be one
+                // frame too late (same "drop the motion, keep function" rule
+                // the reasoning-UI's BeginAnimation call sites use).
+                ActionModePopup.PopupAnimation = CopilotTheme.ReducedMotion
+                    ? System.Windows.Controls.Primitives.PopupAnimation.None
+                    : System.Windows.Controls.Primitives.PopupAnimation.Fade;
+                ActionModePopup.IsOpen = true;
+                ActionModeCard.Focus();
+            };
+            AskFirstOption.Click += (_, __) => SetActionMode(auto: false);
+            AutoOption.Click += (_, __) => SetActionMode(auto: true);
             SendBtn.Click += (_, __) =>
             {
                 // Busy → the button is a Stop: cancel the in-flight reply instead
@@ -70,8 +104,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     if (_files.Count > 0)
                     {
                         var files = new System.Collections.Generic.List<RevitWebAppSync.UI.Copilot.Model.FileAttachment>();
-                        foreach (var (fname, fcontent, fpath, fkind) in _files)
+                        foreach (var (fname, fcontent, fpath, fkind, ferror) in _files)
                         {
+                            // A rejected file still travels — as a "could not be
+                            // read" block. RouteText renders it, so the agent tells
+                            // the drafter their file was not used instead of
+                            // answering as though it never existed.
+                            if (ferror != null)
+                            {
+                                files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment
+                                {
+                                    Name = fname, Kind = fkind, ReadError = ferror,
+                                });
+                                continue;
+                            }
                             switch (fkind)
                             {
                                 case RevitWebAppSync.UI.Copilot.Model.AttachmentKind.Dwg:
@@ -114,10 +160,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var dlg = new Microsoft.Win32.OpenFileDialog
                 {
                     Multiselect = true,
-                    Filter = "Supported files|*.txt;*.csv;*.md;*.log;*.json;*.xml;*.dwg;*.dxf;*.pdf"
-                           + "|Text files|*.txt;*.csv;*.md;*.log;*.json;*.xml"
-                           + "|Drawings|*.dwg;*.dxf"
-                           + "|Documents|*.pdf",
+                    // Derived from AttachmentGate so the dialog and the gate can
+                    // never drift — a mismatch is how an extension becomes
+                    // selectable but silently unusable.
+                    Filter = Model.AttachmentGate.DialogFilter,
                     Title = "Attach file(s)",
                 };
                 if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
@@ -268,26 +314,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             = new System.Collections.Generic.List<System.Windows.Media.Imaging.BitmapSource>();
 
         // ─── File attachments (pending, content injected into prompt text) ────
-        // One map, one rule: Text extensions are read here (small, UTF-8, capped);
-        // every other kind is read by the addin itself, so only the path travels
-        // and no size cap applies.
-        private static readonly System.Collections.Generic.Dictionary<string, Model.AttachmentKind> SupportedExtensions
-            = new System.Collections.Generic.Dictionary<string, Model.AttachmentKind>(System.StringComparer.OrdinalIgnoreCase)
-              {
-                  [".txt"] = Model.AttachmentKind.Text,
-                  [".csv"] = Model.AttachmentKind.Text,
-                  [".md"] = Model.AttachmentKind.Text,
-                  [".log"] = Model.AttachmentKind.Text,
-                  [".json"] = Model.AttachmentKind.Text,
-                  [".xml"] = Model.AttachmentKind.Text,
-                  [".dwg"] = Model.AttachmentKind.Dwg,
-                  [".dxf"] = Model.AttachmentKind.Dwg,
-                  [".pdf"] = Model.AttachmentKind.Pdf,
-              };
-        private const long MaxFileBytes = 32 * 1024;
+        // What may be attached, and the size cap, live in Model.AttachmentGate —
+        // one source of truth, shared with the dialog filter and unit-testable
+        // without WPF.
+        //
         // Path is non-null for binary kinds; Content is non-null for text only.
-        private readonly System.Collections.Generic.List<(string Name, string Content, string Path, Model.AttachmentKind Kind)> _files
-            = new System.Collections.Generic.List<(string, string, string, Model.AttachmentKind)>();
+        // Error is non-null for a REJECTED file: it is kept in the list on purpose
+        // so the drafter sees a chip AND the agent gets a "could not be read" block
+        // (RouteText), instead of the file vanishing without a word.
+        private readonly System.Collections.Generic.List<(string Name, string Content, string Path, Model.AttachmentKind Kind, string Error)> _files
+            = new System.Collections.Generic.List<(string, string, string, Model.AttachmentKind, string)>();
 
         private void AddImage(System.Windows.Media.Imaging.BitmapSource img)
         {
@@ -302,26 +338,91 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             RebuildThumbStrip();
         }
 
+        /// <summary>Turn a read failure into something a drafter can act on.
+        ///
+        /// The raw exception text is written for developers: ClosedXML reports a
+        /// renamed .csv as "End of Central Directory record could not be found"
+        /// (measured 2026-08-03 — a drafter had renamed the extension in Explorer
+        /// instead of using Save As). That sentence tells them nothing about what
+        /// to do next, so the two common causes get a plain-language answer and
+        /// everything else falls back to the original message.</summary>
+        private static string DescribeReadFailure(string path, System.Exception ex)
+        {
+            var msg = ex.Message ?? "";
+            bool isXlsx = Model.AttachmentGate.NeedsConversion(path);
+
+            if (isXlsx && (msg.IndexOf("Central Directory", System.StringComparison.OrdinalIgnoreCase) >= 0
+                        || ex is System.IO.InvalidDataException))
+                return "bukan fail .xlsx sebenar — menamakan semula .csv kepada .xlsx tidak cukup; "
+                     + "buka dalam Excel dan guna Save As → Excel Workbook";
+
+            if (ex is System.IO.IOException)
+                return "fail sedang dibuka oleh program lain (tutup Excel dan cuba lagi)";
+
+            return msg;
+        }
+
+        /// <summary>Both entry points land here — the Attach dialog and drag-drop
+        /// (MentionInput.FileDropped, which has no filter of its own) — so gating
+        /// here covers both. A file that cannot be used is KEPT with a reason
+        /// rather than dropped: silence here is indistinguishable from "the AI
+        /// ignored me", and for a feature whose input IS the attachment that is the
+        /// worst failure available.</summary>
         private void AddFiles(string[] paths)
         {
             foreach (var path in paths)
             {
-                var ext = System.IO.Path.GetExtension(path);
-                if (!SupportedExtensions.TryGetValue(ext ?? "", out var kind)) continue;
-                var info = new System.IO.FileInfo(path);
-                if (!info.Exists) continue;
-
-                if (kind != Model.AttachmentKind.Text)
+                var name = System.IO.Path.GetFileName(path);
+                var gate = Model.AttachmentGate.Check(path);
+                if (!gate.Accepted)
                 {
-                    // Binary — never ReadAllText it, and the 32KB cap doesn't
-                    // apply: nothing but the path leaves this method.
-                    _files.Add((System.IO.Path.GetFileName(path), null, path, kind));
+                    _files.Add((name, null, null, Model.AttachmentKind.Text, gate.Reason));
                     continue;
                 }
 
-                if (info.Length > MaxFileBytes) continue;
-                var content = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8);
-                _files.Add((System.IO.Path.GetFileName(path), content, null, kind));
+                var kind = gate.Kind.Value;
+                if (kind != Model.AttachmentKind.Text)
+                {
+                    // Binary — never ReadAllText it, and the text cap doesn't
+                    // apply: nothing but the path leaves this method.
+                    _files.Add((name, null, path, kind, null));
+                    continue;
+                }
+
+                try
+                {
+                    string content;
+                    if (Model.AttachmentGate.NeedsConversion(path))
+                    {
+                        // .xlsx — flatten to CSV here so the wire format, the
+                        // backend and every recipe keep seeing plain text. The cap
+                        // applies to the OUTPUT: the file is a compressed ZIP, so
+                        // its size on disk says nothing about how much text it is.
+                        var xl = Model.XlsxText.ToText(path, Model.AttachmentGate.MaxTextBytes);
+                        if (string.IsNullOrWhiteSpace(xl.Text))
+                        {
+                            _files.Add((name, null, null, kind, "tiada data dalam fail Excel ini"));
+                            continue;
+                        }
+                        content = xl.Text;   // carries its own [dipotong: …] marker when cut
+                    }
+                    else
+                    {
+                        content = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8);
+                    }
+                    _files.Add((name, content, null, kind, null));
+                }
+                catch (System.Exception ex)
+                {
+                    // Locked by Excel (the common one — drafters attach the file
+                    // they still have open), permission denied, corrupt workbook.
+                    // The gate cannot foresee these, and they must not vanish.
+                    //
+                    // No "tidak boleh dibaca:" prefix here — RouteText already
+                    // says "could not be read:", and the two stacked read as
+                    // "could not be read: tidak boleh dibaca: ..." (UAT 2026-08-03).
+                    _files.Add((name, null, null, kind, DescribeReadFailure(path, ex)));
+                }
             }
             RebuildThumbStrip();
         }
@@ -340,7 +441,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 ThumbStrip.Children.Add(chip);
             }
 
-            foreach (var (name, content, path, kind) in _files)
+            foreach (var (name, content, path, kind, error) in _files)
             {
                 var capturedName = name;
                 System.Action remove = () =>
@@ -350,7 +451,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 };
                 // Page count is unknown until the addin reads the PDF, which
                 // happens on send — the chip shows the kind until then.
-                var chip = kind == Model.AttachmentKind.Dwg ? AttachmentChip.ForDrawing(name, remove)
+                var chip = error != null ? AttachmentChip.ForRejected(name, error, remove)
+                         : kind == Model.AttachmentKind.Dwg ? AttachmentChip.ForDrawing(name, remove)
                          : kind == Model.AttachmentKind.Pdf ? AttachmentChip.ForDocument(name, 0, remove)
                          : AttachmentChip.ForFile(name, content, remove);
                 chip.Margin = new Thickness(0, 0, 6, 0);
@@ -408,17 +510,19 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         }
 
         // Idle (no text): transparent circle + faint arrow. Armed (text present)
-        // or Busy (stop): accent-gradient circle + white glyph.
+        // or Busy (stop): ink-black circle + white glyph (2026-08-02 defect #6
+        // fix — the artifact's composer send button is always ink-black when
+        // armed, not the accent gradient the rest of the pane uses elsewhere).
         private void UpdateSendVisual()
         {
             if (SendBtn == null || SendIcon == null || Input?.Editor == null) return;
             bool armed = Busy || _pendingTool != null || !string.IsNullOrWhiteSpace(Input.Editor.Text);
             if (armed)
             {
-                SendBtn.Background = TryFindResource("Cp.AccentGrad") as System.Windows.Media.Brush ?? Brushes.RoyalBlue;
+                SendBtn.Background = TryFindResource("Cp.Reasoning.Ink") as System.Windows.Media.Brush ?? Brushes.Black;
                 // Always white — NOT Cp.AccentContrast (which is near-black in dark theme,
                 // giving a black glyph on the blue button). A send/stop glyph reads best
-                // white on the accent gradient in both themes.
+                // white on an ink-black button in both themes.
                 SendIcon.Fill = Brushes.White;
             }
             else
@@ -428,9 +532,59 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
         }
 
+        // Reasoning toggle chip dot: filled indigo when on, hollow faint outline
+        // when off — TryFindResource (not SetResourceReference) so the paint is a
+        // one-shot snapshot like UpdateSendVisual above, consistent with this
+        // file's existing theme-read pattern.
+        private void UpdateReasoningDot()
+        {
+            if (ReasoningDot == null) return;
+            bool on = RevitWebAppSync.UI.Copilot.Model.CopilotPrefs.Load().ReasoningEnabled;
+            var accent = TryFindResource("Cp.Reasoning.Accent") as System.Windows.Media.Brush ?? Brushes.MediumPurple;
+            var faint = TryFindResource("Cp.Faint") as System.Windows.Media.Brush ?? Brushes.Gray;
+            ReasoningDot.Fill = on ? accent : Brushes.Transparent;
+            ReasoningDot.Stroke = on ? accent : faint;
+            ReasoningDot.StrokeThickness = on ? 0 : 1;
+        }
+
+        // Action Mode chip (2026-08-02 addendum): amber dot + "Ask first" when
+        // AutoApproveWrites is off (default), green dot + "Auto" when on. Same
+        // one-shot TryFindResource snapshot pattern as UpdateReasoningDot/
+        // UpdateSendVisual above.
+        private static readonly System.Windows.Media.Color AmberDot = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#eab308");
+        private static readonly System.Windows.Media.Color GreenDot = (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString("#10b981");
+
+        private void UpdateActionModeChip()
+        {
+            if (ActionModeDot == null) return;
+            bool auto = RevitWebAppSync.UI.Copilot.Model.CopilotPrefs.Load().AutoApproveWrites;
+            ActionModeDot.Fill = new SolidColorBrush(auto ? GreenDot : AmberDot);
+            ActionModeLabel.Text = auto ? "Auto" : "Ask first";
+        }
+
+        private void SetActionMode(bool auto)
+        {
+            var prefs = RevitWebAppSync.UI.Copilot.Model.CopilotPrefs.Load();
+            prefs.AutoApproveWrites = auto;
+            prefs.Save();
+            UpdateActionModeChip();
+            ActionModePopup.IsOpen = false;
+        }
+
+        private void OnActionModePopupKeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape)
+            {
+                ActionModePopup.IsOpen = false;
+                e.Handled = true;
+            }
+        }
+
+        // "Ask Copilot" (no ellipsis) — 2026-08-02 defect #6, matches the
+        // artifact's composer 1:1 exactly.
         public static readonly DependencyProperty PlaceholderProperty = DependencyProperty.Register(
             nameof(Placeholder), typeof(string), typeof(PromptBar),
-            new PropertyMetadata("Ask Copilot…", OnPlaceholderChanged));
+            new PropertyMetadata("Ask Copilot", OnPlaceholderChanged));
         public string Placeholder { get => (string)GetValue(PlaceholderProperty); set => SetValue(PlaceholderProperty, value); }
 
         private static void OnPlaceholderChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)

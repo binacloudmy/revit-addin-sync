@@ -1,33 +1,52 @@
 using System.Collections.Generic;
+using System.Linq;
 
 namespace RevitWebAppSync.UI.Copilot.Model
 {
-    public class MentionGroup
+    /// <summary>
+    /// One row of the @-mention tree, mirroring the Project Browser hierarchy
+    /// (Families → Walls → Basic Wall → Concrete 8"). Group headers ("Views",
+    /// "Families", …) are non-pickable containers; every other node inserts
+    /// "@Name" when picked, including mid-tree ones like a category.
+    /// </summary>
+    public class MentionNode
     {
-        public string Id;       // level | category | view | selection
-        public string Label;    // "Levels", "Categories", …
-        public List<string> Items = new List<string>();
-        public MentionGroup(string id, string label, IEnumerable<string> items)
-        { Id = id; Label = label; if (items != null) Items.AddRange(items); }
+        public string Kind;      // level | category | family | type | view | sheet | selection | group
+        public string Name;
+        public bool Pickable = true;
+        public List<MentionNode> Children = new List<MentionNode>();
+
+        public MentionNode(string kind, string name, bool pickable = true)
+        { Kind = kind; Name = name; Pickable = pickable; }
+
+        public MentionNode(string kind, string name, IEnumerable<MentionNode> children, bool pickable)
+        { Kind = kind; Name = name; Pickable = pickable; if (children != null) Children.AddRange(children); }
+
+        public static MentionNode Leaf(string kind, string name) => new MentionNode(kind, name);
+        public static MentionNode Group(string name, IEnumerable<MentionNode> children)
+            => new MentionNode("group", name, children, pickable: false);
     }
 
-    /// <summary>Supplies @-mention picker groups. Revit impl reads the live Document;
-    /// a static fallback covers the no-document case.</summary>
+    /// <summary>Supplies the @-mention picker tree. Revit impl reads the live
+    /// Document; a static fallback covers the no-document case. Called once per
+    /// picker open (MentionInput caches while the popup is up).</summary>
     public interface IMentionProvider
     {
-        List<MentionGroup> GetGroups();
+        List<MentionNode> GetTree();
     }
 
     /// <summary>
     /// Fallback when no live document is available. Only "Categories" is a fixed enum (real,
-    /// not mock); levels/views/selection come from the model, so they're omitted here rather
-    /// than faked. RevitMentionProvider supplies the real data when a document is open.
+    /// not mock); levels/views/sheets/families come from the model, so they're omitted here
+    /// rather than faked. RevitMentionProvider supplies the real data when a document is open.
     /// </summary>
     public class StaticMentionProvider : IMentionProvider
     {
-        public List<MentionGroup> GetGroups() => new List<MentionGroup>
+        public List<MentionNode> GetTree() => new List<MentionNode>
         {
-            new MentionGroup("category", "Categories", new[] { "Walls", "Doors", "Windows", "Floors", "Rooms", "Furniture", "Casework" }),
+            MentionNode.Group("Categories",
+                new[] { "Walls", "Doors", "Windows", "Floors", "Rooms", "Furniture", "Casework" }
+                    .Select(c => MentionNode.Leaf("category", c))),
         };
     }
 
@@ -40,7 +59,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
             {
                 case "level": return ("#fef3c7", "#92400e");
                 case "category": return ("#dbeafe", "#1e40af");
+                case "family": return ("#dbeafe", "#1e40af");
+                case "type": return ("#e0f2fe", "#0369a1");
                 case "view": return ("#dcfce7", "#15803d");
+                case "sheet": return ("#fce7f3", "#9d174d");
                 case "selection": return ("#ede9fe", "#6d28d9");
                 default: return ("#eef0f3", "#374151");
             }

@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  html, body { margin:0; padding:0; background:#e9e9ec; }
+  * { box-sizing:border-box; -webkit-font-smoothing:antialiased; }
+  a { color:#4f46e5; text-decoration:none; }
+  a:hover { color:#4338ca; text-decoration:underline; }
+  @keyframes bk { 0%,45%{opacity:1} 50%,100%{opacity:0} }
+  @keyframes rise { from{opacity:0; transform:translateY(8px)} to{opacity:1; transform:none} }
+  @keyframes spin { to{transform:rotate(360deg)} }
+  @keyframes pulse { 0%,100%{opacity:.35; transform:scale(.85)} 50%{opacity:1; transform:scale(1)} }
+  @keyframes sweep { 0%{background-position:0% 50%} 100%{background-position:200% 50%} }
+  .sc::-webkit-scrollbar { width:11px }
+  .sc::-webkit-scrollbar-thumb { background:#d9d9df; border-radius:99px; border:4px solid #fff }
+  .sc::-webkit-scrollbar-thumb:hover { background:#c2c2ca }
+  .sc::-webkit-scrollbar-track { background:transparent }
+</style>
+</helmet>
+
+<div style="height:100vh; display:flex; flex-direction:column; background:#ffffff; font-family:'Instrument Sans',system-ui,sans-serif; color:#0b0b0f; border-left:1px solid #e7e7ea;">
+
+  <div style="display:flex; align-items:center; gap:11px; padding:13px 16px; border-bottom:1px solid #f0f0f2;">
+    <div style="width:28px; height:28px; border-radius:9px; background:linear-gradient(150deg,#6366f1,#4f46e5 55%,#7c3aed); box-shadow:0 2px 6px rgba(79,70,229,.28); display:flex; align-items:center; justify-content:center; color:#fff; font-size:13px;">◈</div>
+    <div style="flex:1; min-width:0;">
+      <div style="font-size:14px; font-weight:600; letter-spacing:-0.015em; line-height:1.2;">BINA Copilot</div>
+      <div style="display:flex; align-items:center; gap:5px; margin-top:3px;">
+        <span style="width:5px; height:5px; border-radius:50%; background:#10b981; box-shadow:0 0 0 3px rgba(16,185,129,.14);"></span>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:10.5px; color:#8b8b95; letter-spacing:-0.02em;">Main Model · Snowdon Towers</span>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:3px; color:#8b8b95;">
+      <div style="width:29px; height:29px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:14px; cursor:pointer; transition:all .15s;" style-hover="background:#f5f5f7; color:#0b0b0f;">☾</div>
+      <div style="width:29px; height:29px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:16px; cursor:pointer; transition:all .15s;" style-hover="background:#f5f5f7; color:#0b0b0f;">＋</div>
+      <div style="width:29px; height:29px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:14px; cursor:pointer; transition:all .15s;" style-hover="background:#f5f5f7; color:#0b0b0f;">⋯</div>
+    </div>
+  </div>
+
+  <div style="display:flex; align-items:center; gap:6px; padding:9px 14px; border-bottom:1px solid #f0f0f2;">
+    <div style="display:flex; align-items:center; gap:2px; background:#f4f4f6; border-radius:9px; padding:3px;">
+      <div style="font-size:12.5px; font-weight:600; padding:5px 12px; border-radius:7px; background:#fff; box-shadow:0 1px 2px rgba(11,11,15,.07); cursor:pointer;">Chat</div>
+      <div style="font-size:12.5px; padding:5px 12px; border-radius:7px; color:#6e6e78; cursor:pointer;" style-hover="color:#0b0b0f;">History</div>
+      <div style="font-size:12.5px; padding:5px 12px; border-radius:7px; color:#6e6e78; cursor:pointer;" style-hover="color:#0b0b0f;">Library</div>
+    </div>
+    <div style="flex:1;"></div>
+    <div onClick="{{ replay }}" style="display:flex; align-items:center; gap:5px; font-size:12px; color:#6e6e78; cursor:pointer; padding:5px 9px; border-radius:8px; border:1px solid #eaeaee; transition:all .15s;" style-hover="background:#f5f5f7; color:#0b0b0f;">↻ Replay</div>
+  </div>
+
+  <div ref="{{ scrollRef }}" onScroll="{{ onScroll }}" class="sc" style="flex:1; overflow-y:auto; padding:20px 16px 28px 16px; display:flex; flex-direction:column; gap:22px;">
+
+    <div style="display:flex; justify-content:flex-end;">
+      <div style="max-width:80%; background:#0b0b0f; color:#fff; border-radius:14px 14px 5px 14px; padding:10px 14px; font-size:13.5px; line-height:1.5; letter-spacing:-0.005em;">
+        color duct ikut system — supply biru, return merah, exhaust kuning
+      </div>
+    </div>
+
+    <div style="display:flex; flex-direction:column; gap:14px;">
+
+      <div style="border:1px solid #ebebef; border-radius:13px; background:#fcfcfd; overflow:hidden; transition:all .2s;">
+        <div onClick="{{ toggleThinking }}" style="display:flex; align-items:center; gap:9px; padding:10px 13px; cursor:pointer; user-select:none;" style-hover="background:#f6f6f8;">
+          <sc-if value="{{ thinking }}" hint-placeholder-val="{{ false }}">
+            <span style="width:12px; height:12px; border:1.5px solid #e0e0e6; border-top-color:#4f46e5; border-radius:50%; animation:spin .7s linear infinite; display:block; flex:none;"></span>
+          </sc-if>
+          <sc-if value="{{ thoughtDone }}" hint-placeholder-val="{{ true }}">
+            <span style="width:12px; height:12px; display:flex; align-items:center; justify-content:center; font-size:11px; color:#a5a5ae; flex:none;">✦</span>
+          </sc-if>
+          <span style="font-size:12.5px; font-weight:500; color:#4a4a55; letter-spacing:-0.01em;">{{ thinkingLabel }}</span>
+          <sc-if value="{{ thoughtDone }}" hint-placeholder-val="{{ true }}">
+            <span style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#a5a5ae; background:#f1f1f4; padding:2px 6px; border-radius:5px;">{{ stepCount }}</span>
+          </sc-if>
+          <span style="flex:1;"></span>
+          <span style="font-size:9px; color:#a5a5ae; font-family:'JetBrains Mono',monospace;">{{ chevron }}</span>
+        </div>
+
+        <sc-if value="{{ thinkingOpen }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:2px 14px 14px 14px; border-top:1px solid #f2f2f5;">
+            <div style="display:flex; flex-direction:column; gap:14px; padding-top:12px;">
+              <sc-for list="{{ steps }}" as="step" hint-placeholder-count="3">
+                <div style="display:grid; grid-template-columns:14px 1fr; gap:10px;">
+                  <div style="display:flex; flex-direction:column; align-items:center; gap:4px;">
+                    <span style="width:6px; height:6px; border-radius:50%; background:{{ step.dot }}; margin-top:5px; flex:none;"></span>
+                    <span style="width:1px; flex:1; background:#eeeef1;"></span>
+                  </div>
+                  <div style="min-width:0;">
+                    <div style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#a5a5ae; margin-bottom:3px;">{{ step.label }}</div>
+                    <div style="font-size:12.5px; line-height:1.7; color:#7a7a86; white-space:pre-wrap; text-wrap:pretty; letter-spacing:-0.005em;">{{ step.text }}<sc-if value="{{ step.live }}" hint-placeholder-val="{{ false }}"><span style="display:inline-block; width:5px; height:11px; background:#a5a5ae; margin-left:2px; vertical-align:-1px; animation:bk 1s step-end infinite;"></span></sc-if></div>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+
+      <sc-if value="{{ showAction }}" hint-placeholder-val="{{ true }}">
+        <div style="border:1px solid #ecebf0; border-radius:13px; background:#fff; box-shadow:0 1px 2px rgba(11,11,15,.04), 0 8px 24px -12px rgba(11,11,15,.14); overflow:hidden; animation:rise .28s cubic-bezier(.2,.8,.2,1);">
+          <div style="display:flex; align-items:center; gap:8px; padding:10px 13px; border-bottom:1px solid #f3f3f6; background:linear-gradient(180deg,#fffdf8,#fff);">
+            <span style="width:18px; height:18px; border-radius:6px; background:#fef3c7; color:#a16207; display:flex; align-items:center; justify-content:center; font-size:10px;">!</span>
+            <span style="font-size:12.5px; font-weight:600; letter-spacing:-0.01em;">Perlu kebenaran</span>
+            <span style="flex:1;"></span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#a5a5ae;">2 WRITES</span>
+          </div>
+          <div style="padding:12px 13px 13px 13px;">
+            <div style="display:flex; flex-direction:column; gap:1px;">
+              <div style="display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:10px; padding:8px 9px; border-radius:9px;" style-hover="background:#fafafb;">
+                <span style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#b4b4bd;">01</span>
+                <span style="font-size:13px; letter-spacing:-0.005em;">Baca parameter elemen</span>
+                <span style="font-family:'JetBrains Mono',monospace; font-size:10.5px; color:#8b8b95;">1,053</span>
+              </div>
+              <div style="display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:10px; padding:8px 9px; border-radius:9px;" style-hover="background:#fafafb;">
+                <span style="font-family:'JetBrains Mono',monospace; font-size:10px; color:#b4b4bd;">02</span>
+                <span style="font-size:13px; letter-spacing:-0.005em;">Colour by parameter — Ducts</span>
+                <span style="font-family:'JetBrains Mono',monospace; font-size:10.5px; color:#8b8b95;">3 sistem</span>
+              </div>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; margin-top:12px;">
+              <div onClick="{{ approve }}" style="display:flex; align-items:center; gap:8px; background:#0b0b0f; color:#fff; font-size:12.5px; font-weight:500; padding:8px 14px; border-radius:9px; cursor:pointer; transition:all .15s;" style-hover="background:#26262e; transform:translateY(-1px);">
+                Benarkan <span style="font-family:'JetBrains Mono',monospace; font-size:10px; opacity:.55;">⌘⏎</span>
+              </div>
+              <div style="border:1px solid #eaeaee; color:#4a4a55; font-size:12.5px; padding:8px 14px; border-radius:9px; cursor:pointer; transition:all .15s;" style-hover="background:#f5f5f7;">Tolak</div>
+              <span style="flex:1;"></span>
+              <span style="font-size:11.5px; color:#a5a5ae;">Boleh undo</span>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ showAnswer }}" hint-placeholder-val="{{ true }}">
+        <div style="font-size:14px; line-height:1.68; color:#15151b; white-space:pre-wrap; text-wrap:pretty; letter-spacing:-0.008em;">{{ answerText }}<sc-if value="{{ answering }}" hint-placeholder-val="{{ false }}"><span style="display:inline-block; width:7px; height:14px; background:#0b0b0f; margin-left:2px; vertical-align:-2px; animation:bk 1s step-end infinite;"></span></sc-if></div>
+      </sc-if>
+
+      <sc-if value="{{ showResult }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex; flex-direction:column; gap:12px; animation:rise .28s cubic-bezier(.2,.8,.2,1);">
+
+          <div style="border:1px solid #ebebef; border-radius:13px; overflow:hidden;">
+            <div style="display:flex; align-items:center; gap:8px; padding:9px 13px; border-bottom:1px solid #f3f3f6;">
+              <span style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:#a5a5ae;">Duct — Colour by System</span>
+              <span style="flex:1;"></span>
+              <span style="font-family:'JetBrains Mono',monospace; font-size:10.5px; color:#8b8b95;">1,053</span>
+            </div>
+            <div style="padding:11px 13px 12px 13px; display:flex; flex-direction:column; gap:9px;">
+              <div style="display:grid; grid-template-columns:11px 84px 1fr auto; align-items:center; gap:10px;">
+                <span style="width:11px; height:11px; border-radius:3px; background:#2563eb;"></span>
+                <span style="font-size:12.5px;">Supply Air</span>
+                <span style="height:5px; border-radius:99px; background:#f0f0f3; display:block; overflow:hidden;"><span style="display:block; height:5px; width:46%; background:#2563eb; border-radius:99px;"></span></span>
+                <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e6e78;">486</span>
+              </div>
+              <div style="display:grid; grid-template-columns:11px 84px 1fr auto; align-items:center; gap:10px;">
+                <span style="width:11px; height:11px; border-radius:3px; background:#dc2626;"></span>
+                <span style="font-size:12.5px;">Return Air</span>
+                <span style="height:5px; border-radius:99px; background:#f0f0f3; display:block; overflow:hidden;"><span style="display:block; height:5px; width:35%; background:#dc2626; border-radius:99px;"></span></span>
+                <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e6e78;">372</span>
+              </div>
+              <div style="display:grid; grid-template-columns:11px 84px 1fr auto; align-items:center; gap:10px;">
+                <span style="width:11px; height:11px; border-radius:3px; background:#eab308;"></span>
+                <span style="font-size:12.5px;">Exhaust Air</span>
+                <span style="height:5px; border-radius:99px; background:#f0f0f3; display:block; overflow:hidden;"><span style="display:block; height:5px; width:18%; background:#eab308; border-radius:99px;"></span></span>
+                <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e6e78;">195</span>
+              </div>
+              <div style="display:grid; grid-template-columns:11px 84px 1fr auto; align-items:center; gap:10px;">
+                <span style="width:11px; height:11px; border-radius:3px; background:#d4d4da;"></span>
+                <span style="font-size:12.5px; color:#6e6e78;">Tiada nilai</span>
+                <span style="height:5px; border-radius:99px; background:#f0f0f3; display:block; overflow:hidden;"><span style="display:block; height:5px; width:3%; background:#d4d4da; border-radius:99px;"></span></span>
+                <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:#6e6e78;">27</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:flex; flex-wrap:wrap; gap:6px;">
+            <div style="font-size:12.5px; border:1px solid #eaeaee; border-radius:9px; padding:6px 11px; cursor:pointer; transition:all .15s;" style-hover="background:#f5f5f7; border-color:#dededf;">Senaraikan 27 duct</div>
+            <div style="font-size:12.5px; border:1px solid #eaeaee; border-radius:9px; padding:6px 11px; cursor:pointer; transition:all .15s;" style-hover="background:#f5f5f7; border-color:#dededf;">Tambah legend pada view</div>
+            <div style="font-size:12.5px; border:1px solid #eaeaee; border-radius:9px; padding:6px 11px; cursor:pointer; transition:all .15s;" style-hover="background:#f5f5f7; border-color:#dededf;">Undo</div>
+          </div>
+
+          <div style="display:flex; align-items:center; gap:12px; font-size:11.5px; color:#a5a5ae; padding-top:2px;">
+            <span style="cursor:pointer;" style-hover="color:#0b0b0f;">Berguna?</span>
+            <span style="cursor:pointer;" style-hover="color:#0b0b0f;">↑</span>
+            <span style="cursor:pointer;" style-hover="color:#0b0b0f;">↓</span>
+            <span style="cursor:pointer;" style-hover="color:#0b0b0f;">⧉</span>
+            <span style="flex:1;"></span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:10.5px;">{{ totalTime }}</span>
+          </div>
+        </div>
+      </sc-if>
+
+    </div>
+  </div>
+
+  <div style="padding:12px 14px 14px 14px; border-top:1px solid #f0f0f2; background:linear-gradient(180deg,#fff,#fcfcfd);">
+    <div style="border:1px solid #e6e6ea; border-radius:14px; background:#fff; box-shadow:0 1px 2px rgba(11,11,15,.05), 0 10px 24px -16px rgba(11,11,15,.25); padding:11px 12px 9px 13px;">
+      <div style="font-size:13.5px; color:#a5a5ae; letter-spacing:-0.005em;">Tanya Copilot atau taip / untuk tools…</div>
+      <div style="display:flex; align-items:center; gap:4px; margin-top:10px;">
+        <div style="width:26px; height:26px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:13px; color:#8b8b95; cursor:pointer;" style-hover="background:#f5f5f7; color:#0b0b0f;">⏚</div>
+        <div style="width:26px; height:26px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:13px; color:#8b8b95; cursor:pointer;" style-hover="background:#f5f5f7; color:#0b0b0f;">@</div>
+        <div style="display:flex; align-items:center; gap:5px; padding:4px 9px; border-radius:8px; font-size:11.5px; color:#6e6e78; cursor:pointer;" style-hover="background:#f5f5f7;">
+          <span style="width:5px; height:5px; border-radius:50%; background:#4f46e5;"></span> Reasoning
+        </div>
+        <span style="flex:1;"></span>
+        <div style="width:28px; height:28px; border-radius:9px; background:#0b0b0f; color:#fff; display:flex; align-items:center; justify-content:center; font-size:13px; cursor:pointer; transition:all .15s;" style-hover="background:#26262e;">↑</div>
+      </div>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px; margin-top:8px; font-family:'JetBrains Mono',monospace; font-size:10px; color:#b4b4bd; letter-spacing:-0.01em;">
+      <span>@ level · view · selection</span>
+      <span style="flex:1;"></span>
+      <span>BINA-1 · Free</span>
+    </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:760,&quot;height&quot;:1040},&quot;autoCollapse&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Reasoning&quot;},&quot;streamSpeed&quot;:{&quot;editor&quot;:&quot;range&quot;,&quot;default&quot;:1,&quot;min&quot;:0.3,&quot;max&quot;:3,&quot;step&quot;:0.1,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Reasoning&quot;}}">
+const STEPS = [
+  { label: 'Faham permintaan', dot: '#4f46e5', text: `User nak duct diwarnakan ikut jenis system — supply biru, return merah, exhaust kuning. Ini kerja colour override, bukan tukar family atau parameter fizikal.` },
+  { label: 'Periksa model', dot: '#a5a5ae', text: `Duct dalam Snowdon Towers guna "System Classification". Saya scan 1,053 duct: 486 Supply Air, 372 Return Air, 195 Exhaust Air, 27 tiada nilai.` },
+  { label: 'Pilih pendekatan', dot: '#a5a5ae', text: `Jangan sentuh view sedia ada — nanti setting Visibility/Graphics user hilang. Lebih selamat duplicate view 3D dan apply filter di situ.` },
+  { label: 'Kes tepi', dot: '#a5a5ae', text: `27 duct tanpa nilai tak boleh saya teka. Biar kelabu dan flag pada user supaya senang dikesan, bukan disembunyikan.` },
+  { label: 'Sahkan dulu', dot: '#eab308', text: `Dua langkah menulis pada model, jadi minta kebenaran sebelum jalan.` },
+];
+
+const ANSWER = `Siap. Duct dah diwarnakan ikut System Classification dalam view baru "Duct - Colour by System" — view asal awak tak terusik.
+
+27 duct tiada nilai System Classification, saya biarkan kelabu supaya senang dikesan.`;
+
+class Component extends DCLogic {
+  state = { phase: 'thinking', si: 0, ci: 0, answer: '', open: true, userToggled: false, secs: 0, total: 0 };
+
+  componentDidMount() { this.run(); }
+  componentWillUnmount() { this.stop(); }
+  stop() { clearInterval(this.t1); clearInterval(this.t2); clearInterval(this.clk); clearTimeout(this.gap); }
+
+  run() {
+    this.stop();
+    this.stick = true;
+    const speed = this.props.streamSpeed ?? 1;
+    this.setState({ phase: 'thinking', si: 0, ci: 0, answer: '', open: true, userToggled: false, secs: 0, total: 0 });
+    this.clk = setInterval(() => this.setState(s => ({ secs: s.secs + 0.1, total: s.total + 0.1 })), 100);
+    this.t1 = setInterval(() => {
+      this.setState(s => {
+        const cur = STEPS[s.si];
+        if (!cur) return null;
+        const ci = s.ci + 4;
+        if (ci >= cur.text.length) {
+          if (s.si + 1 >= STEPS.length) {
+            clearInterval(this.t1); clearInterval(this.clk);
+            const auto = this.props.autoCollapse ?? true;
+            this.gap = setTimeout(() => this.startAnswer(), 850);
+            return { si: STEPS.length, ci: 0, phase: 'action', open: s.userToggled ? s.open : !auto };
+          }
+          return { si: s.si + 1, ci: 0 };
+        }
+        return { ci };
+      });
+      this.scroll();
+    }, 15 / speed);
+  }
+
+  startAnswer() {
+    const speed = this.props.streamSpeed ?? 1;
+    this.clk = setInterval(() => this.setState(s => ({ total: s.total + 0.1 })), 100);
+    let j = 0;
+    this.setState({ phase: 'answering' });
+    this.t2 = setInterval(() => {
+      j += 3;
+      if (j >= ANSWER.length) {
+        clearInterval(this.t2); clearInterval(this.clk);
+        this.setState({ answer: ANSWER, phase: 'done' });
+      } else this.setState({ answer: ANSWER.slice(0, j) });
+      this.scroll();
+    }, 17 / speed);
+  }
+
+  scroll() { const el = this.el; if (el && this.stick !== false) el.scrollTop = el.scrollHeight; }
+  onScroll = (e) => { const el = e.currentTarget; this.stick = el.scrollHeight - el.scrollTop - el.clientHeight < 40; };
+
+  renderVals() {
+    const s = this.state, p = s.phase;
+    const thinking = p === 'thinking';
+    const steps = STEPS.slice(0, thinking ? s.si + 1 : STEPS.length).map((st, i) => ({
+      label: st.label,
+      dot: st.dot,
+      text: thinking && i === s.si ? st.text.slice(0, s.ci) : st.text,
+      live: thinking && i === s.si,
+    }));
+    return {
+      thinking,
+      thoughtDone: !thinking,
+      steps,
+      stepCount: `${STEPS.length} langkah`,
+      thinkingLabel: thinking ? `Berfikir…  ${s.secs.toFixed(1)}s` : `Berfikir ${Math.max(1, Math.round(s.secs))}s`,
+      thinkingOpen: s.open,
+      chevron: s.open ? '▲' : '▼',
+      toggleThinking: () => this.setState(st => ({ open: !st.open, userToggled: true }), () => this.scroll()),
+      onScroll: this.onScroll,
+      showAction: p !== 'thinking',
+      showAnswer: p === 'answering' || p === 'done',
+      answering: p === 'answering',
+      answerText: s.answer,
+      showResult: p === 'done',
+      totalTime: `${s.total.toFixed(1)}s · 2 tindakan`,
+      approve: () => {},
+      replay: () => this.run(),
+      scrollRef: (el) => { this.el = el; },
+    };
+  }
+}
+
+</script>
+</body>
+</html>

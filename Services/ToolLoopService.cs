@@ -79,12 +79,15 @@ namespace RevitWebAppSync.Services
         public async Task<ToolTurn> GenerateStreamAsync(
             AIRequest request, string accessToken, Action<string> onProgress,
             ObservableCollection<ProgressStep> trail = null, CancellationToken ct = default,
-            Action<string> onReply = null, Action<IReadOnlyList<ProgressStep>> onSteps = null)
+            Action<string> onReply = null, Action<IReadOnlyList<ProgressStep>> onSteps = null,
+            ObservableCollection<ReasoningStep> reasoningTrail = null,
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null)
         {
             var bodyJson = Newtonsoft.Json.JsonConvert.SerializeObject(request);
             return await StreamTurnAsync(
                 AiUrl.Build(_baseUrl, "tool/generate/stream"),
-                bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps).ConfigureAwait(false);
+                bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps,
+                reasoningTrail, onReasoning).ConfigureAwait(false);
         }
 
         /// <summary>RESUME a paused run over SSE — the resume leg is where the
@@ -99,13 +102,16 @@ namespace RevitWebAppSync.Services
             string accessToken, Action<string> onProgress,
             ObservableCollection<ProgressStep> trail = null,
             Action<string> onReply = null, CancellationToken ct = default,
-            Action<IReadOnlyList<ProgressStep>> onSteps = null)
+            Action<IReadOnlyList<ProgressStep>> onSteps = null,
+            ObservableCollection<ReasoningStep> reasoningTrail = null,
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null)
         {
             var body = new ToolResumeBody { RunId = runId, SessionId = sessionId, ToolResults = results };
             var bodyJson = JsonSerializer.Serialize(body, _json);
             var turn = await StreamTurnAsync(
                 AiUrl.Build(_baseUrl, "tool/resume/stream"),
-                bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps).ConfigureAwait(false);
+                bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps,
+                reasoningTrail, onReasoning).ConfigureAwait(false);
             // Older backend without the streaming twin → transparent fallback.
             if (turn != null && turn.Status == "error" && (turn.Error ?? "").StartsWith("HTTP 404"))
                 return await ResumeAsync(runId, sessionId, results, accessToken, ct).ConfigureAwait(false);
@@ -119,7 +125,9 @@ namespace RevitWebAppSync.Services
         private async Task<ToolTurn> StreamTurnAsync(
             string url, string bodyJson, string accessToken, Action<string> onProgress,
             ObservableCollection<ProgressStep> trail, Action<string> onReply, CancellationToken ct,
-            Action<IReadOnlyList<ProgressStep>> onSteps = null)
+            Action<IReadOnlyList<ProgressStep>> onSteps = null,
+            ObservableCollection<ReasoningStep> reasoningTrail = null,
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null)
         {
             // Accumulate phase/tool events into a step trail (BIMLogiq-style)
             // and push the rendered trail through onProgress, instead of a
@@ -127,6 +135,9 @@ namespace RevitWebAppSync.Services
             // execution rounds tick the SAME trail. Self-owns one if the caller
             // didn't pass it (keeps the method usable standalone).
             trail ??= new ObservableCollection<ProgressStep>();
+            // Same idea for the reasoning ("working narrative") timeline — a
+            // SEPARATE trail from the tool/status one above (see ReasoningStep).
+            reasoningTrail ??= new ObservableCollection<ReasoningStep>();
             using var req = new HttpRequestMessage(HttpMethod.Post, url)
             {
                 Content = new StringContent(bodyJson, Encoding.UTF8, "application/json"),
@@ -166,7 +177,8 @@ namespace RevitWebAppSync.Services
                 void Flush()
                 {
                     if (ev != null && data.Length > 0)
-                        final = HandleStreamEvent(ev, data.ToString(), onProgress, trail, onReply, replySb, onSteps) ?? final;
+                        final = HandleStreamEvent(ev, data.ToString(), onProgress, trail, onReply, replySb, onSteps,
+                            reasoningTrail, onReasoning) ?? final;
                     data.Clear();
                 }
                 while (!reader.EndOfStream)
@@ -198,10 +210,36 @@ namespace RevitWebAppSync.Services
         // an error ToolTurn.
         private ToolTurn HandleStreamEvent(string ev, string raw, Action<string> onProgress,
             ObservableCollection<ProgressStep> trail, Action<string> onReply, StringBuilder replySb,
-            Action<IReadOnlyList<ProgressStep>> onSteps = null)
+            Action<IReadOnlyList<ProgressStep>> onSteps = null,
+            ObservableCollection<ReasoningStep> reasoningTrail = null,
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null)
         {
             switch (ev)
             {
+                case "reasoning":
+                    // {step_id, label, text_delta, state: "running"|"done"} — the
+                    // backend's working narrative, appended not replaced (unlike
+                    // tool/status below). See ReasoningReducer for the delta rule.
+                    try
+                    {
+                        foreach (var objJson in ExtractAllJsonObjects(raw))
+                        {
+                            using var d = JsonDocument.Parse(objJson);
+                            var root = d.RootElement;
+                            string stepId = GetStr(root, "step_id");
+                            string label = GetStr(root, "label");
+                            string delta = GetStr(root, "text_delta");
+                            string state = GetStr(root, "state");
+                            if (string.IsNullOrEmpty(state)) state = "running";
+                            if (string.IsNullOrEmpty(stepId))
+                                stepId = string.IsNullOrEmpty(label) ? Guid.NewGuid().ToString("N") : "reason:" + label;
+                            ReasoningReducer.Apply(reasoningTrail, stepId, label, delta, ReasoningReducer.StateFrom(state));
+                        }
+                        try { onReasoning?.Invoke(new List<ReasoningStep>(reasoningTrail ?? new ObservableCollection<ReasoningStep>())); }
+                        catch { /* UI hiccup */ }
+                    }
+                    catch { }
+                    return null;
                 case "reply_partial":
                     // Live answer text — the backend streams the model's reply
                     // token-by-token. Push the CUMULATIVE text (same contract as

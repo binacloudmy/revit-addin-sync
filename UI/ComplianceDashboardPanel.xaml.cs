@@ -430,7 +430,14 @@ namespace RevitWebAppSync.UI
 
                 if (!string.IsNullOrEmpty(response.Error))
                 {
-                    ShowStatus($"❌ Server error: {response.Error}", Color.FromRgb(253, 235, 208));
+                    // 401 gets its own clear copy — "Server error: {message}" reads as a
+                    // backend fault, not "you need to log in", and this banner is the
+                    // only feedback the drafter gets (no popup, no issue list to fall
+                    // back on reading).
+                    if (response.Error == RevitWebAppSync.Services.ComplianceService.LoginRequiredMessage)
+                        ShowStatus($"🔒 {response.Error}", WarningAmber);
+                    else
+                        ShowStatus($"❌ Server error: {response.Error}", Color.FromRgb(253, 235, 208));
                     return;
                 }
 
@@ -1060,7 +1067,10 @@ namespace RevitWebAppSync.UI
 
                 if (!string.IsNullOrEmpty(response.Error))
                 {
-                    ShowStatus($"❌ {response.Error}", Color.FromRgb(253, 235, 208));
+                    if (response.Error == RevitWebAppSync.Services.ComplianceService.LoginRequiredMessage)
+                        ShowStatus($"🔒 {response.Error}", WarningAmber);
+                    else
+                        ShowStatus($"❌ {response.Error}", Color.FromRgb(253, 235, 208));
                     return;
                 }
 

@@ -34,6 +34,27 @@ namespace RevitWebAppSync.Services
         [JsonPropertyName("tool_calls")] public List<ServerToolCall> ToolCalls { get; set; } = new();
         // Clarify requirements when the agent paused to ask the user (HITL).
         [JsonPropertyName("clarify")] public List<ClarifyRequirement> Clarify { get; set; } = new();
+        // Done-frame follow-up chips (0-3) — 2026-08-02 offer_actions spec.
+        // Wire shape is now list[{label, prompt}], but an older backend can
+        // still send plain strings; FollowupActionListConverter tolerates
+        // both (string s -> {Label=s, Prompt=s}) and skips anything it can't
+        // parse rather than failing the whole done frame. Empty/absent on
+        // older backends that predate follow-up chips entirely.
+        [JsonPropertyName("followups")]
+        [JsonConverter(typeof(FollowupActionListConverter))]
+        public List<FollowupAction> Followups { get; set; } = new();
+        // Optional structured result breakdown for the result card's proportion
+        // bars — populated only when the turn's tool results carried one
+        // (count_by / color legend / route_* open_connectors). Null otherwise;
+        // the pane falls back to the plain answer.
+        [JsonPropertyName("result_summary")] public ResultSummaryDto ResultSummary { get; set; }
+        // Action Mode addendum (2026-08-02): codegen C# always requires
+        // confirmation — arbitrary code can delete anything, so Auto mode
+        // never fast-tracks it. Hardcoded true server-side today; default
+        // true here too (fail-safe — same "missing = ask" rule as
+        // PendingToolCall.RequiresConfirmation) so an older/not-yet-updated
+        // backend that omits the field still gates codegen.
+        [JsonPropertyName("code_requires_confirmation")] public bool CodeRequiresConfirmation { get; set; } = true;
 
         public bool AwaitingRevit =>
             Status == "awaiting_revit" && Pending != null && Pending.Count > 0;
@@ -45,6 +66,79 @@ namespace RevitWebAppSync.Services
     public sealed class ServerToolCall
     {
         [JsonPropertyName("tool")] public string Tool { get; set; } = "";
+    }
+
+    // ─── Follow-up action chips (2026-08-02 offer_actions spec) ─────────────
+    // {label, prompt}: Label is the pill text (already ≤32 chars, server-
+    // truncated); Prompt is the full standalone request sent verbatim when
+    // the pill is tapped. Shared verbatim from wire DTO through to the UI
+    // model (ChatRouter.RouteResult / CopilotModels.ChatMessage) — same
+    // pattern the pre-existing List<string> Followups used before this spec.
+    public sealed class FollowupAction
+    {
+        public string Label { get; set; } = "";
+        public string Prompt { get; set; } = "";
+    }
+
+    // Tolerant list converter: each item is EITHER a {label, prompt} object
+    // OR a plain string (old-backend compat — string s becomes Label=Prompt=s,
+    // per the 2026-08-02 spec's "addin compat both directions"). Any item
+    // that is neither, or an object with no usable label/prompt, is skipped —
+    // fail-safe, never throws, never blanks the rest of the list.
+    public sealed class FollowupActionListConverter : JsonConverter<List<FollowupAction>>
+    {
+        public override List<FollowupAction> Read(ref Utf8JsonReader reader, System.Type typeToConvert, JsonSerializerOptions options)
+        {
+            var result = new List<FollowupAction>();
+            if (reader.TokenType != JsonTokenType.StartArray)
+            {
+                reader.Skip();
+                return result;
+            }
+            while (reader.Read() && reader.TokenType != JsonTokenType.EndArray)
+            {
+                switch (reader.TokenType)
+                {
+                    case JsonTokenType.String:
+                    {
+                        var s = reader.GetString();
+                        if (!string.IsNullOrWhiteSpace(s))
+                            result.Add(new FollowupAction { Label = s, Prompt = s });
+                        break;
+                    }
+                    case JsonTokenType.StartObject:
+                    {
+                        using var doc = JsonDocument.ParseValue(ref reader);
+                        var root = doc.RootElement;
+                        string label = root.TryGetProperty("label", out var l) && l.ValueKind == JsonValueKind.String ? l.GetString() : null;
+                        string prompt = root.TryGetProperty("prompt", out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+                        if (!string.IsNullOrWhiteSpace(label) || !string.IsNullOrWhiteSpace(prompt))
+                            result.Add(new FollowupAction { Label = label ?? prompt, Prompt = prompt ?? label });
+                        break;
+                    }
+                    default:
+                        // Junk item (number, bool, null, nested array) — skip
+                        // and keep parsing the rest of the list.
+                        reader.Skip();
+                        break;
+                }
+            }
+            return result;
+        }
+
+        public override void Write(Utf8JsonWriter writer, List<FollowupAction> value, JsonSerializerOptions options)
+        {
+            writer.WriteStartArray();
+            if (value != null)
+                foreach (var item in value)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("label", item?.Label ?? "");
+                    writer.WriteString("prompt", item?.Prompt ?? "");
+                    writer.WriteEndObject();
+                }
+            writer.WriteEndArray();
+        }
     }
 
     // ─── Clarify (HITL get_user_input pause) wire DTOs ──────────────────────
@@ -83,6 +177,14 @@ namespace RevitWebAppSync.Services
         // mode). Gates the Ya/Tidak confirmation card. Missing on older
         // backends → false → no gate, today's auto-execute behavior.
         [JsonPropertyName("mutate")] public bool Mutate { get; set; }
+        // Action Mode addendum (2026-08-02): whether THIS call must be
+        // approved even in Auto mode (serialize_pending's per-call flag —
+        // always-confirm set: delete_elements, delete_unused_views,
+        // purge_unused, workset mutations, execute_revit_batch; everything
+        // else in MUTATE_TOOL_NAMES is auto-eligible). Default true —
+        // fail-safe: a missing field (older backend) means "ask", never a
+        // silent auto-run.
+        [JsonPropertyName("requires_confirmation")] public bool RequiresConfirmation { get; set; } = true;
     }
 
     public sealed class ToolResultDto
@@ -91,5 +193,23 @@ namespace RevitWebAppSync.Services
         [JsonPropertyName("ok")] public bool Ok { get; set; } = true;
         [JsonPropertyName("result")] public object Result { get; set; }
         [JsonPropertyName("error")] public string Error { get; set; }
+    }
+
+    // ─── Result summary (done-frame proportion-bar breakdown) ───────────────
+    // 2026-08-02 copilot-reasoning-ui spec: color_hint is a system CLASS
+    // ("supply"/"return"/"exhaust"/"none"), never a hex — the pane maps it to
+    // the Cp.System.* tokens so the palette stays client-owned.
+    public sealed class ResultSummaryRowDto
+    {
+        [JsonPropertyName("label")] public string Label { get; set; } = "";
+        [JsonPropertyName("count")] public int Count { get; set; }
+        [JsonPropertyName("color_hint")] public string ColorHint { get; set; } = "";
+    }
+
+    public sealed class ResultSummaryDto
+    {
+        [JsonPropertyName("title")] public string Title { get; set; } = "";
+        [JsonPropertyName("total")] public int Total { get; set; }
+        [JsonPropertyName("rows")] public List<ResultSummaryRowDto> Rows { get; set; } = new();
     }
 }

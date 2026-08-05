@@ -57,10 +57,18 @@ namespace BinaVibe.Mcp.Tools
                 "find_elements_between_grids"   => Inspectors.FindElementsBetweenGrids(doc, args),
                 "find_mep_elements"             => Inspectors.FindMepElements(doc, args),
                 "query_geometry"                => QueryGeometry.Run(doc, args),
+                "measure_wall_openings"         => WallOpenings.Run(doc, args),
                 "filter_elements"               => ElementFilter.Run(app, doc, args),
                 "extract_cad_geometry"          => CadExtract.Run(uidoc, args),
                 "compare_levels"                => LevelCompare.Run(uidoc, args),
                 "batch_link_models"             => BatchLink.Run(uidoc, args),
+                // link_file: link ONE CAD/IFC/Revit file by path, dispatched by
+                // extension — the "link this file the drafter just received"
+                // counterpart to batch_link_models's folder scan. MUTATE (it
+                // adds a link to the document), but grouped here next to
+                // batch_link_models since it shares BatchLink.cs's link+verify
+                // machinery. See BatchLink.RunLinkFile for the per-format notes.
+                "link_file"                     => BatchLink.RunLinkFile(uidoc, args),
                 "get_current_selection"         => Inspectors.GetCurrentSelection(uidoc),
                 "get_active_view"               => Inspectors.GetActiveView(doc),
                 "get_current_view_elements"     => Inspectors.GetCurrentViewElements(uidoc),
@@ -68,6 +76,10 @@ namespace BinaVibe.Mcp.Tools
                 "list_views"                    => Inspectors.ListViews(doc),
                 "list_sheets"                   => Inspectors.ListSheets(doc),
                 "list_schedules"                => Inspectors.ListSchedules(doc),
+                // Cells AND the element ids behind them — export_schedule_to_excel
+                // reads the same cells but hands back a file, so the rows never
+                // reach the agent.
+                "read_schedule"                 => Schedules.Read(doc, args),
                 "list_grids"                    => Inspectors.ListGrids(doc),
                 "analyze_model_statistics"      => Inspectors.AnalyzeModelStatistics(doc),
                 "find_elements_by_parameter"    => Inspectors.FindElementsByParameter(doc, args),
@@ -112,8 +124,14 @@ namespace BinaVibe.Mcp.Tools
                 // Space planning: the site outline, so a scheme can be fitted and
                 // placed against the drafter's actual land instead of the origin.
                 "read_site_boundary"            => SiteBoundary.Read(doc, args),
+                // Socket placement candidates. Read-only (no Transaction): it
+                // caches a plan and returns reviewable points, and
+                // place_socket_points commits them. Same two-step shape as
+                // fill_audit -> draft_export.
+                "suggest_socket_points"         => Electrical.SocketCandidates.Suggest(doc, args),
                 "audit_parameters"              => Inspectors.AuditParameters(doc, args),
                 "audit_view_names"              => Inspectors.AuditViewNames(doc, args),
+                "audit_family_names"            => Inspectors.AuditFamilyNames(doc, args),
                 "open_view"                     => Inspectors.OpenView(uidoc, args),
                 "select_elements"               => Inspectors.SelectElements(uidoc, args),
                 "count_by"                      => Inspectors.CountBy(doc, args),
@@ -143,12 +161,20 @@ namespace BinaVibe.Mcp.Tools
                 "execute_revit_batch"    => BatchExecutor.Run(app, args),
                 "set_parameter"          => Mutators.SetParameter(doc, args),
                 "set_parameter_bulk"     => Mutators.SetParameterBulk(doc, args),
+                // Writes element parameters behind schedule columns (Revit has
+                // no settable cell); fields validated against the schedule.
+                "write_schedule"         => Schedules.Write(doc, args),
                 "change_type"            => Mutators.ChangeType(doc, args),
                 "delete_elements"        => Mutators.DeleteElements(doc, args),
                 "duplicate_view"         => Mutators.DuplicateView(doc, args),
                 "apply_view_template"    => Mutators.ApplyViewTemplate(doc, args),
                 "place_door"             => Mutators.PlaceDoor(doc, args),
                 "place_window"           => Mutators.PlaceWindow(doc, args),
+                // Sockets: one TransactionGroup, single undo, per-item failure
+                // tolerance. Coordinates come from the cached plan, never from
+                // the model re-emitting them.
+                "place_socket_points"    => Electrical.SocketPlacement.PlaceSocketPoints(doc, args),
+                "place_socket_on_wall"   => Electrical.SocketPlacement.PlaceSocketOnWall(doc, args),
                 "create_wall"            => Mutators.CreateWall(doc, args),
                 "create_room"            => Mutators.CreateRoomXY(doc, args),
                 "create_level"           => Mutators.CreateLevel(doc, args),
@@ -189,6 +215,11 @@ namespace BinaVibe.Mcp.Tools
                 "create_duct"                   => MutatorsMep.CreateDuct(doc, args),
                 "create_pipe"                   => MutatorsMep.CreatePipe(doc, args),
                 "create_dimensions"             => Dimensioning.CreateDimensions(app, doc, args),
+                "list_connectors"               => MutatorsMepRouting.ListConnectors(doc, args),
+                "trace_connections"             => MutatorsMepRouting.TraceConnections(doc, args),
+                "route_duct"                    => MutatorsMepRouting.RouteDuct(doc, args),
+                "route_pipe"                    => MutatorsMepRouting.RoutePipe(doc, args),
+                "tap_branch"                    => MutatorsMepRouting.TapBranch(doc, args),
 
                 // Generic OSS-compatible wrappers — dispatch to typed tools.
                 // Arg names get remapped per target below (RemapArgs) since the

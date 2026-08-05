@@ -76,6 +76,10 @@
     <!-- MentionToken: pure @-mention token parsing/matching (System only) split
          out of MentionInput so the picker rules are testable without WPF. -->
     <Compile Include="..\UI\Copilot\Model\MentionToken.cs" Link="MentionToken.cs" />
+    <!-- MentionTree + MentionNode: pure @-mention tree filter/flatten rules
+         (System only), same split as MentionToken. -->
+    <Compile Include="..\UI\Copilot\Model\MentionTree.cs" Link="MentionTree.cs" />
+    <Compile Include="..\UI\Copilot\Model\MentionProvider.cs" Link="MentionProvider.cs" />
     <!-- ToolCatalog defines SlashTool, referenced by ChatMessage.SlashCommand in
          CopilotModels. Pure (WPF Geometry only, no Revit). -->
     <Compile Include="..\UI\Copilot\Model\ToolCatalog.cs" Link="ToolCatalog.cs" />
@@ -96,6 +100,10 @@
     <Compile Include="..\UI\Copilot\Model\FriendlyStep.cs" Link="FriendlyStep.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotCatalog.cs" Link="CopilotCatalog.cs" />
     <Compile Include="..\UI\Copilot\Model\ProgressStep.cs" Link="ProgressStep.cs" />
+    <!-- ReasoningStep + ReasoningReducer/ReasoningTrail (2026-08-02 spec): pure
+         (System only), same split as ProgressStep — CopilotModels.ChatMessage
+         references ReasoningStep, so this must be linked wherever that is. -->
+    <Compile Include="..\UI\Copilot\Model\ReasoningStep.cs" Link="ReasoningStep.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\BatchRefResolver.cs" Link="BatchRefResolver.cs" />
     <!-- PDF attachment reading: PdfPig + System only, no Revit and no WPF, so
          the extractor and its caps are testable here. (DwgReader is not — it
@@ -110,6 +118,17 @@
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditFormParser.cs" Link="AuditFormParser.cs" />
     <!-- Rename suggestion transform: System only, no Revit — unit-tested here. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditNaming.cs" Link="AuditNaming.cs" />
+    <!-- Socket placement layout math + plan cache: System only, mm throughout.
+         Split out of SocketCandidates.cs/SocketPlacement.cs (which need a live
+         Revit Document) precisely so the spacing, corner-clearance and
+         inward-facing rules are testable here. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\SocketLayout.cs" Link="SocketLayout.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\SocketPlanCache.cs" Link="SocketPlanCache.cs" />
+    <!-- read_schedule / write_schedule decision logic: which updates survive
+         validation, where the row window falls, whether rows map 1:1 to
+         elements. Split out of Schedules.cs (which needs a live Document) for
+         the same reason as SocketLayout above. System.Text.Json only. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\ScheduleLogic.cs" Link="ScheduleLogic.cs" />
     <!-- Lean-context wire contract: AIRequest/ModelContext (pure Newtonsoft
          DTOs). No Revit refs. -->
     <Compile Include="..\Models\AIRequest.cs" Link="AIRequest.cs" />

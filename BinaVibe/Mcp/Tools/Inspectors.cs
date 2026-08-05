@@ -98,15 +98,35 @@ namespace BinaVibe.Mcp.Tools
                     || (fn != null && fn.IndexOf(nameContains, System.StringComparison.OrdinalIgnoreCase) >= 0);
             }
 
+            // Doors/windows carry the sizes a fit-check needs. Emitting them here makes
+            // "which type fits this 900x2100 opening" ONE call; otherwise the agent pays a
+            // get_type_parameters round trip per candidate. Rough openings are what a hole
+            // is actually cut to, so they ride along when the family exposes them.
+            bool sized = bic.Value == BuiltInCategory.OST_Doors
+                      || bic.Value == BuiltInCategory.OST_Windows;
+
             var types = q
                 .Where(NameHit)
                 .Take(500)
-                .Select(t => new Dictionary<string, object?>
+                .Select(t =>
                 {
-                    ["id"] = t.Id.Value,
-                    ["name"] = t.Name,
-                    ["family_name"] = (t as ElementType)?.FamilyName,
-                    ["instances"] = counts.TryGetValue(t.Id.Value, out var c) ? c : 0,
+                    var row = new Dictionary<string, object?>
+                    {
+                        ["id"] = t.Id.Value,
+                        ["name"] = t.Name,
+                        ["family_name"] = (t as ElementType)?.FamilyName,
+                        ["instances"] = counts.TryGetValue(t.Id.Value, out var c) ? c : 0,
+                    };
+                    if (sized)
+                    {
+                        // Omit rather than emit nulls — a 500-type payload should not carry
+                        // four dead keys per row.
+                        AddIfSome(row, "width_mm", TypeLengthMm(t, "Width"));
+                        AddIfSome(row, "height_mm", TypeLengthMm(t, "Height"));
+                        AddIfSome(row, "rough_width_mm", TypeLengthMm(t, "Rough Width"));
+                        AddIfSome(row, "rough_height_mm", TypeLengthMm(t, "Rough Height"));
+                    }
+                    return row;
                 })
                 .ToList<object>();
             return new Dictionary<string, object?>
@@ -872,6 +892,27 @@ namespace BinaVibe.Mcp.Tools
             return d;
         }
 
+        /// <summary>A length parameter off an element, in mm — or null when the family
+        /// doesn't carry it. Length params are Revit-internal feet; 304.8 matches the
+        /// factor ParamUnits.MetricTwin uses so every tool agrees.</summary>
+        internal static double? TypeLengthMm(Element el, string name)
+        {
+            try
+            {
+                var p = el.LookupParameter(name);
+                if (p == null || p.StorageType != StorageType.Double || !p.HasValue) return null;
+                return System.Math.Round(p.AsDouble() * 304.8, 1);
+            }
+            catch { return null; }
+        }
+
+        /// <summary>Set a key only when the value is present, so optional dimensions don't
+        /// pad every row with nulls.</summary>
+        internal static void AddIfSome(Dictionary<string, object?> d, string key, double? v)
+        {
+            if (v.HasValue) d[key] = v.Value;
+        }
+
         private static bool PredicateMatches(Element el, Document doc, string? predicate)
         {
             if (string.IsNullOrWhiteSpace(predicate)) return true;
@@ -1015,7 +1056,9 @@ namespace BinaVibe.Mcp.Tools
         }
 
         // ─── count_by ───────────────────────────────────────────────────
-        // Count a category broken down by level / type / workset. Read-only.
+        // Count a category broken down by level / type / workset /
+        // connectivity, or a "dim1,dim2" compound of those (e.g.
+        // "level,connectivity" -> rows like "L2 — Connected"). Read-only.
         public static Dictionary<string, object?> CountBy(Document doc, JsonElement args)
         {
             string category = TryGetString(args, "category") ?? "";
@@ -1029,30 +1072,10 @@ namespace BinaVibe.Mcp.Tools
             var els = new FilteredElementCollector(doc).OfCategory(bic.Value)
                 .WhereElementIsNotElementType().ToList();
 
-            string KeyOf(Element el)
-            {
-                if (groupBy == "type")
-                {
-                    var t = el.GetTypeId();
-                    return (t != null && t.Value != ElementId.InvalidElementId.Value
-                        ? doc.GetElement(t)?.Name : null) ?? "(no type)";
-                }
-                if (groupBy == "workset")
-                {
-                    var wp = el.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
-                    return wp?.AsValueString() ?? "(no workset)";
-                }
-                // default: level — direct LevelId, else a level-ish param for hosted elements
-                var lid = el.LevelId;
-                if (lid != null && lid.Value != ElementId.InvalidElementId.Value)
-                    return doc.GetElement(lid)?.Name ?? "(no level)";
-                var lp = el.get_Parameter(BuiltInParameter.FAMILY_LEVEL_PARAM)
-                      ?? el.get_Parameter(BuiltInParameter.SCHEDULE_LEVEL_PARAM);
-                var lpId = lp?.AsElementId();
-                if (lpId != null && lpId.Value != ElementId.InvalidElementId.Value)
-                    return doc.GetElement(lpId)?.Name ?? "(no level)";
-                return "(no level)";
-            }
+            var dims = groupBy.Split(',').Select(d => d.Trim()).Where(d => d.Length > 0).ToArray();
+            if (dims.Length == 0) dims = new[] { "level" };
+
+            string KeyOf(Element el) => string.Join(" — ", dims.Select(d => CountByDimensionKey(doc, el, d)));
 
             var groups = els.GroupBy(KeyOf)
                 .Select(g => new Dictionary<string, object?> { ["group"] = g.Key, ["count"] = g.Count() })
@@ -1066,6 +1089,50 @@ namespace BinaVibe.Mcp.Tools
             };
         }
 
+        // One grouping dimension's key for a single element. Split out of
+        // CountBy so a compound group_by ("level,connectivity") can compose
+        // dimensions instead of needing a dedicated code path.
+        private static string CountByDimensionKey(Document doc, Element el, string dim)
+        {
+            if (dim == "type")
+            {
+                var t = el.GetTypeId();
+                return (t != null && t.Value != ElementId.InvalidElementId.Value
+                    ? doc.GetElement(t)?.Name : null) ?? "(no type)";
+            }
+            if (dim == "workset")
+            {
+                var wp = el.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
+                return wp?.AsValueString() ?? "(no workset)";
+            }
+            if (dim == "connectivity")
+            {
+                // Reuses MutatorsMepRouting's GetConnectorManager (made
+                // internal for this) instead of re-deriving the
+                // MEPCurve/FamilyInstance switch here.
+                var cm = MutatorsMepRouting.GetConnectorManager(el);
+                if (cm == null) return "(no connectors)";
+                bool sawAny = false, sawFree = false;
+                foreach (Connector c in cm.Connectors)
+                {
+                    sawAny = true;
+                    if (!c.IsConnected) { sawFree = true; break; }
+                }
+                if (!sawAny) return "(no connectors)";       // empty connector set — never mislabeled
+                return sawFree ? "Not Connected" : "Connected";
+            }
+            // default: level — direct LevelId, else a level-ish param for hosted elements
+            var lid = el.LevelId;
+            if (lid != null && lid.Value != ElementId.InvalidElementId.Value)
+                return doc.GetElement(lid)?.Name ?? "(no level)";
+            var lp = el.get_Parameter(BuiltInParameter.FAMILY_LEVEL_PARAM)
+                  ?? el.get_Parameter(BuiltInParameter.SCHEDULE_LEVEL_PARAM);
+            var lpId = lp?.AsElementId();
+            if (lpId != null && lpId.Value != ElementId.InvalidElementId.Value)
+                return doc.GetElement(lpId)?.Name ?? "(no level)";
+            return "(no level)";
+        }
+
         // ─── export_schedule_to_excel ───────────────────────────────────
         // Read a ViewSchedule's body cells and write a .xlsx on the Desktop.
         // Read-only on the document (no Transaction); only writes a file.
@@ -1075,23 +1142,13 @@ namespace BinaVibe.Mcp.Tools
             if (string.IsNullOrWhiteSpace(name))
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no schedule name given" };
 
-            var sched = new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
-                .Where(s => !s.IsTemplate)
-                .FirstOrDefault(s => s.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
+            // Same resolver and same cell reader as read_schedule — the export
+            // and what the agent sees must never drift apart.
+            var sched = Schedules.Resolve(doc, name);
             if (sched == null)
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"no schedule matching '{name}'" };
 
-            var body = sched.GetTableData().GetSectionData(SectionType.Body);
-            int nCols = body.NumberOfColumns, nRows = body.NumberOfRows;
-            var headers = new List<string>();
-            for (int c = 0; c < nCols; c++) headers.Add(sched.GetCellText(SectionType.Body, 0, c) ?? "");
-            var rows = new List<List<string>>();
-            for (int r = 1; r < nRows; r++)
-            {
-                var row = new List<string>();
-                for (int c = 0; c < nCols; c++) row.Add(sched.GetCellText(SectionType.Body, r, c) ?? "");
-                rows.Add(row);
-            }
+            var (headers, rows, _, _) = Schedules.ReadBody(sched, 0);   // 0 = no cap, export everything
 
             string fileName = SanitizeFileName(sched.Name) + ".xlsx";
             string dir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
@@ -2107,6 +2164,236 @@ namespace BinaVibe.Mcp.Tools
                     ["legends"] = excludedLegends,
                     ["sheets"] = excludedSheets,
                     ["templates"] = excludedTemplates,
+                    ["other"] = excludedOther,
+                },
+                ["counts"] = new Dictionary<string, object?>
+                {
+                    ["audited"] = auditedCount,
+                    ["violations"] = violations.Count,
+                },
+            };
+        }
+
+        // ─── audit_family_names ─────────────────────────────────────────
+        // The family/type-name twin of audit_view_names, and it exists for the
+        // same measured reason: an LLM reading list_family_types output judges
+        // plausibility, not the literal rule. Same contract — the caller ships
+        // ONE .NET regex, this tool wraps it as ^(?:pattern)$ unconditionally
+        // so full-name semantics are guaranteed HERE and never delegated back
+        // to the calling model, with a 2s timeout against catastrophic
+        // backtracking.
+        //
+        // This tool deliberately knows NOTHING about JKR codes. The pattern is
+        // composed server-side from the reference tables
+        // (app/services/jkr_family_naming.py build_family_name_regex), so
+        // growing those tables widens the audit without an addin rebuild.
+        //
+        // WHICH NAME carries the convention is a deterministic rule, never a
+        // judgment call:
+        //   - loadable family (FamilySymbol) -> the FAMILY name, ONE row per
+        //     family (not per type). include_type_names:true additionally
+        //     audits each symbol's type name.
+        //   - system family (WallType/FloorType/RoofType/... — any other
+        //     ElementType) -> the TYPE name, which is what actually carries
+        //     the JKR name (cf. jkrAR_wll-b_(bb02)-3 Batu Bata).
+        //   - in-place families -> reported separately as in_place_families,
+        //     NEVER counted as violations (same stance as other_model_views).
+        //
+        // Annotation-side families (tags, title blocks, profiles, detail
+        // items, generic annotations) are excluded entirely — Doc 03 gives
+        // them their own naming patterns — counts only, never rows.
+        public static Dictionary<string, object?> AuditFamilyNames(Document doc, JsonElement args)
+        {
+            var pattern = ArgsHelp.GetString(args, "pattern");
+            if (string.IsNullOrEmpty(pattern))
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = "pattern is required — a .NET regex; the tool matches it against the FULL family/type name (anchoring is applied by the tool)",
+                };
+
+            Regex regex;
+            try
+            {
+                // Full-name match is guaranteed HERE (unconditional ^(?:...)$
+                // wrap) — never rely on the caller to anchor.
+                regex = new Regex("^(?:" + pattern + ")$", RegexOptions.None, TimeSpan.FromSeconds(2));
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"invalid regex: {ex.Message}" };
+            }
+
+            var category = ArgsHelp.GetString(args, "category");
+            BuiltInCategory? bic = null;
+            if (!string.IsNullOrEmpty(category))
+            {
+                bic = CategoryResolve.Resolve(category);
+                if (!bic.HasValue)
+                    return new Dictionary<string, object?>
+                    {
+                        ["ok"] = false,
+                        ["error"] = $"unknown category '{category}' — pass a BuiltInCategory like OST_Doors or a friendly name like 'Doors'",
+                    };
+            }
+
+            var nameContains = ArgsHelp.GetString(args, "name_contains");
+            var includeTypeNames = ArgsHelp.GetBool(args, "include_type_names") ?? false;
+
+            // Annotation-side families carry their own conventions (Doc 03) —
+            // excluded before any matching so they can never score as
+            // violations.
+            var excludedCategories = new HashSet<int>
+            {
+                (int)BuiltInCategory.OST_TitleBlocks,
+                (int)BuiltInCategory.OST_ProfileFamilies,
+                (int)BuiltInCategory.OST_DetailComponents,
+                (int)BuiltInCategory.OST_GenericAnnotation,
+            };
+
+            var col = new FilteredElementCollector(doc).WhereElementIsElementType();
+            if (bic.HasValue)
+                col = col.OfCategory(bic.Value);
+
+            int excludedAnnotation = 0, excludedTitleblock = 0, excludedProfileDetail = 0, excludedOther = 0;
+            int auditedCount = 0;
+            var violations = new List<object>();
+            var compliant = new List<object>();
+            var inPlace = new List<object>();
+            var seenFamilies = new HashSet<long>();
+            var seenInPlace = new HashSet<long>();
+            const int CompliantCap = 200;
+            const int InPlaceCap = 50;
+            bool compliantCapped = false, inPlaceCapped = false;
+
+            // Local match helper — keeps the timeout contract in ONE place so
+            // no audited surface can silently skip it.
+            bool timedOut = false;
+            bool Matches(string name)
+            {
+                try { return regex.IsMatch(name); }
+                catch (RegexMatchTimeoutException) { timedOut = true; return false; }
+            }
+
+            void Audit(long id, string? name, string nameKind, string? categoryName, string? familyName)
+            {
+                if (string.IsNullOrEmpty(name)) return;
+                if (!string.IsNullOrEmpty(nameContains)
+                    && name!.IndexOf(nameContains, System.StringComparison.OrdinalIgnoreCase) < 0) return;
+
+                auditedCount++;
+                if (Matches(name!))
+                {
+                    if (compliant.Count < CompliantCap)
+                        compliant.Add(new Dictionary<string, object?>
+                        {
+                            ["id"] = id,
+                            ["name"] = name,
+                            ["name_kind"] = nameKind,
+                            ["category"] = categoryName,
+                        });
+                    else
+                        compliantCapped = true;
+                }
+                else
+                {
+                    violations.Add(new Dictionary<string, object?>
+                    {
+                        ["id"] = id,
+                        ["name"] = name,
+                        ["name_kind"] = nameKind,
+                        ["category"] = categoryName,
+                        ["family_name"] = familyName,
+                    });
+                }
+            }
+
+            foreach (var el in col)
+            {
+                var cat = el.Category;
+                if (cat == null) { excludedOther++; continue; }
+
+                // Specific buckets BEFORE the CategoryType sweep — title
+                // blocks and detail components are themselves Annotation, and
+                // folding them into one counter would hide what was skipped.
+                var catId = (int)cat.Id.Value;
+                if (catId == (int)BuiltInCategory.OST_TitleBlocks) { excludedTitleblock++; continue; }
+                if (excludedCategories.Contains(catId)) { excludedProfileDetail++; continue; }
+                if (cat.CategoryType == CategoryType.Annotation) { excludedAnnotation++; continue; }
+
+                var catName = cat.Name;
+
+                if (el is FamilySymbol fs)
+                {
+                    var fam = fs.Family;
+                    if (fam == null) { excludedOther++; continue; }
+
+                    if (fam.IsInPlace)
+                    {
+                        // Reported, never judged — an in-place family is not a
+                        // library family and the convention doesn't bind it.
+                        if (seenInPlace.Add(fam.Id.Value))
+                        {
+                            if (inPlace.Count < InPlaceCap)
+                                inPlace.Add(new Dictionary<string, object?>
+                                {
+                                    ["id"] = fam.Id.Value,
+                                    ["name"] = fam.Name,
+                                    ["category"] = catName,
+                                });
+                            else
+                                inPlaceCapped = true;
+                        }
+                        continue;
+                    }
+
+                    // ONE row per family — auditing the same family name once
+                    // per type would report the same violation N times.
+                    if (seenFamilies.Add(fam.Id.Value))
+                        Audit(fam.Id.Value, fam.Name, "family", catName, fam.Name);
+
+                    if (includeTypeNames)
+                        Audit(fs.Id.Value, fs.Name, "type", catName, fam.Name);
+                }
+                else
+                {
+                    // System family: the TYPE name carries the convention.
+                    Audit(el.Id.Value, el.Name, "type", catName, (el as ElementType)?.FamilyName);
+                }
+
+                if (timedOut) break;
+            }
+
+            if (timedOut)
+                // The 2s timeout fires at MATCH time, not construction — keep
+                // the tool's {ok:false, error} contract instead of returning a
+                // half-audited result that reads as complete.
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = "regex timed out — simplify the pattern",
+                };
+
+            var scope = new List<object> { "loadable family names" };
+            if (includeTypeNames) scope.Add("loadable family type names");
+            scope.Add("system family type names");
+            if (!string.IsNullOrEmpty(category)) scope.Add($"category={category}");
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["audited_scope"] = scope,
+                ["compliant_count"] = auditedCount - violations.Count,
+                ["compliant"] = compliant,
+                ["compliant_capped"] = compliantCapped,
+                ["violations"] = violations,
+                ["in_place_families"] = inPlace,
+                ["in_place_capped"] = inPlaceCapped,
+                ["excluded_counts"] = new Dictionary<string, object?>
+                {
+                    ["annotation"] = excludedAnnotation,
+                    ["titleblock"] = excludedTitleblock,
+                    ["profile_detail"] = excludedProfileDetail,
                     ["other"] = excludedOther,
                 },
                 ["counts"] = new Dictionary<string, object?>
