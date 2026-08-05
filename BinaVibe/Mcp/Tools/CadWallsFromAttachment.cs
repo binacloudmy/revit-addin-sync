@@ -27,6 +27,9 @@ namespace BinaVibe.Mcp.Tools
         {
             var doc = uidoc.Document;
 
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var timings = new Dictionary<string, long>();
+
             // 1. Get attachment path
             var dwgRef = ArgsHelp.GetString(args, "dwg_ref");
             if (string.IsNullOrEmpty(dwgRef))
@@ -38,6 +41,7 @@ namespace BinaVibe.Mcp.Tools
 
             // 2. Extract lines from ACadSharp
             var layerFilter = ArgsHelp.GetString(args, "layer_filter");
+            var extractStart = sw.ElapsedMilliseconds;
             var cadLines = CadFileReader.GetLinesForLayer(path, layerFilter);
             if (cadLines.Count == 0)
             {
@@ -66,6 +70,8 @@ namespace BinaVibe.Mcp.Tools
                     };
             }
 
+            timings["extract_ms"] = sw.ElapsedMilliseconds - extractStart;
+
             // 3. Convert to WallSeg (solver expects feet)
             var segsRaw = cadLines.Select(l => new WallSeg(
                 l.X1 / MmPerFoot, l.Y1 / MmPerFoot,
@@ -74,14 +80,17 @@ namespace BinaVibe.Mcp.Tools
             )).ToList();
 
             // 3b. Stitch collinear segments across door gaps + filter column pads
+            var stitchStart = sw.ElapsedMilliseconds;
             var stitchOpt = StitchOptions.FromMm(
                 maxGapMm: ArgsHelp.GetDouble(args, "max_stitch_gap_mm") ?? 1500,
                 collinearTolMm: ArgsHelp.GetDouble(args, "collinear_tol_mm") ?? 50,
                 maxColumnSizeMm: ArgsHelp.GetDouble(args, "max_column_size_mm") ?? 800);
             var stitched = CadSegmentStitcher.Stitch(segsRaw, stitchOpt);
             var segs = stitched.Segments;
+            timings["stitch_ms"] = sw.ElapsedMilliseconds - stitchStart;
 
             // 4. Solve centerlines
+            var solveStart = sw.ElapsedMilliseconds;
             var opt = SolveOptions.FromMm(
                 minThickMm: ArgsHelp.GetDouble(args, "min_thickness_mm") ?? 50,
                 maxThickMm: ArgsHelp.GetDouble(args, "max_thickness_mm") ?? 500,
@@ -92,6 +101,7 @@ namespace BinaVibe.Mcp.Tools
                 cornerReachMm: ArgsHelp.GetDouble(args, "corner_reach_mm") ?? 500);
 
             var solved = CadCenterlineSolver.Solve(segs, opt);
+            timings["solve_ms"] = sw.ElapsedMilliseconds - solveStart;
 
             // 5. Get level
             var levelName = ArgsHelp.GetString(args, "level");
@@ -157,6 +167,11 @@ namespace BinaVibe.Mcp.Tools
                     ["note"] = "Preview only. Use thickness_histogram to suggest thickness_to_type mapping. "
                         + "Pass create=true with thickness_to_type:[{min_mm, max_mm, type_name}] to build walls. "
                         + "To include single-line walls, pass include_unpaired=true with unpaired_type_name.",
+                    ["_diagnostics"] = new Dictionary<string, object?>
+                    {
+                        ["timings_ms"] = timings,
+                        ["total_ms"] = sw.ElapsedMilliseconds,
+                    },
                 };
 
                 // Add unpaired segment info if any
@@ -208,6 +223,7 @@ namespace BinaVibe.Mcp.Tools
             bool includeUnpaired = ArgsHelp.GetBool(args, "include_unpaired") == true;
             string? unpairedTypeName = ArgsHelp.GetString(args, "unpaired_type_name");
 
+            var createStart = sw.ElapsedMilliseconds;
             using var tx = new Transaction(doc, "BinaVibe: cad_walls_from_attachment");
             TxGuard.StartSwallowing(tx);
             try
@@ -292,6 +308,14 @@ namespace BinaVibe.Mcp.Tools
                 ["note"] = unpairedCreated > 0
                     ? $"walls created from attachment — {unpairedCreated} single-line walls included."
                     : "walls created from attachment — no Revit link needed.",
+                ["_diagnostics"] = new Dictionary<string, object?>
+                {
+                    ["timings_ms"] = new Dictionary<string, long>(timings)
+                    {
+                        ["create_ms"] = sw.ElapsedMilliseconds - createStart,
+                    },
+                    ["total_ms"] = sw.ElapsedMilliseconds,
+                },
             };
         }
 
