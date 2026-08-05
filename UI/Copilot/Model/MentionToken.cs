@@ -11,8 +11,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     {
         // Longest query the picker keeps filtering on. Item names are short
         // ("Current selection · 12 elements" ≈ 31 chars); past this the user is
-        // writing prose, and every keystroke would otherwise re-query the
-        // Revit-backed provider for the rest of the message.
+        // writing prose, not narrowing a mention, so the picker dismisses.
         private const int MaxQueryLength = 40;
 
         /// <summary>

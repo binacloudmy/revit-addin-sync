@@ -10,9 +10,11 @@ using RevitWebAppSync.UI.Copilot.Model;
 namespace RevitWebAppSync.UI.Copilot.Controls
 {
     /// <summary>
-    /// Prompt editor with an @-mention picker. Typing "@" opens a grouped, filterable popup
-    /// (Levels / Categories / Views / Current selection). Picking inserts "@Value " into the
-    /// text. Enter (picker closed) submits; mentions are parsed from the final text.
+    /// Prompt editor with an @-mention picker. Typing "@" opens a Project-Browser-style
+    /// tree popup (Levels / Views by type / Sheets / Families as Category → Family → Type):
+    /// top-level groups start collapsed so big models don't flood the list; typing filters
+    /// the whole tree and auto-expands the matching branches. Picking inserts "@Value "
+    /// into the text. Enter (picker closed) submits; mentions are parsed from the final text.
     /// </summary>
     public partial class MentionInput : UserControl
     {
@@ -42,6 +44,15 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         private int _atIndex = -1;
         private int _slashIndex = -1;
+
+        // Mention tree, fetched once per picker-open and reused across keystrokes
+        // (filtering is in-memory; no Revit collector per key). Dropped on close.
+        private List<MentionNode> _tree;
+        // Manual chevron state, keyed by node path. Auto-expand (query matches)
+        // is recomputed per keystroke; _collapsedPaths lets the user re-collapse
+        // an auto-expanded branch without the next rebuild reopening it.
+        private readonly HashSet<string> _expandedPaths = new HashSet<string>();
+        private readonly HashSet<string> _collapsedPaths = new HashSet<string>();
 
         // The "/" command palette is hosted OUTSIDE this control (as an in-panel
         // overlay in ChatView) so it can't float past the pane edges like a Popup.
@@ -208,13 +219,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             ToolPicked?.Invoke(tool);
         }
 
-        // Design popover (lines 502-512): ONE "REFERENCE" caps header, then flat
-        // rows — sunken @-tile, label, right-aligned type — no per-group headers.
+        // Design popover (lines 502-512): ONE "REFERENCE" caps header, then a
+        // Project-Browser-style tree — group rows collapse/expand via chevron,
+        // pickable rows keep the sunken @-tile, label, right-aligned type.
         private void BuildPicker(string query)
         {
             PickerHost.Children.Clear();
-            var groups = Provider?.GetGroups() ?? new List<MentionGroup>();
-            bool any = false;
+            if (_tree == null) _tree = Provider?.GetTree() ?? new List<MentionNode>();
+
+            var autoExpand = new HashSet<string>();
+            var visible = Model.MentionTree.Filter(_tree, query, autoExpand);
 
             PickerHost.Children.Add(new TextBlock
             {
@@ -222,40 +236,103 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Foreground = CopilotColors.From("#99a3b3"), Margin = new Thickness(8, 5, 8, 6),
             });
 
-            foreach (var g in groups)
+            foreach (var n in visible) AddNodeRows(n, "", 0, autoExpand);
+            Picker.IsOpen = visible.Count > 0;
+        }
+
+        private void AddNodeRows(MentionNode node, string parentPath, int depth, ISet<string> autoExpand)
+        {
+            string path = Model.MentionTree.PathOf(parentPath, node);
+            bool expandable = node.Children.Count > 0;
+            bool expanded = expandable && !_collapsedPaths.Contains(path)
+                            && (_expandedPaths.Contains(path) || autoExpand.Contains(path));
+            PickerHost.Children.Add(NodeRow(node, path, depth, expandable, expanded));
+            if (!expanded) return;
+            foreach (var child in node.Children) AddNodeRows(child, path, depth + 1, autoExpand);
+        }
+
+        private Button NodeRow(MentionNode node, string path, int depth, bool expandable, bool expanded)
+        {
+            var row = new Button
             {
-                var matches = g.Items.Where(it => Model.MentionToken.Matches(it, query)).ToList();
-                if (matches.Count == 0) continue;
-                any = true;
+                Cursor = Cursors.Hand, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Padding = new Thickness(9, 8, 9, 8), Tag = node,
+                Margin = new Thickness(depth * 14, 0, 0, 0),
+            };
+            row.Template = RowTemplate();
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });   // chevron
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });   // @-tile
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });   // kind / count
 
-                // Singular type label ("Levels" → "Level") like the design rows.
-                var typeLabel = g.Label.EndsWith("s") ? g.Label.Substring(0, g.Label.Length - 1) : g.Label;
+            var chevron = new Border { Width = 16, Height = 22, Background = Brushes.Transparent, VerticalAlignment = VerticalAlignment.Center };
+            if (expandable)
+            {
+                chevron.Child = new TextBlock { Text = expanded ? "▾" : "▸", FontSize = 10, Foreground = CopilotColors.From("#99a3b3"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                chevron.MouseLeftButtonDown += (_, e) => { e.Handled = true; TogglePath(path, expanded); };
+            }
+            grid.Children.Add(chevron);
 
-                foreach (var item in matches)
-                {
-                    var row = new Button { Cursor = Cursors.Hand, HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(9, 8, 9, 8) };
-                    row.Template = RowTemplate();
-                    var grid = new Grid();
-                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                    grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                    var tile = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = CopilotColors.From("#f3f6f9"), Margin = new Thickness(0, 0, 9, 0), VerticalAlignment = VerticalAlignment.Center };
-                    tile.Child = new TextBlock { Text = "@", FontSize = 12, FontWeight = FontWeights.Bold, Foreground = CopilotColors.From("#1d4ed8"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-                    grid.Children.Add(tile);
-                    var name = new TextBlock { Text = item, FontSize = 12.5, FontWeight = FontWeights.Medium, Foreground = CopilotColors.From("#131c2b"), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
-                    Grid.SetColumn(name, 1);
-                    grid.Children.Add(name);
-                    var kind = new TextBlock { Text = typeLabel, FontSize = 10, Foreground = CopilotColors.From("#99a3b3"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
-                    Grid.SetColumn(kind, 2);
-                    grid.Children.Add(kind);
-                    row.Content = grid;
-                    var picked = item;
-                    row.Click += (_, __) => InsertMention(picked);
-                    PickerHost.Children.Add(row);
-                }
+            if (node.Pickable)
+            {
+                var tile = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(6), Background = CopilotColors.From("#f3f6f9"), Margin = new Thickness(0, 0, 9, 0), VerticalAlignment = VerticalAlignment.Center };
+                tile.Child = new TextBlock { Text = "@", FontSize = 12, FontWeight = FontWeights.Bold, Foreground = CopilotColors.From("#1d4ed8"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+                Grid.SetColumn(tile, 1);
+                grid.Children.Add(tile);
             }
 
-            Picker.IsOpen = any;
+            var name = new TextBlock
+            {
+                Text = node.Name, FontSize = 12.5,
+                FontWeight = node.Pickable ? FontWeights.Medium : FontWeights.SemiBold,
+                Foreground = CopilotColors.From(node.Pickable ? "#131c2b" : "#99a3b3"),
+                VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+            };
+            Grid.SetColumn(name, 2);
+            grid.Children.Add(name);
+
+            var right = new TextBlock
+            {
+                // Group headers show child count; pickable rows show the kind.
+                Text = expandable && !node.Pickable ? node.Children.Count.ToString() : KindLabel(node.Kind),
+                FontSize = 10, Foreground = CopilotColors.From("#99a3b3"),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0),
+            };
+            Grid.SetColumn(right, 3);
+            grid.Children.Add(right);
+
+            row.Content = grid;
+            row.Click += (_, __) =>
+            {
+                if (node.Pickable) InsertMention(node.Name);
+                else TogglePath(path, expanded);
+            };
+            return row;
+        }
+
+        private static string KindLabel(string kind)
+        {
+            switch (kind)
+            {
+                case "level": return "Level";
+                case "category": return "Category";
+                case "family": return "Family";
+                case "type": return "Type";
+                case "view": return "View";
+                case "sheet": return "Sheet";
+                case "selection": return "Selection";
+                default: return "";
+            }
+        }
+
+        private void TogglePath(string path, bool expanded)
+        {
+            if (expanded) { _expandedPaths.Remove(path); _collapsedPaths.Add(path); }
+            else { _collapsedPaths.Remove(path); _expandedPaths.Add(path); }
+            int at = Model.MentionToken.Find(Editor.Text ?? "", Editor.CaretIndex, out string query);
+            if (at >= 0) BuildPicker(query); else ClosePicker();
+            Editor.Focus();
         }
 
         private void InsertMention(string item)
@@ -277,6 +354,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private void ClosePicker()
         {
             _atIndex = -1;
+            _tree = null;
+            _expandedPaths.Clear();
+            _collapsedPaths.Clear();
             if (Picker != null) Picker.IsOpen = false;
         }
 
@@ -326,8 +406,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (e.Key == Key.Escape) { ClosePicker(); e.Handled = true; return; }
                 if (e.Key == Key.Enter || e.Key == Key.Tab)
                 {
-                    // Pick the first item row in the popup.
-                    var first = PickerHost.Children.OfType<Button>().FirstOrDefault();
+                    // Pick the first PICKABLE row (group headers just expand).
+                    var first = PickerHost.Children.OfType<Button>()
+                        .FirstOrDefault(b => (b.Tag as MentionNode)?.Pickable == true);
                     if (first != null)
                     {
                         first.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent));
@@ -363,11 +444,14 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private List<Mention> ParseMentions(string text)
         {
             var result = new List<Mention>();
-            var groups = Provider?.GetGroups() ?? new List<MentionGroup>();
-            foreach (var g in groups)
-                foreach (var item in g.Items)
-                    if (text.IndexOf("@" + item, StringComparison.OrdinalIgnoreCase) >= 0)
-                        result.Add(new Mention(g.Id, item));
+            // Picker may already be closed at submit time (user typed past the
+            // mention), so fall back to a fresh tree fetch.
+            var tree = _tree ?? Provider?.GetTree() ?? new List<MentionNode>();
+            var seen = new HashSet<string>();
+            foreach (var n in Model.MentionTree.Flatten(tree))
+                if (text.IndexOf("@" + n.Name, StringComparison.OrdinalIgnoreCase) >= 0
+                    && seen.Add(n.Kind + ":" + n.Name))
+                    result.Add(new Mention(n.Kind, n.Name));
             return result;
         }
 

@@ -869,13 +869,64 @@ namespace RevitWebAppSync.UI.Copilot
         /// <summary>Slash command sent from the composer (P2). Routes the picked
         /// command to the backend via `command_id` — the definition's instructions
         /// and tool allowlist are injected server-side — and renders the user turn
-        /// as a command chip plus any typed args. This is the real run, not a stub.</summary>
+        /// as a command chip plus any typed args. Local tools (open-view) never
+        /// leave the addin: they reuse the Tier-1 vetted executor snippet.</summary>
         public void ChatSendSlashCommand(SlashTool tool, string args)
         {
             if (tool == null) return;
+            if (tool.Local) { RunLocalSlash(tool, (args ?? "").Trim()); return; }
             // ChatSend does the routing; the chip rides the user bubble and the
             // backend command id is handed to the router just before RouteAsync.
             ChatSend((args ?? "").Trim(), slashChip: tool);
+        }
+
+        private void RunLocalSlash(SlashTool tool, string args)
+        {
+            Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = args, SlashCommand = tool, Time = System.DateTime.Now.ToString("h:mm tt") });
+
+            if (tool.Id != "open-view") return;   // only local tool today
+
+            if (string.IsNullOrEmpty(args))
+            {
+                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = "Name a view to open — e.g. `/open-view Aras 01 WIP`. Type `@` to pick one." });
+                return;
+            }
+
+            var def = CopilotCatalog.Vetted.FirstOrDefault(t => t.Id == "open-view");
+            if (def == null || Executor == null)
+            {
+                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, Text = "No Revit context — open a document first." });
+                return;
+            }
+
+            var values = new Dictionary<string, object> { ["view"] = args };
+            Executor.Run(def, values, null, outcome =>
+            {
+                // Same thread contract as the chat codegen Done callback — the
+                // executor completes on the UI thread via its ExternalEvent.
+                string text = LocalSlashReply(outcome);
+                Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.AiReply, ToolId = tool.Id, Text = text });
+                AppendToCurrentSession("/open-view " + args, text, outcome != null && outcome.Success ? "ok" : "warn", new List<string> { tool.Id });
+            });
+        }
+
+        // The snippet's SetResult lands in outcome.Data as {"kind":"plain","headline":…,"sub":…};
+        // outcome.Message is usually empty on success, so the headline is the reply.
+        private static string LocalSlashReply(ExecOutcome outcome)
+        {
+            if (outcome == null || !outcome.Success)
+                return "Couldn't open that view" + (string.IsNullOrEmpty(outcome?.Error) ? "." : ": " + outcome.Error);
+            if (!string.IsNullOrEmpty(outcome.Data))
+            {
+                try
+                {
+                    var d = Newtonsoft.Json.Linq.JObject.Parse(outcome.Data);
+                    var headline = d["headline"]?.ToString();
+                    if (!string.IsNullOrEmpty(headline)) return headline;
+                }
+                catch { /* fall through to Message */ }
+            }
+            return string.IsNullOrEmpty(outcome.Message) ? "Opened." : outcome.Message;
         }
 
         /// <summary>Prompt string sent to the backend — see RouteText.Build for

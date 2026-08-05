@@ -98,15 +98,35 @@ namespace BinaVibe.Mcp.Tools
                     || (fn != null && fn.IndexOf(nameContains, System.StringComparison.OrdinalIgnoreCase) >= 0);
             }
 
+            // Doors/windows carry the sizes a fit-check needs. Emitting them here makes
+            // "which type fits this 900x2100 opening" ONE call; otherwise the agent pays a
+            // get_type_parameters round trip per candidate. Rough openings are what a hole
+            // is actually cut to, so they ride along when the family exposes them.
+            bool sized = bic.Value == BuiltInCategory.OST_Doors
+                      || bic.Value == BuiltInCategory.OST_Windows;
+
             var types = q
                 .Where(NameHit)
                 .Take(500)
-                .Select(t => new Dictionary<string, object?>
+                .Select(t =>
                 {
-                    ["id"] = t.Id.Value,
-                    ["name"] = t.Name,
-                    ["family_name"] = (t as ElementType)?.FamilyName,
-                    ["instances"] = counts.TryGetValue(t.Id.Value, out var c) ? c : 0,
+                    var row = new Dictionary<string, object?>
+                    {
+                        ["id"] = t.Id.Value,
+                        ["name"] = t.Name,
+                        ["family_name"] = (t as ElementType)?.FamilyName,
+                        ["instances"] = counts.TryGetValue(t.Id.Value, out var c) ? c : 0,
+                    };
+                    if (sized)
+                    {
+                        // Omit rather than emit nulls — a 500-type payload should not carry
+                        // four dead keys per row.
+                        AddIfSome(row, "width_mm", TypeLengthMm(t, "Width"));
+                        AddIfSome(row, "height_mm", TypeLengthMm(t, "Height"));
+                        AddIfSome(row, "rough_width_mm", TypeLengthMm(t, "Rough Width"));
+                        AddIfSome(row, "rough_height_mm", TypeLengthMm(t, "Rough Height"));
+                    }
+                    return row;
                 })
                 .ToList<object>();
             return new Dictionary<string, object?>
@@ -872,6 +892,27 @@ namespace BinaVibe.Mcp.Tools
             return d;
         }
 
+        /// <summary>A length parameter off an element, in mm — or null when the family
+        /// doesn't carry it. Length params are Revit-internal feet; 304.8 matches the
+        /// factor ParamUnits.MetricTwin uses so every tool agrees.</summary>
+        internal static double? TypeLengthMm(Element el, string name)
+        {
+            try
+            {
+                var p = el.LookupParameter(name);
+                if (p == null || p.StorageType != StorageType.Double || !p.HasValue) return null;
+                return System.Math.Round(p.AsDouble() * 304.8, 1);
+            }
+            catch { return null; }
+        }
+
+        /// <summary>Set a key only when the value is present, so optional dimensions don't
+        /// pad every row with nulls.</summary>
+        internal static void AddIfSome(Dictionary<string, object?> d, string key, double? v)
+        {
+            if (v.HasValue) d[key] = v.Value;
+        }
+
         private static bool PredicateMatches(Element el, Document doc, string? predicate)
         {
             if (string.IsNullOrWhiteSpace(predicate)) return true;
@@ -1075,23 +1116,13 @@ namespace BinaVibe.Mcp.Tools
             if (string.IsNullOrWhiteSpace(name))
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no schedule name given" };
 
-            var sched = new FilteredElementCollector(doc).OfClass(typeof(ViewSchedule)).Cast<ViewSchedule>()
-                .Where(s => !s.IsTemplate)
-                .FirstOrDefault(s => s.Name.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0);
+            // Same resolver and same cell reader as read_schedule — the export
+            // and what the agent sees must never drift apart.
+            var sched = Schedules.Resolve(doc, name);
             if (sched == null)
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"no schedule matching '{name}'" };
 
-            var body = sched.GetTableData().GetSectionData(SectionType.Body);
-            int nCols = body.NumberOfColumns, nRows = body.NumberOfRows;
-            var headers = new List<string>();
-            for (int c = 0; c < nCols; c++) headers.Add(sched.GetCellText(SectionType.Body, 0, c) ?? "");
-            var rows = new List<List<string>>();
-            for (int r = 1; r < nRows; r++)
-            {
-                var row = new List<string>();
-                for (int c = 0; c < nCols; c++) row.Add(sched.GetCellText(SectionType.Body, r, c) ?? "");
-                rows.Add(row);
-            }
+            var (headers, rows, _, _) = Schedules.ReadBody(sched, 0);   // 0 = no cap, export everything
 
             string fileName = SanitizeFileName(sched.Name) + ".xlsx";
             string dir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
