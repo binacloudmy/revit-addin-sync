@@ -277,6 +277,35 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
                 NotesHost.Children.Add(Disclaimer(soa.Notes));
         }
 
+        /// <summary>"7.2 × 9.0 m" for an SOA key, read off the drawn scheme so it is
+        /// the rectangle actually placed. Null when the scheme has no room of that
+        /// type (the SOA and the layout can legitimately differ — the padang is in
+        /// the schedule and is never built).
+        ///
+        /// SOA keys and room types differ by design: the schedule is named for the
+        /// PROGRAM ("bilik_darjah") and the layout for the DRAWN type ("kelas").</summary>
+        private string DimensionsFor(string soaKey)
+        {
+            var scheme = Vm?.SelectedScheme;
+            if (scheme?.Rooms == null || string.IsNullOrWhiteSpace(soaKey)) return null;
+
+            string type;
+            switch (soaKey.ToLowerInvariant())
+            {
+                case "bilik_darjah": type = "kelas"; break;
+                case "bilik_sokongan": type = "sokongan"; break;
+                case "tandas": type = "tandas"; break;
+                case "perhimpunan": type = "perhimpunan"; break;
+                case "kantin": type = "kantin"; break;
+                case "padang": type = "padang"; break;
+                default: type = soaKey; break;
+            }
+
+            var room = scheme.Rooms.FirstOrDefault(
+                r => r != null && string.Equals(r.Type, type, StringComparison.OrdinalIgnoreCase));
+            return room == null ? null : $"{room.W:N1} × {room.H:N1} m";
+        }
+
         private FrameworkElement SoaRow(SoaItem item)
         {
             var outer = new StackPanel { Margin = new Thickness(2, 0, 2, 10) };
@@ -297,9 +326,15 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
             // count × unit area, and which storey(s) it occupies. Uses LevelLabel so a
             // space spanning storeys reads "Tingkat 1–2" rather than dropping the
             // level entirely (the single `level` field is null for spanning spaces).
+            // Dimensions, not just an area. "64.8 m²" tells a drafter the size;
+            // "7.2 × 9.0 m" tells them the SHAPE, which is what they actually need
+            // to judge whether a bay works. Taken from the drawn scheme, so it is
+            // the real rectangle rather than a nominal figure.
+            var dims = DimensionsFor(item.Key);
             var sub = item.Count > 0
                 ? $"{item.Count} × {item.UnitAreaM2:N1} m²"
                 : $"{item.UnitAreaM2:N1} m²";
+            if (dims != null) sub += $"  ({dims})";
             var lvl = item.LevelLabel;
             if (!string.IsNullOrEmpty(lvl)) sub += " · " + lvl;
             outer.Children.Add(new TextBlock
@@ -453,9 +488,28 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
                 return;
             }
 
+            // A warning carried by EVERY scheme is a property of the generator, not
+            // of any one candidate — the circulation notice was printing verbatim on
+            // all three cards, which is a third of the screen saying one thing three
+            // times. Hoist those above the list and show each card only what is
+            // actually particular to it.
+            _sharedWarnings = schemes.Count > 1
+                ? new HashSet<string>(
+                    schemes[0].Warnings ?? new List<string>(), StringComparer.Ordinal)
+                : new HashSet<string>(StringComparer.Ordinal);
+            foreach (var scheme in schemes.Skip(1))
+                _sharedWarnings.IntersectWith(scheme.Warnings ?? new List<string>());
+
+            foreach (var shared in _sharedWarnings)
+                SchemesHost.Children.Add(WarningLine(shared, allSchemes: true));
+
             foreach (var scheme in schemes)
                 SchemesHost.Children.Add(SchemeCard(scheme, ReferenceEquals(scheme, vm.SelectedScheme)));
         }
+
+        /// <summary>Warnings every scheme shares — rendered once above the list
+        /// instead of repeated on each card. Rebuilt on every RenderSchemes.</summary>
+        private HashSet<string> _sharedWarnings = new HashSet<string>(StringComparer.Ordinal);
 
         private FrameworkElement SchemeCard(MassingScheme scheme, bool selected)
         {
@@ -548,7 +602,8 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
                 });
 
             foreach (var warning in scheme.Warnings ?? new List<string>())
-                body.Children.Add(WarningLine(warning));
+                if (!_sharedWarnings.Contains(warning))       // hoisted above the list
+                    body.Children.Add(WarningLine(warning));
 
             // Expanded per-storey detail (chevron). Collapsed by default so three
             // cards stay scannable.
@@ -792,9 +847,17 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
             };
         }
 
-        private FrameworkElement WarningLine(string message)
+        /// <summary><paramref name="allSchemes"/> marks a warning hoisted above the
+        /// list because every candidate carries it — it is prefixed so the reader
+        /// knows it is not about the card underneath it.</summary>
+        private FrameworkElement WarningLine(string message, bool allSchemes = false)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 5, 0, 0) };
+            if (allSchemes) message = "All schemes: " + message;
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 0, 0, allSchemes ? 10 : 0),
+            };
             row.Children.Add(new Path
             {
                 Width = 11, Height = 11, Stretch = Stretch.Uniform,
