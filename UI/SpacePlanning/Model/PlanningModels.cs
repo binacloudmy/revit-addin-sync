@@ -76,6 +76,13 @@ namespace RevitWebAppSync.UI.SpacePlanning.Model
         /// 3.6 m, masses built at 4.0 m).</summary>
         [JsonProperty("floor_height_m")] public double? FloorHeightM { get; set; }
 
+        /// <summary>Notes true of EVERY candidate — properties of the generator, not
+        /// of any one scheme. Shown once above the list. The circulation advisory used
+        /// to be a per-scheme warning and repeated verbatim on all six cards; the
+        /// client could not de-duplicate it either, because each scheme's percentage
+        /// differs just enough that the strings never matched.</summary>
+        [JsonProperty("advisories")] public List<string> Advisories { get; set; } = new List<string>();
+
         /// <summary>"sekolah_rendah" → "Sekolah rendah" for display.</summary>
         public string BuildingTypeLabel
         {

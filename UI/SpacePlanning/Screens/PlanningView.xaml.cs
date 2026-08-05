@@ -513,6 +513,11 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
 
             SchemesLabel.Visibility = Visibility.Visible;
 
+            // Backend-raised advisories first: these are stated once for the whole
+            // set and already carry their own range ("10%-13% across these schemes").
+            foreach (var advisory in vm?.Planning?.Advisories ?? new List<string>())
+                SchemesHost.Children.Add(WarningLine(advisory));
+
             foreach (var shared in _sharedWarnings)
                 SchemesHost.Children.Add(WarningLine(shared, allSchemes: true));
 
