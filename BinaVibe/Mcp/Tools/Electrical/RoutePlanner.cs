@@ -220,9 +220,30 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             // Chain order: same nearest-neighbor walk the circuiting proposal
             // used, so review and route agree.
-            var panelMm = new Pt3Mm(panelLoc.Point.X * MmPerFoot,
-                                    panelLoc.Point.Y * MmPerFoot,
-                                    panelLoc.Point.Z * MmPerFoot);
+            // The panel's electrical CONNECTOR, falling back to its origin.
+            // SetCircuitPath refuses a path whose first node is the panel
+            // INSTANCE ORIGIN ("should be the position of the connector ...
+            // but not the origin of the panel instance"), so a route built off
+            // the origin can never set a circuit path — which is why every
+            // routed circuit still reported its straight-line length.
+            var panelMm = PanelStartPoint(sys, panel, panelLoc, out var panelStartSource);
+            // A board serving several circuits offers several physical
+            // connectors and nothing ties one to this circuit — so say the pick
+            // is a guess rather than let a wrong home-run pass as fact.
+            var panelPick = PanelConnectors.ForCircuit(sys, panel);
+            if (panelPick.Ambiguous)
+                route.Notes.Add(
+                    "panel " + panel.Id.Value + " has " + panelPick.PhysicalCount +
+                    " physical electrical connectors and BaseEquipmentConnector is logical, " +
+                    "so nothing identifies which one belongs to this circuit — the first was " +
+                    "used for both the home-run wire and the circuit path start. Verify the " +
+                    "home run lands on the right breaker");
+            if (panelStartSource == "instance_origin")
+                route.Notes.Add(
+                    "panel start fell back to the instance ORIGIN — no circuit or electrical " +
+                    "connector could be read on panel " + panel.Id.Value + ". SetCircuitPath " +
+                    "refuses a path that starts at the origin, so circuit_path_set will be false " +
+                    "and voltage drop will keep using the straight-line length");
             var chain = CircuitGrouping.ChainOrder(devices, panelMm.X, panelMm.Y);
             route.DeviceIds = chain.Select(d => d.Id).ToList();
 
@@ -233,52 +254,66 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 probe = (a, b) => CorridorCheck.ScanSegment(
                     doc, a, b, clearanceMm, cats, includeLinks, maxHitsPerLeg).Rows.Count == 0;
 
-            // ── hops: panel -> dev0 -> dev1 -> ... ────────────────────────
-            var from = panelMm;
-            foreach (var dev in chain)
-            {
-                var to = new Pt3Mm(dev.XMm, dev.YMm, dev.ZMm);
-                var path = strategy.Plan(new RouteRequest
+            // ── trunk + one drop per device ───────────────────────────────
+            // The topology lives in RouteAssembly (Revit-free, unit-tested):
+            // rise once at the panel, run at routing elevation through each
+            // device's XY, drop once onto each device. The strategy is asked
+            // only for the HORIZONTAL travel between two points already at
+            // routing elevation, which is why its own rise/drop never fires.
+            var assembled = RouteAssembly.Build(
+                panelMm, routeZMm,
+                chain.Select(d => (d.Id, new Pt3Mm(d.XMm, d.YMm, d.ZMm))).ToList(),
+                (a, b, preferAxis) =>
                 {
-                    Start = from, End = to, RoutingElevationMm = routeZMm, IsClear = probe,
+                    var path = strategy.Plan(new RouteRequest
+                    {
+                        Start = a, End = b, RoutingElevationMm = routeZMm, IsClear = probe,
+                        PreferFirstAxis = preferAxis,
+                    });
+                    route.Notes.AddRange(path.Notes);
+                    return path.Ok ? path.Vertices : new List<Pt3Mm>();
                 });
-                route.Notes.AddRange(path.Notes);
-                if (!path.Ok || path.Vertices.Count < 2)
+            route.Notes.AddRange(assembled.Notes);
+
+            // The builder owns the chain position. A device whose runs
+            // collapsed to nothing must advance it WITHOUT emitting a wire, or
+            // every later wire connects the wrong pair of devices — silently,
+            // because Wire.Create tolerates mismatched connectors.
+            var hops = new RouteHopBuilder();
+            foreach (var leg in assembled.Legs)
+            {
+                var a = leg.A;
+                var b = leg.B;
+                var rl = new RouteLeg
                 {
-                    from = to;
-                    continue;   // coincident points — nothing to build for this hop
+                    FromXMm = a.X, FromYMm = a.Y, FromZMm = a.Z,
+                    ToXMm = b.X, ToYMm = b.Y, ToZMm = b.Z,
+                    LengthMm = Dist(a, b),
+                    Kind = leg.Kind,
+                    DropsToDeviceId = leg.DropsToDeviceId,
+                };
+
+                if (rl.Kind == "run")
+                {
+                    var scan = CorridorCheck.ScanSegment(doc, a, b, clearanceMm, cats,
+                                                         includeLinks, maxHitsPerLeg);
+                    rl.Obstructions = scan.Rows;
+                    if (scan.Truncated) anyTruncated = true;
+                    foreach (var lu in scan.LinksUnloaded) linksUnloaded.Add(lu);
+                    if (scan.Rows.Count > 0) route.ObstructedLegCount++;
                 }
 
-                route.HopStartLegIndex.Add(route.Legs.Count);
-                for (int i = 1; i < path.Vertices.Count; i++)
-                {
-                    var a = path.Vertices[i - 1];
-                    var b = path.Vertices[i];
-                    var leg = new RouteLeg
-                    {
-                        FromXMm = a.X, FromYMm = a.Y, FromZMm = a.Z,
-                        ToXMm = b.X, ToYMm = b.Y, ToZMm = b.Z,
-                        LengthMm = Dist(a, b),
-                        Kind = Math.Abs(a.Z - b.Z) > 0.5
-                            ? (b.Z > a.Z ? "rise" : "drop")
-                            : "run",
-                    };
-
-                    if (leg.Kind == "run")
-                    {
-                        var scan = CorridorCheck.ScanSegment(doc, a, b, clearanceMm, cats,
-                                                             includeLinks, maxHitsPerLeg);
-                        leg.Obstructions = scan.Rows;
-                        if (scan.Truncated) anyTruncated = true;
-                        foreach (var lu in scan.LinksUnloaded) linksUnloaded.Add(lu);
-                        if (scan.Rows.Count > 0) route.ObstructedLegCount++;
-                    }
-
-                    route.TotalLengthMm += leg.LengthMm;
-                    route.Legs.Add(leg);
-                }
-                from = to;
+                route.TotalLengthMm += rl.LengthMm;
+                route.Legs.Add(rl);
             }
+            foreach (var (deviceId, startLeg, endLeg) in assembled.HopRanges)
+            {
+                if (endLeg < startLeg) hops.SkipHop(deviceId);
+                else hops.AddHop(deviceId, startLeg, endLeg);
+            }
+            route.Hops = hops.Hops;
+            route.PathVerticesMm = assembled.PathVertices;
+            route.PathVerticesFlatMm = assembled.PathVerticesFlat;
 
             if (route.Legs.Count == 0) { skipReason = "no_legs_generated"; return null; }
 
@@ -405,6 +440,42 @@ namespace BinaVibe.Mcp.Tools.Electrical
         {
             double dx = a.X - b.X, dy = a.Y - b.Y, dz = a.Z - b.Z;
             return Math.Sqrt(dx * dx + dy * dy + dz * dz);
+        }
+
+        /// <summary>Where the route leaves the panel: its electrical connector,
+        /// or the instance origin when the family exposes none.
+        ///
+        /// SetCircuitPath is explicit that the first node "should be the
+        /// position of the connector (the one connects to the circuit) of the
+        /// panel, but not the origin of the panel instance" — a path built off
+        /// the origin is rejected as invalid, which is half of why no routed
+        /// circuit has ever carried its routed length.</summary>
+        private static Pt3Mm PanelStartPoint(ElectricalSystem sys, FamilyInstance panel,
+                                             LocationPoint panelLoc, out string source)
+        {
+            // ONE picker, shared with the home-run wire in RouteCommit. Picking
+            // separately let the path start at one connector while the wire
+            // attached to another — Revit accepts both silently, so the model
+            // goes wrong with no error to read.
+            var pick = PanelConnectors.ForCircuit(sys, panel);
+            if (pick.Connector != null)
+            {
+                try
+                {
+                    var o = pick.Connector.Origin;
+                    source = pick.Source;
+                    return new Pt3Mm(o.X * MmPerFoot, o.Y * MmPerFoot, o.Z * MmPerFoot);
+                }
+                catch { /* fall through to the origin */ }
+            }
+
+            // Reported, never silent: a path from here is rejected outright,
+            // and "circuit_path_set: false" with no reason is what sent the
+            // last run guessing at panel connector resolution.
+            source = "instance_origin";
+            return new Pt3Mm(panelLoc.Point.X * MmPerFoot,
+                             panelLoc.Point.Y * MmPerFoot,
+                             panelLoc.Point.Z * MmPerFoot);
         }
     }
 }

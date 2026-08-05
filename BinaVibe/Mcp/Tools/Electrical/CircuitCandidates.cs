@@ -17,7 +17,20 @@
 // NO PANEL IS EVER FABRICATED. A model without a usable panel returns
 // ok:true with a structured blocker — deliberately NOT ok:false, because a
 // missing distribution board is a drafter task, not a tool misuse the agent
-// should self-heal around.
+// should self-heal around. "Every candidate was skipped" is the same class of
+// answer and returns the same shape (see NothingToGroup); it used to be
+// ok:false, which is what turned "all 10 sockets are already circuited" into
+// a retry loop in UAT 2026-08-04.
+//
+// NO include_circuited / replace_existing ARG, deliberately. This tool is
+// INSPECT and shows no Ya/Tidak card, so a plan that quietly carried a
+// disconnect would reach the model behind a confirmation whose text says
+// "create circuits" — and CircuitCommit would drop those devices as
+// already_circuited_since_plan anyway unless it too gained destructive power.
+// Freeing devices is remove_from_circuit's job, behind its own gate. Reverse
+// this only if UAT shows the agent cannot sequence blocker -> disconnect ->
+// re-suggest; it would then need PlannedCircuit.RequiresDisconnect plus a
+// matching refusal in CircuitCommit.
 
 using System;
 using System.Collections.Generic;
@@ -119,18 +132,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 };
 
             // ── devices ───────────────────────────────────────────────────
-            var (devices, skippedDevices) = CollectDevices(
+            var (devices, skippedDevices, circuited) = CollectDevices(
                 doc, args, vaSocket!.Value, vaLight!.Value);
 
             if (devices.Count == 0)
-                return new Dictionary<string, object?>
-                {
-                    ["ok"] = false,
-                    ["error"] = "no circuit-able devices found — every candidate was skipped " +
-                                "(see skipped_devices) or the filters matched nothing. " +
-                                "skipped: " + skippedDevices.Count,
-                    ["skipped_devices"] = skippedDevices,
-                };
+                return NothingToGroup(skippedDevices, circuited);
 
             // ── group + assign ────────────────────────────────────────────
             // Grouping reference point: the lowest-id usable panel. With one
@@ -241,6 +247,112 @@ namespace BinaVibe.Mcp.Tools.Electrical
             };
         }
 
+        // ─── nothing to group ───────────────────────────────────────────
+
+        /// <summary>A device that was skipped because it is ALREADY on a power
+        /// circuit, carried with the circuit that owns it. CollectDevices used
+        /// to resolve this and throw it away, which is why the response could
+        /// only say "already_circuited" and never which circuit.</summary>
+        private sealed class CircuitedDevice
+        {
+            public long DeviceId;
+            public long CircuitId;
+            public string CircuitNumber = "";
+            public long? PanelId;
+            public string PanelName = "";
+        }
+
+        /// <summary>Every candidate was skipped. This is a drafter-actionable
+        /// dead end, NOT a tool misuse, so it returns ok:true + a structured
+        /// blocker for the same reason the no_panel branch does: ok:false is
+        /// the agent's self-heal-retry signal, and there is nothing here for a
+        /// retry to fix. The blocker carries the ids the next call needs, so
+        /// the agent never has to improvise a discovery hop.</summary>
+        private static Dictionary<string, object?> NothingToGroup(
+            List<object> skippedDevices, List<CircuitedDevice> circuited)
+        {
+            var byReason = skippedDevices
+                .OfType<Dictionary<string, object?>>()
+                .GroupBy(r => (r.TryGetValue("reason", out var v) ? v?.ToString() : null) ?? "unknown")
+                .OrderByDescending(g => g.Count())
+                .ToList();
+
+            string code;
+            string detail;
+            var blocker = new Dictionary<string, object?>();
+
+            int alreadyCircuited = byReason.FirstOrDefault(g => g.Key == "already_circuited")?.Count() ?? 0;
+            var levelKeys = byReason.Where(g => g.Key.StartsWith("level_mismatch")).ToList();
+            int levelSkipped = levelKeys.Sum(g => g.Count());
+
+            if (alreadyCircuited > 0 && alreadyCircuited == skippedDevices.Count)
+            {
+                code = "all_devices_already_circuited";
+                detail = alreadyCircuited + " device(s) are already on power circuits, so there is " +
+                         "nothing left to group. THIS IS OFTEN THE COMPLETE AND CORRECT ANSWER: " +
+                         "say which circuits they are on (see existing_circuits) and stop. Only if " +
+                         "the drafter explicitly wants them RE-circuited — a different grouping, " +
+                         "a different panel or a different breaker — call remove_from_circuit with " +
+                         "those device_ids, then re-run suggest_circuits. Do NOT retry this call " +
+                         "unchanged, and do NOT place, delete or swap panels: neither frees a device.";
+                blocker["existing_circuits"] = circuited
+                    .GroupBy(c => c.CircuitId)
+                    .OrderBy(g => g.Key)
+                    .Select(g => (object)new Dictionary<string, object?>
+                    {
+                        ["circuit_id"] = g.Key,
+                        ["circuit_number"] = g.First().CircuitNumber,
+                        ["panel_id"] = g.First().PanelId,
+                        ["panel_name"] = g.First().PanelName,
+                        ["device_ids"] = g.Select(c => (object)c.DeviceId).OrderBy(x => (long)x).ToList(),
+                        ["device_count"] = g.Count(),
+                    })
+                    .ToList();
+                blocker["next_tool"] = "remove_from_circuit";
+                blocker["next_args_hint"] = new Dictionary<string, object?>
+                {
+                    ["device_ids"] = circuited.Select(c => (object)c.DeviceId).OrderBy(x => (long)x).ToList(),
+                };
+            }
+            else if (levelSkipped > 0 && levelSkipped == skippedDevices.Count)
+            {
+                code = "level_filter_excluded_everything";
+                detail = "every candidate was excluded by the level filter — the levels actually " +
+                         "found were: " +
+                         string.Join(", ", levelKeys
+                             .Select(g => g.Key.Substring("level_mismatch:".Length))
+                             .Distinct()) +
+                         ". Re-run with a level name that matches one of those, or omit level.";
+                blocker["levels_found"] = levelKeys
+                    .Select(g => (object)g.Key.Substring("level_mismatch:".Length))
+                    .Distinct().ToList();
+            }
+            else
+            {
+                code = "no_circuitable_devices";
+                detail = "no candidate could be circuited. Reasons: " +
+                         string.Join(", ", byReason.Select(g => g.Key + " x" + g.Count())) +
+                         ". connector_voltage_unset is fixed with set_connector_electrical_data; " +
+                         "no_electrical_connector means the family has no power connector at all " +
+                         "and only a drafter can add one in the Family Editor.";
+            }
+
+            blocker["code"] = code;
+            blocker["detail"] = detail;
+            blocker["skipped_count"] = skippedDevices.Count;
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["blocker"] = blocker,
+                ["circuits"] = new List<object>(),
+                ["count"] = 0,
+                ["skipped_devices"] = skippedDevices,
+                ["skipped_by_reason"] = byReason.ToDictionary(
+                    g => g.Key, g => (object?)g.Count()),
+            };
+        }
+
         // ─── panels ─────────────────────────────────────────────────────
         internal sealed class PanelFacts
         {
@@ -315,6 +427,32 @@ namespace BinaVibe.Mcp.Tools.Electrical
         }
 
         // ─── devices ────────────────────────────────────────────────────
+
+        /// <summary>Instance level, then the host's level, then the schedule-level
+        /// parameter. Mirrors SocketPlacement.ResolveLevel — a hosted family
+        /// carries no LevelId of its own. Shared with CircuitInventory so the
+        /// wall-hosted-socket bug documented in CollectDevices cannot be
+        /// re-introduced by a second copy of this walk.</summary>
+        internal static string DeviceLevelName(Document d, Element fi)
+        {
+            var byId = (d.GetElement(fi.LevelId) as Level)?.Name;
+            if (!string.IsNullOrEmpty(byId)) return byId!;
+
+            if (fi is FamilyInstance inst && inst.Host != null)
+            {
+                var hostLevel = (d.GetElement(inst.Host.LevelId) as Level)?.Name;
+                if (!string.IsNullOrEmpty(hostLevel)) return hostLevel!;
+            }
+
+            var p = fi.get_Parameter(BuiltInParameter.SCHEDULE_LEVEL_PARAM);
+            if (p != null && p.HasValue)
+            {
+                var byParam = (d.GetElement(p.AsElementId()) as Level)?.Name;
+                if (!string.IsNullOrEmpty(byParam)) return byParam!;
+            }
+            return "";
+        }
+
         private static readonly Dictionary<string, BuiltInCategory> CategoryWords = new(StringComparer.OrdinalIgnoreCase)
         {
             ["electrical_fixtures"] = BuiltInCategory.OST_ElectricalFixtures,
@@ -328,7 +466,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
             BuiltInCategory.OST_LightingDevices,
         };
 
-        private static (List<ElecDevice> Devices, List<object> Skipped) CollectDevices(
+        private static (List<ElecDevice> Devices, List<object> Skipped,
+                        List<CircuitedDevice> Circuited) CollectDevices(
             Document doc, JsonElement args, double vaSocket, double vaLight)
         {
             var deviceIds = ArgsHelp.GetLongList(args, "device_ids");
@@ -371,6 +510,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             var devices = new List<ElecDevice>();
             var skipped = new List<object>();
+            var circuited = new List<CircuitedDevice>();
             void Skip(long id, string reason) => skipped.Add(new Dictionary<string, object?>
             {
                 ["id"] = id, ["reason"] = reason,
@@ -383,10 +523,27 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 // Explicitly requested ids must exist.
                 if (fi.Category == null) { Skip(id, "no_category"); continue; }
 
-                var levelName = (doc.GetElement(fi.LevelId) as Level)?.Name ?? "";
+                // Level, read the way SocketPlacement.ResolveLevel and
+                // RoutePlanner do. fi.LevelId alone is NOT enough: a
+                // wall-hosted socket — which is every socket place_socket_points
+                // creates — reports InvalidElementId, so the name came back ""
+                // and matched no filter. Every device was then dropped by the
+                // `continue` below WITHOUT a skipped_devices row, producing
+                // "no circuit-able devices found ... skipped: 0", which is
+                // indistinguishable from a model with no sockets in it. That is
+                // why circuiting only worked when device_ids were passed by
+                // hand (UAT 2026-08-04).
+                var levelName = DeviceLevelName(doc, fi);
                 if (levelFilter != null &&
                     !string.Equals(levelName, levelFilter, StringComparison.OrdinalIgnoreCase))
-                    continue;   // filtered out, not "skipped" — the drafter never asked for it
+                {
+                    // A reported skip, not a silent drop: the caller asked for a
+                    // level, and "your filter excluded these" is a different
+                    // answer from "there is nothing here".
+                    Skip(id, "level_mismatch:" +
+                             (string.IsNullOrEmpty(levelName) ? "unknown" : levelName));
+                    continue;
+                }
 
                 // Electrical connector required — ElectricalSystem.Create
                 // rejects members without one, better to say so up front.
@@ -419,11 +576,23 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
                 // Already on a power circuit: a device's power connector can
                 // only belong to one, and GetElectricalSystems() lists every
-                // system this instance is a member of.
+                // system this instance is a member of. The owning circuit is
+                // captured, not discarded — it is what lets the caller answer
+                // "they are already on P1/3" and hand remove_from_circuit the
+                // exact ids instead of making the agent hunt for them.
                 var systems = fi.MEPModel?.GetElectricalSystems();
-                if (systems != null &&
-                    systems.Any(s => s.SystemType == ElectricalSystemType.PowerCircuit))
+                var owner = systems?.FirstOrDefault(
+                    s => s.SystemType == ElectricalSystemType.PowerCircuit);
+                if (owner != null)
                 {
+                    circuited.Add(new CircuitedDevice
+                    {
+                        DeviceId = id,
+                        CircuitId = owner.Id.Value,
+                        CircuitNumber = SafeCircuitNumber(owner),
+                        PanelId = owner.BaseEquipment?.Id.Value,
+                        PanelName = owner.BaseEquipment?.Name ?? "",
+                    });
                     Skip(id, "already_circuited");
                     continue;
                 }
@@ -471,7 +640,15 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     !skipped.OfType<Dictionary<string, object?>>().Any(s => Equals(s["id"], id)))
                     Skip(id, "not_found_or_not_a_family_instance");
 
-            return (devices, skipped);
+            return (devices, skipped, circuited);
+        }
+
+        /// <summary>CircuitNumber throws on a circuit Revit considers
+        /// incomplete — an unassigned one, for instance.</summary>
+        private static string SafeCircuitNumber(ElectricalSystem sys)
+        {
+            try { return sys.CircuitNumber ?? ""; }
+            catch { return ""; }
         }
 
         private static List<double> GetDoubleList(JsonElement el, string name)

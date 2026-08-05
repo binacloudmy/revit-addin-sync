@@ -615,7 +615,7 @@ namespace BinaVibe.Mcp.Tools
             }
             // CommitOrThrow throws AFTER Revit has already rolled back, so only
             // roll back here for a failure mid-build (tx still Started).
-            catch { if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack(); throw; }
+            catch { TxGuard.SafeRollBack(tx); throw; }
         }
 
         // ─── load_family ────────────────────────────────────────────────

@@ -17,6 +17,26 @@
 //
 // Promoted from WarmupHandler.cs (the warm-up edit proved the pattern; this
 // makes it shared so every real Mutators/BatchExecutor write gets it too).
+//
+// SafeRollBack exists because CommitOrThrow throws AFTER Revit has already
+// ENDED the transaction. The idiom every tool wrapped around it —
+//     try { ...; TxGuard.CommitOrThrow(tx); return row; }
+//     catch { tx.RollBack(); throw; }
+// — therefore has two failure modes, and UAT 2026-08-04 hit both:
+//
+//   1. Revit rolled the commit back. tx is already RolledBack, so RollBack()
+//      throws "the transaction has already been ended" and that SECOND
+//      exception is what reaches the agent — Revit's own error text, the one
+//      naming the actual mismatch, is destroyed on the way out.
+//   2. The commit SUCCEEDED and a later line in the same try block threw
+//      (a post-commit read like ElectricalSystem.CircuitNumber). RollBack()
+//      then targets a COMMITTED transaction: it throws, the tool reports the
+//      operation as failed, and the write is still in the model. That is the
+//      "create_circuits errored but the sockets are still assigned" report.
+//
+// Rolling back only a still-Started transaction fixes (1) outright and stops
+// (2) from masking; (2) additionally needs the caller to not treat a
+// post-commit failure as a failed write (see CircuitCommit.BuildCreatedRow).
 
 using System;
 using System.Collections.Generic;
@@ -63,6 +83,39 @@ namespace BinaVibe.Mcp.Tools
                 throw new InvalidOperationException($"Revit error — {msg}");
             }
         }
+
+        /// <summary>Rolls <paramref name="tx"/> back ONLY if it is still open.
+        /// Use in place of a bare <c>tx.RollBack()</c> in a catch block — see
+        /// the file header for the two ways the bare call destroys the real
+        /// error or reports a committed write as failed.</summary>
+        public static void SafeRollBack(Transaction tx)
+        {
+            try
+            {
+                if (ShouldRollBack(tx.GetStatus())) tx.RollBack();
+            }
+            catch
+            {
+                // Revit already ended it — there is nothing to undo, and an
+                // exception from HERE would replace the one we are unwinding.
+            }
+        }
+
+        /// <summary>TransactionGroup counterpart of <see cref="SafeRollBack(Transaction)"/>.
+        /// Assimilate() ends the group, so a throw after it hits the same trap.</summary>
+        public static void SafeRollBack(TransactionGroup group)
+        {
+            try
+            {
+                if (ShouldRollBack(group.GetStatus())) group.RollBack();
+            }
+            catch { }
+        }
+
+        /// <summary>The whole decision, separated so it is unit-testable without
+        /// a live Document (a real Transaction needs one).</summary>
+        internal static bool ShouldRollBack(TransactionStatus status)
+            => status == TransactionStatus.Started;
 
         internal static void RecordErrors(IEnumerable<string> errors)
             => (_lastErrors ??= new List<string>()).AddRange(errors);

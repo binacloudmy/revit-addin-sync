@@ -24,6 +24,17 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// <summary>Optional obstacle probe: true when the straight leg a-b is
         /// clear. Null = assume clear (propose stays cheap by default).</summary>
         public Func<Pt3Mm, Pt3Mm, bool>? IsClear;
+        /// <summary>"x" or "y": the axis the trunk ARRIVED on, so this leg can
+        /// leave on the same one. Both Manhattan variants are the same length,
+        /// so this costs nothing — but it decides whether the station where the
+        /// previous run ended is a straight-through tee or a corner.
+        ///
+        /// A corner that coincides with a device branch cannot be fitted at
+        /// all: NewTeeFitting wants two collinear runs plus a branch, and Revit
+        /// has no single fitting for "turn AND branch". UAT 2026-08-04 lost
+        /// exactly the two device stations where the trunk changed axis. Null =
+        /// no preference (the first hop off the panel rise).</summary>
+        public string? PreferFirstAxis;
     }
 
     /// <summary>A polyline path; legs are consecutive vertex pairs.</summary>
@@ -82,7 +93,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var viaXFirst = new Pt3Mm(b.X, a.Y, z);
             var viaYFirst = new Pt3Mm(a.X, b.Y, z);
 
-            Pt3Mm corner = viaXFirst;
+            // X-first by default, but a leg that must LEAVE on the axis it
+            // arrived on takes that instead — leaving on X means the corner is
+            // viaXFirst, leaving on Y means viaYFirst. Free: the two variants
+            // are identical in length. An obstruction probe still overrides it
+            // below; a blocked route beats a tidy fitting.
+            Pt3Mm corner = string.Equals(req.PreferFirstAxis, "y", StringComparison.OrdinalIgnoreCase)
+                ? viaYFirst
+                : viaXFirst;
             bool degenerate = Math.Abs(a.X - b.X) < JoinTolMm || Math.Abs(a.Y - b.Y) < JoinTolMm;
             if (!degenerate && req.IsClear != null)
             {
@@ -92,7 +110,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 else if (yClear && !xClear) corner = viaYFirst;
                 else if (!xClear && !yClear)
                 {
-                    corner = viaXFirst;
+                    // Both blocked: the obstruction report is the deliverable
+                    // either way, so keep the axis-preserving choice rather
+                    // than throwing a corner into a device station for nothing.
                     res.Notes.Add("both orthogonal variants probe obstructed — kept X-first, review the obstruction report");
                 }
             }

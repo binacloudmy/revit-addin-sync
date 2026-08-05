@@ -117,6 +117,27 @@
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\ElecFindings.cs" Link="ElecFindings.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CircuitPlanCache.cs" Link="CircuitPlanCache.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\RoutePlanCache.cs" Link="RoutePlanCache.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\RouteHops.cs" Link="RouteHops.cs" />
+    <!-- Conduit topology (trunk + one drop per device): System + Pt3Mm only.
+         Split out of RoutePlanner.cs (live Document) so the shape that stopped
+         producing 180-degree joints is pinned by tests, not by UAT. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\RouteAssembly.cs" Link="RouteAssembly.cs" />
+    <!-- Distribution-system rules: System only, VOLTS throughout. Split out of
+         ElecSystemAuthoring.cs / ElecSettings.cs (which need a live Revit
+         Document) precisely so the phase/wire table, the Malaysian defaults and
+         the voltage banding are testable here. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\ElecSystemRules.cs" Link="ElecSystemRules.cs" />
+    <!-- remove_from_circuit's decision core: System only. Split out of
+         CircuitDisconnect.cs (live Document) precisely so the union rule and
+         the all-members-gone => delete-the-circuit rule are testable here. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\CircuitDisconnectPlan.cs" Link="CircuitDisconnectPlan.cs" />
+    <!-- Category-name mangling: System only. Split out of CategoryResolve.cs
+         (which returns a BuiltInCategory) because the Revit API here is a
+         REFERENCE-ONLY package — one test type whose signature names a Revit
+         type makes xUnit skip this whole assembly, not just that test. The
+         singular-plural fallback needs a non-regression pin over the names
+         that already worked, and names are strings. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\CategoryNames.cs" Link="CategoryNames.cs" />
     <!-- Obstruction-query math: System only, mm throughout. Split out of
          QueryGeometry.cs/CorridorCheck.cs (which need a live Revit Document)
          precisely so the AABB re-hull, clash overlap and segment-distance

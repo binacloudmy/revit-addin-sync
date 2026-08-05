@@ -53,7 +53,7 @@ namespace BinaVibe.Mcp.Tools
                     ["duct_type"] = ductType.Name, ["level"] = level.Name,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { TxGuard.SafeRollBack(tx); throw; }
         }
 
         public static Dictionary<string, object?> CreatePipe(Document doc, JsonElement args)
@@ -88,7 +88,7 @@ namespace BinaVibe.Mcp.Tools
                     ["pipe_type"] = pipeType.Name, ["level"] = level.Name,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { TxGuard.SafeRollBack(tx); throw; }
         }
 
         public static Dictionary<string, object?> CreateConduit(Document doc, JsonElement args)
@@ -121,7 +121,7 @@ namespace BinaVibe.Mcp.Tools
                     ["conduit_type"] = conduitType.Name, ["level"] = level.Name,
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch { TxGuard.SafeRollBack(tx); throw; }
         }
 
         private static (XYZ start, XYZ end, Level level, double offsetFt) ParseRun(Document doc, JsonElement args)

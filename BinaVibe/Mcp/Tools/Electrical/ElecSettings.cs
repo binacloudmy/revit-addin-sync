@@ -68,14 +68,35 @@ namespace BinaVibe.Mcp.Tools.Electrical
                         SafeVolts(() => d.VoltageLineToLine?.ActualValue)),
                 }).ToList();
 
+            // The panel's OWN connector is reported alongside the system it was
+            // given, because the two failure modes look identical from outside:
+            // an unassigned system and a connector Revit cannot match both read
+            // as "the panel and circuit do not match".
+            //
+            // connector_voltage_v and connector_poles are the pair
+            // IsValidDistributionSystem actually compares, and both are
+            // settable via set_connector_electrical_data. panel_phases and
+            // panel_wires are DERIVED from the assigned distribution system —
+            // they read 0 until one is assigned, and no tool can author them.
+            // They are named apart deliberately: reported as connector data
+            // they read as a fixable defect, and an agent chased that into a
+            // Family Editor dead end (2026-08-04).
             var panelRows = CircuitCandidates.FindPanels(doc)
-                .Select(p => (object)new Dictionary<string, object?>
+                .Select(p =>
                 {
-                    ["id"] = p.Info.Id,
-                    ["name"] = p.Info.Name,
-                    ["distribution_system"] = string.IsNullOrEmpty(p.DistSystem) ? null : p.DistSystem,
-                    ["usable"] = p.Usable,
-                    ["reason"] = p.Usable ? null : p.SkipReason,
+                    var fi = doc.GetElement(ElemIds.From(p.Info.Id)) as FamilyInstance;
+                    return (object)new Dictionary<string, object?>
+                    {
+                        ["id"] = p.Info.Id,
+                        ["name"] = p.Info.Name,
+                        ["distribution_system"] = string.IsNullOrEmpty(p.DistSystem) ? null : p.DistSystem,
+                        ["usable"] = p.Usable,
+                        ["reason"] = p.Usable ? null : p.SkipReason,
+                        ["connector_voltage_v"] = Round1(ReadVolts(fi, BuiltInParameter.RBS_ELEC_VOLTAGE)),
+                        ["connector_poles"] = ReadInt(fi, BuiltInParameter.RBS_ELEC_NUMBER_OF_POLES),
+                        ["panel_phases_derived"] = ReadInt(fi, BuiltInParameter.RBS_ELEC_PANEL_NUMPHASES_PARAM),
+                        ["panel_wires_derived"] = ReadInt(fi, BuiltInParameter.RBS_ELEC_PANEL_NUMWIRES_PARAM),
+                    };
                 }).ToList();
 
             return new Dictionary<string, object?>
@@ -164,7 +185,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     equipment.DistributionSystem = target;
                     TxGuard.CommitOrThrow(tx);
                 }
-                catch { tx.RollBack(); throw; }
+                catch { TxGuard.SafeRollBack(tx); throw; }
             }
 
             // Read back rather than assume.
@@ -172,6 +193,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ?.MEPModel as ElectricalEquipment;
             var applied = after?.DistributionSystem;
             bool ok = applied != null && applied.Id.Value == target.Id.Value;
+
+            // A cached circuit plan carries the panel's phase count and its
+            // assignment, both derived from the distribution system that was in
+            // place when the plan was made. Changing it makes that plan stale
+            // while its plan_id still resolves, so the natural chain — propose,
+            // notice the system is wrong, fix it, commit — committed against
+            // stale phases. Same contract as set_connector_electrical_data.
+            if (ok) ElecPlanCaches.DropAll();
 
             return new Dictionary<string, object?>
             {
@@ -182,6 +211,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["phases"] = applied != null && SafePhase(applied) == ElectricalPhase.ThreePhase ? 3 : 1,
                 ["voltage_line_to_ground_v"] = Round1(
                     SafeVolts(() => applied?.VoltageLineToGround?.ActualValue)),
+                ["plans_invalidated"] = ok,
                 ["error"] = ok ? null
                     : "Revit did not keep the assignment — the panel family's connector " +
                       "voltage most likely does not match this distribution system. Fix the " +
@@ -202,6 +232,31 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 throw new ArgumentException(
                     "nothing to set — pass voltage_v and/or apparent_load_va and/or " +
                     "number_of_poles");
+
+            // number_of_phases / number_of_wires used to be accepted here and
+            // were always refused. RBS_ELEC_PANEL_NUMPHASES_PARAM and
+            // RBS_ELEC_PANEL_NUMWIRES_PARAM are PANEL-INSTANCE parameters (same
+            // family as PANEL_BUSSING / PANEL_MAINSTYPE), not connector ones —
+            // a ConnectorElement carries VOLTAGE, APPARENT_LOAD,
+            // NUMBER_OF_POLES, LOAD_CLASSIFICATION, CIRCUIT_TYPE and nothing
+            // else electrical. Worse, a panel's phases/wires are DERIVED from
+            // the distribution system it is assigned, so they read 0 until one
+            // is assigned. Offering them as inputs sent the agent chasing a
+            // Family Editor fix for a value it cannot author. The lever that
+            // actually decides IsValidDistributionSystem is the connector's
+            // voltage and pole count, both already here.
+            if (ArgsHelp.GetLong(args, "number_of_phases").HasValue ||
+                ArgsHelp.GetLong(args, "number_of_wires").HasValue)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = "number_of_phases / number_of_wires are not connector data — " +
+                                "a panel's phase and wire counts are DERIVED from the " +
+                                "distribution system assigned to it, which is why they read 0 " +
+                                "before one is assigned. Set number_of_poles (and voltage_v) " +
+                                "here to make the connector match a system, then assign it with " +
+                                "set_distribution_system; the phase/wire counts follow.",
+                };
 
             var family = ResolveFamily(doc, args, out var resolvedFrom);
             if (family == null)
@@ -289,6 +344,33 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     };
                 }
 
+                // A panel whose only connector is a non-power one (Data,
+                // FireAlarm, …) can never take a distribution system, and every
+                // voltage/phase/wire permutation the agent tries fails the same
+                // way. Say so once instead of letting it loop. Re-classifying a
+                // connector is deliberately NOT done here: it changes what the
+                // connector IS, not what it is rated at, and that is a family
+                // authoring decision.
+                if (family.FamilyCategory?.Id.Value ==
+                        (long)BuiltInCategory.OST_ElectricalEquipment &&
+                    !connectors.Any(IsPowerConnector))
+                {
+                    var kinds = connectors.Select(SafeSystemType).Distinct().ToList();
+                    famDoc.Close(false);
+                    return new Dictionary<string, object?>
+                    {
+                        ["ok"] = false,
+                        ["error"] = "'" + family.Name + "' is electrical equipment but none of its " +
+                                    "connectors is a POWER connector (found: " +
+                                    string.Join(", ", kinds) + "). No voltage, phase or wire value " +
+                                    "will make this family accept a distribution system — it needs " +
+                                    "a power connector, which is a Family Editor job. Do not retry " +
+                                    "with different values.",
+                        ["family"] = family.Name,
+                        ["connector_system_types"] = kinds.Cast<object>().ToList(),
+                    };
+                }
+
                 using (var ftx = new Transaction(famDoc, "BinaVibe: set connector electrical data"))
                 {
                     ftx.Start();
@@ -297,6 +379,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                         var row = new Dictionary<string, object?>
                         {
                             ["connector_id"] = conn.Id.Value,
+                            ["system_type"] = SafeSystemType(conn),
                         };
                         var applied = new List<object>();
                         var refused = new List<object>();
@@ -310,8 +393,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
                                   "apparent_load_va",
                                   UnitUtils.ConvertToInternalUnits(apparentVa.Value, UnitTypeId.VoltAmperes),
                                   applied, refused);
+                        // Poles is the panel-side lever: IsValidDistributionSystem
+                        // compares the connector's voltage AND pole count against
+                        // the system, so a 3-phase board needs 3 poles here.
                         if (poles.HasValue)
-                            ApplyInt(conn, BuiltInParameter.RBS_ELEC_NUMBER_OF_POLES,
+                            ApplyInt(famDoc, conn, BuiltInParameter.RBS_ELEC_NUMBER_OF_POLES,
                                      "number_of_poles", (int)poles.Value, applied, refused);
 
                         row["applied"] = applied;
@@ -365,6 +451,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 try { famDoc.Close(false); } catch { }
             }
 
+            // An overwrite reload REGENERATES every instance of the family, so
+            // any cached plan is now holding element ids that no longer exist.
+            // Its plan_id still resolves, and CircuitCommit only re-checks the
+            // PANEL, so a commit would proceed against dead devices. UAT
+            // 2026-08-04 lost a 124-socket plan to exactly this. Drop all three
+            // caches and say so, rather than let the agent find out at commit.
+            ElecPlanCaches.DropAll();
+
             return new Dictionary<string, object?>
             {
                 ["ok"] = true,
@@ -377,6 +471,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["voltage_v"] = voltageV,
                 ["apparent_load_va"] = apparentVa,
                 ["number_of_poles"] = poles,
+                ["plans_invalidated"] = true,
             };
         }
 
@@ -390,6 +485,22 @@ namespace BinaVibe.Mcp.Tools.Electrical
         private static void Apply(Document famDoc, ConnectorElement conn,
                                   BuiltInParameter bip, string label, double internalValue,
                                   List<object> applied, List<object> refused)
+            => ApplyCore(famDoc, conn, bip, label, internalValue, null, applied, refused);
+
+        /// <summary>Integer twin of <see cref="Apply"/>. Shares the association
+        /// walk deliberately: poles/phases/wires are authored through family
+        /// parameters in the JKR library exactly as voltage is, and writing the
+        /// connector parameter direct in that case reports success and then
+        /// reverts on reload.</summary>
+        private static void ApplyInt(Document famDoc, ConnectorElement conn,
+                                     BuiltInParameter bip, string label, int value,
+                                     List<object> applied, List<object> refused)
+            => ApplyCore(famDoc, conn, bip, label, null, value, applied, refused);
+
+        private static void ApplyCore(Document famDoc, ConnectorElement conn,
+                                      BuiltInParameter bip, string label,
+                                      double? doubleValue, int? intValue,
+                                      List<object> applied, List<object> refused)
         {
             var p = conn.get_Parameter(bip);
             if (p == null)
@@ -414,14 +525,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     }
                     if (fm!.Types.Size == 0)
                     {
-                        fm.Set(assoc, internalValue);
+                        SetAssociated(fm, assoc, doubleValue, intValue);
                     }
                     else
                     {
                         foreach (FamilyType t in fm.Types)
                         {
                             fm.CurrentType = t;
-                            fm.Set(assoc, internalValue);
+                            SetAssociated(fm, assoc, doubleValue, intValue);
                         }
                     }
                     applied.Add(label + " (via family parameter '" + assoc.Definition.Name + "')");
@@ -441,7 +552,8 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
             try
             {
-                p.Set(internalValue);
+                if (doubleValue.HasValue) p.Set(doubleValue.Value);
+                else p.Set(intValue!.Value);
                 applied.Add(label);
             }
             catch (Exception ex)
@@ -450,14 +562,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
             }
         }
 
-        private static void ApplyInt(ConnectorElement conn, BuiltInParameter bip, string label,
-                                     int value, List<object> applied, List<object> refused)
+        private static void SetAssociated(FamilyManager fm, FamilyParameter fp,
+                                          double? doubleValue, int? intValue)
         {
-            var p = conn.get_Parameter(bip);
-            if (p == null) { refused.Add(label + ": parameter not present on this connector"); return; }
-            if (p.IsReadOnly) { refused.Add(label + ": parameter is read-only in this family"); return; }
-            try { p.Set(value); applied.Add(label); }
-            catch (Exception ex) { refused.Add(label + ": " + ex.Message); }
+            if (doubleValue.HasValue) fm.Set(fp, doubleValue.Value);
+            else fm.Set(fp, intValue!.Value);
         }
 
         private static Family? ResolveFamily(Document doc, JsonElement args, out string resolvedFrom)
@@ -502,6 +611,34 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         private static object? Round1(double? v) => v.HasValue ? Math.Round(v.Value, 1) : (object?)null;
 
+        /// <summary>Read a voltage parameter off an instance, falling back to its
+        /// type — the same instance-then-symbol walk CircuitCandidates uses,
+        /// since JKR families set this on either. Unlike VoltageType.ActualValue
+        /// a PARAMETER is in internal units, so this one does convert.</summary>
+        private static double? ReadVolts(FamilyInstance? fi, BuiltInParameter bip)
+        {
+            var p = ReadParam(fi, bip);
+            if (p == null) return null;
+            try { return UnitUtils.ConvertFromInternalUnits(p.AsDouble(), UnitTypeId.Volts); }
+            catch { return null; }
+        }
+
+        private static int? ReadInt(FamilyInstance? fi, BuiltInParameter bip)
+        {
+            var p = ReadParam(fi, bip);
+            if (p == null) return null;
+            try { return p.AsInteger(); }
+            catch { return null; }
+        }
+
+        private static Parameter? ReadParam(FamilyInstance? fi, BuiltInParameter bip)
+        {
+            if (fi == null) return null;
+            var p = fi.get_Parameter(bip);
+            if (p == null || !p.HasValue) p = fi.Symbol?.get_Parameter(bip);
+            return p != null && p.HasValue ? p : null;
+        }
+
         private static ElectricalPhase SafePhase(DistributionSysType d)
         {
             try { return d.ElectricalPhase; }
@@ -531,6 +668,22 @@ namespace BinaVibe.Mcp.Tools.Electrical
             try { return c.Domain; }
             catch { return Domain.DomainUndefined; }
         }
+
+        /// <summary>A ConnectorElement carries SystemClassification; the
+        /// ElectricalSystemType property belongs to the runtime Connector, which
+        /// a family document does not hand out.</summary>
+        private static string SafeSystemType(ConnectorElement c)
+        {
+            try { return c.SystemClassification.ToString(); }
+            catch { return "unknown"; }
+        }
+
+        /// <summary>True for the power flavours (PowerCircuit, PowerBalanced,
+        /// PowerUnBalanced). Matched on the name prefix rather than enumerated:
+        /// the enum gained members across Revit versions and this builds against
+        /// three of them.</summary>
+        private static bool IsPowerConnector(ConnectorElement c) =>
+            SafeSystemType(c).StartsWith("Power", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>Overwrite the project copy AND its parameter values —
         /// the point of the call is that the old (0 V) values are wrong.

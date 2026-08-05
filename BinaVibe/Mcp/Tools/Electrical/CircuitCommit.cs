@@ -9,6 +9,13 @@
 // rejecting one circuit must not destroy the others (SocketPlacement's
 // pattern, not BatchExecutor's roll-it-all-back).
 //
+// COMMIT BOUNDARY. CommitOne is split at TxGuard.CommitOrThrow: everything
+// before it may throw (rolled back, filed under failed[], committed:false);
+// everything after it is BuildCreatedRow, which never throws. The old code ran
+// the read-back inside the same try, so a throwing CircuitNumber sent a
+// COMMITTED circuit into failed[] and its sockets stayed assigned while the
+// tool reported failure — UAT 2026-08-04, the report that made the agent loop.
+//
 // PHASE BALANCE IS A PROPOSAL. Circuits are committed round-robin across the
 // proposed phases so Revit's sequential slot fill approximates the balance,
 // then the ACTUAL slot is read back and reported next to the proposal.
@@ -45,6 +52,29 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             var namePrefix = ArgsHelp.GetString(args, "load_name_prefix");
 
+            // A circuit the proposal marked infeasible ("no panel has spare
+            // capacity for N VA") used to commit exactly like a feasible one —
+            // pc.Feasible was written by PhaseBalance and then never read, so
+            // the warning lived only in a proposal an unattended agent skims.
+            var allowInfeasible = ArgsHelp.GetBool(args, "allow_infeasible") ?? false;
+            var infeasible = circuits.Where(c => !c.Feasible).ToList();
+            if (infeasible.Count > 0 && !allowInfeasible)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = infeasible.Count + " of " + circuits.Count + " selected circuit(s) " +
+                                "were proposed as INFEASIBLE (see notes on each: usually no panel has " +
+                                "spare capacity). Committing them overloads the board. Fix the panel " +
+                                "or drop those circuits, or pass allow_infeasible:true to commit anyway.",
+                    ["infeasible"] = infeasible.Select(c => (object)new Dictionary<string, object?>
+                    {
+                        ["index"] = c.Index,
+                        ["panel_id"] = c.PanelId,
+                        ["total_va"] = Math.Round(c.TotalVa),
+                        ["notes"] = c.Notes.Cast<object>().ToList(),
+                    }).ToList(),
+                };
+
             // Round-robin across proposed phases (see file header).
             var commitOrder = RoundRobinByPhase(circuits);
 
@@ -63,25 +93,38 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     }
                     catch (Exception ex)
                     {
+                        // committed:false is a promise, not decoration. Every
+                        // throw out of CommitOne now happens before its commit
+                        // succeeded (the post-commit read-back cannot throw —
+                        // see BuildCreatedRow), so a failed row means NOTHING
+                        // reached the model and the devices are still free.
                         failed.Add(new Dictionary<string, object?>
                         {
                             ["index"] = pc.Index,
+                            ["committed"] = false,
                             ["reason"] = ex.Message,
                         });
                     }
                 }
                 group.Assimilate();
             }
-            catch { group.RollBack(); throw; }
+            catch { TxGuard.SafeRollBack(group); throw; }
 
+            // ok:false when nothing was created. This used to be an
+            // unconditional true, so a run where every circuit failed returned
+            // {ok:true, count:0, failed:[...]} — an unattended loop branching on
+            // ok read that as done and moved on to routing.
             return new Dictionary<string, object?>
             {
-                ["ok"] = true,
+                ["ok"] = created.Count > 0,
                 ["plan_id"] = planId,
                 ["count"] = created.Count,
                 ["created"] = created.OrderBy(r =>
                     (long)(((Dictionary<string, object?>)r)["index"] ?? 0L)).ToList(),
                 ["failed"] = failed,
+                ["error"] = created.Count > 0 ? null
+                    : "no circuit was created — all " + failed.Count +
+                      " attempt(s) failed; see failed[] for each reason",
             };
         }
 
@@ -117,11 +160,27 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ?? throw new InvalidOperationException(
                     "panel " + pc.PanelId + " no longer exists — re-run suggest_circuits");
 
+            // Existence was the only panel check here, so a panel that LOST its
+            // distribution system between propose and commit reached SelectPanel
+            // and came back as raw Revit prose. The propose step already knows
+            // how to say this properly — ask it the same question.
+            var eq = panel.MEPModel as ElectricalEquipment;
+            if (eq?.DistributionSystem == null)
+                throw new InvalidOperationException(
+                    "panel_unusable: panel " + pc.PanelId + " has no distribution system now " +
+                    "(it did when the plan was made) — assign one with set_distribution_system " +
+                    "and re-run suggest_circuits. Do not swap panels.");
+
             using var tx = new Transaction(doc, "BinaVibe: create circuit");
             TxGuard.StartSwallowing(tx);
+            ElectricalSystem? sys = null;
+            long circuitId = 0;
             try
             {
-                var sys = ElectricalSystem.Create(doc, memberIds, ElectricalSystemType.PowerCircuit);
+                sys = ElectricalSystem.Create(doc, memberIds, ElectricalSystemType.PowerCircuit);
+                circuitId = sys.Id.Value;   // read while we are certainly inside
+                                            // the transaction, so the post-commit
+                                            // row never has to touch sys.Id
 
                 try
                 {
@@ -161,23 +220,59 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 }
 
                 TxGuard.CommitOrThrow(tx);
-
-                return new Dictionary<string, object?>
-                {
-                    ["index"] = pc.Index,
-                    ["circuit_id"] = sys.Id.Value,
-                    ["panel_id"] = pc.PanelId,
-                    ["panel_name"] = pc.PanelName,
-                    ["circuit_number"] = sys.CircuitNumber ?? "",
-                    ["actual_slot"] = SafeStartSlot(sys),
-                    ["proposed_phase"] = pc.ProposedPhase,
-                    ["rating_a"] = pc.BreakerA > 0 ? pc.BreakerA : (object?)null,
-                    ["load_class"] = pc.LoadClass,
-                    ["device_count"] = memberIds.Count,
-                    ["dropped_devices"] = dropped,
-                };
             }
-            catch { tx.RollBack(); throw; }
+            catch
+            {
+                // Only reachable BEFORE the commit succeeded, so rolling back
+                // and reporting a failure is honest here. SafeRollBack because
+                // a Revit-forced rollback already ended the transaction and a
+                // second RollBack() would replace Revit's message with ours.
+                TxGuard.SafeRollBack(tx);
+                throw;
+            }
+
+            // PAST THE COMMIT LINE. The circuit EXISTS. Nothing below may throw
+            // out of CommitOne, because the caller's catch files a throw under
+            // failed[] — and a failed[] row for a circuit that is in the model
+            // with its sockets assigned is exactly the report that sent the
+            // agent looping in UAT 2026-08-04. Reading back a fresh
+            // ElectricalSystem is not safe: CircuitNumber and StartSlot both
+            // throw on states Revit considers incomplete.
+            return BuildCreatedRow(sys!, circuitId, pc, memberIds.Count, dropped);
+        }
+
+        /// <summary>Result row for an ALREADY-COMMITTED circuit. Never throws:
+        /// a read-back failure degrades the row, it does not undo the write.
+        /// The id is passed in rather than re-read for the same reason.</summary>
+        private static Dictionary<string, object?> BuildCreatedRow(
+            ElectricalSystem sys, long circuitId, PlannedCircuit pc,
+            int deviceCount, List<object> dropped)
+        {
+            var row = new Dictionary<string, object?>
+            {
+                ["index"] = pc.Index,
+                ["circuit_id"] = circuitId,
+                ["committed"] = true,
+                ["panel_id"] = pc.PanelId,
+                ["panel_name"] = pc.PanelName,
+                ["proposed_phase"] = pc.ProposedPhase,
+                ["rating_a"] = pc.BreakerA > 0 ? pc.BreakerA : (object?)null,
+                ["load_class"] = pc.LoadClass,
+                ["device_count"] = deviceCount,
+                ["dropped_devices"] = dropped,
+            };
+            try
+            {
+                row["circuit_number"] = SafeCircuitNumber(sys);
+                row["actual_slot"] = SafeStartSlot(sys);
+            }
+            catch (Exception ex)
+            {
+                row["circuit_number"] = "";
+                row["actual_slot"] = null;
+                row["report_error"] = "circuit was created but could not be read back: " + ex.Message;
+            }
+            return row;
         }
 
         /// <summary>Interleave circuits phase 0,1,2,0,1,2... so sequential slot
@@ -200,6 +295,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
         {
             try { return sys.StartSlot; }
             catch { return null; }   // unassigned / not applicable
+        }
+
+        private static string SafeCircuitNumber(ElectricalSystem sys)
+        {
+            try { return sys.CircuitNumber ?? ""; }
+            catch { return ""; }     // Revit throws on a circuit it considers incomplete
         }
 
         private static Dictionary<string, object?> Drop(long id, string reason) => new()

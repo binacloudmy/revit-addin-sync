@@ -434,7 +434,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return rows;
         }
 
-        private static double ParamAs(Element el, BuiltInParameter bip, ForgeTypeId unit)
+        internal static double ParamAs(Element el, BuiltInParameter bip, ForgeTypeId unit)
         {
             var p = el.get_Parameter(bip);
             return p != null && p.HasValue
@@ -442,19 +442,19 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 : 0.0;
         }
 
-        private static double SafeLengthMm(ElectricalSystem sys)
+        internal static double SafeLengthMm(ElectricalSystem sys)
         {
             try { return sys.Length * MmPerFoot; }
             catch { return 0.0; }
         }
 
-        private static ElectricalCircuitPathMode SafePathMode(ElectricalSystem sys)
+        internal static ElectricalCircuitPathMode SafePathMode(ElectricalSystem sys)
         {
             try { return sys.CircuitPathMode; }
             catch { return ElectricalCircuitPathMode.FarthestDevice; }
         }
 
-        private static int SafePoles(ElectricalSystem sys)
+        internal static int SafePoles(ElectricalSystem sys)
         {
             try { return sys.PolesNumber; }
             catch { return 1; }

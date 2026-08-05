@@ -22,6 +22,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public double LengthMm;
         /// <summary>"run" (horizontal at routing elevation) | "rise" | "drop".</summary>
         public string Kind = "run";
+        /// <summary>Device this leg drops onto, or 0. Set only on the single
+        /// branch drop per device, so the commit can tell a trunk station that
+        /// needs a TEE from an end-of-run that needs an elbow.</summary>
+        public long DropsToDeviceId;
         /// <summary>Obstruction rows from the corridor scan, wire-shaped.
         /// Empty = probed clear or not probed (see PlannedRoute.Probed).</summary>
         public List<Dictionary<string, object?>> Obstructions = new();
@@ -38,11 +42,20 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public long PanelId;
         /// <summary>Device element ids in the chain order the legs visit.</summary>
         public List<long> DeviceIds = new();
-        /// <summary>Hop boundaries: HopStartLegIndex[i] is the first leg of
-        /// hop i (panel->dev0, dev0->dev1, ...). Wire creation needs per-hop
-        /// vertex runs; conduit creation just walks all legs.</summary>
-        public List<int> HopStartLegIndex = new();
+        /// <summary>One entry per hop that actually produced legs. Wire
+        /// creation needs per-hop vertex runs; conduit creation just walks all
+        /// legs.</summary>
+        public List<RouteHop> Hops = new();
         public List<RouteLeg> Legs = new();
+        /// <summary>Polyline for ElectricalSystem.SetCircuitPath: the
+        /// ELECTRICAL path through the devices (panel connector, up, along,
+        /// down to each device and back up), which since the trunk rework is no
+        /// longer the shape of the conduit. Empty = nothing to set.</summary>
+        internal List<Pt3Mm> PathVerticesMm = new();
+        /// <summary>Same path without the dive-and-return at each device —
+        /// tried when Revit refuses the shape above. Omits the drops, so its
+        /// length is shorter than the conduit run.</summary>
+        internal List<Pt3Mm> PathVerticesFlatMm = new();
         public double TotalLengthMm;
         public double CalcAmps;
         public double? WireCsaMm2;

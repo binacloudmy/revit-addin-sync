@@ -814,3 +814,51 @@ Beat-Revit-AI iteration additions:
 - [ ] Save to a locked/readonly location → button relabels "Save failed — try another location", NO crash, Revit fine
 - [ ] Header-only table (no data rows) → no button
 - [ ] History view: old replies with tables also show the button and it works
+
+## 23. Circuit removal + circuit discovery (list_circuits / remove_from_circuit)
+Scenario that forced this work: ten sockets on a floor were ALREADY on one
+circuit, so `suggest_circuits` had nothing to group, nothing could take a device
+off a circuit, and nothing could produce a circuit's element id. The run
+degenerated into deleting circuits blind.
+
+- [ ] Unit tests: `dotnet test Tests/Tests.csproj --filter "CircuitDisconnectPlan|CategoryNames"` — all green
+- [ ] **The original failure, end to end.** Ten sockets circuited to one DB. Ask to circuit them again → `suggest_circuits` returns `ok:true` with `blocker.code == "all_devices_already_circuited"` and the circuit id in `blocker.existing_circuits`. The reply NAMES the existing circuits. Pass = **zero repeated identical calls**, and no place/delete/swap-panel step anywhere in the run
+- [ ] Say yes to a re-circuit → ONE Tindakan for `remove_from_circuit` alone (never folded into the create offer) → Ya → `suggest_circuits` re-run now proposes → `create_circuits` commits
+- [ ] `curl /mcp/tools/list_circuits` on a model with routed, unrouted and orphaned circuits: `device_ids` lists the sockets and NOT the panel; `routed:true` only on circuits `create_circuit_routes` touched; `panel_id:null` rows appear (and disappear with `include_unassigned:false`)
+- [ ] Partial removal (some devices, not all): circuit survives, `remaining_device_count` is right, `action:"members_removed"`
+- [ ] Remove EVERY device of a circuit → `action:"deleted"`, the ElectricalSystem is gone, and the panel schedule shows the breaker slot freed. `validate_panel_schedule` utilisation drops accordingly
+- [ ] `delete_empty_circuits:false` on the same case → `action:"emptied"`, circuit still there, row carries the keeps-its-slot note
+- [ ] Routed circuit: wires are gone from the model, `wires_deleted > 0`, `was_routed:true`, and the reply SAYS the conduit is still there and offers `delete_elements` with the conduit ids. **Check whether Revit auto-deleted the wires when the system was deleted** — if it did, `wires_deleted` must not double-count
+- [ ] Partial removal of a routed circuit → `circuit_path_reset:true` (no throw), and `sys.Length` / `check_circuit_loads` reflect the new path mode
+- [ ] `remove_from_circuit` with no args at all → refused with the "call list_circuits first" error, nothing deleted
+- [ ] `filter_elements(category:"Electrical Circuits")` returns real circuits instead of "unknown category"; `level` comes back `""` rather than throwing. It is NOT a substitute for `list_circuits` — no panel, no members, no rating
+- [ ] Force a `panel_rejected` run of `create_circuits`: no circuit may appear in `failed[]` while its sockets are assigned in the model. Every `failed` row carries `committed:false`, every `created` row `committed:true`
+- [ ] Trigger a hard Revit error the warning preprocessor escalates (a rollback) → the message surfaced to the agent is Revit's OWN text, never "the transaction has already been ended"
+
+## 24. Conduit trunk + circuit path (create_circuit_routes rework)
+UAT 2026-08-04 routed 10 sockets on L2 and got: 8 failed fittings, 0 of 10
+wires, and no circuit path on either circuit. Causes were a collinear joint at
+every device junction, and a `CircuitPathMode = Custom` assignment that throws
+before `SetCircuitPath` ever runs.
+
+- [ ] Unit tests: `dotnet test Tests/Tests.csproj --filter RouteAssembly` — all green
+- [ ] **Re-run the failing scenario**: 9-device circuit + 1-device circuit off the same DB, `include_obstructed: true`. `fittings_failed` is **0**. `unconnected_joints` is empty, or every row names a Revit reason and a `conduits_meeting` count
+- [ ] Section box the result in 3D: **no two conduits share the same line** at any device. Each device has exactly ONE drop off a trunk that continues past it
+- [ ] `total_length_mm` is meaningfully SHORTER than the old plan for the same devices (the old one counted every device drop twice). Sanity-check one drop by hand
+- [ ] Trunk-to-drop stations are TEES, corners are elbows, straight joins have no fitting. `fitting_ids.length < joints` is expected — confirm the run is physically continuous by selecting one conduit and checking connected elements
+- [ ] **`circuit_path_set: true`** on both circuits — this has never been true before. Then `check_circuit_loads` reports a real voltage drop instead of `skipped`, and Revit's circuit Length matches the routed length, not the straight line
+- [ ] Panel with no electrical connector (or an unusual family): route still builds, and `circuit_path_error` names Revit's reason rather than crashing
+- [ ] **Wires**: if they still fail, `wire_failure_geometry` is present on the row — capture `stations_mm`, `start_connector_mm`, `end_connector_mm` and the exact Revit message, they are what settles the remaining cause. If they now succeed, `hops_wired == hops_total` on both circuits
+- [ ] Undo once: the whole circuit's conduit, fittings, wires and path all disappear together
+
+## 25. Trunk axis + panel circuit connector (second routing pass)
+Round 2 of §24 got fittings from 8 failures down to 2, both at branch stations
+where the trunk changed axis — a tee runs straight through, and Revit has no
+turn-and-branch fitting, so no conduit type would have supplied one.
+
+- [ ] Unit tests: `dotnet test Tests/Tests.csproj --filter RouteAssembly` — 13 green
+- [ ] Re-run the 10-socket circuit: `fittings_failed` is **0**, and every device station is a tee whose two runs are straight through
+- [ ] Any remaining `unconnected_joints` row that says "the trunk TURNS at this branch station" means the obstruction probe forced a corner there. Re-run with `probe_obstacles: false` and confirm it clears — that distinguishes a geometry conflict from a conduit-type gap
+- [ ] `circuit_path_set: true`. If false, the plan's `notes` must now name the reason: a "panel start fell back to the instance ORIGIN" note means the panel family exposes no reachable circuit connector, which is a family defect, not a routing one
+- [ ] The home-run wire (and the conduit start) leave from the connector THIS circuit occupies on the board — with two circuits on one DB, they must start at different connectors, not both at the first one
+- [ ] **Wires**: paste `wire_failure_geometry` verbatim if they still fail. `stations_mm` showing two entries that look identical means Revit's coincidence tolerance is wider than the 1 mm `WirePath.CoincidentMm`; two clearly different entries means the cause is the connector origins instead

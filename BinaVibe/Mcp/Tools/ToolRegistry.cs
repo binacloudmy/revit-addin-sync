@@ -121,6 +121,13 @@ namespace BinaVibe.Mcp.Tools
                 "validate_panel_schedule"       => Electrical.ElecValidation.ValidatePanelSchedule(doc, args),
                 "check_circuit_loads"           => Electrical.ElecValidation.CheckCircuitLoads(doc, args),
                 "check_code_compliance"         => Electrical.ElecValidation.CheckCodeCompliance(doc, args),
+                // The circuits a model ALREADY has, with their element ids.
+                // Read-only. Nothing else can produce a circuit id:
+                // trace_mep_connections walks physical connectors while a
+                // circuit assignment is logical, and filter_elements' row shape
+                // carries no panel, members or rating even now that its
+                // category resolves.
+                "list_circuits"                 => Electrical.CircuitInventory.List(doc, args),
                 // Route clearance along a segment, host doc + loaded links.
                 // Read-only (no Transaction): the look before the create_* MEP
                 // tools leap — must never fire the Ya/Tidak confirm card.
@@ -176,6 +183,11 @@ namespace BinaVibe.Mcp.Tools
                 // failure tolerance. Grouping comes from the cached plan,
                 // never from the model re-emitting device lists.
                 "create_circuits"        => Electrical.CircuitCommit.CreateCircuits(doc, args),
+                // The undo of create_circuits. Frees devices, and DELETES a
+                // circuit that would be left with nothing — an empty circuit
+                // still holds its breaker slot, and a panel full of invisible
+                // empties rejects the next SelectPanel as "full".
+                "remove_from_circuit"    => Electrical.CircuitDisconnect.Run(doc, args),
                 // Routes: conduits + elbow fittings + wires + circuit path per
                 // circuit, one Transaction each inside the group — a
                 // half-routed circuit rolls back alone, the rest survive.
@@ -186,6 +198,11 @@ namespace BinaVibe.Mcp.Tools
                 // and RELOADS the family, so it touches every instance.
                 "set_distribution_system" => Electrical.ElecSettings.SetDistributionSystem(doc, args),
                 "set_connector_electrical_data" => Electrical.ElecSettings.SetConnectorElectricalData(doc, args),
+                // Authoring the settings themselves — the case where the project
+                // defines NO system the devices could ever match, and assigning
+                // one of the existing ones is the wrong answer.
+                "create_distribution_system" => Electrical.ElecSystemAuthoring.Create(doc, args),
+                "edit_distribution_system" => Electrical.ElecSystemAuthoring.Edit(doc, args),
                 "create_wall"            => Mutators.CreateWall(doc, args),
                 "create_room"            => Mutators.CreateRoomXY(doc, args),
                 "create_level"           => Mutators.CreateLevel(doc, args),

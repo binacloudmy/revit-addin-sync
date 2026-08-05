@@ -75,7 +75,7 @@ namespace RevitWebAppSync.Tests
                 Index = 0,
                 CircuitId = 900,
                 DeviceIds = { 42 },
-                HopStartLegIndex = { 0 },
+                Hops = { new RouteHop { StartLegIndex = 0, EndLegIndex = 1, ToDeviceId = 42 } },
                 Legs =
                 {
                     new RouteLeg { FromZMm = 300, ToZMm = 2700, LengthMm = 2400, Kind = "rise" },
