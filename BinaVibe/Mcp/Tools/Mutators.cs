@@ -2674,11 +2674,19 @@ namespace BinaVibe.Mcp.Tools
                         double cx = room.boundaryFt.Average(p => p.X);
                         double cy = room.boundaryFt.Average(p => p.Y);
 
-                        numberByLevel.TryGetValue(room.level, out var seq);
-                        numberByLevel[room.level] = ++seq;
-                        var number = string.IsNullOrWhiteSpace(room.number)
-                            ? $"T{room.level}-{seq:00}"
-                            : room.number;
+                        // Only a GENERATED number consumes a sequence value. The
+                        // counter used to advance for every room including the
+                        // classrooms, which carry their own "BD7" codes — so the
+                        // generated numbers came out as T1-06, T1-11, T1-12 with the
+                        // classroom-shaped gaps in between, reading like someone had
+                        // deleted rooms (spotted in a room schedule, 2026-08-05).
+                        string number = room.number;
+                        if (string.IsNullOrWhiteSpace(number))
+                        {
+                            numberByLevel.TryGetValue(room.level, out var seq);
+                            numberByLevel[room.level] = ++seq;
+                            number = $"T{room.level}-{seq:00}";
+                        }
                         var name = string.IsNullOrWhiteSpace(room.name) ? room.label : room.name;
 
                         var placed = CreateRoomCore(doc, level, new XYZ(cx, cy, 0), name, number);
