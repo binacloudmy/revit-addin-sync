@@ -113,22 +113,45 @@ namespace RevitWebAppSync.UI.Copilot.Model
             return anyContent ? string.Join(",", cells) : "";
         }
 
-        /// <summary>Cell to string. Dates are forced to ISO rather than the
-        /// workbook's display format: Excel renders them per the machine's locale,
-        /// so "31/07/2026" and "07/31/2026" are the same cell on two drafters'
-        /// laptops — an ambiguity a rule table cannot afford.</summary>
+        /// <summary>Cell to string, as a VALUE rather than as displayed.
+        ///
+        /// Numbers are read raw, not through GetFormattedString(). A drafter who
+        /// formats 1000 with a thousands separator sees "1,000", and that string
+        /// would travel all the way into find_elements_by_parameter as the right
+        /// side of a `>` comparison — a silently wrong result from a cell that
+        /// looks perfectly correct in Excel. Same reasoning for a value formatted
+        /// as currency or with a unit suffix.
+        ///
+        /// Dates are forced to ISO for the mirror-image reason: Excel renders them
+        /// per the machine's locale, so one cell reads 31/07/2026 on one drafter's
+        /// laptop and 07/31/2026 on another.</summary>
         private static string CellText(IXLCell cell)
         {
             if (cell == null) return "";
             try
             {
                 if (cell.IsEmpty()) return "";
+
                 if (cell.DataType == XLDataType.DateTime)
                     return cell.GetDateTime().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
                 if (cell.DataType == XLDataType.Boolean)
                     return cell.GetBoolean() ? "TRUE" : "FALSE";
-                // Everything else as displayed — a formula yields its cached
-                // value, which is what the drafter sees and means.
+
+                if (cell.DataType == XLDataType.Number)
+                {
+                    // "R" round-trips without scientific notation for the
+                    // magnitudes a rule table uses, and InvariantCulture keeps the
+                    // decimal point a dot on a comma-decimal machine (ms-MY, de-DE)
+                    // — otherwise "2600.5" would arrive as "2600,5" and split into
+                    // two CSV columns.
+                    var d = cell.GetDouble();
+                    return d == Math.Floor(d) && Math.Abs(d) < 1e15
+                        ? ((long)d).ToString(CultureInfo.InvariantCulture)
+                        : d.ToString("R", CultureInfo.InvariantCulture);
+                }
+
+                // Text, and a formula's cached result — what the drafter typed.
                 return cell.GetFormattedString() ?? "";
             }
             catch
