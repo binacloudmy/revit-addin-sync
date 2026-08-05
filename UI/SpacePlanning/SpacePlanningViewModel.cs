@@ -261,6 +261,11 @@ namespace RevitWebAppSync.UI.SpacePlanning
             /// <summary>Rooms cannot be group members — Revit refuses. Deleting the
             /// group removes the separation lines and masses and LEAVES the rooms.</summary>
             public bool RoomsInGroup;
+            /// <summary>The placed scheme crosses the site boundary. Reported rather
+            /// than blocked: the drafter may be planning against a scope box that is
+            /// not really their land, and refusing to build would be worse than
+            /// saying so.</summary>
+            public bool OverflowsSite;
         }
 
         private MassingBuildOutcome _buildOutcome;
@@ -444,6 +449,12 @@ namespace RevitWebAppSync.UI.SpacePlanning
                 // would walk the scheme straight back off the land.
                 var (offX, offY) = SitePlacement.OffsetMm(Site, SetbackM ?? 6.0, scheme);
                 bool onSite = Site != null && Site.HasBoundary;
+                // Last line of defence. The backend rejects schemes that do not fit,
+                // but it works from the polygon's bounding box while placement
+                // happens here — and it briefly accepted a ROTATED fit, which the
+                // placer cannot honour, so a scheme ran off the boundary in Revit
+                // (2026-08-05). Check what is actually about to be drawn.
+                bool overflows = onSite && !SitePlacement.FitsInside(Site, SetbackM ?? 6.0, scheme);
                 var args = MassingArgs.Build(
                     scheme, makeWalls: true, optionName: optionName,
                     storeyHeightMm: MassingArgs.StoreyHeightMmFor(Planning),
@@ -455,6 +466,7 @@ namespace RevitWebAppSync.UI.SpacePlanning
                 }
                 var json = await RunLocalToolAsync("place_massing_scheme", args);
                 BuildOutcome = ReadBuildOutcome(optionName, json);
+                if (BuildOutcome != null) BuildOutcome.OverflowsSite = overflows;
             }
             catch (Exception ex)
             {

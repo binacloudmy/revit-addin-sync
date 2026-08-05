@@ -110,6 +110,8 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
                 AddRow("⚠ Not enclosed", $"{outcome.UnenclosedCount} room(s) — no area");
             if (outcome.RoomFailureCount > 0)
                 AddRow("⚠ Could not place", $"{outcome.RoomFailureCount} room(s)");
+            if (outcome.OverflowsSite)
+                AddRow("⚠ Crosses the site", "the block extends past the boundary + setback");
 
             LodCard.Visibility = Visibility.Visible;
             string lodText = string.IsNullOrWhiteSpace(outcome.Lod) ? "LOD 100" : outcome.Lod;
