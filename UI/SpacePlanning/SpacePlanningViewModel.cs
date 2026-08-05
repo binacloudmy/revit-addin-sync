@@ -266,6 +266,10 @@ namespace RevitWebAppSync.UI.SpacePlanning
             /// unrelated view, so a build with nowhere to look reads as a failure.</summary>
             public string OpenedView;
             public int TagCount;
+            /// <summary>The room schedule Build created — the Schedule of
+            /// Accommodation as a Revit table, and the only place an unenclosed room
+            /// admits to having no area.</summary>
+            public string ScheduleName;
             public int TagFailureCount;
             /// <summary>Rooms cannot be group members — Revit refuses. Deleting the
             /// group removes the separation lines and masses and LEAVES the rooms.</summary>
@@ -578,6 +582,8 @@ namespace RevitWebAppSync.UI.SpacePlanning
                 if (o.TryGetProperty("opened_view", out var ov) && ov.ValueKind == System.Text.Json.JsonValueKind.String)
                     outcome.OpenedView = ov.GetString();
                 if (o.TryGetProperty("tag_count", out var tc) && tc.TryGetInt32(out var tci)) outcome.TagCount = tci;
+                if (o.TryGetProperty("schedule_name", out var sn) && sn.ValueKind == System.Text.Json.JsonValueKind.String)
+                    outcome.ScheduleName = sn.GetString();
                 if (o.TryGetProperty("tag_failure_count", out var tf) && tf.TryGetInt32(out var tfi)) outcome.TagFailureCount = tfi;
                 if (o.TryGetProperty("created_views", out var cv) && cv.ValueKind == System.Text.Json.JsonValueKind.Array)
                     foreach (var item in cv.EnumerateArray())

@@ -93,6 +93,8 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
                 AddRow("Views created", string.Join(", ", outcome.CreatedViews));
             // Say where to look. Without this the drafter is left hunting a browser
             // full of plans for the one the scheme actually landed in.
+            if (!string.IsNullOrWhiteSpace(outcome.ScheduleName))
+                AddRow("Schedule created", outcome.ScheduleName);
             if (!string.IsNullOrWhiteSpace(outcome.OpenedView))
                 AddRow("Now showing", outcome.OpenedView);
             if (outcome.TagFailureCount > 0)

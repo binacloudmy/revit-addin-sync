@@ -2455,6 +2455,13 @@ namespace BinaVibe.Mcp.Tools
             // rich enough". Cosmetic and view-only — the model is correct either way.
             bool colorRooms = ArgsHelp.GetBool(args, "color_rooms") ?? true;
 
+            // Build the room schedule too. On by default: the Schedule of
+            // Accommodation IS a table, and placing 36 named, numbered, measured
+            // rooms and then leaving the drafter to hand-assemble the table that
+            // shows them is half a job. It is also the only surface where an
+            // unenclosed room admits to having no area.
+            bool makeSchedule = ArgsHelp.GetBool(args, "make_schedule") ?? true;
+
             var output = (ArgsHelp.GetString(args, "output") ?? "masses").Trim().ToLowerInvariant();
             if (output != "rooms" && output != "masses" && output != "both")
                 throw new ArgumentException($"output must be rooms|masses|both, got '{output}'");
@@ -2765,6 +2772,8 @@ namespace BinaVibe.Mcp.Tools
                     }
                 }
 
+                var uniqueNameSeed = optionName;
+
                 // 4 ─ One named Model Group holding the groupable elements.
                 // NewGroup throws on an empty list, which is reachable when every
                 // separation edge was shared and nothing else was placed.
@@ -2789,6 +2798,16 @@ namespace BinaVibe.Mcp.Tools
                 if (wantRooms && colorRooms)
                     foreach (var pv in planViews.Values)
                         if (RoomColorScheme.Apply(doc, pv) > 0) colouredViews++;
+
+                // 4c ─ The room schedule. Named after the scheme so a model with two
+                // proposals in it has two readable tables rather than "Schedule 1".
+                string scheduleName = null;
+                if (wantRooms && makeSchedule && roomCount > 0)
+                {
+                    var wanted = $"Jadual Ruang — {uniqueNameSeed}";
+                    var sched = CreateRoomScheduleCore(doc, wanted);
+                    if (sched != null) scheduleName = sched.Name;
+                }
 
                 tx.Commit();
 
@@ -2816,6 +2835,7 @@ namespace BinaVibe.Mcp.Tools
                     // where to look rather than leaving the user to hunt.
                     ["opened_view"] = openedView,
                     ["tag_count"] = tagCount,
+                    ["schedule_name"] = scheduleName,
                     ["coloured_view_count"] = colouredViews,
                     ["tag_failure_count"] = tagFailures,
                     ["mass_count"] = massCount,
@@ -3988,6 +4008,66 @@ namespace BinaVibe.Mcp.Tools
                 };
             }
             catch { tx.RollBack(); throw; }
+        }
+
+        /// <summary>
+        /// A Rooms schedule — Number / Name / Area / Level, sorted by level then
+        /// number. TRANSACTION-FREE: the caller must already be inside a Transaction.
+        ///
+        /// Built as part of a space-planning Build rather than left to the drafter.
+        /// The schedule IS the deliverable — a Schedule of Accommodation is a table,
+        /// and placing 36 named, numbered, measured rooms and then asking someone to
+        /// hand-assemble the table to see them is leaving the job half done. It is
+        /// also the only place an unenclosed room admits to having no area.
+        ///
+        /// Returns null rather than throwing: a missing schedule must not lose a
+        /// correct 36-room build.
+        /// </summary>
+        internal static ViewSchedule CreateRoomScheduleCore(Document doc, string name)
+        {
+            try
+            {
+                var sched = ViewSchedule.CreateSchedule(doc, new ElementId(BuiltInCategory.OST_Rooms));
+                var def = sched.Definition;
+
+                var available = new Dictionary<string, SchedulableField>(StringComparer.OrdinalIgnoreCase);
+                foreach (var sf in def.GetSchedulableFields())
+                {
+                    try
+                    {
+                        var n = sf.GetName(doc);
+                        if (!string.IsNullOrEmpty(n) && !available.ContainsKey(n)) available[n] = sf;
+                    }
+                    catch { /* a field that will not name itself is not one we want */ }
+                }
+
+                var byName = new Dictionary<string, ScheduleField>(StringComparer.OrdinalIgnoreCase);
+                foreach (var want in new[] { "Level", "Number", "Name", "Area" })
+                {
+                    if (!available.TryGetValue(want, out var sf)) continue;
+                    try { byName[want] = def.AddField(sf); } catch { /* not schedulable here */ }
+                }
+                if (byName.Count == 0) return null;      // nothing to show — drop it
+
+                // Level, then number: reads as a storey-by-storey accommodation
+                // schedule rather than creation order. Best-effort — a schedule that
+                // will not sort is still a perfectly usable schedule.
+                foreach (var key in new[] { "Level", "Number" })
+                {
+                    if (!byName.TryGetValue(key, out var f)) continue;
+                    try { def.AddSortGroupField(new ScheduleSortGroupField(f.FieldId)); }
+                    catch { }
+                }
+
+                if (!string.IsNullOrWhiteSpace(name))
+                    try { sched.Name = name; } catch { /* duplicate name — keep Revit's */ }
+
+                return sched;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static List<string> DefaultScheduleFields(string category)
