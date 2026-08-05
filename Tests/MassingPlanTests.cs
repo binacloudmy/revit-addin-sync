@@ -715,4 +715,82 @@ namespace RevitWebAppSync.Tests
             }
         }
     }
+
+    /// <summary>Where a scheme lands on the site — pure arithmetic, no Revit.</summary>
+    public class SitePlacementTests
+    {
+        private static SiteBoundaryInfo Site(double x0, double y0, double w, double d) =>
+            new SiteBoundaryInfo
+            {
+                Source = "property_line",
+                WidthM = w / 1000.0,
+                DepthM = d / 1000.0,
+                PolygonMm = new List<double[]>
+                {
+                    new[] { x0, y0 }, new[] { x0 + w, y0 },
+                    new[] { x0 + w, y0 + d }, new[] { x0, y0 + d },
+                },
+            };
+
+        private static MassingScheme Block(double x, double y, double w, double h) =>
+            new MassingScheme
+            {
+                Id = "A",
+                Rooms = new List<MassingRoom>
+                {
+                    new MassingRoom { Label = "R", Type = "kelas", X = x, Y = y, W = w, H = h, Level = 1 },
+                },
+            };
+
+        [Fact]
+        public void OffsetPutsTheBlockOnTheSetbackCorner()
+        {
+            // Site starts at 50,20 m in model coordinates; 6 m setback.
+            var site = Site(50_000, 20_000, 100_000, 60_000);
+            var (x, y) = SitePlacement.OffsetMm(site, 6, Block(0, 0, 40, 30));
+            Assert.Equal(56_000, x, 3);   // 50 m + 6 m setback
+            Assert.Equal(26_000, y, 3);
+        }
+
+        [Fact]
+        public void OffsetAccountsForASchemeThatDoesNotStartAtZero()
+        {
+            // The block's own minimum must land on the setback line, not its origin
+            // — otherwise a scheme whose rooms start at x=10 is pushed 10 m in.
+            var site = Site(0, 0, 100_000, 100_000);
+            var (x, y) = SitePlacement.OffsetMm(site, 6, Block(10, 4, 20, 20));
+            Assert.Equal(6_000 - 10_000, x, 3);
+            Assert.Equal(6_000 - 4_000, y, 3);
+        }
+
+        [Fact]
+        public void NoBoundaryMeansNoOffset()
+        {
+            // Honest fallback: with no idea where the land is, build at the origin
+            // exactly as before rather than inventing a position.
+            Assert.Equal((0.0, 0.0), SitePlacement.OffsetMm(null, 6, Block(0, 0, 10, 10)));
+            Assert.Equal((0.0, 0.0),
+                SitePlacement.OffsetMm(new SiteBoundaryInfo(), 6, Block(0, 0, 10, 10)));
+        }
+
+        [Fact]
+        public void FitsInsideRespectsTheSetbackOnBothSides()
+        {
+            var site = Site(0, 0, 100_000, 50_000);        // 100 x 50 m
+            // 80 x 36 fits inside 88 x 38 (100-12, 50-12).
+            Assert.True(SitePlacement.FitsInside(site, 6, Block(0, 0, 80, 36)));
+            // 80 x 40 does not — the setback eats 12 m of the 50 m depth.
+            Assert.False(SitePlacement.FitsInside(site, 6, Block(0, 0, 80, 40)));
+        }
+
+        [Fact]
+        public void PolygonConvertsMillimetresToMetresForTheBackend()
+        {
+            var site = Site(0, 0, 100_000, 50_000);
+            var poly = site.PolygonM();
+            Assert.Equal(4, poly.Count);
+            Assert.Equal(100.0, poly[1][0], 6);   // 100,000 mm -> 100 m
+            Assert.Equal(50.0, poly[2][1], 6);
+        }
+    }
 }

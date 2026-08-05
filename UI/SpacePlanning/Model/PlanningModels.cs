@@ -36,6 +36,13 @@ namespace RevitWebAppSync.UI.SpacePlanning.Model
         [JsonProperty("site_area_m2")] public double? SiteAreaM2 { get; set; }
         [JsonProperty("setback_m")] public double? SetbackM { get; set; }
 
+        /// <summary>The site as a SHAPE, in metres, read from the model by
+        /// read_site_boundary. Supersedes <see cref="SiteAreaM2"/> for every fit
+        /// check: without it the backend does side = sqrt(area) and judges every
+        /// site as square, so a 200x30 strip and a 100x60 lot — both 6,000 m² —
+        /// produced identical answers.</summary>
+        [JsonProperty("site_polygon_m")] public List<List<double>> SitePolygonM { get; set; }
+
         [JsonProperty("user_id")] public int? UserId { get; set; }
     }
 

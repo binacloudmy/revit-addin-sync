@@ -272,6 +272,29 @@ namespace RevitWebAppSync.UI.SpacePlanning
 
         // ══════════ Actions ══════════
 
+        private SiteBoundaryInfo _site;
+        /// <summary>What read_site_boundary found in the model. Drives the fit check
+        /// on the backend AND where Build places the scheme.</summary>
+        public SiteBoundaryInfo Site
+        {
+            get => _site;
+            private set { _site = value; Raise(); Raise(nameof(SiteSummary)); }
+        }
+
+        /// <summary>One line for the brief form: what we are planning against.</summary>
+        public string SiteSummary
+        {
+            get
+            {
+                if (_site == null || !_site.HasBoundary) return null;
+                var what = _site.Source == "property_line" ? "Property line"
+                         : _site.Source == "scope_box" ? "Scope box"
+                         : _site.Source == "topography" ? "Toposurface"
+                         : "Site";
+                return $"{what}: {_site.WidthM:N0} × {_site.DepthM:N0} m · {_site.AreaM2:N0} m²";
+            }
+        }
+
         private CancellationTokenSource _planningCts;
 
         private void CancelRun()
@@ -316,6 +339,11 @@ namespace RevitWebAppSync.UI.SpacePlanning
             _planningCts?.Cancel();
             var cts = _planningCts = new CancellationTokenSource();
 
+            // Read the site out of the model FIRST — the boundary is what makes the
+            // fit check mean anything, and without it the backend falls back to
+            // assuming a square site of whatever area it was given.
+            Site = await ReadSiteAsync();
+
             var cfg = BinaConfig.Load();
             SuggestResult result;
             try
@@ -324,7 +352,10 @@ namespace RevitWebAppSync.UI.SpacePlanning
                 {
                     Brief = brief,
                     UserId = cfg?.UserId,
-                    SiteAreaM2 = SiteAreaM2,
+                    // A typed figure still wins over the model — the drafter may be
+                    // testing a hypothetical site.
+                    SiteAreaM2 = SiteAreaM2 ?? (Site != null && Site.HasBoundary ? Site.AreaM2 : (double?)null),
+                    SitePolygonM = SiteAreaM2 == null ? Site?.PolygonM() : null,
                     SetbackM = SetbackM,
                     TargetGfaM2 = TargetGfaM2,
                 };
@@ -407,9 +438,21 @@ namespace RevitWebAppSync.UI.SpacePlanning
                 // look like a plan. NOTE this crosses LOD 100 (space boundaries) into
                 // LOD 200 (building elements) — see the plan doc, it is a decision the
                 // SV owns, not a detail.
+                // Land it on the site, not at the model origin. auto_offset only
+                // applies when we have no boundary — with one, the front-left
+                // setback corner IS the answer and stepping east of the last build
+                // would walk the scheme straight back off the land.
+                var (offX, offY) = SitePlacement.OffsetMm(Site, SetbackM ?? 6.0, scheme);
+                bool onSite = Site != null && Site.HasBoundary;
                 var args = MassingArgs.Build(
                     scheme, makeWalls: true, optionName: optionName,
-                    storeyHeightMm: MassingArgs.StoreyHeightMmFor(Planning));
+                    storeyHeightMm: MassingArgs.StoreyHeightMmFor(Planning),
+                    autoOffset: !onSite);
+                if (onSite)
+                {
+                    args["offset_x_mm"] = offX;
+                    args["offset_y_mm"] = offY;
+                }
                 var json = await RunLocalToolAsync("place_massing_scheme", args);
                 BuildOutcome = ReadBuildOutcome(optionName, json);
             }
@@ -485,6 +528,53 @@ namespace RevitWebAppSync.UI.SpacePlanning
             else
                 outcome.Headline = $"Placed {outcome.MassCount} mass{(outcome.MassCount == 1 ? "" : "es")}";
             return outcome;
+        }
+
+        /// <summary>
+        /// Ask Revit for the site outline. Never throws and never blocks the flow:
+        /// a model with no boundary drawn is a normal state, not an error — the
+        /// scheme then lands at the origin exactly as it did before, which is the
+        /// honest behaviour when we do not know where the land is.
+        /// </summary>
+        private static async Task<SiteBoundaryInfo> ReadSiteAsync()
+        {
+            try
+            {
+                var json = await RunLocalToolAsync("read_site_boundary", new Dictionary<string, object>());
+                if (!json.HasValue || json.Value.ValueKind != System.Text.Json.JsonValueKind.Object)
+                    return null;
+                var o = json.Value;
+
+                var info = new SiteBoundaryInfo();
+                if (o.TryGetProperty("source", out var src) && src.ValueKind == System.Text.Json.JsonValueKind.String)
+                    info.Source = src.GetString();
+                if (info.Source == null || info.Source == "none") return info;
+
+                if (o.TryGetProperty("name", out var nm) && nm.ValueKind == System.Text.Json.JsonValueKind.String)
+                    info.Name = nm.GetString();
+                if (o.TryGetProperty("area_m2", out var ar) && ar.TryGetDouble(out var arv)) info.AreaM2 = arv;
+                if (o.TryGetProperty("width_m", out var wd) && wd.TryGetDouble(out var wdv)) info.WidthM = wdv;
+                if (o.TryGetProperty("depth_m", out var dp) && dp.TryGetDouble(out var dpv)) info.DepthM = dpv;
+
+                if (o.TryGetProperty("polygon_mm", out var poly)
+                    && poly.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var pt in poly.EnumerateArray())
+                    {
+                        if (pt.ValueKind != System.Text.Json.JsonValueKind.Array) continue;
+                        var xy = pt.EnumerateArray().ToList();
+                        if (xy.Count < 2) continue;
+                        if (xy[0].TryGetDouble(out var x) && xy[1].TryGetDouble(out var y))
+                            info.PolygonMm.Add(new[] { x, y });
+                    }
+                }
+                return info;
+            }
+            catch
+            {
+                // Older addin build without the tool, or no document — plan anyway.
+                return null;
+            }
         }
 
         /// <summary>Run one addin tool in-process on the Revit thread (no backend

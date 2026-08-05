@@ -86,6 +86,10 @@
          the frozen contract is testable before the backend exists. -->
     <Compile Include="..\UI\SpacePlanning\Model\PlanningModels.cs" Link="PlanningModels.cs" />
     <Compile Include="..\UI\SpacePlanning\Model\MassingPlan.cs" Link="MassingPlan.cs" />
+    <!-- Where a scheme lands on the site. Pure arithmetic, no Revit: the offset
+         is what stops the building being placed at the model origin instead of on
+         the drafter's land. -->
+    <Compile Include="..\UI\SpacePlanning\Model\SitePlacement.cs" Link="SitePlacement.cs" />
     <Compile Include="..\AppInfo.cs" Link="AppInfo.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotContext.cs" Link="CopilotContext.cs" />
     <Compile Include="..\UI\Copilot\Model\UsageState.cs" Link="UsageState.cs" />

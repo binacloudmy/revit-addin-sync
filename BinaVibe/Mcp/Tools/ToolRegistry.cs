@@ -109,6 +109,9 @@ namespace BinaVibe.Mcp.Tools
                 "list_project_parameters"       => Inspectors.ListProjectParameters(doc),
                 "get_type_parameters"           => Inspectors.GetTypeParameters(doc, args),
                 "list_rooms"                    => Inspectors.ListRooms(doc, args),
+                // Space planning: the site outline, so a scheme can be fitted and
+                // placed against the drafter's actual land instead of the origin.
+                "read_site_boundary"            => SiteBoundary.Read(doc, args),
                 "audit_parameters"              => Inspectors.AuditParameters(doc, args),
                 "audit_view_names"              => Inspectors.AuditViewNames(doc, args),
                 "open_view"                     => Inspectors.OpenView(uidoc, args),

@@ -74,6 +74,21 @@ anything else comes back with a reason instead of a plan."
                 <!-- Optional overrides. Left blank they are simply not sent, and the
                      backend omits the matching chip rather than inventing a figure. -->
                 <TextBlock Text="SITE (OPTIONAL)" Style="{StaticResource SpLabel}"/>
+                <!-- What read_site_boundary found in the model. Naming the SOURCE
+                     matters: a scope box looks like a site boundary and is not one,
+                     and the drafter is the only one who can tell us it is wrong. -->
+                <Border x:Name="SiteCard" Visibility="Collapsed"
+                        Background="{DynamicResource Cp.Sunken}"
+                        BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
+                        CornerRadius="8" Padding="10,8" Margin="0,0,0,8">
+                    <StackPanel>
+                        <TextBlock x:Name="SiteFound" FontSize="11.5" FontWeight="Medium"
+                                   Foreground="{DynamicResource Cp.Ink}" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="SiteHint" FontSize="11" Margin="0,2,0,0"
+                                   Foreground="{DynamicResource Cp.Faint}" TextWrapping="Wrap"
+                                   Text="The scheme will be placed inside it, at the setback."/>
+                    </StackPanel>
+                </Border>
                 <Grid Margin="0,0,0,6">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>

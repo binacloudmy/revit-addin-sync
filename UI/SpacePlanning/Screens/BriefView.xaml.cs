@@ -62,6 +62,7 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
         {
             if (e.PropertyName == nameof(SpacePlanningViewModel.BriefError)
                 || e.PropertyName == nameof(SpacePlanningViewModel.Brief)
+                || e.PropertyName == nameof(SpacePlanningViewModel.SiteSummary)
                 || e.PropertyName == nameof(SpacePlanningViewModel.Screen))
                 Render();
         }
@@ -74,6 +75,11 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
             // Restore the brief when coming back from the plan — the user pressed
             // Back to tweak it, not to retype it.
             if (BriefBox.Text != (vm.Brief ?? "")) BriefBox.Text = vm.Brief ?? "";
+
+            var site = vm.SiteSummary;
+            SiteFound.Text = site ?? "";
+            SiteCard.Visibility = string.IsNullOrWhiteSpace(site)
+                ? Visibility.Collapsed : Visibility.Visible;
 
             var err = vm.BriefError;
             ErrorText.Text = err ?? "";
