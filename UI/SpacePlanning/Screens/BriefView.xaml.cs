@@ -25,6 +25,8 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
             InitializeComponent();
 
             SuggestBtn.Click += (_, __) => Submit();
+            UseSiteBox.Checked += (_, __) => { if (Vm != null) Vm.UseSiteBoundary = true; };
+            UseSiteBox.Unchecked += (_, __) => { if (Vm != null) Vm.UseSiteBoundary = false; };
             // Ctrl+Enter submits from the brief box; plain Enter inserts a newline,
             // because a brief is genuinely multi-line.
             BriefBox.PreviewKeyDown += (s, e) =>
@@ -76,6 +78,7 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
             // Back to tweak it, not to retype it.
             if (BriefBox.Text != (vm.Brief ?? "")) BriefBox.Text = vm.Brief ?? "";
 
+            if (UseSiteBox.IsChecked != vm.UseSiteBoundary) UseSiteBox.IsChecked = vm.UseSiteBoundary;
             var site = vm.SiteSummary;
             SiteFound.Text = site ?? "";
             SiteCard.Visibility = string.IsNullOrWhiteSpace(site)

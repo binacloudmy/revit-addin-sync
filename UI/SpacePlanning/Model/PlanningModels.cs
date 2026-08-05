@@ -227,6 +227,11 @@ namespace RevitWebAppSync.UI.SpacePlanning.Model
         [JsonProperty("gap_m2")] public double GapM2 { get; set; }
         [JsonProperty("reason")] public string Reason { get; set; }
 
+        /// <summary>Why, WITH the numbers — "needs 43 x 60 m of buildable land; this
+        /// site gives 68 x 48 m". A bare reason code tells a drafter nothing they
+        /// can act on.</summary>
+        [JsonProperty("detail")] public string Detail { get; set; }
+
         /// <summary>"below_target_gfa" → "below target GFA" for the collapsed list.</summary>
         public string ReasonLabel =>
             string.IsNullOrEmpty(Reason) ? "" : Reason.Replace('_', ' ');

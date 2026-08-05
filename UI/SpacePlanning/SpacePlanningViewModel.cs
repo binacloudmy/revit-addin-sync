@@ -277,6 +277,20 @@ namespace RevitWebAppSync.UI.SpacePlanning
 
         // ══════════ Actions ══════════
 
+        private bool _useSiteBoundary = true;
+        /// <summary>Fit and place against the boundary read from the model.
+        ///
+        /// Untickable because the boundary may not be the drafter's land: a scope box
+        /// looks exactly like a site and is a view tool. When a real 60 x 80 m plot
+        /// cannot take a 43 x 60 m school, every scheme is correctly rejected — and
+        /// the drafter needs a way to keep planning rather than being stuck with an
+        /// empty screen (2026-08-05).</summary>
+        public bool UseSiteBoundary
+        {
+            get => _useSiteBoundary;
+            set { _useSiteBoundary = value; Raise(); Raise(nameof(SiteSummary)); }
+        }
+
         private SiteBoundaryInfo _site;
         /// <summary>What read_site_boundary found in the model. Drives the fit check
         /// on the backend AND where Build places the scheme.</summary>
@@ -292,6 +306,7 @@ namespace RevitWebAppSync.UI.SpacePlanning
             get
             {
                 if (_site == null || !_site.HasBoundary) return null;
+                if (!_useSiteBoundary) return "Site boundary ignored — planning without it.";
                 var what = _site.Source == "property_line" ? "Property line"
                          : _site.Source == "scope_box" ? "Scope box"
                          : _site.Source == "topography" ? "Toposurface"
@@ -359,8 +374,9 @@ namespace RevitWebAppSync.UI.SpacePlanning
                     UserId = cfg?.UserId,
                     // A typed figure still wins over the model — the drafter may be
                     // testing a hypothetical site.
-                    SiteAreaM2 = SiteAreaM2 ?? (Site != null && Site.HasBoundary ? Site.AreaM2 : (double?)null),
-                    SitePolygonM = SiteAreaM2 == null ? Site?.PolygonM() : null,
+                    SiteAreaM2 = SiteAreaM2
+                        ?? (UseSiteBoundary && Site != null && Site.HasBoundary ? Site.AreaM2 : (double?)null),
+                    SitePolygonM = (UseSiteBoundary && SiteAreaM2 == null) ? Site?.PolygonM() : null,
                     SetbackM = SetbackM,
                     TargetGfaM2 = TargetGfaM2,
                 };
@@ -448,7 +464,7 @@ namespace RevitWebAppSync.UI.SpacePlanning
                 // setback corner IS the answer and stepping east of the last build
                 // would walk the scheme straight back off the land.
                 var (offX, offY) = SitePlacement.OffsetMm(Site, SetbackM ?? 6.0, scheme);
-                bool onSite = Site != null && Site.HasBoundary;
+                bool onSite = UseSiteBoundary && Site != null && Site.HasBoundary;
                 // Last line of defence. The backend rejects schemes that do not fit,
                 // but it works from the polygon's bounding box while placement
                 // happens here — and it briefly accepted a ROTATED fit, which the

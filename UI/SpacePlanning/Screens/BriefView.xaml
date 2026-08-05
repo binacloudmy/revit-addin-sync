@@ -87,6 +87,14 @@ anything else comes back with a reason instead of a plan."
                         <TextBlock x:Name="SiteHint" FontSize="11" Margin="0,2,0,0"
                                    Foreground="{DynamicResource Cp.Faint}" TextWrapping="Wrap"
                                    Text="The scheme will be placed inside it, at the setback."/>
+                        <!-- The escape hatch. A scope box looks exactly like a site
+                             boundary and is not one, and a genuinely small plot
+                             rejects every scheme — correctly, but the drafter still
+                             needs to be able to plan. -->
+                        <CheckBox x:Name="UseSiteBox" IsChecked="True" Margin="0,8,0,0"
+                                  Foreground="{DynamicResource Cp.Ink}"
+                                  FontFamily="{DynamicResource Cp.Font}" FontSize="11.5"
+                                  Content="Fit to the site boundary"/>
                     </StackPanel>
                 </Border>
                 <Grid Margin="0,0,0,6">

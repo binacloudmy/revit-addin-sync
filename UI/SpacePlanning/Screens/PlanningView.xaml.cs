@@ -410,29 +410,46 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
 
             if (schemes.Count == 0)
             {
-                // Say what actually happened, with the numbers. The old copy advised
-                // "try a larger site, or allow a second storey" — both useless: the
-                // generator already lays out two storeys and does not use site area
-                // for fitting. Measured 2026-07-31: every brief above ~3,530 m2 of
-                // target GFA (6+ classes per year) returns zero schemes, because
-                // that is the largest two-storey layout it can produce. A brief the
-                // size of SK Cyberjaya (84 classrooms, 6,649 m2) is ~2x beyond it.
+                // Say what actually happened, with the numbers, and name the RIGHT
+                // cause. This used to blame the GFA target unconditionally ("the
+                // generator lays out two storeys — reduce the brief"), copy written
+                // before the site fit check existed. Once a real boundary was read
+                // out of the model the usual reason became exceeds_site, and the
+                // pane was confidently telling drafters to shrink a brief that fitted
+                // perfectly well — the land was simply too small (2026-08-05).
                 var rejected = vm?.PlanningRejected ?? new List<RejectedScheme>();
-                double target = vm?.PlanningSoa?.TotalGfaM2 ?? 0;
-                double best = 0;
-                foreach (var r in rejected)
-                    if (r != null && r.TotalGfaM2 > best) best = r.TotalGfaM2;
+                bool siteBound = rejected.Count > 0
+                    && rejected.Count(r => r?.Reason == "exceeds_site") * 2 >= rejected.Count;
 
                 var why = new System.Text.StringBuilder();
-                why.Append(rejected.Count > 0
-                    ? $"All {rejected.Count} candidates fell short"
-                    : "No candidate met the brief");
-                if (target > 0) why.Append($" of the {target:N0} m² target");
-                if (best > 0) why.Append($"; the largest reached {best:N0} m²");
-                why.Append(". The generator lays out two storeys — a programme this "
-                         + "large needs more. Reduce the brief, or split it across blocks.");
+                string title;
 
-                SchemesHost.Children.Add(EmptyState("No scheme met the target GFA", why.ToString()));
+                if (siteBound)
+                {
+                    title = "The site is too small for this brief";
+                    var detail = rejected.FirstOrDefault(r => r?.Reason == "exceeds_site"
+                                                             && !string.IsNullOrWhiteSpace(r.Detail));
+                    if (detail != null) why.Append("The smallest candidate ").Append(detail.Detail).Append(". ");
+                    why.Append("Draw a larger property line, reduce the class count, "
+                             + "or untick \u201cFit to the site boundary\u201d on the brief to plan "
+                             + "without it.");
+                }
+                else
+                {
+                    title = "No scheme met the target GFA";
+                    double target = vm?.PlanningSoa?.TotalGfaM2 ?? 0;
+                    double best = 0;
+                    foreach (var r in rejected)
+                        if (r != null && r.TotalGfaM2 > best) best = r.TotalGfaM2;
+                    why.Append(rejected.Count > 0
+                        ? $"All {rejected.Count} candidates fell short"
+                        : "No candidate met the brief");
+                    if (target > 0) why.Append($" of the {target:N0} m² target");
+                    if (best > 0) why.Append($"; the largest reached {best:N0} m²");
+                    why.Append(". Reduce the brief, or split it across blocks.");
+                }
+
+                SchemesHost.Children.Add(EmptyState(title, why.ToString()));
                 return;
             }
 
