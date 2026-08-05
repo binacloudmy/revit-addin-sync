@@ -107,6 +107,16 @@ namespace RevitWebAppSync.UI.SpacePlanning.Model
         [JsonProperty("label_ms")] public string LabelMs { get; set; }
         [JsonProperty("count")] public int Count { get; set; }
         [JsonProperty("unit_area_m2")] public double UnitAreaM2 { get; set; }
+
+        /// <summary>The bay's dimensions from the STANDARDS table. Area gives the
+        /// size, these give the shape. 0 when the standard states an area with no
+        /// module (the assembly hall is a minimum area, not a bay).</summary>
+        [JsonProperty("unit_w_m")] public double UnitWM { get; set; }
+        [JsonProperty("unit_h_m")] public double UnitHM { get; set; }
+
+        /// <summary>"7.2 × 9.0 m", or null when the standard has no bay.</summary>
+        public string BayLabel =>
+            UnitWM > 0 && UnitHM > 0 ? $"{UnitWM:N1} × {UnitHM:N1} m" : null;
         [JsonProperty("total_area_m2")] public double TotalAreaM2 { get; set; }
         /// <summary>Single storey, or null for a space that SPANS storeys. Kept for
         /// back-compat; prefer <see cref="LevelLabel"/>, which handles both.</summary>

@@ -330,7 +330,11 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
             // "7.2 × 9.0 m" tells them the SHAPE, which is what they actually need
             // to judge whether a bay works. Taken from the drawn scheme, so it is
             // the real rectangle rather than a nominal figure.
-            var dims = DimensionsFor(item.Key);
+            // The STANDARD's bay first, the drawn scheme only as a fallback. Reading
+            // it off the layout meant the dimensions disappeared whenever no scheme
+            // passed — precisely when the drafter most needs to see what is being
+            // asked for (reported 2026-08-05 on a site 1.4 m too shallow).
+            var dims = item.BayLabel ?? DimensionsFor(item.Key);
             var sub = item.Count > 0
                 ? $"{item.Count} × {item.UnitAreaM2:N1} m²"
                 : $"{item.UnitAreaM2:N1} m²";
