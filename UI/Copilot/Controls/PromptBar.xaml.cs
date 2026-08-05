@@ -104,8 +104,20 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     if (_files.Count > 0)
                     {
                         var files = new System.Collections.Generic.List<RevitWebAppSync.UI.Copilot.Model.FileAttachment>();
-                        foreach (var (fname, fcontent, fpath, fkind) in _files)
+                        foreach (var (fname, fcontent, fpath, fkind, ferror) in _files)
                         {
+                            // A rejected file still travels — as a "could not be
+                            // read" block. RouteText renders it, so the agent tells
+                            // the drafter their file was not used instead of
+                            // answering as though it never existed.
+                            if (ferror != null)
+                            {
+                                files.Add(new RevitWebAppSync.UI.Copilot.Model.FileAttachment
+                                {
+                                    Name = fname, Kind = fkind, ReadError = ferror,
+                                });
+                                continue;
+                            }
                             switch (fkind)
                             {
                                 case RevitWebAppSync.UI.Copilot.Model.AttachmentKind.Dwg:
@@ -148,10 +160,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 var dlg = new Microsoft.Win32.OpenFileDialog
                 {
                     Multiselect = true,
-                    Filter = "Supported files|*.txt;*.csv;*.md;*.log;*.json;*.xml;*.dwg;*.dxf;*.pdf"
-                           + "|Text files|*.txt;*.csv;*.md;*.log;*.json;*.xml"
-                           + "|Drawings|*.dwg;*.dxf"
-                           + "|Documents|*.pdf",
+                    // Derived from AttachmentGate so the dialog and the gate can
+                    // never drift — a mismatch is how an extension becomes
+                    // selectable but silently unusable.
+                    Filter = Model.AttachmentGate.DialogFilter,
                     Title = "Attach file(s)",
                 };
                 if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
@@ -302,26 +314,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             = new System.Collections.Generic.List<System.Windows.Media.Imaging.BitmapSource>();
 
         // ─── File attachments (pending, content injected into prompt text) ────
-        // One map, one rule: Text extensions are read here (small, UTF-8, capped);
-        // every other kind is read by the addin itself, so only the path travels
-        // and no size cap applies.
-        private static readonly System.Collections.Generic.Dictionary<string, Model.AttachmentKind> SupportedExtensions
-            = new System.Collections.Generic.Dictionary<string, Model.AttachmentKind>(System.StringComparer.OrdinalIgnoreCase)
-              {
-                  [".txt"] = Model.AttachmentKind.Text,
-                  [".csv"] = Model.AttachmentKind.Text,
-                  [".md"] = Model.AttachmentKind.Text,
-                  [".log"] = Model.AttachmentKind.Text,
-                  [".json"] = Model.AttachmentKind.Text,
-                  [".xml"] = Model.AttachmentKind.Text,
-                  [".dwg"] = Model.AttachmentKind.Dwg,
-                  [".dxf"] = Model.AttachmentKind.Dwg,
-                  [".pdf"] = Model.AttachmentKind.Pdf,
-              };
-        private const long MaxFileBytes = 32 * 1024;
+        // What may be attached, and the size cap, live in Model.AttachmentGate —
+        // one source of truth, shared with the dialog filter and unit-testable
+        // without WPF.
+        //
         // Path is non-null for binary kinds; Content is non-null for text only.
-        private readonly System.Collections.Generic.List<(string Name, string Content, string Path, Model.AttachmentKind Kind)> _files
-            = new System.Collections.Generic.List<(string, string, string, Model.AttachmentKind)>();
+        // Error is non-null for a REJECTED file: it is kept in the list on purpose
+        // so the drafter sees a chip AND the agent gets a "could not be read" block
+        // (RouteText), instead of the file vanishing without a word.
+        private readonly System.Collections.Generic.List<(string Name, string Content, string Path, Model.AttachmentKind Kind, string Error)> _files
+            = new System.Collections.Generic.List<(string, string, string, Model.AttachmentKind, string)>();
 
         private void AddImage(System.Windows.Media.Imaging.BitmapSource img)
         {
@@ -336,26 +338,44 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             RebuildThumbStrip();
         }
 
+        /// <summary>Both entry points land here — the Attach dialog and drag-drop
+        /// (MentionInput.FileDropped, which has no filter of its own) — so gating
+        /// here covers both. A file that cannot be used is KEPT with a reason
+        /// rather than dropped: silence here is indistinguishable from "the AI
+        /// ignored me", and for a feature whose input IS the attachment that is the
+        /// worst failure available.</summary>
         private void AddFiles(string[] paths)
         {
             foreach (var path in paths)
             {
-                var ext = System.IO.Path.GetExtension(path);
-                if (!SupportedExtensions.TryGetValue(ext ?? "", out var kind)) continue;
-                var info = new System.IO.FileInfo(path);
-                if (!info.Exists) continue;
-
-                if (kind != Model.AttachmentKind.Text)
+                var name = System.IO.Path.GetFileName(path);
+                var gate = Model.AttachmentGate.Check(path);
+                if (!gate.Accepted)
                 {
-                    // Binary — never ReadAllText it, and the 32KB cap doesn't
-                    // apply: nothing but the path leaves this method.
-                    _files.Add((System.IO.Path.GetFileName(path), null, path, kind));
+                    _files.Add((name, null, null, Model.AttachmentKind.Text, gate.Reason));
                     continue;
                 }
 
-                if (info.Length > MaxFileBytes) continue;
-                var content = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8);
-                _files.Add((System.IO.Path.GetFileName(path), content, null, kind));
+                var kind = gate.Kind.Value;
+                if (kind != Model.AttachmentKind.Text)
+                {
+                    // Binary — never ReadAllText it, and the text cap doesn't
+                    // apply: nothing but the path leaves this method.
+                    _files.Add((name, null, path, kind, null));
+                    continue;
+                }
+
+                try
+                {
+                    var content = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8);
+                    _files.Add((name, content, null, kind, null));
+                }
+                catch (System.Exception ex)
+                {
+                    // Locked by Excel, permission denied, disk error — the gate
+                    // cannot foresee these, and they must not vanish either.
+                    _files.Add((name, null, null, kind, $"tidak boleh dibaca: {ex.Message}"));
+                }
             }
             RebuildThumbStrip();
         }
@@ -374,7 +394,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 ThumbStrip.Children.Add(chip);
             }
 
-            foreach (var (name, content, path, kind) in _files)
+            foreach (var (name, content, path, kind, error) in _files)
             {
                 var capturedName = name;
                 System.Action remove = () =>
@@ -384,7 +404,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 };
                 // Page count is unknown until the addin reads the PDF, which
                 // happens on send — the chip shows the kind until then.
-                var chip = kind == Model.AttachmentKind.Dwg ? AttachmentChip.ForDrawing(name, remove)
+                var chip = error != null ? AttachmentChip.ForRejected(name, error, remove)
+                         : kind == Model.AttachmentKind.Dwg ? AttachmentChip.ForDrawing(name, remove)
                          : kind == Model.AttachmentKind.Pdf ? AttachmentChip.ForDocument(name, 0, remove)
                          : AttachmentChip.ForFile(name, content, remove);
                 chip.Margin = new Thickness(0, 0, 6, 0);
