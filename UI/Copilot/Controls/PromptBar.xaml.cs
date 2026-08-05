@@ -367,13 +367,32 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
                 try
                 {
-                    var content = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8);
+                    string content;
+                    if (Model.AttachmentGate.NeedsConversion(path))
+                    {
+                        // .xlsx — flatten to CSV here so the wire format, the
+                        // backend and every recipe keep seeing plain text. The cap
+                        // applies to the OUTPUT: the file is a compressed ZIP, so
+                        // its size on disk says nothing about how much text it is.
+                        var xl = Model.XlsxText.ToText(path, Model.AttachmentGate.MaxTextBytes);
+                        if (string.IsNullOrWhiteSpace(xl.Text))
+                        {
+                            _files.Add((name, null, null, kind, "tiada data dalam fail Excel ini"));
+                            continue;
+                        }
+                        content = xl.Text;   // carries its own [dipotong: …] marker when cut
+                    }
+                    else
+                    {
+                        content = System.IO.File.ReadAllText(path, System.Text.Encoding.UTF8);
+                    }
                     _files.Add((name, content, null, kind, null));
                 }
                 catch (System.Exception ex)
                 {
-                    // Locked by Excel, permission denied, disk error — the gate
-                    // cannot foresee these, and they must not vanish either.
+                    // Locked by Excel (the common one — drafters attach the file
+                    // they still have open), permission denied, corrupt workbook.
+                    // The gate cannot foresee these, and they must not vanish.
                     _files.Add((name, null, null, kind, $"tidak boleh dibaca: {ex.Message}"));
                 }
             }

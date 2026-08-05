@@ -106,11 +106,11 @@ namespace RevitWebAppSync.Tests
         [Fact]
         public void UnsupportedExtension_IsRejected_AndNamesIt()
         {
-            // .xlsx is the one drafters will actually try first, and today it is
-            // not supported — the message has to say which extension failed.
-            var r = AttachmentGate.Check(Make("rules.xlsx"));
+            // The message has to say WHICH extension failed — "unsupported file"
+            // leaves the drafter guessing which of their attachments was dropped.
+            var r = AttachmentGate.Check(Make("report.docx"));
             Assert.False(r.Accepted);
-            Assert.Contains(".xlsx", r.Reason);
+            Assert.Contains(".docx", r.Reason);
         }
 
         [Fact]
@@ -144,7 +144,7 @@ namespace RevitWebAppSync.Tests
         public void EveryRejection_CarriesAReason()
         {
             // The whole point of the gate: never a silent drop.
-            foreach (var path in new[] { Make("rules.xlsx"), Make("rules"), Path.Combine(_dir, "gone.csv") })
+            foreach (var path in new[] { Make("report.docx"), Make("rules"), Path.Combine(_dir, "gone.csv") })
             {
                 var r = AttachmentGate.Check(path);
                 Assert.False(r.Accepted);
@@ -165,12 +165,25 @@ namespace RevitWebAppSync.Tests
         }
 
         [Fact]
-        public void DialogFilter_DoesNotOfferXlsxYet()
+        public void Xlsx_IsSupported_AndOffered()
         {
-            // Canary for Part A: when .xlsx joins the map this flips, and it
-            // should be updated deliberately rather than silently.
-            Assert.DoesNotContain("*.xlsx", AttachmentGate.DialogFilter);
-            Assert.False(AttachmentGate.Supported.ContainsKey(".xlsx"));
+            // Excel is what drafters actually have. Before this it was not in the
+            // map at all, so dragging one onto the composer dropped it in silence.
+            Assert.True(AttachmentGate.Supported.ContainsKey(".xlsx"));
+            Assert.Contains("*.xlsx", AttachmentGate.DialogFilter);
+        }
+
+        [Fact]
+        public void Xlsx_SkipsTheByteCap_BecauseItIsCompressed()
+        {
+            // An .xlsx is a ZIP: 32 KB on disk can be hundreds of KB of text, and
+            // a 40 KB workbook can be a handful of rows. Gating on file size would
+            // be wrong in both directions — XlsxText caps the OUTPUT instead.
+            var r = AttachmentGate.Check(Make("rules.xlsx", 40 * 1024), maxTextBytes: 32 * 1024);
+            Assert.True(r.Accepted);
+            Assert.Equal(AttachmentKind.Text, r.Kind);
+            Assert.True(AttachmentGate.NeedsConversion("book.xlsx"));
+            Assert.False(AttachmentGate.NeedsConversion("rules.csv"));
         }
 
         // ── size formatting ───────────────────────────────────────────────────
