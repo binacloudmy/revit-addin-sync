@@ -42,7 +42,11 @@ namespace BinaVibe.Mcp.Tools
             // 2. Extract lines from ACadSharp
             var layerFilter = ArgsHelp.GetString(args, "layer_filter");
             var extractStart = sw.ElapsedMilliseconds;
-            var cadLines = CadFileReader.GetLinesForLayer(path, layerFilter);
+            var linesResult = CadFileReader.GetLinesForLayerWithTimings(path, layerFilter);
+            var cadLines = linesResult.Lines;
+            // Capture ACadSharp timings
+            foreach (var kv in linesResult.Timings)
+                timings[$"acadsharp_{kv.Key}"] = kv.Value;
             if (cadLines.Count == 0)
             {
                 var allLines = CadFileReader.Extract(path);

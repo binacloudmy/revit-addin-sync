@@ -8,6 +8,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using ACadSharp;
@@ -87,6 +88,11 @@ namespace BinaVibe.Mcp.Tools
         public int ArcCount { get; set; }
         public int DimensionCount { get; set; }
         public int HatchCount { get; set; }
+
+        /// <summary>
+        /// Timing breakdown for performance diagnostics (milliseconds).
+        /// </summary>
+        public Dictionary<string, long> Timings { get; set; } = new();
     }
 
     public static class CadFileReader
@@ -146,6 +152,7 @@ namespace BinaVibe.Mcp.Tools
         public static CadExtractionResult Extract(string filePath)
         {
             var result = new CadExtractionResult();
+            var sw = Stopwatch.StartNew();
 
             // Validate the extension BEFORE existence: an unsupported type is
             // "unsupported" regardless of whether the path happens to exist.
@@ -179,6 +186,9 @@ namespace BinaVibe.Mcp.Tools
                 result.Error = $"Could not read file: {ex.Message}";
                 return result;
             }
+
+            result.Timings["read_ms"] = sw.ElapsedMilliseconds;
+            var readDone = sw.ElapsedMilliseconds;
 
             result.Ok = true;
             result.SourceInfo = DetectSource(doc);
@@ -279,6 +289,9 @@ namespace BinaVibe.Mcp.Tools
                 }
             }
 
+            result.Timings["iterate_ms"] = sw.ElapsedMilliseconds - readDone;
+            result.Timings["total_ms"] = sw.ElapsedMilliseconds;
+
             return result;
         }
 
@@ -375,16 +388,37 @@ namespace BinaVibe.Mcp.Tools
         }
 
         /// <summary>
+        /// Result of GetLinesForLayer with timing data.
+        /// </summary>
+        public class LinesForLayerResult
+        {
+            public List<CadLine> Lines { get; set; } = new();
+            public Dictionary<string, long> Timings { get; set; } = new();
+        }
+
+        /// <summary>
         /// Get lines from specific layer(s) for wall extraction.
         /// Returns lines in CAD units (typically mm).
         /// </summary>
         public static List<CadLine> GetLinesForLayer(string filePath, string? layerFilter)
+            => GetLinesForLayerWithTimings(filePath, layerFilter).Lines;
+
+        /// <summary>
+        /// Get lines from specific layer(s) with ACadSharp timing breakdown.
+        /// </summary>
+        public static LinesForLayerResult GetLinesForLayerWithTimings(string filePath, string? layerFilter)
         {
+            var result = new LinesForLayerResult();
             var extraction = Extract(filePath);
-            if (!extraction.Ok) return new List<CadLine>();
+            result.Timings = extraction.Timings;
+
+            if (!extraction.Ok) return result;
 
             if (string.IsNullOrEmpty(layerFilter))
-                return extraction.Lines;
+            {
+                result.Lines = extraction.Lines;
+                return result;
+            }
 
             // Support comma-separated or single layer filter
             var filters = layerFilter.Split(',')
@@ -399,9 +433,10 @@ namespace BinaVibe.Mcp.Tools
             // - Filter as word: "WALL" matches "A-WALL-EXT"
             // But NOT: "WALL" should NOT match "FURNITURE_WALL_MOUNT" where WALL is in the middle
             //          without delimiters on both sides matching the filter
-            return extraction.Lines
+            result.Lines = extraction.Lines
                 .Where(l => filters.Any(f => LayerMatches(l.Layer, f)))
                 .ToList();
+            return result;
         }
 
         /// <summary>
