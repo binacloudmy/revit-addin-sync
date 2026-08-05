@@ -446,6 +446,7 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
             var schemes = vm?.PlanningSchemes ?? new List<MassingScheme>();
 
             SchemesLabel.Text = schemes.Count == 1 ? "SCHEME" : $"SCHEMES ({schemes.Count})";
+            BlockedHost.Children.Clear();
 
             if (schemes.Count == 0)
             {
@@ -488,7 +489,13 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
                     why.Append(". Reduce the brief, or split it across blocks.");
                 }
 
-                SchemesHost.Children.Add(EmptyState(title, why.ToString()));
+                // Rendered ABOVE the schedule, not after it — the explanation was
+                // landing below a full SOA and off the bottom of the pane.
+                BlockedHost.Children.Add(siteBound
+                    ? EmptyState(title, why.ToString(), "Plan without the site boundary",
+                                 () => vm?.PlanWithoutSiteCommand?.Execute(null))
+                    : EmptyState(title, why.ToString()));
+                SchemesLabel.Visibility = Visibility.Collapsed;
                 return;
             }
 
@@ -503,6 +510,8 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
                 : new HashSet<string>(StringComparer.Ordinal);
             foreach (var scheme in schemes.Skip(1))
                 _sharedWarnings.IntersectWith(scheme.Warnings ?? new List<string>());
+
+            SchemesLabel.Visibility = Visibility.Visible;
 
             foreach (var shared in _sharedWarnings)
                 SchemesHost.Children.Add(WarningLine(shared, allSchemes: true));
@@ -1071,7 +1080,8 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
             return row;
         }
 
-        private FrameworkElement EmptyState(string title, string body)
+        private FrameworkElement EmptyState(string title, string body,
+                                           string actionText = null, System.Action action = null)
         {
             var stack = new StackPanel();
             stack.Children.Add(new TextBlock
@@ -1084,6 +1094,22 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
                 Text = body, FontSize = 11.5, Foreground = Muted(), TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 3, 0, 0),
             });
+            // The way out, right where the problem is. Recovering used to mean
+            // back → untick a checkbox → regenerate, with nothing saying so.
+            if (actionText != null && action != null)
+            {
+                var btn = new Button
+                {
+                    Content = actionText, Cursor = System.Windows.Input.Cursors.Hand,
+                    Margin = new Thickness(0, 10, 0, 0), Padding = new Thickness(12, 5, 12, 6),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Background = System.Windows.Media.Brushes.Transparent,
+                    BorderBrush = Brush("Cp.Accent"), BorderThickness = new Thickness(1),
+                    Foreground = Brush("Cp.Accent"), FontSize = 11.5,
+                };
+                btn.Click += (_, __) => action();
+                stack.Children.Add(btn);
+            }
             return new Border
             {
                 Background = Brush("Cp.Sunken"), BorderBrush = Line(), BorderThickness = new Thickness(1),

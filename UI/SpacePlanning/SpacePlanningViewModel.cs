@@ -61,6 +61,13 @@ namespace RevitWebAppSync.UI.SpacePlanning
                 if (Planning != null) Screen = SpScreen.Plan;
             });
             CancelCommand = new RelayCommand(_ => CancelRun());
+            // One click, not three (back → untick → regenerate). Offered from the
+            // empty state, where the drafter actually hits the problem.
+            PlanWithoutSiteCommand = new RelayCommand(_ =>
+            {
+                UseSiteBoundary = false;
+                if (!string.IsNullOrWhiteSpace(PlanningBrief)) _ = BeginPlanningAsync(PlanningBrief);
+            });
             NewPlanCommand = new RelayCommand(_ =>
             {
                 Planning = null;
@@ -143,6 +150,8 @@ namespace RevitWebAppSync.UI.SpacePlanning
         public RelayCommand BackToPlanCommand { get; }
         public RelayCommand CancelCommand { get; }
         public RelayCommand NewPlanCommand { get; }
+        /// <summary>Drop the site constraint and re-plan, in one action.</summary>
+        public RelayCommand PlanWithoutSiteCommand { get; }
 
         // ══════════ Massing / space planning ══════════
         //
@@ -288,8 +297,23 @@ namespace RevitWebAppSync.UI.SpacePlanning
         public bool UseSiteBoundary
         {
             get => _useSiteBoundary;
-            set { _useSiteBoundary = value; Raise(); Raise(nameof(SiteSummary)); }
+            set
+            {
+                _useSiteBoundary = value;
+                _siteChoiceMade = true;    // an explicit choice is never overridden
+                Raise(); Raise(nameof(SiteSummary));
+            }
         }
+
+        /// <summary>True once the drafter has touched the toggle themselves. The
+        /// property-line default must not stomp on a deliberate choice.</summary>
+        private bool _siteChoiceMade;
+
+        private static string SourceLabel(string source) =>
+            source == "property_line" ? "Property line"
+            : source == "scope_box" ? "Scope box"
+            : source == "topography" ? "Toposurface"
+            : "Site";
 
         private SiteBoundaryInfo _site;
         /// <summary>What read_site_boundary found in the model. Drives the fit check
@@ -306,12 +330,13 @@ namespace RevitWebAppSync.UI.SpacePlanning
             get
             {
                 if (_site == null || !_site.HasBoundary) return null;
-                if (!_useSiteBoundary) return "Site boundary ignored — planning without it.";
-                var what = _site.Source == "property_line" ? "Property line"
-                         : _site.Source == "scope_box" ? "Scope box"
-                         : _site.Source == "topography" ? "Toposurface"
-                         : "Site";
-                return $"{what}: {_site.WidthM:N0} × {_site.DepthM:N0} m · {_site.AreaM2:N0} m²";
+                if (!_useSiteBoundary)
+                    return _site.Source == "property_line"
+                        ? "Site boundary ignored — planning without it."
+                        : $"Found a {SourceLabel(_site.Source).ToLowerInvariant()}, not a property line — "
+                          + "not treated as your site. Tick to use it anyway.";
+                return $"{SourceLabel(_site.Source)}: {_site.WidthM:N0} × {_site.DepthM:N0} m "
+                     + $"· {_site.AreaM2:N0} m²";
             }
         }
 
@@ -363,6 +388,17 @@ namespace RevitWebAppSync.UI.SpacePlanning
             // fit check mean anything, and without it the backend falls back to
             // assuming a square site of whatever area it was given.
             Site = await ReadSiteAsync();
+
+            // Constrain by default ONLY when the boundary is a property line.
+            //
+            // A scope box is a view-management tool that happens to draw like a site
+            // boundary; topography is the ground, which usually runs past the plot.
+            // Rejecting every scheme against one of those is us asserting something
+            // we do not know — and it is what happened: a drafter's scope box was
+            // 1.4 m too shallow, so a perfectly good brief returned nothing and the
+            // only way out was a checkbox below the fold (2026-08-05).
+            if (!_siteChoiceMade && Site != null && Site.HasBoundary)
+                UseSiteBoundary = Site.Source == "property_line";
 
             var cfg = BinaConfig.Load();
             SuggestResult result;

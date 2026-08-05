@@ -67,6 +67,12 @@
                     <StackPanel x:Name="StatsHost"/>
                 </Border>
 
+                <!-- Blocked notice. ABOVE the schedule on purpose: when nothing
+                     passes, the reason used to render below the whole SOA and was
+                     off the bottom of the pane, so the drafter saw "0 schemes" and
+                     no explanation (2026-08-05). -->
+                <StackPanel x:Name="BlockedHost" Margin="0,0,0,16"/>
+
                 <!-- (a) Schedule of Accommodation -->
                 <TextBlock Text="SCHEDULE OF ACCOMMODATION" FontSize="10.5" FontWeight="SemiBold"
                            Foreground="{DynamicResource Cp.Faint}" Margin="2,0,0,8"/>
