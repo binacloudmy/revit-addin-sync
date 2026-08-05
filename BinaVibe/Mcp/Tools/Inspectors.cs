@@ -2213,15 +2213,51 @@ namespace BinaVibe.Mcp.Tools
                 };
 
             Regex regex;
-            try
+            Regex? Compile(string p, out string? err)
             {
-                // Full-name match is guaranteed HERE (unconditional ^(?:...)$
-                // wrap) — never rely on the caller to anchor.
-                regex = new Regex("^(?:" + pattern + ")$", RegexOptions.None, TimeSpan.FromSeconds(2));
+                err = null;
+                try
+                {
+                    // Full-name match is guaranteed HERE (unconditional ^(?:...)$
+                    // wrap) — never rely on the caller to anchor.
+                    return new Regex("^(?:" + p + ")$", RegexOptions.None, TimeSpan.FromSeconds(2));
+                }
+                catch (Exception ex) { err = ex.Message; return null; }
             }
-            catch (Exception ex)
             {
-                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"invalid regex: {ex.Message}" };
+                var r = Compile(pattern!, out var err);
+                if (r == null)
+                    return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"invalid regex: {err}" };
+                regex = r;
+            }
+
+            // Per-category grammar map (whole-model audits: the backend ships
+            // one pattern per claimed Revit category; elements in unclaimed
+            // categories fall back to the default pattern above) and the
+            // TYPE-name grammar (loadable family type names, when the backend
+            // has a confirmed type spec for the category). Both are backend-
+            // composed riders — this tool stays grammar-blind either way.
+            var perCategory = new Dictionary<string, Regex>(StringComparer.OrdinalIgnoreCase);
+            if (args.ValueKind == JsonValueKind.Object
+                && args.TryGetProperty("patterns_by_category", out var pbc)
+                && pbc.ValueKind == JsonValueKind.Object)
+            {
+                foreach (var kv in pbc.EnumerateObject())
+                {
+                    if (kv.Value.ValueKind != JsonValueKind.String) continue;
+                    var r = Compile(kv.Value.GetString() ?? "", out var err);
+                    if (r == null)
+                        return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"invalid regex for category '{kv.Name}': {err}" };
+                    perCategory[kv.Name] = r;
+                }
+            }
+            Regex? typeRegex = null;
+            var typePatternRaw = ArgsHelp.GetString(args, "type_pattern");
+            if (!string.IsNullOrEmpty(typePatternRaw))
+            {
+                typeRegex = Compile(typePatternRaw!, out var err);
+                if (typeRegex == null)
+                    return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"invalid type_pattern regex: {err}" };
             }
 
             var category = ArgsHelp.GetString(args, "category");
@@ -2269,20 +2305,31 @@ namespace BinaVibe.Mcp.Tools
             // Local match helper — keeps the timeout contract in ONE place so
             // no audited surface can silently skip it.
             bool timedOut = false;
-            bool Matches(string name)
+            bool Matches(string name, Regex rx)
             {
-                try { return regex.IsMatch(name); }
+                try { return rx.IsMatch(name); }
                 catch (RegexMatchTimeoutException) { timedOut = true; return false; }
             }
 
-            void Audit(long id, string? name, string nameKind, string? categoryName, string? familyName)
+            Regex RegexFor(string? categoryName, bool loadableTypeName)
+            {
+                // Loadable TYPE names get the type grammar when the backend
+                // shipped one; system-family "type" rows carry the FAMILY
+                // grammar and never come through with loadableTypeName=true.
+                if (loadableTypeName && typeRegex != null) return typeRegex;
+                if (categoryName != null && perCategory.TryGetValue(categoryName, out var r)) return r;
+                return regex;
+            }
+
+            void Audit(long id, string? name, string nameKind, string? categoryName, string? familyName,
+                       bool loadableTypeName = false)
             {
                 if (string.IsNullOrEmpty(name)) return;
                 if (!string.IsNullOrEmpty(nameContains)
                     && name!.IndexOf(nameContains, System.StringComparison.OrdinalIgnoreCase) < 0) return;
 
                 auditedCount++;
-                if (Matches(name!))
+                if (Matches(name!, RegexFor(categoryName, loadableTypeName)))
                 {
                     if (compliant.Count < CompliantCap)
                         compliant.Add(new Dictionary<string, object?>
@@ -2353,7 +2400,7 @@ namespace BinaVibe.Mcp.Tools
                         Audit(fam.Id.Value, fam.Name, "family", catName, fam.Name);
 
                     if (includeTypeNames)
-                        Audit(fs.Id.Value, fs.Name, "type", catName, fam.Name);
+                        Audit(fs.Id.Value, fs.Name, "type", catName, fam.Name, loadableTypeName: true);
                 }
                 else
                 {
@@ -2401,6 +2448,123 @@ namespace BinaVibe.Mcp.Tools
                     ["audited"] = auditedCount,
                     ["violations"] = violations.Count,
                 },
+            };
+        }
+
+        // ─── get_family_naming_facts ────────────────────────────────────────
+        /// <summary>
+        /// args: { category: string, param_contains?: string }
+        ///
+        /// Naming facts for the backend's deterministic rename pipeline
+        /// (suggest_name_fixes): every audited name in the category plus its
+        /// naming-standard type parameters. GRAMMAR-BLIND on purpose — the
+        /// naming spec (grammars, code tables, version rule) lives in the
+        /// backend's schema packs; this tool only reports what the model
+        /// contains, so new categories/disciplines/standards are a backend
+        /// data change with zero C# churn. param_contains (default "_jkr_st")
+        /// selects which parameters count as naming parameters — a future
+        /// standard passes its own marker.
+        ///
+        /// Row shape mirrors audit_family_names' fixed rule: loadable
+        /// families report ONE row per family (element_id = the Family id,
+        /// name = the family name, params from its first type, types[] with
+        /// per-type ids/names so type-level writes stay possible); system
+        /// families report one row per type. In-place and annotation-side
+        /// families are excluded exactly like the audit.
+        /// </summary>
+        public static Dictionary<string, object?> GetFamilyNamingFacts(Document doc, JsonElement args)
+        {
+            var category = ArgsHelp.GetString(args, "category");
+            if (string.IsNullOrEmpty(category))
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "category is required" };
+            var bic = CategoryResolve.Resolve(category);
+            if (!bic.HasValue)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"unknown category '{category}' — pass a BuiltInCategory like OST_Doors or a friendly name like 'Doors'",
+                };
+            var marker = ArgsHelp.GetString(args, "param_contains") ?? "_jkr_st";
+
+            Dictionary<string, object?> NamingParams(Element typeEl)
+            {
+                var found = new Dictionary<string, object?>();
+                foreach (Parameter p in typeEl.Parameters)
+                {
+                    var pname = p.Definition?.Name;
+                    if (string.IsNullOrEmpty(pname)
+                        || pname!.IndexOf(marker, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                    found[pname] = p.StorageType == StorageType.String ? p.AsString() : p.AsValueString();
+                }
+                return found;
+            }
+
+            var excludedCategories = new HashSet<int>
+            {
+                (int)BuiltInCategory.OST_TitleBlocks,
+                (int)BuiltInCategory.OST_ProfileFamilies,
+                (int)BuiltInCategory.OST_DetailComponents,
+                (int)BuiltInCategory.OST_GenericAnnotation,
+            };
+
+            var types = new List<object>();
+            var byFamily = new Dictionary<long, Dictionary<string, object?>>();
+            foreach (var el in new FilteredElementCollector(doc)
+                         .WhereElementIsElementType().OfCategory(bic.Value))
+            {
+                var cat = el.Category;
+                if (cat == null) continue;
+                var catId = (int)cat.Id.Value;
+                if (excludedCategories.Contains(catId)
+                    || cat.CategoryType == CategoryType.Annotation) continue;
+
+                if (el is FamilySymbol fs)
+                {
+                    var fam = fs.Family;
+                    if (fam == null || fam.IsInPlace) continue;
+                    if (!byFamily.TryGetValue(fam.Id.Value, out var row))
+                    {
+                        row = new Dictionary<string, object?>
+                        {
+                            ["element_id"] = fam.Id.Value,
+                            ["name"] = fam.Name,
+                            ["name_kind"] = "family",
+                            // First type's naming params — the _jkr_st* set is
+                            // family-level by convention; per-type variance is
+                            // visible through types[] below.
+                            ["params"] = NamingParams(fs),
+                            ["types"] = new List<object>(),
+                        };
+                        byFamily[fam.Id.Value] = row;
+                        types.Add(row);
+                    }
+                    ((List<object>)row["types"]!).Add(new Dictionary<string, object?>
+                    {
+                        ["element_id"] = fs.Id.Value,
+                        ["name"] = fs.Name,
+                        ["params"] = NamingParams(fs),
+                    });
+                }
+                else
+                {
+                    // System family: the TYPE carries the name and the params.
+                    types.Add(new Dictionary<string, object?>
+                    {
+                        ["element_id"] = el.Id.Value,
+                        ["name"] = el.Name,
+                        ["name_kind"] = "type",
+                        ["params"] = NamingParams(el),
+                    });
+                }
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["category"] = category,
+                ["revit_version"] = doc.Application.VersionNumber,
+                ["types"] = types,
+                ["count"] = types.Count,
             };
         }
 

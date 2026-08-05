@@ -3251,6 +3251,225 @@ namespace BinaVibe.Mcp.Tools
             bic = BuiltInCategory.INVALID;
             return false;
         }
+
+        // ─── apply_family_naming_fixes ──────────────────────────────────
+        /// <summary>
+        /// args: { items: [{element_id, new_name, params?: {name: value}}],
+        ///         add_missing_params?: bool, dry_run?: bool }
+        ///
+        /// The mutate half of the backend's deterministic rename pipeline
+        /// (suggest_name_fixes composes new_name server-side; this tool NEVER
+        /// derives a name). ONE transaction for the whole batch so Ctrl+Z
+        /// reverts everything. Per item: rename the element (Family for
+        /// loadable rows, ElementType for system rows) and write the naming
+        /// parameters back — Family rows write params to EVERY type of the
+        /// family (the _jkr_st* set is family-level by convention).
+        ///
+        /// add_missing_params is ACCEPTED but creating a missing shared
+        /// parameter is NOT implemented yet: GUID-correct binding needs the
+        /// JKR shared parameter file (a same-name ad-hoc parameter breaks
+        /// schedules/tags). Missing params are reported per item under
+        /// params_missing so the backend can say exactly what was skipped.
+        /// GRAMMAR-BLIND like get_family_naming_facts — scaling to new
+        /// standards is a backend data change.
+        /// </summary>
+        public static Dictionary<string, object?> ApplyFamilyNamingFixes(Document doc, JsonElement args)
+        {
+            if (args.ValueKind != JsonValueKind.Object
+                || !args.TryGetProperty("items", out var itemsEl)
+                || itemsEl.ValueKind != JsonValueKind.Array
+                || itemsEl.GetArrayLength() == 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "items is required — [{element_id, new_name, params}] from suggest_name_fixes" };
+            var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? false;
+            var addMissing = ArgsHelp.GetBool(args, "add_missing_params") ?? true;
+
+            // Write one string param on one type element; returns false when
+            // the definition is absent or read-only.
+            static bool WriteParam(Element typeEl, string pname, string value)
+            {
+                foreach (Parameter p in typeEl.Parameters)
+                {
+                    if (!string.Equals(p.Definition?.Name, pname, StringComparison.Ordinal)) continue;
+                    if (p.IsReadOnly) return false;
+                    return p.StorageType == StorageType.String ? p.Set(value) : p.SetValueString(value);
+                }
+                return false;
+            }
+
+            var results = new List<object>();
+            int renamed = 0, failed = 0;
+            // Params absent from their type, kept for the auto-create pass
+            // after the rename loop: (row's written/missing lists stay live
+            // so a successful retry moves the name between them).
+            var pendingMissing = new List<(List<Element> targets, string pname, string value,
+                                           List<string> written, List<string> missing)>();
+            var paramsCreated = new List<string>();
+            var paramsUncreatable = new List<string>();
+
+            Transaction? tx = null;
+            if (!dryRun)
+            {
+                tx = new Transaction(doc, "BinaVibe: apply_family_naming_fixes");
+                TxGuard.StartSwallowing(tx);
+            }
+            try
+            {
+                foreach (var item in itemsEl.EnumerateArray())
+                {
+                    var id = ArgsHelp.GetLong(item, "element_id");
+                    var newName = ArgsHelp.GetString(item, "new_name");
+                    var row = new Dictionary<string, object?> { ["element_id"] = id };
+                    results.Add(row);
+                    if (id == null || string.IsNullOrWhiteSpace(newName))
+                    { row["error"] = "element_id and new_name are required"; failed++; continue; }
+
+                    var el = doc.GetElement(ElemIds.From(id.Value));
+                    if (el == null) { row["error"] = $"element {id} not found"; failed++; continue; }
+
+                    // Loadable rows carry the Family id; system rows a type id.
+                    // A FamilySymbol id is tolerated by walking up to its
+                    // Family — the NAME the convention binds is the family's.
+                    Element renameTarget = el;
+                    var writeTargets = new List<Element>();
+                    if (el is Family fam0 || el is FamilySymbol)
+                    {
+                        var fam = el as Family ?? (el as FamilySymbol)!.Family;
+                        if (fam == null) { row["error"] = "family not resolvable"; failed++; continue; }
+                        renameTarget = fam;
+                        foreach (ElementId sid in fam.GetFamilySymbolIds())
+                        {
+                            var sym = doc.GetElement(sid);
+                            if (sym != null) writeTargets.Add(sym);
+                        }
+                    }
+                    else if (el is ElementType) writeTargets.Add(el);
+                    else { row["error"] = $"element {id} is not a family or type"; failed++; continue; }
+
+                    row["from"] = renameTarget.Name;
+                    row["to"] = newName;
+                    var written = new List<string>();
+                    var missing = new List<string>();
+
+                    if (!dryRun)
+                    {
+                        try { renameTarget.Name = newName!; }
+                        catch (Exception ex)
+                        { row["error"] = $"rename failed: {ex.Message}"; failed++; continue; }
+                    }
+                    row["renamed"] = !dryRun;
+                    renamed++;
+
+                    if (item.ValueKind == JsonValueKind.Object
+                        && item.TryGetProperty("params", out var paramsEl)
+                        && paramsEl.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var pv in paramsEl.EnumerateObject())
+                        {
+                            var value = pv.Value.ValueKind == JsonValueKind.String
+                                ? pv.Value.GetString() ?? ""
+                                : pv.Value.ToString();
+                            bool any = false;
+                            foreach (var target in writeTargets)
+                                if (dryRun || WriteParam(target, pv.Name, value)) any = true;
+                            if (any) written.Add(pv.Name);
+                            else
+                            {
+                                missing.Add(pv.Name);
+                                pendingMissing.Add((writeTargets, pv.Name, value, written, missing));
+                            }
+                        }
+                    }
+                    row["params_written"] = written;
+                    row["params_missing"] = missing;
+                }
+
+                // ── auto-create missing naming params, GUID-correct only ──
+                // The definition must come from the user's CURRENT shared
+                // parameter file (Revit: Manage > Shared Parameters, pointed
+                // at the JKR .txt) so the GUID matches JKR schedules/tags. A
+                // definition that is not there is REPORTED, never ad-hoc
+                // created — a same-name ad-hoc parameter breaks schedules and
+                // tags silently. Bound as a TYPE binding under Construction
+                // per the JKR spec; project bindings surface the parameter on
+                // every type of the bound categories, loadable and system
+                // alike, so no EditFamily round-trip is needed.
+                if (!dryRun && addMissing && pendingMissing.Count > 0)
+                {
+                    var application = doc.Application;
+                    DefinitionFile? spFile = null;
+                    try { spFile = application.OpenSharedParameterFile(); } catch { }
+                    var defs = new Dictionary<string, ExternalDefinition>(StringComparer.Ordinal);
+                    if (spFile != null)
+                        foreach (DefinitionGroup g in spFile.Groups)
+                            foreach (Definition d in g.Definitions)
+                                if (d is ExternalDefinition ed && !defs.ContainsKey(ed.Name))
+                                    defs[ed.Name] = ed;
+
+                    foreach (var pname in pendingMissing.Select(p => p.pname).Distinct(StringComparer.Ordinal))
+                    {
+                        if (!defs.TryGetValue(pname, out var def))
+                        { paramsUncreatable.Add(pname); continue; }
+                        var catSet = application.Create.NewCategorySet();
+                        foreach (var pm in pendingMissing)
+                        {
+                            if (!string.Equals(pm.pname, pname, StringComparison.Ordinal)) continue;
+                            foreach (var t in pm.targets)
+                            {
+                                var c = t.Category;
+                                if (c != null && c.AllowsBoundParameters) catSet.Insert(c);
+                            }
+                        }
+                        if (catSet.IsEmpty) { paramsUncreatable.Add(pname); continue; }
+                        var binding = (Binding)application.Create.NewTypeBinding(catSet);
+                        if (!doc.ParameterBindings.Insert(def, binding, GroupTypeId.Construction))
+                            doc.ParameterBindings.ReInsert(def, binding, GroupTypeId.Construction);
+                        paramsCreated.Add(pname);
+                    }
+
+                    if (paramsCreated.Count > 0)
+                    {
+                        doc.Regenerate();   // bindings materialize on the types
+                        foreach (var pm in pendingMissing)
+                        {
+                            if (!paramsCreated.Contains(pm.pname)) continue;
+                            bool any = false;
+                            foreach (var t in pm.targets)
+                                if (WriteParam(t, pm.pname, pm.value)) any = true;
+                            if (any) { pm.missing.Remove(pm.pname); pm.written.Add(pm.pname); }
+                        }
+                    }
+                }
+
+                if (!dryRun) TxGuard.CommitOrThrow(tx!);
+            }
+            finally
+            {
+                if (tx != null) { if (tx.HasStarted() && !tx.HasEnded()) tx.RollBack(); tx.Dispose(); }
+            }
+
+            var outDict = new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["dry_run"] = dryRun,
+                ["renamed"] = renamed,
+                ["failed"] = failed,
+                ["results"] = results,
+                ["params_created"] = paramsCreated,
+                ["headline"] = dryRun
+                    ? renamed + " name(s) would change (nothing renamed yet)"
+                    : renamed + " renamed, " + failed + " failed",
+            };
+            if (paramsUncreatable.Count > 0)
+            {
+                outDict["params_uncreatable"] = paramsUncreatable;
+                outDict["params_uncreatable_note"] =
+                    "definition not found in the ACTIVE shared parameter file — point "
+                    + "Revit (Manage > Shared Parameters) at the JKR shared parameter "
+                    + ".txt and retry; the parameter is never ad-hoc created because a "
+                    + "wrong GUID silently breaks JKR schedules and tags";
+            }
+            return outDict;
+        }
     }
 
     // ─── ArgsHelp — shared JSON arg extraction ──────────────────────────

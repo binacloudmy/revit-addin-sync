@@ -22,6 +22,8 @@ namespace RevitWebAppSync.Services
             ["list_wall_types"]            = "Querying wall types",
             ["list_family_types"]          = "Listing family types",
             ["audit_family_names"]         = "Auditing family names",
+            ["get_family_naming_facts"]    = "Reading naming parameters",
+            ["apply_family_naming_fixes"]  = "Renaming to JKR spec",
             ["list_view_templates"]        = "Reading view templates",
             ["list_worksets"]              = "Reading worksets",
             ["get_element_parameters"]     = "Reading element parameters",

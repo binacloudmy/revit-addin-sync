@@ -118,6 +118,9 @@ namespace BinaVibe.Mcp.Tools
                 "audit_parameters"              => Inspectors.AuditParameters(doc, args),
                 "audit_view_names"              => Inspectors.AuditViewNames(doc, args),
                 "audit_family_names"            => Inspectors.AuditFamilyNames(doc, args),
+                // Naming facts for the backend's deterministic rename pipeline
+                // (suggest_name_fixes) — read-only, grammar-blind.
+                "get_family_naming_facts"       => Inspectors.GetFamilyNamingFacts(doc, args),
                 "open_view"                     => Inspectors.OpenView(uidoc, args),
                 "select_elements"               => Inspectors.SelectElements(uidoc, args),
                 "count_by"                      => Inspectors.CountBy(doc, args),
@@ -133,6 +136,9 @@ namespace BinaVibe.Mcp.Tools
                 "set_section_box"               => Mutators.SetSectionBox(doc, args),
                 "find_missing_parameter"        => Inspectors.FindMissingParameter(doc, args),
                 "rename_elements"               => Mutators.RenameElements(doc, args),
+                // Batch JKR rename + param write-back; names composed by the
+                // backend (Penjana formula), never here.
+                "apply_family_naming_fixes"     => Mutators.ApplyFamilyNamingFixes(doc, args),
                 "color_by_parameter"            => Mutators.ColorByParameter(doc, args),
                 "delete_unused_views"           => Mutators.DeleteUnusedViews(doc, args),
                 "purge_unused"                  => Mutators.PurgeUnused(doc, args),
