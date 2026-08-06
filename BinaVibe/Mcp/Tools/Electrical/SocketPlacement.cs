@@ -15,6 +15,13 @@
 // place_family_instance (Mutators.cs:540) is untouched. It refuses
 // OneLevelBasedHosted families outright; the reasoning is reused below, the
 // code is not.
+//
+// FACING CONVENTION: the BINA socket library authors its outlet families with
+// the front axis pointing INTO the host wall, so both tools apply
+// LibraryFacingOffsetDeg (a half-turn) to the target direction by default.
+// The offset rotates the TARGET, never the room geometry — it describes the
+// family, which is why it belongs here and not in SocketLayout's maths. A
+// family authored the other way round is one argument away: facing_offset_deg:0.
 
 using System;
 using System.Collections.Generic;
@@ -36,6 +43,21 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// <summary>Insertion point drift this large means the rotation moved
         /// the instance as well as turning it, and has to be undone.</summary>
         private const double MoveTolFt = 0.5 / MmPerFoot;
+
+        /// <summary>BINA family-library convention: socket outlet families are
+        /// authored with their front axis pointing INTO the host wall, so a
+        /// half-turn maps the family's axis onto the room-facing direction the
+        /// layout asks for.
+        ///
+        /// This is a property of the LIBRARY, not of the room, which is why it
+        /// lives on the offset (which rotates the TARGET direction) and not in
+        /// the layout maths. Placing against a family authored the other way
+        /// round is a one-argument change: pass facing_offset_deg:0 explicitly
+        /// and the convention is skipped.
+        ///
+        /// Every result reports facing_offset_deg and facing_offset_source so a
+        /// drafter can see which convention a batch was placed under.</summary>
+        private const double LibraryFacingOffsetDeg = 180.0;
 
         // ─── place_socket_points ────────────────────────────────────────
         public static Dictionary<string, object?> PlaceSocketPoints(Document doc, JsonElement args)
@@ -65,7 +87,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             var levelOverride = ArgsHelp.GetString(args, "level");
             double? mountOverrideMm = ArgsHelp.GetDouble(args, "mount_height_mm");
-            double facingOffsetDeg = ArgsHelp.GetDouble(args, "facing_offset_deg") ?? 0.0;
+            double? facingOffsetArg = ArgsHelp.GetDouble(args, "facing_offset_deg");
+            double facingOffsetDeg = facingOffsetArg ?? LibraryFacingOffsetDeg;
+            string facingOffsetSource = facingOffsetArg.HasValue ? "caller" : "library_convention";
 
             var created = new List<object>();
             var failed = new List<object>();
@@ -111,6 +135,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 ["plan_id"] = planId,
                 ["family_type"] = familyType,
                 ["facing_offset_deg"] = facingOffsetDeg,
+                ["facing_offset_source"] = facingOffsetSource,
                 ["count"] = created.Count,
                 ["created"] = created,
                 ["failed"] = failed,
@@ -221,7 +246,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             var facingArgs = ArgsHelp.GetXyz(args, "facing");
             double? mountMm = ArgsHelp.GetDouble(args, "mount_height_mm");
-            double facingOffsetDeg = ArgsHelp.GetDouble(args, "facing_offset_deg") ?? 0.0;
+            double? facingOffsetArg = ArgsHelp.GetDouble(args, "facing_offset_deg");
+            double facingOffsetDeg = facingOffsetArg ?? LibraryFacingOffsetDeg;
+            string facingOffsetSource = facingOffsetArg.HasValue ? "caller" : "library_convention";
 
             using var tx = new Transaction(doc, "BinaVibe: place_socket_on_wall");
             TxGuard.StartSwallowing(tx);
@@ -264,6 +291,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     ["facing_error_deg"] = Math.Round(orient.ErrorDeg, 2),
                     ["facing_method"] = orient.Method,
                     ["facing_offset_deg"] = facingOffsetDeg,
+                    ["facing_offset_source"] = facingOffsetSource,
                     ["elevation_set_via"] = elevationVia,
                 };
             }
