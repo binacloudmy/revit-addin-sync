@@ -2056,8 +2056,19 @@ namespace BinaVibe.Mcp.Tools
                 ?? throw new InvalidOperationException(typeName != null
                     ? $"roof type '{typeName}' not found" : "no roof types in project");
             var offsetFt = ArgsHelp.GetLengthMm(args, "offset_mm") ?? 0;
+            // Pitch: omit slope_deg for a flat roof (the default this tool
+            // shipped with). With slope_deg, slope_edge_indices picks WHICH
+            // footprint edges rise — two opposite eaves = gable, all = hip,
+            // empty/omitted = all.
+            var slopeDeg = ArgsHelp.GetDouble(args, "slope_deg");
+            var slopeEdges = ArgsHelp.GetLongList(args, "slope_edge_indices");
 
             var curves = new CurveArray();
+            // Parallel bookkeeping: NewFootPrintRoof hands back ModelCurves in
+            // its own order, so we match each one to the caller's edge index by
+            // midpoint rather than trusting the sequence.
+            var edgeMids = new List<XYZ>();
+            var edgeIdx = new List<int>();
             for (int i = 0; i < boundary.Count; i++)
             {
                 var a = new XYZ(boundary[i].X, boundary[i].Y, level.Elevation);
@@ -2065,6 +2076,8 @@ namespace BinaVibe.Mcp.Tools
                 var b = new XYZ(next.X, next.Y, level.Elevation);
                 if (a.DistanceTo(b) < 1e-6) continue;   // skip duplicate closing point
                 curves.Append(Line.CreateBound(a, b));
+                edgeMids.Add(a.Add(b).Multiply(0.5));
+                edgeIdx.Add(i);
             }
 
             using var tx = new Transaction(doc, "BINA: create roof");
@@ -2072,18 +2085,590 @@ namespace BinaVibe.Mcp.Tools
             try
             {
                 var roof = doc.Create.NewFootPrintRoof(curves, level, roofType, out ModelCurveArray modelCurves);
+                // set_SlopeAngle takes rise/run, not degrees: 1.0 is 45°.
+                var ratio = slopeDeg.HasValue
+                    ? Math.Tan(slopeDeg.Value * Math.PI / 180.0) : 0.0;
+                var sloped = new List<int>();
                 foreach (ModelCurve mc in modelCurves)
-                    roof.set_DefinesSlope(mc, false);       // flat roof
+                {
+                    var defines = false;
+                    var srcIdx = -1;
+                    if (slopeDeg.HasValue)
+                    {
+                        var mid = mc.GeometryCurve.Evaluate(0.5, true);
+                        var bestD = double.MaxValue;
+                        for (int k = 0; k < edgeMids.Count; k++)
+                        {
+                            var d = new XYZ(mid.X, mid.Y, edgeMids[k].Z).DistanceTo(edgeMids[k]);
+                            if (d < bestD) { bestD = d; srcIdx = edgeIdx[k]; }
+                        }
+                        defines = slopeEdges.Count == 0
+                            || (srcIdx >= 0 && slopeEdges.Contains((long)srcIdx));
+                    }
+                    roof.set_DefinesSlope(mc, defines);
+                    if (defines)
+                    {
+                        roof.set_SlopeAngle(mc, ratio);
+                        sloped.Add(srcIdx);
+                    }
+                }
                 if (Math.Abs(offsetFt) > 1e-9)
                     roof.get_Parameter(BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM)?.Set(offsetFt);
                 tx.Commit();
+                sloped.Sort();
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true, ["new_ids"] = new List<long> { roof.Id.Value },
                     ["roof_type"] = roofType.Name, ["level"] = level.Name,
+                    // Facts back to the agent: what actually sloped, so the
+                    // reply reports the built roof instead of the asked-for one.
+                    ["slope_deg"] = slopeDeg,
+                    ["sloped_edges"] = sloped,
+                    ["shape"] = !slopeDeg.HasValue ? "flat"
+                        : (sloped.Count >= edgeIdx.Count ? "hip" : "gable"),
                 };
             }
             catch { tx.RollBack(); throw; }
+        }
+
+        // ─── place_window_array ─────────────────────────────────────────
+        /// <summary>A row of windows along one wall, placed in ONE transaction
+        /// (one undo). Positions are computed here rather than by the model —
+        /// spacing arithmetic done in a prompt drifts, and a half-window
+        /// hanging off the end of a wall is a silent Revit warning.</summary>
+        public static Dictionary<string, object?> PlaceWindowArray(Document doc, JsonElement args)
+        {
+            var hostId = ArgsHelp.GetLong(args, "host_wall_id")
+                ?? throw new ArgumentException("missing host_wall_id");
+            var typeName = ArgsHelp.GetString(args, "type_name")
+                ?? throw new ArgumentException("missing type_name");
+            var sillFt = ArgsHelp.GetLengthMm(args, "sill_mm") ?? (900.0 / 304.8);
+            var spacingFt = ArgsHelp.GetLengthMm(args, "spacing_mm");
+            var countArg = ArgsHelp.GetLong(args, "count");
+            var startFt = ArgsHelp.GetLengthMm(args, "start_offset_mm") ?? 0.0;
+
+            var host = doc.GetElement(ElemIds.From(hostId)) as Wall
+                ?? throw new ArgumentException($"host wall {hostId} not found");
+            var lc = host.Location as LocationCurve
+                ?? throw new InvalidOperationException("host wall has no location curve");
+            var curve = lc.Curve;
+            var length = curve.Length;
+            var usable = length - 2 * startFt;
+            if (usable <= 1e-9)
+                throw new InvalidOperationException(
+                    $"start_offset leaves nothing to place on: wall is {length * 304.8:F0}mm");
+
+            // Two ways to ask: fixed spacing (fit as many as the wall takes) or
+            // a count (spread evenly, each window centred in its own bay).
+            var offsets = new List<double>();
+            if (spacingFt.HasValue && spacingFt.Value > 1e-9)
+            {
+                var n = (int)Math.Floor(usable / spacingFt.Value) + 1;
+                if (countArg.HasValue) n = Math.Min(n, (int)countArg.Value);
+                for (int i = 0; i < n; i++) offsets.Add(startFt + i * spacingFt.Value);
+            }
+            else
+            {
+                var n = (int)(countArg ?? 0);
+                if (n <= 0) throw new ArgumentException("pass spacing_mm or count");
+                var step = usable / n;
+                for (int i = 0; i < n; i++) offsets.Add(startFt + step * (i + 0.5));
+            }
+
+            var symbol = new FilteredElementCollector(doc).WhereElementIsElementType()
+                .OfCategory(BuiltInCategory.OST_Windows).Cast<FamilySymbol>()
+                .FirstOrDefault(s => string.Equals(s.Name, typeName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException($"window type '{typeName}' not found");
+            var hostLevel = doc.GetElement(host.LevelId) as Level
+                ?? throw new InvalidOperationException("host wall has no level");
+
+            using var tx = new Transaction(doc, "BinaVibe: place_window_array");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                if (!symbol.IsActive) { symbol.Activate(); doc.Regenerate(); }
+                var ids = new List<long>();
+                foreach (var off in offsets)
+                {
+                    var p = curve.Evaluate(off / length, true);
+                    var fi = doc.Create.NewFamilyInstance(
+                        new XYZ(p.X, p.Y, hostLevel.Elevation), symbol, host, hostLevel,
+                        Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                    fi.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)?.Set(sillFt);
+                    ids.Add(fi.Id.Value);
+                }
+                TxGuard.CommitOrThrow(tx);
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["new_ids"] = ids, ["placed"] = ids.Count,
+                    ["host_wall_id"] = hostId,
+                    ["wall_length_mm"] = Math.Round(length * 304.8),
+                    ["sill_mm"] = Math.Round(sillFt * 304.8),
+                    ["spacing_mm"] = offsets.Count > 1
+                        ? Math.Round((offsets[1] - offsets[0]) * 304.8) : (double?)null,
+                };
+            }
+            catch
+            {
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
+                throw;
+            }
+        }
+
+        // ─── create_wall_opening ────────────────────────────────────────
+        /// <summary>Rectangular hole in a wall with no family involved — for
+        /// service penetrations and pass-throughs.</summary>
+        public static Dictionary<string, object?> CreateWallOpening(Document doc, JsonElement args)
+        {
+            var hostId = ArgsHelp.GetLong(args, "host_wall_id")
+                ?? throw new ArgumentException("missing host_wall_id");
+            var loc = ArgsHelp.GetPointMm(args, "location_mm")
+                ?? throw new ArgumentException("missing location_mm [x,y]");
+            var widthFt = ArgsHelp.GetLengthMm(args, "width_mm")
+                ?? throw new ArgumentException("missing width_mm");
+            var heightFt = ArgsHelp.GetLengthMm(args, "height_mm")
+                ?? throw new ArgumentException("missing height_mm");
+            var sillFt = ArgsHelp.GetLengthMm(args, "sill_mm") ?? 0.0;
+
+            var host = doc.GetElement(ElemIds.From(hostId)) as Wall
+                ?? throw new ArgumentException($"host wall {hostId} not found");
+            var lc = host.Location as LocationCurve
+                ?? throw new InvalidOperationException("host wall has no location curve");
+            var curve = lc.Curve;
+            var length = curve.Length;
+            var level = doc.GetElement(host.LevelId) as Level
+                ?? throw new InvalidOperationException("host wall has no level");
+
+            // The caller gives a plan point; snap it onto the wall so an
+            // approximate click still lands a square opening.
+            var proj = curve.Project(new XYZ(loc.X, loc.Y, curve.GetEndPoint(0).Z));
+            var p0 = curve.GetEndParameter(0);
+            var p1r = curve.GetEndParameter(1);
+            var mid = Math.Abs(p1r - p0) < 1e-12 ? 0.0 : (proj.Parameter - p0) / (p1r - p0);
+            var half = (widthFt / length) / 2.0;
+            var lo = Math.Max(0.0, mid - half);
+            var hi = Math.Min(1.0, mid + half);
+            if (hi - lo < 1e-9)
+                throw new InvalidOperationException("opening does not fit on this wall");
+
+            var a = curve.Evaluate(lo, true);
+            var b = curve.Evaluate(hi, true);
+            var zBase = level.Elevation + sillFt;
+
+            using var tx = new Transaction(doc, "BinaVibe: create_wall_opening");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                var opening = doc.Create.NewOpening(
+                    host,
+                    new XYZ(a.X, a.Y, zBase),
+                    new XYZ(b.X, b.Y, zBase + heightFt));
+                TxGuard.CommitOrThrow(tx);
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["new_ids"] = new List<long> { opening.Id.Value },
+                    ["host_wall_id"] = hostId,
+                    ["width_mm"] = Math.Round((hi - lo) * length * 304.8),
+                    ["height_mm"] = Math.Round(heightFt * 304.8),
+                    ["sill_mm"] = Math.Round(sillFt * 304.8),
+                };
+            }
+            catch
+            {
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
+                throw;
+            }
+        }
+
+        // ─── create_stairs ──────────────────────────────────────────────
+        /// <summary>Straight-run stair between two levels. Stairs are authored
+        /// through a StairsEditScope, which owns its own transaction — the run
+        /// is created in a nested transaction INSIDE the scope, and the scope
+        /// is committed after. A Transaction wrapped around the scope would
+        /// throw.</summary>
+        public static Dictionary<string, object?> CreateStairs(Document doc, JsonElement args)
+        {
+            var baseName = ArgsHelp.GetString(args, "base_level")
+                ?? throw new ArgumentException("missing base_level");
+            var topName = ArgsHelp.GetString(args, "top_level")
+                ?? throw new ArgumentException("missing top_level");
+            var start = ArgsHelp.GetPointMm(args, "location_mm")
+                ?? throw new ArgumentException("missing location_mm [x,y] (start of the run)");
+            var widthFt = ArgsHelp.GetLengthMm(args, "width_mm") ?? (1200.0 / 304.8);
+            var dirDeg = ArgsHelp.GetDouble(args, "direction_deg") ?? 0.0;
+
+            Level Find(string n) => new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .FirstOrDefault(l => string.Equals(l.Name, n, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException($"level '{n}' not found (use list_levels)");
+            var baseLevel = Find(baseName);
+            var topLevel = Find(topName);
+            var rise = topLevel.Elevation - baseLevel.Elevation;
+            if (rise <= 1e-9)
+                throw new InvalidOperationException(
+                    $"top_level '{topName}' is not above base_level '{baseName}'");
+
+            var scope = new StairsEditScope(doc, "BinaVibe: create_stairs");
+            var stairsId = scope.Start(baseLevel.Id, topLevel.Id);
+            try
+            {
+                long runId;
+                using (var tx = new Transaction(doc, "BinaVibe: stairs run"))
+                {
+                    TxGuard.StartSwallowing(tx);
+                    var stairs = doc.GetElement(stairsId) as Stairs
+                        ?? throw new InvalidOperationException("stairs element not created");
+                    // Run length comes from the stair type's riser/tread rule:
+                    // treads = risers - 1, so the run spans that many tread depths.
+                    var stairsType = doc.GetElement(stairs.GetTypeId()) as StairsType
+                        ?? throw new InvalidOperationException("stairs type not found");
+                    var maxRiser = stairsType.MaxRiserHeight;
+                    var risers = Math.Max(2, (int)Math.Ceiling(rise / Math.Max(maxRiser, 1e-6)));
+                    var tread = stairsType.MinTreadDepth;
+                    var runLen = Math.Max(tread, tread * (risers - 1));
+
+                    var rad = dirDeg * Math.PI / 180.0;
+                    var p1 = new XYZ(start.X, start.Y, baseLevel.Elevation);
+                    var p2 = new XYZ(start.X + runLen * Math.Cos(rad),
+                                     start.Y + runLen * Math.Sin(rad),
+                                     baseLevel.Elevation);
+                    var run = StairsRun.CreateStraightRun(
+                        doc, stairsId, Line.CreateBound(p1, p2), StairsRunJustification.Center);
+                    run.ActualRunWidth = widthFt;
+                    runId = run.Id.Value;
+                    TxGuard.CommitOrThrow(tx);
+                }
+                scope.Commit(new SwallowWarnings());
+                var made = doc.GetElement(stairsId) as Stairs;
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["new_ids"] = new List<long> { stairsId.Value },
+                    ["run_id"] = runId,
+                    ["base_level"] = baseLevel.Name, ["top_level"] = topLevel.Name,
+                    ["risers"] = made?.ActualRisersNumber,
+                    ["width_mm"] = Math.Round(widthFt * 304.8),
+                };
+            }
+            catch
+            {
+                if (scope.IsActive) scope.Cancel();
+                throw;
+            }
+        }
+
+        // ─── capture_view_image ─────────────────────────────────────────
+        /// <summary>PNG of a view. Data checks catch missing parameters; only a
+        /// picture catches a wall-roof gap or a window on the wrong face.</summary>
+        public static Dictionary<string, object?> CaptureViewImage(Document doc, JsonElement args)
+        {
+            var viewId = ArgsHelp.GetLong(args, "view_id");
+            var viewName = ArgsHelp.GetString(args, "view_name");
+            var px = (int)(ArgsHelp.GetLong(args, "pixel_size") ?? 1600);
+
+            View? view = null;
+            if (viewId.HasValue) view = doc.GetElement(ElemIds.From(viewId.Value)) as View;
+            else if (!string.IsNullOrWhiteSpace(viewName))
+                view = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                    .FirstOrDefault(v => !v.IsTemplate
+                        && string.Equals(v.Name, viewName, StringComparison.OrdinalIgnoreCase));
+            else view = doc.ActiveView;
+            if (view == null) throw new ArgumentException("view not found (use list_views)");
+            if (view.IsTemplate) throw new ArgumentException("cannot export a view template");
+
+            var dir = Path.Combine(Path.GetTempPath(), "bina_views");
+            Directory.CreateDirectory(dir);
+            var stem = $"view_{view.Id.Value}_{DateTime.Now:yyyyMMdd_HHmmss}";
+            var opts = new ImageExportOptions
+            {
+                FilePath = Path.Combine(dir, stem),
+                ExportRange = ExportRange.SetOfViews,
+                FitDirection = FitDirectionType.Horizontal,
+                HLRandWFViewsFileType = ImageFileType.PNG,
+                ShadowViewsFileType = ImageFileType.PNG,
+                ImageResolution = ImageResolution.DPI_150,
+                ZoomType = ZoomFitType.FitToPage,
+                PixelSize = px,
+            };
+            opts.SetViewsAndSheets(new List<ElementId> { view.Id });
+            doc.ExportImage(opts);
+
+            // Revit decorates the path with the view name, so the file we asked
+            // for is rarely the file on disk — find what it actually wrote.
+            var produced = Directory.GetFiles(dir, stem + "*")
+                .OrderByDescending(f => new FileInfo(f).LastWriteTimeUtc)
+                .FirstOrDefault();
+            if (produced == null)
+                throw new InvalidOperationException("Revit reported no error but wrote no image");
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["path"] = produced, ["view"] = view.Name,
+                ["view_id"] = view.Id.Value,
+                ["bytes"] = new FileInfo(produced).Length,
+            };
+        }
+
+        // ─── set_wall_endpoints ─────────────────────────────────────────
+        /// <summary>Stretch/reshape a wall by editing its location line. This is
+        /// the only way to resize a footprint without deleting walls — a delete
+        /// and recreate destroys every door and window hosted in them, while a
+        /// location-curve edit keeps them.</summary>
+        public static Dictionary<string, object?> SetWallEndpoints(Document doc, JsonElement args)
+        {
+            var id = ArgsHelp.GetLong(args, "element_id")
+                ?? throw new ArgumentException("missing element_id");
+            var start = ArgsHelp.GetPointMm(args, "start_mm");
+            var end = ArgsHelp.GetPointMm(args, "end_mm");
+            if (start == null && end == null)
+                throw new ArgumentException("pass start_mm and/or end_mm");
+
+            var wall = doc.GetElement(ElemIds.From(id)) as Wall
+                ?? throw new ArgumentException($"wall {id} not found");
+            var lc = wall.Location as LocationCurve
+                ?? throw new InvalidOperationException("wall has no location curve");
+            var cur = lc.Curve;
+            var z = cur.GetEndPoint(0).Z;
+            var before = cur.Length;
+            var p1 = start != null ? new XYZ(start.X, start.Y, z) : cur.GetEndPoint(0);
+            var p2 = end != null ? new XYZ(end.X, end.Y, z) : cur.GetEndPoint(1);
+            if (p1.DistanceTo(p2) < 1e-6)
+                throw new InvalidOperationException("start and end coincide — wall would have zero length");
+
+            using var tx = new Transaction(doc, "BinaVibe: set_wall_endpoints");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                lc.Curve = Line.CreateBound(p1, p2);
+                TxGuard.CommitOrThrow(tx);
+                var after = (wall.Location as LocationCurve)!.Curve.Length;
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["element_id"] = id,
+                    ["length_before_mm"] = Math.Round(before * 304.8),
+                    ["length_after_mm"] = Math.Round(after * 304.8),
+                };
+            }
+            catch
+            {
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
+                throw;
+            }
+        }
+
+        // ─── set_curtain_grid ───────────────────────────────────────────
+        /// <summary>Grid spacing on a curtain wall's TYPE, so every panel
+        /// updates from one call. Layout is set to Maximum Spacing, which is
+        /// what "bays of about 1.5m" means in practice.</summary>
+        public static Dictionary<string, object?> SetCurtainGrid(Document doc, JsonElement args)
+        {
+            var id = ArgsHelp.GetLong(args, "wall_id")
+                ?? throw new ArgumentException("missing wall_id");
+            var vertFt = ArgsHelp.GetLengthMm(args, "vertical_spacing_mm");
+            var horizFt = ArgsHelp.GetLengthMm(args, "horizontal_spacing_mm");
+            if (vertFt == null && horizFt == null)
+                throw new ArgumentException("pass vertical_spacing_mm and/or horizontal_spacing_mm");
+
+            var wall = doc.GetElement(ElemIds.From(id)) as Wall
+                ?? throw new ArgumentException($"wall {id} not found");
+            var wt = doc.GetElement(wall.GetTypeId()) as WallType
+                ?? throw new InvalidOperationException("wall has no type");
+            if (wt.Kind != WallKind.Curtain)
+                throw new InvalidOperationException(
+                    $"wall type '{wt.Name}' is not a curtain wall — create the wall with a curtain type first");
+
+            const int MaximumSpacing = 3;   // CurtainGridLayout
+            using var tx = new Transaction(doc, "BinaVibe: set_curtain_grid");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                if (vertFt.HasValue)
+                {
+                    wt.get_Parameter(BuiltInParameter.SPACING_LAYOUT_VERT)?.Set(MaximumSpacing);
+                    wt.get_Parameter(BuiltInParameter.SPACING_LENGTH_VERT)?.Set(vertFt.Value);
+                }
+                if (horizFt.HasValue)
+                {
+                    wt.get_Parameter(BuiltInParameter.SPACING_LAYOUT_HORIZ)?.Set(MaximumSpacing);
+                    wt.get_Parameter(BuiltInParameter.SPACING_LENGTH_HORIZ)?.Set(horizFt.Value);
+                }
+                TxGuard.CommitOrThrow(tx);
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["wall_id"] = id, ["wall_type"] = wt.Name,
+                    ["vertical_spacing_mm"] = vertFt.HasValue ? Math.Round(vertFt.Value * 304.8) : (double?)null,
+                    ["horizontal_spacing_mm"] = horizFt.HasValue ? Math.Round(horizFt.Value * 304.8) : (double?)null,
+                    ["note"] = "set on the wall TYPE — every wall of this type updated",
+                };
+            }
+            catch
+            {
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
+                throw;
+            }
+        }
+
+        // ─── set_mullions ───────────────────────────────────────────────
+        /// <summary>Assign mullion profiles on a curtain wall TYPE. Reaches BOTH
+        /// the vertical and horizontal groups: Revit gives them parameters that
+        /// share the display name "Interior Type", so a generic set-parameter
+        /// call can only ever write one of them.</summary>
+        public static Dictionary<string, object?> SetMullions(Document doc, JsonElement args)
+        {
+            var id = ArgsHelp.GetLong(args, "wall_id")
+                ?? throw new ArgumentException("missing wall_id");
+            var typeName = ArgsHelp.GetString(args, "mullion_type_name")
+                ?? throw new ArgumentException("missing mullion_type_name (use list_family_types)");
+            var vertical = ArgsHelp.GetBool(args, "vertical") ?? true;
+            var horizontal = ArgsHelp.GetBool(args, "horizontal") ?? true;
+            var borders = ArgsHelp.GetBool(args, "borders") ?? true;
+
+            var wall = doc.GetElement(ElemIds.From(id)) as Wall
+                ?? throw new ArgumentException($"wall {id} not found");
+            var wt = doc.GetElement(wall.GetTypeId()) as WallType
+                ?? throw new InvalidOperationException("wall has no type");
+            if (wt.Kind != WallKind.Curtain)
+                throw new InvalidOperationException(
+                    $"wall type '{wt.Name}' is not a curtain wall");
+
+            var mt = new FilteredElementCollector(doc).OfClass(typeof(MullionType)).Cast<MullionType>()
+                .FirstOrDefault(m => string.Equals(m.Name, typeName, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException($"mullion type '{typeName}' not found");
+
+            var applied = new List<string>();
+            using var tx = new Transaction(doc, "BinaVibe: set_mullions");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                void Apply(BuiltInParameter bip, string label)
+                {
+                    var p = wt.get_Parameter(bip);
+                    if (p != null && !p.IsReadOnly) { p.Set(mt.Id); applied.Add(label); }
+                }
+                if (vertical)
+                {
+                    Apply(BuiltInParameter.AUTO_MULLION_INTERIOR_VERT, "vertical interior");
+                    if (borders)
+                    {
+                        Apply(BuiltInParameter.AUTO_MULLION_BORDER1_VERT, "vertical border 1");
+                        Apply(BuiltInParameter.AUTO_MULLION_BORDER2_VERT, "vertical border 2");
+                    }
+                }
+                if (horizontal)
+                {
+                    Apply(BuiltInParameter.AUTO_MULLION_INTERIOR_HORIZ, "horizontal interior");
+                    if (borders)
+                    {
+                        Apply(BuiltInParameter.AUTO_MULLION_BORDER1_HORIZ, "horizontal border 1");
+                        Apply(BuiltInParameter.AUTO_MULLION_BORDER2_HORIZ, "horizontal border 2");
+                    }
+                }
+                TxGuard.CommitOrThrow(tx);
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["wall_id"] = id, ["wall_type"] = wt.Name,
+                    ["mullion_type"] = mt.Name, ["applied"] = applied,
+                };
+            }
+            catch
+            {
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
+                throw;
+            }
+        }
+
+        // ─── create_levels_batch ────────────────────────────────────────
+        /// <summary>N levels at a fixed floor-to-floor in ONE transaction —
+        /// replaces a 20-call loop for a tower.</summary>
+        public static Dictionary<string, object?> CreateLevelsBatch(Document doc, JsonElement args)
+        {
+            var count = (int)(ArgsHelp.GetLong(args, "count")
+                ?? throw new ArgumentException("missing count"));
+            if (count <= 0) throw new ArgumentException("count must be positive");
+            var f2fFt = ArgsHelp.GetLengthMm(args, "floor_to_floor_mm")
+                ?? throw new ArgumentException("missing floor_to_floor_mm");
+            var prefix = ArgsHelp.GetString(args, "prefix") ?? "L";
+            var startIndex = (int)(ArgsHelp.GetLong(args, "start_index") ?? 1);
+            var baseName = ArgsHelp.GetString(args, "base_level");
+
+            double baseElev = 0;
+            if (!string.IsNullOrWhiteSpace(baseName))
+            {
+                var bl = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                    .FirstOrDefault(l => string.Equals(l.Name, baseName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"base_level '{baseName}' not found");
+                baseElev = bl.Elevation;
+            }
+
+            var existing = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .Select(l => l.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            using var tx = new Transaction(doc, "BinaVibe: create_levels_batch");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                var made = new List<object>();
+                for (int i = 0; i < count; i++)
+                {
+                    var elev = baseElev + f2fFt * (i + 1);
+                    var lvl = Level.Create(doc, elev);
+                    // Name collisions throw in Revit, so skip rather than fail the
+                    // whole batch — the caller gets told which ones were skipped.
+                    var want = $"{prefix}{startIndex + i}";
+                    if (!existing.Contains(want))
+                    {
+                        try { lvl.Name = want; existing.Add(want); } catch { /* keep Revit's default */ }
+                    }
+                    made.Add(new Dictionary<string, object?>
+                    {
+                        ["id"] = lvl.Id.Value, ["name"] = lvl.Name,
+                        ["elevation_mm"] = Math.Round(elev * 304.8),
+                    });
+                }
+                TxGuard.CommitOrThrow(tx);
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["created"] = made.Count, ["levels"] = made,
+                };
+            }
+            catch
+            {
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
+                throw;
+            }
+        }
+
+        // ─── create_topography ──────────────────────────────────────────
+        /// <summary>Ground surface from boundary points. Uses TopographySurface
+        /// rather than Toposolid: Toposolid is Revit 2024+, and this assembly
+        /// targets older Revit APIs too, so a Toposolid call would not compile
+        /// for every supported version.</summary>
+        public static Dictionary<string, object?> CreateTopography(Document doc, JsonElement args)
+        {
+            var pts = ArgsHelp.GetPointListMm(args, "boundary_mm");
+            if (pts.Count < 3)
+                throw new InvalidOperationException("boundary_mm needs at least 3 [x,y] points");
+            var elevFt = ArgsHelp.GetLengthMm(args, "elevation_mm") ?? 0.0;
+
+            var xyz = pts.Select(p => new XYZ(p.X, p.Y, elevFt)).ToList();
+
+            using var tx = new Transaction(doc, "BinaVibe: create_topography");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                var topo = TopographySurface.Create(doc, xyz);
+                TxGuard.CommitOrThrow(tx);
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["new_ids"] = new List<long> { topo.Id.Value },
+                    ["points"] = xyz.Count,
+                    ["elevation_mm"] = Math.Round(elevFt * 304.8),
+                };
+            }
+            catch
+            {
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
+                throw;
+            }
         }
 
         // ─── create_ceiling ──────────────────────────────────────────────
