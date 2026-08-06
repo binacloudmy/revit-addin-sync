@@ -110,6 +110,16 @@ namespace BinaVibe.Mcp
             Volatile.Write(ref _lastIdleTicks, Now);
             if (sender is UIApplication ua) _uiApp = ua;
 
+            // Deferred view framing. MUST come before the early return below: a
+            // Build that only asks for a zoom leaves the job queue empty, and the
+            // request would never be applied. See ViewFraming for why this cannot
+            // simply be done at the end of the tool.
+            if (ViewFraming.HasPending)
+            {
+                ViewFraming.TryApply(_uiApp);
+                if (ViewFraming.HasPending) e.SetRaiseWithoutDelay();
+            }
+
             if (_handler.Pending.IsEmpty) return;   // nothing to do — stay in default idle cadence
 
             var app = _uiApp;

@@ -2877,34 +2877,19 @@ namespace BinaVibe.Mcp.Tools
                     try { uidoc.ActiveView = lowest; openedView = lowest.Name; }
                     catch { /* view can't be activated — not worth failing the build */ }
 
-                    // ...and FRAME it on the SCHEME, not on whatever else the view
-                    // contains. ZoomToFit was tried first and does not work here: it
-                    // fits every visible extent, and a plan carries elevation markers,
-                    // level lines and scope-box datums that reach far beyond the
-                    // building — so the fit landed nowhere near it and the drafter
-                    // still had to hunt (measured twice, 2026-08-06).
-                    //
-                    // ZoomAndCenterRectangle takes model coordinates, so the result is
-                    // deterministic: the scheme's own footprint plus a margin. Also
-                    // preferred over uidoc.ShowElements, which can raise a modal "no
-                    // good view found" dialog while the pane is still awaiting the
-                    // tool result.
+                    // ...and FRAME it. Deferred, NOT applied here: setting
+                    // uidoc.ActiveView above does not take effect until this API
+                    // context ends, so any UIView fetched on the next line still
+                    // belongs to the view we are leaving. Three attempts fixed the
+                    // symptom before that was understood — see ViewFraming.
                     if (haveExtent)
                     {
-                        try
-                        {
-                            const double marginFt = 8000.0 / 304.8;   // 8 m of breathing room
-                            var lo = new XYZ(sMinX - marginFt, sMinY - marginFt, 0);
-                            var hi = new XYZ(sMaxX + marginFt, sMaxY + marginFt, 0);
-                            foreach (var uiv in uidoc.GetOpenUIViews())
-                            {
-                                if (uiv.ViewId != lowest.Id) continue;
-                                uiv.ZoomAndCenterRectangle(lo, hi);
-                                zoomed = true;
-                                break;
-                            }
-                        }
-                        catch { /* framing is a courtesy, never a failure */ }
+                        const double marginFt = 8000.0 / 304.8;   // 8 m breathing room
+                        BinaVibe.Mcp.ViewFraming.Request(
+                            lowest.Id,
+                            new XYZ(sMinX - marginFt, sMinY - marginFt, 0),
+                            new XYZ(sMaxX + marginFt, sMaxY + marginFt, 0));
+                        zoomed = true;   // requested; Idling applies it
                     }
                 }
 

@@ -273,6 +273,10 @@ namespace RevitWebAppSync.UI.SpacePlanning
             /// <summary>Views whose crop we switched off because it would have sliced
             /// the scheme. Named, because it is a change to the drafter's own view.</summary>
             public List<string> UncroppedViews = new List<string>();
+            /// <summary>A framing request was queued for Revit's next idle. Reported
+            /// so a view that still lands off-screen can be told apart from one that
+            /// was never asked to move.</summary>
+            public bool Framed;
             public int TagFailureCount;
             /// <summary>Rooms cannot be group members — Revit refuses. Deleting the
             /// group removes the separation lines and masses and LEAVES the rooms.</summary>
@@ -587,6 +591,8 @@ namespace RevitWebAppSync.UI.SpacePlanning
                 if (o.TryGetProperty("tag_count", out var tc) && tc.TryGetInt32(out var tci)) outcome.TagCount = tci;
                 if (o.TryGetProperty("schedule_name", out var sn) && sn.ValueKind == System.Text.Json.JsonValueKind.String)
                     outcome.ScheduleName = sn.GetString();
+                if (o.TryGetProperty("zoomed_to_fit", out var zf) && zf.ValueKind == System.Text.Json.JsonValueKind.True)
+                    outcome.Framed = true;
                 if (o.TryGetProperty("uncropped_views", out var uv) && uv.ValueKind == System.Text.Json.JsonValueKind.Array)
                     foreach (var item in uv.EnumerateArray())
                         if (item.ValueKind == System.Text.Json.JsonValueKind.String)
