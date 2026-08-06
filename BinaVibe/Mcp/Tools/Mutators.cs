@@ -2038,7 +2038,8 @@ namespace BinaVibe.Mcp.Tools
         ///
         /// Returns {ok, new_ids, roof_type, level}.
         /// </summary>
-        public static Dictionary<string, object?> CreateRoof(Document doc, JsonElement args)
+        public static Dictionary<string, object?> CreateRoof(Document doc, JsonElement args,
+                                                            UIDocument? uidoc = null)
         {
             var boundary = ArgsHelp.GetPointListMm(args, "boundary_mm");
             if (boundary.Count < 3)
@@ -2078,6 +2079,30 @@ namespace BinaVibe.Mcp.Tools
                 curves.Append(Line.CreateBound(a, b));
                 edgeMids.Add(a.Add(b).Multiply(0.5));
                 edgeIdx.Add(i);
+            }
+
+            // NewFootPrintRoof needs a PLAN view active. From a 3D view it fails
+            // with a bare "Value cannot be null" for a footprint and type that
+            // are both perfectly valid — which reads like a bad argument and
+            // sends the caller off retrying parameters forever (measured
+            // 2026-08-06: 8 variations, same error, all of them fine).
+            // A drafter watching the model is normally IN a 3D view, so this is
+            // the default path, not an edge case. Switch to the level's plan,
+            // build, then put the drafter's view back. The switch must happen
+            // OUTSIDE the transaction — Revit rejects a view change inside one.
+            View? restoreView = null;
+            if (uidoc != null && uidoc.ActiveView is not ViewPlan)
+            {
+                var plan = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan))
+                    .Cast<ViewPlan>()
+                    .Where(v => !v.IsTemplate && v.GenLevel != null)
+                    .OrderByDescending(v => v.GenLevel.Id == level.Id)   // the level's own plan first
+                    .FirstOrDefault();
+                if (plan != null)
+                {
+                    restoreView = uidoc.ActiveView;
+                    uidoc.ActiveView = plan;
+                }
             }
 
             using var tx = new Transaction(doc, "BINA: create roof");
@@ -2128,7 +2153,31 @@ namespace BinaVibe.Mcp.Tools
                         : (sloped.Count >= edgeIdx.Count ? "hip" : "gable"),
                 };
             }
-            catch { tx.RollBack(); throw; }
+            catch (Exception ex)
+            {
+                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
+                // Re-throw with the diagnosis attached. A bare "Value cannot be
+                // null" from this API almost always means the view, not the
+                // arguments, and without saying so the caller burns a dozen
+                // retries on parameters that were never the problem.
+                if (ex is ArgumentNullException || (ex.Message ?? "").Contains("Value cannot be null"))
+                    throw new InvalidOperationException(
+                        "NewFootPrintRoof rejected the call. This is normally the ACTIVE VIEW, "
+                        + "not the arguments: it needs a floor plan view. Open a plan view and "
+                        + "retry once — do NOT keep varying the boundary, level or roof type. "
+                        + $"(active view was '{restoreView?.Name ?? "unknown"}', "
+                        + $"type '{roofType.Name}', level '{level.Name}')", ex);
+                throw;
+            }
+            finally
+            {
+                // Always hand the drafter back the view they were looking at,
+                // success or failure.
+                if (restoreView != null && uidoc != null)
+                {
+                    try { uidoc.ActiveView = restoreView; } catch { /* view may be gone */ }
+                }
+            }
         }
 
         // ─── place_window_array ─────────────────────────────────────────

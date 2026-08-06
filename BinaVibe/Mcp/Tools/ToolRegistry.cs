@@ -195,7 +195,7 @@ namespace BinaVibe.Mcp.Tools
                 "apply_view_filter"             => Mutators.ApplyViewFilter(doc, args),
                 "create_floor"                  => Mutators.CreateFloor(doc, args),
                 "create_ceiling"                => Mutators.CreateCeiling(doc, args),
-                "create_roof"                   => Mutators.CreateRoof(doc, args),
+                "create_roof"                   => Mutators.CreateRoof(doc, args, uidoc),
                 "place_window_array"            => Mutators.PlaceWindowArray(doc, args),
                 "create_wall_opening"           => Mutators.CreateWallOpening(doc, args),
                 "create_stairs"                 => Mutators.CreateStairs(doc, args),
