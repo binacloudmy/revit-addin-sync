@@ -141,28 +141,37 @@ namespace BinaVibe.Mcp.Tools
                 profile.Append(Line.CreateBound(a1, a2));
                 profile.Append(Line.CreateBound(a2, a3));
 
-                using var tx = new Transaction(doc, "BINA: roof (extrusion)");
-                TxGuard.StartSwallowing(tx);
-                try
+                // The reference plane must CONTAIN the profile. The profile is a
+                // vertical triangle, so the plane needs the ridge direction and
+                // Z — which means cutVec is BasisZ. Passing BasisX/BasisY here
+                // defines a HORIZONTAL plane, and Revit rejects the profile with
+                // "Invalid profile" (measured 2026-08-06 — that error is what
+                // pointed at this line).
+                var span = alongX ? (maxX - minX) : (maxY - minY);
+                foreach (var (s, e, how) in new[]
+                         { (0.0, span, "plane-relative bounds"),
+                           (alongX ? minX : minY, alongX ? maxX : maxY, "absolute bounds") })
                 {
-                    var view = new FilteredElementCollector(doc).OfClass(typeof(View))
-                        .Cast<View>().FirstOrDefault(v => !v.IsTemplate && v is ViewPlan);
-                    var rp = doc.Create.NewReferencePlane(bubble, free,
-                                                          alongX ? XYZ.BasisX : XYZ.BasisY, view);
-                    var exr = doc.Create.NewExtrusionRoof(
-                        profile, rp, level, roofType,
-                        alongX ? minX : minY, alongX ? maxX : maxY);
-                    TxGuard.CommitOrThrow(tx);
-                    res.Id = exr.Id;
-                    res.Strategy = "extrusion roof — cross-section swept along the ridge "
-                                 + "(footprint roofs refused in this template)";
-                    res.Shape = slopeDeg.HasValue ? "gable" : "shallow-pitch";
-                    return res;
-                }
-                catch (Exception ex)
-                {
-                    if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
-                    res.Attempts.Add($"extrusion roof -> {ex.GetType().Name}: {ex.Message}");
+                    using var tx = new Transaction(doc, "BINA: roof (extrusion)");
+                    TxGuard.StartSwallowing(tx);
+                    try
+                    {
+                        var view = new FilteredElementCollector(doc).OfClass(typeof(View))
+                            .Cast<View>().FirstOrDefault(v => !v.IsTemplate && v is ViewPlan);
+                        var rp = doc.Create.NewReferencePlane(bubble, free, XYZ.BasisZ, view);
+                        var exr = doc.Create.NewExtrusionRoof(profile, rp, level, roofType, s, e);
+                        TxGuard.CommitOrThrow(tx);
+                        res.Id = exr.Id;
+                        res.Strategy = "extrusion roof — cross-section swept along the ridge, "
+                                     + how + " (footprint roofs refused in this template)";
+                        res.Shape = slopeDeg.HasValue ? "gable" : "shallow-pitch";
+                        return res;
+                    }
+                    catch (Exception ex)
+                    {
+                        if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
+                        res.Attempts.Add($"extrusion roof ({how}) -> {ex.GetType().Name}: {ex.Message}");
+                    }
                 }
             }
             catch (Exception ex)
