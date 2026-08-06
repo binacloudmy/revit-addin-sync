@@ -235,8 +235,26 @@ namespace BinaVibe.Mcp.Tools
             var prefix = Str(levelsSpec, "prefix") ?? "Level ";
 
             var wallsSpec = Obj(args, "walls");
-            var extType = FindWallType(doc, Str(wallsSpec, "exterior_type"), interior: false);
             var intType = FindWallType(doc, Str(wallsSpec, "interior_type"), interior: true);
+
+            // Facade system. A curtain wall is just a wall whose type is
+            // curtain-kind, so the generator picks the type and then drives the
+            // grid and mullions on it — the same tools that already existed and
+            // that build_design never called.
+            var facadeSpec = Obj(args, "facade");
+            var facadeKind = (Str(facadeSpec, "kind") ?? "punched").ToLowerInvariant();
+            WallType? curtainType = null;
+            if (facadeKind == "curtain" || facadeKind == "curtain_wall" || facadeKind == "glazed")
+            {
+                var named = Str(facadeSpec, "wall_type") ?? Str(wallsSpec, "exterior_type");
+                curtainType = new FilteredElementCollector(doc).OfClass(typeof(WallType))
+                    .Cast<WallType>().Where(t => t.Kind == WallKind.Curtain)
+                    .OrderByDescending(t => named != null
+                        && string.Equals(t.Name, named, StringComparison.OrdinalIgnoreCase))
+                    .FirstOrDefault();
+            }
+            var extType = curtainType ?? FindWallType(doc, Str(wallsSpec, "exterior_type"),
+                                                      interior: false);
 
             var floorsSpec = Obj(args, "floors");
             var slabType = FindFloorType(doc, Str(floorsSpec, "slab_type"));
@@ -350,44 +368,53 @@ namespace BinaVibe.Mcp.Tools
                 // losing a correct house because the roof would not take is a
                 // far worse outcome than a house that is honestly reported as
                 // roofless — which is exactly what the digest will say.
-                string? roofWarning = null;
-                if (roofType != null)
+                // The roof is built AFTER this transaction commits — see below.
+                // RoofBuilder tries several strategies and owns a transaction per
+                // attempt, which cannot nest inside this one, and a roof failure
+                // must never cost the building that is already correct.
+
+                // Curtain grid + mullions, set on the TYPE so one write dresses
+                // every panel of every floor. Punched windows are skipped for a
+                // glazed facade — a curtain wall does not take them.
+                if (curtainType != null)
                 {
-                    try
+                    const int MaximumSpacing = 3;      // CurtainGridLayout
+                    var gv = (Num(facadeSpec, "grid_vertical_mm") ?? 1500) / FT;
+                    var gh = (Num(facadeSpec, "grid_horizontal_mm") ?? 3000) / FT;
+                    curtainType.get_Parameter(BuiltInParameter.SPACING_LAYOUT_VERT)?.Set(MaximumSpacing);
+                    curtainType.get_Parameter(BuiltInParameter.SPACING_LENGTH_VERT)?.Set(gv);
+                    curtainType.get_Parameter(BuiltInParameter.SPACING_LAYOUT_HORIZ)?.Set(MaximumSpacing);
+                    curtainType.get_Parameter(BuiltInParameter.SPACING_LENGTH_HORIZ)?.Set(gh);
+
+                    var mullName = Str(facadeSpec, "mullion_type");
+                    var mull = new FilteredElementCollector(doc).OfClass(typeof(MullionType))
+                        .Cast<MullionType>()
+                        .OrderByDescending(m => mullName != null
+                            && string.Equals(m.Name, mullName, StringComparison.OrdinalIgnoreCase))
+                        .FirstOrDefault();
+                    if (mull != null)
                     {
-                        var top = levels[count];
-                        var roof = doc.Create.NewFootPrintRoof(Loop(footprint, top.Elevation), top,
-                                                               roofType, out ModelCurveArray shape);
-                        var ratio = roofPitch.HasValue ? Math.Tan(roofPitch.Value * Math.PI / 180.0) : 0.0;
-                        var idx = 0;
-                        foreach (ModelCurve mc in shape)
+                        // Both groups: Revit gives vertical and horizontal
+                        // mullions parameters that share a display name, so a
+                        // generic set-parameter call can only ever reach one.
+                        foreach (var bip in new[]
+                                 { BuiltInParameter.AUTO_MULLION_INTERIOR_VERT,
+                                   BuiltInParameter.AUTO_MULLION_BORDER1_VERT,
+                                   BuiltInParameter.AUTO_MULLION_BORDER2_VERT,
+                                   BuiltInParameter.AUTO_MULLION_INTERIOR_HORIZ,
+                                   BuiltInParameter.AUTO_MULLION_BORDER1_HORIZ,
+                                   BuiltInParameter.AUTO_MULLION_BORDER2_HORIZ })
                         {
-                            // gable: the first pair of opposite edges slope. hip: all.
-                            var defines = roofKind == "hip" ? roofPitch.HasValue
-                                : roofKind == "gable" && roofPitch.HasValue && (idx % 2 == 0);
-                            roof.set_DefinesSlope(mc, defines);
-                            if (defines) roof.set_SlopeAngle(mc, ratio);
-                            idx++;
+                            var p = curtainType.get_Parameter(bip);
+                            if (p != null && !p.IsReadOnly) p.Set(mull.Id);
                         }
-                        Own("roof", roof.Id.Value);
                     }
-                    catch (Exception rex)
-                    {
-                        roofWarning = $"the roof could not be created with type "
-                            + $"'{roofType.Name}' ({rex.Message}). Everything else was built. "
-                            + "Tell the drafter the roof is missing and offer Architecture > Roof "
-                            + "by Footprint — do NOT describe this as a finished shell.";
-                    }
-                }
-                else
-                {
-                    roofWarning = "this project has no footprint-capable roof type, so no roof "
-                        + "was created. Everything else was built.";
                 }
 
                 // Openings on the ground floor ---------------------------------
                 var groundWalls = owns.TryGetValue("perimeter_wall", out var pw)
                     ? pw.Take(footprint.Count).ToList() : new List<long>();
+                if (curtainType != null) { winSym = null; }
                 if (doorSym != null && groundWalls.Count > 0)
                 {
                     var host = doc.GetElement(ElemIds.From(groundWalls[0])) as Wall;
@@ -661,6 +688,49 @@ namespace BinaVibe.Mcp.Tools
                 SaveJson(doc, JsonSerializer.Serialize(stored));
 
                 TxGuard.CommitOrThrow(tx);
+
+                // ── roof, after the commit ────────────────────────────────
+                // Every strategy RoofBuilder knows, including the extrusion that
+                // works where footprint roofs are refused. Failure here leaves a
+                // correct building plus an honest warning, which the digest also
+                // reports as floor area with nothing over it.
+                string? roofWarning = null;
+                string? roofStrategy = null;
+                if (roofType != null)
+                {
+                    var roofRes = RoofBuilder.Build(doc, footprint, levels[count], roofType,
+                                               roofKind == "flat" ? null : roofPitch,
+                                               null, roofKind);
+                    if (roofRes.Ok)
+                    {
+                        owns["roof"] = new List<long> { roofRes.Id!.Value };
+                        roofStrategy = roofRes.Strategy;
+                        using var txR = new Transaction(doc, "BINA: record roof");
+                        TxGuard.StartSwallowing(txR);
+                        SaveJson(doc, JsonSerializer.Serialize(new Dictionary<string, object?>
+                        {
+                            ["spec_id"] = specId, ["version"] = 1,
+                            ["args"] = JsonSerializer.Deserialize<object>(args.GetRawText()),
+                            ["owns"] = owns,
+                        }));
+                        TxGuard.CommitOrThrow(txR);
+                    }
+                    else
+                    {
+                        roofWarning = "the roof could not be created. Attempts: "
+                            + string.Join(" | ", roofRes.Attempts)
+                            + $". Type '{roofType.Name}' (family '{roofType.FamilyName}'). "
+                            + "Everything else was built — tell the drafter the roof is missing "
+                            + "and offer Architecture > Roof by Footprint. Do NOT describe this "
+                            + "as a finished shell.";
+                    }
+                }
+                else
+                {
+                    roofWarning = "this project has no footprint-capable roof type, so no roof "
+                        + "was created. Everything else was built.";
+                }
+
                 t0.Stop();
                 return new Dictionary<string, object?>
                 {
@@ -668,6 +738,7 @@ namespace BinaVibe.Mcp.Tools
                     ["spec_id"] = specId,
                     ["created"] = owns.ToDictionary(k => k.Key, v => (object?)v.Value.Count),
                     ["new_ids"] = owns.SelectMany(k => k.Value).ToList(),
+                    ["roof_strategy"] = roofStrategy,
                     ["warning"] = roofWarning,
                     ["elapsed_ms"] = t0.ElapsedMilliseconds,
                     ["digest"] = Inspectors.GetGeometryDigest(doc, args),
