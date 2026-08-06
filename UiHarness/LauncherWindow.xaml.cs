@@ -36,6 +36,14 @@ namespace UiHarness
         private void OpenProjectPicker(object sender, RoutedEventArgs e) =>
             Open(() => new ProjectPickerWindow("harness-fake-token"));
 
+        // Point AIBaseUrl at a running bina-ai and this browses the real
+        // catalog; otherwise it opens and shows its "could not reach" state,
+        // which is the layout worth iterating on anyway. 2026 exercises the
+        // version filter — every family in the catalog is older, so none grey out.
+        private void OpenFamilyLibrary(object sender, RoutedEventArgs e) =>
+            Open(() => new RevitWebAppSync.UI.FamilyLibrary.FamilyLibraryWindow(
+                "harness-fake-token", 2026));
+
         private void OpenSyncResults(object sender, RoutedEventArgs e) =>
             Open(() => new SyncResultsWindow(new SyncResultData
             {

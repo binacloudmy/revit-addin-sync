@@ -1,0 +1,149 @@
+<Window x:Class="RevitWebAppSync.UI.FamilyLibrary.FamilyLibraryWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="BINA Family Library"
+        Height="660" Width="920"
+        MinHeight="480" MinWidth="720"
+        WindowStartupLocation="CenterScreen"
+        FontFamily="{DynamicResource Cp.Font}"
+        Background="{DynamicResource Cp.Bg}">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Copilot/CopilotTokens.xaml"/>
+                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Copilot/CopilotStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <!-- Cp.SlimScrollBar is vertical-only (fixed Width, no horizontal
+                 template), so it is scoped to the grid's scroller below rather
+                 than applied window-wide — the chips row scrolls horizontally
+                 and would get an undraggable 7px stub. -->
+            <Style x:Key="SlimVerticalScrollBar" TargetType="{x:Type ScrollBar}"
+                   BasedOn="{StaticResource Cp.SlimScrollBar}"/>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Grid Margin="18,14,18,14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <!-- header -->
+            <RowDefinition Height="Auto"/>
+            <!-- search -->
+            <RowDefinition Height="Auto"/>
+            <!-- chips -->
+            <RowDefinition Height="*"/>
+            <!-- grid -->
+            <RowDefinition Height="Auto"/>
+            <!-- footer -->
+        </Grid.RowDefinitions>
+
+        <!-- ── Header ─────────────────────────────────────────────── -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,12">
+            <TextBlock Text="BINA Family Library"
+                       FontSize="17" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Cp.Ink}"/>
+            <TextBlock x:Name="SubtitleText"
+                       FontSize="12"
+                       Foreground="{DynamicResource Cp.Muted}"
+                       Margin="0,2,0,0"/>
+        </StackPanel>
+
+        <!-- ── Search ─────────────────────────────────────────────── -->
+        <Border Grid.Row="1"
+                Background="{DynamicResource Cp.PanelBg}"
+                BorderBrush="{DynamicResource Cp.Line}"
+                BorderThickness="1" CornerRadius="7"
+                Padding="11,7,11,7" Margin="0,0,0,10">
+            <Grid>
+                <TextBox x:Name="SearchInput"
+                         BorderThickness="0" Background="Transparent"
+                         Foreground="{DynamicResource Cp.Ink}"
+                         CaretBrush="{DynamicResource Cp.Ink}"
+                         FontSize="13"
+                         TextChanged="Search_TextChanged"/>
+                <!-- Placeholder: shown only while the box is empty. -->
+                <TextBlock Text="Search families — try &quot;pintu&quot;, &quot;sinki dapur&quot;, &quot;lampu&quot;…"
+                           Foreground="{DynamicResource Cp.Faint}"
+                           FontSize="13" IsHitTestVisible="False"
+                           VerticalAlignment="Center">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Text, ElementName=SearchInput}" Value="">
+                                    <Setter Property="Visibility" Value="Visible"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Grid>
+        </Border>
+
+        <!-- ── Category chips ─────────────────────────────────────── -->
+        <ScrollViewer Grid.Row="2"
+                      HorizontalScrollBarVisibility="Auto"
+                      VerticalScrollBarVisibility="Disabled"
+                      CanContentScroll="False" PanningMode="HorizontalOnly"
+                      Margin="0,0,0,12">
+            <StackPanel x:Name="ChipsHost" Orientation="Horizontal"/>
+        </ScrollViewer>
+
+        <!-- ── Family grid ────────────────────────────────────────── -->
+        <Border Grid.Row="3"
+                Background="{DynamicResource Cp.PanelBg}"
+                BorderBrush="{DynamicResource Cp.Line}"
+                BorderThickness="1" CornerRadius="8">
+            <Grid>
+                <ScrollViewer x:Name="GridScroller"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              Padding="12">
+                    <ScrollViewer.Resources>
+                        <Style TargetType="{x:Type ScrollBar}"
+                               BasedOn="{StaticResource SlimVerticalScrollBar}"/>
+                    </ScrollViewer.Resources>
+                    <WrapPanel x:Name="CardsHost" Orientation="Horizontal"/>
+                </ScrollViewer>
+
+                <!-- Busy / empty / error states share this spot. -->
+                <TextBlock x:Name="StatusText"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           FontSize="13" TextWrapping="Wrap"
+                           MaxWidth="420" TextAlignment="Center"
+                           Foreground="{DynamicResource Cp.Muted}"
+                           Visibility="Collapsed"/>
+            </Grid>
+        </Border>
+
+        <!-- ── Footer ─────────────────────────────────────────────── -->
+        <Grid Grid.Row="4" Margin="0,12,0,0">
+            <TextBlock x:Name="CountText"
+                       VerticalAlignment="Center"
+                       FontSize="12"
+                       Foreground="{DynamicResource Cp.Muted}"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="PrevButton" Content="Previous"
+                        Style="{StaticResource Cp.Ghost}"
+                        Margin="0,0,6,0" Padding="12,7"
+                        IsEnabled="False"
+                        Click="Prev_Click"/>
+                <Button x:Name="NextButton" Content="Next"
+                        Style="{StaticResource Cp.Ghost}"
+                        Margin="0,0,14,0" Padding="12,7"
+                        IsEnabled="False"
+                        Click="Next_Click"/>
+                <Button x:Name="CancelButton" Content="Cancel"
+                        Style="{StaticResource Cp.Ghost}"
+                        Margin="0,0,8,0" Padding="16,7"
+                        Click="Cancel_Click"/>
+                <Button x:Name="LoadButton" Content="Load into Project"
+                        Style="{StaticResource Cp.RunButton}"
+                        Padding="18,7"
+                        IsEnabled="False"
+                        Click="Load_Click"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

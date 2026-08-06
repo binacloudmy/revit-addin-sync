@@ -647,6 +647,18 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
             };
 
+            PushButtonData familyLibraryButtonData = new PushButtonData(
+                "FamilyLibrary",
+                "Family\nLibrary",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.FamilyLibraryCommand")
+            {
+                ToolTip = "Browse and load families from the BINA cloud library",
+                LongDescription = "Search the shared JKR/BINA family library by name or category, preview the thumbnails, and load a family straight into the open project.",
+                Image = LoadImage("RevitWebAppSync.Resources.familyLibrary.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.familyLibrary.png", 32)
+            };
+
             PushButtonData federateButtonData = new PushButtonData(
                 "FederateDisciplines",
                 "Federate Disciplines",
@@ -736,6 +748,7 @@ namespace RevitWebAppSync
             cloudPanel.AddItem(buttonData);
             cloudPanel.AddItem(loginButtonData);
             cloudPanel.AddItem(bimDisciplineButtonData);
+            cloudPanel.AddItem(familyLibraryButtonData);
 
             // AI: copilot
             aiPanel.AddItem(askAiButtonData);

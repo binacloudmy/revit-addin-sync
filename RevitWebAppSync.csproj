@@ -115,6 +115,7 @@
     <EmbeddedResource Include="Resources\revitSave.png" />
     <EmbeddedResource Include="Resources\microchip.png" />
     <EmbeddedResource Include="Resources\aiAssistant.png" />
+    <EmbeddedResource Include="Resources\familyLibrary.png" />
   </ItemGroup>
 
   <ItemGroup>
