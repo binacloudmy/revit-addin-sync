@@ -2174,10 +2174,86 @@ namespace BinaVibe.Mcp.Tools
                 }
             }
 
+            // Footprint roofs are refused outright in some templates — measured
+            // 2026-08-06: every Basic Roof type in the project, both levels,
+            // both footprint variants, same ArgumentNullException. Rather than
+            // keep guessing at that API, build the roof the way a gable is
+            // actually shaped: draw the cross-section and extrude it along the
+            // ridge. Different API, different failure modes, and for a pitched
+            // roof it is the more natural construction anyway.
+            try
+            {
+                var minX = boundary.Min(p => p.X); var maxX = boundary.Max(p => p.X);
+                var minY = boundary.Min(p => p.Y); var maxY = boundary.Max(p => p.Y);
+                var alongX = (maxX - minX) >= (maxY - minY);   // ridge runs the long way
+                var zBase = level.Elevation;
+                var pitchRad = (slopeDeg ?? 25.0) * Math.PI / 180.0;
+                var halfSpan = (alongX ? (maxY - minY) : (maxX - minX)) / 2.0;
+                var rise = halfSpan * Math.Tan(pitchRad);
+
+                // Cross-section: eave, apex, eave — an open profile is what an
+                // extrusion roof expects.
+                XYZ p1, p2, p3, bubble, free;
+                if (alongX)
+                {
+                    p1 = new XYZ(minX, minY, zBase);
+                    p2 = new XYZ(minX, (minY + maxY) / 2.0, zBase + rise);
+                    p3 = new XYZ(minX, maxY, zBase);
+                    bubble = new XYZ(minX, minY, zBase);
+                    free = new XYZ(minX, maxY, zBase);
+                }
+                else
+                {
+                    p1 = new XYZ(minX, minY, zBase);
+                    p2 = new XYZ((minX + maxX) / 2.0, minY, zBase + rise);
+                    p3 = new XYZ(maxX, minY, zBase);
+                    bubble = new XYZ(minX, minY, zBase);
+                    free = new XYZ(maxX, minY, zBase);
+                }
+
+                var profile = new CurveArray();
+                profile.Append(Line.CreateBound(p1, p2));
+                profile.Append(Line.CreateBound(p2, p3));
+
+                using var txE = new Transaction(doc, "BINA: create roof (extrusion)");
+                TxGuard.StartSwallowing(txE);
+                try
+                {
+                    var cutVec = alongX ? XYZ.BasisX : XYZ.BasisY;
+                    var rp = doc.Create.NewReferencePlane(bubble, free, cutVec,
+                                                          uidoc?.ActiveView);
+                    var start = alongX ? minX : minY;
+                    var end = alongX ? maxX : maxY;
+                    var exr = doc.Create.NewExtrusionRoof(profile, rp, level, roofType, start, end);
+                    TxGuard.CommitOrThrow(txE);
+                    if (restoreView != null && uidoc != null)
+                    { try { uidoc.ActiveView = restoreView; } catch { } }
+                    return new Dictionary<string, object?>
+                    {
+                        ["ok"] = true, ["new_ids"] = new List<long> { exr.Id.Value },
+                        ["roof_type"] = roofType.Name, ["level"] = level.Name,
+                        ["slope_deg"] = slopeDeg ?? 25.0,
+                        ["strategy"] = "extrusion roof — cross-section extruded along the ridge "
+                                     + "(footprint roofs are refused in this template)",
+                        ["shape"] = "gable",
+                        ["ridge_axis"] = alongX ? "x" : "y",
+                    };
+                }
+                catch (Exception exE)
+                {
+                    if (txE.GetStatus() == TransactionStatus.Started) txE.RollBack();
+                    attempts.Add($"extrusion roof -> {exE.GetType().Name}: {exE.Message}");
+                }
+            }
+            catch (Exception exOuter)
+            {
+                attempts.Add($"extrusion roof setup -> {exOuter.GetType().Name}: {exOuter.Message}");
+            }
+
             if (restoreView != null && uidoc != null)
             { try { uidoc.ActiveView = restoreView; } catch { } }
             throw new InvalidOperationException(
-                "Revit refused to create this footprint roof. Attempts: "
+                "Revit refused to create this roof. Attempts: "
                 + string.Join(" | ", attempts)
                 + $". Context: roof type '{roofType.Name}' (family '{roofType.FamilyName}'), "
                 + $"level '{level.Name}', active view '{uidoc?.ActiveView?.Name ?? "none"}' "
