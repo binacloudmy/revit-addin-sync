@@ -127,13 +127,43 @@ namespace BinaVibe.Mcp.Tools
             return interior ? ordered.First() : ordered.Last();
         }
 
+        /// <summary>A floor type, falling back rather than failing the build.
+        ///
+        /// The model picked "Wall-Fnd_300Con_Footing" as a slab type on
+        /// 2026-08-06 — a wall type name, from the wrong list. Refusing to build
+        /// an entire house over one mis-chosen type name is the wrong trade:
+        /// build it with a sensible default and let the reply say which type was
+        /// actually used.</summary>
         private static FloorType FindFloorType(Document doc, string? name)
         {
             var all = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().ToList();
             if (all.Count == 0) throw new InvalidOperationException("no floor types in this project");
             if (string.IsNullOrWhiteSpace(name)) return all.First();
             return all.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))
-                ?? throw new ArgumentException($"floor type '{name}' not found");
+                ?? all.First();
+        }
+
+        /// <summary>A roof type NewFootPrintRoof will actually accept.
+        ///
+        /// "Sloped Glazing" is a RoofType and sorts first in most templates, so
+        /// taking the first match hands the API a type it rejects with a bare
+        /// ArgumentNullException — "Value cannot be null", which reads like a
+        /// bad argument and sends the caller off retrying the boundary. Only
+        /// Basic Roof families are footprint-capable.</summary>
+        private static RoofType? FindRoofType(Document doc, string? name)
+        {
+            var all = new FilteredElementCollector(doc).OfClass(typeof(RoofType))
+                .OfCategory(BuiltInCategory.OST_Roofs).Cast<RoofType>().ToList();
+            var basic = all.Where(t => (t.FamilyName ?? "").IndexOf("Basic", StringComparison.OrdinalIgnoreCase) >= 0)
+                           .ToList();
+            var pool = basic.Count > 0 ? basic : all;
+            if (string.IsNullOrWhiteSpace(name)) return pool.FirstOrDefault();
+            var hit = pool.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (hit != null) return hit;
+            // Named a type that exists but is not footprint-capable, or does not
+            // exist at all: fall back rather than failing the whole build, and
+            // let the digest report what was actually made.
+            return pool.FirstOrDefault();
         }
 
         private static FamilySymbol? FindSymbol(Document doc, BuiltInCategory bic, string? name)
@@ -203,10 +233,7 @@ namespace BinaVibe.Mcp.Tools
             var roofSpec = Obj(args, "roof");
             var roofKind = (Str(roofSpec, "kind") ?? "flat").ToLowerInvariant();
             var roofPitch = Num(roofSpec, "pitch_deg");
-            var roofType = new FilteredElementCollector(doc).OfClass(typeof(RoofType))
-                .OfCategory(BuiltInCategory.OST_Roofs).Cast<RoofType>()
-                .FirstOrDefault(t => Str(roofSpec, "type_name") == null
-                    || string.Equals(t.Name, Str(roofSpec, "type_name"), StringComparison.OrdinalIgnoreCase));
+            var roofType = FindRoofType(doc, Str(roofSpec, "type_name"));
 
             var openSpec = Obj(args, "openings");
             var doorSym = FindSymbol(doc, BuiltInCategory.OST_Doors, Str(openSpec, "door_type"));
@@ -284,23 +311,44 @@ namespace BinaVibe.Mcp.Tools
                 }
 
                 // Roof ---------------------------------------------------------
+                // A roof failure must NOT throw away the rest of the building.
+                // NewFootPrintRoof is the most fragile call in this method, and
+                // losing a correct house because the roof would not take is a
+                // far worse outcome than a house that is honestly reported as
+                // roofless — which is exactly what the digest will say.
+                string? roofWarning = null;
                 if (roofType != null)
                 {
-                    var top = levels[count];
-                    var roof = doc.Create.NewFootPrintRoof(Loop(footprint, top.Elevation), top,
-                                                           roofType, out ModelCurveArray shape);
-                    var ratio = roofPitch.HasValue ? Math.Tan(roofPitch.Value * Math.PI / 180.0) : 0.0;
-                    var idx = 0;
-                    foreach (ModelCurve mc in shape)
+                    try
                     {
-                        // gable: the first pair of opposite edges slope. hip: all.
-                        var defines = roofKind == "hip" ? roofPitch.HasValue
-                            : roofKind == "gable" && roofPitch.HasValue && (idx % 2 == 0);
-                        roof.set_DefinesSlope(mc, defines);
-                        if (defines) roof.set_SlopeAngle(mc, ratio);
-                        idx++;
+                        var top = levels[count];
+                        var roof = doc.Create.NewFootPrintRoof(Loop(footprint, top.Elevation), top,
+                                                               roofType, out ModelCurveArray shape);
+                        var ratio = roofPitch.HasValue ? Math.Tan(roofPitch.Value * Math.PI / 180.0) : 0.0;
+                        var idx = 0;
+                        foreach (ModelCurve mc in shape)
+                        {
+                            // gable: the first pair of opposite edges slope. hip: all.
+                            var defines = roofKind == "hip" ? roofPitch.HasValue
+                                : roofKind == "gable" && roofPitch.HasValue && (idx % 2 == 0);
+                            roof.set_DefinesSlope(mc, defines);
+                            if (defines) roof.set_SlopeAngle(mc, ratio);
+                            idx++;
+                        }
+                        Own("roof", roof.Id.Value);
                     }
-                    Own("roof", roof.Id.Value);
+                    catch (Exception rex)
+                    {
+                        roofWarning = $"the roof could not be created with type "
+                            + $"'{roofType.Name}' ({rex.Message}). Everything else was built. "
+                            + "Tell the drafter the roof is missing and offer Architecture > Roof "
+                            + "by Footprint — do NOT describe this as a finished shell.";
+                    }
+                }
+                else
+                {
+                    roofWarning = "this project has no footprint-capable roof type, so no roof "
+                        + "was created. Everything else was built.";
                 }
 
                 // Openings on the ground floor ---------------------------------
@@ -444,6 +492,7 @@ namespace BinaVibe.Mcp.Tools
                     ["spec_id"] = specId,
                     ["created"] = owns.ToDictionary(k => k.Key, v => (object?)v.Value.Count),
                     ["new_ids"] = owns.SelectMany(k => k.Value).ToList(),
+                    ["warning"] = roofWarning,
                     ["elapsed_ms"] = t0.ElapsedMilliseconds,
                     ["digest"] = Inspectors.GetGeometryDigest(doc, args),
                 };
