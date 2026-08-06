@@ -108,6 +108,9 @@ namespace BinaVibe.Mcp.Tools
                 // place_socket_points commits them. Same two-step shape as
                 // fill_audit -> draft_export.
                 "suggest_socket_points"         => Electrical.SocketCandidates.Suggest(doc, args),
+                // Lighting grid candidates. Same two-step shape; also does the
+                // W/m2 -> fixture-count arithmetic so the caller never has to.
+                "suggest_lighting_points"       => Electrical.LightingCandidates.Suggest(doc, args),
                 // Circuit proposals. Read-only (no Transaction): caches a plan
                 // and returns reviewable circuits; create_circuits commits.
                 // Same two-step shape as suggest/place_socket_points.
@@ -186,6 +189,7 @@ namespace BinaVibe.Mcp.Tools
                 // tolerance. Coordinates come from the cached plan, never from
                 // the model re-emitting them.
                 "place_socket_points"    => Electrical.SocketPlacement.PlaceSocketPoints(doc, args),
+                "place_lighting_points"  => Electrical.LightingPlacement.PlaceLightingPoints(doc, args),
                 "place_socket_on_wall"   => Electrical.SocketPlacement.PlaceSocketOnWall(doc, args),
                 // Circuits: one TransactionGroup, single undo, per-circuit
                 // failure tolerance. Grouping comes from the cached plan,

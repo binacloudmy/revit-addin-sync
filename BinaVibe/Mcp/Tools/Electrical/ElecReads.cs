@@ -162,6 +162,26 @@ namespace BinaVibe.Mcp.Tools.Electrical
             catch { return null; }
         }
 
+        /// <summary>Apparent load in VA off an instance OR a type, or null when
+        /// the family carries none. Element rather than FamilyInstance on
+        /// purpose: suggest_lighting_points has to know a fixture's wattage
+        /// BEFORE anything is placed, so it asks the FamilySymbol.
+        ///
+        /// An affirmative zero reads as "no value" — a family that declares 0 VA
+        /// tells us nothing, and dividing a wattage target by it is how a room
+        /// asks for infinite fixtures.</summary>
+        internal static double? ApparentLoadVa(Element? el)
+        {
+            var p = el?.get_Parameter(BuiltInParameter.RBS_ELEC_APPARENT_LOAD);
+            if (p == null || !p.HasValue) return null;
+            try
+            {
+                var va = UnitUtils.ConvertFromInternalUnits(p.AsDouble(), UnitTypeId.VoltAmperes);
+                return va > 1e-9 ? va : (double?)null;
+            }
+            catch { return null; }
+        }
+
         internal static int? ReadInt(FamilyInstance? fi, BuiltInParameter bip)
         {
             var p = ReadParam(fi, bip);

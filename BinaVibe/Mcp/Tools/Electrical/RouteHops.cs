@@ -1,19 +1,15 @@
 // Hop records for a routed circuit — pure, Revit-free.
 //
-// A "hop" is one wire's worth of route: panel->dev0, dev0->dev1, ... Each hop
+// A "hop" is one wire's worth of route: panel->dev0, dev0->dev1, … Each hop
 // owns BOTH its leg range and the two element ids its wire must connect.
 //
-// It used to own only the leg range (RoutePlan.HopStartLegIndex), and
-// RouteCommit paired hop h with DeviceIds[h-1]/DeviceIds[h] positionally. That
-// held only while every hop produced legs. A degenerate hop — two devices at
-// the same point, which is ordinary in a socket chain — was skipped without
-// appending a leg index, while DeviceIds kept the full chain. From that point
-// on every wire was created against the WRONG device connectors, and because
-// Wire.Create accepts mismatched connectors (see RouteCommit's note on loose
-// ends) it failed silently: no failed[] row, no note, wrong model.
-//
-// Carrying the ids on the hop makes that class of desync unrepresentable, and
-// the builder below is Revit-free so the invariant is unit-tested.
+// Owning only the leg range and pairing positionally against DeviceIds holds
+// just while every hop produces legs. A degenerate hop — two devices at the
+// same point, ordinary in a socket chain — is skipped without appending a leg
+// index while DeviceIds keeps the full chain, and from there every wire is
+// built against the WRONG connectors. Wire.Create accepts mismatched
+// connectors, so that failed silently: no failed[] row, wrong model. Carrying
+// the ids on the hop makes the desync unrepresentable.
 
 using System;
 using System.Collections.Generic;

@@ -1,18 +1,15 @@
 // place_socket_points / place_socket_on_wall — the write half of the socket
-// workflow. MUTATE tools: the addin's ConfirmGate shows a Ya/Tidak card before
-// either runs.
+// workflow. MUTATE: the addin's ConfirmGate shows a Ya/Tidak card first.
 //
-// place_socket_points takes a plan_id, never coordinates. The candidate points
-// are read back out of SocketPlanCache, so the drafter's confirmation and the
-// geometry that gets committed cannot drift apart — an LLM re-emitting 40 XYZ
-// triples is exactly the transport hole this closes.
+// place_socket_points takes a plan_id, never coordinates — an LLM re-emitting
+// 40 XYZ triples is exactly the transport hole that closes.
 //
 // Deliberately NOT routed through execute_revit_batch: BatchExecutor rolls the
 // whole group back on any step failure, and one wall refusing a host must not
-// destroy the other thirty-nine placements. A TransactionGroup here gives the
-// same single Ctrl+Z with per-item tolerance.
+// destroy the other thirty-nine placements. A TransactionGroup gives the same
+// single Ctrl+Z with per-item tolerance.
 //
-// place_family_instance is untouched. It refuses OneLevelBasedHosted families
+// place_family_instance is untouched — it refuses OneLevelBasedHosted families
 // outright; the reasoning is reused below, the code is not.
 
 using System;
@@ -359,7 +356,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         // ─── helpers ────────────────────────────────────────────────────
 
-        private static FamilySymbol? ResolveSymbol(Document doc, string name, BuiltInCategory? cat = null)
+        /// <summary>Family type by bare name or "Family : Type". Internal so the
+        /// lighting pair resolves types the same way sockets do — two spellings
+        /// of "which symbol did the drafter mean" is one too many.</summary>
+        internal static FamilySymbol? ResolveSymbol(Document doc, string name, BuiltInCategory? cat = null)
         {
             var q = new FilteredElementCollector(doc).WhereElementIsElementType()
                 .OfClass(typeof(FamilySymbol));
@@ -370,7 +370,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 string.Equals($"{fs.FamilyName} : {fs.Name}", name, StringComparison.OrdinalIgnoreCase));
         }
 
-        private static Level? ResolveLevel(Document doc, string? levelName, Wall? host)
+        /// <summary>Named level, else the host's own level. ``host`` is Element
+        /// rather than Wall because a lighting fixture hosts on a Ceiling and the
+        /// rule — a hosted instance inherits its host's level — is the same.</summary>
+        internal static Level? ResolveLevel(Document doc, string? levelName, Element? host)
         {
             if (!string.IsNullOrEmpty(levelName))
             {

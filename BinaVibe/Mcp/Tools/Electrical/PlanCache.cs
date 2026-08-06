@@ -1,18 +1,16 @@
 // The propose/commit handoff shared by the socket, circuit and route plans —
 // pure, Revit-free.
 //
-// A propose tool caches what the drafter is about to review; the confirmation
-// carries a plan_id plus small integer indices, never coordinates. Nothing
-// computed travels back through the model, so there is no opportunity for
-// silent coordinate corruption or mm/ft slippage in transit.
+// The confirmation carries a plan_id plus small integer indices, never
+// coordinates, so nothing computed travels back through the model and there is
+// no chance of mm/ft slippage in transit.
 //
 // Entries carry a document key and Get() rejects a mismatch — serving a plan
 // computed against a different model is actively dangerous. Both refusals name
-// the tool that would rebuild the plan, because the drafter reads them.
+// the tool that rebuilds the plan, because the drafter reads them.
 //
-// Audit/AuditModels.cs AuditResultCache is a fourth near-copy of this shape
-// with a DIFFERENT miss contract (returns null instead of throwing, and has no
-// document guard). Read SocketPlanCache's history before merging it in.
+// Audit/AuditModels.cs AuditResultCache is a fourth near-copy with a DIFFERENT
+// miss contract (returns null, no document guard). Read its history first.
 
 using System;
 using System.Collections.Generic;

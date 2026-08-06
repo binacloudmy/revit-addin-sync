@@ -1,25 +1,17 @@
-// create_circuits — the write half of the circuiting workflow. MUTATE tool:
-// the addin's ConfirmGate shows a Ya/Tidak card before this runs.
+// create_circuits — the write half of circuiting. MUTATE: the addin's
+// ConfirmGate shows a Ya/Tidak card before this runs.
 //
-// Takes a plan_id + indices, never device lists. The reviewed grouping is
-// read back out of CircuitPlanCache, so the drafter's confirmation and the
-// circuits that get committed cannot drift apart.
+// Takes a plan_id + indices, never device lists, so the reviewed grouping and
+// the committed one cannot drift. One TransactionGroup, single undo, per-
+// circuit failure tolerance — one panel rejection must not cost the others.
 //
-// One TransactionGroup, single undo, per-circuit failure tolerance — a panel
-// rejecting one circuit must not destroy the others (SocketPlacement's
-// pattern, not BatchExecutor's roll-it-all-back).
+// COMMIT BOUNDARY: CommitOne is split at TxGuard.CommitOrThrow. Everything
+// before may throw; everything after is BuildCreatedRow, which never does.
+// Running the read-back inside the try sent COMMITTED circuits into failed[]
+// with their sockets still assigned.
 //
-// COMMIT BOUNDARY. CommitOne is split at TxGuard.CommitOrThrow: everything
-// before it may throw (rolled back, filed under failed[], committed:false);
-// everything after it is BuildCreatedRow, which never throws. The old code ran
-// the read-back inside the same try, so a throwing CircuitNumber sent a
-// COMMITTED circuit into failed[] and its sockets stayed assigned while the
-// tool reported failure — UAT 2026-08-04, the report that made the agent loop.
-//
-// PHASE BALANCE IS A PROPOSAL. Circuits are committed round-robin across the
-// proposed phases so Revit's sequential slot fill approximates the balance,
-// then the ACTUAL slot is read back and reported next to the proposal.
-// Deliberate v1 non-goal: PanelScheduleView.MoveSlotTo slot surgery.
+// Phase balance is a PROPOSAL — the actual slot is read back and reported
+// beside it. Slot surgery (MoveSlotTo) is a deliberate non-goal.
 
 using System;
 using System.Collections.Generic;

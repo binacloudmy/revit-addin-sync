@@ -114,16 +114,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 // Explicitly requested ids must exist.
                 if (fi.Category == null) { Skip(id, "no_category"); continue; }
 
-                // Level, read the way SocketPlacement.ResolveLevel and
-                // RoutePlanner do. fi.LevelId alone is NOT enough: a
-                // wall-hosted socket — which is every socket place_socket_points
-                // creates — reports InvalidElementId, so the name came back ""
-                // and matched no filter. Every device was then dropped by the
-                // `continue` below WITHOUT a skipped_devices row, producing
-                // "no circuit-able devices found ... skipped: 0", which is
-                // indistinguishable from a model with no sockets in it. That is
-                // why circuiting only worked when device_ids were passed by
-                // hand (UAT 2026-08-04).
+                // fi.LevelId alone is NOT enough: a wall-hosted socket — which is
+                // every socket place_socket_points creates — reports
+                // InvalidElementId, so the name comes back "" and matches no filter.
+                // Read it the way SocketPlacement.ResolveLevel does, or every device
+                // is dropped below WITHOUT a skipped_devices row.
                 var levelName = DeviceLevelName(doc, fi);
                 if (levelFilter != null &&
                     !string.Equals(levelName, levelFilter, StringComparison.OrdinalIgnoreCase))
@@ -145,15 +140,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
                         if (c.Domain == Domain.DomainElectrical) { hasElec = true; break; }
                 if (!hasElec) { Skip(id, "no_electrical_connector"); continue; }
 
-                // A 0 V device makes a 0 V circuit, and no distribution
-                // system serves 0 V — SelectPanel would reject it at commit
-                // with Revit wording that READS like a panel problem and sends
-                // the agent off swapping DB boxes. The connector's voltage is
-                // surfaced as RBS_ELEC_VOLTAGE on the instance or its type
-                // (Connector itself exposes no voltage in the API). Skip only
-                // on an AFFIRMATIVE zero — a family that exposes no voltage
-                // parameter at all stays in (unknown, not proven broken) and
-                // the commit-time panel_rejected redirect covers it.
+                // A 0 V device makes a 0 V circuit no distribution system serves,
+                // and SelectPanel rejects it with wording that READS like a panel
+                // problem. Voltage is RBS_ELEC_VOLTAGE on the instance or its type —
+                // Connector exposes none in the API. Skip only on an AFFIRMATIVE
+                // zero: a family with no voltage parameter is unknown, not broken.
                 var voltParam = fi.get_Parameter(BuiltInParameter.RBS_ELEC_VOLTAGE);
                 if (voltParam == null || !voltParam.HasValue)
                     voltParam = fi.Symbol?.get_Parameter(BuiltInParameter.RBS_ELEC_VOLTAGE);
@@ -197,20 +188,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 var bic = (BuiltInCategory)fi.Category.Id.Value;
                 bool isLighting = LightingCategories.Contains(bic);
 
-                double va;
-                string loadSource;
-                var loadParam = fi.get_Parameter(BuiltInParameter.RBS_ELEC_APPARENT_LOAD);
-                if (loadParam != null && loadParam.HasValue && loadParam.AsDouble() > 1e-9)
-                {
-                    va = UnitUtils.ConvertFromInternalUnits(
-                        loadParam.AsDouble(), UnitTypeId.VoltAmperes);
-                    loadSource = "parameter";
-                }
-                else
-                {
-                    va = isLighting ? vaLight : vaSocket;
-                    loadSource = "default_arg";
-                }
+                var declaredVa = ApparentLoadVa(fi);
+                double va = declaredVa ?? (isLighting ? vaLight : vaSocket);
+                string loadSource = declaredVa.HasValue ? "parameter" : "default_arg";
 
                 devices.Add(new ElecDevice
                 {

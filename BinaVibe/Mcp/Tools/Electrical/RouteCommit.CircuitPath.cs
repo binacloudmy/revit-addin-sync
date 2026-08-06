@@ -93,17 +93,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     }
                 }
 
-                // Revit's rejection lists FIVE conditions at once (first node
-                // must be the panel's circuit connector, adjacent nodes not too
-                // close, every segment horizontal or vertical, …) and never says
-                // which one failed. Without the nodes it handed back, the next
-                // round is guesswork — the same trap the wire failure took three
-                // rounds to escape.
-                //
-                // Report the shape that FAILED. When the fallback took, that is
-                // the dive path; when neither took, this is still the dive path
-                // and the flat one goes out beside it, because then both are
-                // evidence.
+                // Revit's rejection lists FIVE conditions at once and never says
+                // which one fired, so the refused polyline ships with it.
+                // Report the shape that FAILED — plus the flat one when neither
+                // took, because then both are evidence.
                 outcome.Nodes = NodeRows(r.PathVerticesMm);
                 if (!outcome.Set) outcome.FlatNodes = NodeRows(r.PathVerticesFlatMm);
             }

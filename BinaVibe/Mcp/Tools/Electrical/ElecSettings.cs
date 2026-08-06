@@ -1,26 +1,15 @@
-// Electrical settings + the two fixes that unblock circuiting:
-//   list_electrical_settings        (read)
-//   set_distribution_system         (mutate, project)
-//   set_connector_electrical_data   (mutate, FAMILY — reloads the family)
+// list_electrical_settings (read) + set_distribution_system (mutate).
+// set_connector_electrical_data lives in ElecSettings.ConnectorData.cs.
 //
-// WHY THESE EXIST. A circuit's voltage comes from the DEVICE connectors, and
-// a panel only accepts a circuit whose voltage falls inside a voltage
-// definition used by the panel's distribution system. A JKR-library socket
-// whose connector has Voltage 0 therefore produces a 0 V circuit that NO
-// panel can take, and Revit rejects it with "The panel and circuit do not
-// match" — wording that reads like a panel problem and sent the agent into a
-// place/delete/replace loop over DB boxes during UAT (2026-08-03).
+// WHY THESE EXIST: a circuit's voltage comes from the DEVICE connectors, and a
+// panel only accepts a circuit whose voltage falls inside a voltage definition
+// used by its distribution system. A socket family with a 0 V connector makes a
+// circuit NO panel can take, and Revit rejects it with "The panel and circuit
+// do not match" — wording that reads like a panel problem and sent the agent
+// into a place/delete/replace loop over DB boxes.
 //
-// Until now the only fix was drafter work in the Family Editor and the
-// Properties palette, so the tools said so. These three close that gap:
-// inspect what the project defines, set a panel's distribution system
-// (an ElementId parameter the generic set_parameter cannot write), and
-// repair a family's connector data through an EditFamily round-trip.
-//
-// SCOPE WARNING, deliberately surfaced in the result: editing a family and
-// reloading it changes EVERY instance of that family in the project. The
-// tool reports the instance count so the drafter's Ya/Tidak card is an
-// informed one.
+// set_distribution_system writes an ElementId-valued parameter, which the
+// generic set_parameter (string/double/int) cannot.
 
 using System;
 using System.Collections.Generic;
@@ -69,19 +58,15 @@ namespace BinaVibe.Mcp.Tools.Electrical
                         SafeVolts(() => d.VoltageLineToLine?.ActualValue)),
                 }).ToList();
 
-            // The panel's OWN connector is reported alongside the system it was
-            // given, because the two failure modes look identical from outside:
-            // an unassigned system and a connector Revit cannot match both read
-            // as "the panel and circuit do not match".
+            // The panel's OWN connector goes out beside the system it was given: an
+            // unassigned system and a connector Revit cannot match both read as
+            // "the panel and circuit do not match" from outside.
             //
-            // connector_voltage_v and connector_poles are the pair
-            // IsValidDistributionSystem actually compares, and both are
-            // settable via set_connector_electrical_data. panel_phases and
-            // panel_wires are DERIVED from the assigned distribution system —
-            // they read 0 until one is assigned, and no tool can author them.
-            // They are named apart deliberately: reported as connector data
-            // they read as a fixable defect, and an agent chased that into a
-            // Family Editor dead end (2026-08-04).
+            // connector_voltage_v / connector_poles are the pair
+            // IsValidDistributionSystem compares, and set_connector_electrical_data
+            // writes both. panel_phases / panel_wires are DERIVED and no tool can
+            // author them — named apart deliberately, because as connector data they
+            // read as a fixable defect.
             var panelRows = CircuitCandidates.FindPanels(doc)
                 .Select(p =>
                 {

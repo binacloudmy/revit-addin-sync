@@ -44,12 +44,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
             if (!connectConduits) return outcome;
 
-            // Joints are found by STATION, not by leg adjacency. On the trunk a
-            // device station has THREE conduits meeting — the run in, the run
-            // out, and the branch drop — and pairing legs by index would try to
-            // elbow two of them and silently leave the third hanging. Grouping
-            // by shared endpoint gets the arity right, and the arity is what
-            // decides elbow vs tee.
+            // Joints are found by STATION, not leg adjacency: a device station
+            // has THREE conduits meeting (run in, run out, branch drop), so
+            // pairing by index would elbow two and leave the third hanging.
+            // Arity is what decides elbow vs tee.
             foreach (var station in JointStations(r.Legs, conduits))
             {
                 try

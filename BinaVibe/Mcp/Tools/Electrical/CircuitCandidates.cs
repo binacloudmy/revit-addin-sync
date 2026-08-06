@@ -1,36 +1,16 @@
 // suggest_circuits — propose power circuits for placed devices.
 //
-// READ-ONLY. No Transaction is ever opened here; this tool proposes, the
-// drafter reviews, and create_circuits (Electrical/CircuitCommit.cs) commits.
-// Registered as an INSPECT tool for the same confirm-fatigue reason as
-// suggest_socket_points: firing the Ya/Tidak gate on a call that changes
-// nothing trains drafters to reflex-tap Ya.
+// READ-ONLY, and INSPECT on purpose: firing the Ya/Tidak gate on a call that
+// changes nothing trains drafters to reflex-tap Ya. CircuitCommit commits.
 //
-// THIS FILE IS THE ft<->mm BOUNDARY for circuiting. Everything handed to
-// CircuitGrouping/PhaseBalance is mm/VA; everything read from the Revit API
-// is feet/internal units.
+// THIS FILE IS THE ft<->mm BOUNDARY for circuiting; everything handed to
+// CircuitGrouping/PhaseBalance is mm/VA.
 //
-// NO REGULATORY NUMBER IS BAKED IN. The six standards args are required; the
-// Malaysian-practice values live in the electrical_circuiting recipe so a
-// standards change needs a recipe re-ingest, not an addin release.
-//
-// NO PANEL IS EVER FABRICATED. A model without a usable panel returns
-// ok:true with a structured blocker — deliberately NOT ok:false, because a
-// missing distribution board is a drafter task, not a tool misuse the agent
-// should self-heal around. "Every candidate was skipped" is the same class of
-// answer and returns the same shape (see NothingToGroup); it used to be
-// ok:false, which is what turned "all 10 sockets are already circuited" into
-// a retry loop in UAT 2026-08-04.
-//
-// NO include_circuited / replace_existing ARG, deliberately. This tool is
-// INSPECT and shows no Ya/Tidak card, so a plan that quietly carried a
-// disconnect would reach the model behind a confirmation whose text says
-// "create circuits" — and CircuitCommit would drop those devices as
-// already_circuited_since_plan anyway unless it too gained destructive power.
-// Freeing devices is remove_from_circuit's job, behind its own gate. Reverse
-// this only if UAT shows the agent cannot sequence blocker -> disconnect ->
-// re-suggest; it would then need PlannedCircuit.RequiresDisconnect plus a
-// matching refusal in CircuitCommit.
+// No regulatory number is baked in — the six standards args are required, so a
+// standards change is a recipe re-ingest, not an addin release. No panel is
+// ever fabricated: a model without one returns ok:true + a blocker
+// (CircuitBlockers). There is deliberately no include_circuited arg — freeing
+// devices is remove_from_circuit's job, behind its own confirmation.
 
 using System;
 using System.Collections.Generic;

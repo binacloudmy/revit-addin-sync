@@ -1,16 +1,13 @@
 // The two dead ends suggest_circuits can hit, and the DTOs they read.
 //
-// Both return ok:TRUE with a structured blocker. That is the load-bearing
-// decision in this file: ok:false is the agent's self-heal-retry signal, and
-// neither "this model has no usable panel" nor "every device is already
-// circuited" is fixable by retrying — UAT 2026-08-04 watched the agent place
-// and delete distribution boards in a loop because the second one said
-// ok:false. A blocker carries the ids the next call needs so the agent never
-// has to improvise a discovery hop.
+// Both return ok:TRUE with a structured blocker. ok:false is the agent's
+// self-heal-retry signal, and neither "no usable panel" nor "every device is
+// already circuited" is fixable by retrying — UAT 2026-08-04 watched the agent
+// place and delete distribution boards in a loop because the second said
+// ok:false. A blocker carries the ids the next call needs.
 //
-// Revit-free on purpose: the facts are gathered against a live Document in
-// CircuitCandidates.Panels.cs / .Devices.cs, and only the SHAPE lives here, so
-// the rules above are unit-testable rather than UAT-testable.
+// Revit-free on purpose: only the SHAPE lives here, so the rule above is
+// unit-testable rather than UAT-testable.
 
 using System;
 using System.Collections.Generic;

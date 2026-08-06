@@ -1,23 +1,15 @@
 // suggest_socket_points — candidate power-socket points along a room's walls.
+// READ-ONLY, INSPECT for the usual confirm-fatigue reason; SocketPlacement
+// commits. Same two-step shape as fill_audit -> draft_export.
 //
-// READ-ONLY. No Transaction is ever opened here; this tool proposes, the
-// drafter reviews, and place_socket_points (Electrical/SocketPlacement.cs)
-// commits. That is why it is registered as an INSPECT tool: firing the addin's
-// Ya/Tidak ConfirmGate on a call that changes nothing trains drafters to
-// reflex-tap Ya, which degrades the gate on the call that actually does damage.
-// Same two-step shape as fill_audit -> draft_export.
-//
-// THIS FILE IS THE ft<->mm BOUNDARY. Everything handed to SocketLayout is in
-// mm; everything read from the Revit API is in feet. Note that
+// THIS FILE IS THE ft<->mm BOUNDARY. Everything handed to SocketLayout is mm.
 // ArgsHelp.GetLengthMm/GetPointMm return FEET, so they are deliberately NOT
-// used for the rule args below — those stay in mm and are read with GetDouble.
+// used for the rule args — those stay mm and are read with GetDouble.
 //
-// NO REGULATORY NUMBER IS BAKED IN. The four rule args are required; their
-// Malaysian-practice values (MS IEC 60364 / MS 1979) are documented in
-// app/knowledge/revit_recipes/socket_placement_by_room.md so a standards
-// change needs a recipe re-ingest, not an addin release. The one default that
-// does ship here is the wet-room keyword list — linguistic, not regulatory,
-// and echoed back in params_used so any answer stays auditable.
+// No regulatory number is baked in: the four rule args are required, so a
+// standards change is a recipe re-ingest. The one default that ships here is
+// the wet-room keyword list — linguistic, not regulatory, and echoed back in
+// params_used so any answer stays auditable.
 
 using System;
 using System.Collections.Generic;
@@ -31,19 +23,6 @@ namespace BinaVibe.Mcp.Tools.Electrical
 {
     internal static class SocketCandidates
     {
-
-        /// <summary>Room-side face rather than wall centreline: the reviewed
-        /// point is then where the faceplate actually sits, and it is still
-        /// within half a wall thickness of the centreline so hosting projects
-        /// correctly. One-line flip if hosting proves flaky in UAT.</summary>
-        private const SpatialElementBoundaryLocation BoundaryLoc =
-            SpatialElementBoundaryLocation.Finish;
-
-        /// <summary>Arc flattening chord, mm. Fixed length rather than
-        /// Curve.Tessellate() — Tessellate's chord tolerance is a Revit
-        /// heuristic, so candidate coordinates would shift between Revit
-        /// versions and could not be pinned in a golden test.</summary>
-        private const double ChordMm = 100.0;
 
         /// <summary>How far past the wall face a room probe is pushed, mm. A
         /// probe at exactly half the wall thickness lands ON the Finish
@@ -168,8 +147,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     continue;
                 }
 
-                var runs = BuildRuns(doc, room, includeIslands, skippedSegments, out int loopCount);
-                if (loopCount == 0)
+                var boundary = RoomBoundary.Build(doc, room, includeIslands, skippedSegments);
+                var runs = boundary.Runs;
+                if (boundary.LoopCount == 0)
                 {
                     skippedRooms.Add(new Dictionary<string, object?>
                     {
@@ -180,7 +160,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     continue;
                 }
 
-                double zMm = RoomFloorZMm(doc, room) + mountMm!.Value;
+                double zMm = RoomBoundary.FloorZMm(doc, room) + mountMm!.Value;
                 var levelName = room.Level?.Name ?? "";
 
                 BlockRuns(doc, room, runs, fixtures, wetRadiusMm!.Value, existingMm, openingMm);
@@ -274,168 +254,6 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         private static object Round(double mm) => Math.Round(mm, 1);
 
-        // ── boundary -> wall runs ────────────────────────────────────────
-
-        /// <summary>Boundary loops to merged wall runs. Non-wall segments
-        /// (room separation lines, columns) still contribute to the loop
-        /// polygon — it has to stay closed for the inside test — but produce no
-        /// candidates and are reported.</summary>
-        private static List<WallRun> BuildRuns(
-            Document doc, Room room, bool includeIslands,
-            List<object> skippedSegments, out int loopCount)
-        {
-            loopCount = 0;
-            var runs = new List<WallRun>();
-
-            IList<IList<BoundarySegment>> loops;
-            try
-            {
-                loops = room.GetBoundarySegments(
-                    new SpatialElementBoundaryOptions { SpatialElementBoundaryLocation = BoundaryLoc });
-            }
-            catch { return runs; }
-
-            if (loops == null || loops.Count == 0) return runs;
-            loopCount = loops.Count;
-
-            // Largest |area| is the outer loop. Revit does NOT guarantee index
-            // 0, and trusting that puts sockets on a column face.
-            var polys = new List<List<Pt2>>();
-            for (int i = 0; i < loops.Count; i++) polys.Add(LoopPolygon(loops[i]));
-
-            int outer = 0;
-            double bestArea = -1;
-            for (int i = 0; i < polys.Count; i++)
-            {
-                double a = Math.Abs(SocketLayout.SignedArea(polys[i]));
-                if (a > bestArea) { bestArea = a; outer = i; }
-            }
-
-            var skipCounts = new Dictionary<string, int>(StringComparer.Ordinal);
-            var segments = new List<RawSegment>();
-            var loopOf = new Dictionary<int, IReadOnlyList<Pt2>>();
-
-            for (int li = 0; li < loops.Count; li++)
-            {
-                if (li != outer && !includeIslands) continue;
-                loopOf[li] = polys[li];
-
-                foreach (var seg in loops[li])
-                {
-                    Curve curve;
-                    try { curve = seg.GetCurve(); } catch { curve = null!; }
-                    if (curve == null) { Bump(skipCounts, "no_curve"); continue; }
-
-                    bool linked = seg.LinkElementId != ElementId.InvalidElementId;
-                    long? hostWallId = null;
-                    string runKey;
-
-                    if (linked)
-                    {
-                        // The wall lives in a Revit link — real geometry, but
-                        // nothing local to host against. Still worth a
-                        // candidate: an unhosted family can sit there, and
-                        // dropping it silently would empty the result on
-                        // exactly the coordination models this targets.
-                        runKey = $"lw:{seg.LinkElementId.Value}:{seg.ElementId.Value}";
-                        Bump(skipCounts, "linked_wall");
-                    }
-                    else
-                    {
-                        var el = seg.ElementId != ElementId.InvalidElementId
-                            ? doc.GetElement(seg.ElementId) : null;
-                        if (el is Wall)
-                        {
-                            hostWallId = el.Id.Value;
-                            runKey = $"w:{hostWallId.Value}";
-                        }
-                        else
-                        {
-                            Bump(skipCounts, ClassifyNonWall(el));
-                            continue;
-                        }
-                    }
-
-                    segments.Add(new RawSegment
-                    {
-                        RunKey = runKey,
-                        HostWallId = hostWallId,
-                        LoopIndex = li,
-                        Points = Flatten(curve),
-                    });
-                }
-            }
-
-            foreach (var kv in skipCounts)
-                skippedSegments.Add(new Dictionary<string, object?>
-                {
-                    ["room_id"] = room.Id.Value,
-                    ["reason"] = kv.Key,
-                    ["count"] = kv.Value,
-                });
-
-            runs = SocketLayout.MergeRuns(segments);
-            foreach (var run in runs)
-                if (loopOf.TryGetValue(run.LoopIndex, out var poly)) run.LoopPolygon = poly;
-
-            return runs;
-        }
-
-        private static string ClassifyNonWall(Element? el)
-        {
-            if (el == null) return "unknown_host";
-            var bic = (BuiltInCategory)(el.Category?.Id.Value ?? 0);
-            return bic switch
-            {
-                BuiltInCategory.OST_RoomSeparationLines => "room_separation_line",
-                BuiltInCategory.OST_Columns => "column",
-                BuiltInCategory.OST_StructuralColumns => "column",
-                _ => "unknown_host",
-            };
-        }
-
-        private static void Bump(Dictionary<string, int> counts, string key) =>
-            counts[key] = counts.TryGetValue(key, out var n) ? n + 1 : 1;
-
-        private static List<Pt2> LoopPolygon(IList<BoundarySegment> loop)
-        {
-            var pts = new List<Pt2>();
-            foreach (var seg in loop)
-            {
-                Curve c;
-                try { c = seg.GetCurve(); } catch { continue; }
-                if (c == null) continue;
-                var flat = Flatten(c);
-                // Drop the shared joint so the polygon has no duplicate vertices.
-                int start = (pts.Count > 0 && flat.Count > 0 && SocketLayout.Near(pts[pts.Count - 1], flat[0])) ? 1 : 0;
-                for (int i = start; i < flat.Count; i++) pts.Add(flat[i]);
-            }
-            if (pts.Count > 1 && SocketLayout.Near(pts[0], pts[pts.Count - 1])) pts.RemoveAt(pts.Count - 1);
-            return pts;
-        }
-
-        /// <summary>Curve to an mm polyline. Lines stay two points; everything
-        /// else is sampled at a fixed chord so the output is reproducible.</summary>
-        private static List<Pt2> Flatten(Curve curve)
-        {
-            var pts = new List<Pt2>();
-            if (curve is Line)
-            {
-                pts.Add(ToPt(curve.GetEndPoint(0)));
-                pts.Add(ToPt(curve.GetEndPoint(1)));
-                return pts;
-            }
-
-            double lenMm = curve.Length * MmPerFoot;
-            int n = (int)Math.Ceiling(lenMm / ChordMm);
-            if (n < 2) n = 2;
-            for (int i = 0; i <= n; i++)
-                pts.Add(ToPt(curve.Evaluate((double)i / n, true)));
-            return pts;
-        }
-
-        private static Pt2 ToPt(XYZ p) => new Pt2(p.X * MmPerFoot, p.Y * MmPerFoot);
-
         // ── blocked intervals ────────────────────────────────────────────
 
         private sealed class FixtureHit
@@ -479,7 +297,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             // authoritative when present; IsPointInRoom is the fallback, and it
             // is Z-sensitive — a fixture's LocationPoint sits at floor level and
             // fails a naive test, so the probe is raised into the room volume.
-            double probeZ = RoomFloorZMm(doc, room) / MmPerFoot + (room.UnboundedHeight > 0 ? room.UnboundedHeight / 2.0 : 3.0);
+            double probeZ = RoomBoundary.FloorZMm(doc, room) / MmPerFoot + (room.UnboundedHeight > 0 ? room.UnboundedHeight / 2.0 : 3.0);
 
             var inRoom = new List<FixtureHit>();
             foreach (var f in fixtures)
@@ -523,7 +341,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 {
                     double radius = f.Electrical ? existingMm : wetRadiusMm;
                     if (radius <= 0) continue;
-                    var s = SocketLayout.ProjectStation(run.Points, ToPt(f.Point));
+                    var s = SocketLayout.ProjectStation(run.Points, RoomBoundary.ToPt(f.Point));
                     run.Blocked.Add(new Interval(s - radius, s + radius,
                         f.Electrical ? "existing_outlet" : "wet_fixture"));
                 }
@@ -546,7 +364,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
             bool first = true;
             foreach (var c in corners)
             {
-                double s = SocketLayout.ProjectStation(run.Points, ToPt(c));
+                double s = SocketLayout.ProjectStation(run.Points, RoomBoundary.ToPt(c));
                 if (first) { lo = hi = s; first = false; }
                 else { if (s < lo) lo = s; if (s > hi) hi = s; }
             }
@@ -592,14 +410,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 // One best run per room, then pick between rooms. Both passes
                 // use the same tie tolerance, but only the second one's verdict
                 // matters — within a single room the runs are different walls.
-                var pMm = ToPt(pointFt);
+                var pMm = RoomBoundary.ToPt(pointFt);
                 var bestRuns = new List<WallRun>();
                 var bestRoomIds = new List<long>();
                 var throwaway = new List<object>();
 
                 foreach (var room in rooms)
                 {
-                    var runs = BuildRuns(doc, room, includeIslands: false, throwaway, out _)
+                    var runs = RoomBoundary.Build(doc, room, includeIslands: false, throwaway).Runs
                         .Where(r => r.HostWallId.HasValue && r.HostWallId.Value == wall!.Id.Value)
                         .ToList();
                     int idx = SocketLayout.NearestRunIndex(runs, pMm, RoomTieTolMm, out _);
@@ -707,7 +525,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
                 // Lifted from BlockRuns: a point at floor level fails the naive
                 // test, so probe half way up the room volume.
-                double probeZ = RoomFloorZMm(doc, room) / MmPerFoot
+                double probeZ = RoomBoundary.FloorZMm(doc, room) / MmPerFoot
                                 + (room.UnboundedHeight > 0 ? room.UnboundedHeight / 2.0 : 3.0);
 
                 foreach (var p in probes)
@@ -732,18 +550,5 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 && p.Y >= Math.Min(lo.Y, hi.Y) && p.Y <= Math.Max(lo.Y, hi.Y);
         }
 
-        // ── heights ──────────────────────────────────────────────────────
-
-        /// <summary>Absolute project-internal Z of the room's finished floor,
-        /// in mm: level elevation plus the room's base offset.</summary>
-        internal static double RoomFloorZMm(Document doc, Room room)
-        {
-            double ft = 0.0;
-            var level = room.Level ?? doc.GetElement(room.LevelId) as Level;
-            if (level != null) ft += level.Elevation;
-            var lower = room.get_Parameter(BuiltInParameter.ROOM_LOWER_OFFSET);
-            if (lower != null && lower.StorageType == StorageType.Double) ft += lower.AsDouble();
-            return ft * MmPerFoot;
-        }
     }
 }

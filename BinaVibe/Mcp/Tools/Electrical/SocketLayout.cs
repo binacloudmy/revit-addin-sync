@@ -1,19 +1,12 @@
 // Socket placement layout math — pure, Revit-free, MILLIMETRES ONLY.
 //
-// Split out of SocketCandidates.cs precisely so it can be linked into
-// Tests/Tests.csproj (that project uses explicit <Compile Include> items with
-// no globs, so anything touching Autodesk.Revit.DB is untestable). Same reason
-// ConfirmGate.cs was split out of ToolLoopService.cs.
+// Every number crossing into this file is mm; the single ft<->mm boundary for
+// socket placement is SocketCandidates.cs. Note ArgsHelp.GetPointMm and
+// GetLengthMm read mm from the wire but return FEET for direct Revit API use,
+// so they are NOT that boundary.
 //
-// UNITS: every number that crosses into this file is in mm. Note that
-// ArgsHelp.GetPointMm and ArgsHelp.GetLengthMm read mm from the wire
-// but return FEET for direct Revit
-// API use — so they are NOT the boundary. The single ft<->mm conversion
-// boundary for socket placement is SocketCandidates.cs; nothing in this file
-// ever sees a foot.
-//
-// Curves are already flattened to polylines by the caller, so this file has no
-// concept of an Arc — everything is chords.
+// Curves are already flattened to polylines by the caller, so there is no
+// concept of an Arc here — everything is chords.
 
 using System;
 using System.Collections.Generic;

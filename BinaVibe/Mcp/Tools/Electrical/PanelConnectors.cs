@@ -1,23 +1,15 @@
-// Which connector on the board a circuit leaves from.
+// Which connector on the board a circuit leaves from — one answer, because two
+// callers answering separately can disagree and Revit accepts both silently
+// (Wire.Create takes a mismatched connector; SetCircuitPath checks only the
+// first node's position).
 //
-// Two callers used to answer this separately and could disagree: RoutePlanner
-// picked the point the circuit PATH starts at, RouteCommit picked the connector
-// the home-run WIRE attaches to. When they diverge, Revit takes both without
-// complaint and the model is quietly wrong — Wire.Create accepts a mismatched
-// connector, and SetCircuitPath only checks the first node's position.
-//
-// The rules, learned the hard way in UAT:
-//   - MEPSystem.BaseEquipmentConnector names THIS circuit's connector, which is
-//     the one Revit's own error text asks for. On an electrical panel it is a
-//     LOGICAL connector: no Origin (reading it throws) and Wire.Create refuses
-//     it outright with "cannot be connected to a wire, as it is not an
-//     electrical connector". So it identifies the right connector but cannot BE
-//     the connector.
-//   - A physical electrical connector can carry a wire, but "the first one on
-//     the panel" is the right one only by luck when the board serves several
-//     circuits. Nothing in the API links the logical connector back to its
-//     physical twin, so this is not solvable by picking harder — it is
-//     reportable, and Ambiguous says so.
+// MEPSystem.BaseEquipmentConnector names THIS circuit's connector, but on a
+// panel it is LOGICAL: no Origin (reading it throws) and Wire.Create refuses it
+// with "not an electrical connector". So it identifies the right connector and
+// cannot BE it. A physical connector can carry the wire, but "the first one on
+// the panel" is right only by luck on a board serving several circuits, and
+// nothing links the logical connector to its physical twin — so this is not
+// solvable by picking harder. Ambiguous says so instead.
 
 using System;
 using System.Collections.Generic;

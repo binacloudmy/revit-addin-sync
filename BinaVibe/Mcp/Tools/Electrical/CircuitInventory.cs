@@ -1,24 +1,14 @@
-// list_circuits — the power circuits a model already has.
+// list_circuits — the power circuits a model already has. READ-ONLY, INSPECT.
 //
-// READ-ONLY. Registered as an INSPECT tool; no Transaction is opened here.
+// The only source of a circuit's element id, which remove_from_circuit and
+// delete_elements both need. filter_elements cannot serve it (its row shape
+// carries no panel, members or rating) and trace_mep_connections follows
+// physical connectors, while a circuit assignment is logical.
 //
-// WHY IT EXISTS. Until now nothing could hand the agent a circuit's element
-// id. filter_elements threw "unknown category 'Electrical Circuits'" (the enum
-// member is singular — fixed in CategoryResolve, but its row shape still has
-// no panel, no members and no rating), trace_mep_connections follows physical
-// connectors and a circuit assignment is logical, and validate_panel_schedule
-// reports only counts. So when UAT 2026-08-04 asked to re-circuit ten sockets
-// that were already on a circuit, the agent could see THAT they were circuited
-// and never WHICH circuit — with no id, remove_from_circuit and delete_elements
-// are both unreachable and the run degenerates into guessing.
-//
-// Circuits are collected by CLASS, not category (precedent: ElecValidation) —
-// which is why this tool was never affected by the category bug.
-//
-// Every read is guarded. A circuit Revit considers incomplete throws from
-// CircuitNumber, StartSlot, Length and PolesNumber rather than returning a
-// blank, and an inventory that dies on the one broken circuit in the model is
-// useless exactly when it is needed.
+// Circuits are collected by CLASS, not category. Every read is guarded: Revit
+// throws from CircuitNumber, StartSlot, Length and PolesNumber on a circuit it
+// considers incomplete, and an inventory that dies on the one broken circuit
+// in the model is useless exactly when it is needed.
 
 using System;
 using System.Collections.Generic;

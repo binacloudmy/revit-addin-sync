@@ -177,18 +177,12 @@ namespace BinaVibe.Mcp.Tools.Electrical
         /// connector data and are not. Null when the args are acceptable.</summary>
         private static Dictionary<string, object?>? RefuseDerivedPanelArgs(JsonElement args)
         {
-            // These used to be accepted here and were always refused.
-            // RBS_ELEC_PANEL_NUMPHASES_PARAM and RBS_ELEC_PANEL_NUMWIRES_PARAM
-            // are PANEL-INSTANCE parameters (same family as PANEL_BUSSING /
-            // PANEL_MAINSTYPE), not connector ones — a ConnectorElement carries
-            // VOLTAGE, APPARENT_LOAD, NUMBER_OF_POLES, LOAD_CLASSIFICATION,
-            // CIRCUIT_TYPE and nothing else electrical. Worse, a panel's
-            // phases/wires are DERIVED from the distribution system it is
-            // assigned, so they read 0 until one is assigned. Offering them as
-            // inputs sent the agent chasing a Family Editor fix for a value it
-            // cannot author. The lever that actually decides
-            // IsValidDistributionSystem is the connector's voltage and pole
-            // count, both of which this tool does set.
+            // RBS_ELEC_PANEL_NUMPHASES_PARAM / _NUMWIRES_PARAM are PANEL-INSTANCE
+            // parameters, not connector ones — a ConnectorElement carries VOLTAGE,
+            // APPARENT_LOAD, NUMBER_OF_POLES, LOAD_CLASSIFICATION, CIRCUIT_TYPE and
+            // nothing else. They are also DERIVED from the assigned distribution
+            // system, so offering them as inputs sends the agent chasing a Family
+            // Editor fix for a value it cannot author.
             if (!ArgsHelp.GetLong(args, "number_of_phases").HasValue &&
                 !ArgsHelp.GetLong(args, "number_of_wires").HasValue)
                 return null;
@@ -227,15 +221,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return null;
         }
 
-        /// <summary>The per-connector write, inside the FAMILY document's own
-        /// transaction. Returns how many connectors took at least one value;
-        /// <paramref name="rows"/> and <paramref name="skipped"/> are filled for
-        /// the result.
-        ///
-        /// TxGuard, not a bare Start/Commit: a Revit-forced rollback used to
-        /// leave Commit() returning RolledBack silently, after which the reload
-        /// below pushed the UNCHANGED family back and the tool reported success
-        /// with connectors_changed &gt; 0.</summary>
+        /// TxGuard, not a bare Start/Commit: a Revit-forced rollback returns
+        /// RolledBack silently, and the reload below would then push the
+        /// UNCHANGED family back and report success.</summary>
         private static int WriteConnectorData(
             Document famDoc, IReadOnlyList<ConnectorElement> connectors,
             double? voltageV, double? apparentVa, long? poles,

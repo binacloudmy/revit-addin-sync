@@ -1,24 +1,17 @@
 // remove_from_circuit — free devices from the circuits they are on. MUTATE:
 // the addin's ConfirmGate shows a Ya/Tidak card before this runs.
 //
-// The rules live in CircuitDisconnectPlan (Revit-free, unit-tested); this file
-// is the Revit half. Panel and Circuit Number are read-only parameters driven
-// by the system assignment, so RemoveFromCircuit is the only way off a circuit.
+// Rules live in CircuitDisconnectPlan; this is the Revit half. Panel and
+// Circuit Number are read-only parameters driven by the system assignment, so
+// RemoveFromCircuit is the only way off a circuit.
 //
 // TWO NON-GOALS, neither of which may be "finished":
-//
-//   * Conduit SURVIVES. No Revit API links an ElectricalSystem to the Conduit
-//     create_circuit_routes drew, so it cannot be found from here — reported as
-//     conduit_note pointing at delete_elements. Fixing this means persistence
-//     (a RouteCommit-written circuit_id -> conduit_ids record), not more API
-//     archaeology.
-//
-//   * DisconnectPanel() is deliberately not called. It leaves a panel-less
-//     system, which is the state validate_panel_schedule reports as
-//     orphaned_circuit AND still blocks suggest_circuits — GetElectricalSystems
-//     keeps returning a PowerCircuit, so the devices stay already_circuited.
-//     The real want behind it, "move this circuit to another board", is
-//     SelectPanel on the new panel and needs no disconnect at all.
+//   * Conduit SURVIVES — no API links an ElectricalSystem to it. Reported as
+//     conduit_note pointing at delete_elements. The fix is persistence, not
+//     more API archaeology.
+//   * DisconnectPanel() leaves a panel-less system: the state
+//     validate_panel_schedule calls orphaned_circuit, and it still blocks
+//     suggest_circuits. "Move to another board" is SelectPanel, no disconnect.
 
 using System;
 using System.Collections.Generic;

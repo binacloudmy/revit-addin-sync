@@ -1,23 +1,16 @@
 // suggest_circuit_routes — propose Manhattan conduit+wire routes per circuit.
+// READ-ONLY, INSPECT; RouteCommit commits what the drafter reviews.
 //
-// READ-ONLY. No Transaction is ever opened here; this tool proposes, the
-// drafter reviews (including per-leg obstruction rows), and
-// create_circuit_routes (Electrical/RouteCommit.cs) commits. INSPECT for the
-// same confirm-fatigue reason as the other suggest_* tools.
+// Path generation is pluggable: RoutePath defines IRoutePathStrategy and the
+// `strategy` arg selects one. A future A* is a new class plus a name there.
 //
-// Path generation is pluggable: RoutePath.cs defines IRoutePathStrategy and
-// the `strategy` arg selects an implementation ("manhattan" today). A future
-// A* lands as a new class + a name here — nothing else changes.
+// COLLISION POLICY (product decision): horizontal runs are scanned with
+// check_corridor's own arithmetic (CorridorCheck.ScanSegment) and obstructions
+// are REPORTED per leg, never auto-rerouted. Drops to devices are NOT scanned —
+// a drop to a wall-mounted socket always grazes its own host wall, and that
+// noise buries real obstructions.
 //
-// COLLISION POLICY (product decision): horizontal runs at the routing
-// elevation are scanned with exactly check_corridor's arithmetic
-// (CorridorCheck.ScanSegment); obstructions are REPORTED per leg, never
-// auto-rerouted. Rises/drops down to devices are NOT scanned — a drop to a
-// wall-mounted socket always grazes its own host wall, and that noise would
-// bury real obstructions. The result says which legs were probed.
-//
-// THIS FILE IS A ft<->mm BOUNDARY: Revit reads in feet, everything handed to
-// RoutePath/WireSizing is mm.
+// A ft<->mm BOUNDARY: everything handed to RoutePath/WireSizing is mm.
 
 using System;
 using System.Collections.Generic;

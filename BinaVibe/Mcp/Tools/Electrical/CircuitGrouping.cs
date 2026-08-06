@@ -1,16 +1,9 @@
-// Circuit grouping math — pure, Revit-free, MILLIMETRES ONLY.
-//
-// Split out of CircuitCandidates.cs (which needs a live Revit Document)
-// precisely so the grouping, capacity and chain-order rules are testable in
-// Tests/Tests.csproj (explicit <Compile Include>, no globs). Same reason
-// SocketLayout.cs was split out of SocketCandidates.cs.
-//
-// UNITS: every number in this file is mm (coordinates) or VA (loads). The
-// ft<->mm boundary is CircuitCandidates.cs; nothing here ever sees a foot.
+// Circuit grouping math — pure, Revit-free. Coordinates mm, loads VA; the
+// ft<->mm boundary is CircuitCandidates.cs.
 //
 // No regulatory value is baked in: max devices, max VA and the grouping span
-// all arrive from the caller (ultimately the backend recipe), constructor-
-// required so a missing value cannot silently default.
+// all arrive from the caller, constructor-required so a missing value cannot
+// silently default.
 
 using System;
 using System.Collections.Generic;
@@ -75,15 +68,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
     public static class CircuitGrouping
     {
-        /// <summary>Group devices into circuits. Deterministic: every choice
-        /// breaks ties by ascending element id, so the same model always
-        /// yields the same plan.
-        ///
-        /// Per load class: seed a group with the unassigned device nearest the
-        /// panel, then grow by the device nearest to any current member
-        /// (single-linkage), stopping at MaxDevices, MaxVa, or the span cap.
-        /// Chain order within the group is a nearest-neighbor walk starting
-        /// from the device nearest the panel.</summary>
+        /// <summary>Group devices into circuits, per load class: seed with the
+        /// unassigned device nearest the panel, grow by the device nearest any
+        /// member (single-linkage), stop at MaxDevices/MaxVa/span. Chain order is
+        /// a nearest-neighbor walk from the device nearest the panel.
+        /// Deterministic — every tie breaks by ascending element id.</summary>
         public static List<CircuitGroup> Group(
             IReadOnlyList<ElecDevice> devices,
             double panelXMm, double panelYMm,

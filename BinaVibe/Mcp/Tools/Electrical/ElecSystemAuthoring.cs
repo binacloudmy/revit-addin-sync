@@ -1,26 +1,15 @@
-// The two tools that build the electrical settings a project is missing:
-//   create_distribution_system   (mutate, project)
-//   edit_distribution_system     (mutate, project)
+// create_distribution_system / edit_distribution_system. Both MUTATE.
 //
-// WHY THESE EXIST. A panel only accepts a circuit whose voltage falls inside a
-// voltage definition used by the panel's distribution system, and until now
-// nothing could CREATE either. list_electrical_settings could report that a
-// project defines no 240 V, and set_distribution_system could assign one of
-// whatever the template happened to ship — but if the template was a US one
-// (120/240 Single, 120/208 Wye, 480/277 Wye), the only move left to the agent
-// was to bend the DEVICES down to 120 V to match. It did exactly that in UAT
-// 2026-08-04: 124 sockets and a distribution board rewritten to 120 V on a
+// WHY THESE EXIST: without them the agent could see that a project defines no
+// 240 V and assign only whatever the template shipped. On a US template
+// (120/240, 120/208, 480/277) the only move left was to bend the DEVICES down
+// to match — UAT 2026-08-04 rewrote 124 sockets and a board to 120 V on a
 // Malaysian job, producing circuits that commit clean and carry wrong breaker,
-// cable and voltage-drop numbers throughout.
+// cable and voltage-drop numbers. The missing capability was never "assign
+// harder", it was "author the system this project should have had".
 //
-// So the missing capability was never "assign harder", it was "author the
-// system this project should have had". ElecSystemRules holds the Malaysian
-// defaults and the phase/wire table, Revit-free and unit-tested.
-//
-// SCOPE WARNING, surfaced in the result: editing a distribution system that is
-// already in use silently re-rates every panel on it. The tool reports IsInUse
-// and the affected panel count so the drafter's Ya/Tidak card is informed —
-// same contract as set_connector_electrical_data's instances_affected.
+// SCOPE WARNING, surfaced in the result: editing a system already in use
+// re-rates every panel on it, so IsInUse and the panel count are reported.
 
 using System;
 using System.Collections.Generic;

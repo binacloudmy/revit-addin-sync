@@ -10,13 +10,14 @@ namespace BinaVibe.Mcp.Tools.Electrical
 {
     internal static class ElecPlanCaches
     {
-        /// <summary>Drop every held socket / circuit / route plan. Callers pair
-        /// this with `plans_invalidated: true` in their result so the agent
-        /// re-proposes instead of committing a stale plan_id.</summary>
+        /// <summary>Drop every held socket / lighting / circuit / route plan.
+        /// Callers pair this with `plans_invalidated: true` in their result so
+        /// the agent re-proposes instead of committing a stale plan_id.</summary>
         public static void DropAll()
         {
             try { CircuitPlanCache.CloseAll(); } catch { }
             try { SocketPlanCache.CloseAll(); } catch { }
+            try { LightingPlanCache.CloseAll(); } catch { }
             try { RoutePlanCache.CloseAll(); } catch { }
         }
     }

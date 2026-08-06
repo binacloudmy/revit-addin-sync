@@ -1,21 +1,15 @@
-// create_circuit_routes — the write half of the routing workflow. MUTATE
-// tool: the addin's ConfirmGate shows a Ya/Tidak card before this runs.
+// create_circuit_routes — the write half of routing. MUTATE: the addin's
+// ConfirmGate shows a Ya/Tidak card before this runs.
 //
-// Takes a plan_id + indices, never coordinates — legs come from the cached
-// RoutePlan the drafter reviewed. Circuits with obstructed legs are SKIPPED
-// by default (skipping single legs would break daisy-chain continuity);
-// include_obstructed=true builds them anyway after review.
+// Takes a plan_id + indices, never coordinates. Circuits with obstructed legs
+// are SKIPPED by default (skipping single legs would break daisy-chain
+// continuity); include_obstructed=true builds them after review.
 //
-// Per circuit, one Transaction inside a TransactionGroup: a half-routed
-// circuit rolls back to nothing while the other circuits survive.
-// Per circuit it creates, best-effort and individually reported:
-//   1. chained Conduit segments plus their joint fittings — .Conduits.cs,
-//   2. Wire elements, one per hop — .Wires.cs,
-//   3. the circuit's own path (SetCircuitPath) so Revit's circuit length
-//      reflects the ROUTED length, which is what voltage drop uses —
-//      .CircuitPath.cs.
-//
-// The three run INSIDE CommitOne's transaction and open none of their own.
+// One Transaction per circuit inside a TransactionGroup, so a half-routed
+// circuit rolls back to nothing while the others survive. What it builds, all
+// best-effort and individually reported: conduit + joint fittings
+// (.Conduits.cs), wires (.Wires.cs), the circuit path (.CircuitPath.cs). All
+// three run INSIDE CommitOne's transaction and open none of their own.
 
 using System;
 using System.Collections.Generic;
@@ -52,13 +46,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
             bool createConduits = ArgsHelp.GetBool(args, "create_conduits") ?? true;
             bool connectConduits = ArgsHelp.GetBool(args, "connect_conduits") ?? true;
             bool setCircuitPath = ArgsHelp.GetBool(args, "set_circuit_path") ?? true;
-            // OFF by default, and deliberately so. The no-dive path omits the
-            // per-device drops, so Revit's circuit length comes out SHORTER
-            // than the conductor really runs — and check_circuit_loads cannot
-            // tell the shapes apart: it reads CircuitPathMode == Custom and
-            // nothing else (ElecValidation.cs), so a fallback path would make
-            // every voltage drop optimistic with no way to notice. Opt in when
-            // an approximate routed length beats none.
+            // OFF by default: the no-dive path omits the per-device drops, and
+            // check_circuit_loads cannot tell the shapes apart (it reads only
+            // CircuitPathMode == Custom), so every voltage drop would go
+            // optimistic with no way to notice.
             bool allowFlatPath = ArgsHelp.GetBool(args, "allow_flat_circuit_path") ?? false;
             var conduitTypeName = ArgsHelp.GetString(args, "conduit_type_name");
             var wireTypeName = ArgsHelp.GetString(args, "wire_type_name");

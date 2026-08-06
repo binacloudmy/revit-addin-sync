@@ -1,17 +1,12 @@
-// The decision half of remove_from_circuit: given what the caller asked for
-// and what the model currently holds, decide what happens to each circuit.
+// The decision half of remove_from_circuit: given what the caller asked for and
+// what the model holds, decide what happens to each circuit. Revit-free, so
+// the rules are unit-tested; the API calls live in CircuitDisconnect.
 //
-// Revit-free on purpose (System only), so Tests.csproj can source-link it —
-// CircuitDisconnect itself needs a live Document and can only be exercised in
-// UAT. Everything that is a RULE lives here; everything that is an API call
-// lives there.
-//
-// THE ONE RULE WORTH READING: a circuit that loses ALL of its members is
-// DELETED, never emptied. RemoveFromCircuit is documented all-or-nothing and a
-// zero-terminal ElectricalSystem is an undefined state that still occupies a
-// breaker slot — and a panel whose slots are held by invisible empty circuits
-// rejects the next SelectPanel with "panel is full", which is the wording that
-// starts the swap-the-DB-box loop this whole feature exists to stop.
+// THE ONE RULE WORTH READING: a circuit that loses ALL its members is DELETED,
+// never emptied. RemoveFromCircuit is all-or-nothing, and a zero-terminal
+// ElectricalSystem still occupies a breaker slot — a panel whose slots are
+// held by invisible empty circuits rejects the next SelectPanel with "panel is
+// full", which is the wording that starts the swap-the-DB-box loop.
 
 using System;
 using System.Collections.Generic;

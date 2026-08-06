@@ -2,19 +2,16 @@
 // unit-tested rather than discovered in UAT.
 //
 // TRUNK + DROPS, not point-to-point. The trunk stays UP: rise once at the
-// panel, run at routing elevation through each device's XY in chain order, and
-// take ONE drop off it per device. A device station is therefore a TEE (two
-// runs plus the branch drop), not two elbows — see RouteCommit's joint pass.
+// panel, run at routing elevation through each device's XY, take ONE drop per
+// device. A device station is therefore a TEE, not two elbows.
 //
 // Planning hop-by-hop instead puts two conduits on the SAME LINE at every
-// intermediate device (down onto it, straight back up), which NewElbowFitting
-// rejects outright — its valid range is roughly 2 to 95 degrees — and which
-// double-counts the drop in TotalLengthMm, inflating every voltage-drop number
-// derived from it. Do not reintroduce it.
+// device (down onto it, straight back up) — which NewElbowFitting rejects
+// (valid range ~2-95 degrees) and which double-counts the drop in
+// TotalLengthMm. Do not reintroduce it.
 //
-// CIRCUIT PATH IS A SEPARATE POLYLINE. Revit's SetCircuitPath wants the
-// electrical path THROUGH the devices (panel, down to device 1, up, along, down
-// to device 2, ...), which is no longer the shape of the conduit. Assembling
+// The CIRCUIT PATH is a separate polyline: SetCircuitPath wants the electrical
+// path THROUGH the devices, which is no longer the conduit's shape. Building
 // both here keeps them consistent by construction.
 
 using System;
@@ -54,15 +51,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
     internal static class RouteAssembly
     {
-        /// <summary>Assemble the trunk, the per-device drops, the hop ranges and
-        /// the circuit-path polyline.
-        ///
         /// <paramref name="panelStart"/> must be the panel CONNECTOR position,
-        /// not the instance origin — SetCircuitPath rejects the origin
-        /// explicitly, and the conduit should leave from the connector anyway.
-        /// <paramref name="planRuns"/> plans the horizontal travel between two
-        /// points already at routing elevation; it is the pluggable strategy, so
-        /// A* drops in here unchanged.</summary>
+        /// not the instance origin — SetCircuitPath rejects the origin.
+        /// <paramref name="planRuns"/> is the pluggable strategy, so A* drops in
+        /// here unchanged.</summary>
         public static AssembledRoute Build(
             Pt3Mm panelStart,
             double routingElevationMm,
@@ -104,15 +96,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
                     res.Legs.Add(new AssembledLeg { A = seg.A, B = seg.B, Kind = "run" });
                     arrivalAxis = AxisOf(seg.A, seg.B) ?? arrivalAxis;
 
-                    // The circuit path has to TURN wherever the trunk turns.
-                    // Only `above` used to be added, so a Manhattan L between
-                    // two devices reached SetCircuitPath as one plan DIAGONAL
-                    // — and Revit requires every segment horizontal or
-                    // vertical ("...should be in the same level or on the same
-                    // vertical line"). UAT 2026-08-05: nodes went
-                    // [28956,5791.2,2700] straight to [25616.7,9042.4,2700],
-                    // skipping the corner at [25616.7,5791.2,2700] that the
-                    // conduit legs did have.
+                    // The circuit path has to TURN wherever the trunk turns. Adding
+                    // only `above` sends a Manhattan L to SetCircuitPath as one plan
+                    // DIAGONAL, and Revit requires every segment horizontal or
+                    // vertical.
                     res.PathVertices.Add(seg.B);
                 }
 
@@ -156,22 +143,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return res;
         }
 
-        /// <summary>The same electrical path with NO dive-and-return: it
-        /// travels at each device's own elevation and passes straight through
-        /// the devices.
-        ///
         /// The dive shape (above, device, above) revisits an identical point
-        /// three nodes later, and Revit has never accepted it — UAT 2026-08-05
-        /// round 6 had every segment axis-aligned and SetCircuitPath still
-        /// refused, leaving the doubling back as the only condition left in
-        /// its message. Revit's own circuit paths are simple chains, so this
-        /// is the shape to fall back to.
-        ///
-        /// Length differs: this omits the per-device drops the conductor
-        /// really makes, so a circuit whose path came from here reports a
-        /// SHORTER routed length than the conduit run. RouteCommit says which
-        /// shape was accepted so voltage drop is never read off an unknown
-        /// one.</summary>
+        /// three nodes later, which Revit has never accepted even with every
+        /// segment axis-aligned. Its own circuit paths are simple chains.
         private static List<Pt3Mm> BuildFlatPath(
             Pt3Mm panelStart,
             IReadOnlyList<(long Id, Pt3Mm At)> chain,

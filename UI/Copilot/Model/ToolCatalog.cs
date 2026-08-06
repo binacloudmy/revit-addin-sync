@@ -72,6 +72,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
             new SlashTool { Id="ff-net",       Category="MEP",           Name="FF Network from CAD",       Subtitle="Fire-protection CAD → pipes + sprinklers + legend", Badge=ToolBadge.Deterministic, IconKey="ti-flame",       Keywords="ff fire fighting sprinkler pipe network cad mep legend wet riser" },
             new SlashTool { Id="ff-pick",      Category="MEP",           Name="FF from Picked CAD",        Subtitle="Convert selected FF branch only",              Badge=ToolBadge.Deterministic, IconKey="ti-hand-finger",     Keywords="ff fire pick selected branch partial sprinkler pipe cad section" },
             new SlashTool { Id="light-cad",    Category="MEP",           Name="Lighting from CAD",         Subtitle="CAD blocks → native lighting fixtures",        Badge=ToolBadge.AiAssisted,    IconKey="ti-bulb",            Keywords="lighting light fixture cad block lamp mep convert family lampu" },
+            // The backend commands existed with no tile, so the palette was the
+            // only place a drafter could discover them and they were invisible
+            // there. Keywords carry the TOOL names the drafter types ("suggest
+            // circuits") as well as the tile name — the palette filter matches
+            // Name + Subtitle + Keywords only.
+            new SlashTool { Id="circuit",      Category="MEP",           Name="Circuit & Route Devices",   Subtitle="Group into circuits, route conduit, validate", Badge=ToolBadge.AiAssisted,    IconKey="ti-plug",            Keywords="circuit circuits suggest circuits create circuits litar cadang litar conduit konduit route routing wiring pendawaian wire wayar panel db mcb breaker voltage drop susut voltan electrical elektrik" },
+            new SlashTool { Id="light-req",    Category="MEP",           Name="Lighting by W/m² Requirement", Subtitle="Schedule W/m² column → fixtures that meet it", Badge=ToolBadge.AiAssisted, IconKey="ti-bulb",            Keywords="lighting light fixture lampu pencahayaan lekapan wattage watt w/m2 power density ketumpatan kuasa schedule jadual room schedule jadual bilik requirement keperluan place letak pasang" },
         };
 
         // addin-local Id → bina-ai P1 command id (app/commands/*.md). Only the
@@ -95,6 +102,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
             ["ff-net"] = "ff-network-from-cad",
             ["ff-pick"] = "ff-from-picked-cad",
             ["light-cad"] = "lighting-from-cad",
+            ["circuit"] = "circuit-and-route",
+            ["light-req"] = "lighting-by-requirement",
             // batch-link, room-views, sloped-floor already match the backend
             ["create"] = "quick-create",
             ["delete"] = "quick-delete",

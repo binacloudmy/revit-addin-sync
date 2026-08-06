@@ -117,6 +117,13 @@
          inward-facing rules are testable here. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\SocketLayout.cs" Link="SocketLayout.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\SocketPlanCache.cs" Link="SocketPlanCache.cs" />
+    <!-- Lighting grid math: System only, mm throughout. Split out of
+         LightingCandidates.cs (which needs a live Revit Document) precisely so
+         the count, containment, densify and subsample rules are testable here.
+         Uses SocketLayout's polygon primitives, linked above. The plan DTOs ride
+         PlanCache.cs, same as the socket/circuit/route plans. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\LightingLayout.cs" Link="LightingLayout.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\LightingPlanCache.cs" Link="LightingPlanCache.cs" />
     <!-- Electrical circuiting/routing decision core: System only, mm/VA
          throughout. Split out of CircuitCandidates.cs / RoutePlanner.cs /
          ElecValidation.cs (which need a live Revit Document) precisely so the
