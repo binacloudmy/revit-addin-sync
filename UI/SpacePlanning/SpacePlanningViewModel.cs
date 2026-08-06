@@ -270,6 +270,9 @@ namespace RevitWebAppSync.UI.SpacePlanning
             /// Accommodation as a Revit table, and the only place an unenclosed room
             /// admits to having no area.</summary>
             public string ScheduleName;
+            /// <summary>Views whose crop we switched off because it would have sliced
+            /// the scheme. Named, because it is a change to the drafter's own view.</summary>
+            public List<string> UncroppedViews = new List<string>();
             public int TagFailureCount;
             /// <summary>Rooms cannot be group members — Revit refuses. Deleting the
             /// group removes the separation lines and masses and LEAVES the rooms.</summary>
@@ -584,6 +587,10 @@ namespace RevitWebAppSync.UI.SpacePlanning
                 if (o.TryGetProperty("tag_count", out var tc) && tc.TryGetInt32(out var tci)) outcome.TagCount = tci;
                 if (o.TryGetProperty("schedule_name", out var sn) && sn.ValueKind == System.Text.Json.JsonValueKind.String)
                     outcome.ScheduleName = sn.GetString();
+                if (o.TryGetProperty("uncropped_views", out var uv) && uv.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    foreach (var item in uv.EnumerateArray())
+                        if (item.ValueKind == System.Text.Json.JsonValueKind.String)
+                            outcome.UncroppedViews.Add(item.GetString());
                 if (o.TryGetProperty("tag_failure_count", out var tf) && tf.TryGetInt32(out var tfi)) outcome.TagFailureCount = tfi;
                 if (o.TryGetProperty("created_views", out var cv) && cv.ValueKind == System.Text.Json.JsonValueKind.Array)
                     foreach (var item in cv.EnumerateArray())

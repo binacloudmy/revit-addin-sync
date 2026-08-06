@@ -2788,6 +2788,47 @@ namespace BinaVibe.Mcp.Tools
                     catch { uniqueName = group.GroupType.Name; }   // keep Revit's auto name
                 }
 
+                // 4a ─ Un-crop any plan that would slice the scheme.
+                //
+                // A cropped view clips geometry outside its crop box, and ZoomToFit
+                // fits the CROPPED extent — so no amount of framing can reveal a
+                // building that lands outside it. Reported 2026-08-06: the support
+                // row was cut mid-room at the top edge and the tandas sliced at the
+                // right, on a view whose crop is driven by a scope box.
+                //
+                // Turning the crop off (rather than resizing it) because a scope-box
+                // driven crop cannot be resized without detaching the scope box —
+                // a far bigger change to someone's view than one checkbox they can
+                // tick back on. Only touched when the scheme genuinely does not fit.
+                var uncropped = new List<string>();
+                if (wantRooms && planViews.Count > 0)
+                {
+                    var pts = rooms
+                        .Where(r => !string.Equals(r.type, "padang", StringComparison.OrdinalIgnoreCase))
+                        .SelectMany(r => r.boundaryFt).ToList();
+                    if (pts.Count > 0)
+                    {
+                        double sMinX = pts.Min(p => p.X), sMaxX = pts.Max(p => p.X);
+                        double sMinY = pts.Min(p => p.Y), sMaxY = pts.Max(p => p.Y);
+                        foreach (var pv in planViews.Values)
+                        {
+                            try
+                            {
+                                if (!pv.CropBoxActive) continue;
+                                var cb = pv.CropBox;
+                                bool fits = cb != null
+                                            && sMinX >= cb.Min.X - 1e-6 && sMaxX <= cb.Max.X + 1e-6
+                                            && sMinY >= cb.Min.Y - 1e-6 && sMaxY <= cb.Max.Y + 1e-6;
+                                if (fits) continue;
+                                pv.CropBoxActive = false;
+                                pv.CropBoxVisible = false;
+                                uncropped.Add(pv.Name);
+                            }
+                            catch { /* a view that will not un-crop is not worth failing over */ }
+                        }
+                    }
+                }
+
                 // 4b ─ Colour the rooms by name, in every plan we touched, so the
                 // result reads as a space plan instead of an outline. Applying a
                 // colour scheme IS a document edit, so it belongs inside the
@@ -2856,6 +2897,10 @@ namespace BinaVibe.Mcp.Tools
                     // where to look rather than leaving the user to hunt.
                     ["opened_view"] = openedView,
                     ["zoomed_to_fit"] = zoomed,
+                    // Views whose crop was switched off because it would have sliced
+                    // the scheme. Named so the drafter knows exactly what we changed
+                    // and can tick it back on.
+                    ["uncropped_views"] = uncropped,
                     ["tag_count"] = tagCount,
                     ["schedule_name"] = scheduleName,
                     ["coloured_view_count"] = colouredViews,

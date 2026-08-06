@@ -97,6 +97,10 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
                 AddRow("Schedule created", outcome.ScheduleName);
             if (!string.IsNullOrWhiteSpace(outcome.OpenedView))
                 AddRow("Now showing", outcome.OpenedView);
+            // We changed a setting on the drafter's own view — say which, and why.
+            if (outcome.UncroppedViews != null && outcome.UncroppedViews.Count > 0)
+                AddRow("Crop turned off", string.Join(", ", outcome.UncroppedViews)
+                                          + " — it would have cut the scheme");
             if (outcome.TagFailureCount > 0)
                 AddRow("⚠ Untagged", $"{outcome.TagFailureCount} room(s) — no room tag family loaded?");
             if (outcome.SkippedCount > 0)
