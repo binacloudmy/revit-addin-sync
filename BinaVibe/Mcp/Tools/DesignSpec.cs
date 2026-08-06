@@ -932,13 +932,25 @@ namespace BinaVibe.Mcp.Tools
                     + "in them are gone. Tell the drafter before moving on.";
             }
 
-            // Otherwise: delete the spec-owned elements of the affected roles and
-            // rebuild them from the merged spec. Everything is in ONE transaction,
-            // so a single Ctrl+Z restores the previous state.
+            // Otherwise: replace the ENTIRE spec-owned set and rebuild from the
+            // merged spec.
+            //
+            // This deliberately deletes every owned role, not just the ones the
+            // changed field touches. BuildDesign is a whole-building build: ask
+            // it to "rebuild the roof" and it also creates fresh levels, slabs,
+            // partitions, rooms, columns and grids. Deleting only the affected
+            // roles therefore leaves the untouched ones in place AND builds a
+            // second copy of them.
+            //
+            // Measured 2026-08-06 on a 24-storey tower: one update produced a
+            // complete duplicate building — 96 extra walls, 24 extra slabs, 20
+            // extra columns, hundreds of extra rooms and windows — and the
+            // drafter had to delete them by hand. Replacing the whole owned set
+            // costs a longer rebuild and is always correct; the fast paths above
+            // (level heights, wall types, roof-only, footprint stretch) are what
+            // keep the common edits cheap, and none of them reach this code.
             var toDelete = new List<ElementId>();
-            var targetRoles = roles.Contains("__all__")
-                ? owns.Keys.ToList()
-                : roles.Where(r => !r.StartsWith("__")).ToList();
+            var targetRoles = owns.Keys.ToList();
             foreach (var role in targetRoles)
                 if (owns.TryGetValue(role, out var ids))
                     foreach (var id in ids)
@@ -964,7 +976,8 @@ namespace BinaVibe.Mcp.Tools
             t0.Stop();
             report["ok"] = true;
             report["changed_fields"] = changed;
-            report["strategy"] = "rebuilt the affected roles";
+            report["strategy"] = "replaced the whole spec-owned set and rebuilt "
+                               + "(no cheaper strategy applies to this change)";
             report["roles_rebuilt"] = targetRoles;
             report["replaced_element_count"] = removed.Count;
             report["note"] = removed.Count > 0
