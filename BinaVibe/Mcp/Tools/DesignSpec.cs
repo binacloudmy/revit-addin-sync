@@ -377,7 +377,13 @@ namespace BinaVibe.Mcp.Tools
                         Own("door", fi.Id.Value);
                     }
                 }
-                if (winSym != null)
+                // Blanket window spacing is the FALLBACK. When the layout was
+                // solved, each room gets its own window on the wall it actually
+                // touches (below) — running both would double-glaze every room
+                // and put windows in bathrooms that already have one.
+                var haveSolvedRooms = Obj(args, "rooms") is { ValueKind: JsonValueKind.Array } rr
+                                      && rr.GetArrayLength() > 0;
+                if (winSym != null && !haveSolvedRooms)
                 {
                     foreach (var wid in groundWalls.Skip(1))
                     {
@@ -440,40 +446,167 @@ namespace BinaVibe.Mcp.Tools
                     }
                 }
 
-                // Interior program: partitions then rooms. Rooms cannot find
-                // their boundaries until the partitions are regenerated, so this
-                // regeneration is required, not incidental.
-                var program = Obj(args, "program");
-                if (program != null && program.Value.ValueKind == JsonValueKind.Array
-                    && program.Value.GetArrayLength() > 0)
+                // Interior. When the backend has SOLVED the layout it sends
+                // explicit room rectangles; build those. Equal strips are the
+                // fallback only, because a diagram of "N spaces" is not a floor
+                // plan and looks like one at a glance.
+                //
+                // Rooms cannot find their boundaries until the partitions are
+                // regenerated, so that regeneration is required, not incidental.
+                var lvl0 = levels[0];
+                var solvedRooms = Obj(args, "rooms");
+                if (solvedRooms != null && solvedRooms.Value.ValueKind == JsonValueKind.Array
+                    && solvedRooms.Value.GetArrayLength() > 0)
                 {
-                    var names = program.Value.EnumerateArray()
-                        .Select(e => e.TryGetProperty("name", out var n) ? n.GetString() : null)
-                        .Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
-                    var minX = footprint.Min(p => p.X);
-                    var maxX = footprint.Max(p => p.X);
-                    var minY = footprint.Min(p => p.Y);
-                    var maxY = footprint.Max(p => p.Y);
-                    var lvl = levels[0];
-                    var n2 = names.Count;
-                    if (n2 > 1)
+                    var fMinX = footprint.Min(p => p.X); var fMaxX = footprint.Max(p => p.X);
+                    var fMinY = footprint.Min(p => p.Y); var fMaxY = footprint.Max(p => p.Y);
+                    const double EPS = 1.0 / FT;      // 1mm
+
+                    var rects = new List<(string Name, double X, double Y, double W, double H)>();
+                    foreach (var r in solvedRooms.Value.EnumerateArray())
                     {
-                        var step = (maxX - minX) / n2;
-                        for (int i = 1; i < n2; i++)
+                        var nm = r.TryGetProperty("name", out var nv) ? nv.GetString() ?? "Room" : "Room";
+                        double G(string k) => r.TryGetProperty(k, out var v)
+                            && v.ValueKind == JsonValueKind.Number ? v.GetDouble() / FT : 0;
+                        rects.Add((nm, G("x_mm"), G("y_mm"), G("w_mm"), G("h_mm")));
+                    }
+
+                    // One wall per unique interior edge. Room rectangles share
+                    // edges, so without de-duplication every partition between
+                    // two rooms would be built twice — overlapping walls, which
+                    // the digest would (correctly) flag.
+                    var built = new Dictionary<string, Wall>();
+                    string Key(XYZ a, XYZ b)
+                    {
+                        var (p, q) = (a.X < b.X || (Math.Abs(a.X - b.X) < EPS && a.Y < b.Y)) ? (a, b) : (b, a);
+                        return $"{Math.Round(p.X * FT)},{Math.Round(p.Y * FT)}|" +
+                               $"{Math.Round(q.X * FT)},{Math.Round(q.Y * FT)}";
+                    }
+                    bool OnPerimeter(XYZ a, XYZ b) =>
+                        (Math.Abs(a.X - b.X) < EPS && (Math.Abs(a.X - fMinX) < EPS || Math.Abs(a.X - fMaxX) < EPS))
+                     || (Math.Abs(a.Y - b.Y) < EPS && (Math.Abs(a.Y - fMinY) < EPS || Math.Abs(a.Y - fMaxY) < EPS));
+
+                    foreach (var rc in rects)
+                    {
+                        var c0 = new XYZ(rc.X, rc.Y, lvl0.Elevation);
+                        var c1 = new XYZ(rc.X + rc.W, rc.Y, lvl0.Elevation);
+                        var c2 = new XYZ(rc.X + rc.W, rc.Y + rc.H, lvl0.Elevation);
+                        var c3 = new XYZ(rc.X, rc.Y + rc.H, lvl0.Elevation);
+                        foreach (var (a, b) in new[] { (c0, c1), (c1, c2), (c2, c3), (c3, c0) })
+                        {
+                            if (OnPerimeter(a, b)) continue;        // the exterior wall already exists
+                            var k = Key(a, b);
+                            if (built.ContainsKey(k)) continue;
+                            if (a.DistanceTo(b) < EPS) continue;
+                            var w = Wall.Create(doc, Line.CreateBound(a, b), intType.Id,
+                                                lvl0.Id, f2f, 0, false, false);
+                            w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.Set(levels[1].Id);
+                            Own("partition", w.Id.Value);
+                            built[k] = w;
+                        }
+                    }
+
+                    doc.Regenerate();          // rooms need bounded walls to exist
+
+                    foreach (var rc in rects)
+                    {
+                        var cx = rc.X + rc.W / 2; var cy = rc.Y + rc.H / 2;
+                        var room = doc.Create.NewRoom(lvl0, new UV(cx, cy));
+                        if (room != null)
+                        {
+                            try { room.Name = rc.Name; } catch { }
+                            Own("room", room.Id.Value);
+                        }
+
+                        // A door per room, in the partition the room shares with
+                        // the corridor — a room you cannot walk into is not a
+                        // room. Pick the interior edge nearest the plan centre,
+                        // which for a corridor layout is the corridor side.
+                        if (doorSym != null)
+                        {
+                            var planCy = (fMinY + fMaxY) / 2;
+                            var edges = new[]
+                            {
+                                (A: new XYZ(rc.X, rc.Y, lvl0.Elevation),
+                                 B: new XYZ(rc.X + rc.W, rc.Y, lvl0.Elevation), Mid: rc.Y),
+                                (A: new XYZ(rc.X, rc.Y + rc.H, lvl0.Elevation),
+                                 B: new XYZ(rc.X + rc.W, rc.Y + rc.H, lvl0.Elevation), Mid: rc.Y + rc.H),
+                            }.OrderBy(e => Math.Abs(e.Mid - planCy)).ToList();
+                            foreach (var e in edges)
+                            {
+                                if (!built.TryGetValue(Key(e.A, e.B), out var host)) continue;
+                                try
+                                {
+                                    var d = doc.Create.NewFamilyInstance(
+                                        new XYZ(cx, e.Mid, lvl0.Elevation), doorSym, host, lvl0,
+                                        Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                                    Own("door", d.Id.Value);
+                                }
+                                catch { /* wall too short for this door type */ }
+                                break;
+                            }
+                        }
+
+                        // A window per room on the exterior wall it touches, so
+                        // openings follow the plan instead of a blind spacing
+                        // rule that gives a bathroom the same treatment as a
+                        // living room.
+                        if (winSym != null && groundWalls.Count == footprint.Count)
+                        {
+                            for (int i = 0; i < footprint.Count; i++)
+                            {
+                                var a = footprint[i];
+                                var b = footprint[(i + 1) % footprint.Count];
+                                var horizontal = Math.Abs(a.Y - b.Y) < EPS;
+                                var touches = horizontal
+                                    ? (Math.Abs(rc.Y - a.Y) < EPS || Math.Abs(rc.Y + rc.H - a.Y) < EPS)
+                                    : (Math.Abs(rc.X - a.X) < EPS || Math.Abs(rc.X + rc.W - a.X) < EPS);
+                                if (!touches) continue;
+                                if (doc.GetElement(ElemIds.From(groundWalls[i])) is not Wall hostW) continue;
+                                var pt = horizontal ? new XYZ(cx, a.Y, lvl0.Elevation)
+                                                    : new XYZ(a.X, cy, lvl0.Elevation);
+                                try
+                                {
+                                    var fi = doc.Create.NewFamilyInstance(
+                                        pt, winSym, hostW, lvl0,
+                                        Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                                    fi.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)?.Set(sill);
+                                    Own("window", fi.Id.Value);
+                                }
+                                catch { }
+                                break;
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    var program = Obj(args, "program");
+                    if (program != null && program.Value.ValueKind == JsonValueKind.Array
+                        && program.Value.GetArrayLength() > 1)
+                    {
+                        // Fallback only: equal strips. Reached when the backend
+                        // could not solve the layout, and it says so in the reply.
+                        var names = program.Value.EnumerateArray()
+                            .Select(e => e.TryGetProperty("name", out var n) ? n.GetString() : null)
+                            .Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+                        var minX = footprint.Min(p => p.X); var maxX = footprint.Max(p => p.X);
+                        var minY = footprint.Min(p => p.Y); var maxY = footprint.Max(p => p.Y);
+                        var step = (maxX - minX) / names.Count;
+                        for (int i = 1; i < names.Count; i++)
                         {
                             var x = minX + step * i;
-                            var line = Line.CreateBound(new XYZ(x, minY, lvl.Elevation),
-                                                        new XYZ(x, maxY, lvl.Elevation));
-                            var w = Wall.Create(doc, line, intType.Id, lvl.Id, f2f, 0, false, false);
+                            var w = Wall.Create(doc, Line.CreateBound(
+                                new XYZ(x, minY, lvl0.Elevation), new XYZ(x, maxY, lvl0.Elevation)),
+                                intType.Id, lvl0.Id, f2f, 0, false, false);
                             w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.Set(levels[1].Id);
                             Own("partition", w.Id.Value);
                         }
                         doc.Regenerate();
-                        for (int i = 0; i < n2; i++)
+                        for (int i = 0; i < names.Count; i++)
                         {
-                            var cx = minX + step * (i + 0.5);
-                            var cy = (minY + maxY) / 2;
-                            var room = doc.Create.NewRoom(lvl, new UV(cx, cy));
+                            var room = doc.Create.NewRoom(lvl0, new UV(
+                                minX + step * (i + 0.5), (minY + maxY) / 2));
                             if (room != null)
                             {
                                 try { room.Name = names[i]; } catch { }
