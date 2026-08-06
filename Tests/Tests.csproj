@@ -84,6 +84,14 @@
          CopilotModels. Pure (WPF Geometry only, no Revit). -->
     <Compile Include="..\UI\Copilot\Model\ToolCatalog.cs" Link="ToolCatalog.cs" />
     <Compile Include="..\AppInfo.cs" Link="AppInfo.cs" />
+    <!-- AttachmentGate: System + System.IO only; AttachmentKind comes from the
+         already-linked CopilotModels.cs. AttachmentGateTests.cs landed without
+         this link, so the whole Tests assembly failed at
+         "CS0103: The name 'AttachmentGate' does not exist" and NO test in this
+         project ran — the same failure mode as the WpfAppBootstrap note above,
+         which is why that note says to check the test COUNT, not just the
+         colour of the check. -->
+    <Compile Include="..\UI\Copilot\Model\AttachmentGate.cs" Link="AttachmentGate.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotContext.cs" Link="CopilotContext.cs" />
     <Compile Include="..\UI\Copilot\Model\UsageState.cs" Link="UsageState.cs" />
     <Compile Include="..\UI\Copilot\Model\FriendlyStep.cs" Link="FriendlyStep.cs" />
@@ -113,6 +121,16 @@
          inward-facing rules are testable here. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\SocketLayout.cs" Link="SocketLayout.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\SocketPlanCache.cs" Link="SocketPlanCache.cs" />
+    <!-- MEP connector-graph DTOs + integrity checks: System only. Split out of
+         MepGraphTools.cs (which walks a live ConnectorManager) so the parts
+         that can be wrong in an interesting way — component counting, a system
+         claiming a member it is not physically joined to, the
+         electrical-vs-mechanical asymmetry — are testable here. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Mep\MepGraphModel.cs" Link="MepGraphModel.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\Mep\MepGraphChecks.cs" Link="MepGraphChecks.cs" />
+    <!-- Panel phase-balance and slot-fit math: VA and slot numbers only, no
+         PanelScheduleView. Split out of PanelTools.cs for the same reason. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\PanelLoad.cs" Link="PanelLoad.cs" />
     <!-- read_schedule / write_schedule decision logic: which updates survive
          validation, where the row window falls, whether rows map 1:1 to
          elements. Split out of Schedules.cs (which needs a live Document) for

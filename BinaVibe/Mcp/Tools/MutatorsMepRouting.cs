@@ -5,6 +5,13 @@
 // failed snap) rolls the whole run back and reports {ok:false, error,
 // failed_corner_index}. Straight-segment create_duct/create_pipe stay in
 // MutatorsMep.cs; this file is additive.
+//
+// The connector primitives (connector-manager switch, nearest-connector
+// search, open-connector tally, connector summary, physical-ref BFS) now live
+// in Mep\MepConnectors.cs so the system/circuit tools share one
+// implementation. The helpers below are FORWARDERS that re-wrap failures into
+// RouteFailure — without that re-wrap the `catch (RouteFailure rf)` arms stop
+// catching connector faults and failed_corner_index silently degrades to -1.
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -12,6 +19,7 @@ using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Mechanical;
 using Autodesk.Revit.DB.Plumbing;
+using BinaVibe.Mcp.Tools.Mep;
 
 namespace BinaVibe.Mcp.Tools
 {
@@ -39,9 +47,9 @@ namespace BinaVibe.Mcp.Tools
             return new Dictionary<string, object?> { ["ok"] = true, ["connectors"] = list, ["count"] = list.Count };
         }
 
-        // Read-only — no Transaction. BFS over PHYSICAL connector refs (same
-        // ConnectorsOf/AllRefs/ConnectorType.Physical pattern as
-        // CapturePendingLinks), capped at max_depth and 100 nodes.
+        // Read-only — no Transaction. BFS over PHYSICAL connector refs, capped
+        // at max_depth and 100 nodes. The walk itself is MepConnectors.Traverse
+        // (shared with is_system_graph_valid); this method only shapes the rows.
         public static Dictionary<string, object?> TraceConnections(Document doc, JsonElement args)
         {
             var elementId = ArgsHelp.GetLong(args, "element_id")
@@ -52,55 +60,15 @@ namespace BinaVibe.Mcp.Tools
             var start = doc.GetElement(ElemIds.From(elementId))
                 ?? throw new InvalidOperationException($"element {elementId} not found");
 
-            var visited = new HashSet<long> { elementId };
-            var nodes = new List<Dictionary<string, object?>> { DescribeNode(start) };
-            var edgeKeys = new HashSet<(long, long)>();
-            var edges = new List<List<long>>();
-            var truncated = false;
-
-            var queue = new Queue<(Element el, int depth)>();
-            queue.Enqueue((start, 0));
-
-            while (queue.Count > 0)
-            {
-                var (el, depth) = queue.Dequeue();
-                if (depth >= maxDepth) { truncated = true; continue; }
-
-                List<Connector> conns;
-                try { conns = ConnectorsOf(el); }
-                catch (RouteFailure) { continue; }
-
-                foreach (var c in conns)
-                {
-                    if (!c.IsConnected) continue;
-                    foreach (Connector r in c.AllRefs)
-                    {
-                        if (r.Owner == null) continue;
-                        if (r.Owner.Id.Value == el.Id.Value) continue;
-                        if ((r.ConnectorType & ConnectorType.Physical) == 0) continue;
-
-                        var otherId = r.Owner.Id.Value;
-                        var key = el.Id.Value < otherId ? (el.Id.Value, otherId) : (otherId, el.Id.Value);
-                        if (edgeKeys.Add(key))
-                            edges.Add(new List<long> { key.Item1, key.Item2 });
-
-                        if (visited.Contains(otherId)) continue;
-                        if (nodes.Count >= maxNodes) { truncated = true; continue; }
-
-                        visited.Add(otherId);
-                        nodes.Add(DescribeNode(r.Owner));
-                        queue.Enqueue((r.Owner, depth + 1));
-                    }
-                }
-            }
+            var walk = MepConnectors.Traverse(start, maxDepth, maxNodes);
 
             return new Dictionary<string, object?>
             {
                 ["ok"] = true,
-                ["nodes"] = nodes,
-                ["edges"] = edges,
-                ["count"] = nodes.Count,
-                ["truncated"] = truncated,
+                ["nodes"] = walk.Nodes.Select(DescribeNode).ToList(),
+                ["edges"] = walk.Edges.Select(e => new List<long> { e.A, e.B }).ToList(),
+                ["count"] = walk.Nodes.Count,
+                ["truncated"] = walk.Truncated,
             };
         }
 
@@ -470,40 +438,24 @@ namespace BinaVibe.Mcp.Tools
 
         // internal, not private: Inspectors.CountBy's "connectivity" group_by
         // (2026-08-02) reuses this same connector-manager resolver instead of
-        // duplicating the element-shape switch.
-        internal static ConnectorManager? GetConnectorManager(Element el) => el switch
-        {
-            MEPCurve mc => mc.ConnectorManager,
-            FamilyInstance fi => fi.MEPModel?.ConnectorManager,
-            _ => null,
-        };
+        // duplicating the element-shape switch. Kept here as a forwarder so
+        // that call site and ElementFilter.ClassifyConnectivity do not move.
+        internal static ConnectorManager? GetConnectorManager(Element el)
+            => MepConnectors.GetConnectorManager(el);
 
+        // Forwarder, not a copy: re-wraps MepConnectors' InvalidOperationException
+        // into RouteFailure so every `catch (RouteFailure rf)` arm in this file
+        // still reports failed_corner_index instead of falling through to -1.
         private static List<Connector> ConnectorsOf(Element el)
         {
-            var cm = GetConnectorManager(el)
-                ?? throw new RouteFailure($"element {el.Id.Value} has no MEP connectors (not a duct/pipe/tray or MEP family instance)", -1);
-            var list = new List<Connector>();
-            foreach (Connector c in cm.Connectors) list.Add(c);
-            return list;
+            try { return MepConnectors.ConnectorsOf(el); }
+            catch (InvalidOperationException ex) { throw new RouteFailure(ex.Message, -1); }
         }
 
         private static Connector? NearestConnector(IEnumerable<Connector> conns, XYZ point, double toleranceFt, bool freeOnly)
-        {
-            Connector? best = null;
-            var bestDist = double.MaxValue;
-            foreach (var c in conns)
-            {
-                if (freeOnly && c.IsConnected) continue;
-                var d = c.Origin.DistanceTo(point);
-                if (d < bestDist) { bestDist = d; best = c; }
-            }
-            return best != null && bestDist <= toleranceFt ? best : null;
-        }
+            => MepConnectors.NearestConnector(conns, point, toleranceFt, freeOnly);
 
-        private static void SafeRollback(Transaction? tx)
-        {
-            if (tx != null && tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
-        }
+        private static void SafeRollback(Transaction? tx) => MepTx.SafeRollback(tx);
 
         private static Dictionary<string, object?> Failure(string error, int cornerIndex) => new()
         {
@@ -528,73 +480,12 @@ namespace BinaVibe.Mcp.Tools
         }
 
         private static Dictionary<string, object?> ComputeOpenConnectors(IEnumerable<Element> elements)
-        {
-            var origins = new List<List<double>>();
-            foreach (var el in elements)
-            {
-                if (el == null) continue;
-                var cm = GetConnectorManager(el);
-                if (cm == null) continue;
-                foreach (Connector c in cm.Connectors)
-                    if (!c.IsConnected)
-                        origins.Add(new List<double> { c.Origin.X * MmPerFoot, c.Origin.Y * MmPerFoot, c.Origin.Z * MmPerFoot });
-            }
-            return new Dictionary<string, object?> { ["count"] = origins.Count, ["origins_mm"] = origins };
-        }
+            => MepConnectors.ComputeOpenConnectors(elements);
 
         private static Dictionary<string, object?> ConnectorSummary(Connector c, int index)
-        {
-            var size = new Dictionary<string, object?>();
-            switch (c.Shape)
-            {
-                case ConnectorProfileType.Round:
-                    size["diameter_mm"] = c.Radius * 2 * MmPerFoot;
-                    break;
-                case ConnectorProfileType.Rectangular:
-                case ConnectorProfileType.Oval:
-                    size["width_mm"] = c.Width * MmPerFoot;
-                    size["height_mm"] = c.Height * MmPerFoot;
-                    break;
-            }
-            string? systemType = null;
-            try { systemType = c.MEPSystem?.Name; } catch { }
-            if (systemType == null)
-            {
-                try
-                {
-                    systemType = c.Domain switch
-                    {
-                        Domain.DomainHvac => c.DuctSystemType.ToString(),
-                        Domain.DomainPiping => c.PipeSystemType.ToString(),
-                        Domain.DomainElectrical => c.ElectricalSystemType.ToString(),
-                        _ => null,
-                    };
-                }
-                catch { systemType = null; }
-            }
-            return new Dictionary<string, object?>
-            {
-                ["index"] = index,
-                ["origin_mm"] = new List<double> { c.Origin.X * MmPerFoot, c.Origin.Y * MmPerFoot, c.Origin.Z * MmPerFoot },
-                ["direction"] = new List<double> { c.CoordinateSystem.BasisZ.X, c.CoordinateSystem.BasisZ.Y, c.CoordinateSystem.BasisZ.Z },
-                ["domain"] = DomainToString(c.Domain),
-                ["shape"] = c.Shape.ToString().ToLowerInvariant(),
-                ["size_mm"] = size,
-                ["system_type"] = systemType,
-                ["is_connected"] = c.IsConnected,
-            };
-        }
+            => MepConnectors.ConnectorSummary(c, index);
 
-        private static string DomainToString(Domain d) => d switch
-        {
-            Domain.DomainHvac => "duct",
-            Domain.DomainPiping => "pipe",
-            Domain.DomainElectrical => "electrical",
-            Domain.DomainCableTrayConduit => "cable_tray_conduit",
-            _ => "undefined",
-        };
-
-        private static Dictionary<string, object?> DescribeNode(Element el)
+        internal static Dictionary<string, object?> DescribeNode(Element el)
         {
             var typeName = el.Document.GetElement(el.GetTypeId()) is ElementType et ? et.Name : null;
             return new Dictionary<string, object?>

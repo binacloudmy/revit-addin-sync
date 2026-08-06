@@ -272,7 +272,10 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         // ─── helpers ────────────────────────────────────────────────────
 
-        private static FamilySymbol? ResolveSymbol(Document doc, string name, BuiltInCategory? cat = null)
+        // internal, not private: PanelTools.CreatePanel reuses this exact
+        // "exact Name, else FamilyName : Name" resolver rather than adding a
+        // fifth slightly-different family-symbol lookup to the codebase.
+        internal static FamilySymbol? ResolveSymbol(Document doc, string name, BuiltInCategory? cat = null)
         {
             var q = new FilteredElementCollector(doc).WhereElementIsElementType()
                 .OfClass(typeof(FamilySymbol));

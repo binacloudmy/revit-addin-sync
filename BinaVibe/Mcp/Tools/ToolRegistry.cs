@@ -201,6 +201,63 @@ namespace BinaVibe.Mcp.Tools
                 "route_pipe"                    => MutatorsMepRouting.RoutePipe(doc, args),
                 "tap_branch"                    => MutatorsMepRouting.TapBranch(doc, args),
 
+                // ── MEP SYSTEMS ────────────────────────────────────────────
+                // Three layers. Layer 0 (Tools\Mep\) is discipline-agnostic:
+                // connectors, connections and systems, dispatched through
+                // IMepSystemDriver so Mechanical and Plumbing arrive later as
+                // new driver files and no edit here. Layer 1 (Tools\Electrical\)
+                // is the electrical driver plus circuit and panel CRUD. Layer 2
+                // chains them in one TransactionGroup, one undo.
+                //
+                // Reads carry no Transaction. Writes each own ONE, guarded by
+                // MepTx.SafeRollback — never a bare tx.RollBack(), which masks
+                // Revit's real error after CommitOrThrow has already ended the
+                // transaction.
+
+                // Layer 0 — element info + parameters
+                "get_element_mep_info"          => Mep.MepElementInfo.GetElementMepInfo(doc, args),
+                "set_element_parameters"        => Mep.MepElementInfo.SetElementParameters(doc, args),
+                // Layer 0 — connectors and connections
+                "find_compatible_connector"     => Mep.MepConnectorTools.FindCompatibleConnector(doc, args),
+                "connect_elements"              => Mep.MepConnectionTools.ConnectElements(doc, args),
+                "reconnect_element"             => Mep.MepConnectionTools.ReconnectElement(doc, args),
+                "disconnect_elements"           => Mep.MepConnectionTools.DisconnectElements(doc, args),
+                // Layer 0 — systems
+                "create_mep_system"             => Mep.MepSystemTools.CreateMepSystem(doc, args),
+                "delete_mep_system"             => Mep.MepSystemTools.DeleteMepSystem(doc, args),
+                "get_system_by_id"              => Mep.MepSystemInspect.GetSystemById(doc, args),
+                "list_systems_in_project"       => Mep.MepSystemInspect.ListSystemsInProject(doc, args),
+                "is_system_graph_valid"         => Mep.MepGraphTools.IsSystemGraphValid(doc, args),
+
+                // Layer 1 — circuits
+                "create_circuit"                => Electrical.CircuitTools.CreateCircuit(doc, args),
+                "get_circuit_details"           => Electrical.CircuitTools.GetCircuitDetails(doc, args),
+                "get_circuit_by_element"        => Electrical.CircuitTools.GetCircuitByElement(doc, args),
+                "edit_circuit_properties"       => Electrical.CircuitTools.EditCircuitProperties(doc, args),
+                "delete_circuit"                => Electrical.CircuitTools.DeleteCircuit(doc, args),
+                "add_element_to_circuit"        => Electrical.CircuitTools.AddElementToCircuit(doc, args),
+                "remove_element_from_circuit"   => Electrical.CircuitTools.RemoveElementFromCircuit(doc, args),
+                // Layer 1 — panels. The reads never create a PanelScheduleView:
+                // a question must not write to the model.
+                "create_panel"                  => Electrical.PanelTools.CreatePanel(doc, args),
+                "get_panel_schedule"            => Electrical.PanelTools.GetPanelSchedule(doc, args),
+                "get_panel_load_summary"        => Electrical.PanelTools.GetPanelLoadSummary(doc, args),
+                "list_circuits_on_panel"        => Electrical.PanelTools.ListCircuitsOnPanel(doc, args),
+                "assign_panel"                  => Electrical.PanelTools.AssignPanel(doc, args),
+                "rebalance_panel_loads"         => Electrical.PanelTools.RebalancePanelLoads(doc, args),
+                "delete_panel"                  => Electrical.PanelTools.DeletePanel(doc, args),
+                // Layer 1 — switch systems. NOT a Revit-native switch system:
+                // no such API exists in 2023/2025/2027, so this writes the
+                // Switch ID parameter and says so in its own result.
+                "create_switch_system"          => Electrical.SwitchSystemTools.CreateSwitchSystem(doc, args),
+
+                // Layer 2 — composites
+                "place_and_circuit_device"      => Electrical.ElectricalWorkflows.PlaceAndCircuitDevice(doc, args),
+                "modify_circuit_workflow"       => Electrical.ElectricalWorkflows.ModifyCircuitWorkflow(doc, args),
+                "swap_panel_and_recircuit"      => Electrical.ElectricalWorkflows.SwapPanelAndRecircuit(doc, args),
+                "validate_and_repair_system"    => Electrical.ElectricalWorkflows.ValidateAndRepairSystem(doc, args),
+                "generate_schedule_report"      => Electrical.ElectricalWorkflows.GenerateScheduleReport(doc, args),
+
                 // Generic OSS-compatible wrappers — dispatch to typed tools.
                 // Arg names get remapped per target below (RemapArgs) since the
                 // generic contract's keys don't all match what the typed

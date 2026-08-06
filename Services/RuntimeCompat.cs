@@ -3,6 +3,23 @@ using System.IO;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
 
+#if NETFRAMEWORK
+namespace System.Runtime.CompilerServices
+{
+    /// <summary>The compiler recognises [ModuleInitializer] by NAME and emits
+    /// the .cctor hook itself, so the attribute only has to EXIST — but the
+    /// net48 BCL never shipped it. Declaring it here makes the MEP system
+    /// drivers' self-registration compile on all three payloads from one
+    /// source, the same single-source rule ElemIds follows above.
+    ///
+    /// Do not add this to a non-NETFRAMEWORK build: net8/net10 already define
+    /// it, and a duplicate in our own assembly wins over the BCL's, which is a
+    /// confusing way to break nothing visible.</summary>
+    [AttributeUsage(AttributeTargets.Method, Inherited = false)]
+    internal sealed class ModuleInitializerAttribute : Attribute { }
+}
+#endif
+
 namespace Autodesk.Revit.DB
 {
     /// <summary>ElementId factory bridging the ctor split: Revit 2023/2024

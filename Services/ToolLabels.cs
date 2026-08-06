@@ -48,6 +48,19 @@ namespace RevitWebAppSync.Services
             ["export_schedule_to_excel"]   = "Exporting schedule to Excel",
             ["find_missing_parameter"]     = "Finding missing parameters",
 
+            // ── MEP systems: read ──
+            ["get_element_mep_info"]       = "Reading MEP connectors",
+            ["find_compatible_connector"]  = "Matching connectors",
+            ["get_system_by_id"]           = "Reading the system",
+            ["list_systems_in_project"]    = "Listing MEP systems",
+            ["is_system_graph_valid"]      = "Checking the system graph",
+            ["get_circuit_details"]        = "Reading the circuit",
+            ["get_circuit_by_element"]     = "Finding the circuit",
+            ["get_panel_schedule"]         = "Reading the panel schedule",
+            ["get_panel_load_summary"]     = "Reading the panel load",
+            ["list_circuits_on_panel"]     = "Listing circuits on the panel",
+            ["generate_schedule_report"]   = "Building panel schedules",
+
             // ── create / mutate ──
             ["create_wall"]                = "Creating walls",
             ["create_room"]                = "Creating rooms",
@@ -102,6 +115,28 @@ namespace RevitWebAppSync.Services
             ["export_views"]               = "Exporting views",
             ["replace_with_reference"]     = "Replacing with reference",
             ["execute_revit_batch"]        = "Applying changes to the model",
+
+            // ── MEP systems: write ──
+            ["set_element_parameters"]     = "Setting element parameters",
+            ["connect_elements"]           = "Connecting elements",
+            ["reconnect_element"]          = "Reconnecting the element",
+            ["disconnect_elements"]        = "Disconnecting elements",
+            ["create_mep_system"]          = "Creating the MEP system",
+            ["delete_mep_system"]          = "Deleting the MEP system",
+            ["create_circuit"]             = "Creating the circuit",
+            ["edit_circuit_properties"]    = "Editing circuit properties",
+            ["delete_circuit"]             = "Deleting the circuit",
+            ["add_element_to_circuit"]     = "Adding to the circuit",
+            ["remove_element_from_circuit"] = "Removing from the circuit",
+            ["create_panel"]               = "Placing the panel",
+            ["assign_panel"]               = "Assigning the panel",
+            ["rebalance_panel_loads"]      = "Rebalancing panel loads",
+            ["delete_panel"]               = "Deleting the panel",
+            ["create_switch_system"]       = "Linking the switch system",
+            ["place_and_circuit_device"]   = "Placing and circuiting the device",
+            ["modify_circuit_workflow"]    = "Modifying the circuit",
+            ["swap_panel_and_recircuit"]   = "Moving circuits to the new panel",
+            ["validate_and_repair_system"] = "Validating the system",
         };
 
         /// <summary>Readable label for a tool, e.g. "Reading grids". Appends a key
