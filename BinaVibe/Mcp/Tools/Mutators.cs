@@ -561,7 +561,39 @@ namespace BinaVibe.Mcp.Tools
                 }
             }
             if (symbol == null)
-                throw new ArgumentException($"family type '{familyType}' not found in document");
+            {
+                // Never a bare "not found". Measured 2026-08-06: the copilot was
+                // told a tree type did not exist, had no way to learn what DID,
+                // and spiralled — guessing name variants in a loop until the run
+                // was killed. An error that lists the real candidates turns
+                // guessing into choosing.
+                var wanted = familyType.ToLowerInvariant();
+                var tokens = wanted.Split(new[] { ' ', '-', '_', ':', '.' },
+                                          StringSplitOptions.RemoveEmptyEntries);
+                var all = new FilteredElementCollector(doc).WhereElementIsElementType()
+                    .OfClass(typeof(FamilySymbol)).Cast<FamilySymbol>().ToList();
+                var near = all
+                    .Select(fs => new
+                    {
+                        Label = $"{fs.FamilyName} : {fs.Name}",
+                        Score = tokens.Count(t =>
+                            (fs.Name ?? "").ToLowerInvariant().Contains(t)
+                            || (fs.FamilyName ?? "").ToLowerInvariant().Contains(t)),
+                    })
+                    .Where(x => x.Score > 0)
+                    .OrderByDescending(x => x.Score)
+                    .Select(x => x.Label).Distinct().Take(15).ToList();
+
+                var hint = near.Count > 0
+                    ? "Closest types actually in this model: " + string.Join("; ", near)
+                    : "Nothing in this model resembles that name. Use list_family_types "
+                      + "for the category you want, or search_family_library + load_family "
+                      + "to bring one in.";
+                throw new ArgumentException(
+                    $"family type '{familyType}' is not in this document. {hint}. "
+                    + "Pick one of these EXACT names or load a family — do not guess "
+                    + "further spellings, they will not appear.");
+            }
 
             // Host-based families (windows, doors, openings, most void-cutters)
             // MUST sit on a host. The unhosted NewFamilyInstance overload below
