@@ -1,0 +1,170 @@
+<UserControl x:Class="RevitWebAppSync.UI.SpacePlanning.Screens.BriefView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FontFamily="{DynamicResource Cp.Font}">
+    <UserControl.Resources>
+        <Style x:Key="SpField" TargetType="TextBox">
+            <Setter Property="Background" Value="{DynamicResource Cp.Menu}"/>
+            <Setter Property="Foreground" Value="{DynamicResource Cp.Ink}"/>
+            <Setter Property="CaretBrush" Value="{DynamicResource Cp.Ink}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource Cp.Line}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontFamily" Value="{DynamicResource Cp.Font}"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Padding" Value="9,7"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="8" Padding="{TemplateBinding Padding}"
+                                SnapsToDevicePixels="True">
+                            <ScrollViewer x:Name="PART_ContentHost" VerticalScrollBarVisibility="Auto"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Cp.Accent}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SpLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="10.5"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource Cp.Faint}"/>
+            <Setter Property="Margin" Value="2,0,0,6"/>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <ScrollViewer Grid.Row="0" VerticalScrollBarVisibility="Auto" Padding="14,14,14,10">
+            <StackPanel>
+
+                <TextBlock Text="Describe the building. The plan is derived from Malaysian standards —
+UBBL 1984 for sanitary provision, JKR/KPM bay modules for room sizes."
+                           FontSize="11.5" Foreground="{DynamicResource Cp.Muted}"
+                           TextWrapping="Wrap" Margin="2,0,0,14"/>
+
+                <TextBlock Text="BRIEF" Style="{StaticResource SpLabel}"/>
+                <TextBox x:Name="BriefBox" Style="{StaticResource SpField}"
+                         MinHeight="86" AcceptsReturn="True" TextWrapping="Wrap"
+                         VerticalContentAlignment="Top" Margin="0,0,0,6"/>
+
+                <!-- Concrete, copy-able examples. A blank box with no example is the
+                     single biggest reason a free-text field goes unused. -->
+                <TextBlock Text="e.g. sekolah rendah, Tahun 1–6 with 3 kelas each, 540 murid"
+                           FontSize="11" FontStyle="Italic"
+                           Foreground="{DynamicResource Cp.Faint}"
+                           TextWrapping="Wrap" Margin="2,0,0,4"/>
+                <TextBlock x:Name="ScopeNote"
+                           Text="This release plans Malaysian primary schools (sekolah rendah) only —
+anything else comes back with a reason instead of a plan."
+                           FontSize="11" Foreground="{DynamicResource Cp.Faint}"
+                           TextWrapping="Wrap" Margin="2,0,0,16"/>
+
+                <!-- Optional overrides. Left blank they are simply not sent, and the
+                     backend omits the matching chip rather than inventing a figure. -->
+                <TextBlock Text="SITE (OPTIONAL)" Style="{StaticResource SpLabel}"/>
+                <!-- What read_site_boundary found in the model. Naming the SOURCE
+                     matters: a scope box looks like a site boundary and is not one,
+                     and the drafter is the only one who can tell us it is wrong. -->
+                <Border x:Name="SiteCard" Visibility="Collapsed"
+                        Background="{DynamicResource Cp.Sunken}"
+                        BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
+                        CornerRadius="8" Padding="10,8" Margin="0,0,0,8">
+                    <StackPanel>
+                        <TextBlock x:Name="SiteFound" FontSize="11.5" FontWeight="Medium"
+                                   Foreground="{DynamicResource Cp.Ink}" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="SiteHint" FontSize="11" Margin="0,2,0,0"
+                                   Foreground="{DynamicResource Cp.Faint}" TextWrapping="Wrap"
+                                   Text="The scheme will be placed inside it, at the setback."/>
+                        <!-- The escape hatch. A scope box looks exactly like a site
+                             boundary and is not one, and a genuinely small plot
+                             rejects every scheme — correctly, but the drafter still
+                             needs to be able to plan. -->
+                        <CheckBox x:Name="UseSiteBox" IsChecked="True" Margin="0,8,0,0"
+                                  Foreground="{DynamicResource Cp.Ink}"
+                                  FontFamily="{DynamicResource Cp.Font}" FontSize="11.5"
+                                  Content="Fit to the site boundary"/>
+                    </StackPanel>
+                </Border>
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="8"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="SiteAreaBox" Grid.Column="0" Style="{StaticResource SpField}"/>
+                    <TextBox x:Name="SetbackBox" Grid.Column="2" Style="{StaticResource SpField}"/>
+                </Grid>
+                <Grid Margin="0,0,0,14">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="8"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Site area (m²)" FontSize="11"
+                               Foreground="{DynamicResource Cp.Faint}" Margin="2,0,0,0"/>
+                    <TextBlock Grid.Column="2" Text="Setback (m)" FontSize="11"
+                               Foreground="{DynamicResource Cp.Faint}" Margin="2,0,0,0"/>
+                </Grid>
+
+                <TextBlock Text="TARGET GFA (OPTIONAL)" Style="{StaticResource SpLabel}"/>
+                <TextBox x:Name="TargetGfaBox" Style="{StaticResource SpField}" Margin="0,0,0,6"/>
+                <TextBlock Text="Left blank, the Schedule of Accommodation's own total is the target."
+                           FontSize="11" Foreground="{DynamicResource Cp.Faint}"
+                           TextWrapping="Wrap" Margin="2,0,0,14"/>
+
+                <!-- Inline failure. Never a dialog: the reason is usually actionable
+                     ("could not classify the brief"), and a dialog loses the text. -->
+                <Border x:Name="ErrorCard" Visibility="Collapsed"
+                        Background="{DynamicResource Cp.Sunken}"
+                        BorderBrush="{DynamicResource Cp.Red}" BorderThickness="1"
+                        CornerRadius="8" Padding="10,8" Margin="0,0,0,6">
+                    <TextBlock x:Name="ErrorText" FontSize="11.5" TextWrapping="Wrap"
+                               Foreground="{DynamicResource Cp.Ink}"/>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="1" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,1,0,0" Padding="12,10">
+            <StackPanel>
+                <Button x:Name="SuggestBtn" Height="34" Cursor="Hand" BorderThickness="0"
+                        Foreground="{DynamicResource Cp.AccentContrast}"
+                        Background="{DynamicResource Cp.AccentGrad}"
+                        FontFamily="{DynamicResource Cp.Font}" FontSize="12.5" FontWeight="SemiBold">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                    CornerRadius="9" SnapsToDevicePixels="True">
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.AccentGradHover}"/>
+                                </Trigger>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter TargetName="bd" Property="Opacity" Value="0.45"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <TextBlock Text="Generate space plan"/>
+                </Button>
+                <TextBlock Text="Nothing is written to your model at this step."
+                           FontSize="11" Foreground="{DynamicResource Cp.Faint}"
+                           HorizontalAlignment="Center" Margin="0,7,0,0"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,0 +1,46 @@
+{
+  "success": true,
+  "error": null,
+  "soa": {
+    "items": [
+      {"key":"bilik_darjah","label_ms":"Bilik Darjah","count":18,"unit_area_m2":64.8,"total_area_m2":1166.4,"level":null,"source":"JKR Sekolah Modul","clause":"bay 7.2 x 9.0 m","advisory":true},
+      {"key":"bilik_sokongan","label_ms":"Bilik Sokongan","count":8,"unit_area_m2":48.6,"total_area_m2":388.8,"level":null,"source":"JKR/KPM","clause":"pejabat/guru/bimbingan/keselamatan/sukan/koku/stor","advisory":true},
+      {"key":"tandas","label_ms":"Blok Tandas","count":4,"unit_area_m2":64.8,"total_area_m2":259.2,"level":null,"levels":[1,2],"source":"JKR Sekolah Modul","clause":"toilet block bay","advisory":true},
+      {"key":"perhimpunan","label_ms":"Dewan Perhimpunan","count":1,"unit_area_m2":414.0,"total_area_m2":414.0,"level":1,"source":"JKR/KPM","clause":"min. assembly area","advisory":true},
+      {"key":"kantin","label_ms":"Kantin","count":1,"unit_area_m2":144.0,"total_area_m2":144.0,"level":1,"source":"JKR/KPM","clause":"12 x 12 m","advisory":true},
+      {"key":"padang","label_ms":"Padang","count":1,"unit_area_m2":900.0,"total_area_m2":0.0,"level":null,"source":"JKR/KPM","clause":"min. 30 x 30 m (site, no GFA)","advisory":true}
+    ],
+    "total_gfa_m2": 2372.4,
+    "sanitary": [
+      {"fixture":"wc","gender":"male","count":7,"source":"UBBL 1984","clause":"Eighth Schedule (By-law 47), educational"},
+      {"fixture":"wc","gender":"female","count":11,"source":"UBBL 1984","clause":"Eighth Schedule (By-law 47), educational"},
+      {"fixture":"urinal","gender":"male","count":11,"source":"UBBL 1984","clause":"Eighth Schedule (By-law 47), educational"},
+      {"fixture":"wash_basin","gender":"all","count":14,"source":"UBBL 1984","clause":"Eighth Schedule (By-law 47), educational"}
+    ],
+    "notes": "Sanitary counts are advisory — verify against the Authority Having Jurisdiction."
+  },
+  "schemes": [
+    {
+      "id": "A",
+      "title": "Dua Blok Selari",
+      "rooms": [
+        {"label":"1A","type":"kelas","x":6.0,"y":6.0,"w":7.2,"h":9.0,"level":1,"counts_as_gfa":true},
+        {"label":"Tandas","type":"tandas","x":52.8,"y":6.0,"w":7.2,"h":9.0,"level":1,"counts_as_gfa":true},
+        {"label":"Perhimpunan","type":"perhimpunan","x":6.0,"y":17.4,"w":54.0,"h":6.6,"level":1,"counts_as_gfa":true},
+        {"label":"Padang","type":"padang","x":66.0,"y":6.0,"w":28.0,"h":34.0,"level":1,"counts_as_gfa":false},
+        {"label":"2A","type":"kelas","x":6.0,"y":6.0,"w":7.2,"h":9.0,"level":2,"counts_as_gfa":true}
+      ],
+      "level_areas_m2": {"1": 1731.6, "2": 1231.2},
+      "total_gfa_m2": 2962.8,
+      "footprint_m2": 1731.6,
+      "target_gfa_m2": 2372.4,
+      "margin_m2": 590.4,
+      "meets_gfa": true,
+      "warnings": []
+    }
+  ],
+  "rejected": [
+    {"id":"A1","title":"Dua Blok Selari - 1 tingkat","total_gfa_m2":1731.6,"gap_m2":640.8,"reason":"below_target_gfa"}
+  ],
+  "stats": {"target_gfa_m2":2372.4,"scheme_count":6,"passing_count":3,"rejected_count":3,"best_margin_m2":1158.5}
+}

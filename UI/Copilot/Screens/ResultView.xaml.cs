@@ -42,11 +42,27 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         private void Rebuild()
         {
             var vm = Vm; var tool = vm?.CurrentTool; var result = vm?.RunResult;
-            if (tool == null || result == null || ResultHost == null) return;
+            if (result == null || ResultHost == null) return;
 
-            Tile.Glyph = tool.Icon; Tile.TileBg = tool.TileBg; Tile.TileFg = tool.TileFg;
-            ToolTitle.Text = tool.Title;
-            Badge.Tier = tool.Tier;
+            // No catalog ToolDef: a flow driven by a SlashTool instead (the
+            // massing/planning path). It supplies its own title + glyph — same
+            // fallback RunningView uses. Without this the whole card rendered
+            // blank: we returned before ever setting ResultHost.Content, so a
+            // Build that had already committed looked like it had done nothing.
+            if (tool == null)
+            {
+                Tile.Glyph = vm.RunningGlyph;
+                Tile.TileBg = "#e0e7ff"; Tile.TileFg = "#4338ca";
+                ToolTitle.Text = vm.RunningTitle;
+                Badge.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                Tile.Glyph = tool.Icon; Tile.TileBg = tool.TileBg; Tile.TileFg = tool.TileFg;
+                ToolTitle.Text = tool.Title;
+                Badge.Tier = tool.Tier;
+                Badge.Visibility = Visibility.Visible;
+            }
 
             ResultHost.Content = BuildBody(result);
             BuildFeedback();
@@ -209,6 +225,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
             group.Child = rows;
             root.Children.Add(group);
+
+            // Details is the ONLY place a Count result can explain itself — what
+            // category landed, at what LOD, what was skipped, what stays behind on
+            // undo. It was silently dropped here, so a tool that carefully reported
+            // "Category: Mass · LOD 100" showed the user a bare number and nothing
+            // else, and a wrong-category placement looked identical to a right one.
+            if (!string.IsNullOrWhiteSpace(r.Details))
+            {
+                var details = RevitWebAppSync.Helpers.MarkdownRenderer.Render(r.Details);
+                details.Margin = new Thickness(0, 12, 0, 0);
+                root.Children.Add(details);
+            }
             return root;
         }
 

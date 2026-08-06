@@ -503,21 +503,13 @@ namespace BinaVibe.Mcp.Tools
                 .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
                 ?? throw new ArgumentException($"level '{levelName}' not found");
 
-            WallType? wallType = null;
-            if (!string.IsNullOrEmpty(typeName))
-            {
-                wallType = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
-                    .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase));
-            }
+            var wallType = ResolveWallType(doc, typeName);
 
             using var tx = new Transaction(doc, "BinaVibe: create_wall");
             TxGuard.StartSwallowing(tx);
             try
             {
-                var line = Line.CreateBound(p1, p2);
-                var wall = wallType != null
-                    ? Wall.Create(doc, line, wallType.Id, level.Id, height, 0, false, false)
-                    : Wall.Create(doc, line, level.Id, false);
+                var wallId = CreateWallCore(doc, p1, p2, level.Id, wallType?.Id, height);
                 // Probe: tx.Commit() triggers the regen. Isolates the regen
                 // cost from the Wall.Create call. Big commit time => (B) regen tax.
                 var _swCommit = System.Diagnostics.Stopwatch.StartNew();
@@ -528,12 +520,39 @@ namespace BinaVibe.Mcp.Tools
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
-                    ["created_id"] = wall.Id.Value,
+                    ["created_id"] = wallId.Value,
                     ["level"] = levelName,
                     ["type_name"] = wallType?.Name ?? "<default>",
                 };
             }
             catch { tx.RollBack(); throw; }
+        }
+
+        /// <summary>Named wall type, or null for "let Revit pick the default".
+        /// Deliberately does NOT throw on a miss — create_wall's historical
+        /// behaviour is to fall back to the default type.</summary>
+        internal static WallType? ResolveWallType(Document doc, string? typeName)
+        {
+            if (string.IsNullOrEmpty(typeName)) return null;
+            return new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
+                .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// TRANSACTION-FREE wall creation — the caller MUST already be inside an
+        /// open Transaction. Split out of CreateWall so multi-element builders
+        /// (place_massing_scheme) can put many elements in ONE transaction / one
+        /// undo step; CreateWall opens its own and cannot be called from inside one.
+        /// Points are in FEET (ArgsHelp.GetPointMm already converted), height in FEET.
+        /// </summary>
+        internal static ElementId CreateWallCore(
+            Document doc, XYZ startFt, XYZ endFt, ElementId levelId, ElementId? wallTypeId, double heightFt)
+        {
+            var line = Line.CreateBound(startFt, endFt);
+            var wall = wallTypeId != null && wallTypeId != ElementId.InvalidElementId
+                ? Wall.Create(doc, line, wallTypeId, levelId, heightFt, 0, false, false)
+                : Wall.Create(doc, line, levelId, false);
+            return wall.Id;
         }
 
         // ─── place_family_instance ──────────────────────────────────────
@@ -993,8 +1012,7 @@ namespace BinaVibe.Mcp.Tools
             TxGuard.StartSwallowing(tx);
             try
             {
-                var level = Level.Create(doc, elevation);
-                level.Name = name;
+                var level = CreateLevelCore(doc, name, elevation);
                 tx.Commit();
                 return new Dictionary<string, object?>
                 {
@@ -1005,6 +1023,48 @@ namespace BinaVibe.Mcp.Tools
                 };
             }
             catch { tx.RollBack(); throw; }
+        }
+
+        /// <summary>
+        /// TRANSACTION-FREE level creation — caller MUST be inside an open
+        /// Transaction. Elevation in FEET.
+        /// </summary>
+        internal static Level CreateLevelCore(Document doc, string name, double elevationFt)
+        {
+            var level = Level.Create(doc, elevationFt);
+            level.Name = name;
+            return level;
+        }
+
+        /// <summary>
+        /// TRANSACTION-FREE resolve-or-create by name — caller MUST be inside an open
+        /// Transaction. Elevation in FEET.
+        ///
+        /// Match order is deliberate: (1) an existing level with this NAME, (2) an
+        /// existing level at this ELEVATION (±1mm), (3) create. Step 2 matters for
+        /// non-destructiveness — a model whose ground floor is called "Level 1"
+        /// would otherwise get a second datum called "Tingkat 1" stacked on it.
+        /// <paramref name="created"/> tells the caller whether the level is new;
+        /// only new ones may be reported as this run's additions.
+        /// </summary>
+        internal static Level ResolveOrCreateLevelCore(
+            Document doc, string name, double elevationFt, out bool created)
+        {
+            var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
+
+            var byName = levels.FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (byName != null) { created = false; return byName; }
+
+            const double oneMmInFeet = 1.0 / 304.8;
+            var byElevation = levels.FirstOrDefault(l => Math.Abs(l.Elevation - elevationFt) < oneMmInFeet);
+            if (byElevation != null) { created = false; return byElevation; }
+
+            var level = Level.Create(doc, elevationFt);
+            // A name clash is impossible here (we just checked), but Revit also
+            // rejects reserved/empty names — keep the level rather than fail the build.
+            try { level.Name = name; } catch { /* keep Revit's auto name */ }
+            created = true;
+            return level;
         }
 
         // ─── create_grid ────────────────────────────────────────────────
@@ -1987,43 +2047,907 @@ namespace BinaVibe.Mcp.Tools
             if (points.Count < 3)
                 throw new ArgumentException("boundary must have at least 3 points");
 
-            // Build CurveLoop (close it: last point back to first).
-            var loop = BuildCurveLoop(points);
-
             // Resolve level.
             var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
                 .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
                 ?? throw new ArgumentException($"level '{levelName}' not found");
 
-            // Resolve floor type — named or first available.
-            ElementId floorTypeId;
-            if (!string.IsNullOrEmpty(typeName))
-            {
-                var ft = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()
-                    .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
-                    ?? throw new ArgumentException($"floor type '{typeName}' not found");
-                floorTypeId = ft.Id;
-            }
-            else
-            {
-                var first = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).FirstOrDefault()
-                    ?? throw new InvalidOperationException("no FloorType found in document");
-                floorTypeId = first.Id;
-            }
+            var floorTypeId = ResolveFloorTypeId(doc, typeName);
 
             using var tx = new Transaction(doc, "BinaVibe: create_floor");
             TxGuard.StartSwallowing(tx);
             try
             {
-                // Revit 2022+ API: Floor.Create(doc, IList<CurveLoop>, ElementId typeId, ElementId levelId)
-                var floor = Floor.Create(doc, new List<CurveLoop> { loop }, floorTypeId, level.Id);
+                var floorId = CreateFloorCore(doc, points, level.Id, floorTypeId);
                 tx.Commit();
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
-                    ["floor_id"] = floor.Id.Value,
+                    ["floor_id"] = floorId.Value,
                     ["level"] = levelName,
                     ["type_name"] = typeName ?? "(default)",
+                };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
+        /// <summary>Named floor type, or the first one in the document. Throws when a
+        /// named type is missing (a silent substitution would build the wrong slab).</summary>
+        internal static ElementId ResolveFloorTypeId(Document doc, string? typeName)
+        {
+            if (!string.IsNullOrEmpty(typeName))
+            {
+                var ft = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()
+                    .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"floor type '{typeName}' not found");
+                return ft.Id;
+            }
+            // MUST filter to OST_Floors. FloorType also covers FOUNDATION SLABS
+            // (category Structural Foundations) and slab-edge types, and template
+            // ordering is arbitrary — picking "the first FloorType" silently built
+            // 40 structural foundations instead of floors, which then made the model
+            // read as "0 floors" to every by-category query and schedule while the
+            // slabs sat there visibly in 3D. Prefer a real floor type, and only fall
+            // back to any FloorType if the document genuinely has none.
+            var floorTypes = new FilteredElementCollector(doc).OfClass(typeof(FloorType))
+                .Cast<FloorType>().ToList();
+            var real = floorTypes.FirstOrDefault(
+                t => t.Category != null
+                     && t.Category.Id.Value == (long)BuiltInCategory.OST_Floors);
+            var chosen = real ?? floorTypes.FirstOrDefault()
+                ?? throw new InvalidOperationException("no FloorType found in document");
+            return chosen.Id;
+        }
+
+        /// <summary>
+        /// TRANSACTION-FREE floor creation — the caller MUST already be inside an
+        /// open Transaction (see CreateWallCore for why). Points are in FEET.
+        /// </summary>
+        internal static ElementId CreateFloorCore(
+            Document doc, List<XYZ> pointsFt, ElementId levelId, ElementId floorTypeId)
+        {
+            // Build CurveLoop (close it: last point back to first).
+            var loop = BuildCurveLoop(pointsFt);
+            // Revit 2022+ API: Floor.Create(doc, IList<CurveLoop>, ElementId typeId, ElementId levelId)
+            return Floor.Create(doc, new List<CurveLoop> { loop }, floorTypeId, levelId).Id;
+        }
+
+        // ─── LOD 100 conceptual massing ──────────────────────────────────
+        // At LOD 100 the deliverable is a GENERIC representation of the building
+        // form — not building elements. Placing real Floors would be LOD 200
+        // geometry (specific size/shape/location) wearing an LOD 100 label, so the
+        // massing scheme is built as DirectShape extrusions instead.
+        //
+        // Consequence to be aware of: these are NOT floors, so they never appear in
+        // a floor schedule and Revit will not compute GFA from them. That is correct
+        // for LOD 100 — area at this stage is approximate and derived (the pane's
+        // SOA carries the authoritative figures) — but it does mean the model can't
+        // be used for a floor-area takeoff. See PlaceMassingScheme's result payload.
+
+        /// <summary>
+        /// Category for the conceptual masses. Prefers Mass; falls back to Generic
+        /// Models because DirectShape refuses some categories depending on the
+        /// document/discipline, and a hard failure here would lose the whole scheme.
+        /// </summary>
+        internal static Category ResolveMassCategory(Document doc, bool preferMass = false)
+        {
+            // GENERIC MODELS by default, not Mass — decided by measurement, not taste.
+            //
+            // Mass IS accepted by DirectShape and groups fine. The problem is purely
+            // visibility: Revit's templates ship the Mass category HIDDEN in every
+            // view. A run on 2026-07-30 returned
+            //   revealed_in: ["L1 - Architectural (was hidden)",
+            //                 "Cover Sheet View (was hidden)"]
+            // — i.e. hidden in both views that existed. Un-hiding per view cannot fix
+            // this, because Revit creates views lazily: the default {3D} view did not
+            // exist at build time, was created afterwards from the template, and so
+            // still hid the masses. Any view the user makes later has the same
+            // problem, forever.
+            //
+            // Generic Models is visible by default in every view, including views that
+            // don't exist yet, and is still a "generic representation" — exactly the
+            // wording LOD 100 asks for. The LOD is carried by the stamped Comments,
+            // not by the category name. Pass prefer_mass=true to force Mass.
+            foreach (var bic in preferMass
+                ? new[] { BuiltInCategory.OST_Mass, BuiltInCategory.OST_GenericModel }
+                : new[] { BuiltInCategory.OST_GenericModel, BuiltInCategory.OST_Mass })
+            {
+                Category cat;
+                try { cat = Category.GetCategory(doc, bic); }
+                catch { continue; }
+                if (cat?.Id == null) continue;
+                try { if (DirectShape.IsValidCategoryId(cat.Id, doc)) return cat; }
+                catch { /* try the next one */ }
+            }
+            throw new InvalidOperationException(
+                "no DirectShape-capable category available for conceptual massing (tried Mass, Generic Models)");
+        }
+
+        /// <summary>
+        /// TRANSACTION-FREE conceptual mass — the caller MUST already be inside an
+        /// open Transaction. Boundary points are in FEET at any Z (Z is ignored); the
+        /// solid is extruded upward from <paramref name="baseZFt"/>.
+        /// </summary>
+        internal static ElementId CreateMassCore(
+            Document doc, List<XYZ> pointsFt, double baseZFt, double heightFt,
+            ElementId categoryId, string label, string comments)
+        {
+            if (heightFt <= 1e-6)
+                throw new ArgumentException("mass height must be greater than zero");
+
+            // Flatten to the base plane first: an extrusion loop must be planar, and
+            // the incoming points may carry stray Z from the caller.
+            var flat = pointsFt.Select(p => new XYZ(p.X, p.Y, baseZFt)).ToList();
+            var loop = BuildCurveLoop(flat);
+
+            var solid = GeometryCreationUtilities.CreateExtrusionGeometry(
+                new List<CurveLoop> { loop }, XYZ.BasisZ, heightFt);
+
+            var ds = DirectShape.CreateElement(doc, categoryId);
+            ds.SetShape(new List<GeometryObject> { solid });
+
+            // Name is rejected for some characters/duplicates — the label also goes
+            // into Comments, so losing it here is cosmetic, not data loss.
+            if (!string.IsNullOrWhiteSpace(label))
+                try { ds.Name = label; } catch { /* keep Revit's default */ }
+
+            if (!string.IsNullOrWhiteSpace(comments))
+                try
+                {
+                    ds.get_Parameter(BuiltInParameter.ALL_MODEL_INSTANCE_COMMENTS)?.Set(comments);
+                }
+                catch { /* parameter read-only in this template */ }
+
+            return ds.Id;
+        }
+
+        // ─── LOD 100 as ROOMS ────────────────────────────────────────────
+        // A DirectShape mass can be moved but not reshaped, so a scheme placed as
+        // masses cannot be edited in Revit at all — which also blocks any
+        // "regenerate around my edits" flow. Rooms bounded by room-separation lines
+        // are editable, schedulable, carry a real Revit area, and read as a plan.
+        // Ticket 86eyeh4g3 asks for exactly this: "room boundaries (Room-bounding
+        // lines or mass/floor-plan blocking), not detailed walls".
+
+        /// <summary>
+        /// A floor plan view for a level — room separation lines have to be drawn in
+        /// one. Prefers an existing non-template plan on that level (so we don't
+        /// litter the browser); creates one only when the level has none.
+        /// TRANSACTION-FREE: the caller must already be inside a Transaction.
+        /// </summary>
+        internal static ViewPlan ResolveOrCreatePlanViewCore(
+            Document doc, ElementId levelId, out bool created)
+        {
+            created = false;
+            // ViewType MATTERS: ViewPlan also covers ceiling plans, structural
+            // (engineering) plans, area plans and site plans. Reusing one of those
+            // put the scheme's separation lines somewhere an architect never looks —
+            // measured 2026-08-04, a build reported "views created: Tingkat 3,
+            // Tingkat 4" and the drafter could find no Tingkat 1 or 2 plan at all,
+            // because those two levels had matched a non-architectural plan.
+            var existing = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewPlan)).Cast<ViewPlan>()
+                .FirstOrDefault(v => !v.IsTemplate
+                                     && v.ViewType == ViewType.FloorPlan
+                                     && v.GenLevel != null
+                                     && v.GenLevel.Id == levelId);
+            if (existing != null) return existing;
+
+            var vft = new FilteredElementCollector(doc)
+                .OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
+                .FirstOrDefault(t => t.ViewFamily == ViewFamily.FloorPlan)
+                ?? throw new InvalidOperationException(
+                    "no floor-plan view family type in this project");
+
+            var view = ViewPlan.Create(doc, vft.Id, levelId);
+            created = true;
+            return view;
+        }
+
+        /// <summary>
+        /// Draw a closed loop of ROOM SEPARATION lines. TRANSACTION-FREE.
+        ///
+        /// <paramref name="drawn"/> carries the edges already drawn on this level so
+        /// a shared boundary between two adjacent rooms is drawn ONCE. Without it a
+        /// 40-room scheme emits ~160 curves, many exactly coincident, which Revit
+        /// reports as duplicate geometry — and TxGuard swallows the warning, so the
+        /// only symptom would be a model full of stacked lines.
+        ///
+        /// <paramref name="sketch"/> is passed in and cached per level by the caller:
+        /// creating one per room would leave a stray SketchPlane behind for every
+        /// room in the scheme.
+        /// </summary>
+        internal static List<ElementId> CreateRoomSeparationCore(
+            Document doc, List<XYZ> pointsFt, double baseZFt, View view,
+            HashSet<string> drawn, SketchPlane sketch)
+        {
+            var ids = new List<ElementId>();
+            var arr = new CurveArray();
+            for (int i = 0; i < pointsFt.Count; i++)
+            {
+                var a = pointsFt[i];
+                var b = pointsFt[(i + 1) % pointsFt.Count];
+                if (a.DistanceTo(b) < 1e-6) continue;          // degenerate edge
+
+                if (drawn != null && !drawn.Add(EdgeKey(a, b, baseZFt))) continue;  // already drawn
+
+                arr.Append(Line.CreateBound(
+                    new XYZ(a.X, a.Y, baseZFt), new XYZ(b.X, b.Y, baseZFt)));
+            }
+            if (arr.Size == 0) return ids;                     // every edge was shared
+
+            var curves = doc.Create.NewRoomBoundaryLines(sketch, arr, view);
+            if (curves != null)
+                foreach (ModelCurve c in curves)
+                    if (c != null) ids.Add(c.Id);
+            return ids;
+        }
+
+        /// <summary>Direction-independent key for an edge, rounded to 0.1 mm so two
+        /// rooms sharing a boundary produce the same key from either side.</summary>
+        private static string EdgeKey(XYZ a, XYZ b, double z)
+        {
+            string P(XYZ p) => $"{Math.Round(p.X, 5)},{Math.Round(p.Y, 5)}";
+            var one = P(a);
+            var two = P(b);
+            // Order the endpoints so a->b and b->a collapse to one key.
+            var lo = string.CompareOrdinal(one, two) <= 0 ? one : two;
+            var hi = ReferenceEquals(lo, one) ? two : one;
+            return $"{Math.Round(z, 5)}|{lo}|{hi}";
+        }
+
+        /// <summary>
+        /// Place a Room at a point. TRANSACTION-FREE.
+        ///
+        /// Returns null when Revit declines (most often "not enclosed" — the point
+        /// is not inside a closed boundary). The caller counts those rather than
+        /// failing: one unenclosed room must not lose the other 39.
+        /// </summary>
+        internal static Room CreateRoomCore(
+            Document doc, Level level, XYZ pointFt, string name, string number)
+        {
+            Room room;
+            try { room = doc.Create.NewRoom(level, new UV(pointFt.X, pointFt.Y)); }
+            catch { return null; }
+            if (room == null) return null;
+
+            // Set through the parameter, not room.Name — the property throws on some
+            // templates where the parameter is merely read-only. Same pattern as
+            // CreateRoomXY, which is the proven path in this file.
+            if (!string.IsNullOrWhiteSpace(name))
+                try
+                {
+                    var p = room.LookupParameter("Name");
+                    if (p != null && !p.IsReadOnly) p.Set(name);
+                }
+                catch { /* keep Revit's default name */ }
+
+            if (!string.IsNullOrWhiteSpace(number))
+                try
+                {
+                    var p = room.get_Parameter(BuiltInParameter.ROOM_NUMBER);
+                    if (p != null && !p.IsReadOnly) p.Set(number);
+                }
+                catch { /* duplicate number, or read-only */ }
+
+            return room;
+        }
+
+        // ─── place_massing_scheme ────────────────────────────────────────
+        /// <summary>
+        /// args: {
+        ///   option_name: string,
+        ///   levels: [{ name, elevation_mm, level? }],
+        ///   rooms:  [{ label, type, boundary_mm:[[x,y],...], level, height_mm?,
+        ///              name?, number? }],
+        ///   output?: "masses" | "rooms" | "both",   // default "masses"
+        ///   make_walls?: bool, floor_type_name?: string, wall_type_name?: string
+        /// }
+        ///
+        /// OUTPUT MODES
+        ///   masses — DirectShape extrusions. The original behaviour and still the
+        ///            default so a hand-written payload is unaffected. Good for pure
+        ///            massing review; a DirectShape cannot be reshaped, so a scheme
+        ///            placed this way cannot be edited in Revit at all.
+        ///   rooms  — room-separation lines + a Room per cell, named and numbered.
+        ///            Editable, schedulable, carries a real Revit area, and reads as
+        ///            a plan. What ticket 86eyeh4g3 asks for, and the prerequisite for
+        ///            any "regenerate around my edits" flow. The pane sends this.
+        ///   both   — both, for comparing them side by side.
+        /// All lengths in MILLIMETRES (the pane's args-builder does the one and only
+        /// metres→mm multiply — see UI/Copilot/Model/MassingPlan.cs).
+        ///
+        /// Places a space-planning scheme as a NAMED MODEL GROUP: one floor slab per
+        /// room (plus optional perimeter walls), everything in ONE Transaction so the
+        /// whole scheme is a single undo step, and the floors/walls collected into
+        /// doc.Create.NewGroup so the drafter can remove the entire proposal in one
+        /// action.
+        ///
+        /// WHY A GROUP AND NOT A DESIGN OPTION: the Revit API exposes Design Options
+        /// read-only in every target year (2023/2025/2027) — there is no
+        /// DesignOption.Create / DesignOptionSet.Create / activate setter, which is
+        /// also why Inspectors.ListDesignOptions is read-only. The arg and result
+        /// field stay named `option_name` so the contract survives if a future Revit
+        /// ever exposes the write API.
+        ///
+        /// Rooms of type "padang" are skipped (site area, not floor area — a slab
+        /// there would both misstate GFA and drop a plate on the field).
+        ///
+        /// Levels are resolved-or-created by name, but are NEVER group members:
+        /// Revit refuses to group datum elements, and a grouped pre-existing level
+        /// would be deleted with the group. Newly created levels therefore survive
+        /// a group delete and are reported separately in `created_levels`.
+        ///
+        /// Returns {ok, option_name, group_id, floor_count, wall_count, level_count,
+        ///          created_levels, skipped_count}.
+        /// </summary>
+        public static Dictionary<string, object?> PlaceMassingScheme(UIDocument uidoc, JsonElement args)
+        {
+            var doc = uidoc.Document;
+            var optionName = ArgsHelp.GetString(args, "option_name") ?? "Massing Scheme";
+            bool makeWalls = ArgsHelp.GetBool(args, "make_walls") ?? false;
+
+            // ── Parse the level specs (name + elevation + which scheme level it is).
+            var levelSpecs = new List<(int level, string name, double elevationFt)>();
+            if (args.ValueKind == JsonValueKind.Object &&
+                args.TryGetProperty("levels", out var levelsEl) && levelsEl.ValueKind == JsonValueKind.Array)
+            {
+                int position = 0;
+                foreach (var el in levelsEl.EnumerateArray())
+                {
+                    if (el.ValueKind != JsonValueKind.Object) continue;
+                    position++;
+                    var name = ArgsHelp.GetString(el, "name") ?? $"Tingkat {position}";
+                    var elevationFt = ArgsHelp.GetLengthMm(el, "elevation_mm") ?? 0.0;
+                    // `level` is the scheme's own 1|2 index. Fall back to array
+                    // position so an older/hand-written payload still maps.
+                    var index = (int)(ArgsHelp.GetLong(el, "level") ?? position);
+                    levelSpecs.Add((index, name, elevationFt));
+                }
+            }
+
+            // ── Parse the rooms.
+            var rooms = new List<(string label, string type, List<XYZ> boundaryFt, int level,
+                                  double heightFt, string name, string number)>();
+            if (args.ValueKind == JsonValueKind.Object &&
+                args.TryGetProperty("rooms", out var roomsEl) && roomsEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var el in roomsEl.EnumerateArray())
+                {
+                    if (el.ValueKind != JsonValueKind.Object) continue;
+                    var boundary = ArgsHelp.GetPointListMm(el, "boundary_mm");
+                    if (boundary.Count < 3) continue;   // not a slab — ignore silently
+                    rooms.Add((
+                        ArgsHelp.GetString(el, "label") ?? "",
+                        ArgsHelp.GetString(el, "type") ?? "",
+                        boundary,
+                        (int)(ArgsHelp.GetLong(el, "level") ?? 1),
+                        ArgsHelp.GetLengthMm(el, "height_mm") ?? (3000.0 / 304.8),
+                        // Room Name / Number when output=rooms. Optional: fall back to
+                        // the label so an older payload still produces named rooms.
+                        ArgsHelp.GetString(el, "name"),
+                        ArgsHelp.GetString(el, "number")));
+                }
+            }
+            if (rooms.Count == 0)
+                throw new ArgumentException("rooms must contain at least one room with a boundary_mm of 3+ points");
+
+            // Floor-to-floor height for the extrusions: masses stack flush so the
+            // scheme reads as a building rather than as floating trays. Falls back to
+            // the per-room height, then the 4 m storey rule the pane's builder uses.
+            var storeyHeightFt = ArgsHelp.GetLengthMm(args, "storey_height_mm")
+                ?? rooms.Max(r => r.heightFt);
+            if (storeyHeightFt <= 1e-6) storeyHeightFt = 4000.0 / 304.8;
+
+            // What to place. "masses" is the original behaviour and stays the default
+            // so a hand-written payload is unaffected; the pane sends "rooms".
+            //   rooms  — room-separation lines + a Room per cell. Editable, schedulable,
+            //            reads as a plan. What ticket 86eyeh4g3 actually asks for.
+            //   masses — DirectShape extrusions. Pure massing review; not editable.
+            //   both   — masses AND rooms, for comparing the two.
+            // Tag every placed room so the plan actually reads. Default on: an
+            // untagged Revit Room draws as a bare outline, which looks like nothing
+            // was built. Off for a caller that wants to tag on its own terms.
+            bool tagRooms = ArgsHelp.GetBool(args, "tag_rooms") ?? true;
+
+            // Colour the rooms by name in the plans we touch. On by default: an
+            // uncoloured plan of 40 outlines is what the drafter reported as "not
+            // rich enough". Cosmetic and view-only — the model is correct either way.
+            bool colorRooms = ArgsHelp.GetBool(args, "color_rooms") ?? true;
+
+            // Build the room schedule too. On by default: the Schedule of
+            // Accommodation IS a table, and placing 36 named, numbered, measured
+            // rooms and then leaving the drafter to hand-assemble the table that
+            // shows them is half a job. It is also the only surface where an
+            // unenclosed room admits to having no area.
+            bool makeSchedule = ArgsHelp.GetBool(args, "make_schedule") ?? true;
+
+            var output = (ArgsHelp.GetString(args, "output") ?? "masses").Trim().ToLowerInvariant();
+            if (output != "rooms" && output != "masses" && output != "both")
+                throw new ArgumentException($"output must be rooms|masses|both, got '{output}'");
+            bool wantMasses = output == "masses" || output == "both";
+            bool wantRooms = output == "rooms" || output == "both";
+
+            var massCategory = wantMasses
+                ? ResolveMassCategory(doc, ArgsHelp.GetBool(args, "prefer_mass") ?? false)
+                : null;
+            var wallType = makeWalls ? ResolveWallType(doc, ArgsHelp.GetString(args, "wall_type_name")) : null;
+            var lod = ArgsHelp.GetString(args, "lod") ?? "LOD 100";
+
+            // Group type names in use BEFORE we add ours — the uniqueness counter
+            // below reads this set (Revit throws on a duplicate GroupType name).
+            var takenGroupNames = new FilteredElementCollector(doc)
+                .OfClass(typeof(GroupType))
+                .Select(gt => gt.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            // ── Where to put this scheme ────────────────────────────────────
+            // The backend always emits coordinates from the same origin (rooms start
+            // at x=6m, y=6m in EVERY response), so two Builds land exactly on top of
+            // each other. That matters because the generator caps out around
+            // 3,530 m2: a programme larger than that can only be modelled by
+            // splitting it into several briefs — and stacking them is useless.
+            //
+            // offset_x_mm / offset_y_mm place a scheme explicitly. auto_offset steps
+            // each subsequent scheme clear of the last by its own width plus a gap,
+            // so repeated Builds line up side by side instead of overlapping.
+            double offsetXFt = ArgsHelp.GetLengthMm(args, "offset_x_mm") ?? 0.0;
+            double offsetYFt = ArgsHelp.GetLengthMm(args, "offset_y_mm") ?? 0.0;
+
+            if ((ArgsHelp.GetBool(args, "auto_offset") ?? false) && offsetXFt == 0.0)
+            {
+                // Measure from the massing that is ACTUALLY IN THE MODEL, not from
+                // how many group TYPES exist.
+                //
+                // A GroupType survives deleting every instance of its group — it only
+                // goes away on Purge Unused. Counting types therefore added another
+                // block-width of offset on every rebuild even when the drafter had
+                // deleted the previous scheme, so the plan marched east a few hundred
+                // metres over an afternoon's testing and ended up off the site
+                // (reported 2026-08-04, after ~5 rebuilds).
+                double occupiedMaxX = double.MinValue;
+                foreach (var g in new FilteredElementCollector(doc).OfClass(typeof(Group)).Cast<Group>())
+                {
+                    string gname;
+                    try { gname = g.GroupType?.Name; } catch { continue; }
+                    if (gname == null || !gname.StartsWith("Massing", StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    BoundingBoxXYZ bb;
+                    try { bb = g.get_BoundingBox(null); } catch { continue; }
+                    if (bb != null && bb.Max.X > occupiedMaxX) occupiedMaxX = bb.Max.X;
+                }
+
+                if (occupiedMaxX > double.MinValue)
+                {
+                    double minX = double.MaxValue;
+                    foreach (var r in rooms)
+                        foreach (var p in r.boundaryFt)
+                            if (p.X < minX) minX = p.X;
+                    const double gapFt = 12000.0 / 304.8;   // 12 m between blocks
+                    // Land this scheme's LEFT edge clear of the rightmost existing one.
+                    offsetXFt = occupiedMaxX + gapFt - (minX == double.MaxValue ? 0 : minX);
+                }
+            }
+
+            if (offsetXFt != 0.0 || offsetYFt != 0.0)
+            {
+                var shift = new XYZ(offsetXFt, offsetYFt, 0);
+                for (int i = 0; i < rooms.Count; i++)
+                {
+                    var moved = rooms[i].boundaryFt.Select(p => p + shift).ToList();
+                    rooms[i] = (rooms[i].label, rooms[i].type, moved, rooms[i].level,
+                                rooms[i].heightFt, rooms[i].name, rooms[i].number);
+                }
+            }
+
+            using var tx = new Transaction(doc, $"BINA: place massing scheme ({optionName})");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                // 1 ─ Levels: resolve-or-create, keyed by the scheme's level index.
+                var levelIds = new Dictionary<int, ElementId>();
+                var createdLevels = new List<string>();
+                foreach (var spec in levelSpecs)
+                {
+                    if (levelIds.ContainsKey(spec.level)) continue;
+                    var level = ResolveOrCreateLevelCore(doc, spec.name, spec.elevationFt, out var created);
+                    levelIds[spec.level] = level.Id;
+                    if (created) createdLevels.Add(level.Name);
+                }
+
+                // 2 ─ One conceptual mass per room (+ optional perimeter walls), and/or
+                //     room-separation lines + a Room per cell.
+                var groupMembers = new List<ElementId>();
+                int massCount = 0, wallCount = 0, skipped = 0;
+                int roomCount = 0, separationCount = 0, unenclosed = 0, roomFailures = 0;
+                int tagCount = 0, tagFailures = 0;
+                var createdViews = new List<string>();
+                // Plan view per level (separation lines need one) and the set of edges
+                // already drawn on that level, so a boundary shared by two rooms is
+                // drawn once rather than twice.
+                var planViews = new Dictionary<int, View>();
+                var drawnEdges = new Dictionary<int, HashSet<string>>();
+                var sketchPlanes = new Dictionary<int, SketchPlane>();
+                var wallEdges = new Dictionary<int, HashSet<string>>();
+
+                foreach (var room in rooms)
+                {
+                    if (string.Equals(room.type, "padang", StringComparison.OrdinalIgnoreCase))
+                    {
+                        skipped++;   // site-only, no slab (v1)
+                        continue;
+                    }
+
+                    // A room on a level the payload never declared: create it from
+                    // the same 4m storey rule the pane's builder uses, so a partial
+                    // payload still lands somewhere sane instead of throwing.
+                    if (!levelIds.TryGetValue(room.level, out var levelId))
+                    {
+                        var fallback = ResolveOrCreateLevelCore(
+                            doc, $"Tingkat {room.level}", (room.level - 1) * 4000.0 / 304.8, out var created);
+                        levelId = fallback.Id;
+                        levelIds[room.level] = levelId;
+                        if (created) createdLevels.Add(fallback.Name);
+                    }
+
+                    // Extrude from the resolved level's ACTUAL elevation, not the
+                    // payload's — a reused datum (an existing "L1" at 0) is the real
+                    // base, and mixing the two would float the masses off the level.
+                    var baseZFt = (doc.GetElement(levelId) as Level)?.Elevation ?? 0.0;
+                    var comments = string.Join(" · ", new[]
+                    {
+                        lod,
+                        string.IsNullOrWhiteSpace(room.type) ? null : room.type,
+                        string.IsNullOrWhiteSpace(room.label) ? null : room.label,
+                        optionName,
+                    }.Where(s => !string.IsNullOrWhiteSpace(s)));
+
+                    if (wantMasses)
+                    {
+                        var massId = CreateMassCore(
+                            doc, room.boundaryFt, baseZFt, storeyHeightFt,
+                            massCategory.Id, room.label, comments);
+                        groupMembers.Add(massId);
+                        massCount++;
+                    }
+
+                    if (wantRooms)
+                    {
+                        if (!planViews.TryGetValue(room.level, out var planView))
+                        {
+                            planView = ResolveOrCreatePlanViewCore(doc, levelId, out var viewMade);
+                            planViews[room.level] = planView;
+                            if (viewMade) createdViews.Add(planView.Name);
+                        }
+                        if (!drawnEdges.TryGetValue(room.level, out var edges))
+                            edges = drawnEdges[room.level] = new HashSet<string>();
+                        if (!sketchPlanes.TryGetValue(room.level, out var sketch))
+                            sketch = sketchPlanes[room.level] = SketchPlane.Create(
+                                doc, Plane.CreateByNormalAndOrigin(XYZ.BasisZ, new XYZ(0, 0, baseZFt)));
+
+                        // Separation lines JOIN the group, so deleting the group takes
+                        // the drawn boundary with it. The Rooms themselves cannot be
+                        // grouped (Revit refuses), so they survive — the result payload
+                        // says so rather than letting it surprise anyone.
+                        var sepIds = CreateRoomSeparationCore(
+                            doc, room.boundaryFt, baseZFt, planView, edges, sketch);
+                        groupMembers.AddRange(sepIds);
+                        separationCount += sepIds.Count;
+
+                        // Rooms are placed AFTER every separation line exists — see the
+                        // second pass below. A Room dropped before its neighbours' lines
+                        // are drawn reports "not enclosed" and keeps a zero area even
+                        // once the boundary is finished.
+                    }
+
+                    if (!makeWalls) continue;
+                    if (!wallEdges.TryGetValue(room.level, out var builtWalls))
+                        builtWalls = wallEdges[room.level] = new HashSet<string>();
+                    for (int i = 0; i < room.boundaryFt.Count; i++)
+                    {
+                        var a = room.boundaryFt[i];
+                        var b = room.boundaryFt[(i + 1) % room.boundaryFt.Count];
+                        if (a.DistanceTo(b) < 1e-6) continue;   // skip a duplicated closing point
+                        // Two rooms sharing a boundary must share ONE wall. Without
+                        // this every internal partition is built twice, exactly
+                        // overlapping — Revit flags the pair as duplicates and the
+                        // drafter inherits a model with 40-odd invisible clashes.
+                        if (!builtWalls.Add(EdgeKey(a, b, baseZFt))) continue;
+                        var wallId = CreateWallCore(doc, a, b, levelId, wallType?.Id, room.heightFt);
+                        groupMembers.Add(wallId);
+                        wallCount++;
+                    }
+                }
+
+                // 2b ─ SECOND PASS: place the Rooms.
+                //
+                // Deliberately after every separation line is drawn. A Room dropped
+                // while its neighbours' boundaries are still missing is created
+                // "not enclosed" and keeps a zero area even once the boundary is
+                // finished — Revit does not re-evaluate it. Regenerate first so the
+                // enclosed regions actually exist to be found.
+                if (wantRooms)
+                {
+                    doc.Regenerate();
+
+                    var numberByLevel = new Dictionary<int, int>();
+                    foreach (var room in rooms)
+                    {
+                        if (string.Equals(room.type, "padang", StringComparison.OrdinalIgnoreCase)) continue;
+                        if (!levelIds.TryGetValue(room.level, out var levelId)) continue;
+                        if (!(doc.GetElement(levelId) is Level level)) continue;
+
+                        // Centroid of the rectangle — inside it for any convex cell.
+                        double cx = room.boundaryFt.Average(p => p.X);
+                        double cy = room.boundaryFt.Average(p => p.Y);
+
+                        // Only a GENERATED number consumes a sequence value. The
+                        // counter used to advance for every room including the
+                        // classrooms, which carry their own "BD7" codes — so the
+                        // generated numbers came out as T1-06, T1-11, T1-12 with the
+                        // classroom-shaped gaps in between, reading like someone had
+                        // deleted rooms (spotted in a room schedule, 2026-08-05).
+                        string number = room.number;
+                        if (string.IsNullOrWhiteSpace(number))
+                        {
+                            numberByLevel.TryGetValue(room.level, out var seq);
+                            numberByLevel[room.level] = ++seq;
+                            number = $"T{room.level}-{seq:00}";
+                        }
+                        var name = string.IsNullOrWhiteSpace(room.name) ? room.label : room.name;
+
+                        var placed = CreateRoomCore(doc, level, new XYZ(cx, cy, 0), name, number);
+                        if (placed == null) { roomFailures++; continue; }
+
+                        roomCount++;
+                        // Area 0 means Revit could not close a boundary around the
+                        // point. Report it — a silently unenclosed room looks fine in
+                        // plan and then schedules as nothing.
+                        try { if (placed.Area <= 1e-6) unenclosed++; } catch { unenclosed++; }
+
+                        // Tag it. A Room carries its name and area as DATA; without a
+                        // tag the plan shows an empty outline, which reads as "nothing
+                        // was placed" even when 40 rooms are sitting right there.
+                        if (tagRooms && planViews.TryGetValue(room.level, out var tagView))
+                        {
+                            try
+                            {
+                                doc.Create.NewRoomTag(
+                                    new LinkElementId(placed.Id), new UV(cx, cy), tagView.Id);
+                                tagCount++;
+                            }
+                            catch
+                            {
+                                // Most often: no room tag family loaded in this
+                                // template. Counted, never fatal — the rooms are
+                                // already placed and a schedule reads them fine.
+                                tagFailures++;
+                            }
+                        }
+
+                        // Rooms cannot be grouped with model elements, so they are NOT
+                        // group members — same reason levels are not. Deleting the
+                        // group leaves them; the result says so.
+                    }
+                }
+
+                if (groupMembers.Count == 0 && roomCount == 0)
+                    throw new InvalidOperationException(
+                        "nothing to place — every room was site-only (padang) or had an invalid boundary");
+
+                // 3 ─ Make the masses VISIBLE.
+                // Revit hides the Mass category by default ("Show Mass" off), so a
+                // perfectly successful placement renders as an empty view — and
+                // because TxGuard swallows warnings, the notice Revit would normally
+                // raise never reaches the user either. Unhide the category in the
+                // active view and in every 3D view, so the result is visible where
+                // the user actually is and where they'd go to look at massing.
+                var revealedIn = new List<string>();
+                var viewsToReveal = new List<View>();
+                try { if (doc.ActiveView != null) viewsToReveal.Add(doc.ActiveView); } catch { }
+                try
+                {
+                    viewsToReveal.AddRange(new FilteredElementCollector(doc)
+                        .OfClass(typeof(View3D)).Cast<View3D>().Where(v => !v.IsTemplate));
+                }
+                catch { /* no 3D views in this template */ }
+
+                foreach (var view in wantMasses ? viewsToReveal : new List<View>())
+                {
+                    try
+                    {
+                        if (!view.CanCategoryBeHidden(massCategory.Id)) continue;
+                        // Record the state BEFORE touching it, and set it
+                        // unconditionally. The previous version skipped when V/G
+                        // reported "not hidden" — which is exactly what V/G reports
+                        // for Mass while the global Show Mass mode keeps it invisible,
+                        // so the fix silently did nothing and reported nothing.
+                        bool wasHidden = view.GetCategoryHidden(massCategory.Id);
+                        view.SetCategoryHidden(massCategory.Id, false);
+                        revealedIn.Add($"{view.Name} (was {(wasHidden ? "hidden" : "visible")})");
+                    }
+                    catch (Exception ex)
+                    {
+                        revealedIn.Add($"{view.Name} (FAILED: {ex.GetType().Name})");
+                    }
+                }
+
+                var uniqueNameSeed = optionName;
+
+                // 4 ─ One named Model Group holding the groupable elements.
+                // NewGroup throws on an empty list, which is reachable when every
+                // separation edge was shared and nothing else was placed.
+                Group group = null;
+                var uniqueName = optionName;
+                if (groupMembers.Count > 0)
+                {
+                    group = doc.Create.NewGroup(groupMembers);
+                    for (int n = 2; takenGroupNames.Contains(uniqueName); n++)
+                        uniqueName = $"{optionName} ({n})";
+                    try { group.GroupType.Name = uniqueName; }
+                    catch { uniqueName = group.GroupType.Name; }   // keep Revit's auto name
+                }
+
+                // 4a ─ Un-crop any plan that would slice the scheme.
+                //
+                // A cropped view clips geometry outside its crop box, and ZoomToFit
+                // fits the CROPPED extent — so no amount of framing can reveal a
+                // building that lands outside it. Reported 2026-08-06: the support
+                // row was cut mid-room at the top edge and the tandas sliced at the
+                // right, on a view whose crop is driven by a scope box.
+                //
+                // Turning the crop off (rather than resizing it) because a scope-box
+                // driven crop cannot be resized without detaching the scope box —
+                // a far bigger change to someone's view than one checkbox they can
+                // tick back on. Only touched when the scheme genuinely does not fit.
+                var uncropped = new List<string>();
+                // The scheme's own footprint in model coordinates. Used twice: to
+                // decide whether a crop would slice it, and to frame the view on it
+                // afterwards.
+                double sMinX = 0, sMaxX = 0, sMinY = 0, sMaxY = 0;
+                bool haveExtent = false;
+                {
+                    var pts = rooms
+                        .Where(r => !string.Equals(r.type, "padang", StringComparison.OrdinalIgnoreCase))
+                        .SelectMany(r => r.boundaryFt).ToList();
+                    if (pts.Count > 0)
+                    {
+                        sMinX = pts.Min(p => p.X); sMaxX = pts.Max(p => p.X);
+                        sMinY = pts.Min(p => p.Y); sMaxY = pts.Max(p => p.Y);
+                        haveExtent = true;
+                    }
+                }
+                if (wantRooms && planViews.Count > 0)
+                {
+                    if (haveExtent)
+                    {
+                        foreach (var pv in planViews.Values)
+                        {
+                            try
+                            {
+                                if (!pv.CropBoxActive) continue;
+                                var cb = pv.CropBox;
+                                bool fits = cb != null
+                                            && sMinX >= cb.Min.X - 1e-6 && sMaxX <= cb.Max.X + 1e-6
+                                            && sMinY >= cb.Min.Y - 1e-6 && sMaxY <= cb.Max.Y + 1e-6;
+                                if (fits) continue;
+                                pv.CropBoxActive = false;
+                                pv.CropBoxVisible = false;
+                                uncropped.Add(pv.Name);
+                            }
+                            catch { /* a view that will not un-crop is not worth failing over */ }
+                        }
+                    }
+                }
+
+                // 4b ─ Colour the rooms by name, in every plan we touched, so the
+                // result reads as a space plan instead of an outline. Applying a
+                // colour scheme IS a document edit, so it belongs inside the
+                // transaction — unlike the view activation in step 5. Isolated in
+                // RoomColorScheme (see the note at the top of that file) and it
+                // never throws: a missing colour must not lose a correct build.
+                int colouredViews = 0;
+                if (wantRooms && colorRooms)
+                    foreach (var pv in planViews.Values)
+                        if (RoomColorScheme.Apply(doc, pv) > 0) colouredViews++;
+
+                // 4c ─ The room schedule. Named after the scheme so a model with two
+                // proposals in it has two readable tables rather than "Schedule 1".
+                string scheduleName = null;
+                if (wantRooms && makeSchedule && roomCount > 0)
+                {
+                    var wanted = $"Jadual Ruang — {uniqueNameSeed}";
+                    var sched = CreateRoomScheduleCore(doc, wanted);
+                    if (sched != null) scheduleName = sched.Name;
+                }
+
+                tx.Commit();
+
+                // 5 ─ Land the user on the plan the scheme was placed in.
+                // Rooms draw nothing in whatever view happened to be active — the
+                // drafter's last build reported 40 rooms while they were looking at a
+                // structural plan, which reads as "nothing happened". View activation
+                // is not a document edit, so it goes AFTER the commit (same as
+                // Create3dView).
+                string openedView = null;
+                bool zoomed = false;
+                if (wantRooms && planViews.Count > 0)
+                {
+                    var lowest = planViews.OrderBy(kv => kv.Key).First().Value;
+                    try { uidoc.ActiveView = lowest; openedView = lowest.Name; }
+                    catch { /* view can't be activated — not worth failing the build */ }
+
+                    // ...and FRAME it. Deferred, NOT applied here: setting
+                    // uidoc.ActiveView above does not take effect until this API
+                    // context ends, so any UIView fetched on the next line still
+                    // belongs to the view we are leaving. Three attempts fixed the
+                    // symptom before that was understood — see ViewFraming.
+                    if (haveExtent)
+                    {
+                        const double marginFt = 8000.0 / 304.8;   // 8 m breathing room
+                        BinaVibe.Mcp.ViewFraming.Request(
+                            lowest.Id,
+                            new XYZ(sMinX - marginFt, sMinY - marginFt, 0),
+                            new XYZ(sMaxX + marginFt, sMaxY + marginFt, 0));
+                        zoomed = true;   // requested; Idling applies it
+                    }
+                }
+
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["option_name"] = uniqueName,
+                    ["group_id"] = group?.Id.Value,
+                    ["output"] = output,
+                    // Which view the pane switched Revit to, so the result can say
+                    // where to look rather than leaving the user to hunt.
+                    ["opened_view"] = openedView,
+                    ["zoomed_to_fit"] = zoomed,
+                    // Views whose crop was switched off because it would have sliced
+                    // the scheme. Named so the drafter knows exactly what we changed
+                    // and can tick it back on.
+                    ["uncropped_views"] = uncropped,
+                    ["tag_count"] = tagCount,
+                    ["schedule_name"] = scheduleName,
+                    ["coloured_view_count"] = colouredViews,
+                    ["tag_failure_count"] = tagFailures,
+                    ["mass_count"] = massCount,
+                    // Rooms-mode counts.
+                    ["room_count"] = roomCount,
+                    ["separation_line_count"] = separationCount,
+                    // Rooms Revit created but could not close a boundary around. They
+                    // look fine in plan and then schedule as nothing, so they are
+                    // reported rather than left to be discovered later.
+                    ["unenclosed_room_count"] = unenclosed,
+                    ["room_failure_count"] = roomFailures,
+                    ["created_views"] = createdViews,
+                    // Rooms cannot be group members (Revit refuses), so deleting the
+                    // group removes the separation lines and any masses, and LEAVES the
+                    // rooms behind — same caveat as the levels.
+                    ["rooms_in_group"] = false,
+                    // Kept so an older caller reading floor_count still sees the
+                    // element count rather than silently reading 0.
+                    ["floor_count"] = massCount,
+                    ["wall_count"] = wallCount,
+                    ["level_count"] = levelIds.Count,
+                    ["created_levels"] = createdLevels,
+                    ["skipped_count"] = skipped,
+                    ["storey_height_mm"] = storeyHeightFt * 304.8,
+                    // Where this scheme actually landed. Non-zero means it was moved
+                    // clear of an earlier one — say so, or the user measures from the
+                    // wrong origin and thinks the units are wrong.
+                    ["offset_x_mm"] = offsetXFt * 304.8,
+                    ["offset_y_mm"] = offsetYFt * 304.8,
+                    ["lod"] = lod,
+                    // Which views had the Mass category unhidden. Empty means it was
+                    // already visible everywhere we looked — NOT that nothing showed.
+                    ["revealed_in"] = revealedIn,
+                    // Report the category actually used, always. Placing 40 foundation
+                    // slabs instead of 40 floors once looked identical to success from
+                    // the pane — it took a journal plus a by-category query to notice.
+                    // Naming the category in the payload makes that visible up front,
+                    // and it also tells the user these are masses, not floors.
+                    ["category"] = massCategory?.Name,
                 };
             }
             catch { tx.RollBack(); throw; }
@@ -3157,6 +4081,66 @@ namespace BinaVibe.Mcp.Tools
                 };
             }
             catch { tx.RollBack(); throw; }
+        }
+
+        /// <summary>
+        /// A Rooms schedule — Number / Name / Area / Level, sorted by level then
+        /// number. TRANSACTION-FREE: the caller must already be inside a Transaction.
+        ///
+        /// Built as part of a space-planning Build rather than left to the drafter.
+        /// The schedule IS the deliverable — a Schedule of Accommodation is a table,
+        /// and placing 36 named, numbered, measured rooms and then asking someone to
+        /// hand-assemble the table to see them is leaving the job half done. It is
+        /// also the only place an unenclosed room admits to having no area.
+        ///
+        /// Returns null rather than throwing: a missing schedule must not lose a
+        /// correct 36-room build.
+        /// </summary>
+        internal static ViewSchedule CreateRoomScheduleCore(Document doc, string name)
+        {
+            try
+            {
+                var sched = ViewSchedule.CreateSchedule(doc, new ElementId(BuiltInCategory.OST_Rooms));
+                var def = sched.Definition;
+
+                var available = new Dictionary<string, SchedulableField>(StringComparer.OrdinalIgnoreCase);
+                foreach (var sf in def.GetSchedulableFields())
+                {
+                    try
+                    {
+                        var n = sf.GetName(doc);
+                        if (!string.IsNullOrEmpty(n) && !available.ContainsKey(n)) available[n] = sf;
+                    }
+                    catch { /* a field that will not name itself is not one we want */ }
+                }
+
+                var byName = new Dictionary<string, ScheduleField>(StringComparer.OrdinalIgnoreCase);
+                foreach (var want in new[] { "Level", "Number", "Name", "Area" })
+                {
+                    if (!available.TryGetValue(want, out var sf)) continue;
+                    try { byName[want] = def.AddField(sf); } catch { /* not schedulable here */ }
+                }
+                if (byName.Count == 0) return null;      // nothing to show — drop it
+
+                // Level, then number: reads as a storey-by-storey accommodation
+                // schedule rather than creation order. Best-effort — a schedule that
+                // will not sort is still a perfectly usable schedule.
+                foreach (var key in new[] { "Level", "Number" })
+                {
+                    if (!byName.TryGetValue(key, out var f)) continue;
+                    try { def.AddSortGroupField(new ScheduleSortGroupField(f.FieldId)); }
+                    catch { }
+                }
+
+                if (!string.IsNullOrWhiteSpace(name))
+                    try { sched.Name = name; } catch { /* duplicate name — keep Revit's */ }
+
+                return sched;
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         private static List<string> DefaultScheduleFields(string category)

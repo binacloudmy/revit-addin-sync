@@ -15,7 +15,11 @@
 //   L3/4 An idle WATCHDOG: if no idle fires within IdleGrace of enqueue, Revit is
 //       not processing (busy / modal dialog) — fail the pending jobs fast with a
 //       clear message instead of a 10-minute freeze. DialogBoxShowing tailors the
-//       message ("close the open dialog").
+//       message ("close the open dialog"). IMPORTANT: the watchdog does NOT fail a
+//       job merely because Revit is in the BACKGROUND. Revit raises Idling only
+//       while it is the foreground app, so a backgrounded Revit looks identical to
+//       a busy one from here — but it is healthy and resumes the moment it is
+//       clicked. See OnWatchdog.
 //
 // ToolRegistry.Invoke still runs on the Revit UI thread (Idling handlers hold a
 // valid API context); the ExternalEvent path (McpExternalEventHandler, gated
@@ -39,6 +43,12 @@ namespace BinaVibe.Mcp
         // A DialogBoxShowing within this window of a fast-fail means a modal is
         // (almost certainly) the blocker — tailor the message.
         private static readonly TimeSpan DialogRecent = TimeSpan.FromSeconds(20);
+
+        // How long a job may wait while Revit sits in the BACKGROUND before we give
+        // up. Generous (Revit resumes the instant it is clicked, and the user may be
+        // reading the answer in another window) but finite, because the pane's own
+        // RunLocalToolAsync awaits with no timeout of its own.
+        private static readonly TimeSpan BackgroundGrace = TimeSpan.FromMinutes(2);
 
         private static readonly object _gate = new();
         private static McpExternalEventHandler _handler;   // owns the queue + DrainOnce
@@ -100,6 +110,16 @@ namespace BinaVibe.Mcp
             Volatile.Write(ref _lastIdleTicks, Now);
             if (sender is UIApplication ua) _uiApp = ua;
 
+            // Deferred view framing. MUST come before the early return below: a
+            // Build that only asks for a zoom leaves the job queue empty, and the
+            // request would never be applied. See ViewFraming for why this cannot
+            // simply be done at the end of the tool.
+            if (ViewFraming.HasPending)
+            {
+                ViewFraming.TryApply(_uiApp);
+                if (ViewFraming.HasPending) e.SetRaiseWithoutDelay();
+            }
+
             if (_handler.Pending.IsEmpty) return;   // nothing to do — stay in default idle cadence
 
             var app = _uiApp;
@@ -142,12 +162,97 @@ namespace BinaVibe.Mcp
             // modal dialog). Fail every still-pending job fast with a clear cause.
             double sinceDialogMs = (Now - Volatile.Read(ref _lastDialogTicks)) * 1000.0 / Freq;
             bool dialogLikely = sinceDialogMs <= DialogRecent.TotalMilliseconds;
+            // NOT-FOREGROUND IS NOT BUSY.
+            //
+            // Revit raises Idling only while it is the foreground application. Ask
+            // the Copilot a question and then switch to another window — a browser,
+            // an editor — and the backend's tool call lands 10-40s later against a
+            // backgrounded Revit. No idle arrives, and this watchdog used to fail
+            // the whole batch within 6s with "Revit is busy", which is simply
+            // untrue: Revit is idle and healthy, just not focused. It resumes
+            // raising Idling the instant it is clicked, so the job would have run.
+            //
+            // Measured 2026-07-31: four consecutive tool calls (analyze_model_
+            // statistics, filter_elements, get_scene_overview) fast-failed ~8s
+            // apart and never reached ToolRegistry.Invoke, while a Build clicked
+            // inside Revit drained through the SAME queue in 0.27s.
+            //
+            // So only fast-fail when Revit is genuinely unable to serve us: a modal
+            // dialog, or busy WHILE focused. Otherwise keep waiting and re-arm —
+            // ToolLoopRunner's per-job timeout is the real ceiling.
+            // Bounded, though: waiting forever would turn a wrong error into a hang.
+            // The pane's own path (RunLocalToolAsync) awaits with no timeout, so the
+            // ceiling has to live here. Past BackgroundGrace we give up and say so
+            // in the message — naming focus, not a fictional "busy".
+            if (!dialogLikely && !IsRevitForeground() && OldestPendingAge() < BackgroundGrace)
+            {
+                Debug.WriteLine(
+                    "[BinaVibe][pump] no idle, but Revit is not the foreground window — "
+                    + "waiting instead of fast-failing (it idles again once focused).");
+                ArmWatchdog();
+                return;
+            }
+
+            if (!dialogLikely && !IsRevitForeground())
+            {
+                int gaveUp = _handler.FailAllPending(
+                    "Revit stayed in the background, so it never processed this. "
+                    + "Click into the Revit window and ask again.");
+                Debug.WriteLine(
+                    $"[BinaVibe][pump] background-grace expired — failed {gaveUp} job(s)");
+                return;
+            }
+
             string msg = dialogLikely
                 ? "Revit has a dialog open — close it and try again."
                 : "Revit is busy and didn't respond — try again in a moment.";
 
             int failed = _handler.FailAllPending(msg);
             Debug.WriteLine($"[BinaVibe][pump] idle-watchdog fast-failed {failed} job(s): {msg}");
+        }
+
+        /// <summary>How long the oldest queued job has been waiting. Zero when the
+        /// queue is empty. Used to bound the background wait.</summary>
+        private static TimeSpan OldestPendingAge()
+        {
+            try
+            {
+                if (_handler == null || !_handler.Pending.TryPeek(out var oldest) || oldest == null)
+                    return TimeSpan.Zero;
+                if (oldest.TEnqueued <= 0) return TimeSpan.Zero;
+                return TimeSpan.FromSeconds((Now - oldest.TEnqueued) / (double)Freq);
+            }
+            catch { return TimeSpan.Zero; }
+        }
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [System.Runtime.InteropServices.DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+        /// <summary>
+        /// Is Revit the foreground application? Compared by PROCESS id, not window
+        /// handle, so Revit's modeless children (the Copilot pane's own popups, the
+        /// Scheme Preview window) still count as "Revit is focused".
+        ///
+        /// Fails OPEN: any error returns true, which preserves the old fast-fail
+        /// behaviour rather than letting a job hang on a P/Invoke quirk.
+        ///
+        /// Public because the tool-loop's execution budget must not be spent while
+        /// Revit is backgrounded — a queued job simply cannot run then, so charging
+        /// it for that time fails healthy work (see ToolLoopRunner.ExecuteOneAsync).
+        /// </summary>
+        public static bool IsRevitForeground()
+        {
+            try
+            {
+                var hwnd = GetForegroundWindow();
+                if (hwnd == IntPtr.Zero) return false;   // nothing focused — treat as background
+                if (GetWindowThreadProcessId(hwnd, out uint pid) == 0) return true;
+                return pid == (uint)Process.GetCurrentProcess().Id;
+            }
+            catch { return true; }
         }
     }
 }

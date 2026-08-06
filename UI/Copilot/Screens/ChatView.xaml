@@ -10,8 +10,12 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
+        <!-- Row 0 stacks the subheader and the resume bar; they must never share a
+             cell or they render on top of each other. -->
+        <StackPanel Grid.Row="0">
+
         <!-- Subheader (only with a thread) -->
-        <Border x:Name="SubHeader" Grid.Row="0" BorderBrush="{DynamicResource Cp.LineSoft}" BorderThickness="0,0,0,1"
+        <Border x:Name="SubHeader" BorderBrush="{DynamicResource Cp.LineSoft}" BorderThickness="0,0,0,1"
                 Padding="14,7" Visibility="Collapsed">
             <Grid>
                 <TextBlock x:Name="ConvCount" FontSize="11.5" Foreground="{DynamicResource Cp.Text}" VerticalAlignment="Center"/>
@@ -20,6 +24,8 @@
                         Content="+ New chat"/>
             </Grid>
         </Border>
+
+        </StackPanel>
 
         <ScrollViewer x:Name="Scroller" Grid.Row="1" VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled" ScrollChanged="OnScroll">

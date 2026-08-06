@@ -1,0 +1,42 @@
+<UserControl x:Class="RevitWebAppSync.UI.SpacePlanning.Screens.RunView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             FontFamily="{DynamicResource Cp.Font}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" VerticalAlignment="Center" Margin="20,0">
+            <TextBlock x:Name="Title" FontSize="14" FontWeight="SemiBold"
+                       Foreground="{DynamicResource Cp.Ink}" TextWrapping="Wrap"
+                       HorizontalAlignment="Center" TextAlignment="Center"/>
+
+            <ProgressBar x:Name="Bar" IsIndeterminate="True" Height="3" Width="180"
+                         Margin="0,14,0,14" Background="Transparent"
+                         BorderThickness="0" Foreground="{DynamicResource Cp.Accent}"/>
+
+            <TextBlock x:Name="Info" FontSize="11.5" Foreground="{DynamicResource Cp.Muted}"
+                       TextWrapping="Wrap" HorizontalAlignment="Center"
+                       TextAlignment="Center" MaxWidth="300" Margin="0,0,0,16"/>
+
+            <StackPanel x:Name="StepsHost" HorizontalAlignment="Center"/>
+        </StackPanel>
+
+        <Border Grid.Row="1" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,1,0,0" Padding="12,10">
+            <StackPanel>
+                <Button x:Name="CancelBtn" Content="Cancel" Height="30" Cursor="Hand"
+                        Background="Transparent" BorderThickness="1"
+                        BorderBrush="{DynamicResource Cp.Line}"
+                        Foreground="{DynamicResource Cp.Muted}"
+                        FontFamily="{DynamicResource Cp.Font}" FontSize="12"/>
+                <!-- Set from code-behind: a Build in flight cannot be cancelled once
+                     Revit has the job, and offering a dead button is worse than none. -->
+                <TextBlock x:Name="CancelNote" FontSize="11" TextWrapping="Wrap"
+                           Foreground="{DynamicResource Cp.Faint}"
+                           HorizontalAlignment="Center" Margin="0,7,0,0"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

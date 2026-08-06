@@ -83,6 +83,17 @@
     <!-- ToolCatalog defines SlashTool, referenced by ChatMessage.SlashCommand in
          CopilotModels. Pure (WPF Geometry only, no Revit). -->
     <Compile Include="..\UI\Copilot\Model\ToolCatalog.cs" Link="ToolCatalog.cs" />
+    <!-- Massing / space planning: the /planning/suggest wire DTOs and the pure
+         helpers behind the screen — the metres→mm args-builder (a missed or
+         doubled ×1000 is a 1000× scale bug in the model) and the preview canvas's
+         auto-fit transform. Newtonsoft + System.Linq only: no Revit, no WPF, so
+         the frozen contract is testable before the backend exists. -->
+    <Compile Include="..\UI\SpacePlanning\Model\PlanningModels.cs" Link="PlanningModels.cs" />
+    <Compile Include="..\UI\SpacePlanning\Model\MassingPlan.cs" Link="MassingPlan.cs" />
+    <!-- Where a scheme lands on the site. Pure arithmetic, no Revit: the offset
+         is what stops the building being placed at the model origin instead of on
+         the drafter's land. -->
+    <Compile Include="..\UI\SpacePlanning\Model\SitePlacement.cs" Link="SitePlacement.cs" />
     <Compile Include="..\AppInfo.cs" Link="AppInfo.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotContext.cs" Link="CopilotContext.cs" />
     <Compile Include="..\UI\Copilot\Model\UsageState.cs" Link="UsageState.cs" />

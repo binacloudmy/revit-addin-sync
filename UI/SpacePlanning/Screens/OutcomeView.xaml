@@ -1,0 +1,64 @@
+<UserControl x:Class="RevitWebAppSync.UI.SpacePlanning.Screens.OutcomeView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
+             FontFamily="{DynamicResource Cp.Font}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <ctl:ToolHeader Grid.Row="0" x:Name="Header"
+                        TitleText="Build result" GlyphKey="layers"
+                        TileBgHex="#e0e7ff" TileFgHex="#4338ca"
+                        BackCommand="{Binding BackToPlanCommand}"/>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="14,14,14,10">
+            <StackPanel>
+                <Border x:Name="Card" Background="{DynamicResource Cp.Sunken}"
+                        BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
+                        CornerRadius="10" Padding="12,11" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock x:Name="Headline" FontSize="13.5" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Cp.Ink}" TextWrapping="Wrap"/>
+                        <TextBlock x:Name="GroupLine" FontSize="11.5" TextWrapping="Wrap"
+                                   Foreground="{DynamicResource Cp.Muted}" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <StackPanel x:Name="DetailHost" Margin="0,0,0,14"/>
+
+                <!-- The LOD 100 caveat travels with the result, not just the pane:
+                     these are conceptual masses, so Revit computes no area from them. -->
+                <Border x:Name="LodCard" Background="{DynamicResource Cp.Menu}"
+                        BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
+                        CornerRadius="10" Padding="11,10">
+                    <TextBlock x:Name="LodNote" FontSize="11.5" TextWrapping="Wrap"
+                               Foreground="{DynamicResource Cp.Muted}"/>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Border Grid.Row="2" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,1,0,0" Padding="12,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="8"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+                <Button x:Name="BackBtn" Grid.Column="0" Content="Back to schemes" Height="32"
+                        Cursor="Hand" Background="Transparent" BorderThickness="1"
+                        BorderBrush="{DynamicResource Cp.Line}"
+                        Foreground="{DynamicResource Cp.Ink}"
+                        FontFamily="{DynamicResource Cp.Font}" FontSize="12"/>
+                <Button x:Name="NewBtn" Grid.Column="2" Content="New plan" Height="32"
+                        Cursor="Hand" Background="Transparent" BorderThickness="1"
+                        BorderBrush="{DynamicResource Cp.Line}"
+                        Foreground="{DynamicResource Cp.Ink}"
+                        FontFamily="{DynamicResource Cp.Font}" FontSize="12"/>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

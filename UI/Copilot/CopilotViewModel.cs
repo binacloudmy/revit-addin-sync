@@ -100,7 +100,11 @@ namespace RevitWebAppSync.UI.Copilot
         public CpScreen Screen
         {
             get => _screen;
-            set { if (_screen == value) return; _screen = value; Raise(); Raise(nameof(IsSubScreen)); Raise(nameof(ShowBreadcrumb)); }
+            set
+            {
+                if (_screen == value) return;
+                _screen = value; Raise(); Raise(nameof(IsSubScreen)); Raise(nameof(ShowBreadcrumb));
+            }
         }
 
         private CpTab _tab = CpTab.Chat;
@@ -482,6 +486,22 @@ namespace RevitWebAppSync.UI.Copilot
         public RelayCommand ChatRegenerateCommand { get; }
         public RelayCommand ChatOpenEditorCommand { get; }
 
+        // ── Running-screen copy for flows with no CopilotCatalog ToolDef ──────
+        // RunningView falls back to these when CurrentTool is null.
+        public string RunningTitle { get; private set; }
+        public string RunningGlyph { get; private set; }
+        public string RunningInfo { get; private set; }
+        public string[] RunningSteps { get; private set; }
+
+
+        private void StopRunClock()
+        {
+            if (_runClock == null) return;
+            _runClock.Stop();
+            LastRunElapsed = _runClock.Elapsed.TotalSeconds.ToString("0.0") + "s";
+            _runClock = null;
+        }
+
         private static CpTab ParseTab(object p)
         {
             if (p is CpTab t) return t;
@@ -585,8 +605,14 @@ namespace RevitWebAppSync.UI.Copilot
 
         public void CancelRun()
         {
+            // A /planning/suggest in flight is abandoned here; a Build already
+            // committing on Revit's thread is NOT cancellable and still resolves to
+            // its Result card (the model really did change).
+            try { _planningCts?.Cancel(); } catch { /* already disposed */ }
             Screen = Prev == CpScreen.Running ? CpScreen.Home : Prev;
         }
+
+        private System.Threading.CancellationTokenSource _planningCts;
 
         public void FinishRun(ExecOutcome outcome)
         {

@@ -36,6 +36,25 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             nameof(BackCommand), typeof(ICommand), typeof(ToolHeader), new PropertyMetadata(null));
         public ICommand BackCommand { get => (ICommand)GetValue(BackCommandProperty); set => SetValue(BackCommandProperty, value); }
 
+        // ── Tool-less header (flows with no CopilotCatalog ToolDef, e.g. the
+        // massing/planning flow, which is driven by a SlashTool instead). When
+        // Tool is null these supply the title + tile and the tier badge is hidden.
+        public static readonly DependencyProperty TitleTextProperty = DependencyProperty.Register(
+            nameof(TitleText), typeof(string), typeof(ToolHeader), new PropertyMetadata(null, OnChanged));
+        public string TitleText { get => (string)GetValue(TitleTextProperty); set => SetValue(TitleTextProperty, value); }
+
+        public static readonly DependencyProperty GlyphKeyProperty = DependencyProperty.Register(
+            nameof(GlyphKey), typeof(string), typeof(ToolHeader), new PropertyMetadata(null, OnChanged));
+        public string GlyphKey { get => (string)GetValue(GlyphKeyProperty); set => SetValue(GlyphKeyProperty, value); }
+
+        public static readonly DependencyProperty TileBgHexProperty = DependencyProperty.Register(
+            nameof(TileBgHex), typeof(string), typeof(ToolHeader), new PropertyMetadata(null, OnChanged));
+        public string TileBgHex { get => (string)GetValue(TileBgHexProperty); set => SetValue(TileBgHexProperty, value); }
+
+        public static readonly DependencyProperty TileFgHexProperty = DependencyProperty.Register(
+            nameof(TileFgHex), typeof(string), typeof(ToolHeader), new PropertyMetadata(null, OnChanged));
+        public string TileFgHex { get => (string)GetValue(TileFgHexProperty); set => SetValue(TileFgHexProperty, value); }
+
         private static void OnChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
             => ((ToolHeader)d).Apply();
 
@@ -50,10 +69,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 Tile.Glyph = t.Icon; Tile.TileBg = t.TileBg; Tile.TileFg = t.TileFg;
                 Title.Text = t.Title;
                 Badge.Tier = t.Tier;
+                Badge.Visibility = Visibility.Visible;
                 Subtitle.Text = string.IsNullOrEmpty(SubtitleText) ? t.Desc : SubtitleText;
             }
             else
             {
+                Tile.Glyph = GlyphKey;
+                Tile.TileBg = TileBgHex; Tile.TileFg = TileFgHex;
+                Tile.Visibility = string.IsNullOrEmpty(GlyphKey) ? Visibility.Collapsed : Visibility.Visible;
+                Title.Text = TitleText ?? "";
+                Badge.Visibility = Visibility.Collapsed;
                 Subtitle.Text = SubtitleText;
             }
 

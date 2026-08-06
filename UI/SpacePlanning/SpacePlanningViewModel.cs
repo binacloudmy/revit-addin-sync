@@ -1,0 +1,689 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
+using RevitWebAppSync.Services;
+using RevitWebAppSync.UI.Copilot.Model;          // RelayCommand (shared chrome)
+using RevitWebAppSync.UI.SpacePlanning.Model;
+
+namespace RevitWebAppSync.UI.SpacePlanning
+{
+    /// <summary>Which panel the pane is showing.</summary>
+    public enum SpScreen
+    {
+        /// <summary>The brief form — where the flow starts.</summary>
+        Brief,
+        /// <summary>Waiting on /planning/suggest, or on Revit during a Build.</summary>
+        Running,
+        /// <summary>SOA + schemes + floor-plan preview.</summary>
+        Plan,
+        /// <summary>What a Build placed in the model.</summary>
+        Result,
+    }
+
+    /// <summary>
+    /// View-model for the standalone Space Planning pane.
+    ///
+    /// Lifted out of CopilotViewModel (which is 1,900+ lines of chat, tools, history
+    /// and usage) so the feature owns its own state and can be opened from its own
+    /// ribbon button. The planning members keep their ORIGINAL NAMES — PlanningView
+    /// binds to them by name, so the screen moved across unchanged apart from the
+    /// type of its DataContext.
+    ///
+    /// Two states the chat pane used to supply, which this now owns:
+    ///   · the BRIEF — previously typed after "/massing" in the composer;
+    ///   · RUNNING / RESULT — previously the Copilot's shared screens.
+    ///
+    /// Only ONE method here writes to the Revit document: <see cref="BuildMassingAsync"/>.
+    /// Everything else is a network call or pixels.
+    /// </summary>
+    public class SpacePlanningViewModel : INotifyPropertyChanged
+    {
+        public SpacePlanningViewModel()
+        {
+            SelectSchemeCommand = new RelayCommand(p => { if (p is MassingScheme s) SelectedScheme = s; });
+            SelectLevelCommand = new RelayCommand(p =>
+            {
+                if (p is int n) SelectedLevel = n;
+                else if (p != null && int.TryParse(p.ToString(), out var parsed)) SelectedLevel = parsed;
+            });
+            BuildMassingCommand = new RelayCommand(_ => _ = BuildMassingAsync());
+            SuggestCommand = new RelayCommand(_ => _ = BeginPlanningAsync(Brief));
+            // Back from the plan returns to the brief WITHOUT clearing it, so a user
+            // who wants to tweak one number doesn't retype the whole thing.
+            BackHomeCommand = new RelayCommand(_ => Screen = SpScreen.Brief);
+            // From the result card, back to the plan the build came from.
+            BackToPlanCommand = new RelayCommand(_ =>
+            {
+                if (Planning != null) Screen = SpScreen.Plan;
+            });
+            CancelCommand = new RelayCommand(_ => CancelRun());
+            // One click, not three (back → untick → regenerate). Offered from the
+            // empty state, where the drafter actually hits the problem.
+            PlanWithoutSiteCommand = new RelayCommand(_ =>
+            {
+                UseSiteBoundary = false;
+                if (!string.IsNullOrWhiteSpace(PlanningBrief)) _ = BeginPlanningAsync(PlanningBrief);
+            });
+            NewPlanCommand = new RelayCommand(_ =>
+            {
+                Planning = null;
+                SelectedScheme = null;
+                BuildOutcome = null;
+                Screen = SpScreen.Brief;
+            });
+        }
+
+        // ══════════ Screen ══════════
+
+        private SpScreen _screen = SpScreen.Brief;
+        public SpScreen Screen
+        {
+            get => _screen;
+            private set
+            {
+                if (_screen == value) return;
+                _screen = value; Raise();
+                Raise(nameof(IsBrief)); Raise(nameof(IsRunning));
+                Raise(nameof(IsPlan)); Raise(nameof(IsResult));
+            }
+        }
+
+        public bool IsBrief => Screen == SpScreen.Brief;
+        public bool IsRunning => Screen == SpScreen.Running;
+        public bool IsPlan => Screen == SpScreen.Plan;
+        public bool IsResult => Screen == SpScreen.Result;
+
+        // ══════════ The brief form ══════════
+
+        private string _brief = "";
+        /// <summary>The plain-language building brief. The backend parses it with a
+        /// regex first and only calls a model when the regex cannot pin it down.</summary>
+        public string Brief
+        {
+            get => _brief;
+            set { _brief = value ?? ""; Raise(); Raise(nameof(CanSuggest)); }
+        }
+
+        /// <summary>Site area in m². Optional — the authoritative source is the
+        /// property-line sketch in the model, so this is only sent when the user
+        /// types it. Null is meaningful: the backend omits the chip entirely.</summary>
+        private double? _siteAreaM2;
+        public double? SiteAreaM2
+        {
+            get => _siteAreaM2;
+            set { _siteAreaM2 = value; Raise(); }
+        }
+
+        private double? _setbackM;
+        public double? SetbackM
+        {
+            get => _setbackM;
+            set { _setbackM = value; Raise(); }
+        }
+
+        private double? _targetGfaM2;
+        public double? TargetGfaM2
+        {
+            get => _targetGfaM2;
+            set { _targetGfaM2 = value; Raise(); }
+        }
+
+        public bool CanSuggest => !string.IsNullOrWhiteSpace(Brief) && Screen != SpScreen.Running;
+
+        private string _briefError;
+        /// <summary>Inline failure text on the brief form. Set from the typed soft
+        /// failure the service returns — the pane never throws a dialog at the user.</summary>
+        public string BriefError
+        {
+            get => _briefError;
+            private set { _briefError = value; Raise(); Raise(nameof(HasBriefError)); }
+        }
+
+        public bool HasBriefError => !string.IsNullOrWhiteSpace(BriefError);
+
+        public RelayCommand SuggestCommand { get; }
+        public RelayCommand BackHomeCommand { get; }
+        public RelayCommand BackToPlanCommand { get; }
+        public RelayCommand CancelCommand { get; }
+        public RelayCommand NewPlanCommand { get; }
+        /// <summary>Drop the site constraint and re-plan, in one action.</summary>
+        public RelayCommand PlanWithoutSiteCommand { get; }
+
+        // ══════════ Massing / space planning ══════════
+        //
+        // Flow: brief → Running → POST /planning/suggest → Plan screen.
+        // The pane draws the returned schemes as pixels; the ONLY write to the
+        // Revit document is BuildMassingAsync (place_massing_scheme).
+
+        private SuggestResult _planning;
+        /// <summary>The last /planning/suggest response driving the Plan screen.</summary>
+        public SuggestResult Planning
+        {
+            get => _planning;
+            private set
+            {
+                _planning = value; Raise();
+                Raise(nameof(PlanningSchemes)); Raise(nameof(PlanningRejected));
+                Raise(nameof(PlanningSoa)); Raise(nameof(HasRejected));
+            }
+        }
+
+        public List<MassingScheme> PlanningSchemes => _planning?.Schemes ?? new List<MassingScheme>();
+        public List<RejectedScheme> PlanningRejected => _planning?.Rejected ?? new List<RejectedScheme>();
+        public Soa PlanningSoa => _planning?.Soa;
+        public bool HasRejected => PlanningRejected.Count > 0;
+
+        private MassingScheme _selectedScheme;
+        /// <summary>The scheme the preview canvas draws and Build would place.</summary>
+        public MassingScheme SelectedScheme
+        {
+            get => _selectedScheme;
+            set
+            {
+                if (ReferenceEquals(_selectedScheme, value)) return;
+                _selectedScheme = value;
+                Raise(); Raise(nameof(CanBuildMassing)); Raise(nameof(SelectedSchemeLevels));
+                // A 2-storey scheme followed by a 1-storey one must not leave the
+                // toggle pointing at a level the new scheme doesn't have.
+                var levels = SelectedSchemeLevels;
+                if (levels.Count > 0 && !levels.Contains(SelectedLevel)) SelectedLevel = levels[0];
+            }
+        }
+
+        public List<int> SelectedSchemeLevels => _selectedScheme?.Levels() ?? new List<int>();
+
+        private int _selectedLevel = 1;
+        /// <summary>Which storey the preview draws (the L1/L2 toggle).</summary>
+        public int SelectedLevel
+        {
+            get => _selectedLevel;
+            set { if (_selectedLevel == value) return; _selectedLevel = value; Raise(); }
+        }
+
+        private bool _isBuildingMassing;
+        public bool IsBuildingMassing
+        {
+            get => _isBuildingMassing;
+            private set { _isBuildingMassing = value; Raise(); Raise(nameof(CanBuildMassing)); }
+        }
+
+        public bool CanBuildMassing => _selectedScheme != null && !_isBuildingMassing;
+
+        /// <summary>The brief that produced the current result — echoed on the Plan
+        /// screen so the user can see what was interpreted.</summary>
+        public string PlanningBrief { get; private set; }
+
+        public RelayCommand SelectSchemeCommand { get; }
+        public RelayCommand SelectLevelCommand { get; }
+        public RelayCommand BuildMassingCommand { get; }
+
+        // ══════════ Running-screen copy ══════════
+
+        public string RunningTitle { get; private set; }
+        public string RunningInfo { get; private set; }
+        public string[] RunningSteps { get; private set; }
+
+        private void SetRunningCopy(string title, string info, string[] steps)
+        {
+            RunningTitle = title; RunningInfo = info; RunningSteps = steps;
+            Raise(nameof(RunningTitle)); Raise(nameof(RunningInfo)); Raise(nameof(RunningSteps));
+        }
+
+        // ══════════ Result of a Build ══════════
+
+        /// <summary>What one Build actually placed. Deliberately a small local type
+        /// rather than the Copilot's ResultModel — this pane has no chat thread, no
+        /// Save/Copy/Undo bar, and dragging that model in would re-couple the two.</summary>
+        public sealed class MassingBuildOutcome
+        {
+            public bool Ok;
+            public string Headline;
+            public string GroupName;
+            public string Output;              // rooms | masses | both
+            public int MassCount;
+            public int WallCount;
+            public int LevelCount;
+            public int SkippedCount;
+            public string Category;
+            public string Lod;
+            public List<string> CreatedLevels = new List<string>();
+            public string Error;
+
+            // ── rooms mode ──
+            public int RoomCount;
+            public int SeparationLineCount;
+            /// <summary>Rooms Revit created but could not close a boundary around.
+            /// They look fine in plan and then schedule as nothing, so this is
+            /// surfaced rather than left to be found later.</summary>
+            public int UnenclosedCount;
+            public int RoomFailureCount;
+            public List<string> CreatedViews = new List<string>();
+            /// <summary>The plan view Revit was switched to. Rooms draw nothing in an
+            /// unrelated view, so a build with nowhere to look reads as a failure.</summary>
+            public string OpenedView;
+            public int TagCount;
+            /// <summary>The room schedule Build created — the Schedule of
+            /// Accommodation as a Revit table, and the only place an unenclosed room
+            /// admits to having no area.</summary>
+            public string ScheduleName;
+            /// <summary>Views whose crop we switched off because it would have sliced
+            /// the scheme. Named, because it is a change to the drafter's own view.</summary>
+            public List<string> UncroppedViews = new List<string>();
+            /// <summary>A framing request was queued for Revit's next idle. Reported
+            /// so a view that still lands off-screen can be told apart from one that
+            /// was never asked to move.</summary>
+            public bool Framed;
+            public int TagFailureCount;
+            /// <summary>Rooms cannot be group members — Revit refuses. Deleting the
+            /// group removes the separation lines and masses and LEAVES the rooms.</summary>
+            public bool RoomsInGroup;
+            /// <summary>The placed scheme crosses the site boundary. Reported rather
+            /// than blocked: the drafter may be planning against a scope box that is
+            /// not really their land, and refusing to build would be worse than
+            /// saying so.</summary>
+            public bool OverflowsSite;
+        }
+
+        private MassingBuildOutcome _buildOutcome;
+        public MassingBuildOutcome BuildOutcome
+        {
+            get => _buildOutcome;
+            private set { _buildOutcome = value; Raise(); }
+        }
+
+        // ══════════ Actions ══════════
+
+        private bool _useSiteBoundary = true;
+        /// <summary>Fit and place against the boundary read from the model.
+        ///
+        /// Untickable because the boundary may not be the drafter's land: a scope box
+        /// looks exactly like a site and is a view tool. When a real 60 x 80 m plot
+        /// cannot take a 43 x 60 m school, every scheme is correctly rejected — and
+        /// the drafter needs a way to keep planning rather than being stuck with an
+        /// empty screen (2026-08-05).</summary>
+        public bool UseSiteBoundary
+        {
+            get => _useSiteBoundary;
+            set
+            {
+                _useSiteBoundary = value;
+                _siteChoiceMade = true;    // an explicit choice is never overridden
+                Raise(); Raise(nameof(SiteSummary));
+            }
+        }
+
+        /// <summary>True once the drafter has touched the toggle themselves. The
+        /// property-line default must not stomp on a deliberate choice.</summary>
+        private bool _siteChoiceMade;
+
+        private static string SourceLabel(string source) =>
+            source == "property_line" ? "Property line"
+            : source == "scope_box" ? "Scope box"
+            : source == "topography" ? "Toposurface"
+            : "Site";
+
+        private SiteBoundaryInfo _site;
+        /// <summary>What read_site_boundary found in the model. Drives the fit check
+        /// on the backend AND where Build places the scheme.</summary>
+        public SiteBoundaryInfo Site
+        {
+            get => _site;
+            private set { _site = value; Raise(); Raise(nameof(SiteSummary)); }
+        }
+
+        /// <summary>One line for the brief form: what we are planning against.</summary>
+        public string SiteSummary
+        {
+            get
+            {
+                if (_site == null || !_site.HasBoundary) return null;
+                if (!_useSiteBoundary)
+                    return _site.Source == "property_line"
+                        ? "Site boundary ignored — planning without it."
+                        : $"Found a {SourceLabel(_site.Source).ToLowerInvariant()}, not a property line — "
+                          + "not treated as your site. Tick to use it anyway.";
+                return $"{SourceLabel(_site.Source)}: {_site.WidthM:N0} × {_site.DepthM:N0} m "
+                     + $"· {_site.AreaM2:N0} m²";
+            }
+        }
+
+        private CancellationTokenSource _planningCts;
+
+        private void CancelRun()
+        {
+            _planningCts?.Cancel();
+            // A Build cannot be cancelled once Revit has the job — only a suggest can.
+            if (!IsBuildingMassing)
+                Screen = Planning != null ? SpScreen.Plan : SpScreen.Brief;
+        }
+
+        /// <summary>
+        /// Ask the backend for a Schedule of Accommodation and candidate block
+        /// schemes, then show the Plan screen.
+        ///
+        /// Never throws: SuggestPlanningAsync returns a typed soft failure, and a
+        /// backend outage lands back on the brief form with the reason inline.
+        /// </summary>
+        public async Task BeginPlanningAsync(string brief)
+        {
+            if (string.IsNullOrWhiteSpace(brief)) return;
+
+            PlanningBrief = brief;
+            Raise(nameof(PlanningBrief));
+            BriefError = null;
+
+            SetRunningCopy(
+                "Massing / Space Planning",
+                "Reading the brief against JKR/KPM modules and UBBL — nothing is written to your model yet.",
+                new[]
+                {
+                    "Parsing the building brief",
+                    "Deriving the Schedule of Accommodation",
+                    "Checking sanitary provision (UBBL)",
+                    "Generating block schemes",
+                    "Scoring against target GFA",
+                });
+            Screen = SpScreen.Running;
+
+            // Cancel replaces any in-flight suggest — without this, hitting Cancel
+            // returned to the form and then the late response yanked the user onto
+            // the Plan screen anyway.
+            _planningCts?.Cancel();
+            var cts = _planningCts = new CancellationTokenSource();
+
+            // Read the site out of the model FIRST — the boundary is what makes the
+            // fit check mean anything, and without it the backend falls back to
+            // assuming a square site of whatever area it was given.
+            Site = await ReadSiteAsync();
+
+            // Constrain by default ONLY when the boundary is a property line.
+            //
+            // A scope box is a view-management tool that happens to draw like a site
+            // boundary; topography is the ground, which usually runs past the plot.
+            // Rejecting every scheme against one of those is us asserting something
+            // we do not know — and it is what happened: a drafter's scope box was
+            // 1.4 m too shallow, so a perfectly good brief returned nothing and the
+            // only way out was a checkbox below the fold (2026-08-05).
+            if (!_siteChoiceMade && Site != null && Site.HasBoundary)
+                UseSiteBoundary = Site.Source == "property_line";
+
+            var cfg = BinaConfig.Load();
+            SuggestResult result;
+            try
+            {
+                var request = new SuggestRequest
+                {
+                    Brief = brief,
+                    UserId = cfg?.UserId,
+                    // A typed figure still wins over the model — the drafter may be
+                    // testing a hypothetical site.
+                    SiteAreaM2 = SiteAreaM2
+                        ?? (UseSiteBoundary && Site != null && Site.HasBoundary ? Site.AreaM2 : (double?)null),
+                    SitePolygonM = (UseSiteBoundary && SiteAreaM2 == null) ? Site?.PolygonM() : null,
+                    SetbackM = SetbackM,
+                    TargetGfaM2 = TargetGfaM2,
+                };
+                result = await new AIService().SuggestPlanningAsync(
+                    request, cfg?.AccessToken, cts.Token);
+            }
+            catch (Exception ex)
+            {
+                // Defence in depth — SuggestPlanningAsync already soft-fails.
+                result = SuggestResult.Fail(ex.Message);
+            }
+
+            if (cts.IsCancellationRequested) return;   // user cancelled — stay put
+
+            if (result == null || !result.Success || result.Soa == null)
+            {
+                BriefError = string.IsNullOrWhiteSpace(result?.Error)
+                    ? "The planning service didn't respond."
+                    : result.Error;
+                Screen = SpScreen.Brief;
+                return;
+            }
+
+            Planning = result;
+            // Default to the first PASSING scheme; fall back to the first scheme so
+            // a result where nothing meets GFA still previews something.
+            SelectedScheme = result.Schemes.FirstOrDefault(s => s.MeetsGfa) ?? result.Schemes.FirstOrDefault();
+            var levels = SelectedSchemeLevels;
+            SelectedLevel = levels.Contains(1) ? 1 : (levels.Count > 0 ? levels[0] : 1);
+            Screen = SpScreen.Plan;
+        }
+
+        /// <summary>
+        /// Drop a ready-made result straight onto the Plan screen, no backend call.
+        /// For the UiHarness preview (and any future screenshot test) so the whole
+        /// screen can be built and iterated without a live backend.
+        /// </summary>
+        public void ShowPlanningPreview(SuggestResult result, string brief = null)
+        {
+            if (result == null) return;
+            PlanningBrief = brief;
+            Raise(nameof(PlanningBrief));
+            Planning = result;
+            SelectedScheme = result.Schemes.FirstOrDefault(s => s.MeetsGfa) ?? result.Schemes.FirstOrDefault();
+            var levels = SelectedSchemeLevels;
+            SelectedLevel = levels.Contains(1) ? 1 : (levels.Count > 0 ? levels[0] : 1);
+            Screen = SpScreen.Plan;
+        }
+
+        /// <summary>
+        /// Build — place the selected scheme into the model. Runs the geometry on
+        /// Revit's main thread through the MCP job pump (never from this async
+        /// continuation) and lands on the Result screen.
+        /// </summary>
+        public async Task BuildMassingAsync()
+        {
+            var scheme = SelectedScheme;
+            if (scheme == null || IsBuildingMassing) return;
+
+            IsBuildingMassing = true;
+            var optionName = MassingArgs.OptionName(scheme);
+            SetRunningCopy(
+                "Placing massing scheme",
+                "One transaction, one undo step. Everything lands in a named Model Group you can delete in one action.",
+                new[]
+                {
+                    "Resolving levels",
+                    "Creating conceptual masses",
+                    "Grouping the scheme",
+                    "Committing the transaction",
+                });
+            Screen = SpScreen.Running;
+
+            try
+            {
+                // Build to the height the SOA's volume was computed from, so the
+                // placed geometry and the reported isipadu describe one building.
+                // Walls ON. Room-separation lines alone draw as thin dashes, which
+                // a drafter reads as "nothing was built"; walls are what make a plan
+                // look like a plan. NOTE this crosses LOD 100 (space boundaries) into
+                // LOD 200 (building elements) — see the plan doc, it is a decision the
+                // SV owns, not a detail.
+                // Land it on the site, not at the model origin. auto_offset only
+                // applies when we have no boundary — with one, the front-left
+                // setback corner IS the answer and stepping east of the last build
+                // would walk the scheme straight back off the land.
+                var (offX, offY) = SitePlacement.OffsetMm(Site, SetbackM ?? 6.0, scheme);
+                bool onSite = UseSiteBoundary && Site != null && Site.HasBoundary;
+                // Last line of defence. The backend rejects schemes that do not fit,
+                // but it works from the polygon's bounding box while placement
+                // happens here — and it briefly accepted a ROTATED fit, which the
+                // placer cannot honour, so a scheme ran off the boundary in Revit
+                // (2026-08-05). Check what is actually about to be drawn.
+                bool overflows = onSite && !SitePlacement.FitsInside(Site, SetbackM ?? 6.0, scheme);
+                var args = MassingArgs.Build(
+                    scheme, makeWalls: true, optionName: optionName,
+                    storeyHeightMm: MassingArgs.StoreyHeightMmFor(Planning),
+                    autoOffset: !onSite);
+                if (onSite)
+                {
+                    args["offset_x_mm"] = offX;
+                    args["offset_y_mm"] = offY;
+                }
+                var json = await RunLocalToolAsync("place_massing_scheme", args);
+                BuildOutcome = ReadBuildOutcome(optionName, json);
+                if (BuildOutcome != null) BuildOutcome.OverflowsSite = overflows;
+            }
+            catch (Exception ex)
+            {
+                BuildOutcome = new MassingBuildOutcome
+                {
+                    Ok = false,
+                    Headline = "Build failed",
+                    Error = ex.Message,
+                    GroupName = optionName,
+                };
+            }
+            finally
+            {
+                IsBuildingMassing = false;
+                Screen = SpScreen.Result;
+            }
+        }
+
+        /// <summary>Read place_massing_scheme's result payload into the outcome the
+        /// Result screen renders. Every field is optional on purpose — an older addin
+        /// build returns a subset, and a missing count must read as 0, not crash.</summary>
+        private static MassingBuildOutcome ReadBuildOutcome(
+            string optionName, System.Text.Json.JsonElement? json)
+        {
+            var outcome = new MassingBuildOutcome { Ok = true, GroupName = optionName };
+            if (json.HasValue && json.Value.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                var o = json.Value;
+                // mass_count is the current name; floor_count is what the mutator used
+                // to return and still emits, so read whichever is present.
+                if (o.TryGetProperty("mass_count", out var m) && m.TryGetInt32(out var mi)) outcome.MassCount = mi;
+                else if (o.TryGetProperty("floor_count", out var f) && f.TryGetInt32(out var fi)) outcome.MassCount = fi;
+                if (o.TryGetProperty("wall_count", out var w) && w.TryGetInt32(out var wi)) outcome.WallCount = wi;
+                if (o.TryGetProperty("level_count", out var l) && l.TryGetInt32(out var li)) outcome.LevelCount = li;
+                if (o.TryGetProperty("skipped_count", out var s) && s.TryGetInt32(out var si)) outcome.SkippedCount = si;
+                if (o.TryGetProperty("option_name", out var n) && n.ValueKind == System.Text.Json.JsonValueKind.String)
+                    outcome.GroupName = n.GetString() ?? optionName;
+                if (o.TryGetProperty("category", out var c) && c.ValueKind == System.Text.Json.JsonValueKind.String)
+                    outcome.Category = c.GetString();
+                if (o.TryGetProperty("lod", out var lod) && lod.ValueKind == System.Text.Json.JsonValueKind.String)
+                    outcome.Lod = lod.GetString();
+                if (o.TryGetProperty("created_levels", out var cl) && cl.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    foreach (var item in cl.EnumerateArray())
+                        if (item.ValueKind == System.Text.Json.JsonValueKind.String)
+                            outcome.CreatedLevels.Add(item.GetString());
+                if (o.TryGetProperty("ok", out var ok) && ok.ValueKind == System.Text.Json.JsonValueKind.False)
+                    outcome.Ok = false;
+
+                if (o.TryGetProperty("output", out var outp) && outp.ValueKind == System.Text.Json.JsonValueKind.String)
+                    outcome.Output = outp.GetString();
+                if (o.TryGetProperty("room_count", out var rc) && rc.TryGetInt32(out var rci)) outcome.RoomCount = rci;
+                if (o.TryGetProperty("separation_line_count", out var sc2) && sc2.TryGetInt32(out var sci)) outcome.SeparationLineCount = sci;
+                if (o.TryGetProperty("unenclosed_room_count", out var uc) && uc.TryGetInt32(out var uci)) outcome.UnenclosedCount = uci;
+                if (o.TryGetProperty("room_failure_count", out var fc) && fc.TryGetInt32(out var fci)) outcome.RoomFailureCount = fci;
+                if (o.TryGetProperty("rooms_in_group", out var rg) && rg.ValueKind == System.Text.Json.JsonValueKind.True)
+                    outcome.RoomsInGroup = true;
+                if (o.TryGetProperty("opened_view", out var ov) && ov.ValueKind == System.Text.Json.JsonValueKind.String)
+                    outcome.OpenedView = ov.GetString();
+                if (o.TryGetProperty("tag_count", out var tc) && tc.TryGetInt32(out var tci)) outcome.TagCount = tci;
+                if (o.TryGetProperty("schedule_name", out var sn) && sn.ValueKind == System.Text.Json.JsonValueKind.String)
+                    outcome.ScheduleName = sn.GetString();
+                if (o.TryGetProperty("zoomed_to_fit", out var zf) && zf.ValueKind == System.Text.Json.JsonValueKind.True)
+                    outcome.Framed = true;
+                if (o.TryGetProperty("uncropped_views", out var uv) && uv.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    foreach (var item in uv.EnumerateArray())
+                        if (item.ValueKind == System.Text.Json.JsonValueKind.String)
+                            outcome.UncroppedViews.Add(item.GetString());
+                if (o.TryGetProperty("tag_failure_count", out var tf) && tf.TryGetInt32(out var tfi)) outcome.TagFailureCount = tfi;
+                if (o.TryGetProperty("created_views", out var cv) && cv.ValueKind == System.Text.Json.JsonValueKind.Array)
+                    foreach (var item in cv.EnumerateArray())
+                        if (item.ValueKind == System.Text.Json.JsonValueKind.String)
+                            outcome.CreatedViews.Add(item.GetString());
+            }
+
+            // Lead with whichever thing was actually placed.
+            if (!outcome.Ok) outcome.Headline = "Build failed";
+            else if (outcome.RoomCount > 0)
+                outcome.Headline = $"Placed {outcome.RoomCount} room{(outcome.RoomCount == 1 ? "" : "s")}";
+            else
+                outcome.Headline = $"Placed {outcome.MassCount} mass{(outcome.MassCount == 1 ? "" : "es")}";
+            return outcome;
+        }
+
+        /// <summary>
+        /// Ask Revit for the site outline. Never throws and never blocks the flow:
+        /// a model with no boundary drawn is a normal state, not an error — the
+        /// scheme then lands at the origin exactly as it did before, which is the
+        /// honest behaviour when we do not know where the land is.
+        /// </summary>
+        private static async Task<SiteBoundaryInfo> ReadSiteAsync()
+        {
+            try
+            {
+                var json = await RunLocalToolAsync("read_site_boundary", new Dictionary<string, object>());
+                if (!json.HasValue || json.Value.ValueKind != System.Text.Json.JsonValueKind.Object)
+                    return null;
+                var o = json.Value;
+
+                var info = new SiteBoundaryInfo();
+                if (o.TryGetProperty("source", out var src) && src.ValueKind == System.Text.Json.JsonValueKind.String)
+                    info.Source = src.GetString();
+                if (info.Source == null || info.Source == "none") return info;
+
+                if (o.TryGetProperty("name", out var nm) && nm.ValueKind == System.Text.Json.JsonValueKind.String)
+                    info.Name = nm.GetString();
+                if (o.TryGetProperty("area_m2", out var ar) && ar.TryGetDouble(out var arv)) info.AreaM2 = arv;
+                if (o.TryGetProperty("width_m", out var wd) && wd.TryGetDouble(out var wdv)) info.WidthM = wdv;
+                if (o.TryGetProperty("depth_m", out var dp) && dp.TryGetDouble(out var dpv)) info.DepthM = dpv;
+
+                if (o.TryGetProperty("polygon_mm", out var poly)
+                    && poly.ValueKind == System.Text.Json.JsonValueKind.Array)
+                {
+                    foreach (var pt in poly.EnumerateArray())
+                    {
+                        if (pt.ValueKind != System.Text.Json.JsonValueKind.Array) continue;
+                        var xy = pt.EnumerateArray().ToList();
+                        if (xy.Count < 2) continue;
+                        if (xy[0].TryGetDouble(out var x) && xy[1].TryGetDouble(out var y))
+                            info.PolygonMm.Add(new[] { x, y });
+                    }
+                }
+                return info;
+            }
+            catch
+            {
+                // Older addin build without the tool, or no document — plan anyway.
+                return null;
+            }
+        }
+
+        /// <summary>Run one addin tool in-process on the Revit thread (no backend
+        /// round-trip) and return its result as JSON. Throws with the tool's own
+        /// message on failure so the caller can show it to the drafter.</summary>
+        private static async Task<System.Text.Json.JsonElement?> RunLocalToolAsync(
+            string tool, Dictionary<string, object> args)
+        {
+            var job = new BinaVibe.Mcp.McpJob
+            {
+                Tool = tool,
+                Args = System.Text.Json.JsonSerializer.SerializeToElement(args ?? new Dictionary<string, object>()),
+            };
+            BinaVibe.Mcp.McpJobPump.Enqueue(job);
+            await job.Done.Task;
+            if (job.Error != null) throw new InvalidOperationException(job.Error);
+            if (job.Result == null) return null;
+            var json = System.Text.Json.JsonSerializer.Serialize(job.Result);
+            return System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json);
+        }
+
+        // ══════════ INotifyPropertyChanged ══════════
+
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        protected void Raise([CallerMemberName] string name = null) =>
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+}
