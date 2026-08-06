@@ -32,6 +32,12 @@ namespace RevitWebAppSync
         // flow). Overridable via config.json; falls back to DEFAULT_LOGIN_WEB_URL.
         public string LoginWebUrl { get; set; }
 
+        // Path of the web sign-in page the plugin opens (under LoginWebUrl). The
+        // returning-user flow is /login/; /signup/ only registers NEW accounts and
+        // hangs the loopback for an existing email. Overridable via config.json or
+        // the LOGIN_WEB_PATH env key; falls back to DEFAULT_LOGIN_WEB_PATH.
+        public string LoginWebPath { get; set; }
+
         // Dev opt-in: by default a ngrok AIBaseUrl is ignored (see ResolvedAIBaseUrl)
         // because stale tunnels left in config.json 502. Set this true in config.json
         // to deliberately point the AI calls at a live ngrok tunnel (e.g. a local
@@ -120,6 +126,10 @@ namespace RevitWebAppSync
         // the LOGIN_WEB_URL env key or config.json once the real origin is known.
         public static string DEFAULT_LOGIN_WEB_URL =>
             Env("LOGIN_WEB_URL") ?? "https://plugins.jkrbinaxone.com";
+        // Sign-in page path. /login/ = returning users (the common case once the
+        // "sign in on first run" account exists); /signup/ is reachable from it.
+        public static string DEFAULT_LOGIN_WEB_PATH =>
+            Env("LOGIN_WEB_PATH") ?? "/login/";
         public static string DEFAULT_UPDATE_FEED_URL =>
             Env("UPDATE_FEED_URL")
             ?? "https://github.com/binacloudmy/revit-addin-sync/releases/latest/download/version.json";
@@ -219,6 +229,10 @@ namespace RevitWebAppSync
         public string ResolvedLoginWebUrl =>
             Services.UrlResolution.ResolveLoginWeb(
                 LoginWebUrl, DEFAULT_LOGIN_WEB_URL, AllowBackendOverride);
+
+        [JsonIgnore]
+        public string ResolvedLoginWebPath =>
+            !string.IsNullOrWhiteSpace(LoginWebPath) ? LoginWebPath : DEFAULT_LOGIN_WEB_PATH;
 
         [JsonIgnore]
         public string ResolvedUpdateFeedUrl =>

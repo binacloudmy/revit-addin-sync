@@ -1101,6 +1101,22 @@ namespace RevitWebAppSync.UI.Copilot
 
         private async System.Threading.Tasks.Task ResolveProposalAsync(string routeText, string displayText, string fallbackToolId, List<string> images = null, List<HistoryFile> historyFiles = null)
         {
+            // Keep the session fresh before the backend call: silently refresh an
+            // expired access token from the refresh token (bina-ai rotates it). The
+            // router re-loads config.json, so the renewed token is picked up. If the
+            // session can't be renewed (refresh token expired ~6 months / revoked),
+            // prompt a fresh sign-in instead of letting the request 401.
+            var __authCfg = BinaConfig.Load();
+            if (!await BinaVibe.Auth.SessionManager.EnsureValidTokenAsync(__authCfg))
+            {
+                Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = "Your BINA Cloud session expired — please sign in again (BINA Cloud → Login in the ribbon), then try that message once more.",
+                });
+                return;
+            }
+
             RouteResult rr = null;
             if (Router != null)
             {

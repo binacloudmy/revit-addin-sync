@@ -70,7 +70,7 @@ namespace RevitWebAppSync
                 // 2nd arg is the bina-ai base (it issues the tokens), not bina-be.
                 // ResolvedAuthBaseUrl, NOT ResolvedAIBaseUrl: in engine mode the
                 // latter is the local engine (no auth routes) — see BinaConfig.
-                var client = new BinaOAuthClient(config.ResolvedLoginWebUrl, config.ResolvedAuthBaseUrl);
+                var client = new BinaOAuthClient(config.ResolvedLoginWebUrl, config.ResolvedAuthBaseUrl, config.ResolvedLoginWebPath);
                 BinaTokenSet tokens;
                 try
                 {
