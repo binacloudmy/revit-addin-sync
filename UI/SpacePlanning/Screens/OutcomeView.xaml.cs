@@ -96,7 +96,12 @@ namespace RevitWebAppSync.UI.SpacePlanning.Screens
             if (!string.IsNullOrWhiteSpace(outcome.ScheduleName))
                 AddRow("Schedule created", outcome.ScheduleName);
             if (!string.IsNullOrWhiteSpace(outcome.OpenedView))
-                AddRow("Now showing", outcome.OpenedView + (outcome.Framed ? " (framed)" : ""));
+                // "queued", not "framed": the tool returns before Revit has switched
+                // views, so at this point all we know is that the request went out.
+                // Saying "framed" claimed knowledge we did not have, and cost a round
+                // of diagnosis when the framing silently never ran.
+                AddRow("Now showing",
+                    outcome.OpenedView + (outcome.Framed ? " · framing queued" : ""));
             // We changed a setting on the drafter's own view — say which, and why.
             if (outcome.UncroppedViews != null && outcome.UncroppedViews.Count > 0)
                 AddRow("Crop turned off", string.Join(", ", outcome.UncroppedViews)

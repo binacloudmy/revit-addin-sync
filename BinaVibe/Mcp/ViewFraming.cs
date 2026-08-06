@@ -27,7 +27,7 @@ namespace BinaVibe.Mcp
         private static readonly object _gate = new object();
         private static ElementId _viewId;
         private static XYZ _min, _max;
-        private static int _attemptsLeft;
+        private static DateTime _expiresUtc;
 
         /// <summary>Ask for <paramref name="viewId"/> to be framed on the rectangle
         /// once Revit has switched to it. Replaces any earlier pending request —
@@ -40,16 +40,21 @@ namespace BinaVibe.Mcp
                 _viewId = viewId;
                 _min = min;
                 _max = max;
-                // A few callbacks of grace: the view switch lands on the first or
-                // second Idling, and giving up quickly is better than a request that
-                // lingers and re-frames minutes later while the user is panning.
-                _attemptsLeft = 8;
+                // A TIME budget, not a call budget.
+                //
+                // This was "8 attempts" and never once fired: the Idling handler
+                // calls SetRaiseWithoutDelay while a request is pending, so Revit
+                // raises Idling as fast as it can and all eight were spent within
+                // milliseconds — long before the deferred ActiveView switch had
+                // happened. The request then cleared itself and the camera never
+                // moved (four rounds of wrong diagnoses, 2026-08-06).
+                _expiresUtc = DateTime.UtcNow.AddSeconds(10);
             }
         }
 
         internal static bool HasPending
         {
-            get { lock (_gate) { return _viewId != null && _attemptsLeft > 0; } }
+            get { lock (_gate) { return _viewId != null && DateTime.UtcNow < _expiresUtc; } }
         }
 
         /// <summary>Apply a pending request if the view is now open. Safe to call on
@@ -60,12 +65,11 @@ namespace BinaVibe.Mcp
             XYZ min, max;
             lock (_gate)
             {
-                if (_viewId == null || _attemptsLeft <= 0) return;
-                _attemptsLeft--;
+                if (_viewId == null) return;
+                if (DateTime.UtcNow >= _expiresUtc) { Clear(); return; }   // gave it long enough
                 viewId = _viewId;
                 min = _min;
                 max = _max;
-                if (_attemptsLeft <= 0) Clear();     // last chance — do not linger
             }
 
             try
@@ -95,7 +99,7 @@ namespace BinaVibe.Mcp
             _viewId = null;
             _min = null;
             _max = null;
-            _attemptsLeft = 0;
+            _expiresUtc = DateTime.MinValue;
         }
     }
 }
