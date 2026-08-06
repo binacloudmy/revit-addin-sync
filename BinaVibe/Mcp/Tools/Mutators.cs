@@ -2801,15 +2801,26 @@ namespace BinaVibe.Mcp.Tools
                 // a far bigger change to someone's view than one checkbox they can
                 // tick back on. Only touched when the scheme genuinely does not fit.
                 var uncropped = new List<string>();
-                if (wantRooms && planViews.Count > 0)
+                // The scheme's own footprint in model coordinates. Used twice: to
+                // decide whether a crop would slice it, and to frame the view on it
+                // afterwards.
+                double sMinX = 0, sMaxX = 0, sMinY = 0, sMaxY = 0;
+                bool haveExtent = false;
                 {
                     var pts = rooms
                         .Where(r => !string.Equals(r.type, "padang", StringComparison.OrdinalIgnoreCase))
                         .SelectMany(r => r.boundaryFt).ToList();
                     if (pts.Count > 0)
                     {
-                        double sMinX = pts.Min(p => p.X), sMaxX = pts.Max(p => p.X);
-                        double sMinY = pts.Min(p => p.Y), sMaxY = pts.Max(p => p.Y);
+                        sMinX = pts.Min(p => p.X); sMaxX = pts.Max(p => p.X);
+                        sMinY = pts.Min(p => p.Y); sMaxY = pts.Max(p => p.Y);
+                        haveExtent = true;
+                    }
+                }
+                if (wantRooms && planViews.Count > 0)
+                {
+                    if (haveExtent)
+                    {
                         foreach (var pv in planViews.Values)
                         {
                             try
@@ -2866,25 +2877,35 @@ namespace BinaVibe.Mcp.Tools
                     try { uidoc.ActiveView = lowest; openedView = lowest.Name; }
                     catch { /* view can't be activated — not worth failing the build */ }
 
-                    // ...and FRAME it. Activating the view leaves the camera wherever
-                    // it was, so a scheme placed at the model origin showed up as a
-                    // corner of itself off the edge of the screen — the drafter had to
-                    // hunt for the thing that had just been built (2026-08-06).
+                    // ...and FRAME it on the SCHEME, not on whatever else the view
+                    // contains. ZoomToFit was tried first and does not work here: it
+                    // fits every visible extent, and a plan carries elevation markers,
+                    // level lines and scope-box datums that reach far beyond the
+                    // building — so the fit landed nowhere near it and the drafter
+                    // still had to hunt (measured twice, 2026-08-06).
                     //
-                    // ZoomToFit rather than ShowElements: ShowElements can raise a
-                    // modal "no good view found" dialog, and a dialog behind a
-                    // committed transaction is the last thing this flow needs.
-                    try
+                    // ZoomAndCenterRectangle takes model coordinates, so the result is
+                    // deterministic: the scheme's own footprint plus a margin. Also
+                    // preferred over uidoc.ShowElements, which can raise a modal "no
+                    // good view found" dialog while the pane is still awaiting the
+                    // tool result.
+                    if (haveExtent)
                     {
-                        foreach (var uiv in uidoc.GetOpenUIViews())
+                        try
                         {
-                            if (uiv.ViewId != lowest.Id) continue;
-                            uiv.ZoomToFit();
-                            zoomed = true;
-                            break;
+                            const double marginFt = 8000.0 / 304.8;   // 8 m of breathing room
+                            var lo = new XYZ(sMinX - marginFt, sMinY - marginFt, 0);
+                            var hi = new XYZ(sMaxX + marginFt, sMaxY + marginFt, 0);
+                            foreach (var uiv in uidoc.GetOpenUIViews())
+                            {
+                                if (uiv.ViewId != lowest.Id) continue;
+                                uiv.ZoomAndCenterRectangle(lo, hi);
+                                zoomed = true;
+                                break;
+                            }
                         }
+                        catch { /* framing is a courtesy, never a failure */ }
                     }
-                    catch { /* framing is a courtesy, never a failure */ }
                 }
 
                 return new Dictionary<string, object?>
