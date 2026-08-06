@@ -2818,11 +2818,32 @@ namespace BinaVibe.Mcp.Tools
                 // is not a document edit, so it goes AFTER the commit (same as
                 // Create3dView).
                 string openedView = null;
+                bool zoomed = false;
                 if (wantRooms && planViews.Count > 0)
                 {
                     var lowest = planViews.OrderBy(kv => kv.Key).First().Value;
                     try { uidoc.ActiveView = lowest; openedView = lowest.Name; }
                     catch { /* view can't be activated — not worth failing the build */ }
+
+                    // ...and FRAME it. Activating the view leaves the camera wherever
+                    // it was, so a scheme placed at the model origin showed up as a
+                    // corner of itself off the edge of the screen — the drafter had to
+                    // hunt for the thing that had just been built (2026-08-06).
+                    //
+                    // ZoomToFit rather than ShowElements: ShowElements can raise a
+                    // modal "no good view found" dialog, and a dialog behind a
+                    // committed transaction is the last thing this flow needs.
+                    try
+                    {
+                        foreach (var uiv in uidoc.GetOpenUIViews())
+                        {
+                            if (uiv.ViewId != lowest.Id) continue;
+                            uiv.ZoomToFit();
+                            zoomed = true;
+                            break;
+                        }
+                    }
+                    catch { /* framing is a courtesy, never a failure */ }
                 }
 
                 return new Dictionary<string, object?>
@@ -2834,6 +2855,7 @@ namespace BinaVibe.Mcp.Tools
                     // Which view the pane switched Revit to, so the result can say
                     // where to look rather than leaving the user to hunt.
                     ["opened_view"] = openedView,
+                    ["zoomed_to_fit"] = zoomed,
                     ["tag_count"] = tagCount,
                     ["schedule_name"] = scheduleName,
                     ["coloured_view_count"] = colouredViews,
