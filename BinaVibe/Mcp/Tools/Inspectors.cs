@@ -2909,5 +2909,152 @@ namespace BinaVibe.Mcp.Tools
                 ["nothing"] = total == 0,
             };
         }
+
+        // ─── get_geometry_digest ────────────────────────────────────────
+        /// <summary>MEASURED facts about what is actually in the model, so the
+        /// copilot can check its own work instead of reporting the request back.
+        ///
+        /// Motivation (UAT 2026-08-06): a house was built with no roof and
+        /// reported as "shell telah disahkan". Every COUNT was correct — one
+        /// floor, four walls — and counts cannot see a missing roof. The single
+        /// number that catches it is roofed area against floor area.
+        ///
+        /// Deliberately cheap: bounding boxes and location curves only, never
+        /// solid intersections, so this can run after every build rather than
+        /// on request.</summary>
+        public static Dictionary<string, object?> GetGeometryDigest(Document doc, JsonElement args)
+        {
+            var levelName = ArgsHelp.GetString(args, "level");
+            Level? level = null;
+            if (!string.IsNullOrWhiteSpace(levelName))
+            {
+                level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                    .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"level '{levelName}' not found (use list_levels)");
+            }
+
+            bool InScope(Element el) =>
+                level == null || el.LevelId.Value == level.Id.Value;
+
+            const double FT = 304.8;
+            double xMin = double.PositiveInfinity, yMin = double.PositiveInfinity, zMin = double.PositiveInfinity;
+            double xMax = double.NegativeInfinity, yMax = double.NegativeInfinity, zMax = double.NegativeInfinity;
+
+            var byCat = new Dictionary<string, object?>();
+            var cats = new (string Name, BuiltInCategory Bic)[]
+            {
+                ("walls", BuiltInCategory.OST_Walls),
+                ("floors", BuiltInCategory.OST_Floors),
+                ("roofs", BuiltInCategory.OST_Roofs),
+                ("doors", BuiltInCategory.OST_Doors),
+                ("windows", BuiltInCategory.OST_Windows),
+                ("columns", BuiltInCategory.OST_StructuralColumns),
+                ("stairs", BuiltInCategory.OST_Stairs),
+            };
+
+            // Plan-area totals per category, from bounding boxes. Approximate by
+            // design: we need "is there a roof over this floor", not a quantity
+            // take-off.
+            double floorArea = 0, roofArea = 0;
+            var wallEnds = new List<(XYZ A, XYZ B, long Id)>();
+
+            foreach (var (name, bic) in cats)
+            {
+                int count = 0;
+                double area = 0;
+                foreach (var el in new FilteredElementCollector(doc)
+                             .OfCategory(bic).WhereElementIsNotElementType())
+                {
+                    if (!InScope(el)) continue;
+                    var bb = el.get_BoundingBox(null);
+                    if (bb == null) continue;
+                    count++;
+                    xMin = Math.Min(xMin, bb.Min.X); yMin = Math.Min(yMin, bb.Min.Y); zMin = Math.Min(zMin, bb.Min.Z);
+                    xMax = Math.Max(xMax, bb.Max.X); yMax = Math.Max(yMax, bb.Max.Y); zMax = Math.Max(zMax, bb.Max.Z);
+                    var a = (bb.Max.X - bb.Min.X) * (bb.Max.Y - bb.Min.Y);
+                    area += a;
+                    if (bic == BuiltInCategory.OST_Floors) floorArea += a;
+                    if (bic == BuiltInCategory.OST_Roofs) roofArea += a;
+                    if (bic == BuiltInCategory.OST_Walls && el.Location is LocationCurve lc)
+                    {
+                        var c = lc.Curve;
+                        wallEnds.Add((c.GetEndPoint(0), c.GetEndPoint(1), el.Id.Value));
+                    }
+                }
+                byCat[name] = new Dictionary<string, object?>
+                {
+                    ["count"] = count,
+                    ["plan_area_m2"] = Math.Round(area * FT * FT / 1e6, 1),
+                };
+            }
+
+            // Open wall ends: an endpoint with no other wall endpoint near it.
+            // This is what an unclosed footprint looks like in numbers — the
+            // corner left behind when one facade is moved and the walls meeting
+            // it are not.
+            const double JOIN_TOL = 300.0 / FT;     // 300mm
+            var openEnds = new List<object>();
+            for (int i = 0; i < wallEnds.Count; i++)
+            {
+                foreach (var p in new[] { wallEnds[i].A, wallEnds[i].B })
+                {
+                    var touched = false;
+                    for (int j = 0; j < wallEnds.Count && !touched; j++)
+                    {
+                        if (j == i) continue;
+                        if (p.DistanceTo(wallEnds[j].A) < JOIN_TOL || p.DistanceTo(wallEnds[j].B) < JOIN_TOL)
+                            touched = true;
+                    }
+                    if (!touched)
+                        openEnds.Add(new Dictionary<string, object?>
+                        {
+                            ["wall_id"] = wallEnds[i].Id,
+                            ["x_mm"] = Math.Round(p.X * FT), ["y_mm"] = Math.Round(p.Y * FT),
+                        });
+                }
+            }
+
+            // Rooms that Revit itself reports as not enclosed.
+            var unenclosed = new List<object>();
+            foreach (var el in new FilteredElementCollector(doc)
+                         .OfCategory(BuiltInCategory.OST_Rooms).WhereElementIsNotElementType())
+            {
+                if (!InScope(el)) continue;
+                if (el is Autodesk.Revit.DB.Architecture.Room room && room.Area <= 0)
+                    unenclosed.Add(new Dictionary<string, object?>
+                    { ["id"] = room.Id.Value, ["name"] = room.Name });
+            }
+
+            var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .OrderBy(l => l.Elevation)
+                .Select(l => (object)new Dictionary<string, object?>
+                {
+                    ["name"] = l.Name, ["elevation_mm"] = Math.Round(l.Elevation * FT),
+                }).ToList();
+
+            var haveBounds = !double.IsInfinity(xMin);
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["scope"] = level?.Name ?? "whole model",
+                ["bounds_mm"] = haveBounds ? new Dictionary<string, object?>
+                {
+                    ["x"] = new List<object> { Math.Round(xMin * FT), Math.Round(xMax * FT) },
+                    ["y"] = new List<object> { Math.Round(yMin * FT), Math.Round(yMax * FT) },
+                    ["z"] = new List<object> { Math.Round(zMin * FT), Math.Round(zMax * FT) },
+                } : null,
+                ["by_category"] = byCat,
+                ["levels"] = levels,
+                // The cover ratio is the headline: floor with no roof over it is
+                // the failure this whole tool exists to catch.
+                ["cover"] = new Dictionary<string, object?>
+                {
+                    ["floor_area_m2"] = Math.Round(floorArea * FT * FT / 1e6, 1),
+                    ["roofed_area_m2"] = Math.Round(roofArea * FT * FT / 1e6, 1),
+                },
+                ["open_wall_ends"] = openEnds,
+                ["unenclosed_rooms"] = unenclosed,
+            };
+        }
     }
 }

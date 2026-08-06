@@ -205,6 +205,7 @@ namespace BinaVibe.Mcp.Tools
                 "set_mullions"                  => Mutators.SetMullions(doc, args),
                 "create_levels_batch"           => Mutators.CreateLevelsBatch(doc, args),
                 "create_topography"             => Mutators.CreateTopography(doc, args),
+                "get_geometry_digest"          => Inspectors.GetGeometryDigest(doc, args),
                 "create_beam_system"            => MutatorsStructure.CreateBeamSystem(doc, args),
                 "create_beam"                   => MutatorsStructure.CreateBeam(doc, args),
                 "create_duct"                   => MutatorsMep.CreateDuct(doc, args),
