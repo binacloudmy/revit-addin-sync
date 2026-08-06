@@ -2105,79 +2105,86 @@ namespace BinaVibe.Mcp.Tools
                 }
             }
 
-            using var tx = new Transaction(doc, "BINA: create roof");
-            TxGuard.StartSwallowing(tx);
-            try
+            // The view was NOT the cause. Measured 2026-08-06: the call still
+            // failed with the same bare "Value cannot be null" from an open plan
+            // view, so the earlier diagnosis was wrong. Rather than guess again,
+            // try the plausible variants and report exactly what each one said —
+            // a footprint at the level's elevation, and one at Z=0, which is
+            // what several Revit API samples pass. Each attempt gets its own
+            // transaction so a failure cannot poison the next.
+            var attempts = new List<string>();
+            foreach (var (zTry, label) in new[]
+                     { (level.Elevation, "footprint at level elevation"), (0.0, "footprint at Z=0") })
             {
-                var roof = doc.Create.NewFootPrintRoof(curves, level, roofType, out ModelCurveArray modelCurves);
-                // set_SlopeAngle takes rise/run, not degrees: 1.0 is 45°.
-                var ratio = slopeDeg.HasValue
-                    ? Math.Tan(slopeDeg.Value * Math.PI / 180.0) : 0.0;
-                var sloped = new List<int>();
-                foreach (ModelCurve mc in modelCurves)
+                var tryCurves = new CurveArray();
+                for (int i = 0; i < boundary.Count; i++)
                 {
-                    var defines = false;
-                    var srcIdx = -1;
-                    if (slopeDeg.HasValue)
+                    var a = new XYZ(boundary[i].X, boundary[i].Y, zTry);
+                    var nx = boundary[(i + 1) % boundary.Count];
+                    var b = new XYZ(nx.X, nx.Y, zTry);
+                    if (a.DistanceTo(b) > 1e-6) tryCurves.Append(Line.CreateBound(a, b));
+                }
+
+                using var txTry = new Transaction(doc, "BINA: create roof");
+                TxGuard.StartSwallowing(txTry);
+                try
+                {
+                    var r = doc.Create.NewFootPrintRoof(tryCurves, level, roofType,
+                                                        out ModelCurveArray mcs);
+                    var ratioT = slopeDeg.HasValue ? Math.Tan(slopeDeg.Value * Math.PI / 180.0) : 0.0;
+                    var slopedT = new List<int>();
+                    foreach (ModelCurve mc in mcs)
                     {
-                        var mid = mc.GeometryCurve.Evaluate(0.5, true);
-                        var bestD = double.MaxValue;
-                        for (int k = 0; k < edgeMids.Count; k++)
+                        var defines = false; var srcIdx = -1;
+                        if (slopeDeg.HasValue)
                         {
-                            var d = new XYZ(mid.X, mid.Y, edgeMids[k].Z).DistanceTo(edgeMids[k]);
-                            if (d < bestD) { bestD = d; srcIdx = edgeIdx[k]; }
+                            var mid = mc.GeometryCurve.Evaluate(0.5, true);
+                            var bestD = double.MaxValue;
+                            for (int k = 0; k < edgeMids.Count; k++)
+                            {
+                                var d = new XYZ(mid.X, mid.Y, edgeMids[k].Z).DistanceTo(edgeMids[k]);
+                                if (d < bestD) { bestD = d; srcIdx = edgeIdx[k]; }
+                            }
+                            defines = slopeEdges.Count == 0
+                                || (srcIdx >= 0 && slopeEdges.Contains((long)srcIdx));
                         }
-                        defines = slopeEdges.Count == 0
-                            || (srcIdx >= 0 && slopeEdges.Contains((long)srcIdx));
+                        r.set_DefinesSlope(mc, defines);
+                        if (defines) { r.set_SlopeAngle(mc, ratioT); slopedT.Add(srcIdx); }
                     }
-                    roof.set_DefinesSlope(mc, defines);
-                    if (defines)
+                    if (Math.Abs(offsetFt) > 1e-9)
+                        r.get_Parameter(BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM)?.Set(offsetFt);
+                    TxGuard.CommitOrThrow(txTry);
+                    slopedT.Sort();
+                    if (restoreView != null && uidoc != null)
+                    { try { uidoc.ActiveView = restoreView; } catch { } }
+                    return new Dictionary<string, object?>
                     {
-                        roof.set_SlopeAngle(mc, ratio);
-                        sloped.Add(srcIdx);
-                    }
+                        ["ok"] = true, ["new_ids"] = new List<long> { r.Id.Value },
+                        ["roof_type"] = roofType.Name, ["level"] = level.Name,
+                        ["slope_deg"] = slopeDeg, ["sloped_edges"] = slopedT,
+                        ["strategy"] = label,
+                        ["shape"] = !slopeDeg.HasValue ? "flat"
+                            : (slopedT.Count >= edgeIdx.Count ? "hip" : "gable"),
+                    };
                 }
-                if (Math.Abs(offsetFt) > 1e-9)
-                    roof.get_Parameter(BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM)?.Set(offsetFt);
-                tx.Commit();
-                sloped.Sort();
-                return new Dictionary<string, object?>
+                catch (Exception exTry)
                 {
-                    ["ok"] = true, ["new_ids"] = new List<long> { roof.Id.Value },
-                    ["roof_type"] = roofType.Name, ["level"] = level.Name,
-                    // Facts back to the agent: what actually sloped, so the
-                    // reply reports the built roof instead of the asked-for one.
-                    ["slope_deg"] = slopeDeg,
-                    ["sloped_edges"] = sloped,
-                    ["shape"] = !slopeDeg.HasValue ? "flat"
-                        : (sloped.Count >= edgeIdx.Count ? "hip" : "gable"),
-                };
-            }
-            catch (Exception ex)
-            {
-                if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
-                // Re-throw with the diagnosis attached. A bare "Value cannot be
-                // null" from this API almost always means the view, not the
-                // arguments, and without saying so the caller burns a dozen
-                // retries on parameters that were never the problem.
-                if (ex is ArgumentNullException || (ex.Message ?? "").Contains("Value cannot be null"))
-                    throw new InvalidOperationException(
-                        "NewFootPrintRoof rejected the call. This is normally the ACTIVE VIEW, "
-                        + "not the arguments: it needs a floor plan view. Open a plan view and "
-                        + "retry once — do NOT keep varying the boundary, level or roof type. "
-                        + $"(active view was '{restoreView?.Name ?? "unknown"}', "
-                        + $"type '{roofType.Name}', level '{level.Name}')", ex);
-                throw;
-            }
-            finally
-            {
-                // Always hand the drafter back the view they were looking at,
-                // success or failure.
-                if (restoreView != null && uidoc != null)
-                {
-                    try { uidoc.ActiveView = restoreView; } catch { /* view may be gone */ }
+                    if (txTry.GetStatus() == TransactionStatus.Started) txTry.RollBack();
+                    attempts.Add($"{label} -> {exTry.GetType().Name}: {exTry.Message}");
                 }
             }
+
+            if (restoreView != null && uidoc != null)
+            { try { uidoc.ActiveView = restoreView; } catch { } }
+            throw new InvalidOperationException(
+                "Revit refused to create this footprint roof. Attempts: "
+                + string.Join(" | ", attempts)
+                + $". Context: roof type '{roofType.Name}' (family '{roofType.FamilyName}'), "
+                + $"level '{level.Name}', active view '{uidoc?.ActiveView?.Name ?? "none"}' "
+                + $"({uidoc?.ActiveView?.GetType().Name ?? "?"}), {boundary.Count} boundary points. "
+                + "Do NOT retry with different arguments — report this to the drafter and offer "
+                + "Architecture > Roof by Footprint, which takes about a minute.");
+
         }
 
         // ─── place_window_array ─────────────────────────────────────────

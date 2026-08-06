@@ -138,9 +138,20 @@ namespace BinaVibe.Mcp.Tools
         {
             var all = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().ToList();
             if (all.Count == 0) throw new InvalidOperationException("no floor types in this project");
-            if (string.IsNullOrWhiteSpace(name)) return all.First();
-            return all.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))
-                ?? all.First();
+
+            // FloorType covers BOTH floors and structural foundation slabs, and
+            // foundation types often sort first. Creating with one produces an
+            // OST_StructuralFoundation element that is not a Floor — measured
+            // 2026-08-06: element 326154 built fine and the digest counted zero
+            // floors, because it genuinely was not one. Keep only real floors.
+            var floorsOnly = all.Where(t =>
+                t.Category != null &&
+                t.Category.Id.Value == (long)BuiltInCategory.OST_Floors).ToList();
+            var pool = floorsOnly.Count > 0 ? floorsOnly : all;
+
+            if (string.IsNullOrWhiteSpace(name)) return pool.First();
+            return pool.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))
+                ?? pool.First();
         }
 
         /// <summary>A roof type NewFootPrintRoof will actually accept.
