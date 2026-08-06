@@ -269,6 +269,29 @@ namespace BinaVibe.Mcp.Tools
                 list.Add(id);
             }
 
+            // Overlap guard for openings. Two windows placed within a window's
+            // width of each other on the same wall interpenetrate — Revit allows
+            // it, and it reads as a glazing error in every view. Reported from a
+            // live model 2026-08-06. Every placement path below checks this, so
+            // no future rule can reintroduce it.
+            var placedOnWall = new Dictionary<long, List<XYZ>>();
+            var winWidth = winSym?.get_Parameter(BuiltInParameter.WINDOW_WIDTH)?.AsDouble()
+                           ?? (1200.0 / FT);
+            bool TooClose(long wallId, XYZ p, double minGap)
+            {
+                if (!placedOnWall.TryGetValue(wallId, out var pts)) return false;
+                foreach (var q in pts)
+                    if (Math.Sqrt(Math.Pow(p.X - q.X, 2) + Math.Pow(p.Y - q.Y, 2)) < minGap)
+                        return true;
+                return false;
+            }
+            void NotePlaced(long wallId, XYZ p)
+            {
+                if (!placedOnWall.TryGetValue(wallId, out var pts))
+                    placedOnWall[wallId] = pts = new List<XYZ>();
+                pts.Add(p);
+            }
+
             using var tx = new Transaction(doc, "BINA: build design");
             TxGuard.StartSwallowing(tx);
             try
@@ -390,16 +413,23 @@ namespace BinaVibe.Mcp.Tools
                         var host = doc.GetElement(ElemIds.From(wid)) as Wall;
                         if (host?.Location is not LocationCurve wlc) continue;
                         var len = wlc.Curve.Length;
-                        var n = Math.Max(1, (int)Math.Floor(len / Math.Max(winSpacing, 1e-6)));
+                        // Never ask for more windows than the wall can hold at the
+                        // window's own width — a spacing smaller than the family
+                        // is how openings end up interpenetrating.
+                        var pitch = Math.Max(winSpacing, winWidth * 1.2);
+                        var n = Math.Max(1, (int)Math.Floor(len / Math.Max(pitch, 1e-6)));
                         for (int k = 0; k < n; k++)
                         {
                             var t = (k + 0.5) / n;
                             var p = wlc.Curve.Evaluate(t, true);
+                            var wpt = new XYZ(p.X, p.Y, levels[0].Elevation);
+                            if (TooClose(wid, wpt, winWidth * 1.2)) continue;
                             var fi = doc.Create.NewFamilyInstance(
-                                new XYZ(p.X, p.Y, levels[0].Elevation), winSym, host, levels[0],
+                                wpt, winSym, host, levels[0],
                                 Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
                             fi.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)?.Set(sill);
                             Own("window", fi.Id.Value);
+                            NotePlaced(wid, wpt);
                         }
                     }
                 }
@@ -565,6 +595,7 @@ namespace BinaVibe.Mcp.Tools
                                 if (doc.GetElement(ElemIds.From(groundWalls[i])) is not Wall hostW) continue;
                                 var pt = horizontal ? new XYZ(cx, a.Y, lvl0.Elevation)
                                                     : new XYZ(a.X, cy, lvl0.Elevation);
+                                if (TooClose(groundWalls[i], pt, winWidth * 1.2)) break;
                                 try
                                 {
                                     var fi = doc.Create.NewFamilyInstance(
@@ -572,6 +603,7 @@ namespace BinaVibe.Mcp.Tools
                                         Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
                                     fi.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)?.Set(sill);
                                     Own("window", fi.Id.Value);
+                                    NotePlaced(groundWalls[i], pt);
                                 }
                                 catch { }
                                 break;

@@ -691,7 +691,15 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // there is deliberately no Thinking case here, so the panel can
                 // never render a second loading indicator for one message.
                 case CpMsgKind.Clarify: col.Children.Add(ClarifyCard(m)); break;
-                case CpMsgKind.ConfirmActions: col.Children.Add(ConfirmActionsCard(m)); break;
+                // Auto mode means auto: an approval card for something nobody was
+                // asked to approve is noise, and on a build that is dozens of
+                // writes it buries the actual reply (UAT 2026-08-06 — a tower
+                // build filled the pane with "Needs permission → Allowed" cards
+                // the drafter never interacted with). The step list still shows
+                // in the thinking trail, so nothing is hidden.
+                case CpMsgKind.ConfirmActions:
+                    if (!m.AutoApproved) col.Children.Add(ConfirmActionsCard(m));
+                    break;
                 case CpMsgKind.Proposal: col.Children.Add(ProposalCard(m)); break;
                 case CpMsgKind.Running: col.Children.Add(RunningBar(m)); break;
                 case CpMsgKind.Result:
@@ -1255,7 +1263,10 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             hs.Children.Add(star);
             // Cp.BlueText rather than a literal #1e3a8a: that navy is a
             // light-theme value and rendered near-invisible on the dark card.
-            var clarifyTitle = new TextBlock { Text = "I need a bit more detail", FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+            // BM, not English: the question body arrives in the drafter's
+            // language (BM on JKR fleets) and English chrome around a BM
+            // question read as two products stitched together (UAT 2026-08-05).
+            var clarifyTitle = new TextBlock { Text = "Perlu sedikit maklumat lagi", FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
             clarifyTitle.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
             hs.Children.Add(clarifyTitle);
             head.Child = hs;
@@ -1295,7 +1306,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 body.Children.Add(btn);
             }
             var foot = new Border { Background = CopilotColors.From("#f3f6f9"), CornerRadius = new CornerRadius(7), Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 5, 0, 0) };
-            foot.Child = new TextBlock { Text = "Or just rephrase your question with more detail.", FontSize = 11, Foreground = CopilotColors.From("#586273"), TextWrapping = TextWrapping.Wrap };
+            foot.Child = new TextBlock { Text = "Atau taip semula permintaan anda dengan lebih terperinci.", FontSize = 11, Foreground = CopilotColors.From("#586273"), TextWrapping = TextWrapping.Wrap };
             body.Children.Add(foot);
             sp.Children.Add(body);
             outer.Child = sp;
