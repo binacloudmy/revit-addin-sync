@@ -610,6 +610,135 @@ namespace BinaVibe.Mcp.Tools
                 };
             }
 
+            // Footprint change: STRETCH the perimeter walls rather than replacing
+            // them. A wall's location curve can be re-pointed in place, and the
+            // doors and windows hosted in it survive — delete-and-recreate
+            // destroys every one of them, which is the difference between
+            // "lebarkan ke 16m" being an edit and being a demolition.
+            //
+            // Only valid while the outline keeps the same number of edges. A
+            // different edge count is a different building, and there is no
+            // sensible mapping from old wall to new edge.
+            if (changed.Contains("footprint_mm") && changed.Count == 1
+                && owns.TryGetValue("perimeter_wall", out var pwIds) && pwIds.Count > 0)
+            {
+                var oldPts = Footprint(oldArgs);
+                var newPts = Footprint(newArgs);
+                if (oldPts.Count == newPts.Count && pwIds.Count % newPts.Count == 0)
+                {
+                    var storeys = pwIds.Count / newPts.Count;
+                    var stretched = 0;
+                    var newOwns = new Dictionary<string, List<long>>(owns);
+
+                    using var txS = new Transaction(doc, "BINA: resize footprint");
+                    TxGuard.StartSwallowing(txS);
+                    try
+                    {
+                        // 1. Walls: re-point each location curve to its new edge.
+                        for (int s = 0; s < storeys; s++)
+                            for (int i = 0; i < newPts.Count; i++)
+                            {
+                                var el = doc.GetElement(ElemIds.From(pwIds[s * newPts.Count + i]));
+                                if (el is not Wall w || w.Location is not LocationCurve lc) continue;
+                                var z = lc.Curve.GetEndPoint(0).Z;
+                                var a = newPts[i];
+                                var b = newPts[(i + 1) % newPts.Count];
+                                lc.Curve = Line.CreateBound(new XYZ(a.X, a.Y, z), new XYZ(b.X, b.Y, z));
+                                stretched++;
+                            }
+
+                        // 2. Slabs and roof have no hosted children, so replacing
+                        //    them costs nothing and is simpler than reshaping a
+                        //    sketch.
+                        var kill = new List<ElementId>();
+                        foreach (var role in new[] { "slab", "roof" })
+                            if (owns.TryGetValue(role, out var ids))
+                                foreach (var id in ids)
+                                    if (doc.GetElement(ElemIds.From(id)) != null)
+                                        kill.Add(ElemIds.From(id));
+                        if (kill.Count > 0) doc.Delete(kill);
+                        newOwns["slab"] = new List<long>();
+                        newOwns["roof"] = new List<long>();
+
+                        var lvls = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                            .OrderBy(l => l.Elevation).ToList();
+                        var slabType2 = FindFloorType(doc, Str(Obj(newArgs, "floors"), "slab_type"));
+                        for (int s = 0; s < storeys && s < lvls.Count; s++)
+                        {
+                            var slab = Floor.Create(doc,
+                                new List<CurveLoop> { CurveLoopOf(newPts, 0) }, slabType2.Id, lvls[s].Id);
+                            newOwns["slab"].Add(slab.Id.Value);
+                        }
+
+                        var roofSpec2 = Obj(newArgs, "roof");
+                        var roofType2 = new FilteredElementCollector(doc).OfClass(typeof(RoofType))
+                            .OfCategory(BuiltInCategory.OST_Roofs).Cast<RoofType>()
+                            .FirstOrDefault(t => Str(roofSpec2, "type_name") == null
+                                || string.Equals(t.Name, Str(roofSpec2, "type_name"),
+                                                 StringComparison.OrdinalIgnoreCase));
+                        if (roofType2 != null && storeys < lvls.Count)
+                        {
+                            var top = lvls[Math.Min(storeys, lvls.Count - 1)];
+                            var kind2 = (Str(roofSpec2, "kind") ?? "flat").ToLowerInvariant();
+                            var pitch2 = Num(roofSpec2, "pitch_deg");
+                            var roof2 = doc.Create.NewFootPrintRoof(Loop(newPts, top.Elevation), top,
+                                                                    roofType2, out ModelCurveArray sh2);
+                            var ratio2 = pitch2.HasValue ? Math.Tan(pitch2.Value * Math.PI / 180.0) : 0.0;
+                            var k = 0;
+                            foreach (ModelCurve mc in sh2)
+                            {
+                                var def = kind2 == "hip" ? pitch2.HasValue
+                                    : kind2 == "gable" && pitch2.HasValue && (k % 2 == 0);
+                                roof2.set_DefinesSlope(mc, def);
+                                if (def) roof2.set_SlopeAngle(mc, ratio2);
+                                k++;
+                            }
+                            newOwns["roof"].Add(roof2.Id.Value);
+                        }
+
+                        SaveJson(doc, JsonSerializer.Serialize(new Dictionary<string, object?>
+                        {
+                            ["spec_id"] = root.GetProperty("spec_id").GetString(),
+                            ["version"] = 1,
+                            ["args"] = JsonSerializer.Deserialize<object>(mergedJson),
+                            ["owns"] = newOwns,
+                        }));
+                        TxGuard.CommitOrThrow(txS);
+                    }
+                    catch
+                    {
+                        if (txS.GetStatus() == TransactionStatus.Started) txS.RollBack();
+                        throw;
+                    }
+
+                    t0.Stop();
+                    return new Dictionary<string, object?>
+                    {
+                        ["ok"] = true,
+                        ["changed_fields"] = changed,
+                        ["strategy"] = "walls stretched in place — doors and windows preserved; "
+                                     + "slab and roof rebuilt (they host nothing)",
+                        ["walls_stretched"] = stretched,
+                        ["rebuilt"] = new Dictionary<string, object?>
+                        {
+                            ["slab"] = newOwns["slab"].Count, ["roof"] = newOwns["roof"].Count,
+                        },
+                        ["replaced_element_count"] = 0,
+                        ["elapsed_ms"] = t0.ElapsedMilliseconds,
+                        ["digest"] = Inspectors.GetGeometryDigest(doc, args),
+                    };
+                }
+
+                // Different edge count: the outline is a different shape, so
+                // there is no wall-to-edge mapping to stretch along. Fall
+                // through to the rebuild, and say so — the caller must warn the
+                // drafter that hosted openings are lost.
+                report["topology_changed"] = true;
+                report["warning"] = $"the outline went from {oldPts.Count} to {newPts.Count} edges, "
+                    + "so the walls were rebuilt rather than stretched — doors and windows hosted "
+                    + "in them are gone. Tell the drafter before moving on.";
+            }
+
             // Otherwise: delete the spec-owned elements of the affected roles and
             // rebuild them from the merged spec. Everything is in ONE transaction,
             // so a single Ctrl+Z restores the previous state.
