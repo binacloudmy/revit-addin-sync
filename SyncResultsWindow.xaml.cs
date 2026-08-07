@@ -173,7 +173,15 @@ namespace RevitWebAppSync
         
         public List<LinkedFileInfo> LinkedFiles { get; set; }
         public string ErrorMessage { get; set; }
-        
+
+        /// <summary>
+        /// Set when the upload aborted before producing a version. The upload
+        /// runs off the UI thread and must not open Revit dialogs itself, so it
+        /// reports the failure here and SyncCommand shows it on the UI thread.
+        /// </summary>
+        public string FatalError { get; set; }
+
+
         public bool IsFullySuccessful => BinaObsSuccess && AutodeskOssSuccess && RegistrationSuccess;
         public bool IsPartiallySuccessful => BinaObsSuccess && (AutodeskOssSuccess || RegistrationSuccess);
     }
