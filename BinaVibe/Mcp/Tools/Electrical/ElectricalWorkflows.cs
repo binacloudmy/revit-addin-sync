@@ -44,9 +44,18 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var circuitId = ArgsHelp.GetLong(args, "circuit_id");
             var panelId = ArgsHelp.GetLong(args, "panel_id");
 
-            var symbol = SocketPlacement.ResolveSymbol(doc, typeName)
-                ?? throw new ArgumentException(
-                    $"family type '{typeName}' not found (use list_family_types)");
+            // Category-guarded: FamilySymbol also covers annotation symbols, so
+            // a bare name lookup can return a tag and place it as a device.
+            var pick = MepSymbols.ResolvePlaceable(doc, typeName, MepSymbols.ElectricalDeviceCategories);
+            if (!pick.Found)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = pick.Reason,
+                    ["family_type"] = typeName,
+                    ["rejected_matches"] = pick.Rejected,
+                };
+            var symbol = pick.Symbol!;
 
             if (circuitId.HasValue && doc.GetElement(ElemIds.From(circuitId.Value)) is not ElectricalSystem)
                 return MepTx.Failure($"circuit_id {circuitId} is not an electrical circuit");

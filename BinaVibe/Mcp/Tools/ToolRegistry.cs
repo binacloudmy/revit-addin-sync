@@ -250,6 +250,14 @@ namespace BinaVibe.Mcp.Tools
                 // no such API exists in 2023/2025/2027, so this writes the
                 // Switch ID parameter and says so in its own result.
                 "create_switch_system"          => Electrical.SwitchSystemTools.CreateSwitchSystem(doc, args),
+                // Layer 1 — electrical settings. A distribution system is a
+                // project SETTING, not a loadable family: nothing in a family
+                // library can supply one, and a panel without one accepts no
+                // circuit. list_electrical_settings is what makes
+                // create_panel's distribution_system argument guessable.
+                "list_electrical_settings"      => Electrical.ElectricalSettingsTools.ListElectricalSettings(doc, args),
+                "create_distribution_system"    => Electrical.ElectricalSettingsTools.CreateDistributionSystem(doc, args),
+                "set_distribution_system"       => Electrical.ElectricalSettingsTools.SetDistributionSystem(doc, args),
 
                 // Layer 2 — composites
                 "place_and_circuit_device"      => Electrical.ElectricalWorkflows.PlaceAndCircuitDevice(doc, args),

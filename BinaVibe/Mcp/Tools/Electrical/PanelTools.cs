@@ -53,11 +53,21 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 var point = ArgsHelp.GetPointMm(args, "xyz_mm")
                     ?? throw new ArgumentException("missing xyz_mm");
 
-                var symbol = SocketPlacement.ResolveSymbol(doc, typeName, BuiltInCategory.OST_ElectricalEquipment)
-                    ?? SocketPlacement.ResolveSymbol(doc, typeName)
-                    ?? throw new ArgumentException(
-                        $"family type '{typeName}' not found "
-                        + "(use list_family_types(\"OST_ElectricalEquipment\"))");
+                // Electrical equipment only — the old fallback to an
+                // uncategorised lookup is what let an annotation symbol through.
+                var pick = MepSymbols.ResolvePlaceable(doc, typeName,
+                    new[] { BuiltInCategory.OST_ElectricalEquipment });
+                if (!pick.Found)
+                    return new Dictionary<string, object?>
+                    {
+                        ["ok"] = false,
+                        ["error"] = pick.Reason
+                                  + " A panel must be an Electrical Equipment family "
+                                  + "(list_family_types(\"OST_ElectricalEquipment\")).",
+                        ["family_type"] = typeName,
+                        ["rejected_matches"] = pick.Rejected,
+                    };
+                var symbol = pick.Symbol!;
 
                 var levelName = ArgsHelp.GetString(args, "level");
                 var level = ResolveLevel(doc, levelName);

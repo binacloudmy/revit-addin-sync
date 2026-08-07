@@ -29,6 +29,7 @@ using System.Linq;
 using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.Structure;
+using BinaVibe.Mcp.Tools.Mep;
 
 namespace BinaVibe.Mcp.Tools.Electrical
 {
@@ -82,8 +83,20 @@ namespace BinaVibe.Mcp.Tools.Electrical
                                 $"(plan holds {plan.Points.Count} points; indices are 0-based)",
                 };
 
-            var symbol = ResolveSymbol(doc, familyType)
-                ?? throw new ArgumentException($"family type '{familyType}' not found in document");
+            // Category-guarded: a bare name lookup also matches ANNOTATION
+            // symbols, and an "Assembly Tag" wearing the asked-for name once
+            // went into the model at every socket position. Refuse and report
+            // rather than place something that merely looks finished.
+            var pick = MepSymbols.ResolvePlaceable(doc, familyType, MepSymbols.SocketCategories);
+            if (!pick.Found)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = pick.Reason,
+                    ["family_type"] = familyType,
+                    ["rejected_matches"] = pick.Rejected,
+                };
+            var symbol = pick.Symbol!;
 
             var levelOverride = ArgsHelp.GetString(args, "level");
             double? mountOverrideMm = ArgsHelp.GetDouble(args, "mount_height_mm");
@@ -240,9 +253,16 @@ namespace BinaVibe.Mcp.Tools.Electrical
             var host = doc.GetElement(ElemIds.From(hostId)) as Wall
                 ?? throw new ArgumentException($"host wall {hostId} not found");
 
-            var symbol = ResolveSymbol(doc, typeName, BuiltInCategory.OST_ElectricalFixtures)
-                ?? throw new ArgumentException(
-                    $"electrical fixture type '{typeName}' not found in document");
+            var pick = MepSymbols.ResolvePlaceable(doc, typeName, MepSymbols.SocketCategories);
+            if (!pick.Found)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = pick.Reason,
+                    ["type_name"] = typeName,
+                    ["rejected_matches"] = pick.Rejected,
+                };
+            var symbol = pick.Symbol!;
 
             var facingArgs = ArgsHelp.GetXyz(args, "facing");
             double? mountMm = ArgsHelp.GetDouble(args, "mount_height_mm");
@@ -300,18 +320,24 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         // ─── helpers ────────────────────────────────────────────────────
 
-        // internal, not private: PanelTools.CreatePanel reuses this exact
-        // "exact Name, else FamilyName : Name" resolver rather than adding a
-        // fifth slightly-different family-symbol lookup to the codebase.
+        /// <summary>Name lookup for a PLACEABLE symbol.
+        ///
+        /// Annotation symbols are excluded unconditionally: FamilySymbol covers
+        /// tags and symbols as well as model families, and a caller that forgot
+        /// the category argument used to get an "Assembly Tag" back and place
+        /// it. Prefer <see cref="MepSymbols.ResolvePlaceable"/> — it explains
+        /// WHY a name was refused, which this cannot.</summary>
         internal static FamilySymbol? ResolveSymbol(Document doc, string name, BuiltInCategory? cat = null)
         {
             var q = new FilteredElementCollector(doc).WhereElementIsElementType()
                 .OfClass(typeof(FamilySymbol));
             if (cat.HasValue) q = q.OfCategory(cat.Value);
 
-            return q.Cast<FamilySymbol>().FirstOrDefault(fs =>
-                string.Equals(fs.Name, name, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals($"{fs.FamilyName} : {fs.Name}", name, StringComparison.OrdinalIgnoreCase));
+            return q.Cast<FamilySymbol>()
+                .Where(fs => !MepSymbols.IsAnnotation(fs))
+                .FirstOrDefault(fs =>
+                    string.Equals(fs.Name, name, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals($"{fs.FamilyName} : {fs.Name}", name, StringComparison.OrdinalIgnoreCase));
         }
 
         private static Level? ResolveLevel(Document doc, string? levelName, Wall? host)
