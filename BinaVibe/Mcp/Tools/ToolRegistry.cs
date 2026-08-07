@@ -185,6 +185,9 @@ namespace BinaVibe.Mcp.Tools
                 "place_text_note"               => Mutators.PlaceTextNote(doc, args),
                 "rotate_elements"               => Mutators.RotateElements(doc, args),
                 "copy_elements"                 => Mutators.CopyElements(doc, args),
+                // Temporary measuring instrument for the exemplar plan — remove
+                // once cross-document level mapping is recorded in the design doc.
+                "spike_level_mapping"           => SpikeLevelMapping.Run(app, args),
                 "mirror_elements"               => Mutators.MirrorElements(doc, args),
                 "export_views"                  => Mutators.ExportViews(doc, args),
                 "group_elements"                => Mutators.GroupElements(doc, args),
