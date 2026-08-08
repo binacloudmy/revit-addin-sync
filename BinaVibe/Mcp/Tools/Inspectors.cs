@@ -2967,6 +2967,12 @@ namespace BinaVibe.Mcp.Tools
             // design: we need "is there a roof over this floor", not a quantity
             // take-off.
             double floorArea = 0, roofArea = 0;
+            // Plan extents per category, so the digest can answer WHERE the roof
+            // is rather than only how large it is.
+            double floorMinX = double.PositiveInfinity, floorMinY = double.PositiveInfinity;
+            double floorMaxX = double.NegativeInfinity, floorMaxY = double.NegativeInfinity;
+            double roofMinX = double.PositiveInfinity, roofMinY = double.PositiveInfinity;
+            double roofMaxX = double.NegativeInfinity, roofMaxY = double.NegativeInfinity;
             var wallEnds = new List<(XYZ A, XYZ B, long Id)>();
 
             foreach (var (name, bic) in cats)
@@ -2984,8 +2990,18 @@ namespace BinaVibe.Mcp.Tools
                     xMax = Math.Max(xMax, bb.Max.X); yMax = Math.Max(yMax, bb.Max.Y); zMax = Math.Max(zMax, bb.Max.Z);
                     var a = (bb.Max.X - bb.Min.X) * (bb.Max.Y - bb.Min.Y);
                     area += a;
-                    if (bic == BuiltInCategory.OST_Floors) floorArea += a;
-                    if (bic == BuiltInCategory.OST_Roofs) roofArea += a;
+                    if (bic == BuiltInCategory.OST_Floors)
+                    {
+                        floorArea += a;
+                        floorMinX = Math.Min(floorMinX, bb.Min.X); floorMinY = Math.Min(floorMinY, bb.Min.Y);
+                        floorMaxX = Math.Max(floorMaxX, bb.Max.X); floorMaxY = Math.Max(floorMaxY, bb.Max.Y);
+                    }
+                    if (bic == BuiltInCategory.OST_Roofs)
+                    {
+                        roofArea += a;
+                        roofMinX = Math.Min(roofMinX, bb.Min.X); roofMinY = Math.Min(roofMinY, bb.Min.Y);
+                        roofMaxX = Math.Max(roofMaxX, bb.Max.X); roofMaxY = Math.Max(roofMaxY, bb.Max.Y);
+                    }
                     if (bic == BuiltInCategory.OST_Walls && el.Location is LocationCurve lc)
                     {
                         var c = lc.Curve;
@@ -3043,6 +3059,24 @@ namespace BinaVibe.Mcp.Tools
                     ["name"] = l.Name, ["elevation_mm"] = Math.Round(l.Elevation * FT),
                 }).ToList();
 
+            // WHERE the roof is, not just how big. On 2026-08-08 a correctly
+            // sized gable sat entirely beside the building and every area-based
+            // check reported "100% covered" — the ratio was 1.0, so no threshold
+            // could separate it from a good roof. Area cannot see position.
+            //
+            // This reports the share of the FLOOR's plan extent that the roof's
+            // plan extent actually sits over. Bounding boxes, so it is coarse and
+            // will not catch a roof that is slightly off — but it catches a roof
+            // in the garden, which is the failure that shipped twice.
+            object? roofOverFloor = null;
+            if (!double.IsInfinity(floorMinX) && !double.IsInfinity(roofMinX))
+            {
+                var ox = Math.Max(0, Math.Min(floorMaxX, roofMaxX) - Math.Max(floorMinX, roofMinX));
+                var oy = Math.Max(0, Math.Min(floorMaxY, roofMaxY) - Math.Max(floorMinY, roofMinY));
+                var floorPlan = Math.Max(1e-9, (floorMaxX - floorMinX) * (floorMaxY - floorMinY));
+                roofOverFloor = Math.Round(ox * oy / floorPlan, 3);
+            }
+
             var haveBounds = !double.IsInfinity(xMin);
             return new Dictionary<string, object?>
             {
@@ -3063,6 +3097,10 @@ namespace BinaVibe.Mcp.Tools
                     ["floor_area_m2"] = Math.Round(floorArea * FT * FT / 1e6, 1),
                     ["roofed_area_m2"] = Math.Round(roofArea * FT * FT / 1e6, 1),
                 },
+                // 1.0 = the roof's plan extent covers the floor's. null = no roof
+                // or no floor to compare, and the backend must then say the
+                // position is UNVERIFIED rather than report a coverage.
+                ["roof_over_floor"] = roofOverFloor,
                 ["open_wall_ends"] = openEnds,
                 ["unenclosed_rooms"] = unenclosed,
             };
