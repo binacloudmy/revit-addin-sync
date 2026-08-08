@@ -270,15 +270,11 @@ namespace BinaVibe.Mcp.Tools
             var winSpacing = (Num(openSpec, "window_spacing_mm") ?? 3000) / FT;
             var sill = (Num(openSpec, "sill_mm") ?? 900) / FT;
 
-            // A roof needs a plan view active (see CreateRoof) — switch before
-            // the transaction opens, Revit rejects a view change inside one.
-            View? restoreView = null;
-            if (uidoc != null && uidoc.ActiveView is not ViewPlan)
-            {
-                var plan = new FilteredElementCollector(doc).OfClass(typeof(ViewPlan)).Cast<ViewPlan>()
-                    .FirstOrDefault(v => !v.IsTemplate && v.GenLevel != null);
-                if (plan != null) { restoreView = uidoc.ActiveView; uidoc.ActiveView = plan; }
-            }
+            // A roof needs a plan view active. Shared with create_roof via
+            // ViewGuard so the two cannot drift apart again — that divergence
+            // is exactly how create_roof shipped without this guard and lost a
+            // bungalow its roof. Must happen BEFORE the transaction opens.
+            using var viewSwitch = ViewGuard.EnsurePlanView(doc, uidoc);
 
             var owns = new Dictionary<string, List<long>>();
             void Own(string role, long id)
@@ -427,10 +423,20 @@ namespace BinaVibe.Mcp.Tools
                         Own("door", fi.Id.Value);
                     }
                 }
-                // Blanket window spacing is the FALLBACK. When the layout was
+                // Blanket window spacing, and it STAYS. When the layout was
                 // solved, each room gets its own window on the wall it actually
                 // touches (below) — running both would double-glaze every room
                 // and put windows in bathrooms that already have one.
+                //
+                // The 2026-08-07 plan called for deleting this alongside the
+                // equal-strip fallback. Reading it first says otherwise: a SHELL
+                // build carries no program by design (a 20-storey tower asks for
+                // an envelope, not a floor plan), and for a shell an even pitch
+                // per wall is the correct answer, not a degradation. The real
+                // defect is narrower — every wall uses the same pitch whatever
+                // is behind it, so a bathroom gets a living room's rhythm — and
+                // that only applies where rooms exist, which is the branch below.
+                // Deleting this would have broken every tower to fix a house.
                 var haveSolvedRooms = Obj(args, "rooms") is { ValueKind: JsonValueKind.Array } rr
                                       && rr.GetArrayLength() > 0;
                 if (winSym != null && !haveSolvedRooms)
@@ -640,39 +646,25 @@ namespace BinaVibe.Mcp.Tools
                 }
                 else
                 {
+                    // NO FALLBACK. A program with no solved rectangles used to be
+                    // sliced into equal strips, and on 2026-08-06 that turned an
+                    // 18 m frontage into ten 1.8 m cells with a door in each —
+                    // reported as a finished house, because nothing said no.
+                    //
+                    // The layout is solved server-side now (design_preflight) and
+                    // a program that cannot be solved is refused there, before
+                    // this call is made. If rectangles are still missing, the
+                    // spec is wrong and building a diagram of "N spaces" is worse
+                    // than building nothing: it looks like an answer.
                     var program = Obj(args, "program");
                     if (program != null && program.Value.ValueKind == JsonValueKind.Array
                         && program.Value.GetArrayLength() > 1)
-                    {
-                        // Fallback only: equal strips. Reached when the backend
-                        // could not solve the layout, and it says so in the reply.
-                        var names = program.Value.EnumerateArray()
-                            .Select(e => e.TryGetProperty("name", out var n) ? n.GetString() : null)
-                            .Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
-                        var minX = footprint.Min(p => p.X); var maxX = footprint.Max(p => p.X);
-                        var minY = footprint.Min(p => p.Y); var maxY = footprint.Max(p => p.Y);
-                        var step = (maxX - minX) / names.Count;
-                        for (int i = 1; i < names.Count; i++)
-                        {
-                            var x = minX + step * i;
-                            var w = Wall.Create(doc, Line.CreateBound(
-                                new XYZ(x, minY, lvl0.Elevation), new XYZ(x, maxY, lvl0.Elevation)),
-                                intType.Id, lvl0.Id, f2f, 0, false, false);
-                            w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.Set(levels[1].Id);
-                            Own("partition", w.Id.Value);
-                        }
-                        doc.Regenerate();
-                        for (int i = 0; i < names.Count; i++)
-                        {
-                            var room = doc.Create.NewRoom(lvl0, new UV(
-                                minX + step * (i + 0.5), (minY + maxY) / 2));
-                            if (room != null)
-                            {
-                                try { room.Name = names[i]; } catch { }
-                                Own("room", room.Id.Value);
-                            }
-                        }
-                    }
+                        throw new InvalidOperationException(
+                            "this build carries a room program but no solved room rectangles. "
+                            + "Refusing to slice the footprint into equal strips — that is a "
+                            + "diagram of room COUNT, not a floor plan. Call "
+                            + "suggest_floor_layout and pass its rooms, or drop the program "
+                            + "to build a shell.");
                 }
 
                 // Persist the spec with what it owns, so the NEXT prompt can edit
@@ -751,8 +743,7 @@ namespace BinaVibe.Mcp.Tools
             }
             finally
             {
-                if (restoreView != null && uidoc != null)
-                { try { uidoc.ActiveView = restoreView; } catch { } }
+                // view restored by viewSwitch's dispose
             }
         }
 

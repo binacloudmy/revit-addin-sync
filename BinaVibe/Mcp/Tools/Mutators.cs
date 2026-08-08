@@ -2098,6 +2098,12 @@ namespace BinaVibe.Mcp.Tools
             var slopeEdges = ArgsHelp.GetLongList(args, "slope_edge_indices");
             var offsetFt = ArgsHelp.GetLengthMm(args, "offset_mm") ?? 0;
 
+            // NewFootPrintRoof wants a plan view active. On 2026-08-06 this call
+            // was refused three times from a {3D} view and a bungalow shipped
+            // with no roof — BuildDesign already guarded this and create_roof
+            // did not. Must happen BEFORE any Transaction opens.
+            using var viewSwitch = ViewGuard.EnsurePlanView(doc, uidoc);
+
             var res = RoofBuilder.Build(doc, boundary, level, roofType, slopeDeg, slopeEdges,
                                         slopeDeg.HasValue ? "gable" : "flat");
             if (!res.Ok)
