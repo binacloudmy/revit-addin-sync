@@ -789,6 +789,17 @@ namespace BinaVibe.Mcp.Tools
 
         // ─── helpers ────────────────────────────────────────────────────
 
+        /// <summary>The room's NAME, without Revit's number appended.
+        ///
+        /// Room.Name returns ROOM_NAME + " " + ROOM_NUMBER concatenated, so a
+        /// room named "Bilik Tidur 1" with number 1 reads back as
+        /// "Bilik Tidur 1 1" — which is what the copilot then reported to a
+        /// drafter on 2026-08-08. The stored name is the parameter, not the
+        /// property.</summary>
+        private static string RoomName(Autodesk.Revit.DB.Architecture.Room room) =>
+            room.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString()
+            ?? room.Name ?? "";
+
         private static string? TryGetString(JsonElement el, string name)
         {
             if (el.ValueKind != JsonValueKind.Object) return null;
@@ -1495,7 +1506,7 @@ namespace BinaVibe.Mcp.Tools
                 {
                     ["id"] = r.Id.Value,
                     ["number"] = r.Number,
-                    ["name"] = r.Name,
+                    ["name"] = RoomName(r),
                     ["level"] = r.Level?.Name ?? "",
                     ["area_m2"] = Math.Round(r.Area * Ft2ToM2, 2),
                     ["perimeter_m"] = Math.Round(r.Perimeter * FtToM, 2),
@@ -3022,7 +3033,7 @@ namespace BinaVibe.Mcp.Tools
                 if (!InScope(el)) continue;
                 if (el is Autodesk.Revit.DB.Architecture.Room room && room.Area <= 0)
                     unenclosed.Add(new Dictionary<string, object?>
-                    { ["id"] = room.Id.Value, ["name"] = room.Name });
+                    { ["id"] = room.Id.Value, ["name"] = RoomName(room) });
             }
 
             var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
