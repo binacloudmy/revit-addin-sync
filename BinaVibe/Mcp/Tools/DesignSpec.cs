@@ -29,6 +29,7 @@ namespace BinaVibe.Mcp.Tools
     internal static class DesignSpec
     {
         private const double FT = 304.8;
+        private const double TOL = 1e-6;
         private const string SchemaName = "BinaBuildSpec";
         private const string FieldName = "spec_json";
         // Stable GUID: changing it orphans every spec already saved in a file.
@@ -336,25 +337,40 @@ namespace BinaVibe.Mcp.Tools
                     levels.Add(lvl);
                 }
 
-                // Slabs + perimeter walls, per storey ---------------------------
+                // Slabs + perimeter walls, per storey, per volume ---------------
+                // A building is parts. No `volumes` means one part named "main"
+                // from footprint_mm, so every spec already stored keeps working.
+                var vols = Volumes.Parse(args, footprint, f2f);
                 for (int s = 0; s < count; s++)
                 {
                     var lvl = levels[s];
-                    var slab = Floor.Create(doc, new List<CurveLoop> { CurveLoopOf(footprint, 0) },
-                                            slabType.Id, lvl.Id);
-                    Own("slab", slab.Id.Value);
-
-                    for (int i = 0; i < footprint.Count; i++)
+                    foreach (var vol in vols)
                     {
-                        var a = footprint[i];
-                        var b = footprint[(i + 1) % footprint.Count];
-                        var line = Line.CreateBound(new XYZ(a.X, a.Y, lvl.Elevation),
-                                                    new XYZ(b.X, b.Y, lvl.Elevation));
-                        var w = Wall.Create(doc, line, extType.Id, lvl.Id, f2f, 0, false, false);
-                        // Top-constrain so a later floor-to-floor change moves the
-                        // walls with it instead of leaving them behind.
-                        w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.Set(levels[s + 1].Id);
-                        Own("perimeter_wall", w.Id.Value);
+                        // A part shorter than the storey (a porch at 2700 under a
+                        // 3600 house) only exists on the ground floor.
+                        if (s > 0 && vol.HeightFt > TOL && vol.HeightFt < f2f - TOL) continue;
+
+                        var slab = Floor.Create(doc, new List<CurveLoop> { CurveLoopOf(vol.Outline, 0) },
+                                                slabType.Id, lvl.Id);
+                        Own("slab", slab.Id.Value);
+
+                        // Edges another volume already walls are skipped, so a
+                        // porch flush against the house gets three walls and the
+                        // shared wall is never built twice.
+                        var wallHeight = vol.HeightFt > TOL ? vol.HeightFt : f2f;
+                        foreach (var (a, b) in Volumes.UnsharedEdges(vol, vols))
+                        {
+                            var line = Line.CreateBound(new XYZ(a.X, a.Y, lvl.Elevation),
+                                                        new XYZ(b.X, b.Y, lvl.Elevation));
+                            var w = Wall.Create(doc, line, extType.Id, lvl.Id, wallHeight, 0, false, false);
+                            // Top-constrain full-height walls so a later
+                            // floor-to-floor change moves them; a deliberately
+                            // short part keeps its own height.
+                            if (Math.Abs(wallHeight - f2f) < TOL)
+                                w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.Set(levels[s + 1].Id);
+                            Own(vol.Role == "main" ? "perimeter_wall" : $"{vol.Role}_wall",
+                                w.Id.Value);
+                        }
                     }
                 }
 
@@ -690,13 +706,50 @@ namespace BinaVibe.Mcp.Tools
                 string? roofStrategy = null;
                 if (roofType != null)
                 {
-                    var roofRes = RoofBuilder.Build(doc, footprint, levels[count], roofType,
-                                               roofKind == "flat" ? null : roofPitch,
-                                               null, roofKind);
-                    if (roofRes.Ok)
+                    // The eaves. A roof boundary pushed outward is the single
+                    // strongest cue that a roof is a roof — without projecting
+                    // eaves a pitched plane reads as a lid dropped on a box, which
+                    // is what a drafter called "still ugly" on 2026-08-08.
+                    var overhangFt = (Num(roofSpec, "overhang_mm") ?? 0) / FT;
+
+                    // One roof per volume it covers. `covers` names the volumes
+                    // under the main roof; anything omitted takes its own, which
+                    // is how a porch gets a lower roof of its own rather than
+                    // forcing one plane over an L-shaped building.
+                    var covers = roofSpec != null && roofSpec.Value.TryGetProperty("covers", out var cv)
+                                 && cv.ValueKind == JsonValueKind.Array
+                        ? cv.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String)
+                            .Select(e => e.GetString()!).ToHashSet(StringComparer.OrdinalIgnoreCase)
+                        : null;
+                    var roofed = vols.Where(v => covers == null || covers.Contains(v.Role)).ToList();
+                    if (roofed.Count == 0) roofed = vols;
+
+                    var roofIds = new List<long>();
+                    RoofBuilder.Result? roofRes = null;
+                    foreach (var vol in roofed)
                     {
-                        owns["roof"] = new List<long> { roofRes.Id!.Value };
-                        roofStrategy = roofRes.Strategy;
+                        var boundary = Volumes.WithEaves(vol.Outline, overhangFt);
+                        // A part shorter than the storey carries its roof at its
+                        // own height, not the top of the house.
+                        var roofLevel = vol.HeightFt > TOL && vol.HeightFt < f2f - TOL
+                            ? levels[0] : levels[count];
+                        var res = RoofBuilder.Build(doc, boundary, roofLevel, roofType,
+                                                    roofKind == "flat" ? null : roofPitch,
+                                                    null, roofKind);
+                        if (res.Ok) roofIds.Add(res.Id!.Value);
+                        roofRes ??= res;
+                        if (res.Ok && roofRes?.Ok != true) roofRes = res;
+                    }
+
+                    if (roofIds.Count > 0 && roofIds.Count < roofed.Count)
+                        roofWarning = $"only {roofIds.Count} of {roofed.Count} volumes got a "
+                            + "roof — part of this building is open to the sky. Say so; do not "
+                            + "describe it as covered.";
+
+                    if (roofIds.Count > 0)
+                    {
+                        owns["roof"] = roofIds;
+                        roofStrategy = roofRes?.Strategy;
                         using var txR = new Transaction(doc, "BINA: record roof");
                         TxGuard.StartSwallowing(txR);
                         SaveJson(doc, JsonSerializer.Serialize(new Dictionary<string, object?>
@@ -710,7 +763,7 @@ namespace BinaVibe.Mcp.Tools
                     else
                     {
                         roofWarning = "the roof could not be created. Attempts: "
-                            + string.Join(" | ", roofRes.Attempts)
+                            + string.Join(" | ", roofRes?.Attempts ?? new List<string>())
                             + $". Type '{roofType.Name}' (family '{roofType.FamilyName}'). "
                             + "Everything else was built — tell the drafter the roof is missing "
                             + "and offer Architecture > Roof by Footprint. Do NOT describe this "
