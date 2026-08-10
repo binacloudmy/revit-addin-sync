@@ -258,6 +258,19 @@ namespace BinaVibe.Mcp.Tools
                 "list_electrical_settings"      => Electrical.ElectricalSettingsTools.ListElectricalSettings(doc, args),
                 "create_distribution_system"    => Electrical.ElectricalSettingsTools.CreateDistributionSystem(doc, args),
                 "set_distribution_system"       => Electrical.ElectricalSettingsTools.SetDistributionSystem(doc, args),
+                // Layer 1 — connector electrical data. The OTHER reason a panel
+                // refuses a circuit: the DEVICE connector carries no voltage.
+                // set_ edits the family document and reloads, so it changes
+                // every instance in the model — see the file header.
+                "get_connector_electrical_data" => Electrical.ConnectorElectricalTools.GetConnectorElectricalData(doc, args),
+                "set_connector_electrical_data" => Electrical.ConnectorElectricalTools.SetConnectorElectricalData(doc, args),
+                // Layer 1 — composite READ (get_scene_overview precedent, so
+                // NOT Layer 2: MepStepChain is a write concept). One call:
+                // room -> sockets -> connector facts -> every panel ranked
+                // with a verdict + the ordered tool calls that get there.
+                // Replaces discovery-by-failed-mutation for "assign a
+                // suitable panel to the sockets in this room".
+                "plan_panel_assignment"         => Electrical.PanelPlanTools.PlanPanelAssignment(doc, args),
 
                 // Layer 2 — composites
                 "place_and_circuit_device"      => Electrical.ElectricalWorkflows.PlaceAndCircuitDevice(doc, args),

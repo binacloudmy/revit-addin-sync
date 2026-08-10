@@ -468,22 +468,17 @@ namespace BinaVibe.Mcp.Tools.Electrical
             Document doc, Room room, List<WallRun> runs, List<FixtureHit> fixtures,
             double wetRadiusMm, double existingMm, double openingMm)
         {
-            // Fixtures in THIS room. The FamilyInstance.Room association is
-            // authoritative when present; IsPointInRoom is the fallback, and it
-            // is Z-sensitive — a fixture's LocationPoint sits at floor level and
-            // fails a naive test, so the probe is raised into the room volume.
-            double probeZ = RoomFloorZMm(doc, room) / MmPerFoot + (room.UnboundedHeight > 0 ? room.UnboundedHeight / 2.0 : 3.0);
+            // Fixtures in THIS room — membership rule (authoritative Room
+            // association, raised-probe point fallback) lives in RoomScope,
+            // shared with plan_panel_assignment.
+            double probeZ = RoomScope.RaisedProbeZ(doc, room);
 
             var inRoom = new List<FixtureHit>();
             foreach (var f in fixtures)
             {
-                bool member;
-                if (f.RoomId != null) member = f.RoomId == room.Id;
-                else
-                {
-                    try { member = room.IsPointInRoom(new XYZ(f.Point.X, f.Point.Y, probeZ)); }
-                    catch { member = false; }
-                }
+                bool member = f.RoomId != null
+                    ? f.RoomId == room.Id
+                    : RoomScope.IsPointInRoomRaised(room, f.Point, probeZ);
                 if (member) inRoom.Add(f);
             }
 
@@ -550,14 +545,7 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
         /// <summary>Absolute project-internal Z of the room's finished floor,
         /// in mm: level elevation plus the room's base offset.</summary>
-        internal static double RoomFloorZMm(Document doc, Room room)
-        {
-            double ft = 0.0;
-            var level = room.Level ?? doc.GetElement(room.LevelId) as Level;
-            if (level != null) ft += level.Elevation;
-            var lower = room.get_Parameter(BuiltInParameter.ROOM_LOWER_OFFSET);
-            if (lower != null && lower.StorageType == StorageType.Double) ft += lower.AsDouble();
-            return ft * MmPerFoot;
-        }
+        internal static double RoomFloorZMm(Document doc, Room room) =>
+            RoomScope.RoomFloorZMm(doc, room);
     }
 }

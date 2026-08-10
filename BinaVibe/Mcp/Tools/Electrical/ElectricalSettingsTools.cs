@@ -77,15 +77,15 @@ namespace BinaVibe.Mcp.Tools.Electrical
             try { wireTypes.AddRange(CircuitDriver.WireTypeNames(doc)); }
             catch { }
 
+            // Full shortlisting rows (voltages, phase, slots, connector
+            // poles) — the thin id/name/system rows forced per-panel probing
+            // or a provoked assign_panel failure to learn whether a board
+            // could seat 240 V at all. Shared builder with
+            // plan_panel_assignment so the numbers never disagree.
             var panels = new FilteredElementCollector(doc)
                 .OfCategory(BuiltInCategory.OST_ElectricalEquipment)
                 .WhereElementIsNotElementType()
-                .Select(p => new Dictionary<string, object?>
-                {
-                    ["panel_id"] = p.Id.Value,
-                    ["name"] = MepElementInfo.SafeName(p),
-                    ["distribution_system"] = PanelTools.DistributionSystemName(p),
-                })
+                .Select(p => PanelTools.PanelSummaryRow(doc, p))
                 .ToList();
 
             var row = new Dictionary<string, object?>
@@ -205,7 +205,18 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 if (!PanelTools.TrySetDistributionSystem(doc, panel, name, out var reason))
                 {
                     MepTx.SafeRollback(tx);
-                    return MepTx.Failure(reason);
+                    // A bare "cannot be assigned" is what makes an agent guess
+                    // its way through every system in the model and then start
+                    // making panels. Say which ones this panel DOES accept, and
+                    // which of those would seat the circuit it is being set up
+                    // for, so there is a next action instead of a dead end.
+                    var row = MepTx.Failure(reason, "distribution_system_rejected");
+                    row["resolution"] = PanelTools.SolveResolution(
+                        doc,
+                        doc.GetElement(ElemIds.From(ArgsHelp.GetLong(args, "circuit_id") ?? 0))
+                            as ElectricalSystem,
+                        panelId);
+                    return row;
                 }
 
                 var result = new Dictionary<string, object?>

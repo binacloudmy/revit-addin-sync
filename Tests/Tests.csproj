@@ -131,6 +131,28 @@
     <!-- Panel phase-balance and slot-fit math: VA and slot numbers only, no
          PanelScheduleView. Split out of PanelTools.cs for the same reason. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\PanelLoad.cs" Link="PanelLoad.cs" />
+    <!-- Connector electrical argument rules + system-classification vocabulary.
+         System only by construction: the map returns MEPSystemClassification
+         MEMBER NAMES as strings and ConnectorElectricalTools.cs (not linked,
+         it needs a live Document and ConnectorElement) does the Enum.TryParse.
+         Keep it that way — a Revit type in a signature here makes the runner
+         skip the whole assembly and report zero tests as a pass. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\ConnectorElectricalSpec.cs" Link="ConnectorElectricalSpec.cs" />
+    <!-- Why a panel refuses a circuit. Pure (System only) so the blocker
+         ordering and the voltage-fit rule are testable: this is the logic that
+         has to stop the agent creating and deleting panels in a loop, and it
+         cannot be checked in a live model without reproducing the loop. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\PanelAssignmentDiagnosis.cs" Link="PanelAssignmentDiagnosis.cs" />
+    <!-- Which distribution system seats which circuit. Pure arithmetic over
+         volts and pole counts, and the piece that turns "panel and circuit do
+         not match" into an actionable answer — so it is exactly the logic that
+         must not be wrong. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\DistributionSystemMatch.cs" Link="DistributionSystemMatch.cs" />
+    <!-- The plan engine behind plan_panel_assignment: grouping, per-panel
+         verdicts, ranking and step synthesis. Pure (System only) — it is the
+         read-only answer to "which panel takes these sockets", and being wrong
+         here re-creates the trial-mutation loop it exists to close. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Electrical\PanelAssignmentPlan.cs" Link="PanelAssignmentPlan.cs" />
     <!-- read_schedule / write_schedule decision logic: which updates survive
          validation, where the row window falls, whether rows map 1:1 to
          elements. Split out of Schedules.cs (which needs a live Document) for

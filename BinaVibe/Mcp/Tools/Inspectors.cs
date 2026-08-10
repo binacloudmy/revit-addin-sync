@@ -2634,6 +2634,12 @@ namespace BinaVibe.Mcp.Tools
                     bic = BuiltInCategory.OST_MechanicalEquipment; break;
                 case "electrical_fixture": case "electrical fixtures":
                     bic = BuiltInCategory.OST_ElectricalFixtures; break;
+                // Panels/DBs. PanelAssignmentDiagnosis's fix strings send the
+                // agent here for "Electrical Equipment" — this case makes that
+                // advice true (it previously fell to the unknown-system error).
+                case "electrical_equipment": case "electrical equipment":
+                case "panel": case "panels": case "db":
+                    bic = BuiltInCategory.OST_ElectricalEquipment; break;
                 default:
                     return new Dictionary<string, object?>
                     {
@@ -2645,6 +2651,7 @@ namespace BinaVibe.Mcp.Tools
                             "duct_fitting", "pipe_accessory", "sprinkler",
                             "air_terminal", "plumbing_fixture",
                             "mechanical_equipment", "electrical_fixture",
+                            "electrical_equipment",
                         },
                     };
             }

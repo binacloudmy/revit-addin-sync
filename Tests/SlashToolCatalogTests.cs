@@ -7,10 +7,11 @@ namespace Tests
     public class SlashToolCatalogTests
     {
         [Fact]
-        public void Catalog_has_29_tools_and_no_duplicate_ids()
+        public void Catalog_has_30_tools_and_no_duplicate_ids()
         {
-            Assert.Equal(29, ToolCatalog.All.Count);
-            Assert.Equal(29, ToolCatalog.All.Select(t => t.Id).Distinct().Count());
+            // 30th is conn-volt (MEP): the family-connector voltage fix.
+            Assert.Equal(30, ToolCatalog.All.Count);
+            Assert.Equal(30, ToolCatalog.All.Select(t => t.Id).Distinct().Count());
         }
 
         [Fact]
@@ -49,7 +50,9 @@ namespace Tests
             Assert.Equal("ff-from-picked-cad", ToolCatalog.ById("ff-pick").BackendId);
             Assert.Equal(20, ToolCatalog.All.Count(t =>
                 t.Category == "General" || t.Category == "Architecture" ||
-                t.Category == "Structure" || t.Category == "MEP") - 3); // 3 new non-Actions tools land in General
+                t.Category == "Structure" || t.Category == "MEP")
+                - 3   // 3 new non-Actions tools land in General
+                - 1); // conn-volt (MEP)
         }
 
         [Fact]

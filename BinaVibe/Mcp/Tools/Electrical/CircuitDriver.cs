@@ -98,8 +98,32 @@ namespace BinaVibe.Mcp.Tools.Electrical
                 throw new InvalidOperationException(
                     $"element(s) {string.Join(", ", zeroVolt)} report 0 V. Revit builds the circuit "
                     + "voltage from the DEVICE connector, so a 0 V circuit is one no panel will accept "
-                    + "and the resulting error reads like a panel mismatch. Fix the family's connector "
-                    + "voltage (set_connector_electrical_data, or the Family Editor) before circuiting.");
+                    + "and the resulting error reads like a panel mismatch. Read the connectors with "
+                    + "get_connector_electrical_data, then fix the FAMILY with "
+                    + "set_connector_electrical_data (voltage_v: 240 for Malaysian single phase). "
+                    + "Setting a schedule parameter that merely has 'voltage' in its name does NOT "
+                    + "change the connector — only an association does, and that is what "
+                    + "associate_to_parameter is for. If the panel is also refusing, check "
+                    + "list_electrical_settings first: a panel with no distribution system rejects "
+                    + "every circuit and reports it the same way.");
+
+            // The guard above only fires on an AFFIRMATIVE zero. A family with
+            // no voltage parameter at all reads as "unknown" and sails through,
+            // then fails panel assignment with an error that names the panel —
+            // which is exactly the dead end the agent cannot reason its way out
+            // of. Warn rather than refuse: "unknown" genuinely is valid for
+            // plenty of families, so blocking here would break working models.
+            var noVolt = req.MemberIds
+                .Where(id => !AffirmativeZeroVoltage(doc, id) && ReadVoltage(doc.GetElement(id)) == null
+                             && ReadVoltage((doc.GetElement(id) as FamilyInstance)?.Symbol) == null)
+                .Select(id => id.Value)
+                .ToList();
+            if (noVolt.Count > 0)
+                warnings.Add(
+                    $"element(s) {string.Join(", ", noVolt)} carry NO voltage value on the instance or "
+                    + "its type. The circuit will build, but panel assignment is likely to fail with an "
+                    + "error that reads like a panel mismatch. Check with get_connector_electrical_data "
+                    + "before assigning a panel.");
 
             var sys = ElectricalSystem.Create(doc, req.MemberIds.ToList(), type);
             // Documented to return null rather than throw.
@@ -292,15 +316,64 @@ namespace BinaVibe.Mcp.Tools.Electrical
             return v.HasValue && Math.Abs(v.Value) < 1e-9;
         }
 
-        private static double? ReadVoltage(Element el)
+        /// <summary>Voltage in INTERNAL units, or null when the element
+        /// genuinely carries none.
+        ///
+        /// RBS_ELEC_VOLTAGE alone is NOT enough. When a family author
+        /// associates the connector's Voltage to a family parameter of their
+        /// own naming — which is how the JKR library is built, and how Revit's
+        /// own Family Editor encourages you to build — the value lives ONLY in
+        /// that named parameter and the built-in reads null. Looking only at
+        /// the built-in reported a 120 V panel as having no voltage at all,
+        /// which sent a UAT session chasing a non-existent family defect
+        /// (2026-08-07). So fall back to ANY parameter whose DATA TYPE is
+        /// Electrical Potential — the data type is the reliable signal,
+        /// because a name can be anything.</summary>
+        internal static double? ReadVoltage(Element? el)
         {
+            if (el == null) return null;
             try
             {
                 var p = el.get_Parameter(BuiltInParameter.RBS_ELEC_VOLTAGE);
-                if (p == null || !p.HasValue) return null;
-                return p.AsDouble();
+                if (p != null && p.HasValue) return p.AsDouble();
             }
-            catch { return null; }
+            catch { }
+            var best = VoltageCandidates(el).FirstOrDefault();
+            return best.Name == null ? null : best.Volts;
+        }
+
+        /// <summary>Every Electrical Potential parameter on the element, in
+        /// preference order: one literally named "Voltage" first, then the
+        /// rest by descending value. Min/Max Voltage style parameters are
+        /// excluded — they describe a RANGE, not the operating point, and
+        /// picking one silently reports the wrong number.</summary>
+        internal static List<(string Name, double Volts)> VoltageCandidates(Element? el)
+        {
+            var found = new List<(string Name, double Volts)>();
+            if (el == null) return found;
+            try
+            {
+                foreach (Parameter q in el.Parameters)
+                {
+                    if (q == null || !q.HasValue || q.StorageType != StorageType.Double) continue;
+                    string name;
+                    try
+                    {
+                        if (q.Definition?.GetDataType() != SpecTypeId.ElectricalPotential) continue;
+                        name = q.Definition?.Name ?? "";
+                    }
+                    catch { continue; }
+                    if (name.Length == 0) continue;
+                    if (name.IndexOf("min", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                    if (name.IndexOf("max", StringComparison.OrdinalIgnoreCase) >= 0) continue;
+                    try { found.Add((name, q.AsDouble())); } catch { }
+                }
+            }
+            catch { }
+            return found
+                .OrderByDescending(f => string.Equals(f.Name, "Voltage", StringComparison.OrdinalIgnoreCase))
+                .ThenByDescending(f => f.Volts)
+                .ToList();
         }
 
         // ─── wire type: parameters, not properties ──────────────────────

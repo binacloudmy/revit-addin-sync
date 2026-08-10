@@ -245,6 +245,9 @@ namespace BinaVibe.Mcp.Tools.Electrical
         public static Dictionary<string, object?> AssignPanel(Document doc, JsonElement args)
         {
             Transaction? tx = null;
+            // Declared out here so the catch can report what was checked when
+            // Revit refuses for a reason the pre-flight could not see.
+            AssignmentFacts? assignFacts = null;
             try
             {
                 var circuitId = ArgsHelp.GetLong(args, "circuit_id")
@@ -260,6 +263,18 @@ namespace BinaVibe.Mcp.Tools.Electrical
 
                 var before = CircuitDriver.Try(() => c.PanelName);
                 var driver = MepSystemDrivers.Resolve(MepDomainKind.Electrical);
+
+                // Pre-flight BEFORE the transaction. Revit's own refusal names
+                // the panel whatever the cause, which reads like "wrong panel"
+                // and sends the agent off creating and deleting boards — see
+                // PanelAssignmentDiagnosis. Refuse with the real reason first.
+                if (panelId.HasValue)
+                {
+                    assignFacts = ReadAssignmentFacts(doc, c, panelId.Value);
+                    var blockers = PanelAssignmentDiagnosis.Hard(assignFacts);
+                    if (blockers.Count > 0)
+                        return BlockedAssignment(doc, c, circuitId, panelId.Value, assignFacts, blockers);
+                }
 
                 tx = new Transaction(doc, "BINA: assign_panel");
                 TxGuard.StartSwallowing(tx);
@@ -282,9 +297,339 @@ namespace BinaVibe.Mcp.Tools.Electrical
             catch (Exception ex)
             {
                 MepTx.SafeRollback(tx);
-                return MepTx.Failure(ex.Message);
+                // Revit refused for something the pre-flight could not see. The
+                // raw message still names the panel, so ship the facts and the
+                // do-not-create-a-panel line with it rather than letting the
+                // agent draw the obvious wrong conclusion on its own.
+                var row = MepTx.Failure(ex.Message, "assign_refused");
+                var panelForSolve = ArgsHelp.GetLong(args, "panel_id");
+                row["diagnosis"] = new Dictionary<string, object?>
+                {
+                    ["checked"] = FactsRow(assignFacts),
+                    ["pre_flight_found_nothing"] = true,
+                    // Still compute the way out: the pre-flight missing it does
+                    // not mean there is no answer, and a bare refusal is what
+                    // sends the agent looking for a different panel.
+                    ["resolution"] = panelForSolve.HasValue
+                        ? SolveResolution(doc,
+                            doc.GetElement(ElemIds.From(
+                                ArgsHelp.GetLong(args, "circuit_id") ?? 0)) as ElectricalSystem,
+                            panelForSolve.Value)
+                        : null,
+                    ["advice"] = PanelAssignmentDiagnosis.PanelNamedRegardlessAdvice,
+                };
+                return row;
             }
         }
+
+        /// <summary>Everything readable about a circuit/panel pair. Every read
+        /// is guarded: an unreadable value is reported as null, which the
+        /// diagnosis treats as a finding rather than a pass.</summary>
+        private static AssignmentFacts ReadAssignmentFacts(Document doc, ElectricalSystem c, long panelId)
+        {
+            var facts = new AssignmentFacts();
+            var panel = doc.GetElement(ElemIds.From(panelId));
+            if (panel == null) { facts.PanelExists = false; return facts; }
+
+            facts.PanelIsElectricalEquipment =
+                panel.Category?.Id.Value == (long)(int)BuiltInCategory.OST_ElectricalEquipment;
+            if (!facts.PanelIsElectricalEquipment) return facts;
+
+            facts.DistributionSystem = DistributionSystemName(panel);
+            facts.CircuitVoltageV = CircuitDriver.TryD(() => c.Voltage);
+            facts.CircuitPoles = CircuitDriver.TryI(() => c.PolesNumber);
+
+            var dist = DistributionSystemOf(panel);
+            if (dist != null)
+            {
+                facts.SystemLineToGroundV = VoltsOf(doc, dist,
+                    BuiltInParameter.RBS_DISTRIBUTIONSYS_VLG_PARAM);
+                facts.SystemLineToLineV = VoltsOf(doc, dist,
+                    BuiltInParameter.RBS_DISTRIBUTIONSYS_VLL_PARAM);
+            }
+
+            var spec = ReadSpec(doc, panel);
+            facts.PanelPhaseCount = spec.PhaseCount;
+            facts.TotalSlots = spec.TotalSlots;
+            try
+            {
+                var loads = CircuitDriver.CircuitsFedBy(doc, panel).Select(ToLoad).ToList();
+                facts.UsedSlots = PanelLoad.OccupiedSlots(loads).Count;
+            }
+            catch { facts.UsedSlots = 0; }
+
+            return facts;
+        }
+
+        /// <summary>A distribution system's voltage parameter points at a
+        /// VoltageType ELEMENT, not a number — read the element's own value,
+        /// and fall back to a direct double for builds that store it inline.</summary>
+        private static double? VoltsOf(Document doc, Element dist, BuiltInParameter bip)
+        {
+            try
+            {
+                var p = dist.get_Parameter(bip);
+                if (p == null || !p.HasValue) return null;
+                if (p.StorageType == StorageType.Double)
+                    return UnitUtils.ConvertFromInternalUnits(p.AsDouble(), UnitTypeId.Volts);
+                if (p.StorageType != StorageType.ElementId) return null;
+                var vt = doc.GetElement(p.AsElementId());
+                var vp = vt?.get_Parameter(BuiltInParameter.RBS_VOLTAGETYPE_VOLTAGE_PARAM);
+                if (vp == null || !vp.HasValue) return null;
+                return UnitUtils.ConvertFromInternalUnits(vp.AsDouble(), UnitTypeId.Volts);
+            }
+            catch { return null; }
+        }
+
+        private static Dictionary<string, object?> BlockedAssignment(
+            Document doc, ElectricalSystem circuit, long circuitId, long panelId,
+            AssignmentFacts facts, List<AssignmentBlocker> blockers)
+        {
+            var extra = new Dictionary<string, object?>
+            {
+                ["circuit_id"] = circuitId,
+                ["panel_id"] = panelId,
+                ["checked"] = FactsRow(facts),
+                ["blockers"] = blockers.Select(b => new Dictionary<string, object?>
+                {
+                    ["code"] = b.Code, ["detail"] = b.Detail, ["fix"] = b.Fix,
+                }).ToList(),
+                // The computed way out, not a prohibition. A refusal with no
+                // next action is what produced the create/delete loop.
+                ["resolution"] = SolveResolution(doc, circuit, panelId),
+                ["advice"] = PanelAssignmentDiagnosis.PanelNamedRegardlessAdvice,
+            };
+            var first = blockers[0];
+            return MepTx.Blocked(first.Code, first.Detail + " FIX: " + first.Fix, extra);
+        }
+
+        /// <summary>Which distribution systems would actually seat this
+        /// circuit on this panel, and what to do when none do.
+        ///
+        /// Panel acceptance is Revit's OWN answer
+        /// (ElectricalEquipment.IsValidDistributionSystem), and the voltage
+        /// window is the VoltageType's own Min/Max — neither is guessed here.</summary>
+        internal static Dictionary<string, object?> SolveResolution(
+            Document doc, ElectricalSystem? circuit, long panelId)
+        {
+            try
+            {
+                var panel = doc.GetElement(ElemIds.From(panelId));
+                var equipment = AsEquipment(panel);
+                var options = BuildDistSysOptions(doc, equipment);
+
+                var demand = new CircuitDemand
+                {
+                    VoltageV = circuit == null ? null : VoltsOfCircuit(circuit),
+                    Poles = (circuit == null ? null : CircuitDriver.TryI(() => circuit.PolesNumber)) ?? 1,
+                    PanelConnectorPoles = PanelConnectorPoles(panel),
+                    // Malaysian LV convention — proposed, never applied
+                    // silently; the matcher flags anything derived from it
+                    // is_proposal.
+                    DefaultVoltageV = 240,
+                    DefaultPoles = 1,
+                };
+                var match = DistributionSystemMatch.Solve(demand, options);
+
+                var row = new Dictionary<string, object?>
+                {
+                    ["circuit_voltage_v"] = demand.VoltageV,
+                    ["circuit_poles"] = demand.Poles,
+                    ["summary"] = match.Summary,
+                    ["assignable_now"] = match.AssignableNow.Select(FitRow).ToList(),
+                    ["fits_with_pole_change"] = match.FitsWithPoleChange.Select(FitRow).ToList(),
+                    ["panel_rejects"] = match.PanelRejects,
+                };
+                if (match.Create != null)
+                    row["create"] = new Dictionary<string, object?>
+                    {
+                        ["tool"] = "create_distribution_system",
+                        ["name"] = match.Create.Name,
+                        ["phase"] = match.Create.Phase,
+                        ["line_to_ground_v"] = match.Create.LineToGroundV,
+                        ["line_to_line_v"] = match.Create.LineToLineV,
+                    };
+                if (match.FixConnector != null)
+                    row["fix_connector"] = new Dictionary<string, object?>
+                    {
+                        ["tool"] = match.FixConnector.Tool,
+                        ["args"] = new Dictionary<string, object?>
+                        {
+                            ["voltage_v"] = match.FixConnector.VoltageV,
+                            ["poles"] = match.FixConnector.Poles,
+                            ["system_type"] = match.FixConnector.SystemType,
+                        },
+                        ["is_proposal"] = match.FixConnector.IsProposal,
+                        ["needs_user_confirm"] = true,
+                    };
+                return row;
+            }
+            catch (Exception ex)
+            {
+                return new Dictionary<string, object?> { ["error"] = ex.Message };
+            }
+        }
+
+        /// <summary>Every distribution system in the model as the matcher sees
+        /// it, with Revit's own acceptance verdict for THIS panel. Extracted
+        /// from SolveResolution so plan_panel_assignment reads the same
+        /// options — the two must never disagree.</summary>
+        internal static List<DistSysOption> BuildDistSysOptions(Document doc, ElectricalEquipment? equipment)
+        {
+            var options = new List<DistSysOption>();
+            var settings = ElectricalSetting.GetElectricalSettings(doc);
+            if (settings == null) return options;
+
+            foreach (DistributionSysType d in settings.DistributionSysTypes)
+            {
+                if (d == null) continue;
+                var o = new DistSysOption
+                {
+                    Id = d.Id.Value,
+                    Name = MepElementInfo.SafeName(d),
+                    ThreePhase = CircuitDriver.Try(() => d.ElectricalPhase.ToString()) == "ThreePhase",
+                };
+                FillVolts(() => d.VoltageLineToGround,
+                    v => o.LineToGroundV = v, v => o.LineToGroundMinV = v, v => o.LineToGroundMaxV = v);
+                FillVolts(() => d.VoltageLineToLine,
+                    v => o.LineToLineV = v, v => o.LineToLineMinV = v, v => o.LineToLineMaxV = v);
+                // Revit's own verdict. Without an ElectricalEquipment
+                // (not a panel at all) assume acceptance so the voltage
+                // maths is still reported rather than silently empty.
+                o.PanelAccepts = equipment == null
+                    || CircuitDriver.TryB(() => equipment.IsValidDistributionSystem(d)) == true;
+                options.Add(o);
+            }
+            return options;
+        }
+
+        /// <summary>One panel as a shortlisting row: identity, its system's
+        /// voltages, phase, slot usage and connector poles. Shared by
+        /// list_electrical_settings and plan_panel_assignment so the numbers
+        /// never disagree between the two. Every read individually guarded to
+        /// null — an unreadable value is a finding, not a crash.</summary>
+        internal static Dictionary<string, object?> PanelSummaryRow(Document doc, Element panel)
+        {
+            var spec = ReadSpec(doc, panel);
+            int? usedSlots = null;
+            try
+            {
+                var loads = CircuitDriver.CircuitsFedBy(doc, panel).Select(ToLoad).ToList();
+                usedSlots = PanelLoad.OccupiedSlots(loads).Count;
+            }
+            catch { }
+
+            double? ltg = null, ltl = null;
+            var dist = DistributionSystemOf(panel);
+            if (dist != null)
+            {
+                ltg = VoltsOf(doc, dist, BuiltInParameter.RBS_DISTRIBUTIONSYS_VLG_PARAM);
+                ltl = VoltsOf(doc, dist, BuiltInParameter.RBS_DISTRIBUTIONSYS_VLL_PARAM);
+            }
+
+            string? level = null;
+            try { level = (doc.GetElement(panel.LevelId) as Level)?.Name; } catch { }
+
+            var total = spec.TotalSlots;
+            return new Dictionary<string, object?>
+            {
+                ["panel_id"] = panel.Id.Value,
+                ["name"] = MepElementInfo.SafeName(panel),
+                ["distribution_system"] = DistributionSystemName(panel),
+                ["line_to_ground_v"] = ltg,
+                ["line_to_line_v"] = ltl,
+                ["phase"] = spec.PhaseCount,
+                ["total_slots"] = total > 0 ? total : (object?)null,
+                ["used_slots"] = usedSlots,
+                ["free_slots"] = total > 0 && usedSlots != null ? total - usedSlots : (object?)null,
+                ["panel_connector_poles"] = PanelConnectorPoles(panel),
+                ["level"] = level,
+            };
+        }
+
+        private static Dictionary<string, object?> FitRow(SystemFit f) => new()
+        {
+            ["id"] = f.Id,
+            ["name"] = f.Name,
+            ["poles_required"] = f.PolesRequired,
+            ["fits_as_is"] = f.FitsAsIs,
+            ["seat_voltage_v"] = f.SeatVoltageV,
+        };
+
+        /// <summary>A VoltageType carries an operating value AND the window
+        /// Revit actually matches against. Reading only ActualValue would make
+        /// this invent its own tolerance.</summary>
+        private static void FillVolts(Func<VoltageType> get,
+            Action<double?> actual, Action<double?> min, Action<double?> max)
+        {
+            try
+            {
+                var vt = get();
+                if (vt == null) return;
+                actual(CircuitDriver.TryD(() => vt.ActualValue));
+                min(CircuitDriver.TryD(() => vt.MinValue));
+                max(CircuitDriver.TryD(() => vt.MaxValue));
+            }
+            catch { }
+        }
+
+        /// <summary>Poles on the panel's OWN incoming connector. A three-phase
+        /// distribution system needs 3; a JKR DB authored with a 1-pole
+        /// connector can never take one, and no tool can change that on a
+        /// placed instance. Reported so the resolution does not suggest a
+        /// three-phase system the panel is physically unable to accept —
+        /// which cost a UAT session on 2026-08-07.</summary>
+        private static int? PanelConnectorPoles(Element? panel)
+        {
+            var direct = ParamInt(panel, BuiltInParameter.RBS_ELEC_NUMBER_OF_POLES);
+            if (direct is > 0) return direct;
+            if (panel is FamilyInstance fi)
+            {
+                var onType = ParamInt(fi.Symbol, BuiltInParameter.RBS_ELEC_NUMBER_OF_POLES);
+                if (onType is > 0) return onType;
+            }
+            // Fall back to the phase count the panel advertises: a board that
+            // reports a single phase cannot present a 3-pole supply connector.
+            var phases = ParamInt(panel, BuiltInParameter.RBS_ELEC_PANEL_NUMPHASES_PARAM);
+            if (phases is 1) return 1;
+            if (phases is 3) return 3;
+            return null;
+        }
+
+        private static double? VoltsOfCircuit(ElectricalSystem c)
+        {
+            var v = CircuitDriver.TryD(() => c.Voltage);
+            if (v is > 0) return v;
+            // A circuit with no seated panel can report nothing; fall back to
+            // what its member devices carry, which is where it comes from.
+            try
+            {
+                foreach (Element m in c.Elements)
+                {
+                    var mv = CircuitDriver.ReadVoltage(m)
+                             ?? CircuitDriver.ReadVoltage((m as FamilyInstance)?.Symbol);
+                    if (mv is > 0) return UnitUtils.ConvertFromInternalUnits(mv.Value, UnitTypeId.Volts);
+                }
+            }
+            catch { }
+            return v;
+        }
+
+        private static Dictionary<string, object?> FactsRow(AssignmentFacts? f) => f == null
+            ? new Dictionary<string, object?> { ["read"] = false }
+            : new Dictionary<string, object?>
+            {
+                ["panel_exists"] = f.PanelExists,
+                ["panel_is_electrical_equipment"] = f.PanelIsElectricalEquipment,
+                ["distribution_system"] = f.DistributionSystem,
+                ["circuit_voltage_v"] = f.CircuitVoltageV,
+                ["system_line_to_ground_v"] = f.SystemLineToGroundV,
+                ["system_line_to_line_v"] = f.SystemLineToLineV,
+                ["circuit_poles"] = f.CircuitPoles,
+                ["panel_phase_count"] = f.PanelPhaseCount,
+                ["total_slots"] = f.TotalSlots,
+                ["used_slots"] = f.UsedSlots,
+            };
 
         /// <summary>No transaction, throws. Layer 2 calls this.</summary>
         internal static void AssignPanelCore(Document doc, IMepSystemDriver driver,
@@ -695,11 +1040,11 @@ namespace BinaVibe.Mcp.Tools.Electrical
             };
         }
 
-        private static int? ParamInt(Element el, BuiltInParameter bip)
+        private static int? ParamInt(Element? el, BuiltInParameter bip)
         {
             try
             {
-                var p = el.get_Parameter(bip);
+                var p = el?.get_Parameter(bip);
                 if (p == null || !p.HasValue) return null;
                 return p.AsInteger();
             }

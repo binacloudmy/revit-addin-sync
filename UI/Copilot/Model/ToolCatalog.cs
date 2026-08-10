@@ -72,6 +72,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
             new SlashTool { Id="ff-net",       Category="MEP",           Name="FF Network from CAD",       Subtitle="Fire-protection CAD → pipes + sprinklers + legend", Badge=ToolBadge.Deterministic, IconKey="ti-flame",       Keywords="ff fire fighting sprinkler pipe network cad mep legend wet riser" },
             new SlashTool { Id="ff-pick",      Category="MEP",           Name="FF from Picked CAD",        Subtitle="Convert selected FF branch only",              Badge=ToolBadge.Deterministic, IconKey="ti-hand-finger",     Keywords="ff fire pick selected branch partial sprinkler pipe cad section" },
             new SlashTool { Id="light-cad",    Category="MEP",           Name="Lighting from CAD",         Subtitle="CAD blocks → native lighting fixtures",        Badge=ToolBadge.AiAssisted,    IconKey="ti-bulb",            Keywords="lighting light fixture cad block lamp mep convert family lampu" },
+            new SlashTool { Id="conn-volt",    Category="MEP",           Name="Connector Voltage Fix",     Subtitle="Family connector 0 V → panel accepts the circuit", Badge=ToolBadge.Deterministic, IconKey="ti-plug",        Keywords="connector voltage 0v zero volt socket family circuit panel refuse mismatch litar soket voltan kadaran poles amp" },
         };
 
         // addin-local Id → bina-ai P1 command id (app/commands/*.md). Only the
