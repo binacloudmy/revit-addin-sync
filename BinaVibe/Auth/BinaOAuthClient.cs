@@ -63,6 +63,13 @@ namespace BinaVibe.Auth
         /// </summary>
         public bool SendRedirectUri { get; set; }
 
+        /// <summary>
+        /// How long the loopback listener waits for the browser to come back.
+        /// The cap exists so a login page that never redirects cannot freeze
+        /// Revit forever — the caller blocks on this.
+        /// </summary>
+        public TimeSpan LoginTimeout { get; set; } = TimeSpan.FromSeconds(120);
+
         /// <summary>bina-ai: /auth/token, snake_case, &amp;api= hint, no redirect_uri.</summary>
         public static BinaOAuthEndpoints BinaAi() => new BinaOAuthEndpoints();
 
@@ -70,6 +77,11 @@ namespace BinaVibe.Auth
         public static BinaOAuthEndpoints BinaBe() => new BinaOAuthEndpoints
         {
             LoginPath = "/login",
+            // The BINA Cloud login page requires an emailed OTP, so the user has
+            // to leave the browser, find the message and type a code. Two minutes
+            // is not enough: the listener closed while the code was in flight and
+            // the redirect landed on a dead port (ERR_CONNECTION_REFUSED).
+            LoginTimeout = TimeSpan.FromMinutes(6),
             TokenPath = "/api/auth/user/oauth/token",
             RefreshPath = "/api/auth/user/oauth/refresh",
             MePath = null,               // no equivalent; the token response carries userId
@@ -94,17 +106,14 @@ namespace BinaVibe.Auth
             _endpoints = endpoints ?? BinaOAuthEndpoints.BinaAi();
         }
 
-        // Hard cap on how long the loopback wait may block. The caller runs this on
-        // Revit's UI thread via .GetResult(), so without a timeout a browser that
-        // never redirects back (wrong/undeployed login page, connection refused)
-        // would freeze Revit FOREVER with no recovery. 120s is enough to finish a
-        // real sign-in; on expiry we stop the listener and throw so the command
-        // shows a friendly error and Revit becomes responsive again.
-        private static readonly TimeSpan LoginTimeout = TimeSpan.FromSeconds(120);
+        // The wait is capped per provider (BinaOAuthEndpoints.LoginTimeout). The
+        // caller blocks on this from Revit's UI thread, so a login page that never
+        // redirects back must not freeze Revit forever; on expiry the listener is
+        // stopped and the command shows a friendly error.
 
         // ── Loopback browser flow ───────────────────────────────────────
         public Task<BinaTokenSet> InteractiveLoginAsync(CancellationToken ct = default)
-            => InteractiveLoginAsync(LoginTimeout, ct);
+            => InteractiveLoginAsync(_endpoints.LoginTimeout, ct);
 
         public async Task<BinaTokenSet> InteractiveLoginAsync(TimeSpan timeout, CancellationToken ct = default)
         {
