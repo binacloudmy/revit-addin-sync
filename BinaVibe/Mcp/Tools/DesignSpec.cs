@@ -20,6 +20,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.DB.ExtensibleStorage;
 using Autodesk.Revit.UI;
@@ -216,15 +217,716 @@ namespace BinaVibe.Mcp.Tools
 
         // ─── build_design ───────────────────────────────────────────────
 
+        /// <summary>Build a design.
+        ///
+        /// Two paths, and which one runs is decided by the SPEC, not a flag:
+        ///
+        ///   `parts` present  → the backend solved this building (design_preflight
+        ///                      → design_parts) and shipped an ordered part list
+        ///                      with a prediction per part, plus the walls, doors
+        ///                      and windows it wants BY ID. The addin builds
+        ///                      exactly that and measures every part against the
+        ///                      prediction — it invents no geometry.
+        ///
+        ///   `parts` absent   → an older backend (or a caller driving the tool
+        ///                      directly). The original monolithic build runs
+        ///                      unchanged, heuristics and all, so an addin
+        ///                      updated ahead of its server keeps working.
+        ///
+        /// The heuristics the plan calls for deleting — the corridor-centre door
+        /// and the blanket window spacing — are gone from the solved path by not
+        /// existing in it. They survive ONLY inside BuildLegacy, quarantined
+        /// where a solved plan can never reach them.</summary>
+        public static Dictionary<string, object?> BuildDesign(Document doc, JsonElement args,
+                                                              UIDocument? uidoc = null)
+        {
+            var parts = Obj(args, "parts");
+            if (parts != null && parts.Value.ValueKind == JsonValueKind.Array
+                && parts.Value.GetArrayLength() > 0)
+                return BuildFromParts(doc, args, uidoc, parts.Value);
+            return BuildLegacy(doc, args, uidoc);
+        }
+
+        // ─── the solved path: one part at a time, measured ──────────────
+
+        /// <summary>Build the SOLVED plan, part by part, inside one undo.
+        ///
+        /// Everything the model will narrate comes out of PartLoop's scorecard,
+        /// so the shape of this method matters: anything built outside a part is
+        /// something the drafter is told about without evidence. What stays
+        /// outside the loop is only what no part describes — the level stack and
+        /// the curtain-wall type dressing (both preconditions), the structural
+        /// grid, storeys above the ground floor, and the room tags, which need
+        /// the partitions to exist and be regenerated first.
+        ///
+        /// Transactions: PartLoop opens one per part, so this method's own work
+        /// is split into a prepare transaction before the loop and a finish
+        /// transaction after it, with a TransactionGroup around the lot — one
+        /// Ctrl+Z still puts the whole building back.</summary>
+        private static Dictionary<string, object?> BuildFromParts(
+            Document doc, JsonElement args, UIDocument? uidoc, JsonElement partsJson)
+        {
+            var t0 = System.Diagnostics.Stopwatch.StartNew();
+            var footprint = Footprint(args);
+
+            var levelsSpec = Obj(args, "levels");
+            var count = (int)(Num(levelsSpec, "count") ?? 1);
+            if (count < 1) throw new ArgumentException("levels.count must be at least 1");
+            var f2f = (Num(levelsSpec, "floor_to_floor_mm") ?? 3000) / FT;
+            var prefix = Str(levelsSpec, "prefix") ?? "Level ";
+
+            // `walls` is overloaded by the solved spec: the design vocabulary
+            // uses an OBJECT of type names, and design_preflight overwrites it
+            // with the ARRAY of solved partitions. Read whichever arrived — a
+            // solved build simply has no named wall types and takes the
+            // thinnest/thickest defaults, exactly as an unnamed spec does.
+            var wallsEl = Obj(args, "walls");
+            var wallTypeSpec = wallsEl != null && wallsEl.Value.ValueKind == JsonValueKind.Object
+                ? wallsEl : null;
+            var solvedWalls = wallsEl != null && wallsEl.Value.ValueKind == JsonValueKind.Array
+                ? wallsEl : null;
+
+            var facadeSpec = Obj(args, "facade");
+            var facadeKind = (Str(facadeSpec, "kind") ?? "punched").ToLowerInvariant();
+            WallType? curtainType = null;
+            if (facadeKind == "curtain" || facadeKind == "curtain_wall" || facadeKind == "glazed")
+            {
+                var named = Str(facadeSpec, "wall_type") ?? Str(wallTypeSpec, "exterior_type");
+                curtainType = new FilteredElementCollector(doc).OfClass(typeof(WallType))
+                    .Cast<WallType>().Where(t => t.Kind == WallKind.Curtain)
+                    .OrderByDescending(t => named != null
+                        && string.Equals(t.Name, named, StringComparison.OrdinalIgnoreCase))
+                    .FirstOrDefault();
+            }
+            var extType = curtainType ?? FindWallType(doc, Str(wallTypeSpec, "exterior_type"),
+                                                      interior: false);
+            var intType = FindWallType(doc, Str(wallTypeSpec, "interior_type"), interior: true);
+
+            var slabType = FindFloorType(doc, Str(Obj(args, "floors"), "slab_type"));
+
+            var roofSpec = Obj(args, "roof");
+            var roofKind = (Str(roofSpec, "kind") ?? "flat").ToLowerInvariant();
+            var roofPitch = Num(roofSpec, "pitch_deg");
+            var roofType = FindRoofType(doc, Str(roofSpec, "type_name"));
+            var overhangFt = (Num(roofSpec, "overhang_mm") ?? 0) / FT;
+
+            var openSpec = Obj(args, "openings");
+            var doorSym = FindSymbol(doc, BuiltInCategory.OST_Doors, Str(openSpec, "door_type"));
+            var winSym = FindSymbol(doc, BuiltInCategory.OST_Windows, Str(openSpec, "window_type"));
+            var defaultSill = (Num(openSpec, "sill_mm") ?? 900) / FT;
+
+            // A roof needs a plan view active, and a view cannot be switched
+            // while a transaction is open — so this happens first, as it does
+            // in the legacy path.
+            using var viewSwitch = ViewGuard.EnsurePlanView(doc, uidoc);
+
+            var vols = Volumes.Parse(args, footprint, f2f);
+            BuildVolume VolByRole(string role) =>
+                vols.FirstOrDefault(v => string.Equals(v.Role, role, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException(
+                    $"a part names volume '{role}', which this spec does not declare");
+
+            // Ownership, tracked per PART as well as per role. PartLoop DELETES
+            // a part's elements when it fails, then rebuilds it — so a part that
+            // is entered twice must forget what its first attempt recorded, or
+            // the stored spec ends up pointing at dead ids and the next
+            // update_design deletes somebody else's element.
+            var owns = new Dictionary<string, List<long>>();
+            var ownedByPart = new Dictionary<string, List<(string Role, long Id)>>();
+            var specIdsByPart = new Dictionary<string, List<string>>();
+
+            // spec wall id -> built ElementId. THE lookup for door/window
+            // hosting — there is deliberately no coordinate fallback: an id that
+            // is not in this map is a reported failure, never a silent skip.
+            var wallBySpecId = new Dictionary<string, ElementId>();
+
+            void Own(string role, long id)
+            {
+                if (!owns.TryGetValue(role, out var list)) owns[role] = list = new List<long>();
+                list.Add(id);
+            }
+            void Record(string partId, string role, ElementId id)
+            {
+                if (!ownedByPart.TryGetValue(partId, out var list))
+                    ownedByPart[partId] = list = new List<(string, long)>();
+                list.Add((role, id.Value));
+                Own(role, id.Value);
+            }
+            void RecordSpecId(string partId, string specId, ElementId id)
+            {
+                if (!specIdsByPart.TryGetValue(partId, out var list))
+                    specIdsByPart[partId] = list = new List<string>();
+                list.Add(specId);
+                wallBySpecId[specId] = id;
+            }
+            void ForgetPart(string partId)
+            {
+                if (ownedByPart.TryGetValue(partId, out var list))
+                {
+                    foreach (var (role, id) in list)
+                        if (owns.TryGetValue(role, out var ids)) ids.Remove(id);
+                    list.Clear();
+                }
+                if (specIdsByPart.TryGetValue(partId, out var specIds))
+                {
+                    foreach (var s in specIds) wallBySpecId.Remove(s);
+                    specIds.Clear();
+                }
+            }
+
+            var levels = new List<Level>();
+            // Roofs are built AFTER the loop: RoofBuilder owns a transaction per
+            // strategy and a transaction cannot nest inside the one PartLoop
+            // opens around the delegate. The part still gets a real scorecard
+            // line — measured by PartMeasure against the same prediction — it is
+            // just written after the fact.
+            var deferredRoofs = new Dictionary<string, (BuildVolume Vol, JsonElement Expected)>();
+
+            // One part. Throwing is a legitimate outcome: PartLoop turns it into
+            // a failed line on the scorecard, which is the honest answer.
+            List<ElementId> BuildOnePart(string id, JsonElement expected)
+            {
+                ForgetPart(id);
+                var created = new List<ElementId>();
+                var lvl0 = levels[0];
+
+                if (id.StartsWith("slab.", StringComparison.Ordinal))
+                {
+                    var vol = VolByRole(id.Substring("slab.".Length));
+                    var slab = Floor.Create(doc, new List<CurveLoop> { CurveLoopOf(vol.Outline, 0) },
+                                            slabType.Id, lvl0.Id);
+                    Record(id, "slab", slab.Id);
+                    created.Add(slab.Id);
+                }
+                else if (id == "walls.partitions")
+                {
+                    if (solvedWalls == null)
+                        throw new InvalidOperationException(
+                            "walls.partitions part, but the spec carries no solved `walls` array — "
+                            + "the backend must send the partitions it solved, by id");
+                    foreach (var w in solvedWalls.Value.EnumerateArray())
+                    {
+                        var specId = w.GetProperty("id").GetString()!;
+                        var a = PointMm(w, "a_mm", lvl0.Elevation);
+                        var b = PointMm(w, "b_mm", lvl0.Elevation);
+                        if (a.DistanceTo(b) < 1e-6)
+                            throw new InvalidOperationException(
+                                $"partition '{specId}' has zero length — the solver sent a point, "
+                                + "not a wall");
+                        var wall = Wall.Create(doc, Line.CreateBound(a, b), intType.Id,
+                                               lvl0.Id, f2f, 0, false, false);
+                        wall.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.Set(levels[1].Id);
+                        Record(id, "partition", wall.Id);
+                        RecordSpecId(id, specId, wall.Id);
+                        created.Add(wall.Id);
+                        JoinToNeighbours(doc, wall, wallBySpecId.Values);
+                    }
+                }
+                else if (id.StartsWith("walls.", StringComparison.Ordinal))
+                {
+                    var role = id.Substring("walls.".Length);
+                    var vol = VolByRole(role);
+                    var wallHeight = vol.HeightFt > TOL ? vol.HeightFt : f2f;
+                    var i = 0;
+                    foreach (var (a, b) in Volumes.UnsharedEdges(vol, vols))
+                    {
+                        var line = Line.CreateBound(new XYZ(a.X, a.Y, lvl0.Elevation),
+                                                    new XYZ(b.X, b.Y, lvl0.Elevation));
+                        var w = Wall.Create(doc, line, extType.Id, lvl0.Id, wallHeight, 0, false, false);
+                        if (Math.Abs(wallHeight - f2f) < TOL)
+                            w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.Set(levels[1].Id);
+                        Record(id, vol.Role == "main" ? "perimeter_wall" : $"{vol.Role}_wall", w.Id);
+                        // `i` counts this volume's UNSHARED edges, in the order
+                        // Volumes.UnsharedEdges yields them — the same order the
+                        // backend's ext.<role>.<i> ids are numbered in.
+                        RecordSpecId(id, $"ext.{role}.{i}", w.Id);
+                        created.Add(w.Id);
+                        i++;
+                    }
+                }
+                else if (id == "doors")
+                {
+                    foreach (var eid in PlaceDoors(doc, args, levels[0], doorSym, wallBySpecId))
+                    { Record(id, "door", eid); created.Add(eid); }
+                }
+                else if (id == "windows")
+                {
+                    foreach (var eid in PlaceWindows(doc, args, levels[0], winSym, defaultSill,
+                                                     wallBySpecId))
+                    { Record(id, "window", eid); created.Add(eid); }
+                }
+                else if (id.StartsWith("roof.", StringComparison.Ordinal))
+                {
+                    deferredRoofs[id] = (VolByRole(id.Substring("roof.".Length)), expected);
+                }
+                else if (id.StartsWith("fixtures.", StringComparison.Ordinal))
+                {
+                    // Rung 3. The part exists so the scorecard says "not built"
+                    // out loud instead of the reply implying a fitted bathroom.
+                }
+                else
+                {
+                    throw new ArgumentException(
+                        $"unknown part id '{id}' — this addin does not know how to build it");
+                }
+                return created;
+            }
+
+            using var tg = new TransactionGroup(doc, "BINA: build design");
+            tg.Start();
+            JsonArray scorecard;
+            string specId;
+            string? roofWarning = null;
+            string? roofStrategy = null;
+            try
+            {
+                // ── before the loop: preconditions no part describes ──────
+                using (var txPrep = new Transaction(doc, "BINA: prepare design"))
+                {
+                    TxGuard.StartSwallowing(txPrep);
+                    try
+                    {
+                        // Activation forces a regeneration, so batch it: every
+                        // symbol once, here, rather than one per placement.
+                        foreach (var sym in new[] { doorSym, winSym }.Where(s => s != null && !s!.IsActive))
+                            sym!.Activate();
+                        doc.Regenerate();
+
+                        levels.AddRange(EnsureLevels(doc, count, f2f, prefix, Own));
+                        if (curtainType != null) DressCurtainType(doc, curtainType, facadeSpec);
+                        BuildStructure(doc, args, footprint, levels[0], Own);
+                        TxGuard.CommitOrThrow(txPrep);
+                    }
+                    catch
+                    {
+                        if (txPrep.GetStatus() == TransactionStatus.Started) txPrep.RollBack();
+                        throw;
+                    }
+                }
+
+                // ── the loop ──────────────────────────────────────────────
+                scorecard = PartLoop.Run(doc, partsJson, BuildOnePart);
+
+                // ── roofs, outside any open transaction ───────────────────
+                foreach (var kv in deferredRoofs)
+                {
+                    var (vol, expected) = kv.Value;
+                    if (roofType == null)
+                    {
+                        SetScore(scorecard, kv.Key, "failed", expected.ToString(),
+                                 "this project has no footprint-capable roof type");
+                        roofWarning = "this project has no footprint-capable roof type, so no roof "
+                                    + "was created. Everything else was built.";
+                        continue;
+                    }
+                    // The eaves. A roof boundary pushed outward is the single
+                    // strongest cue that a roof is a roof, and the backend has
+                    // already predicted the OVERHUNG bbox — building without the
+                    // eaves fails the measurement rather than passing quietly.
+                    var boundary = Volumes.WithEaves(vol.Outline, overhangFt);
+                    // A part shorter than the storey carries its roof at its own
+                    // height, not the top of the house.
+                    var roofLevel = vol.HeightFt > TOL && vol.HeightFt < f2f - TOL
+                        ? levels[0] : levels[count];
+                    var res = RoofBuilder.Build(doc, boundary, roofLevel, roofType,
+                                                roofKind == "flat" ? null : roofPitch,
+                                                null, roofKind);
+                    if (!res.Ok)
+                    {
+                        SetScore(scorecard, kv.Key, "failed", expected.ToString(),
+                                 "roof could not be created: "
+                                 + string.Join(" | ", res.Attempts));
+                        roofWarning = "the roof could not be created. Attempts: "
+                            + string.Join(" | ", res.Attempts)
+                            + $". Type '{roofType.Name}' (family '{roofType.FamilyName}'). "
+                            + "Everything else was built — tell the drafter the roof is missing "
+                            + "and offer Architecture > Roof by Footprint. Do NOT describe this "
+                            + "as a finished shell.";
+                        continue;
+                    }
+                    Record(kv.Key, "roof", res.Id!);
+                    roofStrategy ??= res.Strategy;
+                    var measured = PartMeasure.Measure(doc, kv.Key, expected,
+                                                       new List<ElementId> { res.Id! });
+                    SetScore(scorecard, kv.Key, measured.Status, measured.Predicted, measured.Measured);
+                }
+
+                // ── after the loop: storeys above ground, rooms, the spec ──
+                using (var txFin = new Transaction(doc, "BINA: rooms and spec"))
+                {
+                    TxGuard.StartSwallowing(txFin);
+                    try
+                    {
+                        // Parts describe the GROUND floor — every prediction the
+                        // backend ships is a ground-floor bbox. Upper storeys are
+                        // still built (a two-storey spec must not silently lose
+                        // one) but they are built here, unmeasured, rather than
+                        // inside a part whose prediction they would fail.
+                        for (int s = 1; s < count; s++)
+                        {
+                            var lvl = levels[s];
+                            foreach (var vol in vols)
+                            {
+                                if (vol.HeightFt > TOL && vol.HeightFt < f2f - TOL) continue;
+                                var slab = Floor.Create(doc,
+                                    new List<CurveLoop> { CurveLoopOf(vol.Outline, 0) },
+                                    slabType.Id, lvl.Id);
+                                Own("slab", slab.Id.Value);
+                                foreach (var (a, b) in Volumes.UnsharedEdges(vol, vols))
+                                {
+                                    var line = Line.CreateBound(new XYZ(a.X, a.Y, lvl.Elevation),
+                                                                new XYZ(b.X, b.Y, lvl.Elevation));
+                                    var w = Wall.Create(doc, line, extType.Id, lvl.Id, f2f,
+                                                        0, false, false);
+                                    w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)
+                                        ?.Set(levels[s + 1].Id);
+                                    Own(vol.Role == "main" ? "perimeter_wall" : $"{vol.Role}_wall",
+                                        w.Id.Value);
+                                }
+                            }
+                        }
+
+                        // Rooms are tagged from the SOLVED rectangles, after the
+                        // partitions exist — a room cannot find its boundary
+                        // until the walls enclosing it have been regenerated.
+                        var solvedRooms = Obj(args, "rooms");
+                        if (solvedRooms != null && solvedRooms.Value.ValueKind == JsonValueKind.Array)
+                        {
+                            doc.Regenerate();
+                            foreach (var r in solvedRooms.Value.EnumerateArray())
+                            {
+                                double G(string k) => r.TryGetProperty(k, out var v)
+                                    && v.ValueKind == JsonValueKind.Number ? v.GetDouble() / FT : 0;
+                                var cx = G("x_mm") + G("w_mm") / 2;
+                                var cy = G("y_mm") + G("h_mm") / 2;
+                                var room = doc.Create.NewRoom(levels[0], new UV(cx, cy));
+                                if (room == null) continue;
+                                try
+                                {
+                                    room.Name = r.TryGetProperty("name", out var nv)
+                                        ? nv.GetString() ?? "Room" : "Room";
+                                }
+                                catch { }
+                                Own("room", room.Id.Value);
+                            }
+                        }
+
+                        // A failed part is DELETED by PartLoop, so the ownership
+                        // map must be pruned before it is stored — a spec that
+                        // points at dead ids makes the next update_design delete
+                        // whatever inherited them.
+                        foreach (var role in owns.Keys.ToList())
+                            owns[role] = owns[role]
+                                .Where(id => doc.GetElement(ElemIds.From(id)) != null).ToList();
+
+                        specId = Guid.NewGuid().ToString("N").Substring(0, 12);
+                        SaveJson(doc, JsonSerializer.Serialize(new Dictionary<string, object?>
+                        {
+                            ["spec_id"] = specId,
+                            ["version"] = 1,
+                            ["args"] = JsonSerializer.Deserialize<object>(args.GetRawText()),
+                            ["owns"] = owns,
+                        }));
+                        TxGuard.CommitOrThrow(txFin);
+                    }
+                    catch
+                    {
+                        if (txFin.GetStatus() == TransactionStatus.Started) txFin.RollBack();
+                        throw;
+                    }
+                }
+
+                tg.Assimilate();      // one Ctrl+Z puts the whole building back
+            }
+            catch
+            {
+                if (tg.GetStatus() == TransactionStatus.Started) tg.RollBack();
+                throw;
+            }
+
+            // The scorecard is the ONLY evidence the reply may narrate from, so
+            // anything short of every part measuring ok is said out loud here
+            // too — a warning the model cannot miss.
+            var bad = scorecard.OfType<JsonObject>()
+                .Where(o => (o["status"]?.GetValue<string>() ?? "") != "ok")
+                .Select(o => $"{o["part"]?.GetValue<string>()}: {o["status"]?.GetValue<string>()}")
+                .ToList();
+            var warning = roofWarning;
+            if (bad.Count > 0)
+                warning = (warning == null ? "" : warning + " ")
+                    + $"{bad.Count} part(s) did not verify: {string.Join(", ", bad)}. "
+                    + "Say what is missing; do not describe this build as complete.";
+
+            t0.Stop();
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["spec_id"] = specId,
+                ["created"] = owns.ToDictionary(k => k.Key, v => (object?)v.Value.Count),
+                ["new_ids"] = owns.SelectMany(k => k.Value).ToList(),
+                ["scorecard"] = scorecard,
+                ["roof_strategy"] = roofStrategy,
+                ["warning"] = warning,
+                ["elapsed_ms"] = t0.ElapsedMilliseconds,
+                ["digest"] = Inspectors.GetGeometryDigest(doc, args),
+            };
+        }
+
+        /// <summary>Doors, hosted BY ID in the wall the solver named.
+        ///
+        /// No fallback placement. A wall id that is not in the registry means
+        /// the walls part did not build what the openings part was solved
+        /// against, and putting the door somewhere plausible instead would hide
+        /// exactly the mismatch this loop exists to catch.</summary>
+        private static List<ElementId> PlaceDoors(Document doc, JsonElement args, Level lvl0,
+                                                  FamilySymbol? doorSym,
+                                                  IReadOnlyDictionary<string, ElementId> wallBySpecId)
+        {
+            var created = new List<ElementId>();
+            var doors = Obj(args, "doors");
+            if (doors == null || doors.Value.ValueKind != JsonValueKind.Array) return created;
+            if (doors.Value.GetArrayLength() > 0 && doorSym == null)
+                throw new InvalidOperationException(
+                    "no door family is loaded in this project, so the solved doors cannot be placed");
+
+            foreach (var d in doors.Value.EnumerateArray())
+            {
+                var room = d.TryGetProperty("room", out var rn) ? rn.GetString() ?? "?" : "?";
+                var wallId = d.GetProperty("wall_id").GetString()!;
+                if (!wallBySpecId.TryGetValue(wallId, out var hostId)
+                    || doc.GetElement(hostId) is not Wall host)
+                    throw new InvalidOperationException(
+                        $"door for {room} references wall '{wallId}' "
+                        + "which was not built — check the walls part");
+                var lc = (LocationCurve)host.Location;
+                double at = (d.TryGetProperty("at_mm", out var am)
+                             && am.ValueKind == JsonValueKind.Number ? am.GetDouble() : 0) / FT;
+                var a = lc.Curve.GetEndPoint(0);
+                var dir = (lc.Curve.GetEndPoint(1) - a).Normalize();
+                var p = a + dir * at;                       // at_mm: from a toward b, centre
+                var fi = doc.Create.NewFamilyInstance(
+                    new XYZ(p.X, p.Y, lvl0.Elevation), doorSym, host, lvl0,
+                    Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                created.Add(fi.Id);
+            }
+            return created;
+        }
+
+        /// <summary>Windows, hosted BY ID, with the solved sill. Same contract
+        /// as PlaceDoors: an unknown wall id is a failure, never a guess.</summary>
+        private static List<ElementId> PlaceWindows(Document doc, JsonElement args, Level lvl0,
+                                                    FamilySymbol? winSym, double defaultSillFt,
+                                                    IReadOnlyDictionary<string, ElementId> wallBySpecId)
+        {
+            var created = new List<ElementId>();
+            var windows = Obj(args, "windows");
+            if (windows == null || windows.Value.ValueKind != JsonValueKind.Array) return created;
+            if (windows.Value.GetArrayLength() > 0 && winSym == null)
+                throw new InvalidOperationException(
+                    "no window family is loaded in this project, so the solved windows cannot be placed");
+
+            foreach (var w in windows.Value.EnumerateArray())
+            {
+                var room = w.TryGetProperty("room", out var rn) ? rn.GetString() ?? "?" : "?";
+                var wallId = w.GetProperty("wall_id").GetString()!;
+                if (!wallBySpecId.TryGetValue(wallId, out var hostId)
+                    || doc.GetElement(hostId) is not Wall host)
+                    throw new InvalidOperationException(
+                        $"window for {room} references wall '{wallId}' "
+                        + "which was not built — check the walls part");
+                var lc = (LocationCurve)host.Location;
+                double at = (w.TryGetProperty("at_mm", out var am)
+                             && am.ValueKind == JsonValueKind.Number ? am.GetDouble() : 0) / FT;
+                var a = lc.Curve.GetEndPoint(0);
+                var dir = (lc.Curve.GetEndPoint(1) - a).Normalize();
+                var p = a + dir * at;
+                var fi = doc.Create.NewFamilyInstance(
+                    new XYZ(p.X, p.Y, lvl0.Elevation), winSym, host, lvl0,
+                    Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                var sill = w.TryGetProperty("sill_mm", out var sm)
+                           && sm.ValueKind == JsonValueKind.Number ? sm.GetDouble() / FT : defaultSillFt;
+                fi.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)?.Set(sill);
+                created.Add(fi.Id);
+            }
+            return created;
+        }
+
+        /// <summary>Join a freshly built partition to every wall it meets.
+        ///
+        /// Without this a partition reads as a separate object butting into the
+        /// wall it should merge with — no cleaned junction in plan, which is the
+        /// first thing a drafter looks at. 50mm is the same "touching" tolerance
+        /// PartMeasure counts open ends with, so a join and a closed end mean the
+        /// same thing on both sides.</summary>
+        private static void JoinToNeighbours(Document doc, Wall wall, IEnumerable<ElementId> candidates)
+        {
+            if (wall.Location is not LocationCurve mine) return;
+            foreach (var otherId in candidates.ToList())
+            {
+                if (doc.GetElement(otherId) is not Wall other || other.Id == wall.Id) continue;
+                if (other.Location is not LocationCurve olc) continue;
+                for (int end = 0; end <= 1; end++)
+                {
+                    if (olc.Curve.Distance(mine.Curve.GetEndPoint(end)) >= 50 / FT) continue;
+                    try { JoinGeometryUtils.JoinGeometry(doc, wall, other); }
+                    catch { /* already joined, or Revit refused — not worth a failure */ }
+                    break;
+                }
+            }
+        }
+
+        /// <summary>An [x, y] pair in mm from the solved plan, at a level.</summary>
+        private static XYZ PointMm(JsonElement obj, string name, double z)
+        {
+            var v = obj.GetProperty(name);
+            var xs = v.EnumerateArray().Select(n => n.GetDouble()).ToList();
+            if (xs.Count < 2)
+                throw new ArgumentException($"{name} must be [x, y] in mm");
+            return new XYZ(xs[0] / FT, xs[1] / FT, z);
+        }
+
+        /// <summary>Overwrite one part's scorecard line (or append it if the
+        /// loop never wrote one). Used by the roof pass, which measures after
+        /// PartLoop has already moved on.</summary>
+        private static void SetScore(JsonArray card, string partId, string status,
+                                     string predicted, string measured)
+        {
+            var entry = new JsonObject
+            {
+                ["part"] = partId, ["status"] = status,
+                ["predicted"] = predicted, ["measured"] = measured,
+            };
+            for (int i = 0; i < card.Count; i++)
+                if (card[i] is JsonObject o && o["part"]?.GetValue<string>() == partId)
+                { card[i] = entry; return; }
+            card.Add(entry);
+        }
+
+        // ─── shared between both build paths ────────────────────────────
+
+        /// <summary>The level stack: the project's lowest level, one level per
+        /// storey, plus one extra at the top for the roof to bear on.</summary>
+        private static List<Level> EnsureLevels(Document doc, int count, double f2f,
+                                                string prefix, Action<string, long> own)
+        {
+            var levels = new List<Level>();
+            var baseLevel = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .OrderBy(l => l.Elevation).FirstOrDefault()
+                ?? throw new InvalidOperationException("project has no levels");
+            levels.Add(baseLevel);
+            for (int i = 1; i <= count; i++)   // one extra: the roof bearing level
+            {
+                var elev = baseLevel.Elevation + f2f * i;
+                var lvl = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                    .FirstOrDefault(l => Math.Abs(l.Elevation - elev) < 1e-6);
+                if (lvl == null)
+                {
+                    lvl = Level.Create(doc, elev);
+                    try { lvl.Name = i == count ? "Roof" : $"{prefix}{i + 1}"; } catch { }
+                    own("level", lvl.Id.Value);
+                }
+                levels.Add(lvl);
+            }
+            return levels;
+        }
+
+        /// <summary>Curtain grid + mullions, set on the TYPE so one write
+        /// dresses every panel of every floor.</summary>
+        private static void DressCurtainType(Document doc, WallType curtainType,
+                                             JsonElement? facadeSpec)
+        {
+            const int MaximumSpacing = 3;      // CurtainGridLayout
+            var gv = (Num(facadeSpec, "grid_vertical_mm") ?? 1500) / FT;
+            var gh = (Num(facadeSpec, "grid_horizontal_mm") ?? 3000) / FT;
+            curtainType.get_Parameter(BuiltInParameter.SPACING_LAYOUT_VERT)?.Set(MaximumSpacing);
+            curtainType.get_Parameter(BuiltInParameter.SPACING_LENGTH_VERT)?.Set(gv);
+            curtainType.get_Parameter(BuiltInParameter.SPACING_LAYOUT_HORIZ)?.Set(MaximumSpacing);
+            curtainType.get_Parameter(BuiltInParameter.SPACING_LENGTH_HORIZ)?.Set(gh);
+
+            var mullName = Str(facadeSpec, "mullion_type");
+            var mull = new FilteredElementCollector(doc).OfClass(typeof(MullionType))
+                .Cast<MullionType>()
+                .OrderByDescending(m => mullName != null
+                    && string.Equals(m.Name, mullName, StringComparison.OrdinalIgnoreCase))
+                .FirstOrDefault();
+            if (mull == null) return;
+            // Both groups: Revit gives vertical and horizontal mullions
+            // parameters that share a display name, so a generic set-parameter
+            // call can only ever reach one.
+            foreach (var bip in new[]
+                     { BuiltInParameter.AUTO_MULLION_INTERIOR_VERT,
+                       BuiltInParameter.AUTO_MULLION_BORDER1_VERT,
+                       BuiltInParameter.AUTO_MULLION_BORDER2_VERT,
+                       BuiltInParameter.AUTO_MULLION_INTERIOR_HORIZ,
+                       BuiltInParameter.AUTO_MULLION_BORDER1_HORIZ,
+                       BuiltInParameter.AUTO_MULLION_BORDER2_HORIZ })
+            {
+                var p = curtainType.get_Parameter(bip);
+                if (p != null && !p.IsReadOnly) p.Set(mull.Id);
+            }
+        }
+
+        /// <summary>Structural grid + columns from `structure`. No-op when the
+        /// spec does not ask for them.</summary>
+        private static void BuildStructure(Document doc, JsonElement args, List<XYZ> footprint,
+                                           Level lvl0, Action<string, long> own)
+        {
+            var structSpec = Obj(args, "structure");
+            if (structSpec == null) return;
+
+            var grid = Obj(structSpec.Value, "grid");
+            var xs = (Num(grid, "x_spacing_mm") ?? 6000) / FT;
+            var ys = (Num(grid, "y_spacing_mm") ?? 8000) / FT;
+            var xb = (int)(Num(grid, "x_bays") ?? 0);
+            var yb = (int)(Num(grid, "y_bays") ?? 0);
+            var minX = footprint.Min(p => p.X);
+            var minY = footprint.Min(p => p.Y);
+            var maxY = footprint.Max(p => p.Y);
+            var maxX = footprint.Max(p => p.X);
+            for (int i = 0; i <= xb; i++)
+            {
+                var x = minX + i * xs;
+                var g = Grid.Create(doc, Line.CreateBound(new XYZ(x, minY, 0), new XYZ(x, maxY, 0)));
+                own("grid", g.Id.Value);
+            }
+            for (int j = 0; j <= yb; j++)
+            {
+                var y = minY + j * ys;
+                var g = Grid.Create(doc, Line.CreateBound(new XYZ(minX, y, 0), new XYZ(maxX, y, 0)));
+                own("grid", g.Id.Value);
+            }
+            var colSym = FindSymbol(doc, BuiltInCategory.OST_StructuralColumns,
+                                    Str(Obj(structSpec.Value, "columns"), "type_name"));
+            if (colSym == null || xb <= 0 || yb <= 0) return;
+            if (!colSym.IsActive) { colSym.Activate(); doc.Regenerate(); }
+            for (int i = 0; i <= xb; i++)
+                for (int j = 0; j <= yb; j++)
+                {
+                    var pt = new XYZ(minX + i * xs, minY + j * ys, lvl0.Elevation);
+                    var col = doc.Create.NewFamilyInstance(
+                        pt, colSym, lvl0, Autodesk.Revit.DB.Structure.StructuralType.Column);
+                    own("column", col.Id.Value);
+                }
+        }
+
+        // ─── the legacy path (no `parts` in the spec) ───────────────────
+
         /// <summary>Build a whole design from a spec, in ONE transaction.
+        ///
+        /// This is the pre-2026-08-10 build, kept verbatim for a backend that
+        /// does not solve the plan yet. It still carries the heuristics the
+        /// solved path replaced — the door in the corridor-side partition, the
+        /// blanket window spacing — because for an UNSOLVED spec they are the
+        /// only answer available, and a shell (a tower asking for an envelope)
+        /// legitimately has no program to solve.
         ///
         /// Regenerations are minimised, not eliminated: family symbols must be
         /// activated and the document regenerated before instances can be
         /// placed, and rooms cannot find their boundaries until the walls
         /// enclosing them have been regenerated. Both are batched — activate
         /// every symbol once up front, regenerate once before rooms.</summary>
-        public static Dictionary<string, object?> BuildDesign(Document doc, JsonElement args,
-                                                              UIDocument? uidoc = null)
+        private static Dictionary<string, object?> BuildLegacy(Document doc, JsonElement args,
+                                                               UIDocument? uidoc = null)
         {
             var t0 = System.Diagnostics.Stopwatch.StartNew();
             var footprint = Footprint(args);
@@ -318,24 +1020,7 @@ namespace BinaVibe.Mcp.Tools
                 doc.Regenerate();
 
                 // Levels ------------------------------------------------------
-                var levels = new List<Level>();
-                var baseLevel = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
-                    .OrderBy(l => l.Elevation).FirstOrDefault()
-                    ?? throw new InvalidOperationException("project has no levels");
-                levels.Add(baseLevel);
-                for (int i = 1; i <= count; i++)   // one extra: the roof bearing level
-                {
-                    var elev = baseLevel.Elevation + f2f * i;
-                    var lvl = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
-                        .FirstOrDefault(l => Math.Abs(l.Elevation - elev) < 1e-6);
-                    if (lvl == null)
-                    {
-                        lvl = Level.Create(doc, elev);
-                        try { lvl.Name = i == count ? "Roof" : $"{prefix}{i + 1}"; } catch { }
-                        Own("level", lvl.Id.Value);
-                    }
-                    levels.Add(lvl);
-                }
+                var levels = EnsureLevels(doc, count, f2f, prefix, Own);
 
                 // Slabs + perimeter walls, per storey, per volume ---------------
                 // A building is parts. No `volumes` means one part named "main"
@@ -388,40 +1073,7 @@ namespace BinaVibe.Mcp.Tools
                 // Curtain grid + mullions, set on the TYPE so one write dresses
                 // every panel of every floor. Punched windows are skipped for a
                 // glazed facade — a curtain wall does not take them.
-                if (curtainType != null)
-                {
-                    const int MaximumSpacing = 3;      // CurtainGridLayout
-                    var gv = (Num(facadeSpec, "grid_vertical_mm") ?? 1500) / FT;
-                    var gh = (Num(facadeSpec, "grid_horizontal_mm") ?? 3000) / FT;
-                    curtainType.get_Parameter(BuiltInParameter.SPACING_LAYOUT_VERT)?.Set(MaximumSpacing);
-                    curtainType.get_Parameter(BuiltInParameter.SPACING_LENGTH_VERT)?.Set(gv);
-                    curtainType.get_Parameter(BuiltInParameter.SPACING_LAYOUT_HORIZ)?.Set(MaximumSpacing);
-                    curtainType.get_Parameter(BuiltInParameter.SPACING_LENGTH_HORIZ)?.Set(gh);
-
-                    var mullName = Str(facadeSpec, "mullion_type");
-                    var mull = new FilteredElementCollector(doc).OfClass(typeof(MullionType))
-                        .Cast<MullionType>()
-                        .OrderByDescending(m => mullName != null
-                            && string.Equals(m.Name, mullName, StringComparison.OrdinalIgnoreCase))
-                        .FirstOrDefault();
-                    if (mull != null)
-                    {
-                        // Both groups: Revit gives vertical and horizontal
-                        // mullions parameters that share a display name, so a
-                        // generic set-parameter call can only ever reach one.
-                        foreach (var bip in new[]
-                                 { BuiltInParameter.AUTO_MULLION_INTERIOR_VERT,
-                                   BuiltInParameter.AUTO_MULLION_BORDER1_VERT,
-                                   BuiltInParameter.AUTO_MULLION_BORDER2_VERT,
-                                   BuiltInParameter.AUTO_MULLION_INTERIOR_HORIZ,
-                                   BuiltInParameter.AUTO_MULLION_BORDER1_HORIZ,
-                                   BuiltInParameter.AUTO_MULLION_BORDER2_HORIZ })
-                        {
-                            var p = curtainType.get_Parameter(bip);
-                            if (p != null && !p.IsReadOnly) p.Set(mull.Id);
-                        }
-                    }
-                }
+                if (curtainType != null) DressCurtainType(doc, curtainType, facadeSpec);
 
                 // Openings on the ground floor ---------------------------------
                 var groundWalls = owns.TryGetValue("perimeter_wall", out var pw)
@@ -484,46 +1136,7 @@ namespace BinaVibe.Mcp.Tools
                 }
 
                 // Structure ----------------------------------------------------
-                var structSpec = Obj(args, "structure");
-                if (structSpec != null)
-                {
-                    var grid = Obj(structSpec.Value, "grid");
-                    var xs = (Num(grid, "x_spacing_mm") ?? 6000) / FT;
-                    var ys = (Num(grid, "y_spacing_mm") ?? 8000) / FT;
-                    var xb = (int)(Num(grid, "x_bays") ?? 0);
-                    var yb = (int)(Num(grid, "y_bays") ?? 0);
-                    var minX = footprint.Min(p => p.X);
-                    var minY = footprint.Min(p => p.Y);
-                    var maxY = footprint.Max(p => p.Y);
-                    var maxX = footprint.Max(p => p.X);
-                    for (int i = 0; i <= xb; i++)
-                    {
-                        var x = minX + i * xs;
-                        var g = Grid.Create(doc, Line.CreateBound(new XYZ(x, minY, 0), new XYZ(x, maxY, 0)));
-                        Own("grid", g.Id.Value);
-                    }
-                    for (int j = 0; j <= yb; j++)
-                    {
-                        var y = minY + j * ys;
-                        var g = Grid.Create(doc, Line.CreateBound(new XYZ(minX, y, 0), new XYZ(maxX, y, 0)));
-                        Own("grid", g.Id.Value);
-                    }
-                    var colSym = FindSymbol(doc, BuiltInCategory.OST_StructuralColumns,
-                                            Str(Obj(structSpec.Value, "columns"), "type_name"));
-                    if (colSym != null && xb > 0 && yb > 0)
-                    {
-                        if (!colSym.IsActive) { colSym.Activate(); doc.Regenerate(); }
-                        for (int i = 0; i <= xb; i++)
-                            for (int j = 0; j <= yb; j++)
-                            {
-                                var pt = new XYZ(minX + i * xs, minY + j * ys, levels[0].Elevation);
-                                var col = doc.Create.NewFamilyInstance(
-                                    pt, colSym, levels[0],
-                                    Autodesk.Revit.DB.Structure.StructuralType.Column);
-                                Own("column", col.Id.Value);
-                            }
-                    }
-                }
+                BuildStructure(doc, args, footprint, levels[0], Own);
 
                 // Interior. When the backend has SOLVED the layout it sends
                 // explicit room rectangles; build those. Equal strips are the
