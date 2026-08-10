@@ -52,6 +52,11 @@ namespace BinaVibe.Mcp.Tools
             {
                 var (min, max) = ReadBox(bb);
 
+                // Precedence: an explicit `measure` outranks `tolerance_z_mm`, so
+                // "centerline" ignores it (a wall's z comes from its own level and
+                // height, not from a roof's ridge slack) and "top" compares z-max
+                // against `tolerance_mm`; `tolerance_z_mm` selects the roof rule
+                // only when no `measure` was sent.
                 if (mode == "centerline")
                 {
                     // Walls: the solver placed CENTRELINES, so measure

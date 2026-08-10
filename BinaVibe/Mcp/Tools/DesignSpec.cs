@@ -1571,26 +1571,14 @@ namespace BinaVibe.Mcp.Tools
             var merged = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(oldArgs.GetRawText())
                          ?? new Dictionary<string, JsonElement>();
 
-            // SOLVED OUTPUT DOES NOT SURVIVE AN EDIT. `parts`, `rooms`,
-            // `partitions`, `doors`, `windows` and `exterior_walls` are the
-            // backend's answer to the OLD spec: absolute coordinates and bbox
-            // predictions for a building that, after this edit, no longer
-            // exists. Rebuilding from them measures the wrong house — the
-            // scorecard would compare a widened frontage against yesterday's
-            // walls and report failures the drafter cannot act on. So each
-            // stale key is dropped unless THIS call brings a fresh one; a
-            // rebuild then either uses the freshly solved plan or takes the
-            // legacy path, which is honest about having no solved layout.
-            var droppedSolved = new List<string>();
-            foreach (var k in new[] { "parts", "rooms", "partitions", "doors", "windows",
-                                      "exterior_walls" })
-            {
-                if (!merged.ContainsKey(k)) continue;
-                if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty(k, out _)) continue;
-                merged.Remove(k);
-                droppedSolved.Add(k);
-            }
-
+            // The solved output (`parts`, `rooms`, `partitions`, `doors`,
+            // `windows`, `exterior_walls`) is deliberately NOT touched here. It
+            // is dropped only on the full-rebuild path, at the bottom of this
+            // method — a fast path rebuilds nothing, so it must persist the
+            // stored spec exactly as it found it. Dropping the solved plan while
+            // only nudging a level height would delete it from the .rvt for
+            // good, and the NEXT update would demolish the building before
+            // discovering it has no layout to rebuild from.
             var changed = new List<string>();
             foreach (var p in args.EnumerateObject())
             {
@@ -1663,7 +1651,6 @@ namespace BinaVibe.Mcp.Tools
                 {
                     ["ok"] = true, ["changed_fields"] = changed,
                     ["strategy"] = "parameter edit — levels moved, hosted elements followed",
-                    ["dropped_solved_fields"] = droppedSolved.Count > 0 ? droppedSolved : null,
                     ["rebuilt"] = new Dictionary<string, object?>(),
                     ["elapsed_ms"] = t0.ElapsedMilliseconds,
                     ["digest"] = Inspectors.GetGeometryDigest(doc, args),
@@ -1695,7 +1682,6 @@ namespace BinaVibe.Mcp.Tools
                 {
                     ["ok"] = true, ["changed_fields"] = changed,
                     ["strategy"] = "type swap — openings preserved",
-                    ["dropped_solved_fields"] = droppedSolved.Count > 0 ? droppedSolved : null,
                     ["rebuilt"] = new Dictionary<string, object?> { ["perimeter_wall"] = n },
                     ["elapsed_ms"] = t0.ElapsedMilliseconds,
                     ["digest"] = Inspectors.GetGeometryDigest(doc, args),
@@ -1810,13 +1796,13 @@ namespace BinaVibe.Mcp.Tools
                         ["changed_fields"] = changed,
                         ["strategy"] = "walls stretched in place — doors and windows preserved; "
                                      + "slab and roof rebuilt (they host nothing)",
-                        ["dropped_solved_fields"] = droppedSolved.Count > 0 ? droppedSolved : null,
-                        ["warning"] = droppedSolved.Count > 0
-                            ? "the outline moved, so the previously solved plan "
-                              + $"({string.Join(", ", droppedSolved)}) no longer describes this "
-                              + "building and was dropped. Partitions and rooms already placed "
-                              + "were NOT re-solved — re-run design_preflight if the layout matters."
-                            : null,
+                        // The stored solved plan is KEPT (this path rebuilt no
+                        // layout), but the outline it was solved against has
+                        // moved, so say so rather than let the next prompt trust
+                        // it. Nothing is deleted from the spec here.
+                        ["warning"] = "the outline moved. Partitions and rooms were NOT re-solved, "
+                                    + "so the stored layout no longer matches the walls — re-run "
+                                    + "design_preflight before rebuilding anything from it.",
                         ["walls_stretched"] = stretched,
                         ["rebuilt"] = new Dictionary<string, object?>
                         {
@@ -1855,23 +1841,48 @@ namespace BinaVibe.Mcp.Tools
             // costs a longer rebuild and is always correct; the fast paths above
             // (level heights, wall types, roof-only, footprint stretch) are what
             // keep the common edits cheap, and none of them reach this code.
-            // …but not before checking the rebuild can actually succeed. With the
-            // stale solved plan dropped (above) a spec that still carries a room
-            // program has nothing to build the layout FROM, and BuildLegacy
-            // rightly refuses to slice the footprint into equal strips. Refusing
-            // HERE, before the delete transaction, is the difference between an
-            // error the drafter can act on and a demolished building followed by
-            // an error.
-            if (droppedSolved.Count > 0
-                && merged.TryGetValue("program", out var progEl)
-                && progEl.ValueKind == JsonValueKind.Array && progEl.GetArrayLength() > 1)
+            // SOLVED OUTPUT DOES NOT SURVIVE A REBUILD — and this is the only
+            // place it is dropped, because this is the only path that rebuilds.
+            // `parts`, `rooms`, `partitions`, `doors`, `windows` and
+            // `exterior_walls` are the backend's answer to the OLD spec:
+            // absolute coordinates and bbox predictions for a building that,
+            // after this edit, no longer exists. Rebuilding from them measures
+            // the wrong house — the scorecard would compare a widened frontage
+            // against yesterday's walls and report failures the drafter cannot
+            // act on. Each stale key goes unless THIS call brings a fresh one.
+            var droppedSolved = new List<string>();
+            foreach (var k in new[] { "parts", "rooms", "partitions", "doors", "windows",
+                                      "exterior_walls" })
+            {
+                if (!merged.ContainsKey(k)) continue;
+                if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty(k, out _)) continue;
+                merged.Remove(k);
+                droppedSolved.Add(k);
+            }
+            var rebuildJson = JsonSerializer.Serialize(merged);
+            using var rebuildDoc = JsonDocument.Parse(rebuildJson);
+            var rebuildArgs = rebuildDoc.RootElement;
+
+            // …but not before checking the rebuild can actually succeed. The
+            // test is on the STATE of the spec about to be built, not on what
+            // this particular call dropped: a room program with no solved rooms
+            // and no parts has nothing to build a layout FROM, whether this call
+            // stripped them or an earlier one left the spec that way. BuildLegacy
+            // rightly refuses to slice the footprint into equal strips — and
+            // refusing HERE, before the delete transaction, is the difference
+            // between an error the drafter can act on and a demolished building
+            // followed by an error.
+            bool Solved(string k) => merged.TryGetValue(k, out var v)
+                && v.ValueKind == JsonValueKind.Array && v.GetArrayLength() > 0;
+            if (merged.TryGetValue("program", out var progEl)
+                && progEl.ValueKind == JsonValueKind.Array && progEl.GetArrayLength() > 1
+                && !Solved("rooms") && !Solved("parts"))
                 throw new InvalidOperationException(
-                    "this design was solved server-side, and the change you sent ("
-                    + string.Join(", ", changed) + ") makes that solution stale — rebuilding "
-                    + "from it would place walls for the previous building and measure against "
-                    + "predictions that no longer hold. Nothing was deleted. Re-run "
-                    + "design_preflight on the updated spec and send the fresh parts, "
-                    + "partitions, exterior_walls, doors, windows and rooms with this call.");
+                    "this design carries a room program but no solved layout to rebuild from "
+                    + "(the stored plan described the previous spec, so it was not reused). "
+                    + "NOTHING WAS DELETED — the building is untouched. Re-run design_preflight "
+                    + "on the updated spec and send the fresh parts, partitions, exterior_walls, "
+                    + "doors, windows and rooms with this call.");
 
             var toDelete = new List<ElementId>();
             var targetRoles = owns.Keys.ToList();
@@ -1894,9 +1905,12 @@ namespace BinaVibe.Mcp.Tools
                 throw;
             }
 
-            // Rebuild from the merged spec. BuildDesign opens its own
-            // transaction and writes the new spec + ownership map.
-            var rebuilt = BuildDesign(doc, newArgs, uidoc);
+            // Rebuild from the merged spec MINUS the stale solved plan.
+            // BuildDesign opens its own transaction and writes the new spec +
+            // ownership map — so the strip above is also what finally clears the
+            // stale keys out of storage, on the one path that has replaced what
+            // they described.
+            var rebuilt = BuildDesign(doc, rebuildArgs, uidoc);
             t0.Stop();
             report["ok"] = true;
             report["changed_fields"] = changed;
