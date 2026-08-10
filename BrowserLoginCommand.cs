@@ -161,7 +161,7 @@ namespace RevitWebAppSync
                 return;
             }
 
-            var projectPicker = new ProjectPickerWindow(config.BeAccessToken);
+            var projectPicker = new ProjectPickerWindow(config.BeAccessToken, config.ProjectId);
             Services.RevitWindowOwner.SetOwner(projectPicker, uiApp);
             if (projectPicker.ShowDialog() == true)
             {
