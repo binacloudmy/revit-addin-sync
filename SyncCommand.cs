@@ -264,7 +264,9 @@ namespace RevitWebAppSync
                     FileType = "rvt",
                     UploadedBy = config.UserId,
                     UrnInBase64 = autodeskUploadResult?.UrnInBase64, // Autodesk URN for viewer (null if failed)
-                    DisciplineType = disciplineType, // Selected discipline from dropdown
+                    // Map at the wire boundary: the dialog says "HVAC", the backend
+                    // enum only knows Mechanical.
+                    DisciplineType = Services.DisciplineTypes.ToApiValue(disciplineType),
                     Metadata = new FederatedFileMetadata
                     {
                         LinkedFiles = linkedFiles
@@ -336,23 +338,7 @@ namespace RevitWebAppSync
         }
 
         private static string GetDisciplineTypeFromFileName(string fileName)
-        {
-            if (string.IsNullOrEmpty(fileName))
-                return "MainFile";
-
-            string fileNameUpper = fileName.ToUpper();
-            
-            if (fileNameUpper.StartsWith("ARCHITECTURE"))
-                return "Architecture";
-            else if (fileNameUpper.StartsWith("STRUCTURE"))
-                return "Structure";
-            else if (fileNameUpper.StartsWith("HVAC"))
-                return "HVAC";
-            else if (fileNameUpper.StartsWith("ELECTRICAL"))
-                return "Electrical";
-            else
-                return "MainFile";
-        }
+            => Services.DisciplineTypes.FromFileName(fileName);
 
         private static List<LinkedFileInfo> ExtractRevitLinks(Document doc)
         {
