@@ -642,12 +642,12 @@ namespace RevitWebAppSync
             // sign-in that mints both tokens is a follow-up.
             PushButtonData cloudLoginButtonData = new PushButtonData(
                 "BinaCloudLogin",
-                "Login to\nBINA Cloud",
+                "Login to\nCloud Docs",
                 Assembly.GetExecutingAssembly().Location,
                 "RevitWebAppSync.BinaCloudLoginCommand")
             {
-                ToolTip = "Sign in to BINA Cloud (projects, Cloud Docs, model sync)",
-                LongDescription = "Signs in to BINA Cloud in your browser and selects the project your Revit syncs are filed under. Separate from the BINA AI sign-in used by Copilot, JKR and space planning.",
+                ToolTip = "Sign in to BINA Cloud Docs (projects, documents, model sync)",
+                LongDescription = "Signs in to BINA Cloud Docs in your browser and selects the project your Revit syncs are filed under. Separate from the BINA Cloud sign-in (the Login button) used by Copilot, JKR and space planning.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };

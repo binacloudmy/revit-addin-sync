@@ -86,16 +86,16 @@ namespace RevitWebAppSync
                 // than letting the upload fail with a bare 401 after the file is sent.
                 if (!config.IsBinaCloudLoggedIn())
                 {
-                    TaskDialog.Show("Not Signed In to BINA Cloud",
-                        "Click 'Login to BINA Cloud' before syncing.\n\n" +
-                        "This is a separate sign-in from BINA AI (Copilot, JKR, space planning).");
+                    TaskDialog.Show("Not Signed In to Cloud Docs",
+                        "Click 'Login to Cloud Docs' before syncing.\n\n" +
+                        "This is a separate sign-in from the Login button used by Copilot, JKR and space planning.");
                     return Result.Cancelled;
                 }
 
                 if (config.ProjectId <= 0)
                 {
                     TaskDialog.Show("No Project Selected",
-                        "Click 'Login to BINA Cloud' and choose a project before syncing.");
+                        "Click 'Login to Cloud Docs' and choose a project before syncing.");
                     return Result.Cancelled;
                 }
 

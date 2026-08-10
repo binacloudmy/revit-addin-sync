@@ -29,8 +29,8 @@ namespace RevitWebAppSync
                 // Cloud session — a bina-ai token is rejected there.
                 if (!config.IsBinaCloudLoggedIn())
                 {
-                    TaskDialog.Show("Not Signed In to BINA Cloud",
-                        "Click 'Login to BINA Cloud' before downloading discipline files.");
+                    TaskDialog.Show("Not Signed In to Cloud Docs",
+                        "Click 'Login to Cloud Docs' before downloading discipline files.");
                     return Result.Cancelled;
                 }
 
@@ -57,7 +57,7 @@ namespace RevitWebAppSync
 
                     if (string.IsNullOrEmpty(accessToken))
                     {
-                        resultData.ErrorMessage = "No BINA Cloud session. Click 'Login to BINA Cloud' and try again.";
+                        resultData.ErrorMessage = "No Cloud Docs session. Click 'Login to Cloud Docs' and try again.";
                         ShowResultsWindow(resultData);
                         binaService.Dispose();
                         return Result.Failed;

@@ -116,7 +116,7 @@ namespace RevitWebAppSync
                 // against — so this command no longer invents one. It used to set
                 // ProjectId=1/"Demo", which meant every browser-login user would have
                 // filed their Revit syncs under project 1 regardless of what they were
-                // working on. Project selection now happens in "Login to BINA Cloud".
+                // working on. Project selection now happens in "Login to Cloud Docs".
                 // (config.Save() still runs unconditionally here so the bina-ai session
                 // persists — that was the other job this block was doing.)
                 config.Save();
@@ -156,8 +156,8 @@ namespace RevitWebAppSync
             // Passing the bina-ai token here is why "Switch Project" came up empty.
             if (!config.IsBinaCloudLoggedIn())
             {
-                TaskDialog.Show("Not Signed In to BINA Cloud",
-                    "Projects come from BINA Cloud. Click 'Login to BINA Cloud' first.");
+                TaskDialog.Show("Not Signed In to Cloud Docs",
+                    "Projects come from Cloud Docs. Click 'Login to Cloud Docs' first.");
                 return;
             }
 

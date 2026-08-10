@@ -42,15 +42,15 @@ namespace RevitWebAppSync
                 // than forcing another browser round-trip.
                 if (config.IsBinaCloudLoggedIn())
                 {
-                    var choice = new TaskDialog("BINA Cloud")
+                    var choice = new TaskDialog("Cloud Docs")
                     {
-                        MainInstruction = "You are signed in to BINA Cloud.",
+                        MainInstruction = "You are signed in to Cloud Docs.",
                         MainContent = $"Project: {config.ProjectName ?? "(none selected)"}",
                         CommonButtons = TaskDialogCommonButtons.Close
                     };
                     choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Switch project",
                         "Choose which project your Revit syncs are filed under.");
-                    choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Sign out of BINA Cloud",
+                    choice.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Sign out of Cloud Docs",
                         "Keeps you signed in to BINA AI (Copilot, JKR, space planning).");
 
                     switch (choice.Show())
@@ -61,7 +61,7 @@ namespace RevitWebAppSync
                         case TaskDialogResult.CommandLink2:
                             config.ClearBinaCloudSession();
                             config.Save();
-                            TaskDialog.Show("Signed Out", "Signed out of BINA Cloud.");
+                            TaskDialog.Show("Signed Out", "Signed out of Cloud Docs.");
                             return Result.Succeeded;
                         default:
                             return Result.Cancelled;
@@ -80,7 +80,7 @@ namespace RevitWebAppSync
 
                 if (string.IsNullOrEmpty(tokens?.AccessToken))
                 {
-                    TaskDialog.Show("Login Failed", "BINA Cloud did not return an access token.");
+                    TaskDialog.Show("Login Failed", "Cloud Docs did not return an access token.");
                     return Result.Failed;
                 }
 
@@ -97,14 +97,14 @@ namespace RevitWebAppSync
                 ShowProjectPicker(config);
 
                 TaskDialog.Show("Signed In",
-                    $"Signed in to BINA Cloud.\n\nProject: {config.ProjectName ?? "(none selected)"}");
+                    $"Signed in to Cloud Docs.\n\nProject: {config.ProjectName ?? "(none selected)"}");
                 return Result.Succeeded;
             }
             catch (Exception ex)
             {
                 Services.TelemetryService.Track("auth", "bina_cloud_login_failed",
                     new { error_class = ex.GetType().Name });
-                TaskDialog.Show("Error", $"BINA Cloud login failed: {ex.Message}");
+                TaskDialog.Show("Error", $"Cloud Docs login failed: {ex.Message}");
                 message = ex.Message;
                 return Result.Failed;
             }
