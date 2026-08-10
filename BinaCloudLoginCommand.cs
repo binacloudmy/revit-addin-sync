@@ -93,12 +93,15 @@ namespace RevitWebAppSync
                 config.SaveBinaCloudTokens();   // credential store, not config.json
                 config.Save();
 
-                // Pick the project straight away: a sync with no project selected
-                // has nowhere to go, and the sync dialog defaults to this value.
-                ShowProjectPicker(config, commandData.Application);
-
+                // Deliberately NOT opening the project picker here. The sync dialog
+                // already asks for project + folder + discipline every time, which
+                // is where that choice belongs — a stored project silently drifts
+                // (browser sign-in used to hard-code project 1 for everyone).
+                // Opening a second modal window straight after the browser round
+                // trip also left Revit blocked behind an invisible dialog.
                 TaskDialog.Show("Signed In",
-                    $"Signed in to Cloud Docs.\n\nProject: {config.ProjectName ?? "(none selected)"}");
+                    "Signed in to BINA Cloud Docs.\n\n" +
+                    "Choose the project and folder when you sync.");
                 return Result.Succeeded;
             }
             catch (Exception ex)
