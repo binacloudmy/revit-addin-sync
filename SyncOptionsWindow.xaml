@@ -38,17 +38,19 @@
                       SelectionChanged="ProjectCombo_SelectionChanged"/>
         </StackPanel>
 
-        <StackPanel Grid.Row="3" Margin="0,0,0,12">
+        <StackPanel Grid.Row="4" Margin="0,0,0,12">
             <TextBlock Text="Folder" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
-            <ComboBox x:Name="FolderCombo" Height="30" DisplayMemberPath="Name"/>
+            <ComboBox x:Name="FolderCombo" Height="30" DisplayMemberPath="Name"
+                      SelectionChanged="FolderCombo_SelectionChanged"/>
             <TextBlock x:Name="FolderHint"
                        Foreground="#B54708" FontSize="11" Margin="0,4,0,0"
                        TextWrapping="Wrap" Visibility="Collapsed"/>
         </StackPanel>
 
-        <StackPanel Grid.Row="4" Margin="0,0,0,12">
+        <StackPanel Grid.Row="3" Margin="0,0,0,12">
             <TextBlock Text="Discipline" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
-            <ComboBox x:Name="DisciplineCombo" Height="30" DisplayMemberPath="Label"/>
+            <ComboBox x:Name="DisciplineCombo" Height="30" DisplayMemberPath="Label"
+                      SelectionChanged="DisciplineCombo_SelectionChanged"/>
         </StackPanel>
 
         <StackPanel Grid.Row="5" Margin="0,0,0,12">

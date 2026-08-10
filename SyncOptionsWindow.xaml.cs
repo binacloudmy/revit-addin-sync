@@ -7,9 +7,13 @@ using RevitWebAppSync.Services;
 namespace RevitWebAppSync
 {
     /// <summary>
-    /// Everything the user confirms before a single byte is uploaded: which
-    /// project, which folder, which discipline, and an optional note
-    /// (ClickUp 86d3x42mz).
+    /// Everything the user confirms before a single byte is uploaded: project,
+    /// discipline, folder and an optional note (ClickUp 86d3x42mz).
+    ///
+    /// The order matters and mirrors BINA's own structure: a folder lives under
+    /// a discipline (BIM Models -> Architecture -> WIP -> folder), so discipline
+    /// is chosen first and scopes the folder list. Asking for the folder first,
+    /// unscoped, offered folders from other disciplines.
     ///
     /// The project is pre-selected from config but always shown, because the
     /// stored value drifts — browser sign-in used to hard-code project 1
@@ -81,6 +85,12 @@ namespace RevitWebAppSync
 
                 var current = projects.FirstOrDefault(p => p.Id == SelectedProjectId);
                 ProjectCombo.SelectedItem = current ?? projects.FirstOrDefault();
+                var chosen = ProjectCombo.SelectedItem as ProjectInfo;
+                if (chosen != null)
+                {
+                    SelectedProjectId = chosen.Id;
+                    SelectedProjectName = chosen.Name;
+                }
 
                 if (current == null && SelectedProjectId > 0)
                 {
@@ -99,6 +109,12 @@ namespace RevitWebAppSync
             {
                 SetBusy(false, null);
             }
+
+            // Load folders explicitly. Setting SelectedItem above fires
+            // SelectionChanged while _loading is still true, and that handler
+            // bails out — which left the folder list permanently empty, with no
+            // way to retry short of picking a different project and back.
+            await LoadFoldersAndHeadAsync();
         }
 
         private async void ProjectCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
@@ -125,7 +141,12 @@ namespace RevitWebAppSync
                 FolderHint.Visibility = Visibility.Collapsed;
                 HeadPanel.Visibility = Visibility.Collapsed;
 
-                var folders = await _api.GetWipFoldersAsync(SelectedProjectId);
+                // Folders live under a discipline in BINA (BIM Models ->
+                // Architecture -> WIP -> folder), so the list is scoped to the
+                // discipline chosen above rather than showing every folder in
+                // the project.
+                string discipline = (DisciplineCombo.SelectedItem as DisciplineChoice)?.ApiValue;
+                var folders = await _api.GetWipFoldersAsync(SelectedProjectId, discipline);
                 FolderCombo.ItemsSource = folders;
                 FolderCombo.SelectedItem = folders.FirstOrDefault();
 
@@ -133,8 +154,10 @@ namespace RevitWebAppSync
                 {
                     // Uploading would fail server-side; stop here with an
                     // explanation instead of after a long upload.
+                    string disciplineLabel = (DisciplineCombo.SelectedItem as DisciplineChoice)?.Label ?? "this discipline";
                     FolderHint.Text =
-                        "This project has no work-in-progress folders. Create one in BINA Cloud Docs, then sync.";
+                        $"No work-in-progress folders under {disciplineLabel} in this project. " +
+                        "Create one in BINA Cloud Docs (BIM Models → " + disciplineLabel + " → WIP → New), then reopen this dialog.";
                     FolderHint.Visibility = Visibility.Visible;
                     SyncButton.IsEnabled = false;
                     return;
@@ -142,12 +165,7 @@ namespace RevitWebAppSync
 
                 SyncButton.IsEnabled = true;
 
-                var head = await _api.GetHeadAsync(
-                    SelectedProjectId, _docGuid, _fileName,
-                    (FolderCombo.SelectedItem as WipFolder)?.Id);
-
-                BaseVersion = head?.Version;
-                ShowHead(head);
+                await RefreshHeadAsync();
             }
             catch (Exception ex)
             {
@@ -157,6 +175,38 @@ namespace RevitWebAppSync
             finally
             {
                 SetBusy(false, null);
+            }
+        }
+
+        private async void DisciplineCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            if (_loading) return;
+            await LoadFoldersAndHeadAsync();
+        }
+
+        private async void FolderCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            if (_loading) return;
+            // The head is per lineage, and lineage includes the folder — so the
+            // "BINA already has v7" panel has to follow the folder choice.
+            await RefreshHeadAsync();
+        }
+
+        private async System.Threading.Tasks.Task RefreshHeadAsync()
+        {
+            try
+            {
+                var head = await _api.GetHeadAsync(
+                    SelectedProjectId, _docGuid, _fileName,
+                    (FolderCombo.SelectedItem as WipFolder)?.Id);
+                BaseVersion = head?.Version;
+                ShowHead(head);
+            }
+            catch
+            {
+                // A head we cannot read is not worth blocking the sync over; the
+                // server re-checks the version on commit regardless.
+                HeadPanel.Visibility = Visibility.Collapsed;
             }
         }
 
