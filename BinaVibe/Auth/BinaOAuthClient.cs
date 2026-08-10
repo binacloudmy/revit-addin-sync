@@ -167,10 +167,10 @@ namespace BinaVibe.Auth
         {
             // bina-be binds the code to the redirect_uri it was issued for and
             // rejects an exchange that omits it; bina-ai does not accept the field.
-            object body = _endpoints.SendRedirectUri
+            object requestBody = _endpoints.SendRedirectUri
                 ? (object)new { code, code_verifier = verifier, redirect_uri = redirectUri }
-                : new { code, code_verifier = verifier };
-            string payload = JsonConvert.SerializeObject(body);
+                : (object)new { code, code_verifier = verifier };
+            string payload = JsonConvert.SerializeObject(requestBody);
             using var content = new StringContent(payload, Encoding.UTF8, "application/json");
             using var resp = await _http.PostAsync($"{_aiBaseUrl}{_endpoints.TokenPath}", content, ct).ConfigureAwait(false);
             string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
