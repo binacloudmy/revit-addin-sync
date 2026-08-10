@@ -1,0 +1,189 @@
+using System;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.IO;
+using System.Text;
+using System.Threading.Tasks;
+using System.Collections.Generic;
+using Newtonsoft.Json;
+
+namespace RevitWebAppSync.Services
+{
+    /// <summary>
+    /// Client for the bina-be sync protocol (ClickUp 86d3x42mz).
+    ///
+    /// The exchange is: ask for the head, init (which answers "unchanged", a
+    /// conflict, or an upload URL + server-issued key), PUT the bytes, commit.
+    /// Answering unchanged or 409 at init is the point — for a multi-gigabyte
+    /// central model it is the difference between a wasted upload and an
+    /// immediate answer.
+    ///
+    /// All calls use the BINA Cloud (bina-be) token, never the bina-ai one.
+    /// </summary>
+    public sealed class SyncApiClient : IDisposable
+    {
+        private readonly HttpClient _http;
+        private readonly string _baseUrl;
+
+        public SyncApiClient(string baseUrl, string accessToken, HttpClient http = null)
+        {
+            _baseUrl = (baseUrl ?? "").TrimEnd('/');
+            _http = http ?? new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
+            _http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", accessToken);
+        }
+
+        private static readonly JsonSerializerSettings JsonSettings = new JsonSerializerSettings
+        {
+            NullValueHandling = NullValueHandling.Ignore,
+            ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
+        };
+
+        /// <summary>WIP folders for a project, optionally narrowed to one discipline.</summary>
+        public async Task<List<WipFolder>> GetWipFoldersAsync(int projectId, string disciplineType = null)
+        {
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}/wip-folders";
+            if (!string.IsNullOrEmpty(disciplineType))
+                url += $"?disciplineType={Uri.EscapeDataString(disciplineType)}";
+
+            using (var resp = await _http.GetAsync(url).ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException($"Could not load folders (HTTP {(int)resp.StatusCode}): {body}");
+                return JsonConvert.DeserializeObject<List<WipFolder>>(body) ?? new List<WipFolder>();
+            }
+        }
+
+        /// <summary>Projects the signed-in user can sync into.</summary>
+        public async Task<List<ProjectInfo>> GetProjectsAsync()
+        {
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/user/projects";
+            using (var resp = await _http.GetAsync(url).ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException($"Could not load projects (HTTP {(int)resp.StatusCode}): {body}");
+                return JsonConvert.DeserializeObject<List<ProjectInfo>>(body) ?? new List<ProjectInfo>();
+            }
+        }
+
+        /// <summary>Server's current version for this lineage; null if never synced.</summary>
+        public async Task<SyncHead> GetHeadAsync(int projectId, string docGuid, string fileName, int? parentId)
+        {
+            var query = new List<string> { $"projectId={projectId}" };
+            if (!string.IsNullOrEmpty(docGuid)) query.Add($"docGuid={Uri.EscapeDataString(docGuid)}");
+            if (!string.IsNullOrEmpty(fileName)) query.Add($"name={Uri.EscapeDataString(fileName)}");
+            if (parentId.HasValue) query.Add($"parentId={parentId.Value}");
+
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/sync/head?{string.Join("&", query)}";
+            using (var resp = await _http.GetAsync(url).ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode) return null;   // never-synced is not an error
+                return JsonConvert.DeserializeObject<SyncHeadResponse>(body)?.Head;
+            }
+        }
+
+        public Task<SyncInitResponse> InitAsync(SyncInitRequest request) =>
+            PostAsync<SyncInitResponse>("sync/init", request);
+
+        public Task<SyncCommitResponse> CommitAsync(SyncCommitRequest request) =>
+            PostAsync<SyncCommitResponse>("sync/commit", request);
+
+        private async Task<T> PostAsync<T>(string path, object payload)
+        {
+            string json = JsonConvert.SerializeObject(payload, JsonSettings);
+            using (var content = new StringContent(json, Encoding.UTF8, "application/json"))
+            using (var resp = await _http.PostAsync(
+                $"{_baseUrl}/api/cloud-docs/bim-discipline/{path}", content).ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                // 409 is a first-class outcome, not a failure: someone else synced
+                // since this machine last pulled. Surface the head so the user can
+                // decide rather than showing them a status code.
+                if (resp.StatusCode == HttpStatusCode.Conflict)
+                    throw new SyncConflictException(ExtractMessage(body), ExtractHead(body));
+
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException($"{path} failed (HTTP {(int)resp.StatusCode}): {body}");
+
+                return JsonConvert.DeserializeObject<T>(body);
+            }
+        }
+
+        private static string ExtractMessage(string body)
+        {
+            try
+            {
+                var o = Newtonsoft.Json.Linq.JObject.Parse(body);
+                // Nest wraps the thrown object under `message` for ConflictException.
+                return (string)o["message"]?["message"] ?? (string)o["message"] ??
+                       "This model has been synced by someone else since your last sync.";
+            }
+            catch
+            {
+                return "This model has been synced by someone else since your last sync.";
+            }
+        }
+
+        private static SyncHead ExtractHead(string body)
+        {
+            try
+            {
+                var o = Newtonsoft.Json.Linq.JObject.Parse(body);
+                var head = o["message"]?["head"] ?? o["head"];
+                return head?.ToObject<SyncHead>();
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Upload the bytes to the presigned URL. Streamed from disk rather than
+        /// read into a byte[] — a 2 GB central would otherwise be held in memory
+        /// (twice, with the temp copy) and take Revit down with it.
+        /// </summary>
+        public async Task<bool> UploadAsync(string uploadUrl, string filePath, IProgress<int> progress = null)
+        {
+            using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
+                                               bufferSize: 81920, useAsync: true))
+            using (var content = new StreamContent(stream, 81920))
+            {
+                content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                content.Headers.ContentLength = stream.Length;
+
+                using (var req = new HttpRequestMessage(HttpMethod.Put, uploadUrl) { Content = content })
+                using (var resp = await _http.SendAsync(req).ConfigureAwait(false))
+                {
+                    progress?.Report(100);
+                    return resp.IsSuccessStatusCode;
+                }
+            }
+        }
+
+        /// <summary>
+        /// SHA-256 of the bytes that will actually be uploaded. Streamed for the
+        /// same reason as the upload.
+        /// </summary>
+        public static string ComputeFileHash(string filePath)
+        {
+            using (var sha = SHA256.Create())
+            using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
+                                               bufferSize: 81920))
+            {
+                byte[] hash = sha.ComputeHash(stream);
+                var sb = new StringBuilder(hash.Length * 2);
+                foreach (byte b in hash) sb.Append(b.ToString("x2"));
+                return sb.ToString();
+            }
+        }
+
+        public void Dispose() => _http?.Dispose();
+    }
+}

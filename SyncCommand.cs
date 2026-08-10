@@ -21,69 +21,23 @@ namespace RevitWebAppSync
 
             try
             {
-                System.Diagnostics.Debug.WriteLine("[BINA] Add-in started executing");
-                // Get the current Revit document
-                Document doc = commandData.Application.ActiveUIDocument.Document;
-                
+                Document doc = commandData.Application.ActiveUIDocument?.Document;
                 if (doc == null)
                 {
                     TaskDialog.Show("Error", "No active Revit document found.");
                     return Result.Failed;
                 }
 
-                // Check if the document is saved
                 if (string.IsNullOrEmpty(doc.PathName))
                 {
-                    TaskDialog.Show("Error", "Please save your Revit file before syncing to BINA.");
+                    TaskDialog.Show("Error", "Save your Revit file once before syncing to BINA.");
                     return Result.Failed;
                 }
 
-                // Show discipline selection dialog
-                TaskDialog disciplineDialog = new TaskDialog("Select Discipline Type");
-                disciplineDialog.MainInstruction = "What type of discipline file are you uploading?";
-                disciplineDialog.MainContent = $"File: {Path.GetFileName(doc.PathName)}\n\nPlease select the discipline type for this file:\n\nClick 'OK' for MainFile/General model.";
-                
-                disciplineDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Architecture", "Architectural design elements, walls, doors, windows, etc.");
-                disciplineDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Structure", "Structural elements, beams, columns, foundations, etc.");
-                disciplineDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink3, "HVAC", "Heating, ventilation, and air conditioning systems.");
-                disciplineDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink4, "Electrical", "Electrical systems, lighting, power distribution, etc.");
-                
-                disciplineDialog.CommonButtons = TaskDialogCommonButtons.Ok | TaskDialogCommonButtons.Cancel;
-                disciplineDialog.DefaultButton = TaskDialogResult.Ok;
-
-                var disciplineResult = disciplineDialog.Show();
-                
-                string selectedDiscipline;
-                switch (disciplineResult)
-                {
-                    case TaskDialogResult.CommandLink1:
-                        selectedDiscipline = "Architecture";
-                        break;
-                    case TaskDialogResult.CommandLink2:
-                        selectedDiscipline = "Structure";
-                        break;
-                    case TaskDialogResult.CommandLink3:
-                        selectedDiscipline = "HVAC";
-                        break;
-                    case TaskDialogResult.CommandLink4:
-                        selectedDiscipline = "Electrical";
-                        break;
-                    case TaskDialogResult.Ok:
-                        selectedDiscipline = "MainFile"; // Default to MainFile if OK is clicked
-                        break;
-                    default:
-                        return Result.Cancelled;
-                }
-
-                System.Diagnostics.Debug.WriteLine($"[BINA] Selected discipline type: {selectedDiscipline}");
-
-                // Load saved config
                 BinaConfig config = BinaConfig.Load();
 
-                // Sync targets bina-be (/api/cloud-docs/*, /api/system/*), which only
-                // accepts tokens it issued itself — a bina-ai session from the "Login"
-                // button is rejected. Require the BINA Cloud session explicitly rather
-                // than letting the upload fail with a bare 401 after the file is sent.
+                // Sync targets bina-be, which only accepts tokens it issued itself —
+                // a bina-ai session from the "Login" button is rejected there.
                 if (!config.IsBinaCloudLoggedIn())
                 {
                     TaskDialog.Show("Not Signed In to Cloud Docs",
@@ -92,79 +46,137 @@ namespace RevitWebAppSync
                     return Result.Cancelled;
                 }
 
-                if (config.ProjectId <= 0)
+                // ---- Model identity (Revit API — UI thread only) ------------------
+                string docPathName = doc.PathName;
+                var stamp = Services.ModelLineage.Read(doc);
+                string lineageId = stamp?.LineageId;
+
+                if (Services.ModelLineage.LooksLikeCopy(stamp, docPathName))
                 {
-                    TaskDialog.Show("No Project Selected",
-                        "Click 'Login to Cloud Docs' and choose a project before syncing.");
-                    return Result.Cancelled;
+                    // ExtensibleStorage travels with SaveAs, so a copy carries the
+                    // original's identity. Filing it as the next version would
+                    // deactivate a different building's current model.
+                    var copyDialog = new TaskDialog("New model or new version?")
+                    {
+                        MainInstruction = "This model was saved from another BINA-synced model.",
+                        MainContent =
+                            $"It still carries the identity of:\n{stamp.OriginPath}\n\n" +
+                            "Sync it as a NEW model, or as the next version of that one?",
+                        CommonButtons = TaskDialogCommonButtons.Cancel
+                    };
+                    copyDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "New model",
+                        "Start its own version history. Recommended for a SaveAs copy.");
+                    copyDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "New version of the original",
+                        "Continue the original model's history.");
+
+                    switch (copyDialog.Show())
+                    {
+                        case TaskDialogResult.CommandLink1:
+                            lineageId = null;   // minted fresh below
+                            break;
+                        case TaskDialogResult.CommandLink2:
+                            break;              // keep the inherited id
+                        default:
+                            return Result.Cancelled;
+                    }
                 }
 
-                // bina-be token — NOT config.AccessToken (that one is bina-ai's).
-                string accessToken = config.BeAccessToken;
-                var binaService = new BinaApiService(config.Email, config.Password);
-
-                // Everything that touches the Revit API is read HERE, on the UI
-                // thread that Revit handed us. The Revit API is single-threaded:
-                // calling it from the upload task is undefined behaviour and can
-                // take Revit down. The background work below sees only plain data.
-                string docPathName = doc.PathName;
+                var clientInfo = Services.DocumentPreparer.DescribeClient(doc);
                 List<LinkedFileInfo> linkedFiles = ExtractRevitLinks(doc);
 
+                // ---- Make disk match screen (Revit API — UI thread only) ----------
+                Services.DocumentPreparer.PreparedDocument prepared;
                 try
                 {
-                    // Start dual upload process: BINA (OBS) + Autodesk OSS
-                    // NOTE: .Result still blocks the UI thread — Revit is frozen for
-                    // the duration. Replacing this with a modeless progress window
-                    // and async/await is tracked separately; this change is only
-                    // about not calling the Revit API off-thread.
-                    var uploadTask = Task.Run(() => UploadToMultiplePlatforms(
-                        docPathName, linkedFiles, accessToken, binaService, selectedDiscipline, config));
-                    var resultData = uploadTask.Result;
-
-                    // Failures are reported back as data and surfaced here, on the
-                    // UI thread, instead of the upload task opening its own dialogs.
-                    if (resultData != null && !string.IsNullOrEmpty(resultData.FatalError))
-                    {
-                        TaskDialog.Show("Upload Failed", resultData.FatalError);
-                        binaService.Dispose();
-                        return Result.Failed;
-                    }
-
-                    // Show results window on main UI thread
-                    if (resultData != null)
-                    {
-                        try
-                        {
-                            var resultsWindow = new SyncResultsWindow(resultData);
-                            resultsWindow.ShowDialog();
-                        }
-                        catch (Exception windowEx)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[BINA] Error showing results window: {windowEx.Message}");
-                            // Fallback to TaskDialog if window fails
-                            string fallbackMessage = $"Upload completed!\n\nFile: {resultData.FileName}\nDiscipline: {resultData.DisciplineType}\n" +
-                                                    $"BINA Storage: {(resultData.BinaObsSuccess ? "✅ Success" : "❌ Failed")}\n" +
-                                                    $"Autodesk Viewer: {(resultData.AutodeskOssSuccess ? "✅ Ready" : "❌ Failed")}\n" +
-                                                    $"Registration: {(resultData.RegistrationSuccess ? "✅ Saved" : "❌ Failed")}";
-                            TaskDialog.Show("Upload Results", fallbackMessage);
-                        }
-                    }
-
-                    binaService.Dispose();
-                }
-                catch (AggregateException aex)
-                {
-                    binaService.Dispose();
-                    var innerEx = aex.InnerException ?? aex;
-                    TaskDialog.Show("Error", $"Upload failed: {innerEx.Message}\n\nFull error: {innerEx.GetType().Name}");
+                    prepared = Services.DocumentPreparer.Prepare(doc);
                 }
                 catch (Exception ex)
                 {
-                    binaService.Dispose();
-                    TaskDialog.Show("Error", $"Upload failed: {ex.Message}\n\nError type: {ex.GetType().Name}");
+                    TaskDialog.Show("Could not prepare the model", ex.Message);
+                    return Result.Failed;
                 }
 
-                return Result.Succeeded;
+                // ---- Confirm destination ------------------------------------------
+                using (var api = new Services.SyncApiClient(config.ResolvedApiBaseUrl, config.BeAccessToken))
+                {
+                    var options = new SyncOptionsWindow(
+                        api,
+                        Path.GetFileName(docPathName),
+                        lineageId,
+                        config.ProjectId,
+                        config.ProjectName,
+                        GetDisciplineTypeFromFileName(Path.GetFileName(docPathName)));
+
+                    if (options.ShowDialog() != true)
+                    {
+                        CleanupTemp(prepared);
+                        return Result.Cancelled;
+                    }
+
+                    // Remember the project so the next sync defaults to it.
+                    if (options.SelectedProjectId != config.ProjectId)
+                    {
+                        config.ProjectId = options.SelectedProjectId;
+                        config.ProjectName = options.SelectedProjectName;
+                        config.Save();
+                    }
+
+                    // Stamp identity only once the user has committed to syncing.
+                    if (string.IsNullOrEmpty(lineageId))
+                    {
+                        lineageId = Services.ModelLineage.NewLineageId();
+                        try
+                        {
+                            using (var t = new Transaction(doc, "BINA: stamp model identity"))
+                            {
+                                t.Start();
+                                Services.ModelLineage.Write(doc, lineageId, docPathName);
+                                t.Commit();
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            // Not fatal: the server falls back to filename lineage.
+                            System.Diagnostics.Debug.WriteLine($"[BINA] Could not stamp lineage: {ex.Message}");
+                        }
+                    }
+
+                    var request = new Services.SyncRunner.Request
+                    {
+                        Api = api,
+                        UploadPath = prepared.UploadPath,
+                        FileName = Path.GetFileName(docPathName),
+                        ProjectId = options.SelectedProjectId,
+                        ParentId = options.SelectedFolderId,
+                        DisciplineType = options.SelectedDiscipline,
+                        DocGuid = lineageId,
+                        BaseVersion = options.BaseVersion,
+                        Comment = options.Comment,
+                        ClientInfo = clientInfo,
+                        LinkedFiles = linkedFiles,
+                        AccessToken = config.BeAccessToken
+                    };
+
+                    // Blocks the UI thread. The upload itself touches no Revit API,
+                    // which is the part that matters for stability; a modeless
+                    // progress window is tracked separately.
+                    Services.SyncRunner.Result runResult;
+                    try
+                    {
+                        runResult = Task.Run(() => Services.SyncRunner.RunAsync(request)).Result;
+                    }
+                    catch (AggregateException aex)
+                    {
+                        var inner = aex.InnerException ?? aex;
+                        TaskDialog.Show("Sync failed", inner.Message);
+                        CleanupTemp(prepared);
+                        return Result.Failed;
+                    }
+
+                    CleanupTemp(prepared);
+                    ShowOutcome(runResult, prepared.Action);
+                    return runResult.Succeeded ? Result.Succeeded : Result.Failed;
+                }
             }
             catch (Exception ex)
             {
@@ -173,169 +185,43 @@ namespace RevitWebAppSync
             }
         }
 
-        /// <summary>
-        /// Runs entirely off the UI thread and MUST NOT touch the Revit API or
-        /// open Revit dialogs. Everything Revit-derived (the document path, the
-        /// linked-file list) is read on the UI thread and passed in as data;
-        /// failures are returned via <see cref="SyncResultData.FatalError"/> for
-        /// the caller to display.
-        /// </summary>
-        private async Task<SyncResultData> UploadToMultiplePlatforms(
-            string docPathName,
-            List<LinkedFileInfo> linkedFiles,
-            string binaAccessToken,
-            BinaApiService binaService,
-            string disciplineType,
-            BinaConfig config)
+        private static void CleanupTemp(Services.DocumentPreparer.PreparedDocument prepared)
         {
-            var autodeskService = new AutodeskApiService();
-
-            try
-            {
-                // Step 1: Upload to BINA (OBS) - Original functionality
-                System.Diagnostics.Debug.WriteLine("[BINA] Starting upload to OBS (Original BINA storage)...");
-
-                var fileParams = binaService.GetFileParameters(docPathName);
-                if (string.IsNullOrEmpty(fileParams.key))
-                {
-                    return new SyncResultData
-                    {
-                        FileName = Path.GetFileName(docPathName),
-                        DisciplineType = disciplineType,
-                        FatalError = "Failed to calculate file parameters for BINA upload."
-                    };
-                }
-
-                var presignedUrlTask = Task.Run(() => binaService.GetPresignedUrlAsync(binaAccessToken, fileParams.key, fileParams.size, fileParams.mimeType));
-                string presignedUrl = await presignedUrlTask;
-
-                if (string.IsNullOrEmpty(presignedUrl))
-                {
-                    return new SyncResultData
-                    {
-                        FileName = Path.GetFileName(docPathName),
-                        DisciplineType = disciplineType,
-                        FatalError = "Failed to obtain presigned URL from BINA for OBS upload."
-                    };
-                }
-
-                var obsUploadTask = Task.Run(() => binaService.UploadFileAsync(presignedUrl, docPathName, fileParams.mimeType));
-                bool obsUploadSuccess = await obsUploadTask;
-
-                if (!obsUploadSuccess)
-                {
-                    return new SyncResultData
-                    {
-                        FileName = Path.GetFileName(docPathName),
-                        DisciplineType = disciplineType,
-                        FatalError = "Failed to upload file to BINA OBS storage."
-                    };
-                }
-
-                System.Diagnostics.Debug.WriteLine("[BINA] ✅ OBS upload completed successfully");
-
-                // Step 2: Upload to Autodesk OSS
-                System.Diagnostics.Debug.WriteLine("[BINA] Starting upload to Autodesk OSS...");
-
-                var autodeskUploadResult = await Task.Run(() => autodeskService.UploadFileAsync(
-                    binaAccessToken,
-                    docPathName,
-                    disciplineType, // Selected discipline type
-                    (progress) => {
-                        System.Diagnostics.Debug.WriteLine($"[AUTODESK] Upload progress: {progress}%");
-                    }
-                ));
-
-                // Step 3: Save file information to BINA backend
-                System.Diagnostics.Debug.WriteLine("[BINA] Saving file metadata to BINA backend...");
-                
-                // Use the config loaded at the start (already validated as logged in)
-
-                string cleanFileUrl = presignedUrl.Split('?')[0]; // Remove query parameters from OBS URL
-                cleanFileUrl = cleanFileUrl.Replace(":443", ""); // Remove port 443
-                
-                var saveFileDto = new SaveFederatedFileDto
-                {
-                    ProjectId = config.ProjectId,
-                    Name = Path.GetFileName(docPathName),
-                    FileUrl = cleanFileUrl, // OBS file URL for download/access
-                    FileKey = fileParams.key, // OBS file key
-                    FileSize = fileParams.size,
-                    FileType = "rvt",
-                    UploadedBy = config.UserId,
-                    UrnInBase64 = autodeskUploadResult?.UrnInBase64, // Autodesk URN for viewer (null if failed)
-                    // Map at the wire boundary: the dialog says "HVAC", the backend
-                    // enum only knows Mechanical.
-                    DisciplineType = Services.DisciplineTypes.ToApiValue(disciplineType),
-                    Metadata = new FederatedFileMetadata
-                    {
-                        LinkedFiles = linkedFiles
-                    }
-                };
-
-                var saveTask = Task.Run(() => binaService.SaveFederatedFileAsync(binaAccessToken, saveFileDto));
-                var saveResult = await saveTask;
-
-                // Step 4: Show results in dedicated window
-                System.Diagnostics.Debug.WriteLine("[BINA] Showing results window...");
-                
-                var resultData = new SyncResultData
-                {
-                    FileName = Path.GetFileName(docPathName),
-                    DisciplineType = disciplineType,
-                    FileSize = fileParams.size,
-                    Version = saveResult.Data?.Version,
-                    
-                    BinaObsSuccess = obsUploadSuccess,
-                    BinaLocation = fileParams.key,
-                    
-                    AutodeskOssSuccess = autodeskUploadResult != null,
-                    AutodeskUrn = autodeskUploadResult?.UrnInBase64,
-                    
-                    RegistrationSuccess = saveResult.Success,
-                    
-                    // Collected once, on the UI thread, before this task started.
-                    LinkedFiles = linkedFiles,
-                    ErrorMessage = GetErrorMessage(autodeskUploadResult, saveResult)
-                };
-
-                // Return result data instead of showing window here
-                return resultData;
-            }
-            catch (Exception ex)
-            {
-                // No Revit UI from this thread — hand the failure back as data.
-                System.Diagnostics.Debug.WriteLine($"[BINA] Dual upload error: {ex}");
-                return new SyncResultData
-                {
-                    FileName = Path.GetFileName(docPathName),
-                    DisciplineType = disciplineType,
-                    FatalError = $"An error occurred during upload: {ex.Message}\n\n" +
-                                 "Check the log files on Desktop for more details."
-                };
-            }
-            finally
-            {
-                autodeskService.Dispose();
-            }
+            if (prepared == null || !prepared.IsTemporary) return;
+            try { if (File.Exists(prepared.UploadPath)) File.Delete(prepared.UploadPath); }
+            catch { /* a leftover temp file is not worth surfacing */ }
         }
 
-        private static string GetErrorMessage(AutodeskUploadResult autodeskResult, SaveFederatedFileResponseDto saveResult)
+        private static void ShowOutcome(Services.SyncRunner.Result result, string prepareAction)
         {
-            var errors = new List<string>();
-            
-            if (autodeskResult == null)
+            if (result.Conflict != null)
             {
-                errors.Add("Autodesk OSS upload failed - Viewer functionality will be limited");
+                string who = result.Conflict.UploadedAt.HasValue
+                    ? result.Conflict.UploadedAt.Value.ToLocalTime().ToString("d MMM HH:mm")
+                    : "recently";
+                TaskDialog.Show("Someone else synced first",
+                    $"BINA now has v{result.Conflict.Version}, uploaded {who}.\n\n" +
+                    "Download the latest version before syncing again, so their changes are not lost.");
+                return;
             }
-            
-            if (!saveResult.Success)
+
+            if (!result.Succeeded)
             {
-                errors.Add($"Backend registration failed: {saveResult.Message}");
+                TaskDialog.Show("Sync failed", result.Message ?? "Unknown error.");
+                return;
             }
-            
-            return errors.Count > 0 ? string.Join("\n\n", errors) : null;
+
+            if (result.Unchanged)
+            {
+                TaskDialog.Show("Nothing to sync",
+                    $"This model is identical to v{result.Version} already in BINA, so no new version was created.");
+                return;
+            }
+
+            TaskDialog.Show("Synced",
+                $"{prepareAction}\n\n{result.FileName} is now v{result.Version} in BINA.");
         }
+
 
         private static string GetDisciplineTypeFromFileName(string fileName)
             => Services.DisciplineTypes.FromFileName(fileName);
