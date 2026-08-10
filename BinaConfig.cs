@@ -22,6 +22,15 @@ namespace RevitWebAppSync
         public string RefreshToken { get; set; }
         public DateTime TokenExpiry { get; set; }
 
+        // BINA Cloud (bina-be) session — kept SEPARATE from the bina-ai session
+        // above. The two services issue their own tokens: bina-ai signs its own,
+        // bina-be signs HS256 `access_${JWT_SECRET}`. Overwriting one with the
+        // other logs the user out of Copilot/JKR or out of Cloud Docs depending
+        // on which button they pressed last, so they never share a field.
+        public string BeAccessToken { get; set; }
+        public string BeRefreshToken { get; set; }
+        public DateTime BeTokenExpiry { get; set; }
+
         // Backend URLs — overridable via config.json so the addin doesn't need
         // a rebuild when ngrok tunnels rotate. Empty/missing values fall back
         // to the DEFAULT_* constants below.
@@ -37,6 +46,17 @@ namespace RevitWebAppSync
         // to deliberately point the AI calls at a live ngrok tunnel (e.g. a local
         // bina-ai backend during development). Default false = unchanged behavior.
         public bool AllowNgrokAIBaseUrl { get; set; }
+
+        // Same opt-in for the bina-be API base. Set true in config.json to point
+        // Cloud Docs / sync calls at a tunnelled local bina-be (the usual setup
+        // is Revit on Windows against a developer's Mac over ngrok).
+        public bool AllowNgrokApiBaseUrl { get; set; }
+
+        // BINA web app origin (app-stg.bina.cloud / bina.cloud). This is the page
+        // that runs the bina-be desktop-OAuth bridge: it authorizes against its
+        // own NEXT_PUBLIC_API_URL and redirects back to our loopback with a code.
+        // Distinct from LoginWebUrl, which is the bina-ai plugins landing page.
+        public string CloudWebUrl { get; set; }
 
         // UAT opt-in: by default a config.json override pointing at one of OUR
         // *.azurewebsites.net hosts follows the embedded .env (that is how the
@@ -115,7 +135,19 @@ namespace RevitWebAppSync
         // share BASE_URL — they're the same host. config.json still overrides.
         public static string DEFAULT_AI_BASE_URL =>
             Env("BASE_URL") ?? "https://bina-ai-prod.azurewebsites.net";
-        public static string DEFAULT_API_BASE_URL => DEFAULT_AI_BASE_URL;
+        // bina-be, the BINA Cloud REST API. This is a DIFFERENT service from
+        // bina-ai: it serves /api/cloud-docs/* and /api/system/*, which bina-ai
+        // does not implement at all. It aliased DEFAULT_AI_BASE_URL from 52bd3b4
+        // (2026-05-11) until now, so every Cloud Docs / sync call 404'd against
+        // bina-ai — that is why plugin syncs stopped landing. Falls back to
+        // BASE_URL when API_BASE_URL is absent so an env file without the new key
+        // behaves exactly as before.
+        public static string DEFAULT_API_BASE_URL =>
+            Env("API_BASE_URL") ?? Env("BASE_URL") ?? "https://bina-be-stg.azurewebsites.net";
+
+        // BINA web origin that hosts the desktop-OAuth bridge page (/login).
+        public static string DEFAULT_CLOUD_WEB_URL =>
+            Env("CLOUD_WEB_URL") ?? Env("LOGIN_WEB_URL") ?? "https://bina.cloud";
         // BINA web login origin for the desktop OAuth browser flow. Override via
         // the LOGIN_WEB_URL env key or config.json once the real origin is known.
         public static string DEFAULT_LOGIN_WEB_URL =>
@@ -208,10 +240,22 @@ namespace RevitWebAppSync
         [JsonIgnore]
         public string ResolvedAuthBaseUrl => ResolvedCloudBaseUrl;
 
+        // bina-be REST API (/api/cloud-docs/*, /api/system/*, /api/auth/user/*).
+        // Uses the ngrok-aware resolver so a Windows Revit box can be aimed at a
+        // developer's local bina-be with AllowNgrokApiBaseUrl=true.
         [JsonIgnore]
         public string ResolvedApiBaseUrl =>
-            Services.UrlResolution.ResolveApiBase(
-                ApiBaseUrl, DEFAULT_API_BASE_URL, AllowBackendOverride);
+            Services.UrlResolution.ResolveBinaBeBase(
+                ApiBaseUrl, AllowNgrokApiBaseUrl, DEFAULT_API_BASE_URL, AllowBackendOverride);
+
+        // Web origin hosting the bina-be desktop-OAuth bridge (/login).
+        [JsonIgnore]
+        public string ResolvedCloudWebUrl =>
+            Services.UrlResolution.ResolveLoginWeb(
+                CloudWebUrl, DEFAULT_CLOUD_WEB_URL, AllowBackendOverride);
+
+        /// <summary>True when a BINA Cloud (bina-be) session is stored.</summary>
+        public bool IsBinaCloudLoggedIn() => !string.IsNullOrEmpty(BeAccessToken);
 
         // Login must open the real web origin (plugins.jkrbinaxone.com),
         // never a dead local page left by dev testing.
@@ -408,6 +452,21 @@ namespace RevitWebAppSync
             TokenExpiry = DateTime.MinValue;
             ProjectId = 0;
             UserId = 0;
+            ClearBinaCloudSession();
+        }
+
+        /// <summary>
+        /// Drop only the BINA Cloud (bina-be) session, leaving the bina-ai session
+        /// intact — signing out of Cloud Docs must not sign the user out of
+        /// Copilot/JKR, and vice versa.
+        /// </summary>
+        public void ClearBinaCloudSession()
+        {
+            BeAccessToken = null;
+            BeRefreshToken = null;
+            BeTokenExpiry = DateTime.MinValue;
+            ProjectId = 0;
+            ProjectName = null;
         }
     }
 }

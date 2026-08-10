@@ -80,15 +80,27 @@ namespace RevitWebAppSync
                 // Load saved config
                 BinaConfig config = BinaConfig.Load();
 
-                // Check if user is logged in
-                if (!config.IsLoggedIn())
+                // Sync targets bina-be (/api/cloud-docs/*, /api/system/*), which only
+                // accepts tokens it issued itself — a bina-ai session from the "Login"
+                // button is rejected. Require the BINA Cloud session explicitly rather
+                // than letting the upload fail with a bare 401 after the file is sent.
+                if (!config.IsBinaCloudLoggedIn())
                 {
-                    TaskDialog.Show("Not Logged In", "Please login first using the 'Login' button before syncing.");
+                    TaskDialog.Show("Not Signed In to BINA Cloud",
+                        "Click 'Login to BINA Cloud' before syncing.\n\n" +
+                        "This is a separate sign-in from BINA AI (Copilot, JKR, space planning).");
                     return Result.Cancelled;
                 }
 
-                // Use stored access token from login
-                string accessToken = config.AccessToken;
+                if (config.ProjectId <= 0)
+                {
+                    TaskDialog.Show("No Project Selected",
+                        "Click 'Login to BINA Cloud' and choose a project before syncing.");
+                    return Result.Cancelled;
+                }
+
+                // bina-be token — NOT config.AccessToken (that one is bina-ai's).
+                string accessToken = config.BeAccessToken;
                 var binaService = new BinaApiService(config.Email, config.Password);
 
                 // Everything that touches the Revit API is read HERE, on the UI

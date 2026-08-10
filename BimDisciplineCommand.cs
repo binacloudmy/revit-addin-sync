@@ -25,10 +25,12 @@ namespace RevitWebAppSync
                 // Load saved config
                 BinaConfig config = BinaConfig.Load();
 
-                // Check if user is logged in
-                if (!config.IsLoggedIn())
+                // Downloads read bina-be (/api/cloud-docs/*), so they need the BINA
+                // Cloud session — a bina-ai token is rejected there.
+                if (!config.IsBinaCloudLoggedIn())
                 {
-                    TaskDialog.Show("Not Logged In", "Please login first using the 'Login' button before downloading.");
+                    TaskDialog.Show("Not Signed In to BINA Cloud",
+                        "Click 'Login to BINA Cloud' before downloading discipline files.");
                     return Result.Cancelled;
                 }
 
@@ -48,13 +50,14 @@ namespace RevitWebAppSync
 
                 try
                 {
-                    // Login
-                    var loginTask = Task.Run(() => binaService.LoginAsync());
-                    string accessToken = loginTask.Result;
+                    // Use the stored bina-be token instead of re-authenticating with
+                    // the persisted email/password. The password path is being retired
+                    // (the plugin should never hold one) and it targets bina-be anyway.
+                    string accessToken = config.BeAccessToken;
 
                     if (string.IsNullOrEmpty(accessToken))
                     {
-                        resultData.ErrorMessage = "Failed to login to BINA. Check the log file on Desktop for more details.";
+                        resultData.ErrorMessage = "No BINA Cloud session. Click 'Login to BINA Cloud' and try again.";
                         ShowResultsWindow(resultData);
                         binaService.Dispose();
                         return Result.Failed;

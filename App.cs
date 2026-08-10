@@ -635,6 +635,23 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
 
+            // Second sign-in, against bina-be. Cloud Docs / BIM sync live on a
+            // different service from Copilot/JKR and it issues its own tokens, so
+            // a bina-ai session cannot authorise /api/cloud-docs/* calls. Both
+            // sessions are stored separately; merging the two buttons into one
+            // sign-in that mints both tokens is a follow-up.
+            PushButtonData cloudLoginButtonData = new PushButtonData(
+                "BinaCloudLogin",
+                "Login to\nBINA Cloud",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.BinaCloudLoginCommand")
+            {
+                ToolTip = "Sign in to BINA Cloud (projects, Cloud Docs, model sync)",
+                LongDescription = "Signs in to BINA Cloud in your browser and selects the project your Revit syncs are filed under. Separate from the BINA AI sign-in used by Copilot, JKR and space planning.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            };
+
             PushButtonData bimDisciplineButtonData = new PushButtonData(
                 "BimDiscipline",
                 "Download BIM\nDisciplines",
@@ -735,6 +752,7 @@ namespace RevitWebAppSync
             // BINA Cloud: sync, account, downloads
             cloudPanel.AddItem(buttonData);
             cloudPanel.AddItem(loginButtonData);
+            cloudPanel.AddItem(cloudLoginButtonData);
             cloudPanel.AddItem(bimDisciplineButtonData);
 
             // AI: copilot

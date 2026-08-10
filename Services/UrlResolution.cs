@@ -44,6 +44,22 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// bina-be (BINA Cloud REST API) base. Same shape as ResolveAIBase: a stale
+        /// ngrok tunnel in config.json 502s, so it is ignored unless the machine
+        /// opts in — which is exactly how a Windows Revit box is pointed at a
+        /// developer's local bina-be over a tunnel.
+        /// </summary>
+        public static string ResolveBinaBeBase(
+            string persisted, bool allowNgrok, string envDefault,
+            bool allowBackendOverride = false)
+        {
+            if (string.IsNullOrWhiteSpace(persisted)) return envDefault;
+            if (IsNgrok(persisted) && !allowNgrok) return envDefault;
+            if (IsOurCloudHost(persisted) && !allowBackendOverride) return envDefault;
+            return persisted;
+        }
+
+        /// <summary>
         /// Gateway: empty stays empty — gateway features are gated on it
         /// being configured at all.
         /// </summary>
