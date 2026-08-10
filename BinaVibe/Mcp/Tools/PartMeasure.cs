@@ -32,6 +32,16 @@ namespace BinaVibe.Mcp.Tools
 
             var checks = new List<(bool ok, string pred, string meas)>();
             double tolMm = Num(expected, "tolerance_mm") ?? 50;
+            // Measurement HINTS, shipped by the backend with the prediction.
+            // They exist because a solid bounding box answers a different
+            // question for each element type: a wall's solid is offset half its
+            // thickness from the centreline the solver placed, a slab's z-min is
+            // its (type-dependent) thickness, and a roof's z spans a ridge the
+            // plan extents say nothing about. Absent hints, nothing changes.
+            string mode = expected.TryGetProperty("measure", out var mv)
+                          && mv.ValueKind == JsonValueKind.String
+                ? (mv.GetString() ?? "").Trim().ToLowerInvariant() : "";
+            double? tolZMm = Num(expected, "tolerance_z_mm");
 
             if (expected.TryGetProperty("count", out var cnt))
             {
@@ -41,12 +51,53 @@ namespace BinaVibe.Mcp.Tools
             if (expected.TryGetProperty("bbox_mm", out var bb))
             {
                 var (min, max) = ReadBox(bb);
-                var actual = UnionBox(doc, owned);
-                if (actual == null)
-                    return new PartResult { Status = "failed",
-                        Predicted = Fmt(min, max), Measured = "no geometry" };
-                bool ok = Within(actual, min, max, tolMm);
-                checks.Add((ok, Fmt(min, max), FmtBox(actual)));
+
+                if (mode == "centerline")
+                {
+                    // Walls: the solver placed CENTRELINES, so measure
+                    // centrelines. Comparing its prediction against the solid
+                    // makes every wall fail by half a wall thickness.
+                    var cl = CenterlineBox(doc, owned);
+                    if (cl == null)
+                        return new PartResult { Status = "unverified",
+                            Predicted = Fmt(min, max),
+                            Measured = "no wall centreline to measure" };
+                    checks.Add((Within(cl.Value.Min, cl.Value.Max, min, max, tolMm),
+                                Fmt(min, max), Fmt(cl.Value.Min, cl.Value.Max)));
+                }
+                else
+                {
+                    var actual = UnionBox(doc, owned);
+                    if (actual == null)
+                        return new PartResult { Status = "failed",
+                            Predicted = Fmt(min, max), Measured = "no geometry" };
+
+                    bool ok;
+                    if (mode == "top")
+                    {
+                        // Slabs: the prediction is the TOP surface. z-min is the
+                        // slab type's thickness, which the backend cannot know
+                        // and must not be judged on — so only the top is checked.
+                        double t = tolMm / FT;
+                        ok = actual.Min.X >= min.X - t && actual.Min.Y >= min.Y - t
+                          && actual.Max.X <= max.X + t && actual.Max.Y <= max.Y + t
+                          && Math.Abs(actual.Max.Z - max.Z) <= t;
+                    }
+                    else if (tolZMm.HasValue)
+                    {
+                        // Roofs: plan extents are tight, height is not — a ridge
+                        // depends on a pitch the type may override.
+                        double t = tolMm / FT, tz = tolZMm.Value / FT;
+                        ok = actual.Min.X >= min.X - t && actual.Min.Y >= min.Y - t
+                          && actual.Max.X <= max.X + t && actual.Max.Y <= max.Y + t
+                          && actual.Min.Z >= min.Z - tz && actual.Max.Z <= max.Z + tz;
+                    }
+                    else
+                    {
+                        ok = Within(actual.Min, actual.Max, min, max, tolMm);
+                    }
+                    checks.Add((ok, Fmt(min, max), FmtBox(actual)));
+                }
             }
             if (expected.TryGetProperty("open_ends", out var oe))
             {
@@ -109,11 +160,63 @@ namespace BinaVibe.Mcp.Tools
             return u;
         }
 
-        private static bool Within(BoundingBoxXYZ a, XYZ min, XYZ max, double tolMm)
+        private static bool Within(XYZ aMin, XYZ aMax, XYZ min, XYZ max, double tolMm)
         {
             double t = tolMm / FT;
-            return a.Min.X >= min.X - t && a.Min.Y >= min.Y - t && a.Min.Z >= min.Z - t
-                && a.Max.X <= max.X + t && a.Max.Y <= max.Y + t && a.Max.Z <= max.Z + t;
+            return aMin.X >= min.X - t && aMin.Y >= min.Y - t && aMin.Z >= min.Z - t
+                && aMax.X <= max.X + t && aMax.Y <= max.Y + t && aMax.Z <= max.Z + t;
+        }
+
+        /// <summary>The box the WALL CENTRELINES occupy: plan XY from every
+        /// LocationCurve endpoint, z from each wall's own base (level elevation +
+        /// base offset) to its top.
+        ///
+        /// Top is read from the top CONSTRAINT when there is one, because
+        /// Unconnected Height is stale on a top-constrained wall (same trap
+        /// Inspectors.cs documents for duplicate detection) — falling back to
+        /// Unconnected Height only for a genuinely unconnected wall.
+        ///
+        /// Returns null when nothing here is a wall with a location curve: the
+        /// caller reports that as UNVERIFIED, never as a pass.</summary>
+        private static (XYZ Min, XYZ Max)? CenterlineBox(Document doc, IReadOnlyList<ElementId> ids)
+        {
+            double minX = 0, minY = 0, minZ = 0, maxX = 0, maxY = 0, maxZ = 0;
+            bool any = false;
+            foreach (var id in ids)
+            {
+                if (doc.GetElement(id) is not Wall w) continue;
+                if (w.Location is not LocationCurve lc || lc.Curve == null) continue;
+
+                double baseElev = 0;
+                if (w.LevelId.Value != ElementId.InvalidElementId.Value
+                    && doc.GetElement(w.LevelId) is Level bl) baseElev = bl.Elevation;
+                baseElev += w.get_Parameter(BuiltInParameter.WALL_BASE_OFFSET)?.AsDouble() ?? 0;
+
+                double top = baseElev;
+                var topId = w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.AsElementId();
+                if (topId != null && topId.Value != ElementId.InvalidElementId.Value
+                    && doc.GetElement(topId) is Level tl)
+                    top = tl.Elevation + (w.get_Parameter(BuiltInParameter.WALL_TOP_OFFSET)?.AsDouble() ?? 0);
+                else
+                    top = baseElev + (w.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM)?.AsDouble() ?? 0);
+
+                foreach (var p in new[] { lc.Curve.GetEndPoint(0), lc.Curve.GetEndPoint(1) })
+                {
+                    if (!any)
+                    {
+                        minX = maxX = p.X; minY = maxY = p.Y;
+                        minZ = Math.Min(baseElev, top); maxZ = Math.Max(baseElev, top);
+                        any = true;
+                        continue;
+                    }
+                    minX = Math.Min(minX, p.X); maxX = Math.Max(maxX, p.X);
+                    minY = Math.Min(minY, p.Y); maxY = Math.Max(maxY, p.Y);
+                    minZ = Math.Min(minZ, Math.Min(baseElev, top));
+                    maxZ = Math.Max(maxZ, Math.Max(baseElev, top));
+                }
+            }
+            if (!any) return null;
+            return (new XYZ(minX, minY, minZ), new XYZ(maxX, maxY, maxZ));
         }
 
         private static int CountOpenEnds(Document doc, IReadOnlyList<ElementId> ids)

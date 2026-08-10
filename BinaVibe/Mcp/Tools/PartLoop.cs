@@ -76,10 +76,14 @@ namespace BinaVibe.Mcp.Tools
             owned = new List<ElementId>();
             try
             {
+                // TxGuard, not a bare Start/Commit: a part that trips a Revit
+                // warning would otherwise block the UI thread on a modal dialog
+                // nobody can see, and a part Revit rolled back would report
+                // success. CommitOrThrow turns that rollback into a failed line.
                 using var t = new Transaction(doc, $"BINA part {id}");
-                t.Start();
+                TxGuard.StartSwallowing(t);
                 owned = buildPart(id, expected);
-                t.Commit();
+                TxGuard.CommitOrThrow(t);
             }
             catch (Exception e)
             {
@@ -105,9 +109,9 @@ namespace BinaVibe.Mcp.Tools
             try
             {
                 using var t = new Transaction(doc, $"BINA undo part {id}");
-                t.Start();
+                TxGuard.StartSwallowing(t);
                 doc.Delete(owned);
-                t.Commit();
+                TxGuard.CommitOrThrow(t);
             }
             catch { /* best-effort — Assimilate still gives one undo */ }
         }

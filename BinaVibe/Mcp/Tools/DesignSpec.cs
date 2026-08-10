@@ -275,16 +275,26 @@ namespace BinaVibe.Mcp.Tools
             var f2f = (Num(levelsSpec, "floor_to_floor_mm") ?? 3000) / FT;
             var prefix = Str(levelsSpec, "prefix") ?? "Level ";
 
-            // `walls` is overloaded by the solved spec: the design vocabulary
-            // uses an OBJECT of type names, and design_preflight overwrites it
-            // with the ARRAY of solved partitions. Read whichever arrived — a
-            // solved build simply has no named wall types and takes the
-            // thinnest/thickest defaults, exactly as an unnamed spec does.
+            // `walls` is the wall-TYPE dict and nothing else. The solved
+            // partitions arrive in `partitions` and the solved exterior segments
+            // in `exterior_walls` — both ABSOLUTE mm, both carrying the spec ids
+            // that doors and windows are hosted by.
+            //
+            // The array-in-`walls` read below is the ONE transitional release for
+            // a backend that still overloads the key; it is removed next release.
             var wallsEl = Obj(args, "walls");
             var wallTypeSpec = wallsEl != null && wallsEl.Value.ValueKind == JsonValueKind.Object
                 ? wallsEl : null;
-            var solvedWalls = wallsEl != null && wallsEl.Value.ValueKind == JsonValueKind.Array
-                ? wallsEl : null;
+            var partitionsEl = Obj(args, "partitions");
+            var solvedPartitions =
+                partitionsEl != null && partitionsEl.Value.ValueKind == JsonValueKind.Array
+                    ? partitionsEl
+                    : (wallsEl != null && wallsEl.Value.ValueKind == JsonValueKind.Array
+                        ? wallsEl : null);
+            var extWallsEl = Obj(args, "exterior_walls");
+            var solvedExteriors = extWallsEl != null
+                                  && extWallsEl.Value.ValueKind == JsonValueKind.Array
+                ? extWallsEl : null;
 
             var facadeSpec = Obj(args, "facade");
             var facadeKind = (Str(facadeSpec, "kind") ?? "punched").ToLowerInvariant();
@@ -382,6 +392,23 @@ namespace BinaVibe.Mcp.Tools
             // just written after the fact.
             var deferredRoofs = new Dictionary<string, (BuildVolume Vol, JsonElement Expected)>();
 
+            // The solved exterior segments belonging to one volume, at a level.
+            // `ext.<role>.<i>` is the backend's id grammar, so the prefix filter
+            // IS the volume selector — no index arithmetic on either side.
+            IEnumerable<(XYZ A, XYZ B, string SpecId)> ExteriorSegments(string role, double z)
+            {
+                if (solvedExteriors == null) yield break;
+                var pfx = $"ext.{role}.";
+                foreach (var seg in solvedExteriors.Value.EnumerateArray())
+                {
+                    if (seg.ValueKind != JsonValueKind.Object) continue;
+                    var segId = seg.TryGetProperty("id", out var idv)
+                                && idv.ValueKind == JsonValueKind.String ? idv.GetString() : null;
+                    if (segId == null || !segId.StartsWith(pfx, StringComparison.Ordinal)) continue;
+                    yield return (PointMm(seg, "a_mm", z), PointMm(seg, "b_mm", z), segId);
+                }
+            }
+
             // One part. Throwing is a legitimate outcome: PartLoop turns it into
             // a failed line on the scorecard, which is the honest answer.
             List<ElementId> BuildOnePart(string id, JsonElement expected)
@@ -400,11 +427,11 @@ namespace BinaVibe.Mcp.Tools
                 }
                 else if (id == "walls.partitions")
                 {
-                    if (solvedWalls == null)
+                    if (solvedPartitions == null)
                         throw new InvalidOperationException(
-                            "walls.partitions part, but the spec carries no solved `walls` array — "
+                            "walls.partitions part, but the spec carries no `partitions` array — "
                             + "the backend must send the partitions it solved, by id");
-                    foreach (var w in solvedWalls.Value.EnumerateArray())
+                    foreach (var w in solvedPartitions.Value.EnumerateArray())
                     {
                         var specId = w.GetProperty("id").GetString()!;
                         var a = PointMm(w, "a_mm", lvl0.Elevation);
@@ -424,25 +451,40 @@ namespace BinaVibe.Mcp.Tools
                 }
                 else if (id.StartsWith("walls.", StringComparison.Ordinal))
                 {
+                    // The exterior walls are the BACKEND'S, by id. They used to be
+                    // re-derived here from Volumes.UnsharedEdges and numbered
+                    // ext.<role>.<i> by yield order — two implementations of the
+                    // same geometry, agreeing only by luck. Every ext.* id a door
+                    // or window is hosted by comes out of this array, so an id
+                    // that is missing here is a reported failure, not a shifted
+                    // index that silently hosts a door in the wrong wall.
                     var role = id.Substring("walls.".Length);
                     var vol = VolByRole(role);
                     var wallHeight = vol.HeightFt > TOL ? vol.HeightFt : f2f;
-                    var i = 0;
-                    foreach (var (a, b) in Volumes.UnsharedEdges(vol, vols))
+                    if (solvedExteriors == null)
+                        throw new InvalidOperationException(
+                            $"part '{id}', but the spec carries no `exterior_walls` array — "
+                            + "the backend must send the exterior segments it solved, by id");
+                    var built = 0;
+                    foreach (var (a, b, segId) in ExteriorSegments(role, lvl0.Elevation))
                     {
-                        var line = Line.CreateBound(new XYZ(a.X, a.Y, lvl0.Elevation),
-                                                    new XYZ(b.X, b.Y, lvl0.Elevation));
-                        var w = Wall.Create(doc, line, extType.Id, lvl0.Id, wallHeight, 0, false, false);
+                        if (a.DistanceTo(b) < 1e-6)
+                            throw new InvalidOperationException(
+                                $"exterior wall '{segId}' has zero length — the solver sent a "
+                                + "point, not a wall");
+                        var w = Wall.Create(doc, Line.CreateBound(a, b), extType.Id, lvl0.Id,
+                                            wallHeight, 0, false, false);
                         if (Math.Abs(wallHeight - f2f) < TOL)
                             w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.Set(levels[1].Id);
                         Record(id, vol.Role == "main" ? "perimeter_wall" : $"{vol.Role}_wall", w.Id);
-                        // `i` counts this volume's UNSHARED edges, in the order
-                        // Volumes.UnsharedEdges yields them — the same order the
-                        // backend's ext.<role>.<i> ids are numbered in.
-                        RecordSpecId(id, $"ext.{role}.{i}", w.Id);
+                        RecordSpecId(id, segId, w.Id);
                         created.Add(w.Id);
-                        i++;
+                        built++;
                     }
+                    if (built == 0)
+                        throw new InvalidOperationException(
+                            $"part '{id}' built nothing: `exterior_walls` carries no segment with "
+                            + $"an id starting 'ext.{role}.'");
                 }
                 else if (id == "doors")
                 {
@@ -520,14 +562,20 @@ namespace BinaVibe.Mcp.Tools
                         continue;
                     }
                     // The eaves. A roof boundary pushed outward is the single
-                    // strongest cue that a roof is a roof, and the backend has
-                    // already predicted the OVERHUNG bbox — building without the
-                    // eaves fails the measurement rather than passing quietly.
+                    // strongest cue that a roof is a roof. Measurement is a
+                    // containment check, so a roof built WITHOUT the overhang
+                    // still passes — it is only caught when the part's plan
+                    // extents were predicted with the overhang and compared
+                    // tightly, which is why the offset is applied here, not
+                    // trusted to the scorecard.
                     var boundary = Volumes.WithEaves(vol.Outline, overhangFt);
                     // A part shorter than the storey carries its roof at its own
-                    // height, not the top of the house.
-                    var roofLevel = vol.HeightFt > TOL && vol.HeightFt < f2f - TOL
-                        ? levels[0] : levels[count];
+                    // height, not the top of the house. It stays on level 0 (the
+                    // level stack has no level at 2700) and is lifted by a base
+                    // offset instead — building it AT level 0 would put a porch
+                    // roof on the ground, which is what the part predicts against.
+                    var shortVol = vol.HeightFt > TOL && vol.HeightFt < f2f - TOL;
+                    var roofLevel = shortVol ? levels[0] : levels[count];
                     var res = RoofBuilder.Build(doc, boundary, roofLevel, roofType,
                                                 roofKind == "flat" ? null : roofPitch,
                                                 null, roofKind);
@@ -544,6 +592,7 @@ namespace BinaVibe.Mcp.Tools
                             + "as a finished shell.";
                         continue;
                     }
+                    if (shortVol) LiftRoof(doc, res.Id!, vol.HeightFt);
                     Record(kv.Key, "roof", res.Id!);
                     roofStrategy ??= res.Strategy;
                     var measured = PartMeasure.Measure(doc, kv.Key, expected,
@@ -572,12 +621,15 @@ namespace BinaVibe.Mcp.Tools
                                     new List<CurveLoop> { CurveLoopOf(vol.Outline, 0) },
                                     slabType.Id, lvl.Id);
                                 Own("slab", slab.Id.Value);
-                                foreach (var (a, b) in Volumes.UnsharedEdges(vol, vols))
+                                // Same backend-authored segments as the ground
+                                // floor, lifted to this level — an upper storey
+                                // re-derived from UnsharedEdges would not line up
+                                // with the walls the ground floor actually built.
+                                foreach (var (a, b, _) in ExteriorSegments(vol.Role, lvl.Elevation))
                                 {
-                                    var line = Line.CreateBound(new XYZ(a.X, a.Y, lvl.Elevation),
-                                                                new XYZ(b.X, b.Y, lvl.Elevation));
-                                    var w = Wall.Create(doc, line, extType.Id, lvl.Id, f2f,
-                                                        0, false, false);
+                                    if (a.DistanceTo(b) < 1e-6) continue;
+                                    var w = Wall.Create(doc, Line.CreateBound(a, b), extType.Id,
+                                                        lvl.Id, f2f, 0, false, false);
                                     w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)
                                         ?.Set(levels[s + 1].Id);
                                     Own(vol.Role == "main" ? "perimeter_wall" : $"{vol.Role}_wall",
@@ -692,7 +744,16 @@ namespace BinaVibe.Mcp.Tools
             foreach (var d in doors.Value.EnumerateArray())
             {
                 var room = d.TryGetProperty("room", out var rn) ? rn.GetString() ?? "?" : "?";
-                var wallId = d.GetProperty("wall_id").GetString()!;
+                // A door with no wall_id is an UNSOLVED door. GetProperty would
+                // throw "The given key was not present", which reads like an
+                // addin bug; say which door and what is missing instead.
+                if (!d.TryGetProperty("wall_id", out var wid)
+                    || wid.ValueKind != JsonValueKind.String
+                    || string.IsNullOrWhiteSpace(wid.GetString()))
+                    throw new InvalidOperationException(
+                        $"door for {room} carries no wall_id — the backend must name the wall "
+                        + "each opening is hosted in (design_preflight solves this)");
+                var wallId = wid.GetString()!;
                 if (!wallBySpecId.TryGetValue(wallId, out var hostId)
                     || doc.GetElement(hostId) is not Wall host)
                     throw new InvalidOperationException(
@@ -728,7 +789,15 @@ namespace BinaVibe.Mcp.Tools
             foreach (var w in windows.Value.EnumerateArray())
             {
                 var room = w.TryGetProperty("room", out var rn) ? rn.GetString() ?? "?" : "?";
-                var wallId = w.GetProperty("wall_id").GetString()!;
+                // Same contract as PlaceDoors: a missing wall_id is a named
+                // failure, not a KeyNotFoundException from deep in the addin.
+                if (!w.TryGetProperty("wall_id", out var wid)
+                    || wid.ValueKind != JsonValueKind.String
+                    || string.IsNullOrWhiteSpace(wid.GetString()))
+                    throw new InvalidOperationException(
+                        $"window for {room} carries no wall_id — the backend must name the wall "
+                        + "each opening is hosted in (design_preflight solves this)");
+                var wallId = wid.GetString()!;
                 if (!wallBySpecId.TryGetValue(wallId, out var hostId)
                     || doc.GetElement(hostId) is not Wall host)
                     throw new InvalidOperationException(
@@ -783,6 +852,42 @@ namespace BinaVibe.Mcp.Tools
             if (xs.Count < 2)
                 throw new ArgumentException($"{name} must be [x, y] in mm");
             return new XYZ(xs[0] / FT, xs[1] / FT, z);
+        }
+
+        /// <summary>Raise a roof to a short volume's own height with a base
+        /// offset, since the level stack has no level at (say) 2700.
+        ///
+        /// Best effort BY DESIGN: RoofBuilder may have fallen back to an
+        /// extrusion, which carries no "Base Offset From Level". When the offset
+        /// does not take, the roof stays where it was built and the part's
+        /// prediction — which puts it at the volume's height — FAILS on the
+        /// scorecard. Never silently pass.</summary>
+        private static void LiftRoof(Document doc, ElementId roofId, double offsetFt)
+        {
+            if (offsetFt <= TOL) return;
+            try
+            {
+                using var tx = new Transaction(doc, "BINA: raise roof to volume height");
+                TxGuard.StartSwallowing(tx);
+                try
+                {
+                    var roof = doc.GetElement(roofId);
+                    var p = roof?.get_Parameter(BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM)
+                            ?? roof?.LookupParameter("Base Offset From Level");
+                    if (p != null && !p.IsReadOnly) p.Set(offsetFt);
+                    TxGuard.CommitOrThrow(tx);
+                }
+                catch
+                {
+                    if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
+                    throw;
+                }
+            }
+            catch (Exception e)
+            {
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BinaVibe][roof] base offset {offsetFt * FT:F0}mm not applied: {e.Message}");
+            }
         }
 
         /// <summary>Overwrite one part's scorecard line (or append it if the
@@ -1465,6 +1570,27 @@ namespace BinaVibe.Mcp.Tools
             // Merge: the caller sends only what changed.
             var merged = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(oldArgs.GetRawText())
                          ?? new Dictionary<string, JsonElement>();
+
+            // SOLVED OUTPUT DOES NOT SURVIVE AN EDIT. `parts`, `rooms`,
+            // `partitions`, `doors`, `windows` and `exterior_walls` are the
+            // backend's answer to the OLD spec: absolute coordinates and bbox
+            // predictions for a building that, after this edit, no longer
+            // exists. Rebuilding from them measures the wrong house — the
+            // scorecard would compare a widened frontage against yesterday's
+            // walls and report failures the drafter cannot act on. So each
+            // stale key is dropped unless THIS call brings a fresh one; a
+            // rebuild then either uses the freshly solved plan or takes the
+            // legacy path, which is honest about having no solved layout.
+            var droppedSolved = new List<string>();
+            foreach (var k in new[] { "parts", "rooms", "partitions", "doors", "windows",
+                                      "exterior_walls" })
+            {
+                if (!merged.ContainsKey(k)) continue;
+                if (args.ValueKind == JsonValueKind.Object && args.TryGetProperty(k, out _)) continue;
+                merged.Remove(k);
+                droppedSolved.Add(k);
+            }
+
             var changed = new List<string>();
             foreach (var p in args.EnumerateObject())
             {
@@ -1491,7 +1617,16 @@ namespace BinaVibe.Mcp.Tools
                     case "levels": roles.Add("__levels__"); break;
                     case "footprint_mm":
                         roles.Add("perimeter_wall"); roles.Add("slab"); roles.Add("roof"); break;
-                    case "walls": roles.Add("__walltype__"); break;
+                    // `walls` is the wall-TYPE dict, and the type-swap fast path
+                    // only makes sense for that. A transitional spec may still
+                    // carry the solved partition ARRAY under this key; swapping
+                    // exterior wall types because the partitions moved would be
+                    // the wrong edit entirely, so that falls to a full rebuild.
+                    case "walls":
+                        roles.Add(merged.TryGetValue("walls", out var wallsVal)
+                                  && wallsVal.ValueKind == JsonValueKind.Object
+                            ? "__walltype__" : "__all__");
+                        break;
                     default: roles.Add("__all__"); break;
                 }
             }
@@ -1528,14 +1663,17 @@ namespace BinaVibe.Mcp.Tools
                 {
                     ["ok"] = true, ["changed_fields"] = changed,
                     ["strategy"] = "parameter edit — levels moved, hosted elements followed",
+                    ["dropped_solved_fields"] = droppedSolved.Count > 0 ? droppedSolved : null,
                     ["rebuilt"] = new Dictionary<string, object?>(),
                     ["elapsed_ms"] = t0.ElapsedMilliseconds,
                     ["digest"] = Inspectors.GetGeometryDigest(doc, args),
                 };
             }
 
-            // Wall TYPE change is a type swap — openings survive.
-            if (roles.Contains("__walltype__") && roles.Count == 1)
+            // Wall TYPE change is a type swap — openings survive. Only reachable
+            // when `walls` really is the type dict (see the switch above).
+            if (roles.Contains("__walltype__") && roles.Count == 1
+                && Obj(newArgs, "walls") is { ValueKind: JsonValueKind.Object })
             {
                 var wt = FindWallType(doc, Str(Obj(newArgs, "walls"), "exterior_type"), interior: false);
                 using var tx2 = new Transaction(doc, "BINA: swap wall type");
@@ -1557,6 +1695,7 @@ namespace BinaVibe.Mcp.Tools
                 {
                     ["ok"] = true, ["changed_fields"] = changed,
                     ["strategy"] = "type swap — openings preserved",
+                    ["dropped_solved_fields"] = droppedSolved.Count > 0 ? droppedSolved : null,
                     ["rebuilt"] = new Dictionary<string, object?> { ["perimeter_wall"] = n },
                     ["elapsed_ms"] = t0.ElapsedMilliseconds,
                     ["digest"] = Inspectors.GetGeometryDigest(doc, args),
@@ -1671,6 +1810,13 @@ namespace BinaVibe.Mcp.Tools
                         ["changed_fields"] = changed,
                         ["strategy"] = "walls stretched in place — doors and windows preserved; "
                                      + "slab and roof rebuilt (they host nothing)",
+                        ["dropped_solved_fields"] = droppedSolved.Count > 0 ? droppedSolved : null,
+                        ["warning"] = droppedSolved.Count > 0
+                            ? "the outline moved, so the previously solved plan "
+                              + $"({string.Join(", ", droppedSolved)}) no longer describes this "
+                              + "building and was dropped. Partitions and rooms already placed "
+                              + "were NOT re-solved — re-run design_preflight if the layout matters."
+                            : null,
                         ["walls_stretched"] = stretched,
                         ["rebuilt"] = new Dictionary<string, object?>
                         {
@@ -1709,6 +1855,24 @@ namespace BinaVibe.Mcp.Tools
             // costs a longer rebuild and is always correct; the fast paths above
             // (level heights, wall types, roof-only, footprint stretch) are what
             // keep the common edits cheap, and none of them reach this code.
+            // …but not before checking the rebuild can actually succeed. With the
+            // stale solved plan dropped (above) a spec that still carries a room
+            // program has nothing to build the layout FROM, and BuildLegacy
+            // rightly refuses to slice the footprint into equal strips. Refusing
+            // HERE, before the delete transaction, is the difference between an
+            // error the drafter can act on and a demolished building followed by
+            // an error.
+            if (droppedSolved.Count > 0
+                && merged.TryGetValue("program", out var progEl)
+                && progEl.ValueKind == JsonValueKind.Array && progEl.GetArrayLength() > 1)
+                throw new InvalidOperationException(
+                    "this design was solved server-side, and the change you sent ("
+                    + string.Join(", ", changed) + ") makes that solution stale — rebuilding "
+                    + "from it would place walls for the previous building and measure against "
+                    + "predictions that no longer hold. Nothing was deleted. Re-run "
+                    + "design_preflight on the updated spec and send the fresh parts, "
+                    + "partitions, exterior_walls, doors, windows and rooms with this call.");
+
             var toDelete = new List<ElementId>();
             var targetRoles = owns.Keys.ToList();
             foreach (var role in targetRoles)
@@ -1745,6 +1909,17 @@ namespace BinaVibe.Mcp.Tools
                 + "edited by hand in that set is gone — one Ctrl+Z restores it."
                 : null;
             report["created"] = rebuilt.TryGetValue("created", out var c) ? c : null;
+            report["scorecard"] = rebuilt.TryGetValue("scorecard", out var sc) ? sc : null;
+            if (droppedSolved.Count > 0)
+            {
+                report["dropped_solved_fields"] = droppedSolved;
+                report["warning"] = (report.TryGetValue("warning", out var prevW)
+                                     && prevW is string pw2 ? pw2 + " " : "")
+                    + $"the previously solved plan ({string.Join(", ", droppedSolved)}) described "
+                    + "the OLD spec, so it was dropped rather than rebuilt against a building that "
+                    + "changed. Re-run design_preflight and build_design to get a measured, "
+                    + "room-by-room plan back.";
+            }
             report["elapsed_ms"] = t0.ElapsedMilliseconds;
             report["digest"] = rebuilt.TryGetValue("digest", out var d) ? d : null;
             return report;
