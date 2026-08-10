@@ -122,6 +122,8 @@ namespace RevitWebAppSync
                         config.ProjectName,
                         GetDisciplineTypeFromFileName(Path.GetFileName(docPathName)));
 
+                    Services.RevitWindowOwner.SetOwner(options, commandData.Application);
+
                     if (options.ShowDialog() != true)
                     {
                         CleanupTemp(prepared);

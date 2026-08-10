@@ -56,7 +56,7 @@ namespace RevitWebAppSync
                     switch (choice.Show())
                     {
                         case TaskDialogResult.CommandLink1:
-                            ShowProjectPicker(config);
+                            ShowProjectPicker(config, commandData.Application);
                             return Result.Succeeded;
                         case TaskDialogResult.CommandLink2:
                             config.ClearBinaCloudSession();
@@ -95,7 +95,7 @@ namespace RevitWebAppSync
 
                 // Pick the project straight away: a sync with no project selected
                 // has nowhere to go, and the sync dialog defaults to this value.
-                ShowProjectPicker(config);
+                ShowProjectPicker(config, commandData.Application);
 
                 TaskDialog.Show("Signed In",
                     $"Signed in to Cloud Docs.\n\nProject: {config.ProjectName ?? "(none selected)"}");
@@ -111,11 +111,13 @@ namespace RevitWebAppSync
             }
         }
 
-        private void ShowProjectPicker(BinaConfig config)
+        private void ShowProjectPicker(BinaConfig config, UIApplication uiApp)
         {
             // Projects come from bina-be (/api/cloud-docs/bim-discipline/user/projects),
             // so the picker needs the bina-be token, not the bina-ai one.
             var picker = new ProjectPickerWindow(config.BeAccessToken);
+            // Without an owner this can open behind Revit and look like a freeze.
+            Services.RevitWindowOwner.SetOwner(picker, uiApp);
             if (picker.ShowDialog() == true)
             {
                 config.ProjectId = picker.SelectedProjectId;

@@ -43,7 +43,7 @@ namespace RevitWebAppSync
                         }
                         else if (userInfoWindow.SwitchProject)
                         {
-                            ShowProjectPicker(config);
+                            ShowProjectPicker(config, commandData.Application);
                         }
                     }
 
@@ -150,7 +150,7 @@ namespace RevitWebAppSync
             }
         }
 
-        private void ShowProjectPicker(BinaConfig config)
+        private void ShowProjectPicker(BinaConfig config, UIApplication uiApp)
         {
             // The project list comes from bina-be, so it needs the BINA Cloud token.
             // Passing the bina-ai token here is why "Switch Project" came up empty.
@@ -162,6 +162,7 @@ namespace RevitWebAppSync
             }
 
             var projectPicker = new ProjectPickerWindow(config.BeAccessToken);
+            Services.RevitWindowOwner.SetOwner(projectPicker, uiApp);
             if (projectPicker.ShowDialog() == true)
             {
                 config.ProjectId = projectPicker.SelectedProjectId;
