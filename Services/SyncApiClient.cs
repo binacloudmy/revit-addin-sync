@@ -96,6 +96,22 @@ namespace RevitWebAppSync.Services
             }
         }
 
+        /// <summary>
+        /// Who this token belongs to, per bina-be. The OAuth token response
+        /// carries only a userId, and the plugin holds a second, unrelated
+        /// bina-ai session whose name must never be shown for this one.
+        /// </summary>
+        public async Task<(string Name, string Email)> GetCurrentUserAsync()
+        {
+            using (var resp = await _http.GetAsync($"{_baseUrl}/api/auth/user/session").ConfigureAwait(false))
+            {
+                if (!resp.IsSuccessStatusCode) return (null, null);
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                var o = Newtonsoft.Json.Linq.JObject.Parse(body);
+                return ((string)o["name"], (string)o["email"]);
+            }
+        }
+
         /// <summary>Projects the signed-in user can sync into.</summary>
         public async Task<List<ProjectInfo>> GetProjectsAsync()
         {

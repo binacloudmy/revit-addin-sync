@@ -49,9 +49,9 @@ namespace RevitWebAppSync
                     var choice = new TaskDialog("BINA Cloud Docs")
                     {
                         MainInstruction = "You're signed in to BINA Cloud Docs",
-                        MainContent = string.IsNullOrWhiteSpace(config.UserName)
+                        MainContent = string.IsNullOrWhiteSpace(config.BeUserName)
                             ? "Use Sync to BINA to upload the open model. You'll choose the project and folder as you sync."
-                            : $"Signed in as {config.UserName}.\n\n" +
+                            : $"Signed in as {config.BeUserName}.\n\n" +
                               "Use Sync to BINA to upload the open model. You'll choose the project and folder as you sync.",
                         CommonButtons = TaskDialogCommonButtons.Close,
                         DefaultButton = TaskDialogResult.Close
@@ -98,6 +98,23 @@ namespace RevitWebAppSync
                     ? DateTimeOffset.FromUnixTimeSeconds(tokens.AccessTokenExpiry).LocalDateTime
                     : DateTime.MinValue;
                 if (tokens.UserId > 0) config.UserId = tokens.UserId;
+
+                // Resolve the Cloud Docs account's own name. bina-be's token
+                // response has no name field, and config.UserName belongs to the
+                // bina-ai session — which may be a different person entirely.
+                try
+                {
+                    using (var api = new Services.SyncApiClient(config.ResolvedApiBaseUrl, tokens.AccessToken))
+                    {
+                        var who = api.GetCurrentUserAsync().GetAwaiter().GetResult();
+                        config.BeUserName = !string.IsNullOrWhiteSpace(who.Name) ? who.Name : who.Email;
+                    }
+                }
+                catch
+                {
+                    config.BeUserName = null;   // a missing name is better than the wrong one
+                }
+
                 config.SaveBinaCloudTokens();   // credential store, not config.json
                 config.Save();
 
@@ -108,9 +125,9 @@ namespace RevitWebAppSync
                 // Opening a second modal window straight after the browser round
                 // trip also left Revit blocked behind an invisible dialog.
                 TaskDialog.Show("BINA Cloud Docs",
-                    string.IsNullOrWhiteSpace(config.UserName)
+                    string.IsNullOrWhiteSpace(config.BeUserName)
                         ? "Signed in.\n\nUse Sync to BINA to upload the open model — you'll choose the project and folder as you sync."
-                        : $"Signed in as {config.UserName}.\n\nUse Sync to BINA to upload the open model — you'll choose the project and folder as you sync.");
+                        : $"Signed in as {config.BeUserName}.\n\nUse Sync to BINA to upload the open model — you'll choose the project and folder as you sync.");
                 return Result.Succeeded;
             }
             catch (Exception ex)

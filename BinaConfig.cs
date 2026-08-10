@@ -37,6 +37,13 @@ namespace RevitWebAppSync
         [JsonIgnore]
         public DateTime BeTokenExpiry { get; set; }
 
+        /// <summary>
+        /// Display name for the Cloud Docs account. Separate from UserName, which
+        /// belongs to the bina-ai session — the two can be different people, and
+        /// showing the wrong one on a Cloud Docs screen is actively misleading.
+        /// </summary>
+        public string BeUserName { get; set; }
+
         /// <summary>Persist the Cloud Docs session to the credential store.</summary>
         public void SaveBinaCloudTokens()
         {
@@ -518,6 +525,7 @@ namespace RevitWebAppSync
             BeAccessToken = null;
             BeRefreshToken = null;
             BeTokenExpiry = DateTime.MinValue;
+            BeUserName = null;
             ProjectId = 0;
             ProjectName = null;
         }
