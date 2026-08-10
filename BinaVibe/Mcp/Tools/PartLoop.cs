@@ -22,35 +22,48 @@ namespace BinaVibe.Mcp.Tools
 
             foreach (var part in partsJson.EnumerateArray())
             {
-                var id = part.GetProperty("id").GetString()!;
-                var expected = part.GetProperty("expected");
-                var deps = part.TryGetProperty("deps", out var d)
-                    ? d.EnumerateArray().Select(x => x.GetString()!).ToList()
-                    : new List<string>();
-
-                var badDep = deps.FirstOrDefault(dep =>
-                    status.TryGetValue(dep, out var s) && s == "failed");
-                if (badDep != null)
+                string id = "<unknown>";
+                try
                 {
-                    status[id] = "blocked";
-                    scorecard.Add(new JsonObject {
-                        ["part"] = id, ["status"] = "blocked",
-                        ["predicted"] = $"dep {badDep} failed", ["measured"] = "" });
-                    continue;
-                }
+                    id = part.GetProperty("id").GetString()!;
+                    var expected = part.GetProperty("expected");
+                    var deps = part.TryGetProperty("deps", out var d)
+                        ? d.EnumerateArray().Select(x => x.GetString()!).ToList()
+                        : new List<string>();
 
-                var result = BuildAndMeasure(doc, id, expected, buildPart, out var owned);
-                if (result.Status == "failed")
-                {
-                    DeleteOwned(doc, id, owned);
-                    result = BuildAndMeasure(doc, id, expected, buildPart, out owned);
+                    var badDep = deps.FirstOrDefault(dep =>
+                        status.TryGetValue(dep, out var s) && (s == "failed" || s == "blocked"));
+                    if (badDep != null)
+                    {
+                        status[id] = "blocked";
+                        var depStatus = status[badDep];
+                        scorecard.Add(new JsonObject {
+                            ["part"] = id, ["status"] = "blocked",
+                            ["predicted"] = $"dep {badDep} {depStatus}", ["measured"] = "" });
+                        continue;
+                    }
+
+                    var result = BuildAndMeasure(doc, id, expected, buildPart, out var owned);
                     if (result.Status == "failed")
-                        DeleteOwned(doc, id, owned);   // wrong geometry never ships
+                    {
+                        DeleteOwned(doc, id, owned);
+                        result = BuildAndMeasure(doc, id, expected, buildPart, out owned);
+                        if (result.Status == "failed")
+                            DeleteOwned(doc, id, owned);   // wrong geometry never ships
+                    }
+                    status[id] = result.Status;
+                    scorecard.Add(new JsonObject {
+                        ["part"] = id, ["status"] = result.Status,
+                        ["predicted"] = result.Predicted, ["measured"] = result.Measured });
                 }
-                status[id] = result.Status;
-                scorecard.Add(new JsonObject {
-                    ["part"] = id, ["status"] = result.Status,
-                    ["predicted"] = result.Predicted, ["measured"] = result.Measured });
+                catch (Exception e)
+                {
+                    scorecard.Add(new JsonObject {
+                        ["part"] = id, ["status"] = "failed",
+                        ["predicted"] = "", ["measured"] = $"malformed part entry: {e.Message}" });
+                    if (id != "<unknown>")
+                        status[id] = "failed";
+                }
             }
             return scorecard;
         }
@@ -74,7 +87,16 @@ namespace BinaVibe.Mcp.Tools
                     Predicted = expected.ToString(),
                     Measured = $"build threw: {e.Message}" };
             }
-            return PartMeasure.Measure(doc, id, expected, owned);
+            try
+            {
+                return PartMeasure.Measure(doc, id, expected, owned);
+            }
+            catch (Exception e)
+            {
+                return new PartResult { Status = "unverified",
+                    Predicted = expected.ToString(),
+                    Measured = $"measurement threw: {e.Message}" };
+            }
         }
 
         private static void DeleteOwned(Document doc, string id, List<ElementId> owned)
