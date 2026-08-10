@@ -710,6 +710,17 @@ namespace BinaVibe.Mcp.Tools
                     + "Say what is missing; do not describe this build as complete.";
 
             t0.Stop();
+
+            // The scorecard goes INSIDE the digest as well as beside it. The
+            // acceptance checklist (evals/checklist_bungalow.py) reads every
+            // fact it judges off the digest envelope — including
+            // digest["scorecard"] — so a scorecard that was only ever a
+            // sibling left four criteria permanently "unknown" no matter how
+            // the build actually went. The sibling stays for callers that
+            // already read it (update_design's report copies it).
+            var digest = Inspectors.GetGeometryDigest(doc, args);
+            digest["scorecard"] = scorecard;
+
             return new Dictionary<string, object?>
             {
                 ["ok"] = true,
@@ -720,7 +731,7 @@ namespace BinaVibe.Mcp.Tools
                 ["roof_strategy"] = roofStrategy,
                 ["warning"] = warning,
                 ["elapsed_ms"] = t0.ElapsedMilliseconds,
-                ["digest"] = Inspectors.GetGeometryDigest(doc, args),
+                ["digest"] = digest,
             };
         }
 
@@ -1882,7 +1893,13 @@ namespace BinaVibe.Mcp.Tools
                     + "(the stored plan described the previous spec, so it was not reused). "
                     + "NOTHING WAS DELETED — the building is untouched. Re-run design_preflight "
                     + "on the updated spec and send the fresh parts, partitions, exterior_walls, "
-                    + "doors, windows and rooms with this call.");
+                    + "doors, windows and rooms with this call. "
+                    // The recovery, named, because the refusal is otherwise a
+                    // dead end the model retries verbatim: calling update_design
+                    // again with footprint_mm AND program re-runs the solver
+                    // backend-side, and the fresh plan rides in with the call.
+                    + "Panggil update_design semula dan hantar semula footprint_mm + program "
+                    + "supaya susun atur diselesaikan semula.");
 
             var toDelete = new List<ElementId>();
             var targetRoles = owns.Keys.ToList();

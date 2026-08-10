@@ -2,6 +2,11 @@
 // The backend computed every number in `expected` (design_parts.py); this
 // file must NEVER invent a tolerance or default — read them from the part,
 // so the two sides cannot drift apart.
+//
+// `expected` is MEASURABLE KEYS ONLY (see `Recognized` below). Anything else
+// the backend wants to say about a part rides in a sibling `info` dict, and a
+// key this file does not recognize caps the part at "unverified" — the two
+// sides agreeing on a vocabulary is what stops "ok" meaning "I ignored it".
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -21,9 +26,52 @@ namespace BinaVibe.Mcp.Tools
     {
         private const double FT = 304.8;
 
+        /// <summary>Every key this file knows how to MEASURE (or that tells it
+        /// how to measure). The backend's `expected` may carry nothing else:
+        /// design_parts.py puts narration — a roof's `kind`, the walls the
+        /// doors are hosted in — in a sibling `info` dict instead.
+        ///
+        /// Why this list is enforced below rather than ignored: an unknown key
+        /// used to fall through silently, so a part could be reported "ok"
+        /// while the one thing the backend actually cared about was never
+        /// checked. A check nobody ran is not a pass.</summary>
+        private static readonly HashSet<string> Recognized =
+            new HashSet<string>(StringComparer.Ordinal) {
+                "count", "bbox_mm", "open_ends", "pitch_deg", "status",
+                "measure", "tolerance_mm", "tolerance_deg", "tolerance_z_mm" };
+
         public static PartResult Measure(Document doc, string partId,
                                          JsonElement expected,
                                          IReadOnlyList<ElementId> owned)
+        {
+            var result = MeasureCore(doc, partId, expected, owned);
+            var unknown = UnknownKeys(expected);
+            if (unknown.Count == 0) return result;
+
+            // At BEST unverified — never ok. A part that failed the checks it
+            // could run stays failed; one that passed them still carries a key
+            // nothing measured, so it has not been verified.
+            if (result.Status == "ok") result.Status = "unverified";
+            result.Measured = (string.IsNullOrEmpty(result.Measured)
+                                   ? "" : result.Measured + " ")
+                + $"unrecognized expected key(s): {string.Join(", ", unknown)} — "
+                + "nothing here measures them, so this part is not verified";
+            return result;
+        }
+
+        private static List<string> UnknownKeys(JsonElement expected)
+        {
+            var unknown = new List<string>();
+            if (expected.ValueKind != JsonValueKind.Object) return unknown;
+            foreach (var p in expected.EnumerateObject())
+                if (!Recognized.Contains(p.Name)) unknown.Add(p.Name);
+            unknown.Sort(StringComparer.Ordinal);
+            return unknown;
+        }
+
+        private static PartResult MeasureCore(Document doc, string partId,
+                                              JsonElement expected,
+                                              IReadOnlyList<ElementId> owned)
         {
             if (expected.TryGetProperty("status", out var st)
                 && st.GetString() == "not_implemented")
