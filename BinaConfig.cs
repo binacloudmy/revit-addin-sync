@@ -27,9 +27,57 @@ namespace RevitWebAppSync
         // bina-be signs HS256 `access_${JWT_SECRET}`. Overwriting one with the
         // other logs the user out of Copilot/JKR or out of Cloud Docs depending
         // on which button they pressed last, so they never share a field.
+        // [JsonIgnore]: these live in the Windows Credential Manager, not in
+        // config.json. The file sits unencrypted in %APPDATA% and is trivially
+        // readable by anything running as the user.
+        [JsonIgnore]
         public string BeAccessToken { get; set; }
+        [JsonIgnore]
         public string BeRefreshToken { get; set; }
+        [JsonIgnore]
         public DateTime BeTokenExpiry { get; set; }
+
+        /// <summary>Persist the Cloud Docs session to the credential store.</summary>
+        public void SaveBinaCloudTokens()
+        {
+            try
+            {
+                BinaVibe.Auth.SecureTokenStore.SaveCloudDocs(new BinaVibe.Auth.BinaTokenSet
+                {
+                    AccessToken = BeAccessToken ?? "",
+                    RefreshToken = BeRefreshToken ?? "",
+                    AccessTokenExpiry = BeTokenExpiry == DateTime.MinValue
+                        ? 0
+                        : new DateTimeOffset(BeTokenExpiry.ToUniversalTime()).ToUnixTimeSeconds(),
+                    UserId = UserId
+                });
+            }
+            catch
+            {
+                // A machine where the credential store is unavailable still works
+                // for the length of the session; the user signs in again next time.
+            }
+        }
+
+        /// <summary>Restore the Cloud Docs session from the credential store.</summary>
+        private void LoadBinaCloudTokens()
+        {
+            try
+            {
+                var tokens = BinaVibe.Auth.SecureTokenStore.LoadCloudDocs();
+                if (tokens == null || string.IsNullOrEmpty(tokens.AccessToken)) return;
+
+                BeAccessToken = tokens.AccessToken;
+                BeRefreshToken = tokens.RefreshToken;
+                BeTokenExpiry = tokens.AccessTokenExpiry > 0
+                    ? DateTimeOffset.FromUnixTimeSeconds(tokens.AccessTokenExpiry).LocalDateTime
+                    : DateTime.MinValue;
+            }
+            catch
+            {
+                // Treated as "not signed in to Cloud Docs".
+            }
+        }
 
         // Backend URLs — overridable via config.json so the addin doesn't need
         // a rebuild when ngrok tunnels rotate. Empty/missing values fall back
@@ -292,6 +340,10 @@ namespace RevitWebAppSync
                     string json = File.ReadAllText(ConfigPath);
                     cfg = JsonConvert.DeserializeObject<BinaConfig>(json);
                 }
+
+                // Cloud Docs tokens are [JsonIgnore]; they come from the
+                // credential store, not the file.
+                cfg?.LoadBinaCloudTokens();
             }
             catch (Exception ex)
             {
@@ -462,6 +514,7 @@ namespace RevitWebAppSync
         /// </summary>
         public void ClearBinaCloudSession()
         {
+            try { BinaVibe.Auth.SecureTokenStore.ClearCloudDocs(); } catch { }
             BeAccessToken = null;
             BeRefreshToken = null;
             BeTokenExpiry = DateTime.MinValue;

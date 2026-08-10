@@ -26,13 +26,52 @@ namespace RevitWebAppSync.Services
     {
         private readonly HttpClient _http;
         private readonly string _baseUrl;
+        private readonly Func<Task<string>> _refreshToken;
 
-        public SyncApiClient(string baseUrl, string accessToken, HttpClient http = null)
+        /// <param name="refreshToken">
+        /// Called once when a request comes back 401, to mint a fresh access
+        /// token. A sync can outlive its token — a large central takes longer to
+        /// upload than the token has left — and without this the user loses the
+        /// whole transfer to an expiry they could not have predicted.
+        /// </param>
+        public SyncApiClient(
+            string baseUrl,
+            string accessToken,
+            HttpClient http = null,
+            Func<Task<string>> refreshToken = null)
         {
             _baseUrl = (baseUrl ?? "").TrimEnd('/');
             _http = http ?? new HttpClient { Timeout = TimeSpan.FromMinutes(30) };
             _http.DefaultRequestHeaders.Authorization =
                 new AuthenticationHeaderValue("Bearer", accessToken);
+            _refreshToken = refreshToken;
+        }
+
+        /// <summary>Swap the bearer token used by subsequent requests.</summary>
+        private void UseToken(string accessToken)
+        {
+            _http.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", accessToken);
+        }
+
+        /// <summary>
+        /// Runs a request, and on 401 refreshes the token and runs it exactly
+        /// once more. One retry only: if the fresh token is also rejected the
+        /// problem is not expiry.
+        /// </summary>
+        private async Task<HttpResponseMessage> SendWithRefreshAsync(Func<Task<HttpResponseMessage>> send)
+        {
+            var resp = await send().ConfigureAwait(false);
+            if (resp.StatusCode != HttpStatusCode.Unauthorized || _refreshToken == null) return resp;
+
+            resp.Dispose();
+            string fresh = await _refreshToken().ConfigureAwait(false);
+            if (string.IsNullOrEmpty(fresh))
+                throw new InvalidOperationException(
+                    "Your Cloud Docs session has expired. Click 'Login to Cloud Docs' and try again.");
+
+            UseToken(fresh);
+            return await send().ConfigureAwait(false);
         }
 
         private static readonly JsonSerializerSettings JsonSettings = new JsonSerializerSettings
@@ -96,9 +135,15 @@ namespace RevitWebAppSync.Services
         private async Task<T> PostAsync<T>(string path, object payload)
         {
             string json = JsonConvert.SerializeObject(payload, JsonSettings);
-            using (var content = new StringContent(json, Encoding.UTF8, "application/json"))
-            using (var resp = await _http.PostAsync(
-                $"{_baseUrl}/api/cloud-docs/bim-discipline/{path}", content).ConfigureAwait(false))
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/{path}";
+
+            using (var resp = await SendWithRefreshAsync(() =>
+            {
+                // A fresh StringContent per attempt: content is consumed on send
+                // and cannot be replayed for the retry.
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
+                return _http.PostAsync(url, content);
+            }).ConfigureAwait(false))
             {
                 string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
 
@@ -149,22 +194,57 @@ namespace RevitWebAppSync.Services
         /// read into a byte[] — a 2 GB central would otherwise be held in memory
         /// (twice, with the temp copy) and take Revit down with it.
         /// </summary>
-        public async Task<bool> UploadAsync(string uploadUrl, string filePath, IProgress<int> progress = null)
+        public async Task<bool> UploadAsync(
+            string uploadUrl,
+            string filePath,
+            IProgress<int> progress = null,
+            System.Threading.CancellationToken ct = default(System.Threading.CancellationToken))
         {
-            using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
-                                               bufferSize: 81920, useAsync: true))
-            using (var content = new StreamContent(stream, 81920))
-            {
-                content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-                content.Headers.ContentLength = stream.Length;
+            // Object storage drops connections; a model big enough to matter is
+            // exactly the one most likely to be interrupted. Three attempts with
+            // a widening gap, restarting the stream each time — the presigned URL
+            // stays valid, so a retry is cheap next to re-doing the whole sync.
+            const int maxAttempts = 3;
 
-                using (var req = new HttpRequestMessage(HttpMethod.Put, uploadUrl) { Content = content })
-                using (var resp = await _http.SendAsync(req).ConfigureAwait(false))
+            for (int attempt = 1; attempt <= maxAttempts; attempt++)
+            {
+                ct.ThrowIfCancellationRequested();
+                try
                 {
-                    progress?.Report(100);
-                    return resp.IsSuccessStatusCode;
+                    using (var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
+                                                       bufferSize: 81920, useAsync: true))
+                    using (var content = new StreamContent(stream, 81920))
+                    {
+                        content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                        content.Headers.ContentLength = stream.Length;
+
+                        using (var req = new HttpRequestMessage(HttpMethod.Put, uploadUrl) { Content = content })
+                        using (var resp = await _http.SendAsync(req, ct).ConfigureAwait(false))
+                        {
+                            if (resp.IsSuccessStatusCode)
+                            {
+                                progress?.Report(100);
+                                return true;
+                            }
+
+                            // 4xx from storage is a bad request or an expired URL;
+                            // retrying will not change the answer.
+                            if ((int)resp.StatusCode < 500) return false;
+                        }
+                    }
                 }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex) when (attempt < maxAttempts)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA] Upload attempt {attempt} failed ({ex.GetType().Name}); retrying.");
+                }
+
+                if (attempt < maxAttempts)
+                    await Task.Delay(TimeSpan.FromSeconds(2 * attempt), ct).ConfigureAwait(false);
             }
+
+            return false;
         }
 
         /// <summary>

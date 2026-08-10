@@ -90,6 +90,7 @@ namespace RevitWebAppSync
                     ? DateTimeOffset.FromUnixTimeSeconds(tokens.AccessTokenExpiry).LocalDateTime
                     : DateTime.MinValue;
                 if (tokens.UserId > 0) config.UserId = tokens.UserId;
+                config.SaveBinaCloudTokens();   // credential store, not config.json
                 config.Save();
 
                 // Pick the project straight away: a sync with no project selected

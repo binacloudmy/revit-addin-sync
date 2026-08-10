@@ -97,7 +97,22 @@ namespace RevitWebAppSync
                 }
 
                 // ---- Confirm destination ------------------------------------------
-                using (var api = new Services.SyncApiClient(config.ResolvedApiBaseUrl, config.BeAccessToken))
+                // Refresh up front if the token is near expiry, and again on any
+                // 401 mid-sync — a large upload can outlive its token.
+                string beToken = Services.BinaCloudSession.EnsureValidTokenAsync(config)
+                    .GetAwaiter().GetResult();
+                if (string.IsNullOrEmpty(beToken))
+                {
+                    TaskDialog.Show("Session Expired",
+                        "Your Cloud Docs session has expired. Click 'Login to Cloud Docs' and try again.");
+                    return Result.Cancelled;
+                }
+
+                using (var api = new Services.SyncApiClient(
+                    config.ResolvedApiBaseUrl,
+                    beToken,
+                    http: null,
+                    refreshToken: () => Services.BinaCloudSession.RefreshAsync(config)))
                 {
                     var options = new SyncOptionsWindow(
                         api,
@@ -154,7 +169,7 @@ namespace RevitWebAppSync
                         Comment = options.Comment,
                         ClientInfo = clientInfo,
                         LinkedFiles = linkedFiles,
-                        AccessToken = config.BeAccessToken
+                        AccessToken = beToken
                     };
 
                     // Blocks the UI thread. The upload itself touches no Revit API,
