@@ -122,11 +122,14 @@ namespace BinaVibe.Mcp.Tools
             if (!string.IsNullOrWhiteSpace(name))
                 return all.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))
                     ?? throw new ArgumentException($"wall type '{name}' not found (use list_wall_types)");
-            // No name given: interior partitions want the thinnest type, exterior
-            // the thickest. Guessing badly here is visible immediately, so bias
-            // toward the obvious rather than the first match.
-            var ordered = all.OrderBy(t => t.Width).ToList();
-            return interior ? ordered.First() : ordered.Last();
+            // No name given: pick by TARGET THICKNESS, not by extreme. "Take
+            // the thickest" chose a 400mm+ compound wall on the 2026-08-11
+            // smoke and the drafter's first question was "why the dinding so
+            // tebal?" — a house wants ~200mm outside, ~100mm partitions; the
+            // closest match to those beats whatever extreme the template
+            // happens to carry.
+            double targetFt = (interior ? 100.0 : 200.0) / 304.8;
+            return all.OrderBy(t => Math.Abs(t.Width - targetFt)).First();
         }
 
         /// <summary>A floor type, falling back rather than failing the build.
@@ -479,6 +482,10 @@ namespace BinaVibe.Mcp.Tools
                         Record(id, vol.Role == "main" ? "perimeter_wall" : $"{vol.Role}_wall", w.Id);
                         RecordSpecId(id, segId, w.Id);
                         created.Add(w.Id);
+                        // Corners join like partitions do — the 2026-08-11 smoke
+                        // reported 16 open perimeter ends because only interior
+                        // walls ever called this.
+                        JoinToNeighbours(doc, w, wallBySpecId.Values);
                         built++;
                     }
                     if (built == 0)
@@ -597,6 +604,17 @@ namespace BinaVibe.Mcp.Tools
                     roofStrategy ??= res.Strategy;
                     var measured = PartMeasure.Measure(doc, kv.Key, expected,
                                                        new List<ElementId> { res.Id! });
+                    // The strategy + attempt log ride IN the scorecard line, so
+                    // a fallback roof explains itself in the reply — chasing
+                    // "why extrusion?" through Langfuse cost a morning on
+                    // 2026-08-11; never again.
+                    var story = res.Strategy ?? "";
+                    if (res.Attempts.Count > 0)
+                        story += (story.Length > 0 ? " | " : "")
+                              + string.Join(" | ", res.Attempts);
+                    if (story.Length > 0)
+                        measured.Measured = (string.IsNullOrEmpty(measured.Measured)
+                                                 ? "" : measured.Measured + " — ") + story;
                     SetScore(scorecard, kv.Key, measured.Status, measured.Predicted, measured.Measured);
                 }
 
@@ -634,6 +652,43 @@ namespace BinaVibe.Mcp.Tools
                                         ?.Set(levels[s + 1].Id);
                                     Own(vol.Role == "main" ? "perimeter_wall" : $"{vol.Role}_wall",
                                         w.Id.Value);
+                                }
+                            }
+                        }
+
+                        // Open-plan edges get a ROOM SEPARATION LINE — no wall
+                        // by design, but without a boundary Revit merges the
+                        // open pair into one enclosure and both rooms lose
+                        // their area (2026-08-11: Ruang Tamu + Ruang Makan).
+                        var seps = Obj(args, "separations");
+                        if (seps != null && seps.Value.ValueKind == JsonValueKind.Array)
+                        {
+                            var planView = new FilteredElementCollector(doc)
+                                .OfClass(typeof(ViewPlan)).Cast<ViewPlan>()
+                                .FirstOrDefault(v => !v.IsTemplate
+                                                     && v.GenLevel?.Id == levels[0].Id);
+                            if (planView != null)
+                            {
+                                var curves = new CurveArray();
+                                foreach (var s in seps.Value.EnumerateArray())
+                                {
+                                    var pa = ArgsHelp.GetPointMm(s, "a_mm");
+                                    var pb = ArgsHelp.GetPointMm(s, "b_mm");
+                                    if (pa == null || pb == null) continue;
+                                    var z = levels[0].Elevation;
+                                    curves.Append(Line.CreateBound(
+                                        new XYZ(pa.X, pa.Y, z),
+                                        new XYZ(pb.X, pb.Y, z)));
+                                }
+                                if (curves.Size > 0)
+                                {
+                                    var sk = SketchPlane.Create(doc,
+                                        Plane.CreateByNormalAndOrigin(XYZ.BasisZ,
+                                            new XYZ(0, 0, levels[0].Elevation)));
+                                    var lines = doc.Create.NewRoomBoundaryLines(
+                                        sk, curves, planView);
+                                    foreach (ModelCurve mc in lines)
+                                        Own("separation", mc.Id.Value);
                                 }
                             }
                         }
