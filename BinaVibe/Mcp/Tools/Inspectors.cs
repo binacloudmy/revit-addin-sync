@@ -3101,8 +3101,15 @@ namespace BinaVibe.Mcp.Tools
                 // or no floor to compare, and the backend must then say the
                 // position is UNVERIFIED rather than report a coverage.
                 ["roof_over_floor"] = roofOverFloor,
-                ["open_wall_ends"] = openEnds,
-                ["unenclosed_rooms"] = unenclosed,
+                // Whole-model counters: this sweep covers every element in the
+                // document, including debris from earlier attempts in this same
+                // session — never mistake these for this build's verified parts
+                // (the per-part scorecard owns that). Named _whole_model and
+                // paired with scope_note so a caller cannot confuse the two
+                // truths (2026-08-11 loop-hardening).
+                ["open_wall_ends_whole_model"] = openEnds,
+                ["unenclosed_rooms_whole_model"] = unenclosed,
+                ["scope_note"] = "seluruh model, termasuk elemen dari cubaan terdahulu dalam dokumen ini",
             };
         }
     }
