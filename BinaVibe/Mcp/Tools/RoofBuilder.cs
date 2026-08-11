@@ -148,9 +148,21 @@ namespace BinaVibe.Mcp.Tools
                 // "Invalid profile" (measured 2026-08-06 — that error is what
                 // pointed at this line).
                 var span = alongX ? (maxX - minX) : (maxY - minY);
+                // The sweep runs along the reference plane's NORMAL, and the
+                // normal's sign is Revit's to choose (bubble->free x cutVec —
+                // measured 2026-08-11: on this template it points MINUS-ridge,
+                // so a 0->span sweep built the roof mirrored at x=0, a full
+                // house-width away; three model-side repairs couldn't touch it
+                // because no input controls the sign). So: don't fight the
+                // convention — try both signs, keep the sweep whose MEASURED
+                // midpoint lands on the building. Build-measure-fix, in here.
+                var expectedMid = alongX ? (minX + maxX) / 2.0 : (minY + maxY) / 2.0;
                 foreach (var (s, e, how) in new[]
                          { (0.0, span, "plane-relative bounds"),
-                           (alongX ? minX : minY, alongX ? maxX : maxY, "absolute bounds") })
+                           (-span, 0.0, "plane-relative bounds, sweep negated"),
+                           (alongX ? minX : minY, alongX ? maxX : maxY, "absolute bounds"),
+                           (alongX ? -maxX : -maxY, alongX ? -minX : -minY,
+                            "absolute bounds, sweep negated") })
                 {
                     using var tx = new Transaction(doc, "BINA: roof (extrusion)");
                     TxGuard.StartSwallowing(tx);
@@ -160,6 +172,25 @@ namespace BinaVibe.Mcp.Tools
                             .Cast<View>().FirstOrDefault(v => !v.IsTemplate && v is ViewPlan);
                         var rp = doc.Create.NewReferencePlane(bubble, free, XYZ.BasisZ, view);
                         var exr = doc.Create.NewExtrusionRoof(profile, rp, level, roofType, s, e);
+                        // Accept only a roof that LANDS ON THE BUILDING. A
+                        // mirrored sweep is a committed, plausible-looking roof
+                        // a whole span away — roll it back and let the next
+                        // sign variant try, instead of shipping it for the
+                        // scorecard to catch after the fact.
+                        var bb = exr.get_BoundingBox(null);
+                        if (bb != null)
+                        {
+                            var mid = alongX ? (bb.Min.X + bb.Max.X) / 2.0
+                                             : (bb.Min.Y + bb.Max.Y) / 2.0;
+                            if (Math.Abs(mid - expectedMid) > span / 4.0)
+                            {
+                                tx.RollBack();
+                                res.Attempts.Add(
+                                    $"extrusion roof ({how}) -> landed off the building "
+                                    + $"(mid {mid * 304.8:F0}mm vs expected {expectedMid * 304.8:F0}mm), rolled back");
+                                continue;
+                            }
+                        }
                         TxGuard.CommitOrThrow(tx);
                         res.Id = exr.Id;
                         // Carry the REASON the footprint path refused — on
