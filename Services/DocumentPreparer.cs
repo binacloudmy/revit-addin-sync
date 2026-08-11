@@ -40,7 +40,9 @@ namespace RevitWebAppSync.Services
             if (doc.IsWorkshared)
             {
                 // Push local edits to central so the uploaded copy reflects the
-                // coordinated state, not just this user's local.
+                // coordinated state, not just this user's local. Skipped when
+                // there is nothing to push: SynchronizeWithCentral is slow, and
+                // it bumps the central's save count for no reason.
                 var syncOptions = new SynchronizeWithCentralOptions();
                 var relinquish = new RelinquishOptions(false)
                 {
@@ -53,7 +55,8 @@ namespace RevitWebAppSync.Services
                 syncOptions.SetRelinquishOptions(relinquish);
                 syncOptions.Comment = "BINA sync";
 
-                doc.SynchronizeWithCentral(new TransactWithCentralOptions(), syncOptions);
+                if (doc.IsModified)
+                    doc.SynchronizeWithCentral(new TransactWithCentralOptions(), syncOptions);
 
                 // Upload a detached copy: the central file is shared and may be
                 // written to mid-read, and its worksharing state is meaningless
@@ -81,6 +84,23 @@ namespace RevitWebAppSync.Services
             }
 
             // Non-workshared: a plain save is enough to make disk match screen.
+            //
+            // Only when there is something to save. Revit rewrites the whole .rvt
+            // on every save — internal timestamps and GUIDs change even when no
+            // element does — so an unconditional save produced fresh bytes, a
+            // fresh SHA-256, and therefore a brand new version on every sync. The
+            // server's "identical bytes, nothing to version" check could never
+            // fire, because the client had already guaranteed the bytes differed.
+            if (!doc.IsModified)
+            {
+                return new PreparedDocument
+                {
+                    UploadPath = doc.PathName,
+                    IsTemporary = false,
+                    Action = "No unsaved changes — uploading the model as it is on disk."
+                };
+            }
+
             doc.Save();
 
             return new PreparedDocument

@@ -150,6 +150,15 @@ namespace RevitWebAppSync
                                 Services.ModelLineage.Write(doc, lineageId, docPathName);
                                 t.Commit();
                             }
+
+                            // The stamp is a document change, and it lands after
+                            // Prepare has already saved. Left unsaved, the bytes we
+                            // upload would not contain it, and the next sync would
+                            // have to save — producing different bytes and a new
+                            // version even though the user changed nothing. Save
+                            // again so what we hash is what is on disk.
+                            if (!prepared.IsTemporary && doc.IsModified)
+                                doc.Save();
                         }
                         catch (Exception ex)
                         {
