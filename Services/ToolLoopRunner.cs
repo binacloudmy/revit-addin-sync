@@ -462,10 +462,20 @@ namespace RevitWebAppSync.Services
             }
 
             TelemetryService.Track("ai_request", "round_cap");
+            // The cap is OURS, so the message is ours to own in the drafter's
+            // language — on 2026-08-11 the raw English internals below shipped
+            // as the entire answer bubble ("tool loop exceeded 10 rounds…").
+            // The chat router falls back to Error only when Reply is empty, so
+            // Reply carries the honest report and Error stays telemetry/detail.
+            var partial = (turn?.Reply ?? "").Trim();
             return new ToolLoopOutcome
             {
                 Success = false,
-                Reply = turn?.Reply ?? "",
+                Reply = (partial.Length > 0 ? partial + "\n\n" : "")
+                      + $"Saya berhenti selepas {MaxRounds} pusingan alat tanpa jawapan penuh — "
+                      + "soalan ini memerlukan terlalu banyak semakan berasingan dalam satu giliran. "
+                      + "Cuba pecahkan kepada soalan lebih kecil (contoh: \"kira pintu sahaja\"), "
+                      + "atau nyatakan bahagian yang mahu disemak dahulu.",
                 Error = $"tool loop exceeded {MaxRounds} rounds without finishing",
             };
         }
