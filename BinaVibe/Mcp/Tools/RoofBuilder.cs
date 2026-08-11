@@ -37,7 +37,8 @@ namespace BinaVibe.Mcp.Tools
         public static Result Build(Document doc, IList<XYZ> boundary, Level level,
                                    RoofType roofType, double? slopeDeg,
                                    IList<long>? slopeEdgeIndices = null,
-                                   string kind = "flat")
+                                   string kind = "flat",
+                                   double baseOffsetFt = 0)
         {
             var res = new Result();
             var edges = slopeEdgeIndices ?? new List<long>();
@@ -67,6 +68,9 @@ namespace BinaVibe.Mcp.Tools
                 {
                     var roof = doc.Create.NewFootPrintRoof(curves, level, roofType,
                                                            out ModelCurveArray shape);
+                    if (Math.Abs(baseOffsetFt) > 1e-9)
+                        roof.get_Parameter(BuiltInParameter.ROOF_LEVEL_OFFSET_PARAM)
+                            ?.Set(baseOffsetFt);
                     var ratio = slopeDeg.HasValue
                         ? Math.Tan(slopeDeg.Value * Math.PI / 180.0) : 0.0;
                     var sloped = new List<int>();
@@ -103,7 +107,14 @@ namespace BinaVibe.Mcp.Tools
                 catch (Exception ex)
                 {
                     if (tx.GetStatus() == TransactionStatus.Started) tx.RollBack();
-                    res.Attempts.Add($"{label} -> {ex.GetType().Name}: {ex.Message}");
+                    // Name the active view: NewFootPrintRoof's ArgumentNullException
+                    // has meant "no plan view active" before (2026-08-06), and it
+                    // is still refusing on 2026-08-11 — the next scorecard should
+                    // say WHERE it was refused from, not just that it was.
+                    string viewCtx;
+                    try { viewCtx = $" [active view: {doc.ActiveView?.Name ?? "none"} ({doc.ActiveView?.GetType().Name})]"; }
+                    catch { viewCtx = " [active view: unreadable]"; }
+                    res.Attempts.Add($"{label} -> {ex.GetType().Name}: {ex.Message}{viewCtx}");
                 }
             }
 
@@ -116,7 +127,10 @@ namespace BinaVibe.Mcp.Tools
                 var minX = boundary.Min(p => p.X); var maxX = boundary.Max(p => p.X);
                 var minY = boundary.Min(p => p.Y); var maxY = boundary.Max(p => p.Y);
                 var alongX = (maxX - minX) >= (maxY - minY);
-                var z0 = level.Elevation;
+                var z0 = level.Elevation + baseOffsetFt;   // extrusion roofs ignore
+                // ROOF_LEVEL_OFFSET, so a short volume's lift must be drawn
+                // into the profile itself (porch measured z -248 vs predicted
+                // 2700 on 2026-08-11).
                 var pitch = (slopeDeg ?? 5.0) * Math.PI / 180.0;   // 5° fall for "flat"
                 var half = (alongX ? (maxY - minY) : (maxX - minX)) / 2.0;
                 var rise = half * Math.Tan(pitch);

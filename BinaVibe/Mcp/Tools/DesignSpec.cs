@@ -188,8 +188,29 @@ namespace BinaVibe.Mcp.Tools
                 .OfCategory(bic).Cast<FamilySymbol>().ToList();
             if (all.Count == 0) return null;
             if (string.IsNullOrWhiteSpace(name)) return all.First();
-            return all.FirstOrDefault(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase))
-                ?? throw new ArgumentException($"type '{name}' not found in {bic}");
+            // Accept every spelling a model plausibly sends: the type name
+            // ("900 x 2100mm"), "Family : Type" (how Revit DISPLAYS types, so
+            // models copy it — 2026-08-11 loop: every such guess threw), and a
+            // bare family name (first type of that family).
+            var trimmed = name.Trim();
+            var byType = all.FirstOrDefault(s => string.Equals(s.Name, trimmed, StringComparison.OrdinalIgnoreCase));
+            if (byType != null) return byType;
+            var colon = trimmed.LastIndexOf(':');
+            if (colon > 0)
+            {
+                var fam = trimmed.Substring(0, colon).Trim();
+                var typ = trimmed.Substring(colon + 1).Trim();
+                var combo = all.FirstOrDefault(s =>
+                    string.Equals(s.FamilyName, fam, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(s.Name, typ, StringComparison.OrdinalIgnoreCase));
+                if (combo != null) return combo;
+            }
+            var byFamily = all.FirstOrDefault(s =>
+                string.Equals(s.FamilyName, trimmed, StringComparison.OrdinalIgnoreCase));
+            if (byFamily != null) return byFamily;
+            throw new ArgumentException(
+                $"type '{name}' not found in {bic} — known: "
+                + string.Join(", ", all.Take(8).Select(s => $"{s.FamilyName} : {s.Name}")));
         }
 
         private static CurveArray Loop(IList<XYZ> pts, double z)
@@ -585,7 +606,8 @@ namespace BinaVibe.Mcp.Tools
                     var roofLevel = shortVol ? levels[0] : levels[count];
                     var res = RoofBuilder.Build(doc, boundary, roofLevel, roofType,
                                                 roofKind == "flat" ? null : roofPitch,
-                                                null, roofKind);
+                                                null, roofKind,
+                                                shortVol ? vol.HeightFt : 0);
                     if (!res.Ok)
                     {
                         SetScore(scorecard, kv.Key, "failed", expected.ToString(),
@@ -599,7 +621,8 @@ namespace BinaVibe.Mcp.Tools
                             + "as a finished shell.";
                         continue;
                     }
-                    if (shortVol) LiftRoof(doc, res.Id!, vol.HeightFt);
+                    // lift handled inside RoofBuilder now — extrusion roofs draw it
+                    // into the profile, footprint roofs take the offset param.
                     Record(kv.Key, "roof", res.Id!);
                     roofStrategy ??= res.Strategy;
                     var measured = PartMeasure.Measure(doc, kv.Key, expected,
@@ -803,6 +826,11 @@ namespace BinaVibe.Mcp.Tools
             var created = new List<ElementId>();
             var doors = Obj(args, "doors");
             if (doors == null || doors.Value.ValueKind != JsonValueKind.Array) return created;
+            // Activate HERE, inside this part's own transaction — the batched
+            // txPrep activation can be undone by an intermediate rollback, and
+            // Revit then fails NewFamilyInstance with "Can't make type ..."
+            // (2026-08-11: 8 doors predicted, 0 built, exactly that error).
+            if (doorSym != null && !doorSym.IsActive) { doorSym.Activate(); doc.Regenerate(); }
             if (doors.Value.GetArrayLength() > 0 && doorSym == null)
                 throw new InvalidOperationException(
                     "no door family is loaded in this project, so the solved doors cannot be placed");
@@ -847,6 +875,7 @@ namespace BinaVibe.Mcp.Tools
         {
             var created = new List<ElementId>();
             var windows = Obj(args, "windows");
+            if (winSym != null && !winSym.IsActive) { winSym.Activate(); doc.Regenerate(); }
             if (windows == null || windows.Value.ValueKind != JsonValueKind.Array) return created;
             if (windows.Value.GetArrayLength() > 0 && winSym == null)
                 throw new InvalidOperationException(
