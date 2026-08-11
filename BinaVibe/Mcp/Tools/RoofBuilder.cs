@@ -162,8 +162,15 @@ namespace BinaVibe.Mcp.Tools
                         var exr = doc.Create.NewExtrusionRoof(profile, rp, level, roofType, s, e);
                         TxGuard.CommitOrThrow(tx);
                         res.Id = exr.Id;
+                        // Carry the REASON the footprint path refused — on
+                        // 2026-08-11 this string said only "refused in this
+                        // template", which made the failure undiagnosable from
+                        // the trace. The attempt log has the exception; ship it.
                         res.Strategy = "extrusion roof — cross-section swept along the ridge, "
-                                     + how + " (footprint roofs refused in this template)";
+                                     + how + " (footprint refused: "
+                                     + (res.Attempts.Count > 0
+                                        ? string.Join(" | ", res.Attempts) : "no attempt logged")
+                                     + ")";
                         res.Shape = slopeDeg.HasValue ? "gable" : "shallow-pitch";
                         return res;
                     }

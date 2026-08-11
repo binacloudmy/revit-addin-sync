@@ -155,26 +155,45 @@ namespace BinaVibe.Mcp.Tools
             if (expected.TryGetProperty("open_ends", out var oe))
             {
                 int want = oe.GetInt32();
-                int got = CountOpenEnds(doc, owned);
-                checks.Add((got <= want, $"open_ends={want}", $"open_ends={got}"));
+                var where = new List<string>();
+                int got = CountOpenEnds(doc, owned, where);
+                // Name WHERE — "open_ends=1" without a coordinate sent the
+                // 2026-08-11 smoke's repair round in blind. The location is
+                // the repair.
+                var locs = where.Count > 0 ? $" at [{string.Join("; ", where)}]" : "";
+                checks.Add((got <= want, $"open_ends={want}", $"open_ends={got}{locs}"));
             }
+            bool unmeasurable = false;
             if (expected.TryGetProperty("pitch_deg", out var pd))
             {
                 double want = pd.GetDouble();
                 double tolDeg = Num(expected, "tolerance_deg") ?? 1;
                 double? got = MeasurePitch(doc, owned);
                 if (got == null)
-                    return new PartResult { Status = "unverified",
-                        Predicted = $"pitch={want}", Measured = "pitch unmeasurable" };
-                checks.Add((Math.Abs(got.Value - want) <= tolDeg,
-                            $"pitch={want}", $"pitch={got:F1}"));
+                {
+                    // NOT an early return. On 2026-08-11 an extrusion-fallback
+                    // roof landed DISPLACED; its bbox check had already failed,
+                    // but this early-returned "unverified" and threw that
+                    // verdict away — the one visible defect in the screenshot
+                    // was the one the scorecard did not report. Unmeasurable
+                    // pitch degrades ok -> unverified; it never pardons a
+                    // failed bbox.
+                    unmeasurable = true;
+                    checks.Add((true, $"pitch={want}", "pitch unmeasurable"));
+                }
+                else
+                {
+                    checks.Add((Math.Abs(got.Value - want) <= tolDeg,
+                                $"pitch={want}", $"pitch={got:F1}"));
+                }
             }
             if (checks.Count == 0)
                 return new PartResult { Status = "unverified",
                                         Predicted = expected.ToString() };
+            var failedAny = checks.Any(c => !c.ok);
             return new PartResult
             {
-                Status = checks.All(c => c.ok) ? "ok" : "failed",
+                Status = failedAny ? "failed" : (unmeasurable ? "unverified" : "ok"),
                 Predicted = string.Join(" ", checks.Select(c => c.pred)),
                 Measured = string.Join(" ", checks.Select(c => c.meas)),
             };
@@ -272,7 +291,8 @@ namespace BinaVibe.Mcp.Tools
             return (new XYZ(minX, minY, minZ), new XYZ(maxX, maxY, maxZ));
         }
 
-        private static int CountOpenEnds(Document doc, IReadOnlyList<ElementId> ids)
+        private static int CountOpenEnds(Document doc, IReadOnlyList<ElementId> ids,
+                                         List<string>? where = null)
         {
             int open = 0;
             foreach (var id in ids)
@@ -280,7 +300,12 @@ namespace BinaVibe.Mcp.Tools
                 if (doc.GetElement(id) is not Wall w) continue;
                 for (int end = 0; end <= 1; end++)
                     if (w.Location is LocationCurve lc
-                        && !JoinedAtEnd(doc, w, lc, end, ids)) open++;
+                        && !JoinedAtEnd(doc, w, lc, end, ids))
+                    {
+                        open++;
+                        var p = lc.Curve.GetEndPoint(end);
+                        where?.Add($"({p.X * FT:F0},{p.Y * FT:F0})mm");
+                    }
             }
             return open;
         }
