@@ -124,7 +124,7 @@ namespace RevitWebAppSync.UI.Bomba
             dewan.Headline = "Exit width short by " + P + " mm";
             dewan.Passed = false;
             dewan.Severity = Severity.High;
-            dewan.Metrics = "214 occupants from 321 m²\nneed " + P + " mm · have 1800 mm";
+            dewan.Metrics = P + " occupants from 321 m²\nneed " + P + " mm · have 1800 mm";
             dewan.ClauseRef = "UBBL 1984 " + P;
             dewan.RulesVersion = "bomba_rules v0.1";
             dewan.Jurisdiction = "peninsular";
@@ -133,8 +133,8 @@ namespace RevitWebAppSync.UI.Bomba
             dewan.FixLabel = "Widen both doors";
             dewan.ElementIds.Add(884213);
             dewan.ElementIds.Add(884219);
-            dewan.Steps.Add(NewStep("Occupants per floor", "321 m² ÷ " + P + " m²/person = 214", P));
-            dewan.Steps.Add(NewStep("Exit width units", "214 ÷ " + P + " = " + P + " units", P));
+            dewan.Steps.Add(NewStep("Occupants per floor", "321 m² ÷ " + P + " m²/person = " + P, P));
+            dewan.Steps.Add(NewStep("Exit width units", P + " ÷ " + P + " = " + P + " units", P));
             dewan.Steps.Add(NewStep("Round TOTAL first", P + " → " + P + " units", "181"));
             dewan.Steps.Add(NewStep("Convert to mm", P + " units = " + P + " mm", "177(e)"));
             exit.Findings.Add(dewan);
@@ -142,10 +142,10 @@ namespace RevitWebAppSync.UI.Bomba
             FindingVm pejabat = new FindingVm();
             pejabat.Subject = "Pejabat";
             pejabat.RoomNumber = "R-1-02";
-            pejabat.Headline = "Passes with 40 mm to spare";
+            pejabat.Headline = "Passes with " + P + " mm to spare";
             pejabat.Passed = true;
             pejabat.Severity = Severity.Pass;
-            pejabat.Metrics = "12 occupants from 48 m² · have 900 mm";
+            pejabat.Metrics = P + " occupants from 48 m² · have 900 mm";
             pejabat.ClauseRef = "UBBL 1984 " + P;
             pejabat.RulesVersion = "bomba_rules v0.1";
             pejabat.Jurisdiction = "peninsular";
