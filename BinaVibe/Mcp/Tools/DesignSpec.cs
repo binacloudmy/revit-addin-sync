@@ -507,12 +507,19 @@ namespace BinaVibe.Mcp.Tools
                         // hip path someday works, these must become conditional
                         // on the BUILT shape — the scorecard's roof bbox will
                         // flag pentagons poking through a hip.
-                        var w = GableEnd.IsGableEnd(vol, a, b, args)
+                        var isGableEnd = GableEnd.IsGableEnd(vol, a, b, args);
+                        var w = isGableEnd
                             ? GableEnd.CreateProfiled(doc, vol, a, b, extType, lvl0,
                                                       wallHeight, args)
                             : Wall.Create(doc, Line.CreateBound(a, b), extType.Id, lvl0.Id,
                                           wallHeight, 0, false, false);
-                        if (Math.Abs(wallHeight - f2f) < TOL)
+                        // NEVER top-constrain a profiled wall: the constraint
+                        // CROPS the profile back to the level plane. Measured
+                        // 2026-08-12: main (the only volume whose height equals
+                        // f2f, so the only one entering this branch) lost both
+                        // gable apexes — z 3934 vs 6024 — while porch and
+                        // garage pentagons, which skip it, came out perfect.
+                        if (!isGableEnd && Math.Abs(wallHeight - f2f) < TOL)
                             w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.Set(levels[1].Id);
                         Record(id, vol.Role == "main" ? "perimeter_wall" : $"{vol.Role}_wall", w.Id);
                         RecordSpecId(id, segId, w.Id);

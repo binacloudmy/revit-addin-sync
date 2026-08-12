@@ -91,21 +91,33 @@ namespace BinaVibe.Mcp.Tools
 
             var z0 = level.Elevation;
             var zTop = z0 + wallHeight;
-            // The roof plane over the wall's corners: the eave sits OVERHANG
-            // outboard and drops from there — at the wall line the underside is
-            // already overhang×tan above the plate.
-            var zEave = zTop + spec.OverhangFt * tan;
-            var zRidge = zTop + half * tan;
 
-            var midX = (a.X + b.X) / 2.0; var midY = (a.Y + b.Y) / 2.0;
+            // The wall top FOLLOWS THE ROOF SECTION LINE, not "a pentagon":
+            // the 2026-08-12 scorecard caught a partial end segment (main's
+            // right end, half-eaten by the garage) given an apex at the
+            // SEGMENT midpoint — architecturally wrong; the ridge sits on the
+            // VOLUME's mid-axis. z at any cross-slope coordinate c is the
+            // roof underside: zTop + (halfSpan − |c − volMid|)·tan, which
+            // equals the eave line at the outline corners by construction.
+            var volMid = alongX ? (minY + maxY) / 2.0 : (minX + maxX) / 2.0;
+            double CoordOf(XYZ p) => alongX ? p.Y : p.X;
+            double ZAt(double c) => zTop + (half - Math.Abs(c - volMid)) * tan;
+
+            var ca = CoordOf(a); var cb = CoordOf(b);
             var pts = new List<XYZ>
             {
                 new XYZ(a.X, a.Y, z0),
                 new XYZ(b.X, b.Y, z0),
-                new XYZ(b.X, b.Y, zEave),
-                new XYZ(midX, midY, zRidge),
-                new XYZ(a.X, a.Y, zEave),
+                new XYZ(b.X, b.Y, ZAt(cb)),
             };
+            // Ridge apex only when this segment actually crosses the mid-axis.
+            if (Math.Min(ca, cb) + TOL < volMid && volMid < Math.Max(ca, cb) - TOL)
+            {
+                var f = (volMid - ca) / (cb - ca);
+                pts.Add(new XYZ(a.X + (b.X - a.X) * f, a.Y + (b.Y - a.Y) * f,
+                                ZAt(volMid)));
+            }
+            pts.Add(new XYZ(a.X, a.Y, ZAt(ca)));
             var profile = new List<Curve>();
             for (int i = 0; i < pts.Count; i++)
             {
