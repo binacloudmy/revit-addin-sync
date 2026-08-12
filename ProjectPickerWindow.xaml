@@ -2,13 +2,69 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Select Project"
-        Height="450" Width="600"
-        WindowStartupLocation="CenterScreen"
-        ResizeMode="NoResize"
-        Background="#F5F5F5">
+        Height="560" Width="640"
+        MinHeight="420" MinWidth="520"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        Background="#F7F8FA">
 
-    <Grid Margin="20">
+    <Window.Resources>
+        <!-- Rows are tall enough for a wrapped two-line project name, and the
+             whole row is the hit target rather than just the text. -->
+        <Style x:Key="ProjectItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Row" Background="Transparent"
+                                BorderBrush="#EDEFF3" BorderThickness="0,0,0,1"
+                                Padding="14,10">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Row" Property="Background" Value="#F0F4FF"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Row" Property="Background" Value="#E4ECFF"/>
+                                <Setter TargetName="Row" Property="BorderBrush" Value="#C7D7FF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#2563EB"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#1D4ED8"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bg" Property="Background" Value="#C7D2E0"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="22,20,22,18">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -16,79 +72,77 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Header -->
-        <TextBlock Grid.Row="0"
-                   Text="Select a Project"
-                   FontSize="20"
-                   FontWeight="Bold"
-                   Foreground="#333333"
-                   Margin="0,0,0,10"/>
+        <TextBlock Grid.Row="0" Text="Select a project"
+                   FontSize="19" FontWeight="SemiBold" Foreground="#1F2937"/>
 
-        <TextBlock Grid.Row="1"
-                   Text="Choose the project you want to work with:"
-                   Foreground="#666666"
-                   Margin="0,0,0,15"/>
+        <TextBlock Grid.Row="1" x:Name="SubtitleText"
+                   Text="Your Revit syncs will be filed under this project."
+                   Foreground="#6B7280" Margin="0,4,0,14" TextWrapping="Wrap"/>
 
-        <!-- Projects List -->
-        <Border Grid.Row="2"
-                BorderBrush="#CCCCCC"
-                BorderThickness="1"
-                Background="White">
-            <ListBox x:Name="ProjectsListBox"
-                     BorderThickness="0"
-                     SelectionMode="Single"
-                     MouseDoubleClick="ProjectsListBox_MouseDoubleClick">
-                <ListBox.ItemTemplate>
-                    <DataTemplate>
-                        <StackPanel Margin="10,8">
-                            <TextBlock Text="{Binding Name}"
-                                       FontWeight="SemiBold"
-                                       FontSize="14"/>
-                        </StackPanel>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
+        <!-- Search first: the list runs to dozens of projects with long names,
+             where scroll-and-scan is the slowest possible way to find one. -->
+        <Border Grid.Row="2" Background="White" BorderBrush="#D8DEE9" BorderThickness="1"
+                CornerRadius="4" Padding="10,0" Margin="0,0,0,10">
+            <Grid>
+                <TextBox x:Name="SearchBox" BorderThickness="0" Height="34"
+                         VerticalContentAlignment="Center" Background="Transparent"
+                         TextChanged="SearchBox_TextChanged"/>
+                <TextBlock x:Name="SearchPlaceholder" Text="Search projects…"
+                           Foreground="#9AA3B2" IsHitTestVisible="False"
+                           VerticalAlignment="Center" Margin="2,0,0,0"/>
+            </Grid>
         </Border>
 
-        <!-- Loading Indicator -->
-        <StackPanel x:Name="LoadingPanel"
-                    Grid.Row="2"
-                    VerticalAlignment="Center"
-                    HorizontalAlignment="Center"
-                    Visibility="Visible">
-            <TextBlock Text="Loading projects..."
-                       Foreground="#666666"
-                       FontSize="14"/>
-        </StackPanel>
+        <Border Grid.Row="3" BorderBrush="#D8DEE9" BorderThickness="1"
+                CornerRadius="4" Background="White">
+            <Grid>
+                <ListBox x:Name="ProjectsListBox"
+                         BorderThickness="0" Background="Transparent"
+                         ItemContainerStyle="{StaticResource ProjectItemStyle}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         SelectionMode="Single"
+                         MouseDoubleClick="ProjectsListBox_MouseDoubleClick">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel>
+                                <TextBlock Text="{Binding Name}" FontSize="14"
+                                           Foreground="#1F2937" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding Id, StringFormat=Project #{0}}"
+                                           FontSize="11" Foreground="#9AA3B2" Margin="0,2,0,0"/>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
 
-        <!-- Error Message -->
-        <TextBlock x:Name="ErrorMessage"
-                   Grid.Row="3"
-                   Foreground="Red"
-                   TextWrapping="Wrap"
-                   Visibility="Collapsed"
-                   Margin="0,10,0,0"/>
+                <!-- Loading / empty / no-match all sit in the same place so the
+                     dialog never shows a blank white box with no explanation. -->
+                <StackPanel x:Name="LoadingPanel" VerticalAlignment="Center"
+                            HorizontalAlignment="Center" Visibility="Visible">
+                    <TextBlock Text="Loading your projects…" Foreground="#6B7280" FontSize="13"/>
+                </StackPanel>
 
-        <!-- Buttons -->
-        <StackPanel Grid.Row="4"
-                    Orientation="Horizontal"
-                    HorizontalAlignment="Right"
-                    Margin="0,15,0,0">
-            <Button x:Name="CancelButton"
-                    Content="Cancel"
-                    Width="80"
-                    Height="35"
-                    Margin="0,0,10,0"
-                    Click="CancelButton_Click"/>
-            <Button x:Name="SelectButton"
-                    Content="Select"
-                    Width="80"
-                    Height="35"
-                    Background="#4CAF50"
-                    Foreground="White"
-                    FontWeight="SemiBold"
-                    IsEnabled="False"
-                    Click="SelectButton_Click"/>
-        </StackPanel>
+                <TextBlock x:Name="EmptyPanel" Text="No projects match your search."
+                           VerticalAlignment="Center" HorizontalAlignment="Center"
+                           Foreground="#9AA3B2" FontSize="13" Visibility="Collapsed"/>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="4" x:Name="ErrorBox" Background="#FEF2F2" BorderBrush="#FCA5A5"
+                BorderThickness="1" CornerRadius="4" Padding="12,9" Margin="0,10,0,0"
+                Visibility="Collapsed">
+            <TextBlock x:Name="ErrorMessage" Foreground="#B91C1C" TextWrapping="Wrap" FontSize="12"/>
+        </Border>
+
+        <Grid Grid.Row="5" Margin="0,14,0,0">
+            <TextBlock x:Name="CountText" VerticalAlignment="Center"
+                       Foreground="#9AA3B2" FontSize="12"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="CancelButton" Content="Cancel" Width="96" Height="34"
+                        Margin="0,0,10,0" Click="CancelButton_Click" IsCancel="True"/>
+                <Button x:Name="SelectButton" Content="Select" Width="112" Height="34"
+                        Style="{StaticResource PrimaryButton}"
+                        IsEnabled="False" IsDefault="True" Click="SelectButton_Click"/>
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>

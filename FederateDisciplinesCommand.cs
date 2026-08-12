@@ -438,32 +438,16 @@ namespace RevitWebAppSync
             var disciplines = new HashSet<string>();
             foreach (var file in linkedFiles)
             {
-                if (file.StartsWith("Architecture")) disciplines.Add("Architecture");
-                else if (file.StartsWith("Structure")) disciplines.Add("Structure");
-                else if (file.StartsWith("HVAC")) disciplines.Add("HVAC");
-                else if (file.StartsWith("Electrical")) disciplines.Add("Electrical");
+                // Map through the shared helper so "HVAC" reaches the API as
+                // Mechanical — the backend enum has no HVAC member.
+                var mapped = Services.DisciplineTypes.FromFileName(file);
+                if (mapped != Services.DisciplineTypes.MainFile) disciplines.Add(mapped);
             }
             return disciplines.ToList();
         }
 
         private static string GetDisciplineTypeFromFileName(string fileName)
-        {
-            if (string.IsNullOrEmpty(fileName))
-                return "MainFile";
-
-            string fileNameUpper = fileName.ToUpper();
-            
-            if (fileNameUpper.StartsWith("ARCHITECTURE"))
-                return "Architecture";
-            else if (fileNameUpper.StartsWith("STRUCTURE"))
-                return "Structure";
-            else if (fileNameUpper.StartsWith("HVAC"))
-                return "HVAC";
-            else if (fileNameUpper.StartsWith("ELECTRICAL"))
-                return "Electrical";
-            else
-                return "MainFile";
-        }
+            => Services.DisciplineTypes.FromFileName(fileName);
 
         private static List<LinkedFileInfo> ExtractRevitLinks(Document doc)
         {

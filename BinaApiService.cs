@@ -346,7 +346,9 @@ namespace RevitWebAppSync
                 _httpClient.DefaultRequestHeaders.Authorization = 
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
 
-                string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}/latest-urls";
+                // latest-urls does not exist — it 404'd silently since the method was
+                // written. The real route is latest-shared-urls.
+                string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}/latest-shared-urls";
                 
                 LogToFile($"Requesting URL: {url}");
 
