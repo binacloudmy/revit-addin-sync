@@ -496,8 +496,22 @@ namespace BinaVibe.Mcp.Tools
                             throw new InvalidOperationException(
                                 $"exterior wall '{segId}' has zero length — the solver sent a "
                                 + "point, not a wall");
-                        var w = Wall.Create(doc, Line.CreateBound(a, b), extType.Id, lvl0.Id,
-                                            wallHeight, 0, false, false);
+                        // Gable-end walls carry the ROOF'S silhouette. Revit
+                        // exposes no wall-attach API (verified against the 2023
+                        // and 2027 assemblies — column attach only), so a
+                        // flat-topped wall under a pitched roof leaves the
+                        // gable triangle OPEN — "why there's gap between
+                        // bumbung and wall?" (2026-08-12). The pentagon profile
+                        // rises to the same ridge line RoofBuilder's extrusion
+                        // draws, from the same arithmetic. When the footprint
+                        // hip path someday works, these must become conditional
+                        // on the BUILT shape — the scorecard's roof bbox will
+                        // flag pentagons poking through a hip.
+                        var w = GableEnd.IsGableEnd(vol, a, b, args)
+                            ? GableEnd.CreateProfiled(doc, vol, a, b, extType, lvl0,
+                                                      wallHeight, args)
+                            : Wall.Create(doc, Line.CreateBound(a, b), extType.Id, lvl0.Id,
+                                          wallHeight, 0, false, false);
                         if (Math.Abs(wallHeight - f2f) < TOL)
                             w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.Set(levels[1].Id);
                         Record(id, vol.Role == "main" ? "perimeter_wall" : $"{vol.Role}_wall", w.Id);

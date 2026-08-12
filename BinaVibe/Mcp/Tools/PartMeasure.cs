@@ -271,6 +271,15 @@ namespace BinaVibe.Mcp.Tools
                     top = tl.Elevation + (w.get_Parameter(BuiltInParameter.WALL_TOP_OFFSET)?.AsDouble() ?? 0);
                 else
                     top = baseElev + (w.get_Parameter(BuiltInParameter.WALL_USER_HEIGHT_PARAM)?.AsDouble() ?? 0);
+                // PROFILE walls (gable ends) answer 0 to the height params —
+                // their top follows the roof line. The solid bbox knows; use
+                // its z when it exceeds what the params claim.
+                var bb = w.get_BoundingBox(null);
+                if (bb != null)
+                {
+                    if (bb.Max.Z > top) top = bb.Max.Z;
+                    if (bb.Min.Z < baseElev) baseElev = bb.Min.Z;
+                }
 
                 foreach (var p in new[] { lc.Curve.GetEndPoint(0), lc.Curve.GetEndPoint(1) })
                 {
