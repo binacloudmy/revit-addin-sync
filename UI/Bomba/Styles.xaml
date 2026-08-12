@@ -17,6 +17,10 @@
         <Setter Property="Background" Value="{DynamicResource Surface.Panel}"/>
         <Setter Property="BorderBrush" Value="{DynamicResource Surface.Line}"/>
         <Setter Property="Padding" Value="10,5"/>
+        <!-- Re-check / History / Export all carry ToolTip while IsEnabled="False".
+             WPF suppresses tooltips on disabled elements by default, so without
+             this the reason text they carry never reaches the screen. -->
+        <Setter Property="ToolTipService.ShowOnDisabled" Value="True"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">

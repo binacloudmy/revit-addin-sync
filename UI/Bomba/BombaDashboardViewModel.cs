@@ -122,7 +122,7 @@ namespace RevitWebAppSync.UI.Bomba
 
                 List<string> notes = new List<string>();
                 notes.Add("No failures");
-                notes.Add("coverage " + Coverage.Label);
+                notes.Add(Coverage == null ? "coverage unknown" : "coverage " + Coverage.Label);
                 if (TotalNotChecked > 0) notes.Add(TotalNotChecked + NotCheckedSuffix);
 
                 List<string> unavailable = Checks.Where(c => !c.Available).Select(c => c.Title).ToList();
