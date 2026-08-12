@@ -1,6 +1,7 @@
 <UserControl x:Class="RevitWebAppSync.UI.BombaComplianceDashboardPanel"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:jkr="clr-namespace:RevitWebAppSync.UI.Jkr"
       Background="#F7F6F3" FontFamily="Segoe UI" Focusable="True">
 
     <UserControl.Resources>
@@ -10,6 +11,8 @@
                 <ResourceDictionary Source="Jkr/Tokens.xaml"/>
                 <ResourceDictionary Source="Bomba/Styles.xaml"/>
             </ResourceDictionary.MergedDictionaries>
+
+            <jkr:CountGtZeroConverter x:Key="GtZero"/>
         </ResourceDictionary>
     </UserControl.Resources>
 
@@ -38,10 +41,101 @@
             </Grid>
         </Border>
 
-        <!-- Body: filled in Tasks 5 and 6 -->
-        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="12">
-            <StackPanel x:Name="BodyHost"/>
-        </ScrollViewer>
+        <!-- Body -->
+        <Grid Grid.Row="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Verdict. The largest element in the pane: the drafter's first
+                 question is binary, and it must answer from across the room. -->
+            <Border Grid.Row="0" Background="{DynamicResource HiBg}" BorderBrush="{DynamicResource Hi}"
+                    BorderThickness="3,0,0,0" Padding="12" Margin="12,12,12,0">
+                <StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding VerdictCount}" FontSize="26" FontWeight="Bold"
+                                   Foreground="{DynamicResource Hi}" FontFamily="{DynamicResource Font.Mono}"/>
+                        <TextBlock Text="{Binding VerdictWord}" FontSize="15" FontWeight="SemiBold"
+                                   Foreground="{DynamicResource Hi}" VerticalAlignment="Bottom" Margin="8,0,0,3"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding VerdictBreakdown}" Style="{DynamicResource Bomba.Mono}" Margin="0,6,0,0"/>
+
+                    <!-- Coverage sits INSIDE the verdict, never as a footnote.
+                         "All passed" over silent skips is the most dangerous
+                         thing this pane can show. -->
+                    <Border Background="{DynamicResource MdBg}" CornerRadius="4" Padding="8,5" Margin="0,10,0,0"
+                            HorizontalAlignment="Left">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="coverage " Style="{DynamicResource Bomba.Label}"
+                                       Foreground="{DynamicResource Md}" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding Coverage.Label}" Style="{DynamicResource Bomba.Label}"
+                                       Foreground="{DynamicResource Md}" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <TextBlock Text="  " VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding Coverage.Summary}" Style="{DynamicResource Bomba.Label}"
+                                       Foreground="{DynamicResource Md}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Not-checked is neither pass nor fail. VerdictBreakdown only lists
+                         checks with FailCount > 0, so without this a NOT-CHECKED finding
+                         never reaches the headline and "2 findings" reads as complete.
+                         Styled Md/MdBg (amber), never Hi/HiBg — it must not read as
+                         another failure. Hidden when nothing was skipped. -->
+                    <Border Background="{DynamicResource MdBg}" CornerRadius="4" Padding="8,5" Margin="0,6,0,0"
+                            HorizontalAlignment="Left">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Setter Property="Visibility" Value="Collapsed"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding TotalNotChecked, Converter={StaticResource GtZero}}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding TotalNotChecked}" Style="{DynamicResource Bomba.Label}"
+                                       Foreground="{DynamicResource Md}" FontWeight="Bold" VerticalAlignment="Center"/>
+                            <TextBlock Text=" not checked" Style="{DynamicResource Bomba.Label}"
+                                       Foreground="{DynamicResource Md}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- Check tabs. Labelled by SUBJECT — schedule numbers differ
+                 between state adoptions and would be wrong in Sabah. -->
+            <ListBox Grid.Row="1" Margin="12,12,12,0"
+                     ItemsSource="{Binding Checks}"
+                     SelectedItem="{Binding SelectedCheck, Mode=TwoWay}"
+                     ItemContainerStyle="{DynamicResource Bomba.Tab}"
+                     Background="Transparent" BorderThickness="0"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <UniformGrid Rows="1"/>
+                    </ItemsPanelTemplate>
+                </ListBox.ItemsPanel>
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel>
+                            <TextBlock Text="{Binding Title}" HorizontalAlignment="Center"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding BadgeText}" HorizontalAlignment="Center"
+                                       FontFamily="{DynamicResource Font.Mono}" FontSize="10"
+                                       FontWeight="Bold" Margin="0,2,0,0"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+
+            <!-- Findings: filled in Task 6. Must be the '*' row so it scrolls. -->
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="12,12,12,0">
+                <ItemsControl x:Name="FindingsHost"/>
+            </ScrollViewer>
+        </Grid>
 
         <!-- Footer -->
         <Border Grid.Row="2" Background="{DynamicResource Surface.Panel}"
