@@ -14,6 +14,51 @@
 
             <jkr:CountGtZeroConverter x:Key="GtZero"/>
             <jkr:BoolToVisibilityConverter x:Key="BoolVis"/>
+
+            <!-- Passed is three-valued (bool?): null must default to amber
+                 NOT CHECKED, with the True/False triggers overriding it. A
+                 DataTrigger matching null directly is unreliable, so the
+                 default setter carries the null case instead. -->
+            <Style x:Key="Bomba.Headline" TargetType="TextBlock" BasedOn="{StaticResource Bomba.Subject}">
+                <Setter Property="FontWeight" Value="Normal"/>
+                <Setter Property="Margin" Value="0,5,0,0"/>
+                <Setter Property="Foreground" Value="{DynamicResource Md}"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Passed}" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource Ok}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Passed}" Value="False">
+                        <Setter Property="Foreground" Value="{DynamicResource Hi}"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="Bomba.StatusPill" TargetType="Border">
+                <Setter Property="CornerRadius" Value="3"/>
+                <Setter Property="Padding" Value="6,2"/>
+                <Setter Property="Background" Value="{DynamicResource MdBg}"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Passed}" Value="True">
+                        <Setter Property="Background" Value="{DynamicResource OkBg}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Passed}" Value="False">
+                        <Setter Property="Background" Value="{DynamicResource HiBg}"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+
+            <Style x:Key="Bomba.StatusPillText" TargetType="TextBlock" BasedOn="{StaticResource Bomba.Label}">
+                <Setter Property="FontWeight" Value="Bold"/>
+                <Setter Property="Foreground" Value="{DynamicResource Md}"/>
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding Passed}" Value="True">
+                        <Setter Property="Foreground" Value="{DynamicResource Ok}"/>
+                    </DataTrigger>
+                    <DataTrigger Binding="{Binding Passed}" Value="False">
+                        <Setter Property="Foreground" Value="{DynamicResource Hi}"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
         </ResourceDictionary>
     </UserControl.Resources>
 
@@ -38,7 +83,8 @@
                     <TextBlock Text="{Binding ScopeDetail}" Style="{DynamicResource Bomba.Label}" Margin="0,3,0,0"/>
                 </StackPanel>
                 <Button Grid.Column="1" Content="Re-check" Style="{DynamicResource Bomba.BtnPrimary}"
-                        VerticalAlignment="Center"/>
+                        VerticalAlignment="Center" IsEnabled="False"
+                        ToolTip="Arrives with the backend"/>
             </Grid>
         </Border>
 
@@ -99,7 +145,7 @@
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="{Binding TotalNotChecked}" Style="{DynamicResource Bomba.Label}"
                                        Foreground="{DynamicResource Md}" FontWeight="Bold" VerticalAlignment="Center"/>
-                            <TextBlock Text=" not checked" Style="{DynamicResource Bomba.Label}"
+                            <TextBlock Text="{Binding NotCheckedSuffix}" Style="{DynamicResource Bomba.Label}"
                                        Foreground="{DynamicResource Md}" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
@@ -121,7 +167,9 @@
                 </ListBox.ItemsPanel>
                 <ListBox.ItemTemplate>
                     <DataTemplate>
-                        <StackPanel>
+                        <!-- ToolTip carries UnavailableReason for disabled tabs — a greyed
+                             tab with no explanation leaves the user guessing why. -->
+                        <StackPanel ToolTip="{Binding UnavailableReason}">
                             <TextBlock Text="{Binding Title}" HorizontalAlignment="Center"
                                        TextTrimming="CharacterEllipsis"/>
                             <TextBlock Text="{Binding BadgeText}" HorizontalAlignment="Center"
@@ -151,14 +199,22 @@
                                                        VerticalAlignment="Center" Margin="0,0,7,0"/>
                                             <TextBlock Text="{Binding Subject}" Style="{DynamicResource Bomba.Subject}"/>
                                         </StackPanel>
-                                        <Border Grid.Column="1" Background="{DynamicResource Surface.Line2}"
-                                                CornerRadius="3" Padding="6,2" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding ActionLabel}" Style="{DynamicResource Bomba.Label}"/>
-                                        </Border>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <!-- Status pill: the honesty the model layer encodes (Passed is
+                                                 three-valued) reaching the screen as PASS/FAIL/NOT CHECKED,
+                                                 not uniform fail-red. -->
+                                            <Border Style="{DynamicResource Bomba.StatusPill}" Margin="0,0,6,0">
+                                                <TextBlock Text="{Binding StatusLabel}" Style="{DynamicResource Bomba.StatusPillText}"/>
+                                            </Border>
+                                            <Border Background="{DynamicResource Surface.Line2}"
+                                                    CornerRadius="3" Padding="6,2"
+                                                    Visibility="{Binding HasAction, Converter={StaticResource BoolVis}}">
+                                                <TextBlock Text="{Binding ActionLabel}" Style="{DynamicResource Bomba.Label}"/>
+                                            </Border>
+                                        </StackPanel>
                                     </Grid>
 
-                                    <TextBlock Text="{Binding Headline}" Style="{DynamicResource Bomba.Subject}"
-                                               Foreground="{DynamicResource Hi}" FontWeight="Normal" Margin="0,5,0,0"/>
+                                    <TextBlock Text="{Binding Headline}" Style="{DynamicResource Bomba.Headline}"/>
 
                                     <!-- Metrics: mono so numbers align -->
                                     <Border Background="{DynamicResource Surface.Bg}" CornerRadius="4"
@@ -209,7 +265,8 @@
                                         <Button Content="{Binding FixLabel}" Style="{DynamicResource Bomba.BtnPrimary}"
                                                 Margin="0,0,6,0"
                                                 Visibility="{Binding ShowFix, Converter={StaticResource BoolVis}}"/>
-                                        <Button Content="Show me" Style="{DynamicResource Bomba.Btn}"/>
+                                        <Button Content="Show me" Style="{DynamicResource Bomba.Btn}"
+                                                Visibility="{Binding HasElements, Converter={StaticResource BoolVis}}"/>
                                     </StackPanel>
 
                                     <!-- Provenance: which models were searched,
@@ -240,8 +297,10 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <Button Grid.Column="0" Content="History" Style="{DynamicResource Bomba.Btn}"/>
-                <Button Grid.Column="2" Content="Export ▾" Style="{DynamicResource Bomba.Btn}"/>
+                <Button Grid.Column="0" Content="History" Style="{DynamicResource Bomba.Btn}"
+                        IsEnabled="False" ToolTip="Arrives with the backend"/>
+                <Button Grid.Column="2" Content="Export ▾" Style="{DynamicResource Bomba.Btn}"
+                        IsEnabled="False" ToolTip="Arrives with the backend"/>
             </Grid>
         </Border>
     </Grid>

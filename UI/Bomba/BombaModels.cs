@@ -100,6 +100,10 @@ namespace RevitWebAppSync.UI.Bomba
         public bool ShowGuidance { get { return !string.IsNullOrEmpty(Guidance); } }
         public bool HasSteps { get { return Steps.Count > 0; } }
 
+        /// "Show me" has nothing to show without element ids — same honesty
+        /// rule as ShowFix, applied where the review found it missing.
+        public bool HasElements { get { return ElementIds != null && ElementIds.Count > 0; } }
+
         /// Never collapse null into "FAIL" — that is the false accusation.
         public string StatusLabel
         {
@@ -124,6 +128,10 @@ namespace RevitWebAppSync.UI.Bomba
                 }
             }
         }
+
+        /// The action pill draws unconditionally in XAML; gate it here rather
+        /// than render an empty grey chip for FindingAction.None.
+        public bool HasAction { get { return !string.IsNullOrEmpty(ActionLabel); } }
 
         public string ElementIdList
         {

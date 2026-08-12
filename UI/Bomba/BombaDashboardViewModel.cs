@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Linq;
 
 namespace RevitWebAppSync.UI.Bomba
@@ -18,14 +19,40 @@ namespace RevitWebAppSync.UI.Bomba
         private string _scopeDetail = "24 rooms · 31 doors";
         private int _changedSinceRun = 3;
 
+        private CoverageVm _coverage;
+
         public ObservableCollection<CheckVm> Checks { get; private set; }
-        public CoverageVm Coverage { get; set; }
+
+        public CoverageVm Coverage
+        {
+            get { return _coverage; }
+            set
+            {
+                if (Set(ref _coverage, value)) RaiseAggregates();
+            }
+        }
 
         public BombaDashboardViewModel()
         {
             Checks = new ObservableCollection<CheckVm>();
+            // A re-check replaces the contents of Checks. Without this, the
+            // tab strip and finding list refresh but the verdict block keeps
+            // showing the previous run's numbers.
+            Checks.CollectionChanged += (s, e) => RaiseAggregates();
             LoadStubData();
             _selected = Checks.FirstOrDefault();
+        }
+
+        /// Single place to keep the verdict block's derived numbers in sync.
+        /// Everything the 26pt verdict reads from must be raised here.
+        private void RaiseAggregates()
+        {
+            Raise("TotalFailures");
+            Raise("TotalNotChecked");
+            Raise("NotCheckedSuffix");
+            Raise("VerdictCount");
+            Raise("VerdictWord");
+            Raise("VerdictBreakdown");
         }
 
         public PaneState State
@@ -69,7 +96,20 @@ namespace RevitWebAppSync.UI.Bomba
         public string VerdictCount { get { return TotalFailures.ToString(); } }
         public string VerdictWord { get { return TotalFailures == 1 ? "finding" : "findings"; } }
 
+        /// A different quantity from Coverage.Summary: that one counts ROOMS
+        /// skipped, this one counts FINDINGS that could not be verified. Both
+        /// render amber; the wording is what keeps them from reading as the
+        /// same fact contradicting itself.
+        public string NotCheckedSuffix
+        {
+            get { return TotalNotChecked == 1 ? " finding not verified" : " findings not verified"; }
+        }
+
         /// Names which checks contributed, by SUBJECT — never by schedule number.
+        /// Zero failures is NOT the same claim as "all checks ran" — coverage
+        /// gaps and unavailable checks must still surface here, or this line
+        /// repeats the exact "all passed while rooms went unchecked" mistake
+        /// this pane exists to avoid.
         public string VerdictBreakdown
         {
             get
@@ -78,8 +118,17 @@ namespace RevitWebAppSync.UI.Bomba
                     .Where(c => c.Available && c.FailCount > 0)
                     .Select(c => c.Title + " " + c.FailCount)
                     .ToList();
-                if (parts.Count == 0) return "All checks ran on " + ScopeLabel;
-                return string.Join(" · ", parts.ToArray());
+                if (parts.Count > 0) return string.Join(" · ", parts.ToArray());
+
+                List<string> notes = new List<string>();
+                notes.Add("No failures");
+                notes.Add("coverage " + Coverage.Label);
+                if (TotalNotChecked > 0) notes.Add(TotalNotChecked + NotCheckedSuffix);
+
+                List<string> unavailable = Checks.Where(c => !c.Available).Select(c => c.Title).ToList();
+                if (unavailable.Count > 0) notes.Add(string.Join(", ", unavailable.ToArray()) + " not available");
+
+                return string.Join(" · ", notes.ToArray());
             }
         }
 
@@ -206,6 +255,27 @@ namespace RevitWebAppSync.UI.Bomba
             hoseReel.SearchedModels.Add("Architecture");
             hoseReel.SearchedModels.Add("M&E");
             systems.Findings.Add(hoseReel);
+
+            // The third action variant (NeedsModelling): both models that
+            // could plausibly contain it WERE searched, and it genuinely
+            // was not found — distinct from callPoint above, where only one
+            // model was searched and absence cannot yet be asserted.
+            FindingVm detector = new FindingVm();
+            detector.Subject = "Automatic fire detector system";
+            detector.Headline = "Not found in either model searched";
+            detector.Passed = false;
+            detector.Severity = Severity.High;
+            detector.Metrics = "required " + P;
+            detector.Guidance = "Not found in the Architecture or M&E models searched. It may exist "
+                               + "under a different category — check before assuming it is missing.";
+            detector.ClauseRef = "UBBL 1984 " + P;
+            detector.RulesVersion = "bomba_rules v0.1";
+            detector.Jurisdiction = "peninsular";
+            detector.SchedulePath = "IV.1.a.iii";
+            detector.Action = FindingAction.NeedsModelling;
+            detector.SearchedModels.Add("Architecture");
+            detector.SearchedModels.Add("M&E");
+            systems.Findings.Add(detector);
 
             // Visible but disabled. Hiding it makes users wonder whether it
             // exists; guessing its content would be dangerous.
