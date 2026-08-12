@@ -13,6 +13,7 @@
             </ResourceDictionary.MergedDictionaries>
 
             <jkr:CountGtZeroConverter x:Key="GtZero"/>
+            <jkr:BoolToVisibilityConverter x:Key="BoolVis"/>
         </ResourceDictionary>
     </UserControl.Resources>
 
@@ -133,7 +134,100 @@
 
             <!-- Findings: filled in Task 6. Must be the '*' row so it scrolls. -->
             <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="12,12,12,0">
-                <ItemsControl x:Name="FindingsHost"/>
+                <ItemsControl ItemsSource="{Binding VisibleFindings}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Style="{DynamicResource Bomba.Card}">
+                                <StackPanel Margin="11">
+
+                                    <!-- Header: room, subject, action tag -->
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                                            <TextBlock Text="{Binding RoomNumber}" Style="{DynamicResource Bomba.Label}"
+                                                       VerticalAlignment="Center" Margin="0,0,7,0"/>
+                                            <TextBlock Text="{Binding Subject}" Style="{DynamicResource Bomba.Subject}"/>
+                                        </StackPanel>
+                                        <Border Grid.Column="1" Background="{DynamicResource Surface.Line2}"
+                                                CornerRadius="3" Padding="6,2" VerticalAlignment="Center">
+                                            <TextBlock Text="{Binding ActionLabel}" Style="{DynamicResource Bomba.Label}"/>
+                                        </Border>
+                                    </Grid>
+
+                                    <TextBlock Text="{Binding Headline}" Style="{DynamicResource Bomba.Subject}"
+                                               Foreground="{DynamicResource Hi}" FontWeight="Normal" Margin="0,5,0,0"/>
+
+                                    <!-- Metrics: mono so numbers align -->
+                                    <Border Background="{DynamicResource Surface.Bg}" CornerRadius="4"
+                                            Padding="9" Margin="0,8,0,0">
+                                        <TextBlock Text="{Binding Metrics}" Style="{DynamicResource Bomba.Mono}"/>
+                                    </Border>
+
+                                    <!-- Derivation, collapsed. Rounding ORDER is
+                                         load-bearing, so intermediate steps are
+                                         how a reviewer checks the answer. -->
+                                    <Expander Header="how this number was reached" Margin="0,8,0,0"
+                                              Visibility="{Binding HasSteps, Converter={StaticResource BoolVis}}"
+                                              Foreground="{DynamicResource Ink3}" FontSize="11">
+                                        <ItemsControl ItemsSource="{Binding Steps}" Margin="0,6,0,0">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Margin="0,0,0,4">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Grid.Column="0">
+                                                            <TextBlock Text="{Binding Label}" Style="{DynamicResource Bomba.Label}"/>
+                                                            <TextBlock Text="{Binding Expression}" Style="{DynamicResource Bomba.Mono}"/>
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="1" Text="{Binding ByLaw}"
+                                                                   Style="{DynamicResource Bomba.Label}"
+                                                                   VerticalAlignment="Bottom"
+                                                                   Visibility="{Binding HasByLaw, Converter={StaticResource BoolVis}}"/>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Expander>
+
+                                    <!-- Guidance, when there is no automatic fix -->
+                                    <Border BorderBrush="{DynamicResource Surface.Line}" BorderThickness="2,0,0,0"
+                                            Padding="9,0,0,0" Margin="0,8,0,0"
+                                            Visibility="{Binding ShowGuidance, Converter={StaticResource BoolVis}}">
+                                        <TextBlock Text="{Binding Guidance}" Style="{DynamicResource Bomba.Mono}"
+                                                   Foreground="{DynamicResource Ink2}"/>
+                                    </Border>
+
+                                    <!-- Actions. A Fix button appears ONLY when
+                                         an automatic fix exists. A fake one here
+                                         would be worse than none. -->
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <Button Content="{Binding FixLabel}" Style="{DynamicResource Bomba.BtnPrimary}"
+                                                Margin="0,0,6,0"
+                                                Visibility="{Binding ShowFix, Converter={StaticResource BoolVis}}"/>
+                                        <Button Content="Show me" Style="{DynamicResource Bomba.Btn}"/>
+                                    </StackPanel>
+
+                                    <!-- Provenance: which models were searched,
+                                         which row fired, which rules version -->
+                                    <TextBlock Text="{Binding SearchedModelsLabel}" Style="{DynamicResource Bomba.Label}"
+                                               Margin="0,9,0,0"/>
+                                    <TextBlock Style="{DynamicResource Bomba.Label}" Margin="0,3,0,0">
+                                        <Run Text="{Binding ClauseRef, Mode=OneWay}"/>
+                                        <Run Text=" · row "/>
+                                        <Run Text="{Binding SchedulePath, Mode=OneWay}"/>
+                                        <Run Text=" · "/>
+                                        <Run Text="{Binding RulesVersion, Mode=OneWay}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
             </ScrollViewer>
         </Grid>
 
