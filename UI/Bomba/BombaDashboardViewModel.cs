@@ -13,6 +13,9 @@ namespace RevitWebAppSync.UI.Bomba
     {
         private BombaOptionDto _selected;
 
+        /// Mono uppercase caption over the select ("PURPOSE GROUP", …).
+        public string Label { get; set; }
+
         public ObservableCollection<BombaOptionDto> Options { get; private set; }
 
         public CascadeLevelVm() { Options = new ObservableCollection<BombaOptionDto>(); }
@@ -95,6 +98,22 @@ namespace RevitWebAppSync.UI.Bomba
             get { return _setupGuidance; }
             set { Set(ref _setupGuidance, value); }
         }
+
+        private string _measuredFacts = "";
+
+        /// Mono line under the cascade: what the model measured (largest
+        /// storey, height). Measured values are real; showing them is how the
+        /// drafter sees why a band resolved itself — or why it couldn't.
+        public string MeasuredFacts
+        {
+            get { return _measuredFacts; }
+            set
+            {
+                if (Set(ref _measuredFacts, value)) Raise("HasMeasuredFacts");
+            }
+        }
+
+        public bool HasMeasuredFacts { get { return !string.IsNullOrEmpty(MeasuredFacts); } }
 
         /// True while a scan round-trip is in flight; the Re-check button
         /// binds IsEnabled to NotScanning.

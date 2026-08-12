@@ -82,18 +82,31 @@ namespace RevitWebAppSync.UI
 
         // ── cascade ─────────────────────────────────────────────────────────
 
+        // Design 1A / prototype select captions; deeper levels fall back to a
+        // generic caption. The band caption is set explicitly on needs_input.
+        private static readonly string[] LevelLabels = { "PURPOSE GROUP", "OCCUPANCY", "SUB-ITEM" };
+
         private async Task EnsureCascadeAsync()
         {
             if (_cascadeLoading || _vm.Cascade.Count > 0) return;
             _cascadeLoading = true;
             try
             {
+                RefreshMeasuredFacts();
                 await AppendCascadeLevelAsync(null);
             }
             finally
             {
                 _cascadeLoading = false;
             }
+        }
+
+        private void RefreshMeasuredFacts()
+        {
+            var doc = LiveDoc;
+            if (doc == null) return;
+            try { _vm.MeasuredFacts = BombaFactsExtractor.Extract(doc).Label; }
+            catch { /* facts line is informational; the scan extracts again */ }
         }
 
         /// Fetch the options below parentPath and append them as a new level.
@@ -116,6 +129,9 @@ namespace RevitWebAppSync.UI
             if (resp.Options == null || resp.Options.Count == 0) return;
 
             var level = new CascadeLevelVm();
+            level.Label = _vm.Cascade.Count < LevelLabels.Length
+                ? LevelLabels[_vm.Cascade.Count]
+                : "LEVEL " + (_vm.Cascade.Count + 1);
             foreach (var o in resp.Options) level.Options.Add(o);
             _vm.Cascade.Add(level);
             if (resp.Options.Count == 1)
@@ -227,9 +243,11 @@ namespace RevitWebAppSync.UI
                 _vm.State = PaneState.NeedsSetup;
                 _vm.SetupGuidance = response.Guidance
                     ?? "The model facts do not select a single row — choose the applicable band.";
+                RefreshMeasuredFacts();
                 if (response.Options != null && response.Options.Count > 0)
                 {
                     var level = new CascadeLevelVm();
+                    level.Label = "BAND — not resolvable from measured facts";
                     foreach (var o in response.Options) level.Options.Add(o);
                     _vm.Cascade.Add(level);
                 }
