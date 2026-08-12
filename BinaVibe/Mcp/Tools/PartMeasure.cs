@@ -132,18 +132,26 @@ namespace BinaVibe.Mcp.Tools
                         // slab type's thickness, which the backend cannot know
                         // and must not be judged on — so only the top is checked.
                         double t = tolMm / FT;
-                        ok = actual.Min.X >= min.X - t && actual.Min.Y >= min.Y - t
-                          && actual.Max.X <= max.X + t && actual.Max.Y <= max.Y + t
+                        ok = Math.Abs(actual.Min.X - min.X) <= t
+                          && Math.Abs(actual.Min.Y - min.Y) <= t
+                          && Math.Abs(actual.Max.X - max.X) <= t
+                          && Math.Abs(actual.Max.Y - max.Y) <= t
                           && Math.Abs(actual.Max.Z - max.Z) <= t;
                     }
                     else if (tolZMm.HasValue)
                     {
                         // Roofs: plan extents are tight, height is not — a ridge
-                        // depends on a pitch the type may override.
+                        // depends on a pitch the type may override. TWO-SIDED on
+                        // every axis: a mono-pitch half-roof measured 6.0m deep
+                        // against a 10.4m prediction and PASSED the old
+                        // containment check (2026-08-12).
                         double t = tolMm / FT, tz = tolZMm.Value / FT;
-                        ok = actual.Min.X >= min.X - t && actual.Min.Y >= min.Y - t
-                          && actual.Max.X <= max.X + t && actual.Max.Y <= max.Y + t
-                          && actual.Min.Z >= min.Z - tz && actual.Max.Z <= max.Z + tz;
+                        ok = Math.Abs(actual.Min.X - min.X) <= t
+                          && Math.Abs(actual.Min.Y - min.Y) <= t
+                          && Math.Abs(actual.Max.X - max.X) <= t
+                          && Math.Abs(actual.Max.Y - max.Y) <= t
+                          && Math.Abs(actual.Min.Z - min.Z) <= tz
+                          && Math.Abs(actual.Max.Z - max.Z) <= tz;
                     }
                     else
                     {
@@ -234,9 +242,16 @@ namespace BinaVibe.Mcp.Tools
 
         private static bool Within(XYZ aMin, XYZ aMax, XYZ min, XYZ max, double tolMm)
         {
+            // TWO-SIDED, deliberately: each face must land ON its predicted
+            // face, not merely inside the box. Containment-only passed HALF a
+            // roof as "ok" on 2026-08-12 ("still not closed the gap") — an
+            // undersized part is missing geometry, and the whole loop exists
+            // to say so with numbers instead of screenshots.
             double t = tolMm / FT;
-            return aMin.X >= min.X - t && aMin.Y >= min.Y - t && aMin.Z >= min.Z - t
-                && aMax.X <= max.X + t && aMax.Y <= max.Y + t && aMax.Z <= max.Z + t;
+            return Math.Abs(aMin.X - min.X) <= t && Math.Abs(aMin.Y - min.Y) <= t
+                && Math.Abs(aMin.Z - min.Z) <= t
+                && Math.Abs(aMax.X - max.X) <= t && Math.Abs(aMax.Y - max.Y) <= t
+                && Math.Abs(aMax.Z - max.Z) <= t;
         }
 
         /// <summary>The box the WALL CENTRELINES occupy: plan XY from every
