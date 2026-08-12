@@ -2,26 +2,54 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.Linq;
+using RevitWebAppSync.Services;
 
 namespace RevitWebAppSync.UI.Bomba
 {
-    // Stub data for now: the pane is buildable and reviewable before the HTTP
-    // client to bina-ai exists, and before data/bomba_rules.json is verified.
-    //
-    // When the backend lands: replace LoadStubData() with a call to the
-    // /bomba endpoints and map Finding -> FindingVm. Nothing else changes.
+    /// One select of the purpose-group cascade (design 1A / prototype: Group →
+    /// Occupancy → Sub-item). Levels are generic — depth comes from the rules
+    /// tree, never a fixed count.
+    public class CascadeLevelVm : NotifyBase
+    {
+        private BombaOptionDto _selected;
+
+        public ObservableCollection<BombaOptionDto> Options { get; private set; }
+
+        public CascadeLevelVm() { Options = new ObservableCollection<BombaOptionDto>(); }
+
+        public BombaOptionDto Selected
+        {
+            get { return _selected; }
+            set { Set(ref _selected, value); }
+        }
+    }
+
+    // Bound to real engine output: the panel code-behind runs the scan
+    // (BombaComplianceService), BombaMapper builds CheckVm/FindingVm, and
+    // ReplaceChecks swaps them in. The VM itself never talks HTTP.
 
     public class BombaDashboardViewModel : NotifyBase
     {
-        private PaneState _state = PaneState.Ready;
+        private PaneState _state = PaneState.NeedsSetup;
         private CheckVm _selected;
-        private string _scopeLabel = "Aras 01 — Blok A";
-        private string _scopeDetail = "24 rooms · 31 doors";
-        private int _changedSinceRun = 3;
+        private string _scopeLabel = "Bomba Compliance";
+        private string _scopeDetail = "Belum diimbas";
+        private int _changedSinceRun;
+        private bool _scanning;
+        private bool _canRun;
+        private string _cascadeCrumb = "";
+        private string _setupGuidance =
+            "Occupant load comes from floor area and purpose group. Without it, "
+            + "no check can return a number — choose the schedule row that "
+            + "applies. You're asked once per model.";
 
         private CoverageVm _coverage;
 
         public ObservableCollection<CheckVm> Checks { get; private set; }
+
+        /// The purpose-group cascade the setup state binds to. One entry per
+        /// tree level; the panel appends levels as selections narrow the path.
+        public ObservableCollection<CascadeLevelVm> Cascade { get; private set; }
 
         public CoverageVm Coverage
         {
@@ -35,12 +63,65 @@ namespace RevitWebAppSync.UI.Bomba
         public BombaDashboardViewModel()
         {
             Checks = new ObservableCollection<CheckVm>();
+            Cascade = new ObservableCollection<CascadeLevelVm>();
             // A re-check replaces the contents of Checks. Without this, the
             // tab strip and finding list refresh but the verdict block keeps
             // showing the previous run's numbers.
             Checks.CollectionChanged += (s, e) => RaiseAggregates();
-            LoadStubData();
-            _selected = Checks.FirstOrDefault();
+        }
+
+        /// True once the cascade has narrowed to a leaf row — enables Run.
+        public bool CanRun
+        {
+            get { return _canRun; }
+            set { Set(ref _canRun, value); }
+        }
+
+        /// The resolved path shown mono under the cascade, e.g. "IV.1.a".
+        public string CascadeCrumb
+        {
+            get { return _cascadeCrumb; }
+            set
+            {
+                if (Set(ref _cascadeCrumb, value)) Raise("HasCrumb");
+            }
+        }
+
+        public bool HasCrumb { get { return !string.IsNullOrEmpty(CascadeCrumb); } }
+
+        /// Why the pane asks — or, mid-scan, the backend's needs_input guidance.
+        public string SetupGuidance
+        {
+            get { return _setupGuidance; }
+            set { Set(ref _setupGuidance, value); }
+        }
+
+        /// True while a scan round-trip is in flight; the Re-check button
+        /// binds IsEnabled to NotScanning.
+        public bool Scanning
+        {
+            get { return _scanning; }
+            set
+            {
+                if (Set(ref _scanning, value)) Raise("NotScanning");
+            }
+        }
+
+        public bool NotScanning { get { return !Scanning; } }
+
+        /// One scan's results replace the previous run wholesale. FindingVm's
+        /// settable properties do not notify, so fresh instances arrive here —
+        /// never mutate the old ones. CollectionChanged already re-raises the
+        /// verdict block per add.
+        public void ReplaceChecks(IList<CheckVm> checks, CoverageVm coverage)
+        {
+            Checks.Clear();
+            if (checks != null)
+                foreach (CheckVm c in checks) Checks.Add(c);
+            Coverage = coverage;
+            SelectedCheck = Checks.FirstOrDefault();
+            State = PaneState.Ready;
+            ChangedSinceRun = 0;
         }
 
         /// Single place to keep the verdict block's derived numbers in sync.
@@ -151,152 +232,5 @@ namespace RevitWebAppSync.UI.Bomba
             get { return SelectedCheck != null && SelectedCheck.Findings.Count > 0; }
         }
 
-        // ── stub data ───────────────────────────────────────────────────────
-        // Measured values are plausible model reads. Every rule-derived
-        // threshold is FindingVm.PlaceholderValue and stays so until verified.
-
-        private void LoadStubData()
-        {
-            const string P = FindingVm.PlaceholderValue;
-
-            Coverage = new CoverageVm();
-            Coverage.RoomsChecked = 20;
-            Coverage.RoomsTotal = 24;
-            Coverage.SkipReasons.Add("unenclosed_or_unplaced");
-            Coverage.SkipReasons.Add("no_boundary");
-
-            CheckVm exit = new CheckVm();
-            exit.Title = "Exit width";
-            FindingVm dewan = new FindingVm();
-            dewan.Subject = "Dewan Serbaguna";
-            dewan.RoomNumber = "R-1-04";
-            dewan.Headline = "Exit width short by " + P + " mm";
-            dewan.Passed = false;
-            dewan.Severity = Severity.High;
-            dewan.Metrics = P + " occupants from 321 m²\nneed " + P + " mm · have 1800 mm";
-            dewan.ClauseRef = "UBBL 1984 " + P;
-            dewan.RulesVersion = "bomba_rules v0.1";
-            dewan.Jurisdiction = "peninsular";
-            dewan.SchedulePath = "III.2.a.ii";
-            dewan.Action = FindingAction.Fixable;
-            dewan.FixLabel = "Widen both doors";
-            dewan.ElementIds.Add(884213);
-            dewan.ElementIds.Add(884219);
-            dewan.Steps.Add(NewStep("Occupants per floor", "321 m² ÷ " + P + " m²/person = " + P, P));
-            dewan.Steps.Add(NewStep("Exit width units", P + " ÷ " + P + " = " + P + " units", P));
-            dewan.Steps.Add(NewStep("Round TOTAL first", P + " → " + P + " units", "181"));
-            dewan.Steps.Add(NewStep("Convert to mm", P + " units = " + P + " mm", "177(e)"));
-            exit.Findings.Add(dewan);
-
-            FindingVm pejabat = new FindingVm();
-            pejabat.Subject = "Pejabat";
-            pejabat.RoomNumber = "R-1-02";
-            pejabat.Headline = "Passes with " + P + " mm to spare";
-            pejabat.Passed = true;
-            pejabat.Severity = Severity.Pass;
-            pejabat.Metrics = P + " occupants from 48 m² · have 900 mm";
-            pejabat.ClauseRef = "UBBL 1984 " + P;
-            pejabat.RulesVersion = "bomba_rules v0.1";
-            pejabat.Jurisdiction = "peninsular";
-            exit.Findings.Add(pejabat);
-
-            // The differentiator: competitors report the permitted limit only.
-            CheckVm travel = new CheckVm();
-            travel.Title = "Travel distance";
-            FindingVm terbuka = new FindingVm();
-            terbuka.Subject = "Pejabat Terbuka";
-            terbuka.RoomNumber = "R-1-11";
-            terbuka.Headline = "Measured 42.6 m — two-way limit " + P + " m applies";
-            terbuka.Passed = false;
-            terbuka.Severity = Severity.High;
-            terbuka.Metrics =
-                "measured                42.6 m\n" +
-                "limit · two-way         " + P + " m  ← applies\n" +
-                "limit · one-way dead-end " + P + " m\n" +
-                "limit · corridor dead-end " + P + " m";
-            terbuka.Guidance = "Needs a design decision — add a second exit on the east façade, "
-                             + "or relocate the corridor entry. All three limits are shown because "
-                             + "changing the design can change which one binds.";
-            terbuka.ClauseRef = "UBBL 1984 " + P;
-            terbuka.RulesVersion = "bomba_rules v0.1";
-            terbuka.Jurisdiction = "peninsular";
-            terbuka.Action = FindingAction.GuidanceOnly;
-            travel.Findings.Add(terbuka);
-
-            // "Missing" vs "cannot verify" — the distinction that avoids a
-            // false accusation of absent fire protection.
-            CheckVm systems = new CheckVm();
-            systems.Title = "Fire systems";
-            FindingVm callPoint = new FindingVm();
-            callPoint.Subject = "Manual call point";
-            callPoint.Headline = "Cannot verify — no M&E model was searched";
-            callPoint.Passed = null;   // NOT CHECKED, not failed
-            callPoint.Severity = Severity.NotChecked;
-            callPoint.Metrics = "required " + P;
-            callPoint.Guidance = "Fire systems are modelled in the M&E discipline. "
-                               + "Link the M&E model and re-check. This is not a finding of absence.";
-            callPoint.ClauseRef = "UBBL 1984 " + P;
-            callPoint.RulesVersion = "bomba_rules v0.1";
-            callPoint.Jurisdiction = "peninsular";
-            callPoint.SchedulePath = "IV.1.a.ii";
-            callPoint.Action = FindingAction.GuidanceOnly;
-            callPoint.SearchedModels.Add("Architecture");
-            systems.Findings.Add(callPoint);
-
-            FindingVm hoseReel = new FindingVm();
-            hoseReel.Subject = "Hose reel system";
-            hoseReel.Headline = "6 found across 2 levels";
-            hoseReel.Passed = true;
-            hoseReel.Severity = Severity.Pass;
-            hoseReel.Metrics = "required " + P + " · present 6";
-            hoseReel.ClauseRef = "UBBL 1984 " + P;
-            hoseReel.RulesVersion = "bomba_rules v0.1";
-            hoseReel.Jurisdiction = "peninsular";
-            hoseReel.SearchedModels.Add("Architecture");
-            hoseReel.SearchedModels.Add("M&E");
-            systems.Findings.Add(hoseReel);
-
-            // The third action variant (NeedsModelling): both models that
-            // could plausibly contain it WERE searched, and it genuinely
-            // was not found — distinct from callPoint above, where only one
-            // model was searched and absence cannot yet be asserted.
-            FindingVm detector = new FindingVm();
-            detector.Subject = "Automatic fire detector system";
-            detector.Headline = "Not found in either model searched";
-            detector.Passed = false;
-            detector.Severity = Severity.High;
-            detector.Metrics = "required " + P;
-            detector.Guidance = "Not found in the Architecture or M&E models searched. It may exist "
-                               + "under a different category — check before assuming it is missing.";
-            detector.ClauseRef = "UBBL 1984 " + P;
-            detector.RulesVersion = "bomba_rules v0.1";
-            detector.Jurisdiction = "peninsular";
-            detector.SchedulePath = "IV.1.a.iii";
-            detector.Action = FindingAction.NeedsModelling;
-            detector.SearchedModels.Add("Architecture");
-            detector.SearchedModels.Add("M&E");
-            systems.Findings.Add(detector);
-
-            // Visible but disabled. Hiding it makes users wonder whether it
-            // exists; guessing its content would be dangerous.
-            CheckVm unprotected = new CheckVm();
-            unprotected.Title = "Unprotected areas";
-            unprotected.Available = false;
-            unprotected.UnavailableReason = "rules pending verification";
-
-            Checks.Add(exit);
-            Checks.Add(travel);
-            Checks.Add(systems);
-            Checks.Add(unprotected);
-        }
-
-        private static CalcStepVm NewStep(string label, string expression, string byLaw)
-        {
-            CalcStepVm s = new CalcStepVm();
-            s.Label = label;
-            s.Expression = expression;
-            s.ByLaw = byLaw;
-            return s;
-        }
     }
 }

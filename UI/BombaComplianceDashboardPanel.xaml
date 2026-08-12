@@ -106,9 +106,10 @@
                                Foreground="{DynamicResource Ink}"/>
                     <TextBlock Text="{Binding ScopeDetail}" Style="{DynamicResource Bomba.Label}" Margin="0,3,0,0"/>
                 </StackPanel>
-                <Button Grid.Column="1" Content="Re-check" Style="{DynamicResource Bomba.BtnPrimary}"
-                        VerticalAlignment="Center" IsEnabled="False"
-                        ToolTip="Arrives with the backend"/>
+                <Button Grid.Column="1" x:Name="RescanButton" Content="Re-check"
+                        Style="{DynamicResource Bomba.BtnPrimary}"
+                        VerticalAlignment="Center" Click="Rescan_Click"
+                        IsEnabled="{Binding NotScanning}"/>
             </Grid>
         </Border>
 
@@ -120,10 +121,53 @@
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
+            <!-- Setup state (design 1A "Purpose group not set" + prototype empty
+                 state): the cascade that picks the schedule row. Occupies the
+                 whole body while results are absent — a verdict block with no
+                 run behind it would be a fabricated claim. -->
+            <ScrollViewer Grid.Row="0" Grid.RowSpan="3" VerticalScrollBarVisibility="Auto"
+                          Visibility="{Binding ShowSetup, Converter={StaticResource BoolVis}}">
+                <StackPanel Margin="12,12,12,0">
+                    <Border Background="{DynamicResource InfoBg}" BorderBrush="{DynamicResource Info}"
+                            BorderThickness="1,0,0,0" Padding="12,11" >
+                        <StackPanel>
+                            <TextBlock Text="Purpose group not set" FontSize="13" FontWeight="Bold"
+                                       Foreground="{DynamicResource Info}"/>
+                            <TextBlock Text="{Binding SetupGuidance}" Style="{DynamicResource Bomba.Label}"
+                                       Foreground="{DynamicResource Ink2}" TextWrapping="Wrap"
+                                       Margin="0,5,0,0" LineHeight="16"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- One ComboBox per tree level; the code-behind appends
+                         levels as selections narrow the path. -->
+                    <ItemsControl ItemsSource="{Binding Cascade}" Margin="0,10,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <ComboBox ItemsSource="{Binding Options}" DisplayMemberPath="Label"
+                                          SelectedItem="{Binding Selected, Mode=TwoWay}"
+                                          SelectionChanged="CascadeLevel_SelectionChanged"
+                                          Margin="0,0,0,6" Padding="8,6" FontSize="12"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- Crumb: the resolved row, mono — never a schedule number label -->
+                    <TextBlock Text="{Binding CascadeCrumb}" FontFamily="{DynamicResource Font.Mono}"
+                               FontSize="11" Foreground="{DynamicResource Ink3}" Margin="2,2,0,0"
+                               Visibility="{Binding HasCrumb, Converter={StaticResource BoolVis}}"/>
+
+                    <Button Content="Run first check" Style="{DynamicResource Bomba.BtnPrimary}"
+                            HorizontalAlignment="Left" Margin="0,10,0,12"
+                            Click="RunSetupScan_Click" IsEnabled="{Binding CanRun}"/>
+                </StackPanel>
+            </ScrollViewer>
+
             <!-- Verdict. The largest element in the pane: the drafter's first
                  question is binary, and it must answer from across the room. -->
             <Border Grid.Row="0" Style="{DynamicResource Bomba.VerdictBorder}"
-                    BorderThickness="3,0,0,0" Padding="12" Margin="12,12,12,0">
+                    BorderThickness="3,0,0,0" Padding="12" Margin="12,12,12,0"
+                    Visibility="{Binding ShowResults, Converter={StaticResource BoolVis}}">
                 <StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="{Binding VerdictCount}" FontSize="26" FontWeight="Bold"
@@ -179,6 +223,7 @@
             <!-- Check tabs. Labelled by SUBJECT — schedule numbers differ
                  between state adoptions and would be wrong in Sabah. -->
             <ListBox Grid.Row="1" Margin="12,12,12,0"
+                     Visibility="{Binding ShowResults, Converter={StaticResource BoolVis}}"
                      ItemsSource="{Binding Checks}"
                      SelectedItem="{Binding SelectedCheck, Mode=TwoWay}"
                      ItemContainerStyle="{DynamicResource Bomba.Tab}"
@@ -208,7 +253,8 @@
             </ListBox>
 
             <!-- Findings: filled in Task 6. Must be the '*' row so it scrolls. -->
-            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="12,12,12,0">
+            <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="12,12,12,0"
+                          Visibility="{Binding ShowResults, Converter={StaticResource BoolVis}}">
                 <ItemsControl ItemsSource="{Binding VisibleFindings}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
