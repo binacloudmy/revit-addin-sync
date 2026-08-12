@@ -502,6 +502,14 @@ namespace BinaVibe.Mcp.Tools
             var ownedByPart = new Dictionary<string, List<(string Role, long Id)>>();
             var specIdsByPart = new Dictionary<string, List<string>>();
 
+            // Part id -> the full part element, populated just before the loop
+            // runs (below). PartLoop only ever hands BuildOnePart the part's
+            // `expected` — `info` (fixtures.* carries its solved instances
+            // there) rides in a sibling key BuildOnePart otherwise cannot see,
+            // so this is the lookup that gets it there without changing
+            // PartLoop's delegate signature.
+            var partsById = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+
             // spec wall id -> built ElementId. THE lookup for door/window
             // hosting — there is deliberately no coordinate fallback: an id that
             // is not in this map is a reported failure, never a silent skip.
@@ -685,8 +693,19 @@ namespace BinaVibe.Mcp.Tools
                 }
                 else if (id.StartsWith("fixtures.", StringComparison.Ordinal))
                 {
-                    // Rung 3. The part exists so the scorecard says "not built"
-                    // out loud instead of the reply implying a fitted bathroom.
+                    // Predicted parts (fixtures_solver, Task 10) carry their
+                    // solved instances in a sibling `info` dict; a wet room the
+                    // solver reached but placed nothing into ships the legacy
+                    // `expected: {"status": "not_implemented"}` stub instead —
+                    // returning nothing here is exactly what that measures as
+                    // today, so the stub case falls straight through.
+                    if (partsById.TryGetValue(id, out var partEl)
+                        && partEl.TryGetProperty("info", out var info)
+                        && info.TryGetProperty("instances", out var instances))
+                    {
+                        foreach (var fid in BuildFixtures(doc, instances, lvl0))
+                        { Record(id, "fixture", fid); created.Add(fid); }
+                    }
                 }
                 else
                 {
@@ -849,6 +868,9 @@ namespace BinaVibe.Mcp.Tools
                 // — a refused part is never handed to BuildOnePart, so it
                 // never lands geometry on top of the sibling-owned elements
                 // this round declined to clear.
+                foreach (var p in partsToRun.EnumerateArray())
+                    if (p.TryGetProperty("id", out var pidv3) && pidv3.ValueKind == JsonValueKind.String)
+                        partsById[pidv3.GetString()!] = p;
                 var freshCard = PartLoop.Run(doc, partsToRun, BuildOnePart);
                 if (priorScorecard != null)
                 {
@@ -1260,6 +1282,74 @@ namespace BinaVibe.Mcp.Tools
                 var sill = w.TryGetProperty("sill_mm", out var sm)
                            && sm.ValueKind == JsonValueKind.Number ? sm.GetDouble() / FT : defaultSillFt;
                 fi.get_Parameter(BuiltInParameter.INSTANCE_SILL_HEIGHT_PARAM)?.Set(sill);
+                created.Add(fi.Id);
+            }
+            return created;
+        }
+
+        /// <summary>Place one fixtures.&lt;room&gt; part's solved sanitary
+        /// instances (`fixtures_solver.solve_fixtures`, Task 10): a wc, basin
+        /// or shower per `instances[]`, at `xy_mm` on the ground floor,
+        /// rotated about Z by `rotation_deg`.
+        ///
+        /// `kind` selects a symbol from OST_PlumbingFixtures by name hint —
+        /// wc/basin/shower are drafter vocabulary, not Revit family names, so
+        /// this tries a short list of plausible ones per kind. No match (or an
+        /// empty category — no plumbing fixture family loaded at all) is a
+        /// named failure, never a silent guess at which loaded family stands
+        /// in for a toilet: PartLoop turns the exception into the part's
+        /// failed row, naming the missing kind.</summary>
+        private static List<ElementId> BuildFixtures(Document doc, JsonElement instances, Level lvl0)
+        {
+            var created = new List<ElementId>();
+            if (instances.ValueKind != JsonValueKind.Array) return created;
+
+            var symByKind = new Dictionary<string, FamilySymbol>(StringComparer.Ordinal);
+            FamilySymbol SymbolFor(string kind)
+            {
+                if (symByKind.TryGetValue(kind, out var cached)) return cached;
+                var hints = kind switch
+                {
+                    "wc" => new[] { "Toilet", "WC" },
+                    "basin" => new[] { "Basin", "Sink", "Lavatory" },
+                    "shower" => new[] { "Shower" },
+                    _ => Array.Empty<string>(),
+                };
+                FamilySymbol? sym = null;
+                foreach (var hint in hints)
+                {
+                    // FindSymbol throws when the category is non-empty but this
+                    // particular hint doesn't match — that's just "try the next
+                    // hint" here, not a failure; only exhausting every hint is.
+                    try { sym = FindSymbol(doc, BuiltInCategory.OST_PlumbingFixtures, hint); }
+                    catch (ArgumentException) { sym = null; }
+                    if (sym != null) break;
+                }
+                if (sym == null)
+                    throw new InvalidOperationException(
+                        $"no {kind} family loaded — load a plumbing fixture family first");
+                // Activate HERE, inside this part's own transaction — same
+                // rollback hazard PlaceDoors guards against: a batched
+                // txPrep activation can be undone by an intermediate
+                // rollback, and NewFamilyInstance then fails with
+                // "Can't make type ...".
+                if (!sym.IsActive) { sym.Activate(); doc.Regenerate(); }
+                symByKind[kind] = sym;
+                return sym;
+            }
+
+            foreach (var inst in instances.EnumerateArray())
+            {
+                var kind = inst.TryGetProperty("kind", out var kv) ? kv.GetString() ?? "" : "";
+                var sym = SymbolFor(kind);
+                var p = PointMm(inst, "xy_mm", lvl0.Elevation);
+                var fi = doc.Create.NewFamilyInstance(
+                    p, sym, lvl0, Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+                var rotDeg = inst.TryGetProperty("rotation_deg", out var rv)
+                             && rv.ValueKind == JsonValueKind.Number ? rv.GetDouble() : 0;
+                if (Math.Abs(rotDeg) > 1e-9)
+                    ElementTransformUtils.RotateElement(
+                        doc, fi.Id, Line.CreateBound(p, p + XYZ.BasisZ), rotDeg * Math.PI / 180.0);
                 created.Add(fi.Id);
             }
             return created;
