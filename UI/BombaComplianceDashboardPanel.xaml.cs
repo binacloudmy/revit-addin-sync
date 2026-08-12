@@ -33,6 +33,10 @@ namespace RevitWebAppSync.UI
         private static readonly Dictionary<string, string> _labelByDoc = new Dictionary<string, string>();
         private bool _cascadeLoading;
         private CascadeLevelVm _bandLevel;
+        private BombaScreen _needsFrom = BombaScreen.Home;
+        // Latest scan's findings by subject — joins presence onto the
+        // requirements rows. Empty until a scan has run.
+        private Dictionary<string, BombaFindingDto> _lastFindings = new Dictionary<string, BombaFindingDto>();
 
         public BombaComplianceDashboardPanel()
         {
@@ -206,7 +210,110 @@ namespace RevitWebAppSync.UI
                 case BombaScreen.Detail: _vm.Screen = BombaScreen.Summary; break;
                 case BombaScreen.Summary: _vm.Screen = BombaScreen.Home; break;
                 case BombaScreen.Setup: _vm.Screen = BombaScreen.Home; break;
+                case BombaScreen.Needs: _vm.Screen = _needsFrom; break;
             }
+        }
+
+        // ── required fire systems ───────────────────────────────────────────
+
+        private void NeedsBtn_Click(object sender, RoutedEventArgs e) { _ = OpenNeedsAsync(); }
+        private void Needs_Click(object sender, System.Windows.Input.MouseButtonEventArgs e) { _ = OpenNeedsAsync(); }
+
+        private void ReqRow_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            var el = sender as FrameworkElement;
+            var row = el != null ? el.DataContext as ReqRowVm : null;
+            if (row == null || row.Issue == null) return;
+            _vm.CurrentIssue = row.Issue;
+            _vm.Screen = BombaScreen.Detail;
+        }
+
+        private async Task OpenNeedsAsync()
+        {
+            var path = RememberedPath ?? DeepestSelectedPath();
+            if (path == null)
+            {
+                // The screen needs a schedule row — route into the one ask.
+                _vm.Screen = BombaScreen.Setup;
+                _ = EnsureCascadeAsync();
+                return;
+            }
+            _needsFrom = _vm.Screen == BombaScreen.Needs ? _needsFrom : _vm.Screen;
+            _vm.Screen = BombaScreen.Needs;
+            _vm.NeedsSub = "Loading…";
+            _vm.NeedsNote = null;
+            _vm.Extinguishing.Clear();
+            _vm.Alarm.Clear();
+
+            var doc = LiveDoc;
+            var facts = doc != null ? BombaFactsExtractor.Extract(doc) : null;
+            var resp = await _bombaService.RequirementsAsync(
+                DefaultJurisdiction, path,
+                facts != null ? facts.FloorAreaM2 : null,
+                facts != null ? facts.HeightMm : null);
+            if (resp == null) return;
+            if (resp.Error != null)
+            {
+                _vm.NeedsSub = "";
+                _vm.NeedsNote = resp.Error;
+                return;
+            }
+            if (resp.NeedsInput)
+            {
+                _vm.Screen = BombaScreen.Setup;
+                _vm.SetupGuidance = resp.Guidance ?? "Choose the band that applies.";
+                return;
+            }
+
+            // "Tenth Schedule · Office — general office…" — the schedule word
+            // is citation prose from THIS jurisdiction's rules, never hardcoded.
+            _vm.NeedsSub = (resp.ScheduleNumber != null ? resp.ScheduleNumber + " Schedule · " : "")
+                + (resp.Row != null ? resp.Row.Label : "");
+            _vm.NeedsCite = "requirements: UBBL 1984, " + (resp.Row != null ? resp.Row.ClauseRef : "")
+                + " · rules " + (resp.RulesVersion ?? "?")
+                + (resp.RulesStatus != null && resp.RulesStatus != "VERIFIED" ? " · " + resp.RulesStatus : "")
+                + "\npresence: counted in this model";
+
+            foreach (var s in resp.Extinguishing) _vm.Extinguishing.Add(BuildReqRow(s.Name));
+            foreach (var s in resp.Alarm) _vm.Alarm.Add(BuildReqRow(s.Name));
+
+            bool anyIssue = _vm.Extinguishing.Concat(_vm.Alarm).Any(r => r.Issue != null);
+            _vm.NeedsNote = _lastFindings.Count == 0
+                ? "No scan yet — these are the schedule's requirements for this building. Run a check to see what the model actually has."
+                : anyIssue ? "Tap a red or amber row to deal with it." : null;
+        }
+
+        private ReqRowVm BuildReqRow(string name)
+        {
+            var row = new ReqRowVm { Name = name };
+            BombaFindingDto f;
+            if (_lastFindings.Count == 0 || !_lastFindings.TryGetValue(name, out f))
+            {
+                row.ChipText = "not checked yet";
+                row.ChipInk = M.Dim; row.ChipBg = M.Line;
+                return row;
+            }
+            var issue = _vm.Issues.FirstOrDefault(i => !i.Done && i.Subject == name);
+            if (f.Passed == true)
+            {
+                double present;
+                var n = f.Metrics != null && f.Metrics.TryGetValue("present", out present) ? (int)present : 0;
+                row.ChipText = "✓ " + n + " in model";
+                row.ChipInk = M.Green; row.ChipBg = M.GreenTint;
+            }
+            else if (f.Passed == false)
+            {
+                row.ChipText = "✗ none found";
+                row.ChipInk = M.Red; row.ChipBg = M.RedTint;
+                row.Issue = issue;
+            }
+            else
+            {
+                row.ChipText = "— can't check yet";
+                row.ChipInk = M.Amber; row.ChipBg = M.AmberTint;
+                row.Issue = issue;
+            }
+            return row;
         }
 
         private void SummaryRow_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -368,6 +475,11 @@ namespace RevitWebAppSync.UI
                 if (label != null) _labelByDoc[key] = label;
             }
             RefreshHome();
+            _lastFindings = new Dictionary<string, BombaFindingDto>();
+            if (response.Findings != null)
+                foreach (var f in response.Findings)
+                    if (!string.IsNullOrEmpty(f.Subject) && !_lastFindings.ContainsKey(f.Subject))
+                        _lastFindings[f.Subject] = f;
 
             var mapped = BombaMapper.Map(response);
             _vm.Issues.Clear();

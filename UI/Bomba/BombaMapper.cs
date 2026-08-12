@@ -46,6 +46,7 @@ namespace RevitWebAppSync.UI.Bomba
         {
             var vm = new IssueVm
             {
+                Subject = f.Subject,
                 Tag = "NEEDS PLACING",
                 TagInk = M.Amber,
                 TagBg = M.AmberTint,
@@ -70,6 +71,7 @@ namespace RevitWebAppSync.UI.Bomba
         {
             var vm = new IssueVm
             {
+                Subject = f.Subject,
                 Tag = "CAN'T CHECK",
                 TagInk = M.Amber,
                 TagBg = M.AmberTint,

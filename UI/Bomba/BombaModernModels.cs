@@ -9,7 +9,7 @@ namespace RevitWebAppSync.UI.Bomba
     // design decision gets no Fix button, NOT CHECKED is its own step, and
     // rule-derived values render [X] until the tables are verified.
 
-    public enum BombaScreen { Home, Setup, Checking, Summary, Detail, Done }
+    public enum BombaScreen { Home, Setup, Checking, Summary, Detail, Done, Needs }
 
     /// The 10A dark palette. Deliberately NOT the JKR tokens: the modern flow
     /// is its own visual system (user decision, design file Bomba Modern
@@ -58,6 +58,7 @@ namespace RevitWebAppSync.UI.Bomba
     {
         private bool _done;
 
+        public string Subject { get; set; }      // backend Finding.subject — joins to requirements rows
         public string Tag { get; set; }          // "NEEDS PLACING" · "CAN'T CHECK" · …
         public Brush TagInk { get; set; }
         public Brush TagBg { get; set; }
@@ -98,6 +99,18 @@ namespace RevitWebAppSync.UI.Bomba
     {
         public double W { get; set; }
         public Brush Fill { get; set; }
+    }
+
+    /// One row of the 'Required fire systems' screen — a schedule requirement
+    /// with its presence chip. Linked rows tap through to their issue.
+    public class ReqRowVm
+    {
+        public string Name { get; set; }
+        public string ChipText { get; set; }
+        public Brush ChipInk { get; set; }
+        public Brush ChipBg { get; set; }
+        public IssueVm Issue { get; set; }          // null = not tappable
+        public bool Linked { get { return Issue != null; } }
     }
 
     /// One row of the checking screen's task list.

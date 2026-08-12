@@ -39,6 +39,8 @@ namespace RevitWebAppSync.UI.Bomba
         public BombaDashboardViewModel()
         {
             Issues = new ObservableCollection<IssueVm>();
+            Extinguishing = new ObservableCollection<ReqRowVm>();
+            Alarm = new ObservableCollection<ReqRowVm>();
             Cascade = new ObservableCollection<CascadeLevelVm>();
             Dots = new ObservableCollection<DotVm>();
             CheckRows = new ObservableCollection<CheckRowVm>
@@ -59,19 +61,20 @@ namespace RevitWebAppSync.UI.Bomba
                 if (Set(ref _screen, value))
                 {
                     Raise("OnHome"); Raise("OnSetup"); Raise("OnChecking");
-                    Raise("OnSummary"); Raise("OnDetail"); Raise("OnDone");
+                    Raise("OnSummary"); Raise("OnDetail"); Raise("OnDone"); Raise("OnNeeds");
                     Raise("BackVisible"); Raise("DotsVisible");
                 }
             }
         }
 
         public bool OnHome { get { return Screen == BombaScreen.Home; } }
+        public bool OnNeeds { get { return Screen == BombaScreen.Needs; } }
         public bool OnSetup { get { return Screen == BombaScreen.Setup; } }
         public bool OnChecking { get { return Screen == BombaScreen.Checking; } }
         public bool OnSummary { get { return Screen == BombaScreen.Summary; } }
         public bool OnDetail { get { return Screen == BombaScreen.Detail; } }
         public bool OnDone { get { return Screen == BombaScreen.Done; } }
-        public bool BackVisible { get { return Screen == BombaScreen.Summary || Screen == BombaScreen.Detail || Screen == BombaScreen.Setup; } }
+        public bool BackVisible { get { return Screen == BombaScreen.Summary || Screen == BombaScreen.Detail || Screen == BombaScreen.Setup || Screen == BombaScreen.Needs; } }
         public bool DotsVisible { get { return Screen == BombaScreen.Detail; } }
 
         public bool Scanning
@@ -193,6 +196,26 @@ namespace RevitWebAppSync.UI.Bomba
                 });
             }
         }
+
+        // ── required fire systems (the schedule row's full answer) ──────────
+
+        public ObservableCollection<ReqRowVm> Extinguishing { get; private set; }
+        public ObservableCollection<ReqRowVm> Alarm { get; private set; }
+
+        private string _needsSub = "";
+        private string _needsNote = "";
+        private string _needsCite = "";
+
+        public string NeedsSub { get { return _needsSub; } set { Set(ref _needsSub, value); } }
+        public string NeedsCite { get { return _needsCite; } set { Set(ref _needsCite, value); } }
+
+        public string NeedsNote
+        {
+            get { return _needsNote; }
+            set { if (Set(ref _needsNote, value)) Raise("HasNeedsNote"); }
+        }
+
+        public bool HasNeedsNote { get { return !string.IsNullOrEmpty(NeedsNote); } }
 
         // ── done ────────────────────────────────────────────────────────────
 

@@ -89,6 +89,37 @@ namespace RevitWebAppSync.Services
             }
         }
 
+        /// <summary>The resolved schedule row's full answer — every required
+        /// system by NAME. Backs the 'Required fire systems' screen.</summary>
+        public async Task<BombaRequirementsResponseDto> RequirementsAsync(
+            string jurisdiction, string schedulePath, double? floorAreaM2, double? heightMm)
+        {
+            try
+            {
+                var url = $"{_baseUrl}/v1/compliance/bomba-requirements"
+                    + $"?jurisdiction={Uri.EscapeDataString(jurisdiction)}"
+                    + $"&schedule_path={Uri.EscapeDataString(schedulePath)}";
+                if (floorAreaM2.HasValue) url += "&floor_area_m2=" + floorAreaM2.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                if (heightMm.HasValue) url += "&height_mm=" + heightMm.Value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                using var req = new HttpRequestMessage(HttpMethod.Get, url);
+                AttachAuth(req);
+                var resp = await _httpClient.SendAsync(req);
+                var body = await resp.Content.ReadAsStringAsync();
+
+                if (resp.IsSuccessStatusCode)
+                    return JsonConvert.DeserializeObject<BombaRequirementsResponseDto>(body);
+
+                if (resp.StatusCode == HttpStatusCode.Unauthorized)
+                    return new BombaRequirementsResponseDto { Error = LoginRequiredMessage };
+
+                return new BombaRequirementsResponseDto { Error = $"Server error: {(int)resp.StatusCode} {resp.StatusCode} — {body}" };
+            }
+            catch (Exception ex)
+            {
+                return new BombaRequirementsResponseDto { Error = ex.Message };
+            }
+        }
+
         public Task<BombaCheckResponseDto> CheckAsync(BombaCheckRequestDto request)
         {
             return PostAsync(request, "bomba-check");
@@ -207,6 +238,34 @@ namespace RevitWebAppSync.Services
         [JsonProperty("jurisdiction")] public string Jurisdiction { get; set; }
         [JsonProperty("parent_path")] public string ParentPath { get; set; }
         [JsonProperty("options")] public List<BombaOptionDto> Options { get; set; } = new List<BombaOptionDto>();
+        [JsonProperty("error")] public string Error { get; set; }
+    }
+
+    public class BombaRequiredSystemDto
+    {
+        [JsonProperty("name")] public string Name { get; set; }
+    }
+
+    public class BombaRequirementRowDto
+    {
+        [JsonProperty("path")] public string Path { get; set; }
+        [JsonProperty("label")] public string Label { get; set; }
+        [JsonProperty("clause_ref")] public string ClauseRef { get; set; }
+    }
+
+    public class BombaRequirementsResponseDto
+    {
+        [JsonProperty("jurisdiction")] public string Jurisdiction { get; set; }
+        [JsonProperty("rules_version")] public string RulesVersion { get; set; }
+        [JsonProperty("rules_status")] public string RulesStatus { get; set; }
+        // Citation prose for THIS jurisdiction ("Tenth" in Peninsular) — never a lookup key.
+        [JsonProperty("schedule_number")] public string ScheduleNumber { get; set; }
+        [JsonProperty("row")] public BombaRequirementRowDto Row { get; set; }
+        [JsonProperty("extinguishing")] public List<BombaRequiredSystemDto> Extinguishing { get; set; } = new List<BombaRequiredSystemDto>();
+        [JsonProperty("alarm")] public List<BombaRequiredSystemDto> Alarm { get; set; } = new List<BombaRequiredSystemDto>();
+        [JsonProperty("needs_input")] public bool NeedsInput { get; set; }
+        [JsonProperty("options")] public List<BombaOptionDto> Options { get; set; } = new List<BombaOptionDto>();
+        [JsonProperty("guidance")] public string Guidance { get; set; }
         [JsonProperty("error")] public string Error { get; set; }
     }
 
