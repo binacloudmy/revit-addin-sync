@@ -217,6 +217,11 @@ namespace RevitWebAppSync.UI
         // ── required fire systems ───────────────────────────────────────────
 
         private void NeedsBtn_Click(object sender, RoutedEventArgs e) { _ = OpenNeedsAsync(); }
+
+        private void Bylaw_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            _vm.BylawOpen = !_vm.BylawOpen;
+        }
         private void Needs_Click(object sender, System.Windows.Input.MouseButtonEventArgs e) { _ = OpenNeedsAsync(); }
 
         private void ReqRow_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)

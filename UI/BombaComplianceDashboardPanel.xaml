@@ -563,6 +563,26 @@
                                TextWrapping="Wrap" LineHeight="18"/>
                 </Border>
 
+                <TextBlock Text="WHY — THE RULE BEHIND THIS" FontSize="12" FontWeight="Bold"
+                           Foreground="#6B7280" Margin="4,16,0,8"/>
+                <Border Style="{StaticResource M.Card}" Cursor="Hand" MouseLeftButtonUp="Bylaw_Click">
+                    <StackPanel>
+                        <Border Padding="16,12" Background="Transparent">
+                            <DockPanel>
+                                <TextBlock Text="{Binding BylawChev}" DockPanel.Dock="Right" FontSize="13"
+                                           Foreground="#4A5160" VerticalAlignment="Center"/>
+                                <TextBlock Text="By-law 225 — the requirement itself" FontSize="14"
+                                           Foreground="#E8EAF0" FontWeight="SemiBold"/>
+                            </DockPanel>
+                        </Border>
+                        <Border Padding="16,0,16,13"
+                                Visibility="{Binding BylawOpen, Converter={StaticResource BoolVis}}">
+                            <TextBlock FontSize="12" Foreground="#9AA3B2" TextWrapping="Wrap" LineHeight="19"
+                                       Text="&#8220;Every building shall be provided with such fire alarm system and fire extinguishment system as specified in the Tenth Schedule.&#8221; The list above is that specification for this building&#8217;s row. Certification at submission is By-law 239 — a person signs, the software never does."/>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
                 <TextBlock Text="{Binding NeedsCite}" FontSize="10" Foreground="#4A5160"
                            HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
                            Margin="0,14,0,0" LineHeight="15"/>

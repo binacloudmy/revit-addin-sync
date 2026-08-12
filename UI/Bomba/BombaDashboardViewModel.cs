@@ -217,6 +217,20 @@ namespace RevitWebAppSync.UI.Bomba
 
         public bool HasNeedsNote { get { return !string.IsNullOrEmpty(NeedsNote); } }
 
+        private bool _bylawOpen;
+
+        /// The "WHY — the rule behind this" expander (By-law 225).
+        public bool BylawOpen
+        {
+            get { return _bylawOpen; }
+            set
+            {
+                if (Set(ref _bylawOpen, value)) Raise("BylawChev");
+            }
+        }
+
+        public string BylawChev { get { return BylawOpen ? "▴" : "▾"; } }
+
         // ── done ────────────────────────────────────────────────────────────
 
         private string _doneTitle = "All clear";
