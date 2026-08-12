@@ -264,11 +264,92 @@ namespace BinaVibe.Mcp.Tools
         public static Dictionary<string, object?> BuildDesign(Document doc, JsonElement args,
                                                               UIDocument? uidoc = null)
         {
+            // Repair: the backend re-solved (or re-sent) a FAILED/BLOCKED subset
+            // of a prior build's parts, named by `repair_of` (that build's
+            // spec_id) + `parts` (the subset only — not the whole plan). Rebuild
+            // just those, against the SAME args as the original build, and merge
+            // the result into what is already standing instead of starting over.
+            bool isRepair = args.TryGetProperty("repair_of", out var repairOf)
+                            && repairOf.ValueKind == JsonValueKind.String;
+            if (isRepair)
+                return RepairFromParts(doc, args, uidoc, repairOf.GetString()!);
+
             var parts = Obj(args, "parts");
             if (parts != null && parts.Value.ValueKind == JsonValueKind.Array
                 && parts.Value.GetArrayLength() > 0)
                 return BuildFromParts(doc, args, uidoc, parts.Value);
             return BuildLegacy(doc, args, uidoc);
+        }
+
+        /// <summary>Repair entry: rebuild only the subset `parts` names, against
+        /// the SAME build engine BuildFromParts uses (see the repair parameters
+        /// threaded through it) — same wall types, same solved geometry, same
+        /// scorecard shape. The stored spec's ownership map is per ROLE, not per
+        /// part, so a part id is resolved to the role it owns (RoleForPart) and
+        /// only that role's elements are cleared before the subset rebuilds;
+        /// everything else standing in the model — including whatever the
+        /// drafter drew by hand — is left alone.</summary>
+        private static Dictionary<string, object?> RepairFromParts(
+            Document doc, JsonElement args, UIDocument? uidoc, string repairOf)
+        {
+            if (!args.TryGetProperty("parts", out var subset)
+                || subset.ValueKind != JsonValueKind.Array || subset.GetArrayLength() == 0)
+                throw new ArgumentException(
+                    $"repair_of '{repairOf}' given, but `parts` carries no subset to rebuild");
+
+            var storedJson = LoadJson(doc);
+            if (string.IsNullOrEmpty(storedJson))
+                throw new InvalidOperationException(
+                    $"repair_of '{repairOf}' given, but this document carries no BINA spec to "
+                    + "repair — build_design must run once before a repair round");
+            using var storedDoc = JsonDocument.Parse(storedJson);
+            var stored = storedDoc.RootElement;
+
+            var priorOwns = new Dictionary<string, List<long>>();
+            if (stored.TryGetProperty("owns", out var ownsEl) && ownsEl.ValueKind == JsonValueKind.Object)
+                foreach (var p in ownsEl.EnumerateObject())
+                    priorOwns[p.Name] = p.Value.EnumerateArray()
+                        .Where(v => v.ValueKind == JsonValueKind.Number)
+                        .Select(v => v.GetInt64()).ToList();
+
+            var priorScorecard = new JsonArray();
+            if (stored.TryGetProperty("scorecard", out var scEl) && scEl.ValueKind == JsonValueKind.Array)
+                foreach (var row in scEl.EnumerateArray())
+                    priorScorecard.Add(JsonNode.Parse(row.GetRawText()));
+
+            var priorWallBySpecId = new Dictionary<string, long>();
+            if (stored.TryGetProperty("wall_by_spec_id", out var wbsEl)
+                && wbsEl.ValueKind == JsonValueKind.Object)
+                foreach (var p in wbsEl.EnumerateObject())
+                    if (p.Value.ValueKind == JsonValueKind.Number)
+                        priorWallBySpecId[p.Name] = p.Value.GetInt64();
+
+            return BuildFromParts(doc, args, uidoc, subset,
+                repairOf: repairOf, priorOwns: priorOwns,
+                priorScorecard: priorScorecard, priorWallBySpecId: priorWallBySpecId);
+        }
+
+        /// <summary>The stored ownership map is per ROLE (walls.main plays the
+        /// same role every full build assigns it — perimeter_wall), not per
+        /// part, so a repair resolves a part id to the role it owns rather than
+        /// tracking finer-grained provenance the addin does not persist. `slab`
+        /// and `roof` are shared by every volume's own slab/roof part — clearing
+        /// one clears all of them; accepted for now, the map carries no finer
+        /// grain to do better.</summary>
+        private static string? RoleForPart(string partId)
+        {
+            if (string.IsNullOrEmpty(partId)) return null;
+            if (partId.StartsWith("slab.", StringComparison.Ordinal)) return "slab";
+            if (partId == "walls.partitions") return "partition";
+            if (partId.StartsWith("walls.", StringComparison.Ordinal))
+            {
+                var role = partId.Substring("walls.".Length);
+                return role == "main" ? "perimeter_wall" : $"{role}_wall";
+            }
+            if (partId == "doors") return "door";
+            if (partId == "windows") return "window";
+            if (partId.StartsWith("roof.", StringComparison.Ordinal)) return "roof";
+            return null;   // fixtures.* and unknown ids own nothing to clear
         }
 
         // ─── the solved path: one part at a time, measured ──────────────
@@ -288,7 +369,11 @@ namespace BinaVibe.Mcp.Tools
         /// transaction after it, with a TransactionGroup around the lot — one
         /// Ctrl+Z still puts the whole building back.</summary>
         private static Dictionary<string, object?> BuildFromParts(
-            Document doc, JsonElement args, UIDocument? uidoc, JsonElement partsJson)
+            Document doc, JsonElement args, UIDocument? uidoc, JsonElement partsJson,
+            string? repairOf = null,
+            Dictionary<string, List<long>>? priorOwns = null,
+            JsonArray? priorScorecard = null,
+            Dictionary<string, long>? priorWallBySpecId = null)
         {
             var t0 = System.Diagnostics.Stopwatch.StartNew();
             var footprint = Footprint(args);
@@ -365,7 +450,9 @@ namespace BinaVibe.Mcp.Tools
             // is entered twice must forget what its first attempt recorded, or
             // the stored spec ends up pointing at dead ids and the next
             // update_design deletes somebody else's element.
-            var owns = new Dictionary<string, List<long>>();
+            var owns = priorOwns != null
+                ? priorOwns.ToDictionary(kv => kv.Key, kv => new List<long>(kv.Value))
+                : new Dictionary<string, List<long>>();
             var ownedByPart = new Dictionary<string, List<(string Role, long Id)>>();
             var specIdsByPart = new Dictionary<string, List<string>>();
 
@@ -563,12 +650,14 @@ namespace BinaVibe.Mcp.Tools
                 return created;
             }
 
-            using var tg = new TransactionGroup(doc, "BINA: build design");
+            using var tg = new TransactionGroup(doc, repairOf != null ? "BINA: repair design"
+                                                                       : "BINA: build design");
             tg.Start();
             JsonArray scorecard;
             string specId;
             string? roofWarning = null;
             string? roofStrategy = null;
+            var undoFailures = new List<string>();
             try
             {
                 // ── before the loop: preconditions no part describes ──────
@@ -577,6 +666,36 @@ namespace BinaVibe.Mcp.Tools
                     TxGuard.StartSwallowing(txPrep);
                     try
                     {
+                        // Repair only: clear the subset's PRIOR elements before
+                        // anything is rebuilt, or the new parts land on top of
+                        // the broken ones instead of replacing them. Only the
+                        // roles the subset's own part ids resolve to (RoleForPart)
+                        // are touched — every other role, and anything the
+                        // drafter drew by hand, is left standing.
+                        if (repairOf != null && priorOwns != null)
+                        {
+                            var toClear = new List<ElementId>();
+                            foreach (var part in partsJson.EnumerateArray())
+                            {
+                                var role = RoleForPart(part.TryGetProperty("id", out var pidv)
+                                    ? pidv.GetString() ?? "" : "");
+                                if (role == null || !priorOwns.TryGetValue(role, out var ids)) continue;
+                                toClear.AddRange(ids.Select(ElemIds.From)
+                                                     .Where(eid => doc.GetElement(eid) != null));
+                            }
+                            if (toClear.Count > 0)
+                            {
+                                try { doc.Delete(toClear); }
+                                catch (Exception e)
+                                {
+                                    var survivors = toClear.Count(eid => doc.GetElement(eid) != null);
+                                    if (survivors > 0)
+                                        undoFailures.Add($"undo incomplete before repair: {survivors} "
+                                                        + $"elements remain ({e.Message})");
+                                }
+                            }
+                        }
+
                         // Activation forces a regeneration, so batch it: every
                         // symbol once, here, rather than one per placement.
                         foreach (var sym in new[] { doorSym, winSym }.Where(s => s != null && !s!.IsActive))
@@ -584,8 +703,16 @@ namespace BinaVibe.Mcp.Tools
                         doc.Regenerate();
 
                         levels.AddRange(EnsureLevels(doc, count, f2f, prefix, Own));
-                        if (curtainType != null) DressCurtainType(doc, curtainType, facadeSpec);
-                        BuildStructure(doc, args, footprint, levels[0], Own);
+                        // Repair rebuilds PARTS only — level stack, curtain-type
+                        // dressing and the structural grid/columns are none of
+                        // them a part, so a repair call must never redo them: the
+                        // grid and column code below carries no existence check
+                        // and would mint a second copy on every repair round.
+                        if (repairOf == null)
+                        {
+                            if (curtainType != null) DressCurtainType(doc, curtainType, facadeSpec);
+                            BuildStructure(doc, args, footprint, levels[0], Own);
+                        }
                         TxGuard.CommitOrThrow(txPrep);
                     }
                     catch
@@ -595,8 +722,36 @@ namespace BinaVibe.Mcp.Tools
                     }
                 }
 
+                // Repair only: seed the spec-id -> element lookup from the PRIOR
+                // build so doors/windows in the subset can host on walls that are
+                // not themselves being rebuilt this round. Filtered to ids that
+                // still resolve — a wall the delete pass above just cleared (or
+                // one gone for any other reason) must not hand out a dead host.
+                if (priorWallBySpecId != null)
+                    foreach (var kv in priorWallBySpecId)
+                    {
+                        var eid = ElemIds.From(kv.Value);
+                        if (doc.GetElement(eid) != null) wallBySpecId[kv.Key] = eid;
+                    }
+
                 // ── the loop ──────────────────────────────────────────────
-                scorecard = PartLoop.Run(doc, partsJson, BuildOnePart);
+                var freshCard = PartLoop.Run(doc, partsJson, BuildOnePart);
+                if (priorScorecard != null)
+                {
+                    // Merge: replace rows by part id for the parts this round
+                    // rebuilt, keep every other row exactly as the prior build
+                    // left it — SetScore already implements replace-or-append.
+                    scorecard = priorScorecard;
+                    foreach (var row in freshCard.OfType<JsonObject>())
+                        SetScore(scorecard, row["part"]!.GetValue<string>(),
+                                 row["status"]!.GetValue<string>(),
+                                 row["predicted"]?.GetValue<string>() ?? "",
+                                 row["measured"]?.GetValue<string>() ?? "");
+                }
+                else
+                {
+                    scorecard = freshCard;
+                }
 
                 // ── roofs, outside any open transaction ───────────────────
                 foreach (var kv in deferredRoofs)
@@ -668,6 +823,16 @@ namespace BinaVibe.Mcp.Tools
                     TxGuard.StartSwallowing(txFin);
                     try
                     {
+                        // Repair rebuilds PARTS only. None of upper storeys,
+                        // separation lines or rooms is a part — there is no part
+                        // id PartLoop could mark ok/failed for them — so a repair
+                        // round must never redo this block: nothing here checks
+                        // for what already exists, and re-running it on the SAME
+                        // args a repair carries would mint a second copy of every
+                        // upper-storey wall, separation line and room on top of
+                        // the ones the original build already made.
+                        if (repairOf == null)
+                        {
                         // Parts describe the GROUND floor — every prediction the
                         // backend ships is a ground-floor bbox. Upper storeys are
                         // still built (a two-storey spec must not silently lose
@@ -761,6 +926,7 @@ namespace BinaVibe.Mcp.Tools
                                 Own("room", room.Id.Value);
                             }
                         }
+                        }   // repairOf == null
 
                         // A failed part is DELETED by PartLoop, so the ownership
                         // map must be pruned before it is stored — a spec that
@@ -770,13 +936,24 @@ namespace BinaVibe.Mcp.Tools
                             owns[role] = owns[role]
                                 .Where(id => doc.GetElement(ElemIds.From(id)) != null).ToList();
 
-                        specId = Guid.NewGuid().ToString("N").Substring(0, 12);
+                        // A repair keeps the ORIGINAL spec_id — it is the same
+                        // building, only some of its parts rebuilt, and a fresh
+                        // id here would orphan every prior scorecard row this
+                        // round did not touch.
+                        specId = repairOf ?? Guid.NewGuid().ToString("N").Substring(0, 12);
+                        // scorecard + wall_by_spec_id ride along so a LATER
+                        // repair round (another failed subset) can load them
+                        // back — the FULL prior scorecard to merge into, and the
+                        // spec-id -> element lookup so doors/windows it does not
+                        // touch can still resolve the walls they are hosted in.
                         SaveJson(doc, JsonSerializer.Serialize(new Dictionary<string, object?>
                         {
                             ["spec_id"] = specId,
                             ["version"] = 1,
                             ["args"] = JsonSerializer.Deserialize<object>(args.GetRawText()),
                             ["owns"] = owns,
+                            ["scorecard"] = scorecard,
+                            ["wall_by_spec_id"] = wallBySpecId.ToDictionary(kv => kv.Key, kv => kv.Value.Value),
                         }));
                         TxGuard.CommitOrThrow(txFin);
                     }
@@ -803,6 +980,12 @@ namespace BinaVibe.Mcp.Tools
                 .Select(o => $"{o["part"]?.GetValue<string>()}: {o["status"]?.GetValue<string>()}")
                 .ToList();
             var warning = roofWarning;
+            // Repair's own delete pass (clearing the subset's prior elements
+            // before rebuilding) is best-effort like PartLoop's own undo — a
+            // survivor here means the model must be told, not left to imply a
+            // clean repair.
+            if (undoFailures.Count > 0)
+                warning = (warning == null ? "" : warning + " ") + string.Join(" ", undoFailures);
             if (bad.Count > 0)
                 warning = (warning == null ? "" : warning + " ")
                     + $"{bad.Count} part(s) did not verify: {string.Join(", ", bad)}. "
@@ -820,7 +1003,7 @@ namespace BinaVibe.Mcp.Tools
             var digest = Inspectors.GetGeometryDigest(doc, args);
             digest["scorecard"] = scorecard;
 
-            return new Dictionary<string, object?>
+            var result = new Dictionary<string, object?>
             {
                 ["ok"] = true,
                 ["spec_id"] = specId,
@@ -832,6 +1015,8 @@ namespace BinaVibe.Mcp.Tools
                 ["elapsed_ms"] = t0.ElapsedMilliseconds,
                 ["digest"] = digest,
             };
+            if (repairOf != null) result["repair_of"] = repairOf;
+            return result;
         }
 
         /// <summary>Doors, hosted BY ID in the wall the solver named.

@@ -44,17 +44,28 @@ namespace BinaVibe.Mcp.Tools
                     }
 
                     var result = BuildAndMeasure(doc, id, expected, buildPart, out var owned);
+                    // Best-effort cleanup on a failed attempt is never silent
+                    // now — a survivor count from EITHER delete rides through
+                    // to the row this loop finally writes, so a part reported
+                    // "failed" never quietly leaves orphaned geometry behind it.
+                    string undoNote = "";
                     if (result.Status == "failed")
                     {
-                        DeleteOwned(doc, id, owned);
+                        var survivors = DeleteOwned(doc, id, owned);
+                        if (survivors > 0)
+                            undoNote += $"; undo incomplete: {survivors} elements remain";
                         result = BuildAndMeasure(doc, id, expected, buildPart, out owned);
                         if (result.Status == "failed")
-                            DeleteOwned(doc, id, owned);   // wrong geometry never ships
+                        {
+                            var survivors2 = DeleteOwned(doc, id, owned);   // wrong geometry never ships
+                            if (survivors2 > 0)
+                                undoNote += $"; undo incomplete: {survivors2} elements remain";
+                        }
                     }
                     status[id] = result.Status;
                     scorecard.Add(new JsonObject {
                         ["part"] = id, ["status"] = result.Status,
-                        ["predicted"] = result.Predicted, ["measured"] = result.Measured });
+                        ["predicted"] = result.Predicted, ["measured"] = result.Measured + undoNote });
                 }
                 catch (Exception e)
                 {
@@ -103,17 +114,24 @@ namespace BinaVibe.Mcp.Tools
             }
         }
 
-        private static void DeleteOwned(Document doc, string id, List<ElementId> owned)
+        /// <summary>Best-effort delete of a failed part's own elements. Returns
+        /// the count of survivors — elements that outlived the attempt — so a
+        /// caller can say so instead of the old behaviour, which swallowed the
+        /// failure and reported nothing: the scorecard said "failed" while
+        /// orphaned geometry sat in the model with no note anywhere that undo
+        /// itself had not fully landed.</summary>
+        private static int DeleteOwned(Document doc, string id, List<ElementId> owned)
         {
-            if (owned.Count == 0) return;
+            if (owned.Count == 0) return 0;
             try
             {
                 using var t = new Transaction(doc, $"BINA undo part {id}");
                 TxGuard.StartSwallowing(t);
                 doc.Delete(owned);
                 TxGuard.CommitOrThrow(t);
+                return 0;
             }
-            catch { /* best-effort — Assimilate still gives one undo */ }
+            catch { return owned.Count; }   // best-effort, but COUNTED now
         }
     }
 }
