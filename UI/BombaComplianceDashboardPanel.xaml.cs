@@ -26,6 +26,7 @@ namespace RevitWebAppSync.UI
         // ExternalEvent write path (arrives with autofix in phase 2).
         private static readonly Dictionary<string, string> _pathByDoc = new Dictionary<string, string>();
         private bool _cascadeLoading;
+        private CascadeLevelVm _bandLevel;
 
         public BombaComplianceDashboardPanel()
         {
@@ -111,7 +112,10 @@ namespace RevitWebAppSync.UI
 
         /// Fetch the options below parentPath and append them as a new level.
         /// Exactly one option auto-selects (single-child chains cost no clicks);
-        /// zero options appends nothing (parent was a leaf).
+        /// zero options appends nothing (parent was a leaf). A level whose
+        /// options are ALL leaves is the band row of the table — it is never
+        /// rendered as a select: measured facts resolve it at Run, and only a
+        /// needs_input answer brings it back as an explicit BAND choice.
         private async Task AppendCascadeLevelAsync(string parentPath)
         {
             var resp = await _bombaService.OptionsAsync(DefaultJurisdiction, parentPath);
@@ -127,6 +131,7 @@ namespace RevitWebAppSync.UI
                 return;
             }
             if (resp.Options == null || resp.Options.Count == 0) return;
+            if (parentPath != null && resp.Options.All(o => o.IsLeaf)) return;
 
             var level = new CascadeLevelVm();
             level.Label = _vm.Cascade.Count < LevelLabels.Length
@@ -144,10 +149,14 @@ namespace RevitWebAppSync.UI
             var level = combo != null ? combo.DataContext as CascadeLevelVm : null;
             if (level == null || level.Selected == null) return;
 
-            // A re-selection higher up invalidates everything below it.
+            // A re-selection higher up invalidates everything below it,
+            // including a pending BAND ask.
             int index = _vm.Cascade.IndexOf(level);
             while (_vm.Cascade.Count > index + 1)
+            {
+                if (ReferenceEquals(_vm.Cascade[_vm.Cascade.Count - 1], _bandLevel)) _bandLevel = null;
                 _vm.Cascade.RemoveAt(_vm.Cascade.Count - 1);
+            }
 
             _vm.CascadeCrumb = level.Selected.Path;
             // Any selection is runnable: a leaf runs directly; a band parent
@@ -219,6 +228,15 @@ namespace RevitWebAppSync.UI
         {
             var facts = BombaFactsExtractor.Extract(doc);
             var response = await _bombaService.CheckAsync(BuildRequest(facts, schedulePath));
+            // A single needs_input option is no choice at all — advance through
+            // it server-side instead of rendering a one-item select.
+            for (int hop = 0; hop < 4; hop++)
+            {
+                if (response == null || response.Error != null || !response.NeedsInput) break;
+                if (response.Options == null || response.Options.Count != 1) break;
+                schedulePath = response.Options[0].Path;
+                response = await _bombaService.CheckAsync(BuildRequest(facts, schedulePath));
+            }
             if (response == null) return;
 
             if (response.Error == BombaComplianceService.LoginRequiredMessage)
@@ -244,12 +262,15 @@ namespace RevitWebAppSync.UI
                 _vm.SetupGuidance = response.Guidance
                     ?? "The model facts do not select a single row — choose the applicable band.";
                 RefreshMeasuredFacts();
+                // Re-runs must not stack band selects — one BAND level, replaced.
+                if (_bandLevel != null) { _vm.Cascade.Remove(_bandLevel); _bandLevel = null; }
                 if (response.Options != null && response.Options.Count > 0)
                 {
                     var level = new CascadeLevelVm();
-                    level.Label = "BAND — not resolvable from measured facts";
+                    level.Label = "BAND — the facts sit on a boundary, choose one";
                     foreach (var o in response.Options) level.Options.Add(o);
                     _vm.Cascade.Add(level);
+                    _bandLevel = level;
                 }
                 _vm.CanRun = false;   // until a band is picked
                 return;

@@ -15,6 +15,95 @@
             <jkr:CountGtZeroConverter x:Key="GtZero"/>
             <jkr:BoolToVisibilityConverter x:Key="BoolVis"/>
 
+            <!-- Templated select for the setup cascade. Default WPF ComboBox
+                 chrome ignores Background/BorderBrush on most Windows themes,
+                 so the design tokens need a real template: white field, 1px
+                 line, brand border on hover/open, tinted hover rows. -->
+            <Style x:Key="Bomba.ComboItem" TargetType="ComboBoxItem">
+                <Setter Property="Padding" Value="10,7"/>
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ComboBoxItem">
+                            <Border x:Name="Bd" Background="Transparent"
+                                    Padding="{TemplateBinding Padding}" SnapsToDevicePixels="True">
+                                <ContentPresenter/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsHighlighted" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BrandTint}"/>
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="{DynamicResource BrandTint}"/>
+                                    <Setter Property="FontWeight" Value="Bold"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
+            <Style x:Key="Bomba.Combo" TargetType="ComboBox">
+                <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="ItemContainerStyle" Value="{StaticResource Bomba.ComboItem}"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="ComboBox">
+                            <Grid>
+                                <ToggleButton x:Name="Toggle" Focusable="False" ClickMode="Press"
+                                              IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                    <ToggleButton.Template>
+                                        <ControlTemplate TargetType="ToggleButton">
+                                            <Border x:Name="Chrome" Background="{DynamicResource Surface.Panel}"
+                                                    BorderBrush="{DynamicResource Surface.Line}"
+                                                    BorderThickness="1" CornerRadius="3">
+                                                <Path HorizontalAlignment="Right" Margin="0,0,11,0"
+                                                      VerticalAlignment="Center" Data="M0,0 L4,4 8,0"
+                                                      Stroke="{DynamicResource Ink3}" StrokeThickness="1.5"/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Brand}"/>
+                                                </Trigger>
+                                                <Trigger Property="IsChecked" Value="True">
+                                                    <Setter TargetName="Chrome" Property="BorderBrush" Value="{DynamicResource Brand}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </ToggleButton.Template>
+                                </ToggleButton>
+                                <ContentPresenter Margin="11,8,26,8" VerticalAlignment="Center"
+                                                  HorizontalAlignment="Left" IsHitTestVisible="False"
+                                                  Content="{TemplateBinding SelectionBoxItem}"
+                                                  ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"/>
+                                <TextBlock x:Name="Placeholder" Text="Pilih…" Margin="11,8,26,8"
+                                           VerticalAlignment="Center" IsHitTestVisible="False"
+                                           Foreground="{DynamicResource Ink3}" Visibility="Collapsed"/>
+                                <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
+                                       AllowsTransparency="True" PopupAnimation="Fade" Focusable="False">
+                                    <Border Background="{DynamicResource Surface.Panel}"
+                                            BorderBrush="{DynamicResource Surface.Line}" BorderThickness="1"
+                                            CornerRadius="3" Margin="0,3,0,0" MaxHeight="260"
+                                            MinWidth="{TemplateBinding ActualWidth}" SnapsToDevicePixels="True">
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                            <ItemsPresenter/>
+                                        </ScrollViewer>
+                                    </Border>
+                                </Popup>
+                            </Grid>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="SelectedItem" Value="{x:Null}">
+                                    <Setter TargetName="Placeholder" Property="Visibility" Value="Visible"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <!-- Passed is three-valued (bool?): null must default to amber
                  NOT CHECKED, with the True/False triggers overriding it. A
                  DataTrigger matching null directly is unreliable, so the
@@ -127,58 +216,63 @@
                  run behind it would be a fabricated claim. -->
             <ScrollViewer Grid.Row="0" Grid.RowSpan="3" VerticalScrollBarVisibility="Auto"
                           Visibility="{Binding ShowSetup, Converter={StaticResource BoolVis}}">
-                <StackPanel Margin="12,12,12,0">
+                <StackPanel Margin="14,14,14,0">
+                    <!-- Design 1A "Purpose group not set" card: info tint,
+                         3px accent, heading + why-copy. -->
                     <Border Background="{DynamicResource InfoBg}" BorderBrush="{DynamicResource Info}"
-                            BorderThickness="1,0,0,0" Padding="12,11" >
+                            BorderThickness="3,0,0,0" CornerRadius="3" Padding="13,12">
                         <StackPanel>
                             <TextBlock Text="Purpose group not set" FontSize="13" FontWeight="Bold"
                                        Foreground="{DynamicResource Info}"/>
-                            <TextBlock Text="{Binding SetupGuidance}" Style="{DynamicResource Bomba.Label}"
+                            <TextBlock Text="{Binding SetupGuidance}" FontSize="11"
                                        Foreground="{DynamicResource Ink2}" TextWrapping="Wrap"
-                                       Margin="0,5,0,0" LineHeight="16"/>
+                                       Margin="0,6,0,0" LineHeight="17"/>
                         </StackPanel>
                     </Border>
 
-                    <!-- One labelled select per tree level; the code-behind
-                         appends levels as selections narrow the path.
-                         Bands are NOT normally picked here — measured facts
-                         resolve them; a band level appears only on genuine
-                         ambiguity. -->
-                    <ItemsControl ItemsSource="{Binding Cascade}" Margin="0,12,0,0">
+                    <!-- One labelled select per tree level. Band rows are NOT
+                         selects — measured facts resolve them; a BAND level
+                         appears only when the engine answers needs_input. -->
+                    <ItemsControl ItemsSource="{Binding Cascade}" Margin="0,16,0,0">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <StackPanel Margin="0,0,0,9">
+                                <StackPanel Margin="0,0,0,11">
                                     <TextBlock Text="{Binding Label}" FontFamily="{DynamicResource Font.Mono}"
                                                FontSize="10" Foreground="{DynamicResource Ink3}"
-                                               Margin="1,0,0,4"/>
-                                    <ComboBox ItemsSource="{Binding Options}" DisplayMemberPath="Label"
+                                               Margin="1,0,0,5"/>
+                                    <ComboBox Style="{StaticResource Bomba.Combo}"
+                                              ItemsSource="{Binding Options}" DisplayMemberPath="Label"
                                               SelectedItem="{Binding Selected, Mode=TwoWay}"
                                               SelectionChanged="CascadeLevel_SelectionChanged"
-                                              Padding="9,7" FontSize="12"
-                                              Background="{DynamicResource Surface.Panel}"
-                                              BorderBrush="{DynamicResource Surface.Line}"
-                                              Foreground="{DynamicResource Ink}"/>
+                                              MinHeight="34"/>
                                 </StackPanel>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <!-- What the model measured — real numbers, mono. Shows why
-                         a band resolved itself, or why the pane had to ask. -->
-                    <Border Background="{DynamicResource Surface.Bg}" CornerRadius="4"
-                            Padding="9,7" Margin="0,2,0,0"
+                    <!-- What the model measured (real numbers) and the row it
+                         lands on — why the band chose itself, or couldn't. -->
+                    <Border Background="{DynamicResource Surface.Bg}" BorderBrush="{DynamicResource Surface.Line}"
+                            BorderThickness="1" CornerRadius="3" Padding="11,9" Margin="0,1,0,0"
                             Visibility="{Binding HasMeasuredFacts, Converter={StaticResource BoolVis}}">
-                        <TextBlock Text="{Binding MeasuredFacts}" FontFamily="{DynamicResource Font.Mono}"
-                                   FontSize="11" Foreground="{DynamicResource Ink2}" TextWrapping="Wrap"/>
+                        <StackPanel>
+                            <TextBlock Text="{Binding MeasuredFacts}" FontFamily="{DynamicResource Font.Mono}"
+                                       FontSize="11" Foreground="{DynamicResource Ink2}" TextWrapping="Wrap"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,5,0,0"
+                                        Visibility="{Binding HasCrumb, Converter={StaticResource BoolVis}}">
+                                <TextBlock Text="row " FontFamily="{DynamicResource Font.Mono}" FontSize="11"
+                                           Foreground="{DynamicResource Ink3}"/>
+                                <TextBlock Text="{Binding CascadeCrumb}" FontFamily="{DynamicResource Font.Mono}"
+                                           FontSize="11" FontWeight="Bold" Foreground="{DynamicResource Ink2}"/>
+                                <TextBlock Text=" · band resolves from the measured facts"
+                                           FontFamily="{DynamicResource Font.Mono}" FontSize="11"
+                                           Foreground="{DynamicResource Ink3}"/>
+                            </StackPanel>
+                        </StackPanel>
                     </Border>
 
-                    <!-- Crumb: the resolved row, mono — never a schedule number label -->
-                    <TextBlock Text="{Binding CascadeCrumb}" FontFamily="{DynamicResource Font.Mono}"
-                               FontSize="11" Foreground="{DynamicResource Ink3}" Margin="1,8,0,0"
-                               Visibility="{Binding HasCrumb, Converter={StaticResource BoolVis}}"/>
-
                     <Button Content="Run first check" Style="{DynamicResource Bomba.BtnPrimary}"
-                            HorizontalAlignment="Stretch" Margin="0,12,0,14" Padding="0,9"
+                            HorizontalAlignment="Stretch" Margin="0,14,0,16" Padding="0,10"
                             FontSize="12" FontWeight="Bold"
                             Click="RunSetupScan_Click" IsEnabled="{Binding CanRun}"/>
                 </StackPanel>
