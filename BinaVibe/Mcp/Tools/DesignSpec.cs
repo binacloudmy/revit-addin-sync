@@ -284,11 +284,14 @@ namespace BinaVibe.Mcp.Tools
         /// <summary>Repair entry: rebuild only the subset `parts` names, against
         /// the SAME build engine BuildFromParts uses (see the repair parameters
         /// threaded through it) — same wall types, same solved geometry, same
-        /// scorecard shape. The stored spec's ownership map is per ROLE, not per
-        /// part, so a part id is resolved to the role it owns (RoleForPart) and
-        /// only that role's elements are cleared before the subset rebuilds;
-        /// everything else standing in the model — including whatever the
-        /// drafter drew by hand — is left alone.</summary>
+        /// scorecard shape. The clear step in BuildFromParts prefers the
+        /// per-PART ownership map (owns_by_part, loaded here) so clearing one
+        /// part's elements can never reach a sibling volume's — e.g. repairing
+        /// `roof.main` never touches `roof.porch`'s roof. A spec saved before
+        /// owns_by_part existed falls back to the old per-ROLE map and refuses
+        /// (never clears) any part whose bucket is shared by a sibling outside
+        /// the subset. Everything else standing in the model — including
+        /// whatever the drafter drew by hand — is left alone regardless.</summary>
         private static Dictionary<string, object?> RepairFromParts(
             Document doc, JsonElement args, UIDocument? uidoc, string repairOf)
         {
@@ -305,10 +308,33 @@ namespace BinaVibe.Mcp.Tools
             using var storedDoc = JsonDocument.Parse(storedJson);
             var stored = storedDoc.RootElement;
 
+            // `repairOf` is a ROUND fingerprint (scorecard_fingerprint on the
+            // backend: "sc-" + a hash of this round's part/status pairs), NOT
+            // the building's stable spec_id — it changes every repair round
+            // by design, so it must never be written back as spec_id. The
+            // stable id is whatever the stored spec already carries.
+            string? priorSpecId = stored.TryGetProperty("spec_id", out var specIdEl)
+                                   && specIdEl.ValueKind == JsonValueKind.String
+                ? specIdEl.GetString() : null;
+
             var priorOwns = new Dictionary<string, List<long>>();
             if (stored.TryGetProperty("owns", out var ownsEl) && ownsEl.ValueKind == JsonValueKind.Object)
                 foreach (var p in ownsEl.EnumerateObject())
                     priorOwns[p.Name] = p.Value.EnumerateArray()
+                        .Where(v => v.ValueKind == JsonValueKind.Number)
+                        .Select(v => v.GetInt64()).ToList();
+
+            // Per-PART ownership (as opposed to `owns`, which is per ROLE and,
+            // for slab/roof, shared by every volume — see RoleForPart). A spec
+            // saved by this build or later carries this map, and the repair
+            // clear below prefers it: clearing owns_by_part["roof.porch"] can
+            // never touch owns_by_part["roof.main"]'s elements, whereas the
+            // bare "roof" role bucket cannot tell them apart.
+            var priorOwnsByPart = new Dictionary<string, List<long>>();
+            if (stored.TryGetProperty("owns_by_part", out var obpEl)
+                && obpEl.ValueKind == JsonValueKind.Object)
+                foreach (var p in obpEl.EnumerateObject())
+                    priorOwnsByPart[p.Name] = p.Value.EnumerateArray()
                         .Where(v => v.ValueKind == JsonValueKind.Number)
                         .Select(v => v.GetInt64()).ToList();
 
@@ -325,17 +351,35 @@ namespace BinaVibe.Mcp.Tools
                         priorWallBySpecId[p.Name] = p.Value.GetInt64();
 
             return BuildFromParts(doc, args, uidoc, subset,
-                repairOf: repairOf, priorOwns: priorOwns,
+                repairOf: repairOf, priorSpecId: priorSpecId,
+                priorOwns: priorOwns, priorOwnsByPart: priorOwnsByPart,
                 priorScorecard: priorScorecard, priorWallBySpecId: priorWallBySpecId);
         }
 
-        /// <summary>The stored ownership map is per ROLE (walls.main plays the
-        /// same role every full build assigns it — perimeter_wall), not per
-        /// part, so a repair resolves a part id to the role it owns rather than
-        /// tracking finer-grained provenance the addin does not persist. `slab`
-        /// and `roof` are shared by every volume's own slab/roof part — clearing
-        /// one clears all of them; accepted for now, the map carries no finer
-        /// grain to do better.</summary>
+        /// <summary>The full set of part ids that, under the pre-owns_by_part
+        /// role scheme, could have contributed to the given bare role bucket —
+        /// i.e. every volume's own slab or roof part. Used ONLY to decide
+        /// whether a legacy spec's repair-clear is safe (the subset covers
+        /// every sibling) or must be refused (it doesn't). Every other role in
+        /// this file was already 1:1 with a part id (see RoleForPart), so an
+        /// empty list here means "no legacy ambiguity for this role" — the
+        /// bare-role fallback is safe on its own.</summary>
+        private static List<string> LegacySharedRoleSiblings(string role, List<BuildVolume> vols)
+        {
+            if (role == "slab") return vols.Select(v => $"slab.{v.Role}").ToList();
+            if (role == "roof") return vols.Select(v => $"roof.{v.Role}").ToList();
+            return new List<string>();
+        }
+
+        /// <summary>Maps a part id to the bare ROLE bucket it used to be
+        /// recorded under, before owns_by_part (per-part ownership) existed.
+        /// LEGACY FALLBACK ONLY — a repair prefers owns_by_part, which never
+        /// needs this. `slab` and `roof` are shared here by every volume's own
+        /// slab/roof part (walls.main -> perimeter_wall is not, each volume
+        /// already has its own bucket), which is exactly why the legacy clear
+        /// path checks LegacySharedRoleSiblings before trusting this mapping —
+        /// clearing the bare bucket for one volume would otherwise clear every
+        /// volume's.</summary>
         private static string? RoleForPart(string partId)
         {
             if (string.IsNullOrEmpty(partId)) return null;
@@ -371,7 +415,9 @@ namespace BinaVibe.Mcp.Tools
         private static Dictionary<string, object?> BuildFromParts(
             Document doc, JsonElement args, UIDocument? uidoc, JsonElement partsJson,
             string? repairOf = null,
+            string? priorSpecId = null,
             Dictionary<string, List<long>>? priorOwns = null,
+            Dictionary<string, List<long>>? priorOwnsByPart = null,
             JsonArray? priorScorecard = null,
             Dictionary<string, long>? priorWallBySpecId = null)
         {
@@ -658,6 +704,13 @@ namespace BinaVibe.Mcp.Tools
             string? roofWarning = null;
             string? roofStrategy = null;
             var undoFailures = new List<string>();
+            // Parts this round REFUSES to touch — a legacy spec whose bare
+            // role bucket (slab/roof, pre owns_by_part) is shared by a
+            // sibling part outside the subset, so clearing it would destroy
+            // that sibling's geometry. Never built this round; the scorecard
+            // says so honestly instead of silently going quiet on them.
+            var refusedParts = new List<(string PartId, string Reason)>();
+            JsonElement partsToRun = partsJson;
             try
             {
                 // ── before the loop: preconditions no part describes ──────
@@ -668,21 +721,61 @@ namespace BinaVibe.Mcp.Tools
                     {
                         // Repair only: clear the subset's PRIOR elements before
                         // anything is rebuilt, or the new parts land on top of
-                        // the broken ones instead of replacing them. Only the
-                        // roles the subset's own part ids resolve to (RoleForPart)
-                        // are touched — every other role, and anything the
-                        // drafter drew by hand, is left standing.
+                        // the broken ones instead of replacing them.
+                        //
+                        // Preferred path: owns_by_part carries this part's OWN
+                        // element ids (recorded by every build since this
+                        // field shipped) — always safe, since it can never
+                        // contain a sibling volume's elements.
+                        //
+                        // Fallback: a spec saved before owns_by_part existed
+                        // only has the bare-role `owns` map, which for
+                        // slab/roof is shared by every volume (RoleForPart
+                        // collapses "slab.porch" and "slab.main" onto one
+                        // "slab" bucket). Clearing it is only safe when the
+                        // subset covers every sibling part that could have
+                        // fed that bucket — otherwise the part is REFUSED,
+                        // not rebuilt, so the repair never destroys geometry
+                        // it wasn't asked to touch and never lies about it.
                         if (repairOf != null && priorOwns != null)
                         {
+                            var subsetIds = partsJson.EnumerateArray()
+                                .Select(p => p.TryGetProperty("id", out var pidv)
+                                    ? pidv.GetString() : null)
+                                .Where(id => !string.IsNullOrEmpty(id))
+                                .Select(id => id!)
+                                .ToHashSet(StringComparer.Ordinal);
+
                             var toClear = new List<ElementId>();
-                            foreach (var part in partsJson.EnumerateArray())
+                            foreach (var partId in subsetIds)
                             {
-                                var role = RoleForPart(part.TryGetProperty("id", out var pidv)
-                                    ? pidv.GetString() ?? "" : "");
+                                if (priorOwnsByPart != null
+                                    && priorOwnsByPart.TryGetValue(partId, out var own))
+                                {
+                                    toClear.AddRange(own.Select(ElemIds.From)
+                                                         .Where(eid => doc.GetElement(eid) != null));
+                                    continue;
+                                }
+
+                                var role = RoleForPart(partId);
                                 if (role == null || !priorOwns.TryGetValue(role, out var ids)) continue;
+
+                                var siblings = LegacySharedRoleSiblings(role, vols);
+                                if (siblings.Count > 0 && !siblings.All(subsetIds.Contains))
+                                {
+                                    refusedParts.Add((partId,
+                                        $"repair would destroy sibling {role} geometry from an "
+                                        + "older build — rebuild fully"));
+                                    continue;
+                                }
                                 toClear.AddRange(ids.Select(ElemIds.From)
                                                      .Where(eid => doc.GetElement(eid) != null));
                             }
+                            // Two subset parts can share one legacy bucket (the
+                            // whole reason for the sibling-coverage check above)
+                            // and so add the same ids twice — dedupe before the
+                            // API call rather than lean on Revit tolerating it.
+                            toClear = toClear.Distinct().ToList();
                             if (toClear.Count > 0)
                             {
                                 try { doc.Delete(toClear); }
@@ -693,6 +786,23 @@ namespace BinaVibe.Mcp.Tools
                                         undoFailures.Add($"undo incomplete before repair: {survivors} "
                                                         + $"elements remain ({e.Message})");
                                 }
+                            }
+                            if (refusedParts.Count > 0)
+                            {
+                                var refusedIds = refusedParts.Select(r => r.PartId)
+                                    .ToHashSet(StringComparer.Ordinal);
+                                var kept = new JsonArray();
+                                foreach (var part in partsJson.EnumerateArray())
+                                {
+                                    var pid = part.TryGetProperty("id", out var pidv2)
+                                        ? pidv2.GetString() : null;
+                                    if (pid != null && refusedIds.Contains(pid)) continue;
+                                    kept.Add(JsonNode.Parse(part.GetRawText()));
+                                }
+                                // Not disposed: the JsonElement must outlive this
+                                // block (PartLoop.Run reads it further down) — a
+                                // one-off allocation on an infrequent repair call.
+                                partsToRun = JsonDocument.Parse(kept.ToJsonString()).RootElement;
                             }
                         }
 
@@ -735,7 +845,11 @@ namespace BinaVibe.Mcp.Tools
                     }
 
                 // ── the loop ──────────────────────────────────────────────
-                var freshCard = PartLoop.Run(doc, partsJson, BuildOnePart);
+                // partsToRun EXCLUDES refused parts (see the clear pass above)
+                // — a refused part is never handed to BuildOnePart, so it
+                // never lands geometry on top of the sibling-owned elements
+                // this round declined to clear.
+                var freshCard = PartLoop.Run(doc, partsToRun, BuildOnePart);
                 if (priorScorecard != null)
                 {
                     // Merge: replace rows by part id for the parts this round
@@ -747,10 +861,17 @@ namespace BinaVibe.Mcp.Tools
                                  row["status"]!.GetValue<string>(),
                                  row["predicted"]?.GetValue<string>() ?? "",
                                  row["measured"]?.GetValue<string>() ?? "");
+                    // A refused part's OLD row (whatever it said before this
+                    // round) must never survive unchanged looking like "ok" —
+                    // overwrite it with the honest refusal instead.
+                    foreach (var (partId, reason) in refusedParts)
+                        SetScore(scorecard, partId, "failed", "", reason);
                 }
                 else
                 {
                     scorecard = freshCard;
+                    foreach (var (partId, reason) in refusedParts)
+                        SetScore(scorecard, partId, "failed", "", reason);
                 }
 
                 // ── roofs, outside any open transaction ───────────────────
@@ -936,22 +1057,45 @@ namespace BinaVibe.Mcp.Tools
                             owns[role] = owns[role]
                                 .Where(id => doc.GetElement(ElemIds.From(id)) != null).ToList();
 
-                        // A repair keeps the ORIGINAL spec_id — it is the same
-                        // building, only some of its parts rebuilt, and a fresh
-                        // id here would orphan every prior scorecard row this
-                        // round did not touch.
-                        specId = repairOf ?? Guid.NewGuid().ToString("N").Substring(0, 12);
-                        // scorecard + wall_by_spec_id ride along so a LATER
-                        // repair round (another failed subset) can load them
-                        // back — the FULL prior scorecard to merge into, and the
-                        // spec-id -> element lookup so doors/windows it does not
-                        // touch can still resolve the walls they are hosted in.
+                        // Per-part ownership: start from what this round
+                        // inherited, overlay whatever it actually rebuilt (only
+                        // parts BuildOnePart ran for this round have an entry
+                        // in ownedByPart — see ForgetPart/Record), then prune
+                        // dead ids the same way `owns` is pruned above. A part
+                        // this round REFUSED or left untouched keeps its prior
+                        // entry unchanged, so a later repair round still finds
+                        // it under its own key next time.
+                        var ownsByPart = priorOwnsByPart != null
+                            ? priorOwnsByPart.ToDictionary(kv => kv.Key, kv => new List<long>(kv.Value))
+                            : new Dictionary<string, List<long>>();
+                        foreach (var kv in ownedByPart)
+                            ownsByPart[kv.Key] = kv.Value.Select(t => t.Id).ToList();
+                        foreach (var partId in ownsByPart.Keys.ToList())
+                            ownsByPart[partId] = ownsByPart[partId]
+                                .Where(id => doc.GetElement(ElemIds.From(id)) != null).ToList();
+
+                        // A repair keeps the ORIGINAL spec_id (read from the
+                        // stored spec, NOT `repairOf` — that is a per-round
+                        // scorecard fingerprint the backend mints fresh every
+                        // round, never a stable id; see priorSpecId above). It
+                        // is the same building, only some of its parts
+                        // rebuilt, and a fresh id here would orphan every
+                        // prior scorecard row this round did not touch.
+                        specId = priorSpecId ?? Guid.NewGuid().ToString("N").Substring(0, 12);
+                        // scorecard + wall_by_spec_id + owns_by_part ride along
+                        // so a LATER repair round (another failed subset) can
+                        // load them back — the FULL prior scorecard to merge
+                        // into, the spec-id -> element lookup so doors/windows
+                        // it does not touch can still resolve the walls they
+                        // are hosted in, and the per-part map so THAT round's
+                        // clear stays precise too, not just this one's.
                         SaveJson(doc, JsonSerializer.Serialize(new Dictionary<string, object?>
                         {
                             ["spec_id"] = specId,
                             ["version"] = 1,
                             ["args"] = JsonSerializer.Deserialize<object>(args.GetRawText()),
                             ["owns"] = owns,
+                            ["owns_by_part"] = ownsByPart,
                             ["scorecard"] = scorecard,
                             ["wall_by_spec_id"] = wallBySpecId.ToDictionary(kv => kv.Key, kv => kv.Value.Value),
                         }));
