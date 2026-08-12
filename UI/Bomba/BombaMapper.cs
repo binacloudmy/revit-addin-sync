@@ -1,130 +1,121 @@
 using System.Collections.Generic;
-using System.Globalization;
 using System.Linq;
 using RevitWebAppSync.Services;
 
 namespace RevitWebAppSync.UI.Bomba
 {
     /// <summary>
-    /// Maps the wire DTOs (Services.Bomba*Dto) onto the pane's view models.
-    /// Same role as UI/Jkr/ViewModels/IssueMapper.cs. Builds fresh VMs every
-    /// scan — FindingVm's settable properties do not notify, so mutation in
-    /// place would leave the pane stale.
+    /// Maps the wire DTOs onto Modern Flow issues — plain language up front,
+    /// the citation in small print. Tri-state survives as the tag:
+    ///   passed=false + needs_modelling → NEEDS PLACING (checked, absent)
+    ///   passed=null                    → CAN'T CHECK   (never a failure)
+    ///   passed=true                    → not an issue; counts toward Done.
+    /// Phase 1 has no automatic fixes, so no issue ever gets a Fix button —
+    /// the primary action is an honest re-check after fixing in the model.
     /// </summary>
     public static class BombaMapper
     {
-        /// Subject titles, never schedule numbers — numbering differs between
-        /// state adoptions (design constraint from the pane plan).
-        private static readonly Dictionary<string, string> CheckTitles = new Dictionary<string, string>
+        public class MapResult
         {
-            { "fire_systems", "Fire systems" },
-            { "exit_width", "Exit width" },
-            { "travel_distance", "Travel distance" },
-            { "dead_ends", "Dead ends" },
-            { "unprotected_areas", "Unprotected areas" },
-            { "stair_discharge", "Staircase discharge" },
-        };
+            public List<IssueVm> Issues = new List<IssueVm>();
+            public int PassCount;
+            public string RulesLine = "";
+        }
 
-        public static List<CheckVm> Map(BombaCheckResponseDto response)
+        public static MapResult Map(BombaCheckResponseDto response)
         {
-            var checks = new List<CheckVm>();
-            if (response == null || response.Findings == null) return checks;
+            var result = new MapResult();
+            if (response == null || response.Findings == null) return result;
 
-            // Provenance suffix: rules not yet consultant-verified must say so
-            // on every finding — the [X]-until-verified rule applied to provenance.
-            string versionLabel = response.RulesVersion ?? "";
+            var cite = "UBBL 1984 · rules " + (response.RulesVersion ?? "?");
             if (!string.IsNullOrEmpty(response.RulesStatus) && response.RulesStatus != "VERIFIED")
-                versionLabel = versionLabel + " · " + response.RulesStatus;
+                cite += " · " + response.RulesStatus + " — values show [X] until verified";
+            result.RulesLine = cite;
 
-            foreach (var group in response.Findings.GroupBy(f => f.Check ?? ""))
-            {
-                var check = new CheckVm();
-                check.Title = TitleFor(group.Key);
-                foreach (var dto in group)
-                    check.Findings.Add(MapFinding(dto, versionLabel));
-                checks.Add(check);
-            }
-            return checks;
+            // Failures first, then can't-check — the wizard walks this order.
+            foreach (var f in response.Findings.Where(x => x.Passed == false))
+                result.Issues.Add(Missing(f, cite));
+            foreach (var f in response.Findings.Where(x => !x.Passed.HasValue))
+                result.Issues.Add(CantCheck(f, cite));
+            result.PassCount = response.Findings.Count(x => x.Passed == true);
+
+            return result;
         }
 
-        private static string TitleFor(string checkKey)
+        private static IssueVm Missing(BombaFindingDto f, string cite)
         {
-            string title;
-            if (CheckTitles.TryGetValue(checkKey, out title)) return title;
-            // Unknown check key: readable fallback, still subject-flavoured.
-            var words = checkKey.Replace('_', ' ').Trim();
-            if (words.Length == 0) return "Compliance";
-            return char.ToUpper(words[0], CultureInfo.InvariantCulture) + words.Substring(1);
-        }
-
-        private static FindingVm MapFinding(BombaFindingDto dto, string versionLabel)
-        {
-            var vm = new FindingVm();
-            vm.Subject = dto.Subject;
-            vm.Passed = dto.Passed;                       // tri-state, straight through
-            vm.Severity = dto.Passed == true ? Severity.Pass
-                        : dto.Passed == false ? Severity.High
-                        : Severity.NotChecked;
-            vm.Action = MapAction(dto.Action);
-            vm.Headline = Headline(dto);
-            vm.Metrics = MetricsText(dto);
-            vm.Guidance = dto.Guidance;
-            vm.ClauseRef = dto.ClauseRef;
-            vm.RulesVersion = versionLabel;
-            vm.Jurisdiction = dto.Jurisdiction;
-            vm.SchedulePath = dto.SchedulePath;
-            if (dto.ElementIds != null)
-                foreach (var id in dto.ElementIds) vm.ElementIds.Add(id);
-            if (dto.SearchedModels != null)
-                foreach (var m in dto.SearchedModels) vm.SearchedModels.Add(m);
-            if (dto.Steps != null)
+            var vm = new IssueVm
             {
-                foreach (var s in dto.Steps)
-                {
-                    var step = new CalcStepVm();
-                    step.Label = s.Label;
-                    step.Expression = s.Expression;
-                    step.ByLaw = s.ByLaw;
-                    vm.Steps.Add(step);
-                }
-            }
+                Tag = "NEEDS PLACING",
+                TagInk = M.Amber,
+                TagBg = M.AmberTint,
+                Icon = "🔔",
+                IconBg = M.AmberTint,
+                Title = "No " + Lower(f.Subject),
+                Where = "Searched: " + JoinModels(f),
+                Sub = "required · none found in the models searched",
+                Body = f.Guidance ?? ("The rules require a " + Lower(f.Subject)
+                    + " and the models searched carry none. Place it in the model, then re-check."),
+                Cite = cite,
+                NoFixNote = "There's nothing to swap — this needs placing in the model. Place it, then re-check.",
+            };
+            vm.Facts.Add(new FactVm("Required", "[X]", M.Red));
+            vm.Facts.Add(new FactVm("In the model", Count(f), M.Red));
+            vm.Facts.Add(new FactVm("Schedule row", f.SchedulePath ?? "—", M.Ink));
+            CopyIds(f, vm);
             return vm;
         }
 
-        private static FindingAction MapAction(string action)
+        private static IssueVm CantCheck(BombaFindingDto f, string cite)
         {
-            switch (action)
+            var vm = new IssueVm
             {
-                case "fixable": return FindingAction.Fixable;
-                case "guidance_only": return FindingAction.GuidanceOnly;
-                case "needs_modelling": return FindingAction.NeedsModelling;
-                default: return FindingAction.None;
-            }
+                Tag = "CAN'T CHECK",
+                TagInk = M.Amber,
+                TagBg = M.AmberTint,
+                Icon = "⚠️",
+                IconBg = M.AmberTint,
+                Title = "Can't check " + Lower(f.Subject),
+                Where = "The M&E model isn't linked",
+                Sub = "not checked — this is not a finding of absence",
+                Body = f.Guidance ?? ("Fire systems live in the M&E model. Until it's linked, absence "
+                    + "proves nothing — link it and re-check. “All passed” would be a lie meanwhile."),
+                Cite = cite,
+                NoFixNote = "Link the M&E model in Revit, then re-check. Nothing is wrong yet — it just isn't verified.",
+                DoLabel = "Re-check after linking",
+            };
+            vm.Facts.Add(new FactVm("Required", "[X]", M.Ink));
+            vm.Facts.Add(new FactVm("Searched", JoinModels(f), M.Sub));
+            vm.Facts.Add(new FactVm("Verdict", "not checked", M.Amber));
+            CopyIds(f, vm);
+            return vm;
         }
 
-        private static string Headline(BombaFindingDto dto)
+        private static void CopyIds(BombaFindingDto f, IssueVm vm)
         {
-            if (dto.Passed == true)
-            {
-                double present;
-                if (dto.Metrics != null && dto.Metrics.TryGetValue("present", out present))
-                    return "Present — " + ((int)present) + " found";
-                return "Requirement met";
-            }
-            if (dto.Passed == false)
-                return "Required but not found in the models searched";
-            // null: NOT CHECKED — neither pass nor fail, and the wording must
-            // never read as an accusation of absence.
-            return "Cannot verify — M&E model not searched";
+            if (f.ElementIds == null) return;
+            foreach (var id in f.ElementIds) vm.ElementIds.Add(id);
         }
 
-        private static string MetricsText(BombaFindingDto dto)
+        private static string JoinModels(BombaFindingDto f)
         {
-            var lines = new List<string>();
-            if (dto.Metrics != null)
-                foreach (var kv in dto.Metrics)
-                    lines.Add(kv.Key + "  " + kv.Value.ToString("0.##", CultureInfo.InvariantCulture));
-            return string.Join("\n", lines.ToArray());
+            return f.SearchedModels != null && f.SearchedModels.Count > 0
+                ? string.Join(", ", f.SearchedModels.ToArray())
+                : "—";
+        }
+
+        private static string Count(BombaFindingDto f)
+        {
+            double present;
+            if (f.Metrics != null && f.Metrics.TryGetValue("present", out present))
+                return ((int)present).ToString();
+            return "0";
+        }
+
+        private static string Lower(string subject)
+        {
+            if (string.IsNullOrEmpty(subject)) return "system";
+            return char.ToLower(subject[0]) + subject.Substring(1);
         }
     }
 }

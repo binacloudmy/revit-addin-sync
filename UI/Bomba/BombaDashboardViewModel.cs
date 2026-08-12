@@ -1,14 +1,13 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Collections.Specialized;
 using System.Linq;
+using System.Windows.Media;
 using RevitWebAppSync.Services;
 
 namespace RevitWebAppSync.UI.Bomba
 {
-    /// One select of the purpose-group cascade (design 1A / prototype: Group →
-    /// Occupancy → Sub-item). Levels are generic — depth comes from the rules
-    /// tree, never a fixed count.
+    /// One select of the building-type cascade (Setup screen). Levels are
+    /// generic — depth comes from the rules tree, never a fixed count.
     public class CascadeLevelVm : NotifyBase
     {
         private BombaOptionDto _selected;
@@ -27,96 +26,54 @@ namespace RevitWebAppSync.UI.Bomba
         }
     }
 
-    // Bound to real engine output: the panel code-behind runs the scan
-    // (BombaComplianceService), BombaMapper builds CheckVm/FindingVm, and
-    // ReplaceChecks swaps them in. The VM itself never talks HTTP.
-
+    // Modern Flow (design 10A): the pane is a state machine of six screens.
+    // The panel code-behind runs the scan and navigation; this VM only holds
+    // what the screens bind to. It never talks HTTP.
     public class BombaDashboardViewModel : NotifyBase
     {
-        private PaneState _state = PaneState.NeedsSetup;
-        private CheckVm _selected;
-        private string _scopeLabel = "Bomba Compliance";
-        private string _scopeDetail = "Belum diimbas";
-        private int _changedSinceRun;
+        private BombaScreen _screen = BombaScreen.Home;
         private bool _scanning;
-        private bool _canRun;
-        private string _cascadeCrumb = "";
-        private string _setupGuidance =
-            "Occupant load comes from floor area and purpose group. Without it, "
-            + "no check can return a number — choose the schedule row that "
-            + "applies. You're asked once per model.";
-
-        private CoverageVm _coverage;
-
-        public ObservableCollection<CheckVm> Checks { get; private set; }
-
-        /// The purpose-group cascade the setup state binds to. One entry per
-        /// tree level; the panel appends levels as selections narrow the path.
-        public ObservableCollection<CascadeLevelVm> Cascade { get; private set; }
-
-        public CoverageVm Coverage
-        {
-            get { return _coverage; }
-            set
-            {
-                if (Set(ref _coverage, value)) RaiseAggregates();
-            }
-        }
+        private IssueVm _current;
+        private string _notice;
 
         public BombaDashboardViewModel()
         {
-            Checks = new ObservableCollection<CheckVm>();
+            Issues = new ObservableCollection<IssueVm>();
             Cascade = new ObservableCollection<CascadeLevelVm>();
-            // A re-check replaces the contents of Checks. Without this, the
-            // tab strip and finding list refresh but the verdict block keeps
-            // showing the previous run's numbers.
-            Checks.CollectionChanged += (s, e) => RaiseAggregates();
+            Dots = new ObservableCollection<DotVm>();
+            CheckRows = new ObservableCollection<CheckRowVm>
+            {
+                new CheckRowVm { Label = "Read rooms & measure" },
+                new CheckRowVm { Label = "Resolve requirements" },
+                new CheckRowVm { Label = "Fire systems" },
+            };
         }
 
-        /// True once the cascade has narrowed to a leaf row — enables Run.
-        public bool CanRun
-        {
-            get { return _canRun; }
-            set { Set(ref _canRun, value); }
-        }
+        // ── screens ─────────────────────────────────────────────────────────
 
-        /// The resolved path shown mono under the cascade, e.g. "IV.1.a".
-        public string CascadeCrumb
+        public BombaScreen Screen
         {
-            get { return _cascadeCrumb; }
+            get { return _screen; }
             set
             {
-                if (Set(ref _cascadeCrumb, value)) Raise("HasCrumb");
+                if (Set(ref _screen, value))
+                {
+                    Raise("OnHome"); Raise("OnSetup"); Raise("OnChecking");
+                    Raise("OnSummary"); Raise("OnDetail"); Raise("OnDone");
+                    Raise("BackVisible"); Raise("DotsVisible");
+                }
             }
         }
 
-        public bool HasCrumb { get { return !string.IsNullOrEmpty(CascadeCrumb); } }
+        public bool OnHome { get { return Screen == BombaScreen.Home; } }
+        public bool OnSetup { get { return Screen == BombaScreen.Setup; } }
+        public bool OnChecking { get { return Screen == BombaScreen.Checking; } }
+        public bool OnSummary { get { return Screen == BombaScreen.Summary; } }
+        public bool OnDetail { get { return Screen == BombaScreen.Detail; } }
+        public bool OnDone { get { return Screen == BombaScreen.Done; } }
+        public bool BackVisible { get { return Screen == BombaScreen.Summary || Screen == BombaScreen.Detail || Screen == BombaScreen.Setup; } }
+        public bool DotsVisible { get { return Screen == BombaScreen.Detail; } }
 
-        /// Why the pane asks — or, mid-scan, the backend's needs_input guidance.
-        public string SetupGuidance
-        {
-            get { return _setupGuidance; }
-            set { Set(ref _setupGuidance, value); }
-        }
-
-        private string _measuredFacts = "";
-
-        /// Mono line under the cascade: what the model measured (largest
-        /// storey, height). Measured values are real; showing them is how the
-        /// drafter sees why a band resolved itself — or why it couldn't.
-        public string MeasuredFacts
-        {
-            get { return _measuredFacts; }
-            set
-            {
-                if (Set(ref _measuredFacts, value)) Raise("HasMeasuredFacts");
-            }
-        }
-
-        public bool HasMeasuredFacts { get { return !string.IsNullOrEmpty(MeasuredFacts); } }
-
-        /// True while a scan round-trip is in flight; the Re-check button
-        /// binds IsEnabled to NotScanning.
         public bool Scanning
         {
             get { return _scanning; }
@@ -128,128 +85,121 @@ namespace RevitWebAppSync.UI.Bomba
 
         public bool NotScanning { get { return !Scanning; } }
 
-        /// One scan's results replace the previous run wholesale. FindingVm's
-        /// settable properties do not notify, so fresh instances arrive here —
-        /// never mutate the old ones. CollectionChanged already re-raises the
-        /// verdict block per add.
-        public void ReplaceChecks(IList<CheckVm> checks, CoverageVm coverage)
+        /// Amber banner on Home — login required, backend unreachable.
+        public string Notice
         {
-            Checks.Clear();
-            if (checks != null)
-                foreach (CheckVm c in checks) Checks.Add(c);
-            Coverage = coverage;
-            SelectedCheck = Checks.FirstOrDefault();
-            State = PaneState.Ready;
-            ChangedSinceRun = 0;
-        }
-
-        /// Single place to keep the verdict block's derived numbers in sync.
-        /// Everything the 26pt verdict reads from must be raised here.
-        private void RaiseAggregates()
-        {
-            Raise("TotalFailures");
-            Raise("TotalNotChecked");
-            Raise("NotCheckedSuffix");
-            Raise("VerdictCount");
-            Raise("VerdictWord");
-            Raise("VerdictBreakdown");
-        }
-
-        public PaneState State
-        {
-            get { return _state; }
+            get { return _notice; }
             set
             {
-                if (Set(ref _state, value))
-                {
-                    Raise("ShowSetup");
-                    Raise("ShowStale");
-                    Raise("ShowResults");
-                }
+                if (Set(ref _notice, value)) Raise("HasNotice");
             }
         }
 
-        public CheckVm SelectedCheck
+        public bool HasNotice { get { return !string.IsNullOrEmpty(Notice); } }
+
+        // ── home ────────────────────────────────────────────────────────────
+
+        private string _buildingType = "Not set — tap to choose";
+        private string _floorLabel = "";
+        private string _readLabel = "";
+
+        public string BuildingType { get { return _buildingType; } set { Set(ref _buildingType, value); } }
+        public string FloorLabel { get { return _floorLabel; } set { Set(ref _floorLabel, value); } }
+        public string ReadLabel { get { return _readLabel; } set { Set(ref _readLabel, value); } }
+
+        // ── setup (building-type cascade) ───────────────────────────────────
+
+        public ObservableCollection<CascadeLevelVm> Cascade { get; private set; }
+
+        private bool _canRun;
+        private string _setupGuidance =
+            "Pick the schedule row that applies. Room sizes and heights are "
+            + "read from the model — the size band chooses itself.";
+
+        public bool CanRun { get { return _canRun; } set { Set(ref _canRun, value); } }
+        public string SetupGuidance { get { return _setupGuidance; } set { Set(ref _setupGuidance, value); } }
+
+        private string _measuredFacts = "";
+        public string MeasuredFacts
         {
-            get { return _selected; }
+            get { return _measuredFacts; }
+            set { if (Set(ref _measuredFacts, value)) Raise("HasMeasuredFacts"); }
+        }
+        public bool HasMeasuredFacts { get { return !string.IsNullOrEmpty(MeasuredFacts); } }
+
+        // ── checking ────────────────────────────────────────────────────────
+
+        private int _progressPct;
+        private string _progressTitle = "Reading the model";
+        private string _progressSub = "";
+
+        public ObservableCollection<CheckRowVm> CheckRows { get; private set; }
+
+        public int ProgressPct
+        {
+            get { return _progressPct; }
             set
             {
-                if (Set(ref _selected, value))
-                {
-                    Raise("VisibleFindings");
-                    Raise("HasFindings");
-                }
+                if (Set(ref _progressPct, value)) Raise("ProgressText");
             }
         }
 
-        public string ScopeLabel { get { return _scopeLabel; } set { Set(ref _scopeLabel, value); } }
-        public string ScopeDetail { get { return _scopeDetail; } set { Set(ref _scopeDetail, value); } }
-        public int ChangedSinceRun { get { return _changedSinceRun; } set { Set(ref _changedSinceRun, value); } }
+        public string ProgressText { get { return ProgressPct + "%"; } }
+        public string ProgressTitle { get { return _progressTitle; } set { Set(ref _progressTitle, value); } }
+        public string ProgressSub { get { return _progressSub; } set { Set(ref _progressSub, value); } }
 
-        public bool ShowSetup { get { return State == PaneState.NeedsSetup; } }
-        public bool ShowStale { get { return State == PaneState.Stale; } }
-        public bool ShowResults { get { return State == PaneState.Ready || State == PaneState.Stale; } }
+        // ── summary + detail ────────────────────────────────────────────────
 
-        public int TotalFailures { get { return Checks.Sum(c => c.FailCount); } }
-        public int TotalNotChecked { get { return Checks.Sum(c => c.NotCheckedCount); } }
+        public ObservableCollection<IssueVm> Issues { get; private set; }
+        public ObservableCollection<DotVm> Dots { get; private set; }
 
-        public string VerdictCount { get { return TotalFailures.ToString(); } }
-        public string VerdictWord { get { return TotalFailures == 1 ? "finding" : "findings"; } }
-
-        /// A different quantity from Coverage.Summary: that one counts ROOMS
-        /// skipped, this one counts FINDINGS that could not be verified. Both
-        /// render amber; the wording is what keeps them from reading as the
-        /// same fact contradicting itself.
-        public string NotCheckedSuffix
+        public IssueVm CurrentIssue
         {
-            get { return TotalNotChecked == 1 ? " finding not verified" : " findings not verified"; }
+            get { return _current; }
+            set
+            {
+                if (Set(ref _current, value)) { Raise("CurPos"); RebuildDots(); }
+            }
         }
 
-        /// Names which checks contributed, by SUBJECT — never by schedule number.
-        /// Zero failures is NOT the same claim as "all checks ran" — coverage
-        /// gaps and unavailable checks must still surface here, or this line
-        /// repeats the exact "all passed while rooms went unchecked" mistake
-        /// this pane exists to avoid.
-        public string VerdictBreakdown
+        public int OpenCount { get { return Issues.Count(i => !i.Done); } }
+        public string OpenCountText { get { return OpenCount.ToString(); } }
+        public string OpenWord { get { return OpenCount == 1 ? "thing to fix" : "things to fix"; } }
+
+        public string CurPos
         {
             get
             {
-                List<string> parts = Checks
-                    .Where(c => c.Available && c.FailCount > 0)
-                    .Select(c => c.Title + " " + c.FailCount)
-                    .ToList();
-                if (parts.Count > 0) return string.Join(" · ", parts.ToArray());
-
-                List<string> notes = new List<string>();
-                notes.Add("No failures");
-                notes.Add(Coverage == null ? "coverage unknown" : "coverage " + Coverage.Label);
-                if (TotalNotChecked > 0) notes.Add(TotalNotChecked + NotCheckedSuffix);
-
-                List<string> unavailable = Checks.Where(c => !c.Available).Select(c => c.Title).ToList();
-                if (unavailable.Count > 0) notes.Add(string.Join(", ", unavailable.ToArray()) + " not available");
-
-                return string.Join(" · ", notes.ToArray());
+                if (_current == null) return "";
+                return "Issue " + (Issues.IndexOf(_current) + 1) + " of " + Issues.Count;
             }
         }
 
-        public string StaleLabel { get { return ChangedSinceRun + " rooms changed since this run"; } }
-
-        public IEnumerable<FindingVm> VisibleFindings
+        public void RaiseCounts()
         {
-            get
+            Raise("OpenCount"); Raise("OpenCountText"); Raise("OpenWord");
+            RebuildDots();
+        }
+
+        private void RebuildDots()
+        {
+            Dots.Clear();
+            foreach (var it in Issues)
             {
-                if (SelectedCheck == null) return Enumerable.Empty<FindingVm>();
-                // Failures first, then not-checked, then passes.
-                return SelectedCheck.Findings
-                    .OrderBy(f => f.Passed == false ? 0 : (!f.Passed.HasValue ? 1 : 2))
-                    .ToList();
+                Dots.Add(new DotVm
+                {
+                    W = ReferenceEquals(it, _current) ? 20 : 7,
+                    Fill = it.Done ? M.Green : ReferenceEquals(it, _current) ? M.Accent : M.Line,
+                });
             }
         }
 
-        public bool HasFindings
-        {
-            get { return SelectedCheck != null && SelectedCheck.Findings.Count > 0; }
-        }
+        // ── done ────────────────────────────────────────────────────────────
 
+        private string _doneTitle = "All clear";
+        private string _doneSub = "";
+
+        public string DoneTitle { get { return _doneTitle; } set { Set(ref _doneTitle, value); } }
+        public string DoneSub { get { return _doneSub; } set { Set(ref _doneSub, value); } }
     }
 }

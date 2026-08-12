@@ -4,27 +4,33 @@ using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using Autodesk.Revit.UI;
 using RevitWebAppSync.Services;
 using RevitWebAppSync.UI.Bomba;
 
 namespace RevitWebAppSync.UI
 {
+    /// Modern Flow pane (design 10A): Home → Checking → Summary → issue-by-
+    /// issue Detail → Done, with a Setup screen for the one human decision
+    /// (building type). All navigation and HTTP lives here; the VM only holds
+    /// what the screens bind to.
     public partial class BombaComplianceDashboardPanel : UserControl
     {
-        // Phase-1 default, one place, replaced by a jurisdiction picker later.
-        // The requirements ROW is never defaulted — the cascade asks (design
-        // 1A / prototype: purpose group is a human decision, asked once).
+        // Phase-1 default; the requirements ROW is never defaulted — Setup
+        // asks (None means ask, never guess).
         private const string DefaultJurisdiction = "peninsular";
 
         private readonly BombaDashboardViewModel _vm;
         private readonly BombaComplianceService _bombaService = new BombaComplianceService();
         private UIApplication _uiApp;
+        private DispatcherTimer _progressTimer;
 
-        // "Asked once": the resolved schedule path per document, for this
-        // session. Writing _bomba_purpose_group back into the model needs the
-        // ExternalEvent write path (arrives with autofix in phase 2).
+        // "Asked once": the resolved schedule path (+ its label) per document,
+        // for this session. Writing _bomba_purpose_group into the model needs
+        // the ExternalEvent write path (phase 2).
         private static readonly Dictionary<string, string> _pathByDoc = new Dictionary<string, string>();
+        private static readonly Dictionary<string, string> _labelByDoc = new Dictionary<string, string>();
         private bool _cascadeLoading;
         private CascadeLevelVm _bandLevel;
 
@@ -33,24 +39,18 @@ namespace RevitWebAppSync.UI
             InitializeComponent();
             _vm = new BombaDashboardViewModel();
             this.DataContext = _vm;
+            this.Loaded += (s, e) => RefreshHome();
         }
 
         public BombaDashboardViewModel ViewModel { get { return _vm; } }
 
-        /// Called by the command when the pane opens, so the panel can reach
-        /// the live document without depending on Revit at construction.
         public void SetRevitApp(UIApplication uiApp)
         {
             _uiApp = uiApp;
+            RefreshHome();
         }
 
-        // Command sets _uiApp when the pane opens; App.UiApp is the fallback
-        // when the pane was restored by Revit before the command ever ran
-        // (same seam as JkrComplianceDashboardPanel.UiAppLive).
-        private UIApplication UiAppLive
-        {
-            get { return _uiApp ?? App.UiApp; }
-        }
+        private UIApplication UiAppLive { get { return _uiApp ?? App.UiApp; } }
 
         private Autodesk.Revit.DB.Document LiveDoc
         {
@@ -75,16 +75,39 @@ namespace RevitWebAppSync.UI
         {
             get
             {
-                var key = DocKey;
-                string path;
-                return key != null && _pathByDoc.TryGetValue(key, out path) ? path : null;
+                var key = DocKey; string p;
+                return key != null && _pathByDoc.TryGetValue(key, out p) ? p : null;
             }
         }
 
-        // ── cascade ─────────────────────────────────────────────────────────
+        // ── home ────────────────────────────────────────────────────────────
 
-        // Design 1A / prototype select captions; deeper levels fall back to a
-        // generic caption. The band caption is set explicitly on needs_input.
+        private void RefreshHome()
+        {
+            var doc = LiveDoc;
+            if (doc == null) return;
+            try
+            {
+                var facts = BombaFactsExtractor.Extract(doc);
+                _vm.FloorLabel = facts.FileName;
+                _vm.ReadLabel = facts.RoomCount > 0
+                    ? facts.RoomCount + " rooms · " + (facts.FloorAreaM2.HasValue ? facts.FloorAreaM2.Value.ToString("0.#") + " m²" : "area unknown")
+                    : "no placed rooms";
+                var key = DocKey; string label;
+                if (key != null && _labelByDoc.TryGetValue(key, out label))
+                    _vm.BuildingType = label;
+            }
+            catch { /* informational; the scan reads again */ }
+        }
+
+        private void BuildingType_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            _vm.Screen = BombaScreen.Setup;
+            _ = EnsureCascadeAsync();
+        }
+
+        // ── setup cascade ───────────────────────────────────────────────────
+
         private static readonly string[] LevelLabels = { "PURPOSE GROUP", "OCCUPANCY", "SUB-ITEM" };
 
         private async Task EnsureCascadeAsync()
@@ -96,10 +119,7 @@ namespace RevitWebAppSync.UI
                 RefreshMeasuredFacts();
                 await AppendCascadeLevelAsync(null);
             }
-            finally
-            {
-                _cascadeLoading = false;
-            }
+            finally { _cascadeLoading = false; }
         }
 
         private void RefreshMeasuredFacts()
@@ -107,29 +127,23 @@ namespace RevitWebAppSync.UI
             var doc = LiveDoc;
             if (doc == null) return;
             try { _vm.MeasuredFacts = BombaFactsExtractor.Extract(doc).Label; }
-            catch { /* facts line is informational; the scan extracts again */ }
+            catch { }
         }
 
-        /// Fetch the options below parentPath and append them as a new level.
-        /// Exactly one option auto-selects (single-child chains cost no clicks);
-        /// zero options appends nothing (parent was a leaf). A level whose
-        /// options are ALL leaves is the band row of the table — it is never
-        /// rendered as a select: measured facts resolve it at Run, and only a
-        /// needs_input answer brings it back as an explicit BAND choice.
+        /// A level whose options are ALL leaves is the band row of the table —
+        /// never rendered as a select: measured facts resolve it at Run, and
+        /// only a needs_input answer brings it back as an explicit BAND choice.
         private async Task AppendCascadeLevelAsync(string parentPath)
         {
             var resp = await _bombaService.OptionsAsync(DefaultJurisdiction, parentPath);
             if (resp == null) return;
             if (resp.Error == BombaComplianceService.LoginRequiredMessage)
             {
-                _vm.ScopeDetail = BombaComplianceService.LoginRequiredMessage;
+                _vm.Notice = BombaComplianceService.LoginRequiredMessage;
+                _vm.Screen = BombaScreen.Home;
                 return;
             }
-            if (resp.Error != null)
-            {
-                _vm.SetupGuidance = resp.Error;
-                return;
-            }
+            if (resp.Error != null) { _vm.SetupGuidance = resp.Error; return; }
             if (resp.Options == null || resp.Options.Count == 0) return;
             if (parentPath != null && resp.Options.All(o => o.IsLeaf)) return;
 
@@ -140,7 +154,7 @@ namespace RevitWebAppSync.UI
             foreach (var o in resp.Options) level.Options.Add(o);
             _vm.Cascade.Add(level);
             if (resp.Options.Count == 1)
-                level.Selected = level.Options[0];   // triggers SelectionChanged
+                level.Selected = level.Options[0];
         }
 
         private async void CascadeLevel_SelectionChanged(object sender, SelectionChangedEventArgs e)
@@ -149,41 +163,31 @@ namespace RevitWebAppSync.UI
             var level = combo != null ? combo.DataContext as CascadeLevelVm : null;
             if (level == null || level.Selected == null) return;
 
-            // A re-selection higher up invalidates everything below it,
-            // including a pending BAND ask.
             int index = _vm.Cascade.IndexOf(level);
             while (_vm.Cascade.Count > index + 1)
             {
                 if (ReferenceEquals(_vm.Cascade[_vm.Cascade.Count - 1], _bandLevel)) _bandLevel = null;
                 _vm.Cascade.RemoveAt(_vm.Cascade.Count - 1);
             }
-
-            _vm.CascadeCrumb = level.Selected.Path;
-            // Any selection is runnable: a leaf runs directly; a band parent
-            // lets the engine resolve the band from measured facts, and an
-            // ambiguity comes back as needs_input options appended below.
             _vm.CanRun = true;
 
             if (!level.Selected.IsLeaf)
             {
                 try { await AppendCascadeLevelAsync(level.Selected.Path); }
-                catch { /* next Run surfaces the error */ }
+                catch { }
             }
         }
 
-        // ── scan ────────────────────────────────────────────────────────────
-
-        private void Rescan_Click(object sender, RoutedEventArgs e)
+        private string DeepestSelectedPath()
         {
-            var remembered = RememberedPath ?? DeepestSelectedPath();
-            if (remembered == null)
-            {
-                // Nothing chosen yet — Re-check routes into the ask, it never guesses.
-                _vm.State = PaneState.NeedsSetup;
-                _ = EnsureCascadeAsync();
-                return;
-            }
-            _ = RunScanAsync(remembered);
+            var last = _vm.Cascade.LastOrDefault(l => l.Selected != null);
+            return last != null ? last.Selected.Path : null;
+        }
+
+        private string DeepestSelectedLabel()
+        {
+            var first = _vm.Cascade.FirstOrDefault(l => l.Selected != null);
+            return first != null ? first.Selected.Label : null;
         }
 
         private void RunSetupScan_Click(object sender, RoutedEventArgs e)
@@ -193,10 +197,56 @@ namespace RevitWebAppSync.UI
             _ = RunScanAsync(path);
         }
 
-        private string DeepestSelectedPath()
+        // ── navigation ──────────────────────────────────────────────────────
+
+        private void Back_Click(object sender, RoutedEventArgs e)
         {
-            var last = _vm.Cascade.LastOrDefault(l => l.Selected != null);
-            return last != null ? last.Selected.Path : null;
+            switch (_vm.Screen)
+            {
+                case BombaScreen.Detail: _vm.Screen = BombaScreen.Summary; break;
+                case BombaScreen.Summary: _vm.Screen = BombaScreen.Home; break;
+                case BombaScreen.Setup: _vm.Screen = BombaScreen.Home; break;
+            }
+        }
+
+        private void SummaryRow_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            var border = sender as FrameworkElement;
+            var issue = border != null ? border.DataContext as IssueVm : null;
+            if (issue == null) return;
+            _vm.CurrentIssue = issue;
+            _vm.Screen = BombaScreen.Detail;
+        }
+
+        private void StartFixing_Click(object sender, RoutedEventArgs e)
+        {
+            var first = _vm.Issues.FirstOrDefault(i => !i.Done);
+            if (first == null) return;
+            _vm.CurrentIssue = first;
+            _vm.Screen = BombaScreen.Detail;
+        }
+
+        private void Later_Click(object sender, RoutedEventArgs e)
+        {
+            var open = _vm.Issues.Where(i => !i.Done).ToList();
+            if (open.Count == 0) return;
+            int at = _vm.CurrentIssue != null ? open.IndexOf(_vm.CurrentIssue) : -1;
+            _vm.CurrentIssue = open[(at + 1) % open.Count];
+        }
+
+        // ── scan ────────────────────────────────────────────────────────────
+
+        private void Rescan_Click(object sender, RoutedEventArgs e)
+        {
+            var path = RememberedPath ?? DeepestSelectedPath();
+            if (path == null)
+            {
+                // The one human decision is missing — route into the ask.
+                _vm.Screen = BombaScreen.Setup;
+                _ = EnsureCascadeAsync();
+                return;
+            }
+            _ = RunScanAsync(path);
         }
 
         private async Task RunScanAsync(string schedulePath)
@@ -210,26 +260,64 @@ namespace RevitWebAppSync.UI
             }
 
             _vm.Scanning = true;
+            _vm.Notice = null;
+            StartProgress();
             try
             {
                 await RunScanInner(doc, schedulePath);
             }
             catch (Exception ex)
             {
-                TaskDialog.Show("BINA Bomba Compliance", $"Scan error:\n\n{ex.GetType().Name}: {ex.Message}");
+                _vm.Screen = BombaScreen.Home;
+                _vm.Notice = "Scan error: " + ex.Message;
             }
             finally
             {
+                StopProgress();
                 _vm.Scanning = false;
             }
+        }
+
+        /// The ring is honest about being one request: it advances while the
+        /// call is in flight and holds at 95% until the answer lands.
+        private void StartProgress()
+        {
+            _vm.Screen = BombaScreen.Checking;
+            _vm.ProgressPct = 0;
+            foreach (var r in _vm.CheckRows) { r.Glyph = "·"; r.GlyphInk = M.Faint; r.LabelInk = M.Sub; }
+            _progressTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(110) };
+            _progressTimer.Tick += (s, e) =>
+            {
+                var p = Math.Min(95, _vm.ProgressPct + 3);
+                _vm.ProgressPct = p;
+                _vm.ProgressTitle = p < 35 ? "Reading the model" : p < 75 ? "Resolving requirements" : "Checking fire systems";
+                _vm.ProgressSub = p < 35 ? "rooms, areas, heights" : p < 75 ? "row from measured facts" : "querying families…";
+                Row(0, p >= 35 ? "done" : "run");
+                Row(1, p >= 75 ? "done" : p >= 35 ? "run" : "queue");
+                Row(2, p >= 95 ? "run" : p >= 75 ? "run" : "queue");
+            };
+            _progressTimer.Start();
+        }
+
+        private void Row(int i, string state)
+        {
+            var r = _vm.CheckRows[i];
+            r.Glyph = state == "done" ? "✓" : state == "run" ? "◐" : "·";
+            r.GlyphInk = state == "done" ? M.Green : state == "run" ? M.Accent : M.Faint;
+            r.LabelInk = state == "run" ? M.Ink : M.Sub;
+        }
+
+        private void StopProgress()
+        {
+            if (_progressTimer != null) { _progressTimer.Stop(); _progressTimer = null; }
+            _vm.ProgressPct = 100;
         }
 
         private async Task RunScanInner(Autodesk.Revit.DB.Document doc, string schedulePath)
         {
             var facts = BombaFactsExtractor.Extract(doc);
             var response = await _bombaService.CheckAsync(BuildRequest(facts, schedulePath));
-            // A single needs_input option is no choice at all — advance through
-            // it server-side instead of rendering a one-item select.
+            // A single needs_input option is no choice at all — advance through it.
             for (int hop = 0; hop < 4; hop++)
             {
                 if (response == null || response.Error != null || !response.NeedsInput) break;
@@ -237,32 +325,27 @@ namespace RevitWebAppSync.UI
                 schedulePath = response.Options[0].Path;
                 response = await _bombaService.CheckAsync(BuildRequest(facts, schedulePath));
             }
-            if (response == null) return;
+            if (response == null) { _vm.Screen = BombaScreen.Home; return; }
 
             if (response.Error == BombaComplianceService.LoginRequiredMessage)
             {
-                // Persistent state, not a dismissable dialog — a TaskDialog
-                // would leave stale results looking valid behind it (the JKR
-                // pane learned this; same rule here).
-                _vm.ReplaceChecks(new List<CheckVm>(), null);
-                _vm.ScopeDetail = BombaComplianceService.LoginRequiredMessage;
+                _vm.Screen = BombaScreen.Home;
+                _vm.Notice = BombaComplianceService.LoginRequiredMessage;
                 return;
             }
             if (response.Error != null)
             {
-                TaskDialog.Show("BINA Bomba Compliance", $"Scan failed:\n\n{response.Error}");
+                _vm.Screen = BombaScreen.Home;
+                _vm.Notice = "Scan failed: " + response.Error;
                 return;
             }
             if (response.NeedsInput)
             {
-                // The facts do not pick a single band — extend the cascade
-                // with the backend's options and ask (None means ASK, design
-                // invariant). No TaskDialog: the choice lives in the pane.
-                _vm.State = PaneState.NeedsSetup;
+                // Genuine band boundary — extend the Setup cascade and ask.
+                _vm.Screen = BombaScreen.Setup;
                 _vm.SetupGuidance = response.Guidance
-                    ?? "The model facts do not select a single row — choose the applicable band.";
+                    ?? "The measured facts sit on a boundary — choose the band that applies.";
                 RefreshMeasuredFacts();
-                // Re-runs must not stack band selects — one BAND level, replaced.
                 if (_bandLevel != null) { _vm.Cascade.Remove(_bandLevel); _bandLevel = null; }
                 if (response.Options != null && response.Options.Count > 0)
                 {
@@ -272,19 +355,35 @@ namespace RevitWebAppSync.UI
                     _vm.Cascade.Add(level);
                     _bandLevel = level;
                 }
-                _vm.CanRun = false;   // until a band is picked
+                _vm.CanRun = false;
                 return;
             }
 
+            // Success: remember the choice, build the issue list.
             var key = DocKey;
-            if (key != null) _pathByDoc[key] = schedulePath;   // asked once per model
+            if (key != null)
+            {
+                _pathByDoc[key] = schedulePath;
+                var label = DeepestSelectedLabel();
+                if (label != null) _labelByDoc[key] = label;
+            }
+            RefreshHome();
 
-            _vm.ReplaceChecks(BombaMapper.Map(response), null);
-            _vm.ScopeLabel = string.IsNullOrEmpty(facts.FileName) ? "Bomba Compliance" : facts.FileName;
-            _vm.ScopeDetail = response.Jurisdiction
-                + " · " + (response.RulesVersion ?? "?")
-                + (response.RulesStatus != null && response.RulesStatus != "VERIFIED"
-                    ? " · " + response.RulesStatus : "");
+            var mapped = BombaMapper.Map(response);
+            _vm.Issues.Clear();
+            foreach (var i in mapped.Issues) _vm.Issues.Add(i);
+            _vm.RaiseCounts();
+
+            if (_vm.Issues.Count == 0)
+            {
+                _vm.DoneTitle = "All clear";
+                _vm.DoneSub = mapped.PassCount + " required systems present.\nChecked against " + mapped.RulesLine + ".";
+                _vm.Screen = BombaScreen.Done;
+            }
+            else
+            {
+                _vm.Screen = BombaScreen.Summary;
+            }
         }
 
         private static BombaCheckRequestDto BuildRequest(BombaModelFacts facts, string schedulePath)
@@ -296,9 +395,9 @@ namespace RevitWebAppSync.UI
             request.SchedulePath = schedulePath;
             request.Facts.FloorAreaM2 = facts.FloorAreaM2;
             request.Facts.HeightMm = facts.HeightMm;
-            // Phase 1: no fire-system counting yet, host model only. The
-            // backend answers NOT CHECKED for M&E-resident systems — honest,
-            // never a false "missing".
+            // Phase 1: host model only, no fire-system counting. The backend
+            // answers NOT CHECKED for M&E-resident systems — honest, never a
+            // false "missing".
             request.SearchedModels = facts.SearchedModels;
             return request;
         }
