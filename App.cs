@@ -33,6 +33,8 @@ namespace RevitWebAppSync
         // JKR BIM Compliance dockable pane host
         public static JkrComplianceDashboardHost JkrComplianceDashboardHost { get; private set; }
 
+        public static BombaComplianceDashboardHost BombaComplianceDashboardHost { get; private set; }
+
         // Revit Copilot dockable pane host (right-docked side panel)
         public static CopilotPaneHost CopilotPaneHost { get; private set; }
 
@@ -315,6 +317,22 @@ namespace RevitWebAppSync
                     System.Diagnostics.Debug.WriteLine($"[BINA] JKR Compliance dockable pane registration failed: {jkrEx.Message}");
                     Services.TelemetryService.Track("subsystem", "failed",
                         new { name = "jkr_pane", error_class = jkrEx.GetType().Name });
+                }
+
+                // Register Bomba Compliance dockable pane
+                try
+                {
+                    BombaComplianceDashboardHost = new BombaComplianceDashboardHost();
+                    application.RegisterDockablePane(
+                        BombaComplianceDashboardHost.PaneId,
+                        "BINA Bomba Compliance",
+                        BombaComplianceDashboardHost);
+                }
+                catch (Exception bombaEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Bomba Compliance dockable pane registration failed: {bombaEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "bomba_pane", error_class = bombaEx.GetType().Name });
                 }
 
                 // Register Revit Copilot dockable pane
@@ -732,6 +750,18 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
 
+            PushButtonData bombaComplianceButtonData = new PushButtonData(
+                "BombaCompliance",
+                "Bomba\nCompliance",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.Commands.BombaComplianceDashboardCommand")
+            {
+                ToolTip = "Check Bomba fire-safety compliance (UBBL)",
+                LongDescription = "Check the model against UBBL fire-safety requirements — exit width, travel distance, fire systems. Reads the model; changes nothing.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            };
+
             // BINA Cloud: sync, account, downloads
             cloudPanel.AddItem(buttonData);
             cloudPanel.AddItem(loginButtonData);
@@ -742,6 +772,7 @@ namespace RevitWebAppSync
 
             // Compliance: JKR (Cost/Fire hidden below)
             compliancePanel.AddItem(jkrComplianceButtonData);
+            compliancePanel.AddItem(bombaComplianceButtonData);
 
             // Stack: Export Cost Items / Import Prices
             // cloudPanel.AddStackedItems(costExportButtonData, costImportButtonData); // Hidden as requested

@@ -1,0 +1,60 @@
+<UserControl x:Class="RevitWebAppSync.UI.BombaComplianceDashboardPanel"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Background="#F7F6F3" FontFamily="Segoe UI" Focusable="True">
+
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Palette inherited from JKR, never forked. -->
+                <ResourceDictionary Source="Jkr/Tokens.xaml"/>
+                <ResourceDictionary Source="Bomba/Styles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Background="{DynamicResource Surface.Panel}"
+                BorderBrush="{DynamicResource Surface.Line}" BorderThickness="0,0,0,1" Padding="12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="{Binding ScopeLabel}" FontSize="14" FontWeight="Bold"
+                               Foreground="{DynamicResource Ink}"/>
+                    <TextBlock Text="{Binding ScopeDetail}" Style="{DynamicResource Bomba.Label}" Margin="0,3,0,0"/>
+                </StackPanel>
+                <Button Grid.Column="1" Content="Re-check" Style="{DynamicResource Bomba.BtnPrimary}"
+                        VerticalAlignment="Center"/>
+            </Grid>
+        </Border>
+
+        <!-- Body: filled in Tasks 5 and 6 -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="12">
+            <StackPanel x:Name="BodyHost"/>
+        </ScrollViewer>
+
+        <!-- Footer -->
+        <Border Grid.Row="2" Background="{DynamicResource Surface.Panel}"
+                BorderBrush="{DynamicResource Surface.Line}" BorderThickness="0,1,0,0" Padding="12,9">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Button Grid.Column="0" Content="History" Style="{DynamicResource Bomba.Btn}"/>
+                <Button Grid.Column="2" Content="Export ▾" Style="{DynamicResource Bomba.Btn}"/>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>
