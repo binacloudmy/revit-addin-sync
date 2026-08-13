@@ -2367,6 +2367,24 @@ namespace BinaVibe.Mcp.Tools
                 foreach (var p in ownsEl.EnumerateObject())
                     owns[p.Name] = p.Value.EnumerateArray().Select(v => v.GetInt64()).ToList();
 
+            // Per-PART ownership (see RepairFromParts' own loading of this —
+            // same field, same shape). Every path below that persists the
+            // spec must carry this forward, or a later repair_of round
+            // degrades to the legacy bare-role fallback (RoleForPart) and
+            // refuses any part whose role bucket is shared by a sibling.
+            // Levels and type-swap carry it unchanged (nothing is deleted
+            // or created); footprint-stretch prunes and re-attaches it
+            // (see below); the full-rebuild path at the bottom needs no
+            // handling here — it deletes every owned id first and lets
+            // BuildDesign compute a fresh map from scratch.
+            var ownsByPart = new Dictionary<string, List<long>>();
+            if (root.TryGetProperty("owns_by_part", out var obpEl)
+                && obpEl.ValueKind == JsonValueKind.Object)
+                foreach (var p in obpEl.EnumerateObject())
+                    ownsByPart[p.Name] = p.Value.EnumerateArray()
+                        .Where(v => v.ValueKind == JsonValueKind.Number)
+                        .Select(v => v.GetInt64()).ToList();
+
             // Merge: the caller sends only what changed.
             var merged = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(oldArgs.GetRawText())
                          ?? new Dictionary<string, JsonElement>();
@@ -2444,6 +2462,9 @@ namespace BinaVibe.Mcp.Tools
                     ["version"] = 1,
                     ["args"] = JsonSerializer.Deserialize<object>(mergedJson),
                     ["owns"] = owns,
+                    // A parameter edit rebuilds nothing — every id stays put,
+                    // so the per-part map carries forward unchanged.
+                    ["owns_by_part"] = ownsByPart,
                 }));
                 TxGuard.CommitOrThrow(tx1);
                 t0.Stop();
@@ -2475,6 +2496,9 @@ namespace BinaVibe.Mcp.Tools
                     ["version"] = 1,
                     ["args"] = JsonSerializer.Deserialize<object>(mergedJson),
                     ["owns"] = owns,
+                    // A type swap sets a property on the SAME wall ids — none
+                    // are deleted or created, so the per-part map is untouched.
+                    ["owns_by_part"] = ownsByPart,
                 }));
                 TxGuard.CommitOrThrow(tx2);
                 t0.Stop();
@@ -2574,12 +2598,51 @@ namespace BinaVibe.Mcp.Tools
                             newOwns["roof"].Add(roof2.Id.Value);
                         }
 
+                        // Per-part propagation: prune the ids `kill` just
+                        // deleted, then re-attach the freshly created ones
+                        // under the part id(s) that role belongs to — the
+                        // same RoleForPart inverse RepairFromParts uses —
+                        // so a repair after a footprint stretch still gets
+                        // per-part scoping instead of degrading to the
+                        // legacy bare-role refusal path.
+                        var killedIds = kill.Select(e => (long)e.Value).ToHashSet();
+                        var newOwnsByPart = ownsByPart.ToDictionary(
+                            kv => kv.Key, kv => kv.Value.Where(id => !killedIds.Contains(id)).ToList());
+                        void AttachCreated(string role, List<long> created)
+                        {
+                            if (created.Count == 0) return;
+                            var partIds = ownsByPart.Keys
+                                .Where(k => RoleForPart(k) == role)
+                                .OrderBy(k => SplitLevel(k).level)
+                                .ToList();
+                            // Level-order pairing is only unambiguous when the
+                            // prior per-part map names exactly as many parts
+                            // for this role as it just rebuilt (the ordinary
+                            // single-volume case, one slab per storey). A
+                            // mismatch — a legacy spec with no owns_by_part
+                            // entries at all, or a role shared by sibling
+                            // volumes (RoleForPart's own docstring) — is left
+                            // alone rather than guess a wrong pairing; the
+                            // next repair on those parts falls back to the
+                            // legacy bucket, same as before this change.
+                            if (partIds.Count != created.Count) return;
+                            for (int i = 0; i < created.Count; i++)
+                            {
+                                if (!newOwnsByPart.TryGetValue(partIds[i], out var list))
+                                    newOwnsByPart[partIds[i]] = list = new List<long>();
+                                list.Add(created[i]);
+                            }
+                        }
+                        AttachCreated("slab", newOwns["slab"]);
+                        AttachCreated("roof", newOwns["roof"]);
+
                         SaveJson(doc, JsonSerializer.Serialize(new Dictionary<string, object?>
                         {
                             ["spec_id"] = root.GetProperty("spec_id").GetString(),
                             ["version"] = 1,
                             ["args"] = JsonSerializer.Deserialize<object>(mergedJson),
                             ["owns"] = newOwns,
+                            ["owns_by_part"] = newOwnsByPart,
                         }));
                         TxGuard.CommitOrThrow(txS);
                     }
