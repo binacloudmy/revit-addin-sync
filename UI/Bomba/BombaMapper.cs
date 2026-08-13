@@ -47,6 +47,7 @@ namespace RevitWebAppSync.UI.Bomba
             var vm = new IssueVm
             {
                 Subject = f.Subject,
+                Cls = "fix",
                 Tag = "NEEDS PLACING",
                 TagInk = M.Amber,
                 TagBg = M.AmberTint,
@@ -58,7 +59,7 @@ namespace RevitWebAppSync.UI.Bomba
                 Body = f.Guidance ?? ("The rules require a " + Lower(f.Subject)
                     + " and the models searched carry none. Place it in the model, then re-check."),
                 Cite = cite,
-                NoFixNote = "There's nothing to swap — this needs placing in the model. Place it, then re-check.",
+                NoFixNote = "Placing this is modelling work — the pane never writes. Place it in the model (or ask the copilot), then re-check.",
             };
             vm.Facts.Add(new FactVm("Required", "[X]", M.Red));
             vm.Facts.Add(new FactVm("In the model", Count(f), M.Red));
@@ -72,6 +73,7 @@ namespace RevitWebAppSync.UI.Bomba
             var vm = new IssueVm
             {
                 Subject = f.Subject,
+                Cls = "cant",
                 Tag = "CAN'T CHECK",
                 TagInk = M.Amber,
                 TagBg = M.AmberTint,

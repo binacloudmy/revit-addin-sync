@@ -2,30 +2,31 @@
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:jkr="clr-namespace:RevitWebAppSync.UI.Jkr"
-      Background="#0F1115" FontFamily="Segoe UI" Focusable="True">
+      Background="#FFFFFF" FontFamily="Segoe UI" Focusable="True">
 
-    <!-- Modern Flow (design 10A, Bomba Modern Flow.dc.html): dark, one screen
-         at a time, plain language, one big action per screen. Deliberately a
-         separate visual system from the JKR pane (user decision) — the
-         palette lives in BombaModernModels.M and the literals below. -->
+    <!-- Modern Flow (design 10A, Bomba Modern Flow.dc.html): LIGHT, one
+         screen at a time, plain language, one big action per screen.
+         Deliberately a separate visual system from the JKR pane (user
+         decision) — the palette lives in BombaModernModels.M and the
+         literals below. -->
     <UserControl.Resources>
         <ResourceDictionary>
             <jkr:BoolToVisibilityConverter x:Key="BoolVis"/>
 
             <LinearGradientBrush x:Key="M.AccentGrad" StartPoint="0,0" EndPoint="1,1">
-                <GradientStop Color="#7C86FF" Offset="0"/>
-                <GradientStop Color="#5A63E8" Offset="1"/>
+                <GradientStop Color="#FFC838" Offset="0"/>
+                <GradientStop Color="#F0AE00" Offset="1"/>
             </LinearGradientBrush>
 
             <Style x:Key="M.Card" TargetType="Border">
-                <Setter Property="Background" Value="#1A1E26"/>
+                <Setter Property="Background" Value="#F4F3F0"/>
                 <Setter Property="CornerRadius" Value="14"/>
                 <Setter Property="SnapsToDevicePixels" Value="True"/>
             </Style>
 
-            <!-- big gradient primary -->
+            <!-- big yellow primary; dark ink per the design -->
             <Style x:Key="M.BtnPrimary" TargetType="Button">
-                <Setter Property="Foreground" Value="#FFFFFF"/>
+                <Setter Property="Foreground" Value="#2A2000"/>
                 <Setter Property="FontSize" Value="16"/>
                 <Setter Property="FontWeight" Value="Bold"/>
                 <Setter Property="Cursor" Value="Hand"/>
@@ -49,20 +50,21 @@
                 </Setter>
             </Style>
 
-            <!-- dark card secondary -->
+            <!-- card secondary -->
             <Style x:Key="M.BtnGhost" TargetType="Button">
-                <Setter Property="Foreground" Value="#9AA3B2"/>
+                <Setter Property="Foreground" Value="#6B7078"/>
                 <Setter Property="FontSize" Value="14"/>
+                <Setter Property="FontWeight" Value="SemiBold"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="Button">
-                            <Border x:Name="Bd" Background="#1A1E26" CornerRadius="12" Padding="0,12">
+                            <Border x:Name="Bd" Background="#F4F3F0" CornerRadius="12" Padding="0,12">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="#20242E"/>
+                                    <Setter TargetName="Bd" Property="Background" Value="#ECEAE4"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
                         </ControlTemplate>
@@ -72,7 +74,7 @@
 
             <!-- borderless text button (Back, Later) -->
             <Style x:Key="M.BtnText" TargetType="Button">
-                <Setter Property="Foreground" Value="#7C86FF"/>
+                <Setter Property="Foreground" Value="#A97F00"/>
                 <Setter Property="FontSize" Value="14"/>
                 <Setter Property="Cursor" Value="Hand"/>
                 <Setter Property="Template">
@@ -86,11 +88,11 @@
                 </Setter>
             </Style>
 
-            <!-- dark templated select for the Setup cascade -->
+            <!-- light templated select for the band ask -->
             <Style x:Key="M.ComboItem" TargetType="ComboBoxItem">
                 <Setter Property="Padding" Value="12,9"/>
                 <Setter Property="FontSize" Value="13"/>
-                <Setter Property="Foreground" Value="#E8EAF0"/>
+                <Setter Property="Foreground" Value="#1A1C20"/>
                 <Setter Property="Template">
                     <Setter.Value>
                         <ControlTemplate TargetType="ComboBoxItem">
@@ -99,10 +101,10 @@
                             </Border>
                             <ControlTemplate.Triggers>
                                 <Trigger Property="IsHighlighted" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="#247C86FF"/>
+                                    <Setter TargetName="Bd" Property="Background" Value="#ECEAE4"/>
                                 </Trigger>
                                 <Trigger Property="IsSelected" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="#247C86FF"/>
+                                    <Setter TargetName="Bd" Property="Background" Value="#ECEAE4"/>
                                     <Setter Property="FontWeight" Value="Bold"/>
                                 </Trigger>
                             </ControlTemplate.Triggers>
@@ -112,7 +114,7 @@
             </Style>
 
             <Style x:Key="M.Combo" TargetType="ComboBox">
-                <Setter Property="Foreground" Value="#E8EAF0"/>
+                <Setter Property="Foreground" Value="#1A1C20"/>
                 <Setter Property="FontSize" Value="13"/>
                 <Setter Property="ItemContainerStyle" Value="{StaticResource M.ComboItem}"/>
                 <Setter Property="Template">
@@ -123,18 +125,18 @@
                                               IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
                                     <ToggleButton.Template>
                                         <ControlTemplate TargetType="ToggleButton">
-                                            <Border x:Name="Chrome" Background="#1A1E26" BorderBrush="#232834"
+                                            <Border x:Name="Chrome" Background="#F4F3F0" BorderBrush="#E5E3DD"
                                                     BorderThickness="1" CornerRadius="12">
                                                 <Path HorizontalAlignment="Right" Margin="0,0,13,0"
                                                       VerticalAlignment="Center" Data="M0,0 L4,4 8,0"
-                                                      Stroke="#6B7280" StrokeThickness="1.5"/>
+                                                      Stroke="#7A7F88" StrokeThickness="1.5"/>
                                             </Border>
                                             <ControlTemplate.Triggers>
                                                 <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter TargetName="Chrome" Property="BorderBrush" Value="#7C86FF"/>
+                                                    <Setter TargetName="Chrome" Property="BorderBrush" Value="#A97F00"/>
                                                 </Trigger>
                                                 <Trigger Property="IsChecked" Value="True">
-                                                    <Setter TargetName="Chrome" Property="BorderBrush" Value="#7C86FF"/>
+                                                    <Setter TargetName="Chrome" Property="BorderBrush" Value="#A97F00"/>
                                                 </Trigger>
                                             </ControlTemplate.Triggers>
                                         </ControlTemplate>
@@ -146,10 +148,10 @@
                                                   ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"/>
                                 <TextBlock x:Name="Placeholder" Text="Choose…" Margin="13,10,30,10"
                                            VerticalAlignment="Center" IsHitTestVisible="False"
-                                           Foreground="#6B7280" Visibility="Collapsed"/>
+                                           Foreground="#7A7F88" Visibility="Collapsed"/>
                                 <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
                                        AllowsTransparency="True" PopupAnimation="Fade" Focusable="False">
-                                    <Border Background="#1A1E26" BorderBrush="#232834" BorderThickness="1"
+                                    <Border Background="#FFFFFF" BorderBrush="#E5E3DD" BorderThickness="1"
                                             CornerRadius="12" Margin="0,4,0,0" MaxHeight="280"
                                             MinWidth="{TemplateBinding ActualWidth}">
                                         <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -201,86 +203,143 @@
             <StackPanel Margin="20,8,20,20">
                 <Border Width="56" Height="56" CornerRadius="16" Background="{StaticResource M.AccentGrad}"
                         HorizontalAlignment="Left">
-                    <TextBlock Text="✓" FontSize="26" Foreground="#FFFFFF"
+                    <TextBlock Text="✓" FontSize="26" Foreground="#2A2000"
                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
-                <TextBlock Text="Fire safety check" FontSize="25" FontWeight="Bold" Foreground="#E8EAF0"
+                <TextBlock Text="Fire safety check" FontSize="25" FontWeight="Bold" Foreground="#1A1C20"
                            Margin="0,14,0,0"/>
-                <TextBlock Text="Checks the model against the Bomba rules and shows you exactly what to fix."
-                           FontSize="14" Foreground="#9AA3B2" TextWrapping="Wrap" Margin="0,6,0,0" LineHeight="20"/>
+                <TextBlock Text="Nothing retyped — the model is the form, and every finding points at the element that caused it."
+                           FontSize="14" Foreground="#6B7078" TextWrapping="Wrap" Margin="0,6,0,0" LineHeight="20"/>
 
-                <Border Background="#2E241F14" CornerRadius="12" Padding="12,10" Margin="0,14,0,0"
+                <Border Background="#FDF3E2" BorderBrush="#F0E2C4" BorderThickness="1" CornerRadius="12"
+                        Padding="12,10" Margin="0,14,0,0"
                         Visibility="{Binding HasNotice, Converter={StaticResource BoolVis}}">
-                    <TextBlock Text="{Binding Notice}" FontSize="12" Foreground="#F0B45A"
+                    <TextBlock Text="{Binding Notice}" FontSize="12" Foreground="#B8721A"
                                TextWrapping="Wrap" LineHeight="17"/>
                 </Border>
 
                 <Border Style="{StaticResource M.Card}" Margin="0,16,0,0">
                     <StackPanel>
-                        <Border Padding="16,13" BorderBrush="#232834" BorderThickness="0,0,0,1"
+                        <!-- Building type: the value row IS the select — tap to
+                             expand the options in place (design: no separate
+                             screen for a single-field edit). -->
+                        <Border Padding="16,13" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1"
                                 Background="Transparent" Cursor="Hand" MouseLeftButtonUp="BuildingType_Click">
                             <DockPanel>
-                                <TextBlock Text="›" DockPanel.Dock="Right" FontSize="15" Foreground="#4A5160"
-                                           VerticalAlignment="Center"/>
-                                <TextBlock Text="{Binding BuildingType}" DockPanel.Dock="Right" FontSize="14"
-                                           Foreground="#9AA3B2" Margin="0,0,10,0" VerticalAlignment="Center"/>
-                                <TextBlock Text="Building type" FontSize="14" Foreground="#E8EAF0"/>
+                                <TextBlock Text="{Binding PgChev}" DockPanel.Dock="Right" FontSize="12"
+                                           Foreground="#AEB2BA" VerticalAlignment="Center"/>
+                                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,10,0">
+                                    <TextBlock Text="{Binding BuildingType}" FontSize="14" Foreground="#6B7078"
+                                               VerticalAlignment="Center"/>
+                                    <TextBlock Text=" · " FontSize="12" Foreground="#AEB2BA" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding PgTag}" FontSize="12" Foreground="#8A8F98"
+                                               VerticalAlignment="Center"/>
+                                </StackPanel>
+                                <TextBlock Text="Building type" FontSize="14" Foreground="#1A1C20"/>
                             </DockPanel>
                         </Border>
-                        <Border Padding="16,13" BorderBrush="#232834" BorderThickness="0,0,0,1">
+                        <StackPanel Visibility="{Binding PgOpen, Converter={StaticResource BoolVis}}">
+                            <ItemsControl ItemsSource="{Binding PgOptions}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Padding="28,11,16,11" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1"
+                                                Background="#EFEEE9" Cursor="Hand" MouseLeftButtonUp="PgOption_Click">
+                                            <DockPanel>
+                                                <TextBlock Text="{Binding Mark}" DockPanel.Dock="Right" FontSize="14"
+                                                           Foreground="{Binding MarkInk}" VerticalAlignment="Center"/>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="{Binding Label}" FontSize="14" Foreground="#1A1C20"
+                                                               VerticalAlignment="Center"/>
+                                                    <Border Background="#2434C07A" CornerRadius="20" Padding="8,2"
+                                                            Margin="8,0,0,0" VerticalAlignment="Center"
+                                                            Visibility="{Binding Detected, Converter={StaticResource BoolVis}}">
+                                                        <TextBlock Text="detected" FontSize="10" FontWeight="Bold"
+                                                                   Foreground="#1F9D5B"/>
+                                                    </Border>
+                                                </StackPanel>
+                                            </DockPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Border Padding="28,8,16,10" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1"
+                                    Background="#EFEEE9">
+                                <TextBlock FontSize="11" Foreground="#8A8F98" TextWrapping="Wrap" LineHeight="16"
+                                           Text="Pick what the building is used for, not what it's called — a surau inside an office block is still a place of assembly. Your pick is remembered for this model."/>
+                            </Border>
+                        </StackPanel>
+                        <Border Padding="16,8" Background="#FBFAF8" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1"
+                                Visibility="{Binding HasPgEvidence, Converter={StaticResource BoolVis}}">
+                            <TextBlock Text="{Binding PgEvidence}" FontSize="12" Foreground="#7A7F88"
+                                       TextWrapping="Wrap" LineHeight="17"/>
+                        </Border>
+                        <Border Padding="16,13" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1">
                             <DockPanel>
                                 <TextBlock Text="{Binding FloorLabel}" DockPanel.Dock="Right" FontSize="14"
-                                           Foreground="#9AA3B2"/>
-                                <TextBlock Text="Model" FontSize="14" Foreground="#E8EAF0"/>
+                                           Foreground="#6B7078"/>
+                                <TextBlock Text="Model" FontSize="14" Foreground="#1A1C20"/>
                             </DockPanel>
                         </Border>
-                        <Border Padding="16,13">
+                        <Border Padding="16,13" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1">
                             <DockPanel>
                                 <TextBlock Text="{Binding ReadLabel}" DockPanel.Dock="Right" FontSize="14"
-                                           Foreground="#9AA3B2"/>
-                                <TextBlock Text="Read from model" FontSize="14" Foreground="#E8EAF0"/>
+                                           Foreground="#6B7078"/>
+                                <TextBlock Text="Measured" FontSize="14" Foreground="#1A1C20"/>
                             </DockPanel>
+                        </Border>
+                        <!-- M&E scope: phase 1 never searches links — the row
+                             says so, and an unloaded link gets the amber strip. -->
+                        <Border Padding="16,13">
+                            <DockPanel>
+                                <TextBlock Text="{Binding MeValue}" DockPanel.Dock="Right" FontSize="13"
+                                           Foreground="{Binding MeInk}" TextWrapping="Wrap" MaxWidth="200"
+                                           TextAlignment="Right"/>
+                                <TextBlock Text="M&amp;E scope" FontSize="14" Foreground="#1A1C20"/>
+                            </DockPanel>
+                        </Border>
+                        <Border Padding="16,9" Background="#FDF3E2" BorderBrush="#F0E2C4" BorderThickness="0,1,0,0"
+                                Visibility="{Binding HasMeWarn, Converter={StaticResource BoolVis}}">
+                            <TextBlock Text="{Binding MeWarn}" FontSize="12" Foreground="#B8721A"
+                                       TextWrapping="Wrap" LineHeight="17"/>
                         </Border>
                     </StackPanel>
                 </Border>
-                <TextBlock Text="Everything except the building type is read straight from the model — tap › to set or change it."
-                           FontSize="12" Foreground="#6B7280" TextWrapping="Wrap" Margin="4,10,4,0" LineHeight="17"/>
 
-                <TextBlock Text="WHAT IT CHECKS" FontSize="12" FontWeight="Bold" Foreground="#6B7280"
+                <TextBlock Text="WHAT IT CHECKS" FontSize="12" FontWeight="Bold" Foreground="#7A7F88"
                            Margin="4,18,0,8"/>
                 <Border Style="{StaticResource M.Card}">
                     <StackPanel>
-                        <Border Padding="16,12" BorderBrush="#232834" BorderThickness="0,0,0,1">
+                        <Border Padding="16,12" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1">
                             <DockPanel>
                                 <Border Width="34" Height="34" CornerRadius="10" Background="#24F0B45A" DockPanel.Dock="Left">
                                     <TextBlock Text="🔔" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <StackPanel Margin="12,0,0,0">
-                                    <TextBlock Text="Fire systems" FontSize="14" Foreground="#E8EAF0" FontWeight="SemiBold"/>
+                                    <TextBlock Text="Fire systems" FontSize="14" Foreground="#1A1C20" FontWeight="SemiBold"/>
                                     <TextBlock Text="alarms, extinguishers, hose reels — required vs in the model"
-                                               FontSize="12" Foreground="#9AA3B2"/>
+                                               FontSize="12" Foreground="#6B7078"/>
                                 </StackPanel>
                             </DockPanel>
                         </Border>
-                        <Border Padding="16,12" BorderBrush="#232834" BorderThickness="0,0,0,1" Opacity=".45">
+                        <Border Padding="16,12" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1" Opacity=".45">
                             <DockPanel>
-                                <Border Width="34" Height="34" CornerRadius="10" Background="#26FF7A7A" DockPanel.Dock="Left">
+                                <Border Width="34" Height="34" CornerRadius="10" Background="#24FF7A7A" DockPanel.Dock="Left">
                                     <TextBlock Text="🚪" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <StackPanel Margin="12,0,0,0">
-                                    <TextBlock Text="Exit widths" FontSize="14" Foreground="#E8EAF0" FontWeight="SemiBold"/>
-                                    <TextBlock Text="arrives with the next update" FontSize="12" Foreground="#9AA3B2"/>
+                                    <TextBlock Text="Exit widths" FontSize="14" Foreground="#1A1C20" FontWeight="SemiBold"/>
+                                    <TextBlock Text="arrives with the next update" FontSize="12" Foreground="#6B7078"/>
                                 </StackPanel>
                             </DockPanel>
                         </Border>
-                        <Border Padding="16,12" BorderBrush="#232834" BorderThickness="0,0,0,1" Opacity=".45">
+                        <Border Padding="16,12" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1" Opacity=".45">
                             <DockPanel>
-                                <Border Width="34" Height="34" CornerRadius="10" Background="#247C86FF" DockPanel.Dock="Left">
+                                <Border Width="34" Height="34" CornerRadius="10" Background="#24F0B45A" DockPanel.Dock="Left">
                                     <TextBlock Text="📏" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <StackPanel Margin="12,0,0,0">
-                                    <TextBlock Text="Escape routes" FontSize="14" Foreground="#E8EAF0" FontWeight="SemiBold"/>
-                                    <TextBlock Text="arrives with the next update" FontSize="12" Foreground="#9AA3B2"/>
+                                    <TextBlock Text="Escape routes" FontSize="14" Foreground="#1A1C20" FontWeight="SemiBold"/>
+                                    <TextBlock Text="the real walk to an exit — arrives with the next update" FontSize="12" Foreground="#6B7078"/>
                                 </StackPanel>
                             </DockPanel>
                         </Border>
@@ -290,8 +349,8 @@
                                     <TextBlock Text="🧱" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <StackPanel Margin="12,0,0,0">
-                                    <TextBlock Text="Wall openings" FontSize="14" Foreground="#E8EAF0" FontWeight="SemiBold"/>
-                                    <TextBlock Text="arrives with a later update" FontSize="12" Foreground="#9AA3B2"/>
+                                    <TextBlock Text="Compartmentation &amp; risers" FontSize="14" Foreground="#1A1C20" FontWeight="SemiBold"/>
+                                    <TextBlock Text="storey limits, rising mains — arrives with a later update" FontSize="12" Foreground="#6B7078"/>
                                 </StackPanel>
                             </DockPanel>
                         </Border>
@@ -303,14 +362,14 @@
                         MouseLeftButtonUp="Needs_Click">
                     <Border Padding="16,12" Background="Transparent">
                         <DockPanel>
-                            <TextBlock Text="›" DockPanel.Dock="Right" FontSize="15" Foreground="#4A5160"
+                            <TextBlock Text="›" DockPanel.Dock="Right" FontSize="15" Foreground="#AEB2BA"
                                        VerticalAlignment="Center"/>
-                            <Border Width="34" Height="34" CornerRadius="10" Background="#247C86FF" DockPanel.Dock="Left">
+                            <Border Width="34" Height="34" CornerRadius="10" Background="#24F0B45A" DockPanel.Dock="Left">
                                 <TextBlock Text="📋" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <StackPanel Margin="12,0,8,0">
-                                <TextBlock Text="Required fire systems" FontSize="14" Foreground="#E8EAF0" FontWeight="SemiBold"/>
-                                <TextBlock Text="what the schedule says this building must have" FontSize="12" Foreground="#9AA3B2"/>
+                                <TextBlock Text="Required fire systems" FontSize="14" Foreground="#1A1C20" FontWeight="SemiBold"/>
+                                <TextBlock Text="10th Schedule — what this building must have" FontSize="12" Foreground="#6B7078"/>
                             </StackPanel>
                         </DockPanel>
                     </Border>
@@ -318,17 +377,17 @@
 
                 <Button Style="{StaticResource M.BtnPrimary}" Content="Run check" Margin="0,18,0,0"
                         Click="Rescan_Click" IsEnabled="{Binding NotScanning}"/>
-                <TextBlock Text="Reads the model. Changes nothing." FontSize="12" Foreground="#6B7280"
+                <TextBlock Text="Reads the model. Changes nothing." FontSize="12" Foreground="#7A7F88"
                            HorizontalAlignment="Center" Margin="0,8,0,0"/>
             </StackPanel>
         </ScrollViewer>
 
-        <!-- ===== SETUP (building type) ===== -->
+        <!-- ===== SETUP (band ask — needs_input only) ===== -->
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                       Visibility="{Binding OnSetup, Converter={StaticResource BoolVis}}">
             <StackPanel Margin="20,8,20,20">
-                <TextBlock Text="Building type" FontSize="23" FontWeight="Bold" Foreground="#E8EAF0"/>
-                <TextBlock Text="{Binding SetupGuidance}" FontSize="14" Foreground="#9AA3B2"
+                <TextBlock Text="One question" FontSize="23" FontWeight="Bold" Foreground="#1A1C20"/>
+                <TextBlock Text="{Binding SetupGuidance}" FontSize="14" Foreground="#6B7078"
                            TextWrapping="Wrap" Margin="0,6,0,0" LineHeight="20"/>
 
                 <ItemsControl ItemsSource="{Binding Cascade}" Margin="0,16,0,0">
@@ -336,7 +395,7 @@
                         <DataTemplate>
                             <StackPanel Margin="0,0,0,12">
                                 <TextBlock Text="{Binding Label}" FontFamily="Consolas" FontSize="10"
-                                           Foreground="#6B7280" Margin="2,0,0,5"/>
+                                           Foreground="#7A7F88" Margin="2,0,0,5"/>
                                 <ComboBox Style="{StaticResource M.Combo}"
                                           ItemsSource="{Binding Options}" DisplayMemberPath="Label"
                                           SelectedItem="{Binding Selected, Mode=TwoWay}"
@@ -349,12 +408,12 @@
                 <Border Style="{StaticResource M.Card}" Padding="14,11"
                         Visibility="{Binding HasMeasuredFacts, Converter={StaticResource BoolVis}}">
                     <TextBlock Text="{Binding MeasuredFacts}" FontFamily="Consolas" FontSize="12"
-                               Foreground="#9AA3B2" TextWrapping="Wrap"/>
+                               Foreground="#6B7078" TextWrapping="Wrap"/>
                 </Border>
 
                 <Button Style="{StaticResource M.BtnPrimary}" Content="Use this &amp; run" Margin="0,16,0,0"
                         Click="RunSetupScan_Click" IsEnabled="{Binding CanRun}"/>
-                <TextBlock Text="You're asked once per model." FontSize="12" Foreground="#6B7280"
+                <TextBlock Text="You're asked once per model." FontSize="12" Foreground="#7A7F88"
                            HorizontalAlignment="Center" Margin="0,8,0,0"/>
             </StackPanel>
         </ScrollViewer>
@@ -363,13 +422,13 @@
         <Grid Grid.Row="1" Visibility="{Binding OnChecking, Converter={StaticResource BoolVis}}">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="280">
                 <Grid Width="96" Height="96" HorizontalAlignment="Center">
-                    <Ellipse Stroke="#232834" StrokeThickness="7"/>
-                    <TextBlock Text="{Binding ProgressText}" FontSize="20" FontWeight="Bold" Foreground="#E8EAF0"
+                    <Ellipse Stroke="#E5E3DD" StrokeThickness="7"/>
+                    <TextBlock Text="{Binding ProgressText}" FontSize="20" FontWeight="Bold" Foreground="#1A1C20"
                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Grid>
-                <TextBlock Text="{Binding ProgressTitle}" FontSize="18" FontWeight="SemiBold" Foreground="#E8EAF0"
+                <TextBlock Text="{Binding ProgressTitle}" FontSize="18" FontWeight="SemiBold" Foreground="#1A1C20"
                            HorizontalAlignment="Center" Margin="0,18,0,0"/>
-                <TextBlock Text="{Binding ProgressSub}" FontSize="13" Foreground="#9AA3B2"
+                <TextBlock Text="{Binding ProgressSub}" FontSize="13" Foreground="#6B7078"
                            HorizontalAlignment="Center" Margin="0,5,0,16"/>
                 <ItemsControl ItemsSource="{Binding CheckRows}">
                     <ItemsControl.ItemTemplate>
@@ -389,40 +448,73 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                       Visibility="{Binding OnSummary, Converter={StaticResource BoolVis}}">
             <StackPanel Margin="20,8,20,20">
-                <TextBlock Text="{Binding OpenCountText}" FontSize="42" FontWeight="Bold" Foreground="#FF7A7A"/>
-                <TextBlock Text="{Binding OpenWord}" FontSize="21" FontWeight="Bold" Foreground="#E8EAF0"/>
-                <TextBlock Text="One at a time — quick wins first." FontSize="13" Foreground="#9AA3B2"
+                <TextBlock Text="{Binding OpenCountText}" FontSize="42" FontWeight="Bold" Foreground="#D64545"/>
+                <TextBlock Text="{Binding OpenWord}" FontSize="21" FontWeight="Bold" Foreground="#1A1C20"/>
+                <TextBlock Text="Quick wins first — tap a chip to filter." FontSize="13" Foreground="#6B7078"
                            Margin="0,6,0,0"/>
 
-                <Border Style="{StaticResource M.Card}" Margin="0,16,0,0">
-                    <ItemsControl ItemsSource="{Binding Issues}">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Padding="16,13" BorderBrush="#232834" BorderThickness="0,0,0,1"
-                                        Background="Transparent" Cursor="Hand"
-                                        MouseLeftButtonUp="SummaryRow_Click">
-                                    <DockPanel>
-                                        <TextBlock Text="›" DockPanel.Dock="Right" FontSize="15" Foreground="#4A5160"
-                                                   VerticalAlignment="Center"/>
-                                        <Border Width="34" Height="34" CornerRadius="10" Background="{Binding IconBg}"
-                                                DockPanel.Dock="Left" VerticalAlignment="Center">
-                                            <TextBlock Text="{Binding Icon}" FontSize="15"
-                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                        <StackPanel Margin="12,0,8,0">
-                                            <TextBlock Text="{Binding Title}" FontSize="14" Foreground="#E8EAF0"
-                                                       FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
-                                            <TextBlock Text="{Binding Sub}" FontSize="12" Foreground="#9AA3B2"
-                                                       TextTrimming="CharacterEllipsis"/>
-                                        </StackPanel>
-                                    </DockPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                <Border Background="#2434C07A" CornerRadius="10" Padding="12,8" Margin="0,10,0,0"
+                        Visibility="{Binding HasFixedSinceLast, Converter={StaticResource BoolVis}}">
+                    <TextBlock Text="{Binding FixedSinceLast}" FontSize="12" FontWeight="SemiBold"
+                               Foreground="#1F9D5B" TextWrapping="Wrap"/>
                 </Border>
 
-                <Button Style="{StaticResource M.BtnPrimary}" Content="Start fixing" Margin="0,18,0,0"
+                <!-- verdict chips = the filter bar; counts computed from the
+                     issue list, so they can never disagree with it -->
+                <ItemsControl ItemsSource="{Binding Chips}" Margin="0,12,0,0">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Border Background="{Binding Bg}" BorderBrush="{Binding Ring}" BorderThickness="2"
+                                    CornerRadius="20" Padding="10,4" Margin="0,0,8,8" Cursor="Hand"
+                                    MouseLeftButtonUp="Chip_Click">
+                                <TextBlock Text="{Binding Label}" FontSize="12" FontWeight="Bold"
+                                           Foreground="{Binding Ink}"/>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+
+                <Border Style="{StaticResource M.Card}" Margin="0,8,0,0">
+                    <StackPanel>
+                        <ItemsControl ItemsSource="{Binding FilteredIssues}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Padding="16,13" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1"
+                                            Background="Transparent" Cursor="Hand"
+                                            MouseLeftButtonUp="SummaryRow_Click">
+                                        <DockPanel>
+                                            <TextBlock Text="›" DockPanel.Dock="Right" FontSize="15" Foreground="#AEB2BA"
+                                                       VerticalAlignment="Center"/>
+                                            <Border Width="34" Height="34" CornerRadius="10" Background="{Binding IconBg}"
+                                                    DockPanel.Dock="Left" VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding Icon}" FontSize="15"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <StackPanel Margin="12,0,8,0">
+                                                <TextBlock Text="{Binding Title}" FontSize="14" Foreground="#1A1C20"
+                                                           FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                                                <TextBlock Text="{Binding Sub}" FontSize="12" Foreground="#6B7078"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Border Padding="16,16" Visibility="{Binding FilterEmpty, Converter={StaticResource BoolVis}}">
+                            <TextBlock Text="{Binding FilterEmptyText}" FontSize="13" Foreground="#7A7F88"
+                                       HorizontalAlignment="Center" TextWrapping="Wrap" TextAlignment="Center"/>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <Button Style="{StaticResource M.BtnText}" Content="Required fire systems — 10th Schedule ›"
+                        HorizontalAlignment="Left" Margin="0,6,0,0" Click="NeedsBtn_Click"/>
+
+                <Button Style="{StaticResource M.BtnPrimary}" Content="Start fixing" Margin="0,12,0,0"
                         Click="StartFixing_Click"/>
             </StackPanel>
         </ScrollViewer>
@@ -436,22 +528,22 @@
                         <TextBlock Text="{Binding CurrentIssue.Tag}" FontSize="11" FontWeight="Bold"
                                    Foreground="{Binding CurrentIssue.TagInk}"/>
                     </Border>
-                    <TextBlock Text="{Binding CurPos}" FontSize="12" Foreground="#6B7280" Margin="9,3,0,0"/>
+                    <TextBlock Text="{Binding CurPos}" FontSize="12" Foreground="#7A7F88" Margin="9,3,0,0"/>
                 </StackPanel>
-                <TextBlock Text="{Binding CurrentIssue.Title}" FontSize="22" FontWeight="Bold" Foreground="#E8EAF0"
+                <TextBlock Text="{Binding CurrentIssue.Title}" FontSize="22" FontWeight="Bold" Foreground="#1A1C20"
                            TextWrapping="Wrap" Margin="0,10,0,0" LineHeight="27"/>
-                <TextBlock Text="{Binding CurrentIssue.Where}" FontSize="13" Foreground="#9AA3B2" Margin="0,4,0,0"
+                <TextBlock Text="{Binding CurrentIssue.Where}" FontSize="13" Foreground="#6B7078" Margin="0,4,0,0"
                            Visibility="{Binding CurrentIssue.HasWhere, Converter={StaticResource BoolVis}}"/>
 
                 <Border Style="{StaticResource M.Card}" Margin="0,14,0,0">
                     <ItemsControl ItemsSource="{Binding CurrentIssue.Facts}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Padding="16,12" BorderBrush="#232834" BorderThickness="0,0,0,1">
+                                <Border Padding="16,12" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1">
                                     <DockPanel>
                                         <TextBlock Text="{Binding V}" DockPanel.Dock="Right" FontSize="14"
                                                    FontWeight="Bold" Foreground="{Binding Ink}"/>
-                                        <TextBlock Text="{Binding K}" FontSize="13" Foreground="#9AA3B2"/>
+                                        <TextBlock Text="{Binding K}" FontSize="13" Foreground="#6B7078"/>
                                     </DockPanel>
                                 </Border>
                             </DataTemplate>
@@ -459,21 +551,24 @@
                     </ItemsControl>
                 </Border>
 
-                <TextBlock Text="{Binding CurrentIssue.Body}" FontSize="14" Foreground="#C3C9D4"
+                <TextBlock Text="{Binding CurrentIssue.Body}" FontSize="14" Foreground="#44484F"
                            TextWrapping="Wrap" Margin="0,14,0,0" LineHeight="21"/>
 
-                <Border Background="#241F14" BorderBrush="#3A3420" BorderThickness="1" CornerRadius="12"
+                <Border Background="#FDF3E2" BorderBrush="#F0E2C4" BorderThickness="1" CornerRadius="12"
                         Padding="13,11" Margin="0,14,0,0"
                         Visibility="{Binding CurrentIssue.HasNote, Converter={StaticResource BoolVis}}">
-                    <TextBlock Text="{Binding CurrentIssue.NoFixNote}" FontSize="12" Foreground="#F0B45A"
+                    <TextBlock Text="{Binding CurrentIssue.NoFixNote}" FontSize="12" Foreground="#B8721A"
                                TextWrapping="Wrap" LineHeight="18"/>
                 </Border>
 
+                <Button Style="{StaticResource M.BtnGhost}" Content="Show in model ›" Foreground="#A97F00"
+                        Margin="0,14,0,0" Click="ShowInModel_Click"
+                        Visibility="{Binding CurrentIssue.HasElements, Converter={StaticResource BoolVis}}"/>
                 <Button Style="{StaticResource M.BtnGhost}" Content="{Binding CurrentIssue.DoLabel}"
-                        Foreground="#F0B45A" Margin="0,14,0,0" Click="Rescan_Click"/>
+                        Foreground="#B8721A" Margin="0,8,0,0" Click="Rescan_Click"/>
                 <Button Style="{StaticResource M.BtnText}" Content="Later" HorizontalAlignment="Center"
-                        Margin="0,4,0,0" Foreground="#6B7280" Click="Later_Click"/>
-                <TextBlock Text="{Binding CurrentIssue.Cite}" FontSize="10" Foreground="#4A5160"
+                        Margin="0,4,0,0" Foreground="#7A7F88" Click="Later_Click"/>
+                <TextBlock Text="{Binding CurrentIssue.Cite}" FontSize="10" Foreground="#AEB2BA"
                            HorizontalAlignment="Center" TextWrapping="Wrap" Margin="0,8,0,0"/>
             </StackPanel>
         </ScrollViewer>
@@ -484,18 +579,18 @@
                 <Border Width="76" Height="76" CornerRadius="38" HorizontalAlignment="Center">
                     <Border.Background>
                         <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                            <GradientStop Color="#34C07A" Offset="0"/>
+                            <GradientStop Color="#1F9D5B" Offset="0"/>
                             <GradientStop Color="#22995F" Offset="1"/>
                         </LinearGradientBrush>
                     </Border.Background>
                     <TextBlock Text="✓" FontSize="34" Foreground="#FFFFFF"
                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
-                <TextBlock Text="{Binding DoneTitle}" FontSize="25" FontWeight="Bold" Foreground="#E8EAF0"
+                <TextBlock Text="{Binding DoneTitle}" FontSize="25" FontWeight="Bold" Foreground="#1A1C20"
                            HorizontalAlignment="Center" Margin="0,14,0,0"/>
-                <TextBlock Text="{Binding DoneSub}" FontSize="14" Foreground="#9AA3B2" TextAlignment="Center"
+                <TextBlock Text="{Binding DoneSub}" FontSize="14" Foreground="#6B7078" TextAlignment="Center"
                            TextWrapping="Wrap" Margin="0,8,0,0" LineHeight="20"/>
-                <Button Style="{StaticResource M.BtnText}" Content="Required fire systems ›"
+                <Button Style="{StaticResource M.BtnText}" Content="Required fire systems — 10th Schedule ›"
                         HorizontalAlignment="Center" Margin="0,14,0,0" Click="NeedsBtn_Click"/>
                 <Button Style="{StaticResource M.BtnGhost}" Content="Run again" Margin="0,10,0,0"
                         Click="Rescan_Click"/>
@@ -506,17 +601,17 @@
         <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
                       Visibility="{Binding OnNeeds, Converter={StaticResource BoolVis}}">
             <StackPanel Margin="20,4,20,20">
-                <TextBlock Text="Required fire systems" FontSize="22" FontWeight="Bold" Foreground="#E8EAF0"/>
-                <TextBlock Text="{Binding NeedsSub}" FontSize="13" Foreground="#9AA3B2" TextWrapping="Wrap"
+                <TextBlock Text="Required fire systems" FontSize="22" FontWeight="Bold" Foreground="#1A1C20"/>
+                <TextBlock Text="{Binding NeedsSub}" FontSize="13" Foreground="#6B7078" TextWrapping="Wrap"
                            Margin="0,5,0,0"/>
 
-                <TextBlock Text="EXTINGUISHING" FontSize="12" FontWeight="Bold" Foreground="#6B7280"
+                <TextBlock Text="EXTINGUISHING" FontSize="12" FontWeight="Bold" Foreground="#7A7F88"
                            Margin="4,16,0,8"/>
                 <Border Style="{StaticResource M.Card}">
                     <ItemsControl ItemsSource="{Binding Extinguishing}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Padding="16,12" BorderBrush="#232834" BorderThickness="0,0,0,1"
+                                <Border Padding="16,12" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1"
                                         Background="Transparent" MouseLeftButtonUp="ReqRow_Click">
                                     <DockPanel>
                                         <Border DockPanel.Dock="Right" Background="{Binding ChipBg}" CornerRadius="20"
@@ -524,7 +619,7 @@
                                             <TextBlock Text="{Binding ChipText}" FontSize="12" FontWeight="Bold"
                                                        Foreground="{Binding ChipInk}"/>
                                         </Border>
-                                        <TextBlock Text="{Binding Name}" FontSize="14" Foreground="#E8EAF0"
+                                        <TextBlock Text="{Binding Name}" FontSize="14" Foreground="#1A1C20"
                                                    FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                     </DockPanel>
                                 </Border>
@@ -533,13 +628,13 @@
                     </ItemsControl>
                 </Border>
 
-                <TextBlock Text="ALARM" FontSize="12" FontWeight="Bold" Foreground="#6B7280"
+                <TextBlock Text="ALARM" FontSize="12" FontWeight="Bold" Foreground="#7A7F88"
                            Margin="4,16,0,8"/>
                 <Border Style="{StaticResource M.Card}">
                     <ItemsControl ItemsSource="{Binding Alarm}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Border Padding="16,12" BorderBrush="#232834" BorderThickness="0,0,0,1"
+                                <Border Padding="16,12" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1"
                                         Background="Transparent" MouseLeftButtonUp="ReqRow_Click">
                                     <DockPanel>
                                         <Border DockPanel.Dock="Right" Background="{Binding ChipBg}" CornerRadius="20"
@@ -547,7 +642,7 @@
                                             <TextBlock Text="{Binding ChipText}" FontSize="12" FontWeight="Bold"
                                                        Foreground="{Binding ChipInk}"/>
                                         </Border>
-                                        <TextBlock Text="{Binding Name}" FontSize="14" Foreground="#E8EAF0"
+                                        <TextBlock Text="{Binding Name}" FontSize="14" Foreground="#1A1C20"
                                                    FontWeight="SemiBold" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                     </DockPanel>
                                 </Border>
@@ -556,34 +651,34 @@
                     </ItemsControl>
                 </Border>
 
-                <Border Background="#241F14" BorderBrush="#3A3420" BorderThickness="1" CornerRadius="12"
+                <Border Background="#FDF3E2" BorderBrush="#F0E2C4" BorderThickness="1" CornerRadius="12"
                         Padding="13,11" Margin="0,14,0,0"
                         Visibility="{Binding HasNeedsNote, Converter={StaticResource BoolVis}}">
-                    <TextBlock Text="{Binding NeedsNote}" FontSize="12" Foreground="#F0B45A"
+                    <TextBlock Text="{Binding NeedsNote}" FontSize="12" Foreground="#B8721A"
                                TextWrapping="Wrap" LineHeight="18"/>
                 </Border>
 
                 <TextBlock Text="WHY — THE RULE BEHIND THIS" FontSize="12" FontWeight="Bold"
-                           Foreground="#6B7280" Margin="4,16,0,8"/>
+                           Foreground="#7A7F88" Margin="4,16,0,8"/>
                 <Border Style="{StaticResource M.Card}" Cursor="Hand" MouseLeftButtonUp="Bylaw_Click">
                     <StackPanel>
                         <Border Padding="16,12" Background="Transparent">
                             <DockPanel>
                                 <TextBlock Text="{Binding BylawChev}" DockPanel.Dock="Right" FontSize="13"
-                                           Foreground="#4A5160" VerticalAlignment="Center"/>
+                                           Foreground="#AEB2BA" VerticalAlignment="Center"/>
                                 <TextBlock Text="By-law 225 — the requirement itself" FontSize="14"
-                                           Foreground="#E8EAF0" FontWeight="SemiBold"/>
+                                           Foreground="#1A1C20" FontWeight="SemiBold"/>
                             </DockPanel>
                         </Border>
                         <Border Padding="16,0,16,13"
                                 Visibility="{Binding BylawOpen, Converter={StaticResource BoolVis}}">
-                            <TextBlock FontSize="12" Foreground="#9AA3B2" TextWrapping="Wrap" LineHeight="19"
+                            <TextBlock FontSize="12" Foreground="#6B7078" TextWrapping="Wrap" LineHeight="19"
                                        Text="&#8220;Every building shall be provided with such fire alarm system and fire extinguishment system as specified in the Tenth Schedule.&#8221; The list above is that specification for this building&#8217;s row. Certification at submission is By-law 239 — a person signs, the software never does."/>
                         </Border>
                     </StackPanel>
                 </Border>
 
-                <TextBlock Text="{Binding NeedsCite}" FontSize="10" Foreground="#4A5160"
+                <TextBlock Text="{Binding NeedsCite}" FontSize="10" Foreground="#AEB2BA"
                            HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"
                            Margin="0,14,0,0" LineHeight="15"/>
             </StackPanel>
