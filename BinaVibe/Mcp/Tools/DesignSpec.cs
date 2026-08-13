@@ -415,6 +415,33 @@ namespace BinaVibe.Mcp.Tools
                              : (id, 1);
         }
 
+        /// <summary>Scope a door/window/partition `wall_id` to the storey it
+        /// was solved on, for the wallBySpecId lookup — NOT for anything the
+        /// backend sees.
+        ///
+        /// Every level's interior solve (`solve_design`, called once per
+        /// storey by `solve_multistorey`) mints its own partitions starting
+        /// from `partition.0` again — level 2's first partition and level 1's
+        /// first partition are BOTH literally `"partition.0"` (confirmed by
+        /// reading `layout_solver.solve_openings`, which builds that id with
+        /// no level threaded through it, and `design_preflight
+        /// ._shift_upper_level_walls`, which shifts coordinates but never
+        /// touches `id`). `wallBySpecId` is one flat dict for the whole
+        /// build, so recording level 2's "partition.0" under the bare string
+        /// would silently overwrite (or be shadowed by) level 1's own
+        /// "partition.0" — a door hosted on "partition.0" at level 2 could
+        /// resolve to a level-1 wall three metres below it.
+        ///
+        /// Exterior ids need no scoping: `ext.<role>.<i>` (L1) and
+        /// `ext.<role>.l<k>.<i>` (L2+) are already globally distinct by
+        /// construction (`shadow_model.wall_specs`), so this only touches
+        /// interior ids, and only at level 2+ — level 1's own keys stay
+        /// exactly as before this task (a persisted `wall_by_spec_id` from a
+        /// pre-rung-4 build still resolves).</summary>
+        private static string ScopedWallSpecId(string specId, int level) =>
+            level >= 2 && !specId.StartsWith("ext.", StringComparison.Ordinal)
+                ? $"l{level}:{specId}" : specId;
+
         // ─── the solved path: one part at a time, measured ──────────────
 
         /// <summary>Build the SOLVED plan, part by part, inside one undo.
@@ -641,40 +668,59 @@ namespace BinaVibe.Mcp.Tools
                          || id.StartsWith("walls.partitions.l", StringComparison.Ordinal))
                 {
                     var (_, partitionsLevel) = SplitLevel(id);
+                    // L1 partitions still build from `args["partitions"]`
+                    // (design_preflight._attach_solved_level1). L2+ carries
+                    // no args-level key of its own — its segments ride in
+                    // this part's own `info.walls` instead (rung 4, task 8b:
+                    // design_parts.py embeds `solved["levels"][k]["walls"]`,
+                    // already shifted into the site frame by
+                    // design_preflight._shift_upper_level_walls, the same
+                    // frame `walls.<role>.l<k>`'s own bbox prediction uses).
+                    JsonElement partitionsArr;
                     if (partitionsLevel >= 2)
-                        // design_parts.py solves an upper storey's partitions
-                        // (walls_k) and ships their COUNT/open_ends in this
-                        // part's `expected`, but the actual segments
-                        // (a_mm/b_mm) never reach `args` under any key —
-                        // design_preflight._attach_solved_level1 only ever
-                        // attaches level 1's `partitions` array. Building
-                        // nothing here would silently read as
-                        // "not_implemented"; naming the gap instead of
-                        // guessing at geometry this addin was never given
-                        // (rung 4, task 8 — flagged for backend follow-up).
-                        throw new InvalidOperationException(
-                            $"part '{id}', but the spec carries no level-{partitionsLevel} partition "
-                            + "geometry — design_preflight only attaches level 1's `partitions` array; "
-                            + "the backend must ship the upper-storey segments before this addin can "
-                            + "build them");
-                    if (solvedPartitions == null)
-                        throw new InvalidOperationException(
-                            "walls.partitions part, but the spec carries no `partitions` array — "
-                            + "the backend must send the partitions it solved, by id");
-                    foreach (var w in solvedPartitions.Value.EnumerateArray())
+                    {
+                        if (!partsById.TryGetValue(id, out var partEl)
+                            || !partEl.TryGetProperty("info", out var info)
+                            || !info.TryGetProperty("walls", out var infoWalls)
+                            || infoWalls.ValueKind != JsonValueKind.Array)
+                            throw new InvalidOperationException(
+                                $"part '{id}', but the spec carries no level-{partitionsLevel} "
+                                + "partition geometry (info.walls) — the backend must ship the "
+                                + "upper-storey segments before this addin can build them");
+                        partitionsArr = infoWalls;
+                    }
+                    else
+                    {
+                        if (solvedPartitions == null)
+                            throw new InvalidOperationException(
+                                "walls.partitions part, but the spec carries no `partitions` array — "
+                                + "the backend must send the partitions it solved, by id");
+                        partitionsArr = solvedPartitions.Value;
+                    }
+                    var baseLvl = levels[partitionsLevel - 1];
+                    // The next level up, same convention `walls.<role>.l<k>`
+                    // uses for its own top constraint (`levels[wallsLevel]`
+                    // below) — `EnsureLevels` builds `count + 1` levels
+                    // (index `count` is the "Roof" bearing level) precisely
+                    // so this always resolves, even for the top storey.
+                    var topLvl = levels[partitionsLevel];
+                    foreach (var w in partitionsArr.EnumerateArray())
                     {
                         var specId = w.GetProperty("id").GetString()!;
-                        var a = PointMm(w, "a_mm", lvl0.Elevation);
-                        var b = PointMm(w, "b_mm", lvl0.Elevation);
+                        var a = PointMm(w, "a_mm", baseLvl.Elevation);
+                        var b = PointMm(w, "b_mm", baseLvl.Elevation);
                         if (a.DistanceTo(b) < 1e-6)
                             throw new InvalidOperationException(
                                 $"partition '{specId}' has zero length — the solver sent a point, "
                                 + "not a wall");
                         var wall = Wall.Create(doc, Line.CreateBound(a, b), intType.Id,
-                                               lvl0.Id, f2f, 0, false, false);
-                        wall.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.Set(levels[1].Id);
+                                               baseLvl.Id, f2f, 0, false, false);
+                        wall.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.Set(topLvl.Id);
                         Record(id, "partition", wall.Id);
-                        RecordSpecId(id, specId, wall.Id);
+                        // Scoped so a level-2 "partition.0" never collides
+                        // with level 1's own "partition.0" in wallBySpecId —
+                        // see ScopedWallSpecId's docstring.
+                        RecordSpecId(id, ScopedWallSpecId(specId, partitionsLevel), wall.Id);
                         created.Add(wall.Id);
                         JoinToNeighbours(doc, wall, wallBySpecId.Values);
                     }
@@ -759,34 +805,61 @@ namespace BinaVibe.Mcp.Tools
                 else if (id == "doors" || id.StartsWith("doors.l", StringComparison.Ordinal))
                 {
                     var (_, doorsLevel) = SplitLevel(id);
+                    // L1 still builds from `args["doors"]`. L2+'s `doors.l<k>`
+                    // part carries a `hosts` list (narration only) AND, as of
+                    // rung 4 task 8b, the real per-door `wall_id`/`at_mm`/
+                    // `room` records this addin actually places from, in
+                    // `info.doors` — same reasoning as walls.partitions.l<k>
+                    // above. Note (backend, task 8b report): L2 doors never
+                    // carry an ext.-hosted wall_id by design — the solver
+                    // strips the exterior entrance door above L1 — so this
+                    // will typically place onto that level's own partitions.
+                    JsonElement? doorsArr;
                     if (doorsLevel >= 2)
-                        // design_parts.py's `doors.l<k>` part carries a solved
-                        // COUNT and a `hosts` list of wall_ids in `info` — not
-                        // the per-door wall_id/at_mm this addin actually places
-                        // from. `args["doors"]` is level 1 only
-                        // (design_preflight._attach_solved_level1). Naming the
-                        // gap rather than silently placing zero doors and
-                        // reading as a passed "not_implemented" stub, or
-                        // wrongly re-placing level 1's doors under this id.
-                        throw new InvalidOperationException(
-                            $"part '{id}', but the spec carries no level-{doorsLevel} door placements "
-                            + "(wall_id/at_mm) — `args[\"doors\"]` is level 1 only; the backend must "
-                            + "ship the upper-storey opening data before this addin can build it");
-                    foreach (var eid in PlaceDoors(doc, args, levels[0], doorSym, wallBySpecId))
+                    {
+                        if (!partsById.TryGetValue(id, out var partEl)
+                            || !partEl.TryGetProperty("info", out var info)
+                            || !info.TryGetProperty("doors", out var infoDoors)
+                            || infoDoors.ValueKind != JsonValueKind.Array)
+                            throw new InvalidOperationException(
+                                $"part '{id}', but the spec carries no level-{doorsLevel} door "
+                                + "placements (info.doors) — the backend must ship the upper-storey "
+                                + "opening data before this addin can build it");
+                        doorsArr = infoDoors;
+                    }
+                    else
+                    {
+                        doorsArr = Obj(args, "doors");
+                    }
+                    var doorLvl = levels[doorsLevel - 1];
+                    foreach (var eid in PlaceDoors(doc, doorsArr, doorLvl, doorsLevel, doorSym,
+                                                   wallBySpecId))
                     { Record(id, "door", eid); created.Add(eid); }
                 }
                 else if (id == "windows" || id.StartsWith("windows.l", StringComparison.Ordinal))
                 {
                     var (_, windowsLevel) = SplitLevel(id);
+                    // Same shape as doors.l<k> above, for windows.
+                    JsonElement? windowsArr;
                     if (windowsLevel >= 2)
-                        // Same gap as doors.l<k> above, for windows.
-                        throw new InvalidOperationException(
-                            $"part '{id}', but the spec carries no level-{windowsLevel} window "
-                            + "placements (wall_id/at_mm) — `args[\"windows\"]` is level 1 only; the "
-                            + "backend must ship the upper-storey opening data before this addin can "
-                            + "build it");
-                    foreach (var eid in PlaceWindows(doc, args, levels[0], winSym, defaultSill,
-                                                     wallBySpecId))
+                    {
+                        if (!partsById.TryGetValue(id, out var partEl)
+                            || !partEl.TryGetProperty("info", out var info)
+                            || !info.TryGetProperty("windows", out var infoWindows)
+                            || infoWindows.ValueKind != JsonValueKind.Array)
+                            throw new InvalidOperationException(
+                                $"part '{id}', but the spec carries no level-{windowsLevel} window "
+                                + "placements (info.windows) — the backend must ship the "
+                                + "upper-storey opening data before this addin can build it");
+                        windowsArr = infoWindows;
+                    }
+                    else
+                    {
+                        windowsArr = Obj(args, "windows");
+                    }
+                    var windowLvl = levels[windowsLevel - 1];
+                    foreach (var eid in PlaceWindows(doc, windowsArr, windowLvl, windowsLevel, winSym,
+                                                     defaultSill, wallBySpecId))
                     { Record(id, "window", eid); created.Add(eid); }
                 }
                 else if (id.StartsWith("roof.", StringComparison.Ordinal))
@@ -1294,24 +1367,30 @@ namespace BinaVibe.Mcp.Tools
         /// No fallback placement. A wall id that is not in the registry means
         /// the walls part did not build what the openings part was solved
         /// against, and putting the door somewhere plausible instead would hide
-        /// exactly the mismatch this loop exists to catch.</summary>
-        private static List<ElementId> PlaceDoors(Document doc, JsonElement args, Level lvl0,
-                                                  FamilySymbol? doorSym,
+        /// exactly the mismatch this loop exists to catch.
+        ///
+        /// `doorsArr` is the solved door array to place from — L1's
+        /// `args["doors"]` or an upper storey's own `info.doors` (rung 4,
+        /// task 8b), both the same shape. `level` is the 1-based storey this
+        /// call is placing for, used only to scope an interior `wall_id`
+        /// lookup (see ScopedWallSpecId) — a door's own `wall_id` string is
+        /// never altered.</summary>
+        private static List<ElementId> PlaceDoors(Document doc, JsonElement? doorsArr, Level lvl,
+                                                  int level, FamilySymbol? doorSym,
                                                   IReadOnlyDictionary<string, ElementId> wallBySpecId)
         {
             var created = new List<ElementId>();
-            var doors = Obj(args, "doors");
-            if (doors == null || doors.Value.ValueKind != JsonValueKind.Array) return created;
+            if (doorsArr == null || doorsArr.Value.ValueKind != JsonValueKind.Array) return created;
             // Activate HERE, inside this part's own transaction — the batched
             // txPrep activation can be undone by an intermediate rollback, and
             // Revit then fails NewFamilyInstance with "Can't make type ..."
             // (2026-08-11: 8 doors predicted, 0 built, exactly that error).
             if (doorSym != null && !doorSym.IsActive) { doorSym.Activate(); doc.Regenerate(); }
-            if (doors.Value.GetArrayLength() > 0 && doorSym == null)
+            if (doorsArr.Value.GetArrayLength() > 0 && doorSym == null)
                 throw new InvalidOperationException(
                     "no door family is loaded in this project, so the solved doors cannot be placed");
 
-            foreach (var d in doors.Value.EnumerateArray())
+            foreach (var d in doorsArr.Value.EnumerateArray())
             {
                 var room = d.TryGetProperty("room", out var rn) ? rn.GetString() ?? "?" : "?";
                 // A door with no wall_id is an UNSOLVED door. GetProperty would
@@ -1324,7 +1403,7 @@ namespace BinaVibe.Mcp.Tools
                         $"door for {room} carries no wall_id — the backend must name the wall "
                         + "each opening is hosted in (design_preflight solves this)");
                 var wallId = wid.GetString()!;
-                if (!wallBySpecId.TryGetValue(wallId, out var hostId)
+                if (!wallBySpecId.TryGetValue(ScopedWallSpecId(wallId, level), out var hostId)
                     || doc.GetElement(hostId) is not Wall host)
                     throw new InvalidOperationException(
                         $"door for {room} references wall '{wallId}' "
@@ -1336,7 +1415,7 @@ namespace BinaVibe.Mcp.Tools
                 var dir = (lc.Curve.GetEndPoint(1) - a).Normalize();
                 var p = a + dir * at;                       // at_mm: from a toward b, centre
                 var fi = doc.Create.NewFamilyInstance(
-                    new XYZ(p.X, p.Y, lvl0.Elevation), doorSym, host, lvl0,
+                    new XYZ(p.X, p.Y, lvl.Elevation), doorSym, host, lvl,
                     Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
                 created.Add(fi.Id);
             }
@@ -1344,20 +1423,21 @@ namespace BinaVibe.Mcp.Tools
         }
 
         /// <summary>Windows, hosted BY ID, with the solved sill. Same contract
-        /// as PlaceDoors: an unknown wall id is a failure, never a guess.</summary>
-        private static List<ElementId> PlaceWindows(Document doc, JsonElement args, Level lvl0,
-                                                    FamilySymbol? winSym, double defaultSillFt,
+        /// as PlaceDoors: an unknown wall id is a failure, never a guess.
+        /// `windowsArr`/`level` follow PlaceDoors' own contract above.</summary>
+        private static List<ElementId> PlaceWindows(Document doc, JsonElement? windowsArr, Level lvl,
+                                                    int level, FamilySymbol? winSym,
+                                                    double defaultSillFt,
                                                     IReadOnlyDictionary<string, ElementId> wallBySpecId)
         {
             var created = new List<ElementId>();
-            var windows = Obj(args, "windows");
             if (winSym != null && !winSym.IsActive) { winSym.Activate(); doc.Regenerate(); }
-            if (windows == null || windows.Value.ValueKind != JsonValueKind.Array) return created;
-            if (windows.Value.GetArrayLength() > 0 && winSym == null)
+            if (windowsArr == null || windowsArr.Value.ValueKind != JsonValueKind.Array) return created;
+            if (windowsArr.Value.GetArrayLength() > 0 && winSym == null)
                 throw new InvalidOperationException(
                     "no window family is loaded in this project, so the solved windows cannot be placed");
 
-            foreach (var w in windows.Value.EnumerateArray())
+            foreach (var w in windowsArr.Value.EnumerateArray())
             {
                 var room = w.TryGetProperty("room", out var rn) ? rn.GetString() ?? "?" : "?";
                 // Same contract as PlaceDoors: a missing wall_id is a named
@@ -1369,7 +1449,7 @@ namespace BinaVibe.Mcp.Tools
                         $"window for {room} carries no wall_id — the backend must name the wall "
                         + "each opening is hosted in (design_preflight solves this)");
                 var wallId = wid.GetString()!;
-                if (!wallBySpecId.TryGetValue(wallId, out var hostId)
+                if (!wallBySpecId.TryGetValue(ScopedWallSpecId(wallId, level), out var hostId)
                     || doc.GetElement(hostId) is not Wall host)
                     throw new InvalidOperationException(
                         $"window for {room} references wall '{wallId}' "
@@ -1381,7 +1461,7 @@ namespace BinaVibe.Mcp.Tools
                 var dir = (lc.Curve.GetEndPoint(1) - a).Normalize();
                 var p = a + dir * at;
                 var fi = doc.Create.NewFamilyInstance(
-                    new XYZ(p.X, p.Y, lvl0.Elevation), winSym, host, lvl0,
+                    new XYZ(p.X, p.Y, lvl.Elevation), winSym, host, lvl,
                     Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
                 var sill = w.TryGetProperty("sill_mm", out var sm)
                            && sm.ValueKind == JsonValueKind.Number ? sm.GetDouble() / FT : defaultSillFt;
