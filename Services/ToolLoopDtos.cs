@@ -28,6 +28,14 @@ namespace RevitWebAppSync.Services
         [JsonPropertyName("error")] public string Error { get; set; }
         [JsonPropertyName("success")] public bool Success { get; set; } = true;
         [JsonPropertyName("pending_tool_calls")] public List<PendingToolCall> Pending { get; set; } = new();
+        // Task 12: true when EVERY pending call this round is a read (server-side
+        // INSPECT_TOOL_NAMES, app/services/revit_turn.py). ToolLoopRunner spends
+        // this round against the separate, larger InspectRounds cap instead of
+        // MaxRounds — verification (the post-build audit chain, a read-heavy
+        // question) never counts toward the budget that exists to stop a runaway
+        // MUTATE spiral. Default false (fail closed) so an older backend that
+        // omits the field keeps today's behaviour: every round spends MaxRounds.
+        [JsonPropertyName("reads_only")] public bool ReadsOnly { get; set; }
         // Tools the agent ran SERVER-SIDE this turn (list_views, find_elements_by_filter,
         // …). These never come back as pending (they don't execute in Revit), so without
         // this the trace would be empty for any read/codegen request. Drives the step chips.
