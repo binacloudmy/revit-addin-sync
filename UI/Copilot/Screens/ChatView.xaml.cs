@@ -1277,9 +1277,46 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // clarify questions exactly as it does in answers, and a plain
             // TextBlock rendered the asterisks literally (UAT 2026-07-27). Same
             // renderer the answer bubble uses, so the two read consistently.
-            var qText = CopilotMessageBubble.MarkdownText(m.Question ?? "", 460);
+            //
+            // PILIHAN protocol (task 11, 2026-08-13): a clarify question MAY
+            // end with a machine-readable `PILIHAN: opt | opt | opt` line
+            // (recipe: model_house_massing.md "Bila bertanya drafter" #5).
+            // Strip that line out of the rendered markdown and turn it into
+            // tappable chips below instead, so the drafter taps rather than
+            // re-typing the option verbatim. No PILIHAN line -> questionText
+            // is untouched and no chip row renders.
+            var questionText = m.Question ?? "";
+            var pilihanOptions = new System.Collections.Generic.List<string>();
+            var pilihanMatch = System.Text.RegularExpressions.Regex.Match(
+                questionText, @"^PILIHAN:\s*(.+)$", System.Text.RegularExpressions.RegexOptions.Multiline);
+            if (pilihanMatch.Success)
+            {
+                questionText = questionText.Remove(pilihanMatch.Index, pilihanMatch.Length).TrimEnd();
+                pilihanOptions = pilihanMatch.Groups[1].Value
+                    .Split('|')
+                    .Select(s => s.Trim())
+                    .Where(s => s.Length > 0)
+                    .Take(4)
+                    .ToList();
+            }
+            var qText = CopilotMessageBubble.MarkdownText(questionText, 460);
             qText.Margin = new Thickness(0, 0, 0, 10);
             body.Children.Add(qText);
+            if (pilihanOptions.Count > 0)
+            {
+                // Same pill factory/style as the offer-actions ("Tindakan")
+                // chips (FollowupChip, used by ResultSummaryCard below) and
+                // the same send path as the input box and every other chip
+                // in this file -- Vm.ChatSendCommand.Execute -- so a tapped
+                // option is indistinguishable from the drafter typing it.
+                var pilihanChips = new WrapPanel { Margin = new Thickness(0, 0, 0, 10) };
+                foreach (var opt in pilihanOptions)
+                {
+                    var full = opt;
+                    pilihanChips.Children.Add(FollowupChip(TruncateChipLabel(full), () => Vm?.ChatSendCommand.Execute(full)));
+                }
+                body.Children.Add(pilihanChips);
+            }
             foreach (var o in m.Options)
             {
                 var tool = CopilotCatalog.Find(o.ToolId);
@@ -1305,9 +1342,6 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 btn.Click += (_, __) => Vm.ChatSendCommand.Execute(prompt);
                 body.Children.Add(btn);
             }
-            var foot = new Border { Background = CopilotColors.From("#f3f6f9"), CornerRadius = new CornerRadius(7), Padding = new Thickness(10, 6, 10, 6), Margin = new Thickness(0, 5, 0, 0) };
-            foot.Child = new TextBlock { Text = "Atau taip semula permintaan anda dengan lebih terperinci.", FontSize = 11, Foreground = CopilotColors.From("#586273"), TextWrapping = TextWrapping.Wrap };
-            body.Children.Add(foot);
             sp.Children.Add(body);
             outer.Child = sp;
             return outer;
