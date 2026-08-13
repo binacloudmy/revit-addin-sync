@@ -1575,9 +1575,9 @@ namespace BinaVibe.Mcp.Tools
                 if (symByKind.TryGetValue(kind, out var cached)) return cached;
                 var hints = kind switch
                 {
-                    "wc" => new[] { "Toilet", "WC" },
-                    "basin" => new[] { "Basin", "Sink", "Lavatory" },
-                    "shower" => new[] { "Shower" },
+                    "wc" => new[] { "Tandas Duduk", "Tandas", "Toilet", "WC", "Water Closet", "_TDS_" },
+                    "basin" => new[] { "Basin", "Besen", "Sink", "Lavatory", "Wash", "_BSN_", "_LSB_" },
+                    "shower" => new[] { "Shower", "Pancuran", "_SWR_" },
                     _ => Array.Empty<string>(),
                 };
                 FamilySymbol? sym = null;
@@ -1592,7 +1592,7 @@ namespace BinaVibe.Mcp.Tools
                 }
                 if (sym == null)
                     throw new InvalidOperationException(
-                        $"no {kind} family loaded — load a plumbing fixture family first");
+                        $"no {(string.IsNullOrEmpty(kind) ? "fixture" : kind)} family loaded — load a plumbing fixture family first");
                 // Activate HERE, inside this part's own transaction — same
                 // rollback hazard PlaceDoors guards against: a batched
                 // txPrep activation can be undone by an intermediate
