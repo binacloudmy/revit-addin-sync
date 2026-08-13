@@ -393,7 +393,26 @@ namespace BinaVibe.Mcp.Tools
             if (partId == "doors") return "door";
             if (partId == "windows") return "window";
             if (partId.StartsWith("roof.", StringComparison.Ordinal)) return "roof";
-            return null;   // fixtures.* and unknown ids own nothing to clear
+            // fixtures.* and unknown ids own nothing to clear. This also never
+            // sees a `.l<k>` id in practice — this bucket scheme predates
+            // owns_by_part (rung 4, task 8's per-level parts), and owns_by_part
+            // is always present on any spec new enough to carry multi-storey
+            // parts at all. Left unchanged rather than taught a shape it will
+            // never actually be asked to classify.
+            return null;
+        }
+
+        /// <summary>Peel a trailing `.l<digits>` storey suffix off a part id —
+        /// `slab.l2` -> ("slab", 2), `walls.main.l2` -> ("walls.main", 2),
+        /// `walls.main` -> ("walls.main", 1) (no suffix = level 1, unchanged).
+        /// Every per-level part id design_parts.py mints (rung 4, task 5/8)
+        /// follows this one grammar, so one helper covers slab/walls/doors/
+        /// windows/partitions/fixtures alike.</summary>
+        private static (string baseId, int level) SplitLevel(string id)
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(id, @"^(.*)\.l(\d+)$");
+            return m.Success ? (m.Groups[1].Value, int.Parse(m.Groups[2].Value))
+                             : (id, 1);
         }
 
         // ─── the solved path: one part at a time, measured ──────────────
@@ -486,6 +505,12 @@ namespace BinaVibe.Mcp.Tools
             using var viewSwitch = ViewGuard.EnsurePlanView(doc, uidoc);
 
             var vols = Volumes.Parse(args, footprint, f2f);
+            // The volume every `.l<k>` part id implicitly names — only the
+            // PRIMARY volume (the spec's first, same convention `walls.partitions`
+            // already uses for "no other volume hosts them") ever climbs past
+            // level 1 (design_parts.py, rung 4 task 5). A porch or garage never
+            // gets a `.l<k>` part at all, so its own level 1 is always its top.
+            var primaryRole = vols.Count > 0 ? vols[0].Role : null;
             BuildVolume VolByRole(string role) =>
                 vols.FirstOrDefault(v => string.Equals(v.Role, role, StringComparison.OrdinalIgnoreCase))
                 ?? throw new ArgumentException(
@@ -557,19 +582,32 @@ namespace BinaVibe.Mcp.Tools
             // just written after the fact.
             var deferredRoofs = new Dictionary<string, (BuildVolume Vol, JsonElement Expected)>();
 
-            // The solved exterior segments belonging to one volume, at a level.
-            // `ext.<role>.<i>` is the backend's id grammar, so the prefix filter
-            // IS the volume selector — no index arithmetic on either side.
-            IEnumerable<(XYZ A, XYZ B, string SpecId)> ExteriorSegments(string role, double z)
+            // The solved exterior segments belonging to one volume, AT ONE
+            // LEVEL. `exterior_walls` concatenates every level (rung 4, task
+            // 8): L1 ids are `ext.<role>.<i>` (unsuffixed, backward
+            // compatible), L2+ are `ext.<role>.l<k>.<i>`. A plain prefix match
+            // on `ext.<role>.` matches BOTH shapes — the L2+ id literally
+            // starts with the L1 prefix — so a level-1 build would silently
+            // also pull in every upper level's segments at level 1's own
+            // elevation without the exact shape check below (caught while
+            // wiring this up; a 2-storey `exterior_walls` array already
+            // concatenates both, whether or not the addin routes `.l<k>`
+            // parts yet).
+            IEnumerable<(XYZ A, XYZ B, string SpecId)> ExteriorSegments(string role, int level, double z)
             {
                 if (solvedExteriors == null) yield break;
-                var pfx = $"ext.{role}.";
                 foreach (var seg in solvedExteriors.Value.EnumerateArray())
                 {
                     if (seg.ValueKind != JsonValueKind.Object) continue;
                     var segId = seg.TryGetProperty("id", out var idv)
                                 && idv.ValueKind == JsonValueKind.String ? idv.GetString() : null;
-                    if (segId == null || !segId.StartsWith(pfx, StringComparison.Ordinal)) continue;
+                    if (segId == null) continue;
+                    var segParts = segId.Split('.');
+                    var matches = level >= 2
+                        ? segParts.Length == 4 && segParts[0] == "ext" && segParts[1] == role
+                          && segParts[2] == $"l{level}"
+                        : segParts.Length == 3 && segParts[0] == "ext" && segParts[1] == role;
+                    if (!matches) continue;
                     yield return (PointMm(seg, "a_mm", z), PointMm(seg, "b_mm", z), segId);
                 }
             }
@@ -584,14 +622,41 @@ namespace BinaVibe.Mcp.Tools
 
                 if (id.StartsWith("slab.", StringComparison.Ordinal))
                 {
-                    var vol = VolByRole(id.Substring("slab.".Length));
+                    var (slabBase, slabLevel) = SplitLevel(id);
+                    // L1 ids are `slab.<role>` (any volume); L2+ ids are the
+                    // bare `slab.l<k>` — no role token, because only the
+                    // PRIMARY volume ever climbs (design_parts.py).
+                    var slabRole = slabBase == "slab"
+                        ? primaryRole ?? throw new InvalidOperationException(
+                            $"part '{id}' names an upper-storey slab but this spec declares no volumes")
+                        : slabBase.Substring("slab.".Length);
+                    var vol = VolByRole(slabRole);
+                    var slabLvl = levels[slabLevel - 1];
                     var slab = Floor.Create(doc, new List<CurveLoop> { CurveLoopOf(vol.Outline, 0) },
-                                            slabType.Id, lvl0.Id);
+                                            slabType.Id, slabLvl.Id);
                     Record(id, "slab", slab.Id);
                     created.Add(slab.Id);
                 }
-                else if (id == "walls.partitions")
+                else if (id == "walls.partitions"
+                         || id.StartsWith("walls.partitions.l", StringComparison.Ordinal))
                 {
+                    var (_, partitionsLevel) = SplitLevel(id);
+                    if (partitionsLevel >= 2)
+                        // design_parts.py solves an upper storey's partitions
+                        // (walls_k) and ships their COUNT/open_ends in this
+                        // part's `expected`, but the actual segments
+                        // (a_mm/b_mm) never reach `args` under any key —
+                        // design_preflight._attach_solved_level1 only ever
+                        // attaches level 1's `partitions` array. Building
+                        // nothing here would silently read as
+                        // "not_implemented"; naming the gap instead of
+                        // guessing at geometry this addin was never given
+                        // (rung 4, task 8 — flagged for backend follow-up).
+                        throw new InvalidOperationException(
+                            $"part '{id}', but the spec carries no level-{partitionsLevel} partition "
+                            + "geometry — design_preflight only attaches level 1's `partitions` array; "
+                            + "the backend must ship the upper-storey segments before this addin can "
+                            + "build them");
                     if (solvedPartitions == null)
                         throw new InvalidOperationException(
                             "walls.partitions part, but the spec carries no `partitions` array — "
@@ -623,15 +688,26 @@ namespace BinaVibe.Mcp.Tools
                     // or window is hosted by comes out of this array, so an id
                     // that is missing here is a reported failure, not a shifted
                     // index that silently hosts a door in the wrong wall.
-                    var role = id.Substring("walls.".Length);
+                    var (wallsBase, wallsLevel) = SplitLevel(id);
+                    var role = wallsBase.Substring("walls.".Length);
                     var vol = VolByRole(role);
                     var wallHeight = vol.HeightFt > TOL ? vol.HeightFt : f2f;
+                    var wallLvl = levels[wallsLevel - 1];
+                    // Gable-end treatment (below) belongs ONLY on the level the
+                    // roof actually bears on. A climbing primary volume's
+                    // intermediate storeys stay flat-topped (design_parts.py's
+                    // `_wall_top_mm`: `h` below the top level, `h + ridge_rise`
+                    // only at it) — a non-primary volume (porch, garage) never
+                    // gets a `.l<k>` part at all, so its own single level is
+                    // always "the top" here, exactly as before this task.
+                    var isTopLevel = !string.Equals(role, primaryRole, StringComparison.OrdinalIgnoreCase)
+                                      || wallsLevel >= count;
                     if (solvedExteriors == null)
                         throw new InvalidOperationException(
                             $"part '{id}', but the spec carries no `exterior_walls` array — "
                             + "the backend must send the exterior segments it solved, by id");
                     var built = 0;
-                    foreach (var (a, b, segId) in ExteriorSegments(role, lvl0.Elevation))
+                    foreach (var (a, b, segId) in ExteriorSegments(role, wallsLevel, wallLvl.Elevation))
                     {
                         if (a.DistanceTo(b) < 1e-6)
                             throw new InvalidOperationException(
@@ -648,11 +724,11 @@ namespace BinaVibe.Mcp.Tools
                         // hip path someday works, these must become conditional
                         // on the BUILT shape — the scorecard's roof bbox will
                         // flag pentagons poking through a hip.
-                        var isGableEnd = GableEnd.IsGableEnd(vol, a, b, args);
+                        var isGableEnd = isTopLevel && GableEnd.IsGableEnd(vol, a, b, args);
                         var w = isGableEnd
-                            ? GableEnd.CreateProfiled(doc, vol, a, b, extType, lvl0,
+                            ? GableEnd.CreateProfiled(doc, vol, a, b, extType, wallLvl,
                                                       wallHeight, args)
-                            : Wall.Create(doc, Line.CreateBound(a, b), extType.Id, lvl0.Id,
+                            : Wall.Create(doc, Line.CreateBound(a, b), extType.Id, wallLvl.Id,
                                           wallHeight, 0, false, false);
                         // NEVER top-constrain a profiled wall: the constraint
                         // CROPS the profile back to the level plane. Measured
@@ -660,8 +736,12 @@ namespace BinaVibe.Mcp.Tools
                         // f2f, so the only one entering this branch) lost both
                         // gable apexes — z 3934 vs 6024 — while porch and
                         // garage pentagons, which skip it, came out perfect.
+                        // The top constraint is the NEXT level up from this
+                        // storey's own base — `levels[1]` only happened to be
+                        // right before this task because level 1 was the only
+                        // storey that ever reached here.
                         if (!isGableEnd && Math.Abs(wallHeight - f2f) < TOL)
-                            w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.Set(levels[1].Id);
+                            w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.Set(levels[wallsLevel].Id);
                         Record(id, vol.Role == "main" ? "perimeter_wall" : $"{vol.Role}_wall", w.Id);
                         RecordSpecId(id, segId, w.Id);
                         created.Add(w.Id);
@@ -673,16 +753,38 @@ namespace BinaVibe.Mcp.Tools
                     }
                     if (built == 0)
                         throw new InvalidOperationException(
-                            $"part '{id}' built nothing: `exterior_walls` carries no segment with "
-                            + $"an id starting 'ext.{role}.'");
+                            $"part '{id}' built nothing: `exterior_walls` carries no segment "
+                            + $"matching role '{role}' at level {wallsLevel}");
                 }
-                else if (id == "doors")
+                else if (id == "doors" || id.StartsWith("doors.l", StringComparison.Ordinal))
                 {
+                    var (_, doorsLevel) = SplitLevel(id);
+                    if (doorsLevel >= 2)
+                        // design_parts.py's `doors.l<k>` part carries a solved
+                        // COUNT and a `hosts` list of wall_ids in `info` — not
+                        // the per-door wall_id/at_mm this addin actually places
+                        // from. `args["doors"]` is level 1 only
+                        // (design_preflight._attach_solved_level1). Naming the
+                        // gap rather than silently placing zero doors and
+                        // reading as a passed "not_implemented" stub, or
+                        // wrongly re-placing level 1's doors under this id.
+                        throw new InvalidOperationException(
+                            $"part '{id}', but the spec carries no level-{doorsLevel} door placements "
+                            + "(wall_id/at_mm) — `args[\"doors\"]` is level 1 only; the backend must "
+                            + "ship the upper-storey opening data before this addin can build it");
                     foreach (var eid in PlaceDoors(doc, args, levels[0], doorSym, wallBySpecId))
                     { Record(id, "door", eid); created.Add(eid); }
                 }
-                else if (id == "windows")
+                else if (id == "windows" || id.StartsWith("windows.l", StringComparison.Ordinal))
                 {
+                    var (_, windowsLevel) = SplitLevel(id);
+                    if (windowsLevel >= 2)
+                        // Same gap as doors.l<k> above, for windows.
+                        throw new InvalidOperationException(
+                            $"part '{id}', but the spec carries no level-{windowsLevel} window "
+                            + "placements (wall_id/at_mm) — `args[\"windows\"]` is level 1 only; the "
+                            + "backend must ship the upper-storey opening data before this addin can "
+                            + "build it");
                     foreach (var eid in PlaceWindows(doc, args, levels[0], winSym, defaultSill,
                                                      wallBySpecId))
                     { Record(id, "window", eid); created.Add(eid); }
@@ -698,7 +800,13 @@ namespace BinaVibe.Mcp.Tools
                     // solver reached but placed nothing into ships the legacy
                     // `expected: {"status": "not_implemented"}` stub instead —
                     // returning nothing here is exactly what that measures as
-                    // today, so the stub case falls straight through.
+                    // today, so the stub case falls straight through. This
+                    // already covers `fixtures.<room>.l<k>` (rung 4, task 8)
+                    // with no change: design_parts.py never attaches
+                    // `info.instances` to an upper-storey wet room (placement
+                    // stays L1-only this rung), so the id-suffix is invisible
+                    // here — the lookup is by the part's own FULL id, and the
+                    // stub path is exactly what a missing instances key means.
                     if (partsById.TryGetValue(id, out var partEl)
                         && partEl.TryGetProperty("info", out var info)
                         && info.TryGetProperty("instances", out var instances))
@@ -707,6 +815,10 @@ namespace BinaVibe.Mcp.Tools
                         { Record(id, "fixture", fid); created.Add(fid); }
                     }
                 }
+                // `stairs.main` (Task 9) is deliberately left UNROUTED here —
+                // it falls through to the generic "unknown part id" failure
+                // below, which is the honest answer until Task 9 lands (same
+                // branch, immediately after this one).
                 else
                 {
                     throw new ArgumentException(
@@ -916,13 +1028,28 @@ namespace BinaVibe.Mcp.Tools
                     // tightly, which is why the offset is applied here, not
                     // trusted to the scorecard.
                     var boundary = Volumes.WithEaves(vol.Outline, overhangFt);
+                    // The PRIMARY volume's roof bears on the TOP OCCUPIED
+                    // level regardless of its own height_mm — `count` IS that
+                    // level: EnsureLevels' levels[count] is the "Roof" level,
+                    // and design_preflight refuses a spec where the primary's
+                    // program does not populate every storey 1..count, so
+                    // `count` always equals the backend's own `top_level`
+                    // (design_parts.py). Every OTHER volume (porch, garage) is
+                    // a single-storey add-on no matter how tall the house
+                    // gets, so it keeps today's own-height rule at level 1 —
+                    // unchanged for a single-storey build, where levels[1] ==
+                    // levels[count] anyway (rung 4, task 8).
+                    //
                     // A part shorter than the storey carries its roof at its own
                     // height, not the top of the house. It stays on level 0 (the
                     // level stack has no level at 2700) and is lifted by a base
                     // offset instead — building it AT level 0 would put a porch
                     // roof on the ground, which is what the part predicts against.
-                    var shortVol = vol.HeightFt > TOL && vol.HeightFt < f2f - TOL;
-                    var roofLevel = shortVol ? levels[0] : levels[count];
+                    var isPrimaryRoof = string.Equals(vol.Role, primaryRole,
+                                                      StringComparison.OrdinalIgnoreCase);
+                    var shortVol = !isPrimaryRoof && vol.HeightFt > TOL && vol.HeightFt < f2f - TOL;
+                    var roofLevel = isPrimaryRoof ? levels[count]
+                                    : (shortVol ? levels[0] : levels[1]);
                     var res = RoofBuilder.Build(doc, boundary, roofLevel, roofType,
                                                 roofKind == "flat" ? null : roofPitch,
                                                 null, roofKind,
@@ -966,48 +1093,25 @@ namespace BinaVibe.Mcp.Tools
                     TxGuard.StartSwallowing(txFin);
                     try
                     {
-                        // Repair rebuilds PARTS only. None of upper storeys,
-                        // separation lines or rooms is a part — there is no part
-                        // id PartLoop could mark ok/failed for them — so a repair
-                        // round must never redo this block: nothing here checks
-                        // for what already exists, and re-running it on the SAME
-                        // args a repair carries would mint a second copy of every
-                        // upper-storey wall, separation line and room on top of
-                        // the ones the original build already made.
+                        // Upper storeys are no longer built here — they arrive
+                        // as parts (`slab.l<k>`, `walls.<role>.l<k>`, rung 4
+                        // task 8) and are built, measured and owned inside
+                        // PartLoop above like every other part; the standalone
+                        // unmeasured loop that used to live here is deleted.
+                        // Separation lines and rooms are still NOT parts —
+                        // there is no part id PartLoop could mark ok/failed
+                        // for them — so a repair round must never redo this
+                        // block: nothing here checks for what already exists,
+                        // and re-running it on the SAME args a repair carries
+                        // would mint a second copy of every separation line
+                        // and room on top of the ones the original build
+                        // already made. Room tagging and separations also stay
+                        // GROUND-FLOOR ONLY this rung — an upper storey's rooms
+                        // are out of rung-4 scope; the wet-room stub
+                        // (`fixtures.<room>.l<k>`) is what keeps them from
+                        // reading as silently absent instead.
                         if (repairOf == null)
                         {
-                        // Parts describe the GROUND floor — every prediction the
-                        // backend ships is a ground-floor bbox. Upper storeys are
-                        // still built (a two-storey spec must not silently lose
-                        // one) but they are built here, unmeasured, rather than
-                        // inside a part whose prediction they would fail.
-                        for (int s = 1; s < count; s++)
-                        {
-                            var lvl = levels[s];
-                            foreach (var vol in vols)
-                            {
-                                if (vol.HeightFt > TOL && vol.HeightFt < f2f - TOL) continue;
-                                var slab = Floor.Create(doc,
-                                    new List<CurveLoop> { CurveLoopOf(vol.Outline, 0) },
-                                    slabType.Id, lvl.Id);
-                                Own("slab", slab.Id.Value);
-                                // Same backend-authored segments as the ground
-                                // floor, lifted to this level — an upper storey
-                                // re-derived from UnsharedEdges would not line up
-                                // with the walls the ground floor actually built.
-                                foreach (var (a, b, _) in ExteriorSegments(vol.Role, lvl.Elevation))
-                                {
-                                    if (a.DistanceTo(b) < 1e-6) continue;
-                                    var w = Wall.Create(doc, Line.CreateBound(a, b), extType.Id,
-                                                        lvl.Id, f2f, 0, false, false);
-                                    w.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)
-                                        ?.Set(levels[s + 1].Id);
-                                    Own(vol.Role == "main" ? "perimeter_wall" : $"{vol.Role}_wall",
-                                        w.Id.Value);
-                                }
-                            }
-                        }
-
                         // Open-plan edges get a ROOM SEPARATION LINE — no wall
                         // by design, but without a boundary Revit merges the
                         // open pair into one enclosure and both rooms lose
