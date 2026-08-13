@@ -393,12 +393,26 @@ namespace BinaVibe.Mcp.Tools
             if (partId == "doors") return "door";
             if (partId == "windows") return "window";
             if (partId.StartsWith("roof.", StringComparison.Ordinal)) return "roof";
-            // fixtures.* and unknown ids own nothing to clear. This also never
-            // sees a `.l<k>` id in practice — this bucket scheme predates
-            // owns_by_part (rung 4, task 8's per-level parts), and owns_by_part
-            // is always present on any spec new enough to carry multi-storey
-            // parts at all. Left unchanged rather than taught a shape it will
-            // never actually be asked to classify.
+            // fixtures.* and unknown ids own nothing to clear here — but a
+            // `.l<k>` id is NOT one of them (M4, final review 2026-08-13,
+            // correcting a stale claim this comment used to make): `slab.l2`
+            // matches the `slab.` branch above and returns "slab"; `walls.
+            // main.l2` matches the `walls.` branch and returns a meaningless
+            // "main.l2_wall". Both branches fire before this final `return
+            // null` is ever reached — a `.l<k>` id never actually falls
+            // through to here.
+            //
+            // That misclassification is harmless in practice, not because
+            // this function is never called on such an id, but because its
+            // ONLY caller (the legacy bare-role clear path above) checks
+            // owns_by_part FIRST and only falls back to RoleForPart when
+            // that lookup misses — and owns_by_part is always present on any
+            // spec new enough to carry multi-storey parts at all (this
+            // bucket scheme predates owns_by_part; rung 4's per-level parts
+            // could not exist before it). So the bogus bucket this returns
+            // for a `.l<k>` id is computed but never consulted. Left
+            // unchanged rather than taught a shape its caller will never
+            // actually need it to classify.
             return null;
         }
 
@@ -1132,13 +1146,31 @@ namespace BinaVibe.Mcp.Tools
                     // roof on the ground, which is what the part predicts against.
                     var isPrimaryRoof = string.Equals(vol.Role, primaryRole,
                                                       StringComparison.OrdinalIgnoreCase);
+                    // I2 (final review 2026-08-13): a SINGLE-STOREY primary
+                    // volume whose own height_mm is set below the storey
+                    // height is "short" exactly like a porch/garage would
+                    // be — its roof belongs at its own wall top, not at
+                    // levels[count]. For count==1, levels[count] ==
+                    // levels[1], the SAME elevation as f2f, which sits
+                    // above the volume's own (shorter) walls — the
+                    // isPrimaryRoof branch below used to send it there with
+                    // NO offset, opening a gap between wall top and roof
+                    // that the old, pre-rung-4 code (roof at the wall's own
+                    // top) never had. A multi-storey (count>=2) primary
+                    // volume is never "short" this way — `count` IS its top
+                    // occupied level regardless of its own height_mm, by
+                    // design (comment above) — so this only ever fires for
+                    // count==1.
+                    var shortPrimary = isPrimaryRoof && count == 1
+                                       && vol.HeightFt > TOL && vol.HeightFt < f2f - TOL;
                     var shortVol = !isPrimaryRoof && vol.HeightFt > TOL && vol.HeightFt < f2f - TOL;
-                    var roofLevel = isPrimaryRoof ? levels[count]
+                    var roofLevel = shortPrimary ? levels[0]
+                                    : isPrimaryRoof ? levels[count]
                                     : (shortVol ? levels[0] : levels[1]);
                     var res = RoofBuilder.Build(doc, boundary, roofLevel, roofType,
                                                 roofKind == "flat" ? null : roofPitch,
                                                 null, roofKind,
-                                                shortVol ? vol.HeightFt : 0);
+                                                (shortVol || shortPrimary) ? vol.HeightFt : 0);
                     if (!res.Ok)
                     {
                         SetScore(scorecard, kv.Key, "failed", expected.ToString(),
@@ -2761,50 +2793,77 @@ namespace BinaVibe.Mcp.Tools
                         if (doc.GetElement(ElemIds.From(id)) != null)
                         { toDelete.Add(ElemIds.From(id)); removed.Add(id); }
 
-            using var tx3 = new Transaction(doc, "BINA: update design");
-            TxGuard.StartSwallowing(tx3);
+            // Delete-then-rebuild must be ATOMIC (I1, final review
+            // 2026-08-13). This used to commit the delete as its OWN
+            // standalone transaction, then call BuildDesign — which opens
+            // its own TransactionGroup only around the REBUILD. An
+            // interrupt between the two (a thrown exception inside
+            // BuildDesign, observed live as the "floating box"/demolished-
+            // site incident on an add-storey) rolled the rebuild back but
+            // left the demolition committed: a permanently gone building
+            // with nothing rebuilt in its place. Revit TransactionGroups
+            // nest, so wrapping the delete AND the call to BuildDesign (which
+            // opens its own, nested, group) in ONE outer group here means an
+            // interrupt anywhere in the rebuild rolls the demolition back
+            // too — one Ctrl+Z, either the old house or the new one, never
+            // neither.
+            using var outerTg = new TransactionGroup(doc, "BINA: add storey (delete + rebuild)");
+            outerTg.Start();
             try
             {
-                if (toDelete.Count > 0) doc.Delete(toDelete);
-                TxGuard.CommitOrThrow(tx3);
+                using (var tx3 = new Transaction(doc, "BINA: update design"))
+                {
+                    TxGuard.StartSwallowing(tx3);
+                    try
+                    {
+                        if (toDelete.Count > 0) doc.Delete(toDelete);
+                        TxGuard.CommitOrThrow(tx3);
+                    }
+                    catch
+                    {
+                        if (tx3.GetStatus() == TransactionStatus.Started) tx3.RollBack();
+                        throw;
+                    }
+                }
+
+                // Rebuild from the merged spec MINUS the stale solved plan.
+                // BuildDesign opens its own (nested) TransactionGroup and
+                // writes the new spec + ownership map — so the strip above is
+                // also what finally clears the stale keys out of storage, on
+                // the one path that has replaced what they described.
+                var rebuilt = BuildDesign(doc, rebuildArgs, uidoc);
+                outerTg.Assimilate();      // one Ctrl+Z puts delete + rebuild back together
+                t0.Stop();
+                report["ok"] = true;
+                report["changed_fields"] = changed;
+                report["strategy"] = "replaced the whole spec-owned set and rebuilt "
+                                   + "(no cheaper strategy applies to this change)";
+                report["roles_rebuilt"] = targetRoles;
+                report["replaced_element_count"] = removed.Count;
+                report["note"] = removed.Count > 0
+                    ? $"{removed.Count} spec-owned element(s) were replaced. Anything the drafter "
+                    + "edited by hand in that set is gone — one Ctrl+Z restores it."
+                    : null;
+                report["created"] = rebuilt.TryGetValue("created", out var c) ? c : null;
+                report["scorecard"] = rebuilt.TryGetValue("scorecard", out var sc) ? sc : null;
+                if (droppedSolved.Count > 0)
+                {
+                    report["dropped_solved_fields"] = droppedSolved;
+                    report["warning"] = (report.TryGetValue("warning", out var prevW)
+                                         && prevW is string pw2 ? pw2 + " " : "")
+                        + $"the previously solved plan ({string.Join(", ", droppedSolved)}) described "
+                        + "the OLD spec, so it was dropped rather than rebuilt against a building that "
+                        + "changed. Re-run design_preflight and build_design to get a measured, "
+                        + "room-by-room plan back.";
+                }
+                report["elapsed_ms"] = t0.ElapsedMilliseconds;
+                report["digest"] = rebuilt.TryGetValue("digest", out var d) ? d : null;
             }
             catch
             {
-                if (tx3.GetStatus() == TransactionStatus.Started) tx3.RollBack();
+                if (outerTg.GetStatus() == TransactionStatus.Started) outerTg.RollBack();
                 throw;
             }
-
-            // Rebuild from the merged spec MINUS the stale solved plan.
-            // BuildDesign opens its own transaction and writes the new spec +
-            // ownership map — so the strip above is also what finally clears the
-            // stale keys out of storage, on the one path that has replaced what
-            // they described.
-            var rebuilt = BuildDesign(doc, rebuildArgs, uidoc);
-            t0.Stop();
-            report["ok"] = true;
-            report["changed_fields"] = changed;
-            report["strategy"] = "replaced the whole spec-owned set and rebuilt "
-                               + "(no cheaper strategy applies to this change)";
-            report["roles_rebuilt"] = targetRoles;
-            report["replaced_element_count"] = removed.Count;
-            report["note"] = removed.Count > 0
-                ? $"{removed.Count} spec-owned element(s) were replaced. Anything the drafter "
-                + "edited by hand in that set is gone — one Ctrl+Z restores it."
-                : null;
-            report["created"] = rebuilt.TryGetValue("created", out var c) ? c : null;
-            report["scorecard"] = rebuilt.TryGetValue("scorecard", out var sc) ? sc : null;
-            if (droppedSolved.Count > 0)
-            {
-                report["dropped_solved_fields"] = droppedSolved;
-                report["warning"] = (report.TryGetValue("warning", out var prevW)
-                                     && prevW is string pw2 ? pw2 + " " : "")
-                    + $"the previously solved plan ({string.Join(", ", droppedSolved)}) described "
-                    + "the OLD spec, so it was dropped rather than rebuilt against a building that "
-                    + "changed. Re-run design_preflight and build_design to get a measured, "
-                    + "room-by-room plan back.";
-            }
-            report["elapsed_ms"] = t0.ElapsedMilliseconds;
-            report["digest"] = rebuilt.TryGetValue("digest", out var d) ? d : null;
             return report;
         }
     }

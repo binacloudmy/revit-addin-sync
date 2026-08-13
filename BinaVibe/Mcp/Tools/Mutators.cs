@@ -2361,10 +2361,22 @@ namespace BinaVibe.Mcp.Tools
                     var risers = Math.Max(2, (int)Math.Ceiling(rise / Math.Max(maxRiser, 1e-6)));
                     var tread = stairsType.MinTreadDepth;
                     var runLen = Math.Max(tread, tread * (risers - 1));
-                    // 50mm slack — the same family as PartMeasure's default
-                    // tolerance — so a run that fits the rect to within a
-                    // rounding error is not refused over it.
-                    if (maxRunLenFt.HasValue && runLen > maxRunLenFt.Value + (50.0 / 304.8))
+                    // Slack widened from a flat 50mm to a landing's worth of
+                    // room (1000mm — the same `landing_mm` the backend's own
+                    // reserve sizing budgets on top of the flight itself,
+                    // multistorey_solver._required_run_mm) — final review
+                    // 2026-08-13, C1. The backend cannot know this PROJECT's
+                    // actual StairsType.MaxRiserHeight/MinTreadDepth (that is
+                    // exactly what `stairsType` above reads, at build time);
+                    // it sizes the reserved rect for a nominal-and-then-
+                    // worst-case riser/tread assumption instead. A real type
+                    // stricter than even that worst case eats into the
+                    // landing buffer the rect already carries for exactly
+                    // this kind of slack — a flat 50mm was tight enough to
+                    // refuse a run the reserve was in fact generous enough
+                    // for.
+                    const double landingSlackFt = 1000.0 / 304.8;
+                    if (maxRunLenFt.HasValue && runLen > maxRunLenFt.Value + landingSlackFt)
                         throw new InvalidOperationException(
                             $"a straight run for a {rise * 304.8:F0}mm rise needs "
                             + $"{runLen * 304.8:F0}mm, but the reserved rect only gives "
