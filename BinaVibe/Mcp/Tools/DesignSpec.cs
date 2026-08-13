@@ -609,6 +609,14 @@ namespace BinaVibe.Mcp.Tools
             // just written after the fact.
             var deferredRoofs = new Dictionary<string, (BuildVolume Vol, JsonElement Expected)>();
 
+            // `stairs.main` is deferred for the same reason: StairsEditScope
+            // owns its own transaction and cannot nest inside the one
+            // PartLoop.BuildAndMeasure wraps around BuildOnePart (verified
+            // against the 2023/2027 assemblies — a StairsEditScope.Start()
+            // inside an open Transaction throws). Built after the loop, in
+            // the same TransactionGroup, mirroring deferredRoofs above.
+            var deferredStairs = new Dictionary<string, JsonElement>();
+
             // The solved exterior segments belonging to one volume, AT ONE
             // LEVEL. `exterior_walls` concatenates every level (rung 4, task
             // 8): L1 ids are `ext.<role>.<i>` (unsuffixed, backward
@@ -888,10 +896,14 @@ namespace BinaVibe.Mcp.Tools
                         { Record(id, "fixture", fid); created.Add(fid); }
                     }
                 }
-                // `stairs.main` (Task 9) is deliberately left UNROUTED here —
-                // it falls through to the generic "unknown part id" failure
-                // below, which is the honest answer until Task 9 lands (same
-                // branch, immediately after this one).
+                else if (id == "stairs.main")
+                {
+                    // Deferred (see deferredStairs' own comment above) —
+                    // nothing built here, so this part's ROW from this pass
+                    // is a placeholder the deferred loop below overwrites via
+                    // SetScore, same as roof.* rows are.
+                    deferredStairs[id] = expected;
+                }
                 else
                 {
                     throw new ArgumentException(
@@ -1158,6 +1170,75 @@ namespace BinaVibe.Mcp.Tools
                         measured.Measured = (string.IsNullOrEmpty(measured.Measured)
                                                  ? "" : measured.Measured + " — ") + story;
                     SetScore(scorecard, kv.Key, measured.Status, measured.Predicted, measured.Measured);
+                }
+
+                // ── stairs, outside any open transaction (StairsEditScope
+                //    owns its own — see deferredStairs' own comment above) ──
+                foreach (var kv in deferredStairs)
+                {
+                    var stairPartId = kv.Key;
+                    var expected = kv.Value;
+                    // Honest failure (missing info, a level out of range, a
+                    // rect too small for the rise, the edit scope itself
+                    // refusing): never let this crash the rest of the build —
+                    // the row this writes IS the failed part, same contract
+                    // every other branch in this method upholds.
+                    try
+                    {
+                        if (!partsById.TryGetValue(stairPartId, out var partEl)
+                            || !partEl.TryGetProperty("info", out var info)
+                            || !info.TryGetProperty("rect_mm", out var rect))
+                            throw new InvalidOperationException(
+                                $"part '{stairPartId}', but the spec carries no stair "
+                                + "geometry (info.rect_mm) — the backend must ship the "
+                                + "reserved rect before this addin can build it");
+
+                        double RectNum(string k) => rect.TryGetProperty(k, out var v)
+                                                     && v.ValueKind == JsonValueKind.Number
+                            ? v.GetDouble()
+                            : throw new InvalidOperationException(
+                                $"part '{stairPartId}' rect_mm has no '{k}'");
+                        // info.rect_mm ships in the SITE frame, like every
+                        // other part's geometry (design_preflight._shift_stair,
+                        // rung 4 task 9 backend fix) — no shift needed here.
+                        var xFt = RectNum("x_mm") / FT;
+                        var yFt = RectNum("y_mm") / FT;
+                        var wFt = RectNum("w_mm") / FT;
+                        var hFt = RectNum("h_mm") / FT;
+                        if (wFt <= TOL || hFt <= TOL)
+                            throw new InvalidOperationException(
+                                $"part '{stairPartId}' rect_mm is degenerate — the "
+                                + "reserved rect has no area");
+
+                        int LevelNum(string k) => info.TryGetProperty(k, out var v)
+                                                   && v.ValueKind == JsonValueKind.Number
+                            ? v.GetInt32()
+                            : throw new InvalidOperationException(
+                                $"part '{stairPartId}' info has no '{k}'");
+                        var fromLevel = LevelNum("from_level");
+                        var toLevel = LevelNum("to_level");
+                        if (fromLevel < 1 || fromLevel > levels.Count
+                            || toLevel < 1 || toLevel > levels.Count)
+                            throw new InvalidOperationException(
+                                $"part '{stairPartId}' names levels {fromLevel}->{toLevel}, "
+                                + $"outside the {levels.Count} levels this build has");
+                        var stairBaseLevel = levels[fromLevel - 1];
+                        var stairTopLevel = levels[toLevel - 1];
+
+                        var built = Mutators.BuildStairsFromRect(
+                            doc, stairBaseLevel, stairTopLevel, xFt, yFt, wFt, hFt);
+
+                        Record(stairPartId, "stairs", built.StairsId);
+                        var measured = PartMeasure.Measure(doc, stairPartId, expected,
+                                                           new List<ElementId> { built.StairsId });
+                        SetScore(scorecard, stairPartId, measured.Status,
+                                 measured.Predicted, measured.Measured);
+                    }
+                    catch (Exception e)
+                    {
+                        SetScore(scorecard, stairPartId, "failed", expected.ToString(),
+                                 $"stairs could not be created: {e.Message}");
+                    }
                 }
 
                 // ── after the loop: storeys above ground, rooms, the spec ──

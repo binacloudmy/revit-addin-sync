@@ -2304,10 +2304,44 @@ namespace BinaVibe.Mcp.Tools
                 ?? throw new ArgumentException($"level '{n}' not found (use list_levels)");
             var baseLevel = Find(baseName);
             var topLevel = Find(topName);
+
+            var built = BuildStraightStairRun(doc, baseLevel, topLevel,
+                new XYZ(start.X, start.Y, 0), dirDeg * Math.PI / 180.0, widthFt);
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["new_ids"] = new List<long> { built.StairsId.Value },
+                ["run_id"] = built.RunId,
+                ["base_level"] = baseLevel.Name, ["top_level"] = topLevel.Name,
+                ["risers"] = built.Risers,
+                ["width_mm"] = Math.Round(widthFt * 304.8),
+            };
+        }
+
+        /// <summary>The StairsEditScope core shared by <see cref="CreateStairs"/>
+        /// and DesignSpec.cs's <c>stairs.main</c> part: open the scope, create
+        /// ONE straight run from <paramref name="start"/> along
+        /// <paramref name="dirRad"/>, commit. Neither caller may be inside an
+        /// open Transaction when this runs — StairsEditScope owns its own and
+        /// throws if nested inside one, which is exactly why `stairs.main`
+        /// (DesignSpec.cs) calls this OUTSIDE PartLoop's per-part transaction,
+        /// the same way roofs are built after the loop.
+        ///
+        /// <paramref name="maxRunLenFt"/>, when given, is the caller's own
+        /// budget for the run (e.g. the solver's reserved rectangle) — if the
+        /// stair type's riser/tread rule needs more than that to cover the
+        /// rise, this throws BEFORE any geometry is created rather than
+        /// silently clipping the run shorter than the rise it must
+        /// serve.</summary>
+        private static (ElementId StairsId, long RunId, int? Risers) BuildStraightStairRun(
+            Document doc, Level baseLevel, Level topLevel, XYZ start, double dirRad,
+            double widthFt, double? maxRunLenFt = null)
+        {
             var rise = topLevel.Elevation - baseLevel.Elevation;
             if (rise <= 1e-9)
                 throw new InvalidOperationException(
-                    $"top_level '{topName}' is not above base_level '{baseName}'");
+                    $"top level '{topLevel.Name}' is not above base level '{baseLevel.Name}'");
 
             var scope = new StairsEditScope(doc, "BinaVibe: create_stairs");
             var stairsId = scope.Start(baseLevel.Id, topLevel.Id);
@@ -2327,11 +2361,19 @@ namespace BinaVibe.Mcp.Tools
                     var risers = Math.Max(2, (int)Math.Ceiling(rise / Math.Max(maxRiser, 1e-6)));
                     var tread = stairsType.MinTreadDepth;
                     var runLen = Math.Max(tread, tread * (risers - 1));
+                    // 50mm slack — the same family as PartMeasure's default
+                    // tolerance — so a run that fits the rect to within a
+                    // rounding error is not refused over it.
+                    if (maxRunLenFt.HasValue && runLen > maxRunLenFt.Value + (50.0 / 304.8))
+                        throw new InvalidOperationException(
+                            $"a straight run for a {rise * 304.8:F0}mm rise needs "
+                            + $"{runLen * 304.8:F0}mm, but the reserved rect only gives "
+                            + $"{maxRunLenFt.Value * 304.8:F0}mm along its long axis — "
+                            + "rect too small for a run of this rise");
 
-                    var rad = dirDeg * Math.PI / 180.0;
                     var p1 = new XYZ(start.X, start.Y, baseLevel.Elevation);
-                    var p2 = new XYZ(start.X + runLen * Math.Cos(rad),
-                                     start.Y + runLen * Math.Sin(rad),
+                    var p2 = new XYZ(start.X + runLen * Math.Cos(dirRad),
+                                     start.Y + runLen * Math.Sin(dirRad),
                                      baseLevel.Elevation);
                     var run = StairsRun.CreateStraightRun(
                         doc, stairsId, Line.CreateBound(p1, p2), StairsRunJustification.Center);
@@ -2341,21 +2383,38 @@ namespace BinaVibe.Mcp.Tools
                 }
                 scope.Commit(new SwallowWarnings());
                 var made = doc.GetElement(stairsId) as Stairs;
-                return new Dictionary<string, object?>
-                {
-                    ["ok"] = true,
-                    ["new_ids"] = new List<long> { stairsId.Value },
-                    ["run_id"] = runId,
-                    ["base_level"] = baseLevel.Name, ["top_level"] = topLevel.Name,
-                    ["risers"] = made?.ActualRisersNumber,
-                    ["width_mm"] = Math.Round(widthFt * 304.8),
-                };
+                return (stairsId, runId, made?.ActualRisersNumber);
             }
             catch
             {
                 if (scope.IsActive) scope.Cancel();
                 throw;
             }
+        }
+
+        /// <summary>Entry point for DesignSpec.cs's deferred <c>stairs.main</c>
+        /// build — same access level as the rest of Mutators' internals
+        /// (DesignSpec is a sibling class in this namespace, not a caller
+        /// outside it), kept separate from <see cref="BuildStraightStairRun"/>
+        /// so the tolerance/level-name plumbing stays in one place while the
+        /// two callers keep their own argument shapes (location+direction for
+        /// the tool, a rect for the part).</summary>
+        internal static (ElementId StairsId, long RunId, int? Risers) BuildStairsFromRect(
+            Document doc, Level baseLevel, Level topLevel,
+            double xFt, double yFt, double wFt, double hFt)
+        {
+            // The run travels the rect's LONG axis, centred on the short one —
+            // the solver reserved this rectangle for exactly one straight run
+            // (rung 4, task 2); a stair wider than it is long would not fit
+            // the space it was given.
+            var longIsX = wFt >= hFt;
+            var longFt = longIsX ? wFt : hFt;
+            var shortFt = longIsX ? hFt : wFt;
+            var start = longIsX
+                ? new XYZ(xFt, yFt + shortFt / 2, 0)
+                : new XYZ(xFt + shortFt / 2, yFt, 0);
+            var dirRad = longIsX ? 0.0 : Math.PI / 2.0;
+            return BuildStraightStairRun(doc, baseLevel, topLevel, start, dirRad, shortFt, longFt);
         }
 
         // ─── capture_view_image ─────────────────────────────────────────
