@@ -1612,19 +1612,31 @@ namespace BinaVibe.Mcp.Tools
                     "shower" => new[] { "Shower", "Pancuran", "_SWR_" },
                     _ => Array.Empty<string>(),
                 };
+                // SUBSTRING match, not FindSymbol's exact-equality: real fleet
+                // families carry the whole JKR code in the family name
+                // ("jkrAR18_plb-fx_LSw_TDS_tk01_(LSw952)-3 Tandas Duduk"), so
+                // an exact hint like "Tandas Duduk" can never equal it — the
+                // 2026-08-13 live loop shipped "no wc family loaded" with the
+                // family sitting right there in the document.
+                var candidates = new FilteredElementCollector(doc)
+                    .WhereElementIsElementType()
+                    .OfCategory(BuiltInCategory.OST_PlumbingFixtures)
+                    .Cast<FamilySymbol>().ToList();
+                if (candidates.Count == 0)
+                    throw new InvalidOperationException(
+                        $"no {(string.IsNullOrEmpty(kind) ? "fixture" : kind)} family loaded — load a plumbing fixture family first");
                 FamilySymbol? sym = null;
                 foreach (var hint in hints)
                 {
-                    // FindSymbol throws when the category is non-empty but this
-                    // particular hint doesn't match — that's just "try the next
-                    // hint" here, not a failure; only exhausting every hint is.
-                    try { sym = FindSymbol(doc, BuiltInCategory.OST_PlumbingFixtures, hint); }
-                    catch (ArgumentException) { sym = null; }
+                    sym = candidates.FirstOrDefault(s =>
+                        (s.FamilyName ?? "").IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0
+                        || (s.Name ?? "").IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0);
                     if (sym != null) break;
                 }
                 if (sym == null)
                     throw new InvalidOperationException(
-                        $"no {(string.IsNullOrEmpty(kind) ? "fixture" : kind)} family loaded — load a plumbing fixture family first");
+                        $"no plumbing fixture family matches '{(string.IsNullOrEmpty(kind) ? "fixture" : kind)}' — loaded: "
+                        + string.Join(", ", candidates.Take(6).Select(s => $"{s.FamilyName} : {s.Name}")));
                 // Activate HERE, inside this part's own transaction — same
                 // rollback hazard PlaceDoors guards against: a batched
                 // txPrep activation can be undone by an intermediate
