@@ -22,6 +22,8 @@ namespace RevitWebAppSync
 
         // JKR rename handler
         public static ExternalEvent JkrRenameEvent { get; private set; }
+        public static RevitWebAppSync.Services.BombaPickWriteHandler BombaPickHandler { get; private set; }
+        public static ExternalEvent BombaPickEvent { get; private set; }
         public static JkrRenameHandler JkrRenameHandler { get; private set; }
 
         // Cost Dashboard dockable pane host
@@ -249,6 +251,9 @@ namespace RevitWebAppSync
 
                 JkrRenameHandler = new JkrRenameHandler();
                 JkrRenameEvent = ExternalEvent.Create(JkrRenameHandler);
+
+                BombaPickHandler = new RevitWebAppSync.Services.BombaPickWriteHandler();
+                BombaPickEvent = ExternalEvent.Create(BombaPickHandler);
 
                 // Tool-calling execution handler — ALWAYS created (independent of
                 // the gated tunnel/MCP transport). The HTTP tool-loop (ToolLoopRunner)

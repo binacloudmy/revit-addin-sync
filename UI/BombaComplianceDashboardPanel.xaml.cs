@@ -107,6 +107,19 @@ namespace RevitWebAppSync.UI
                     : "no placed rooms";
 
                 var key = DocKey; string label; string tag;
+                // Extensible Storage first: a pick stored in the model outlives
+                // Revit sessions and syncs with the .rvt. Seed the session
+                // dictionaries from it so every later lookup agrees.
+                if (key != null && !_labelByDoc.ContainsKey(key))
+                {
+                    var stored = BombaPickStore.Read(doc);
+                    if (stored != null)
+                    {
+                        _pathByDoc[key] = stored.Path;
+                        _labelByDoc[key] = stored.Label ?? stored.Path;
+                        _tagByDoc[key] = string.IsNullOrEmpty(stored.Tag) ? "your pick" : stored.Tag;
+                    }
+                }
                 if (key != null && _labelByDoc.TryGetValue(key, out label))
                 {
                     _vm.BuildingType = label;
@@ -269,6 +282,7 @@ namespace RevitWebAppSync.UI
             _vm.PgTag = "your pick";
             _vm.PgEvidence = "";
             _vm.PgOpen = false;
+            PersistPick(opt.Path, opt.Label, "your pick");
             _pgOptionsLoaded = false; // rebuild ✓ marks next open
             e.Handled = true;
         }
@@ -592,6 +606,7 @@ namespace RevitWebAppSync.UI
                     }
                     _vm.BuildingType = label;
                     _vm.PgTag = "auto";
+                    PersistPick(path, label, "auto");
                     await RunScanAsync(path);
                     return;
                 }
@@ -765,6 +780,25 @@ namespace RevitWebAppSync.UI
             }
         }
 
+        /// Queue the pick into the model via the ExternalEvent (writes need
+        /// API context). Auto must never overwrite a human's assertion: if the
+        /// stored tag is "your pick" and this write is "auto", skip it.
+        private void PersistPick(string path, string label, string tag)
+        {
+            try
+            {
+                if (tag == "auto")
+                {
+                    var stored = BombaPickStore.Read(LiveDoc);
+                    if (stored != null && stored.Tag == "your pick") return;
+                }
+                if (App.BombaPickHandler == null || App.BombaPickEvent == null) return;
+                App.BombaPickHandler.Pending = new BombaPickStore.Pick { Path = path, Label = label, Tag = tag };
+                App.BombaPickEvent.Raise();
+            }
+            catch { /* persistence is best-effort; the session dictionaries still hold the pick */ }
+        }
+
         private static BombaCheckRequestDto BuildRequest(BombaModelFacts facts, string schedulePath)
         {
             var request = new BombaCheckRequestDto();
@@ -774,6 +808,9 @@ namespace RevitWebAppSync.UI
             request.SchedulePath = schedulePath;
             request.Facts.FloorAreaM2 = facts.FloorAreaM2;
             request.Facts.HeightMm = facts.HeightMm;
+            request.Facts.Storeys = facts.Storeys;
+            // Rooms (hotel bands: bilik per block) deliberately unsent — the
+            // guest-room count is not generically measurable; null means ASK.
             // Phase 1: host model only, no fire-system counting. The backend
             // answers NOT CHECKED for M&E-resident systems — honest, never a
             // false "missing".

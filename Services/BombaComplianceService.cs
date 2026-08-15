@@ -178,6 +178,8 @@ namespace RevitWebAppSync.Services
     {
         [JsonProperty("floor_area_m2")] public double? FloorAreaM2 { get; set; }
         [JsonProperty("height_mm")] public double? HeightMm { get; set; }
+        [JsonProperty("storeys")] public int? Storeys { get; set; }
+        [JsonProperty("rooms")] public int? Rooms { get; set; }
     }
 
     public class BombaCheckRequestDto

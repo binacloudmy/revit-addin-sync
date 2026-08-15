@@ -18,6 +18,9 @@ namespace RevitWebAppSync.Services
         public double? FloorAreaM2 { get; set; }
         public double? HeightMm { get; set; }
         public int RoomCount { get; set; }
+        /// Count of levels that own placed rooms — the storey count the
+        /// schedule's "tingkat" bands key on. Null when no rooms are placed.
+        public int? Storeys { get; set; }
         public List<string> SearchedModels { get; set; }
 
         public BombaModelFacts() { SearchedModels = new List<string>(); }
@@ -83,7 +86,12 @@ namespace RevitWebAppSync.Services
             }
             facts.RoomCount = roomCount;
             if (roomCount > 0)
+            {
                 facts.FloorAreaM2 = Math.Round(perLevelSqFt.Values.Max() * SqFtToSqM, 1);
+                // Storeys = levels owning placed rooms. A roof or plant level
+                // with no rooms is not a storey the schedule counts.
+                facts.Storeys = perLevelSqFt.Count;
+            }
 
             // Building height: top level minus bottom level. Two levels
             // minimum — a single-level model cannot state a height.
@@ -117,7 +125,7 @@ namespace RevitWebAppSync.Services
         private static readonly Dictionary<string, string[]> PgLexicon = new Dictionary<string, string[]>
         {
             { "office",      new[] { "pejabat", "office", "bilik mesyuarat", "meeting", "workstation" } },
-            { "assembly",    new[] { "surau", "dewan", "hall", "auditorium", "masjid", "bilik darjah", "class", "makmal", "lab" } },
+            { "assembly",    new[] { "surau", "dewan", "hall", "auditorium", "masjid", "ruang legar", "anjung", "pentas", "bilik persalinan", "bilik darjah", "class", "makmal", "lab" } },
             { "shop",        new[] { "kedai", "shop", "retail", "kiosk", "gerai" } },
             { "hospital",    new[] { "wad", "ward", "klinik", "clinic", "rawatan", "treatment", "farmasi" } },
             { "school",      new[] { "bilik darjah", "classroom", "kelas", "sekolah" } },
@@ -197,7 +205,9 @@ namespace RevitWebAppSync.Services
                 var low = name.ToLowerInvariant();
                 if (!(low.Contains("mep") || low.Contains("m&e") || low.Contains("mne")
                       || low.Contains("mech") || low.Contains("elect") || low.Contains("fire")
-                      || low.Contains("bomba")))
+                      || low.Contains("bomba")
+                      // JKR discipline file prefixes: jkrME24_…, jkrEL24_…
+                      || low.StartsWith("jkrme") || low.StartsWith("jkrel")))
                     continue;
                 // Link display names carry " : location" suffixes — trim to the file part.
                 var cut = name.IndexOf(':');
