@@ -110,6 +110,20 @@ namespace RevitWebAppSync.Services
         public int? FromVersion { get; set; }
     }
 
+    /// <summary>The design an open document turned out to be (GET design/resolve).</summary>
+    public class ResolvedDesign
+    {
+        public int DesignId { get; set; }
+        public int ProjectId { get; set; }
+        /// <summary>BINA folder — the thing the document itself gives no clue about.</summary>
+        public int? ParentId { get; set; }
+        public string Name { get; set; }
+        public int? VersionNumber { get; set; }
+        public string DesignStatus { get; set; }
+        public string DisciplineType { get; set; }
+        public string LineageId { get; set; }
+    }
+
     /// <summary>Response of GET design/:id/element-parameters.</summary>
     public class ElementParametersResponse
     {

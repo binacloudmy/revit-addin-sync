@@ -70,13 +70,13 @@ namespace RevitWebAppSync
                     http: null,
                     refreshToken: () => BinaCloudSession.RefreshAsync(config)))
                 {
-                    SyncHead head = ResolveModel(api, commandData, config, fileName, lineageId);
-                    if (head == null) return Result.Cancelled;
+                    ResolvedDesign model = ResolveModel(api, commandData, config, fileName, lineageId);
+                    if (model == null) return Result.Cancelled;
 
                     ElementParametersResponse pull;
                     try
                     {
-                        pull = Task.Run(() => api.GetElementParametersAsync(head.DesignId)).Result;
+                        pull = Task.Run(() => api.GetElementParametersAsync(model.DesignId)).Result;
                     }
                     catch (AggregateException aex)
                     {
@@ -87,12 +87,12 @@ namespace RevitWebAppSync
                     if (pull.Parameters.Count == 0)
                     {
                         TaskDialog.Show("Nothing to write",
-                            $"BINA holds no element parameters for \"{head.Name}\" (v{head.Version}).\n\n" +
+                            $"BINA holds no element parameters for \"{model.Name}\" (v{model.VersionNumber}).\n\n" +
                             "Parameters added to elements in the BINA viewer will appear here.");
                         return Result.Succeeded;
                     }
 
-                    if (!Confirm(pull, head)) return Result.Cancelled;
+                    if (!Confirm(pull, model)) return Result.Cancelled;
 
                     var writer = new ParameterWriter(doc);
                     ParameterWriter.Report report;
@@ -103,7 +103,7 @@ namespace RevitWebAppSync
                         t.Commit();
                     }
 
-                    ShowSummary(report, pull, head);
+                    ShowSummary(report, pull, model);
                     return Result.Succeeded;
                 }
             }
@@ -118,13 +118,14 @@ namespace RevitWebAppSync
         /// <summary>
         /// Which BINA model this document is.
         ///
-        /// A model that has been synced from Revit carries its identity in
-        /// ExtensibleStorage and resolves silently. One uploaded through the web
-        /// does not, and BINA identifies a file by project + folder + name — so
-        /// that is what the fallback asks for. Returns null when the user backs
-        /// out or the model is not in BINA at all.
+        /// A model synced from Revit carries a lineage GUID in ExtensibleStorage,
+        /// and that alone identifies it — no folder, no project, no questions.
+        /// One uploaded through the web carries nothing, and BINA identifies a
+        /// file by project + folder + name, so the fallback has to ask for the
+        /// folder before the file name means anything. Returns null when the
+        /// user backs out or the model is not in BINA at all.
         /// </summary>
-        private static SyncHead ResolveModel(
+        private static ResolvedDesign ResolveModel(
             SyncApiClient api,
             ExternalCommandData commandData,
             BinaConfig config,
@@ -133,8 +134,8 @@ namespace RevitWebAppSync
         {
             if (!string.IsNullOrEmpty(lineageId))
             {
-                var head = Task.Run(() => api.GetHeadAsync(config.ProjectId, lineageId, fileName, null)).Result;
-                if (head != null) return head;
+                var stamped = Task.Run(() => api.ResolveDesignAsync(lineageId)).Result;
+                if (stamped != null) return stamped;
             }
 
             var picker = new ParameterSourceWindow(
@@ -147,19 +148,30 @@ namespace RevitWebAppSync
 
             if (picker.ShowDialog() != true) return null;
 
-            var resolved = Task.Run(() => api.GetHeadAsync(
+            // Named folder, so the head lookup can do its job: it is keyed on
+            // project + folder + file name.
+            var head = Task.Run(() => api.GetHeadAsync(
                 picker.SelectedProjectId, lineageId, fileName, picker.SelectedFolderId)).Result;
 
-            if (resolved == null)
+            if (head == null)
             {
                 TaskDialog.Show("Model not found in BINA",
                     $"BINA has no file called \"{fileName}\" in that folder.\n\n" +
                     "Check the folder, or sync this model to BINA first.");
+                return null;
             }
-            return resolved;
+
+            return new ResolvedDesign
+            {
+                DesignId = head.DesignId,
+                ProjectId = picker.SelectedProjectId,
+                ParentId = picker.SelectedFolderId,
+                Name = head.Name,
+                VersionNumber = head.Version
+            };
         }
 
-        private static bool Confirm(ElementParametersResponse pull, SyncHead head)
+        private static bool Confirm(ElementParametersResponse pull, ResolvedDesign model)
         {
             int elementCount = pull.Parameters
                 .Select(p => p.ElementExternalId)
@@ -172,7 +184,7 @@ namespace RevitWebAppSync
                     $"{pull.Parameters.Count} parameter{(pull.Parameters.Count == 1 ? "" : "s")} " +
                     $"across {elementCount} element{(elementCount == 1 ? "" : "s")}",
                 MainContent =
-                    $"From \"{head.Name}\" (v{head.Version}) in BINA.\n\n" +
+                    $"From \"{model.Name}\" (v{model.VersionNumber}) in BINA.\n\n" +
                     "Values are written onto the elements in this model. Parameters BINA " +
                     "added that Revit does not have yet are created as shared parameters. " +
                     "Save the model afterwards to keep them." +
@@ -189,7 +201,7 @@ namespace RevitWebAppSync
         private static void ShowSummary(
             ParameterWriter.Report report,
             ElementParametersResponse pull,
-            SyncHead head)
+            ResolvedDesign model)
         {
             var dialog = new TaskDialog("Parameters written")
             {
@@ -199,7 +211,7 @@ namespace RevitWebAppSync
                       $"onto {report.ElementsTouched} element{(report.ElementsTouched == 1 ? "" : "s")}",
                 MainContent = report.Applied > 0
                     ? "Save the model to keep them."
-                    : $"Nothing from \"{head.Name}\" (v{head.Version}) reached the model."
+                    : $"Nothing from \"{model.Name}\" (v{model.VersionNumber}) reached the model."
             };
 
             var detail = new System.Text.StringBuilder();
