@@ -294,6 +294,7 @@ namespace RevitWebAppSync.Services
             var turnWatch = System.Diagnostics.Stopwatch.StartNew();
             bool approvedOnce = firstBatchApproved;
             int round = 0;
+            int consecutiveTimeoutRounds = 0;
             int inspectRounds = 0;
 
             while (true)
@@ -461,6 +462,14 @@ namespace RevitWebAppSync.Services
                 // the SAME trail: a ▶ row on start (keyed by tool_call_id, which
                 // matches the step_id the backend already streamed, so it reuses
                 // that row rather than adding a duplicate) and ✓/✗ on finish.
+                // Revit-unresponsive loop-breaker (UAT 2026-08-18, "tambah 1
+                // lagi level"): every job timed out ("Revit busy") and the
+                // model honestly retried READS for 4 minutes — ~20 model
+                // round-trips against a starved Revit (post-build regen /
+                // modal dialog). Two consecutive all-timeout rounds = Revit
+                // is not coming back this turn; stop deterministically.
+                // (state lives on the outcome loop via local below)
+
                 // Turn receipt (spec 2026-08-18): arm the DocumentChanged
                 // recorder for mutate batches; a click-approved batch also
                 // gets a PRE screenshot (confirm-gated — never the hot path).
@@ -497,6 +506,22 @@ namespace RevitWebAppSync.Services
                     try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* best-effort UI */ }
                     try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
                     results.Add(res);
+                }
+
+                bool allTimedOut = results.Count > 0;
+                foreach (var r in results)
+                    if (r.Ok || r.Error == null || !r.Error.Contains("did not finish"))
+                    { allTimedOut = false; break; }
+                if (allTimedOut) consecutiveTimeoutRounds++; else consecutiveTimeoutRounds = 0;
+                if (consecutiveTimeoutRounds >= 2)
+                {
+                    return new ToolLoopOutcome
+                    {
+                        Success = false,
+                        Error = "Revit tidak memberi respons kepada mana-mana arahan (sibuk, sedang regen selepas binaan besar, atau ada dialog terbuka). Tutup sebarang dialog / tunggu beberapa saat, kemudian hantar semula permintaan.",
+                        Reply = narration.ToString(),
+                        Steps = new List<ProgressStep>(trail),
+                    };
                 }
 
                 // Turn-receipt epilogue: build the receipt from tx ground
@@ -617,7 +642,7 @@ namespace RevitWebAppSync.Services
                 return new ToolResultDto
                 {
                     ToolCallId = call.ToolCallId, Ok = false,
-                    Error = $"Revit did not finish {call.Tool} within {JobMaxWait.TotalSeconds:F0}s — it may be busy or have a dialog open.",
+                    Error = $"Revit did not finish {call.Tool} within {JobMaxWait.TotalSeconds:F0}s — it may be busy (regenerating after a big build) or have a dialog open. Do NOT retry other tools — report this to the drafter and ask them to close any dialog / wait, then resend.",
                 };
             }
 
