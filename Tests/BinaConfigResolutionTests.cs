@@ -103,5 +103,25 @@ namespace Tests
             Assert.Equal(web, UrlResolution.ResolveLoginWeb(StaleStaging, web));
             Assert.Equal(CustomHost, UrlResolution.ResolveLoginWeb(CustomHost, web));
         }
+
+        [Fact]
+        public void BombaBase_EngineMode_StaysOnLocalEngine_EvenWithStaleNgrokGateway()
+        {
+            // The 2026-08-17 dewan UAT case: GatewayUrl pinned to a dead ngrok
+            // tunnel, AIBaseUrl on the local engine. Bomba must go to the box.
+            var gw = UrlResolution.ResolveGateway("https://6d9e82978eba.ngrok-free.app", Prod);
+            var ai = UrlResolution.ResolveAIBase(LocalEngine, false, Prod);
+            var cloud = UrlResolution.ResolveCloudBase(gw, ai, Prod);
+            Assert.Equal(LocalEngine, UrlResolution.ResolveBombaBase(ai, cloud));
+        }
+
+        [Fact]
+        public void BombaBase_CloudOnlySeat_FollowsCloudBase()
+        {
+            var ai = UrlResolution.ResolveAIBase(null, false, Prod);
+            var cloud = UrlResolution.ResolveCloudBase(null, ai, Prod);
+            Assert.Equal(Prod, UrlResolution.ResolveBombaBase(ai, cloud));
+        }
+
     }
 }

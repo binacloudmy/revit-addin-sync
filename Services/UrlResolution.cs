@@ -85,6 +85,16 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>
+        /// Bomba compliance base: the colocated engine serves the bomba
+        /// routes itself (rules are a repo JSON — bina-ai c2d8b7e), so in
+        /// engine mode the check must stay on the local box instead of
+        /// following gateway/cloud pins (a stale ngrok GatewayUrl otherwise
+        /// wins CloudBase and every scan dies with ERR_NGROK_3200).
+        /// </summary>
+        public static string ResolveBombaBase(string resolvedAiBase, string resolvedCloudBase) =>
+            IsLoopback(resolvedAiBase) ? resolvedAiBase : resolvedCloudBase;
+
+        /// <summary>
         /// API base: loopback dev leftovers resolve to a dead local port on
         /// user machines (silently breaking login + credit allocation).
         /// </summary>

@@ -32,10 +32,10 @@ namespace RevitWebAppSync.Services
 
         public BombaComplianceService(string baseUrl = null)
         {
-            // Cloud base, NOT ResolvedAIBaseUrl: in engine mode the latter is
-            // the local engine, which mounts no /v1/compliance routes
-            // (JkrComplianceService learned this in colocate UAT 2026-07-13).
-            _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedCloudBaseUrl;
+            // Engine-aware base: the colocated engine serves bomba itself
+            // (bina-ai c2d8b7e), so engine mode stays on-box; everyone else
+            // gets the cloud base. JKR compliance still needs cloud (pgvector).
+            _baseUrl = baseUrl ?? BinaConfig.Load().ResolvedBombaBaseUrl;
             // 60 s like ComplianceService: the bomba scan is deterministic
             // table lookups, not a 180 s AI pipeline.
             _httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
