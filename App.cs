@@ -702,6 +702,21 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
             };
 
+            // Parameters entered in the BINA viewer live in BINA's database, not
+            // in the .rvt — so a downloaded model opens without them. This writes
+            // them back onto the elements (ClickUp 86d3y5jxx).
+            PushButtonData syncParametersButtonData = new PushButtonData(
+                "SyncParameters",
+                "Sync\nParameters",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.SyncParametersCommand")
+            {
+                ToolTip = "Write BINA element parameters into this model",
+                LongDescription = "Pulls the parameters added to elements in BINA Cloud and writes them onto the matching elements here, creating shared parameters where the model does not have them yet.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
+            };
+
             PushButtonData federateButtonData = new PushButtonData(
                 "FederateDisciplines",
                 "Federate Disciplines",
@@ -804,6 +819,7 @@ namespace RevitWebAppSync
             cdePanel.AddItem(cloudLoginButtonData);
             cdePanel.AddItem(buttonData);
             cdePanel.AddItem(bimDisciplineButtonData);
+            cdePanel.AddItem(syncParametersButtonData);
 
             // BINA AI: the bina-ai sign-in, then the copilot it unlocks.
             aiPanel.AddItem(loginButtonData);

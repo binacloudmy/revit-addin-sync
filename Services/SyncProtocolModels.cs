@@ -89,6 +89,41 @@ namespace RevitWebAppSync.Services
         }
     }
 
+    /// <summary>
+    /// One Bina parameter to write onto an element (ClickUp 86d3y5jxx).
+    ///
+    /// `ElementExternalId` is the Revit UniqueId — BINA stores it rather than
+    /// the viewer's dbId precisely so that it resolves here, through
+    /// `doc.GetElement(uniqueId)`.
+    /// </summary>
+    public class BinaElementParameter
+    {
+        public string ElementExternalId { get; set; }
+        public string ParameterName { get; set; }
+        /// <summary>Text | Number | YesNo | Date — how BINA typed the value.</summary>
+        public string ParameterType { get; set; }
+        /// <summary>Always a string on the wire; coerced to the Revit storage type on write.</summary>
+        public string Value { get; set; }
+        /// <summary>Add = a new Bina parameter; Override = a value placed over an existing one.</summary>
+        public string Source { get; set; }
+        /// <summary>Version the value was entered on — shown in the summary, not used for matching.</summary>
+        public int? FromVersion { get; set; }
+    }
+
+    /// <summary>Response of GET design/:id/element-parameters.</summary>
+    public class ElementParametersResponse
+    {
+        public int DesignId { get; set; }
+        public string LineageId { get; set; }
+        public int? VersionNumber { get; set; }
+        /// <summary>lineage (whole version chain, the default) | design (this version only).</summary>
+        public string Scope { get; set; }
+        public int Count { get; set; }
+        /// <summary>True when the server clipped the set at its ceiling.</summary>
+        public bool Truncated { get; set; }
+        public List<BinaElementParameter> Parameters { get; set; }
+    }
+
     /// <summary>Revit build + add-in version + worksharing state, stored on the version.</summary>
     public class SyncClientInfo
     {

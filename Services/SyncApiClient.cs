@@ -142,6 +142,35 @@ namespace RevitWebAppSync.Services
             }
         }
 
+        /// <summary>
+        /// Bina parameters to write into this model (ClickUp 86d3y5jxx).
+        ///
+        /// The default scope reads the whole version chain and keeps the newest
+        /// write per (element, parameter): values are stored against a single
+        /// version, so a model synced since they were entered would otherwise
+        /// come back empty.
+        /// </summary>
+        public async Task<ElementParametersResponse> GetElementParametersAsync(
+            int designId,
+            string scope = "lineage")
+        {
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/design/{designId}" +
+                         $"/element-parameters?scope={Uri.EscapeDataString(scope)}";
+
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException(
+                        $"Could not load parameters (HTTP {(int)resp.StatusCode}): {body}");
+
+                var parsed = JsonConvert.DeserializeObject<ElementParametersResponse>(body)
+                             ?? new ElementParametersResponse();
+                if (parsed.Parameters == null) parsed.Parameters = new List<BinaElementParameter>();
+                return parsed;
+            }
+        }
+
         public Task<SyncInitResponse> InitAsync(SyncInitRequest request) =>
             PostAsync<SyncInitResponse>("sync/init", request);
 
