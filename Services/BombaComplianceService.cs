@@ -183,6 +183,45 @@ namespace RevitWebAppSync.Services
         // Highest level OWNING placed rooms above the lowest level (rising
         // mains §B.2). Null = no placed rooms — unmeasured, never 0.
         [JsonProperty("topmost_occupied_mm")] public double? TopmostOccupiedMm { get; set; }
+        // §B.4–B.8 building facts. Empty = not measured, never zero.
+        [JsonProperty("storeys_detail")] public List<BombaStoreyDto> StoreysDetail { get; set; } = new List<BombaStoreyDto>();
+        [JsonProperty("stairs")] public List<BombaStairDto> Stairs { get; set; } = new List<BombaStairDto>();
+        [JsonProperty("exit_doors")] public List<BombaExitDoorDto> ExitDoors { get; set; } = new List<BombaExitDoorDto>();
+        [JsonProperty("room_exits")] public List<BombaRoomExitDto> RoomExits { get; set; } = new List<BombaRoomExitDto>();
+        [JsonProperty("fire_ratings")] public List<BombaFireRatingDto> FireRatings { get; set; } = new List<BombaFireRatingDto>();
+        [JsonProperty("perimeter_mm")] public double? PerimeterMm { get; set; }
+    }
+
+    public class BombaStoreyDto
+    {
+        [JsonProperty("name")] public string Name { get; set; } = "";
+        [JsonProperty("area_m2")] public double? AreaM2 { get; set; }
+        [JsonProperty("volume_m3")] public double? VolumeM3 { get; set; }
+    }
+
+    public class BombaStairDto
+    {
+        [JsonProperty("level_name")] public string LevelName { get; set; } = "";
+        [JsonProperty("width_mm")] public double? WidthMm { get; set; }
+    }
+
+    public class BombaExitDoorDto
+    {
+        [JsonProperty("width_mm")] public double? WidthMm { get; set; }
+    }
+
+    public class BombaRoomExitDto
+    {
+        [JsonProperty("room")] public string Room { get; set; } = "";
+        [JsonProperty("direct_mm")] public double? DirectMm { get; set; }
+    }
+
+    public class BombaFireRatingDto
+    {
+        [JsonProperty("element_class")] public string ElementClass { get; set; } = "";
+        [JsonProperty("type_name")] public string TypeName { get; set; } = "";
+        [JsonProperty("rating_text")] public string RatingText { get; set; } = "";
+        [JsonProperty("count")] public int Count { get; set; }
     }
 
     public class BombaCheckRequestDto

@@ -323,25 +323,25 @@
                                 </StackPanel>
                             </DockPanel>
                         </Border>
-                        <Border Padding="16,12" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1" Opacity=".45">
+                        <Border Padding="16,12" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1">
                             <DockPanel>
                                 <Border Width="34" Height="34" CornerRadius="10" Background="#24FF7A7A" DockPanel.Dock="Left">
                                     <TextBlock Text="🚪" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <StackPanel Margin="12,0,0,0">
                                     <TextBlock Text="Exit widths" FontSize="14" Foreground="#1A1C20" FontWeight="SemiBold"/>
-                                    <TextBlock Text="arrives with the next update" FontSize="12" Foreground="#6B7078"/>
+                                    <TextBlock Text="occupant load → stair &amp; door widths — By-laws 168/175/181" FontSize="12" Foreground="#6B7078"/>
                                 </StackPanel>
                             </DockPanel>
                         </Border>
-                        <Border Padding="16,12" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1" Opacity=".45">
+                        <Border Padding="16,12" BorderBrush="#E5E3DD" BorderThickness="0,0,0,1">
                             <DockPanel>
                                 <Border Width="34" Height="34" CornerRadius="10" Background="#24F0B45A" DockPanel.Dock="Left">
                                     <TextBlock Text="📏" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <StackPanel Margin="12,0,0,0">
                                     <TextBlock Text="Escape routes" FontSize="14" Foreground="#1A1C20" FontWeight="SemiBold"/>
-                                    <TextBlock Text="the real walk to an exit — arrives with the next update" FontSize="12" Foreground="#6B7078"/>
+                                    <TextBlock Text="direct distance to an exit — By-law 165 (route walk arrives later)" FontSize="12" Foreground="#6B7078"/>
                                 </StackPanel>
                             </DockPanel>
                         </Border>
@@ -356,14 +356,14 @@
                                 </StackPanel>
                             </DockPanel>
                         </Border>
-                        <Border Padding="16,12" Opacity=".45">
+                        <Border Padding="16,12">
                             <DockPanel>
                                 <Border Width="34" Height="34" CornerRadius="10" Background="#2434C07A" DockPanel.Dock="Left">
                                     <TextBlock Text="🧱" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <StackPanel Margin="12,0,0,0">
-                                    <TextBlock Text="Compartmentation" FontSize="14" Foreground="#1A1C20" FontWeight="SemiBold"/>
-                                    <TextBlock Text="storey area/volume limits — arrives with a later update" FontSize="12" Foreground="#6B7078"/>
+                                    <TextBlock Text="Compartmentation &amp; fire resistance" FontSize="14" Foreground="#1A1C20" FontWeight="SemiBold"/>
+                                    <TextBlock Text="storey limits, shafts, ratings audit, appliance access — 5th/6th Schedule" FontSize="12" Foreground="#6B7078"/>
                                 </StackPanel>
                             </DockPanel>
                         </Border>
