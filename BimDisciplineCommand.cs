@@ -25,10 +25,12 @@ namespace RevitWebAppSync
                 // Load saved config
                 BinaConfig config = BinaConfig.Load();
 
-                // Check if user is logged in
-                if (!config.IsLoggedIn())
+                // Downloads read bina-be (/api/cloud-docs/*), so they need the BINA
+                // Cloud session — a bina-ai token is rejected there.
+                if (!config.IsBinaCloudLoggedIn())
                 {
-                    TaskDialog.Show("Not Logged In", "Please login first using the 'Login' button before downloading.");
+                    TaskDialog.Show("Not Signed In to Cloud Docs",
+                        "Click 'Login to Cloud Docs' before downloading discipline files.");
                     return Result.Cancelled;
                 }
 
@@ -48,13 +50,14 @@ namespace RevitWebAppSync
 
                 try
                 {
-                    // Login
-                    var loginTask = Task.Run(() => binaService.LoginAsync());
-                    string accessToken = loginTask.Result;
+                    // Use the stored bina-be token instead of re-authenticating with
+                    // the persisted email/password. The password path is being retired
+                    // (the plugin should never hold one) and it targets bina-be anyway.
+                    string accessToken = config.BeAccessToken;
 
                     if (string.IsNullOrEmpty(accessToken))
                     {
-                        resultData.ErrorMessage = "Failed to login to BINA. Check the log file on Desktop for more details.";
+                        resultData.ErrorMessage = "No Cloud Docs session. Click 'Login to Cloud Docs' and try again.";
                         ShowResultsWindow(resultData);
                         binaService.Dispose();
                         return Result.Failed;
@@ -72,41 +75,54 @@ namespace RevitWebAppSync
                         return Result.Failed;
                     }
 
-                    // Download available discipline files
-                    var disciplines = new[]
+                    // Download available discipline files.
+                    // latest-shared-urls groups by discipline, then by tracking
+                    // folder, and returns the latest version of every filename in
+                    // each folder — so the local layout mirrors BINA's rather than
+                    // flattening everything into one folder per discipline.
+                    foreach (var (disciplineLabel, group) in disciplineResponse.Groups())
                     {
-                        ("Structure", disciplineResponse.Structure),
-                        ("Architecture", disciplineResponse.Architecture),
-                        ("HVAC", disciplineResponse.HVAC),
-                        ("Electrical", disciplineResponse.Electrical)
-                    };
+                        if (group?.Folders == null) continue;
 
-                    foreach (var (disciplineName, disciplineFile) in disciplines)
-                    {
-                        if (disciplineFile != null && !string.IsNullOrEmpty(disciplineFile.FileUrl))
+                        foreach (var folder in group.Folders)
                         {
-                            // Create discipline-specific folder
-                            string disciplineDir = Path.Combine(downloadDir, disciplineName);
-                            if (!Directory.Exists(disciplineDir))
+                            if (folder?.Files == null) continue;
+
+                            string folderDir = Path.Combine(downloadDir, disciplineLabel, SafeName(folder.Name));
+                            Directory.CreateDirectory(folderDir);
+
+                            foreach (var file in folder.Files)
                             {
-                                Directory.CreateDirectory(disciplineDir);
+                                if (file == null || string.IsNullOrEmpty(file.FileUrl))
+                                {
+                                    // The server explains why (e.g. nothing downloadable
+                                    // for this design); surface it instead of a silent gap.
+                                    resultData.DownloadedFiles.Add(new DownloadedFileInfo
+                                    {
+                                        DisciplineName = disciplineLabel,
+                                        FileName = file?.FileName ?? "(unknown)",
+                                        FilePath = null,
+                                        Success = false
+                                    });
+                                    continue;
+                                }
+
+                                var downloadTask = Task.Run(() => binaService.DownloadFileAsync(
+                                    file.FileUrl,
+                                    folderDir,
+                                    file.FileName
+                                ));
+
+                                string downloadedPath = downloadTask.Result;
+
+                                resultData.DownloadedFiles.Add(new DownloadedFileInfo
+                                {
+                                    DisciplineName = disciplineLabel,
+                                    FileName = file.FileName,
+                                    FilePath = downloadedPath,
+                                    Success = !string.IsNullOrEmpty(downloadedPath)
+                                });
                             }
-
-                            var downloadTask = Task.Run(() => binaService.DownloadFileAsync(
-                                disciplineFile.FileUrl,
-                                disciplineDir,
-                                disciplineFile.FileName
-                            ));
-
-                            string downloadedPath = downloadTask.Result;
-
-                            resultData.DownloadedFiles.Add(new DownloadedFileInfo
-                            {
-                                DisciplineName = disciplineName,
-                                FileName = disciplineFile.FileName,
-                                FilePath = downloadedPath,
-                                Success = !string.IsNullOrEmpty(downloadedPath)
-                            });
                         }
                     }
 
@@ -145,5 +161,13 @@ namespace RevitWebAppSync
             var resultsWindow = new DownloadResultsWindow(resultData);
             resultsWindow.ShowDialog();
         }
+        /// <summary>Folder names come from user input; keep them path-safe.</summary>
+        private static string SafeName(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "Unnamed";
+            foreach (char c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
+            return name.Trim();
+        }
+
     }
 }

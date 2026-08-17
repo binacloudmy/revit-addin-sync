@@ -626,9 +626,14 @@ namespace RevitWebAppSync
                 // whole OnStartup died and the addin vanished from the ribbon.
             }
 
-            // Labeled panel groups instead of one flat "Sync Tools" strip
-            RibbonPanel cloudPanel = application.CreateRibbonPanel(tabName, "BINA Cloud");
-            RibbonPanel aiPanel = application.CreateRibbonPanel(tabName, "AI");
+            // One panel per BACKEND, because there is one sign-in per backend.
+            // bina-be (CDE) issues the token for /api/cloud-docs/* — sync and
+            // discipline downloads; bina-ai issues the one Copilot and JKR use.
+            // A bina-ai token is rejected by bina-be, so grouping each login with
+            // the buttons it actually unlocks is what makes the two sign-ins read
+            // as deliberate rather than as one of them being redundant.
+            RibbonPanel cdePanel = application.CreateRibbonPanel(tabName, "BINA CDE");
+            RibbonPanel aiPanel = application.CreateRibbonPanel(tabName, "BINA AI");
             RibbonPanel compliancePanel = application.CreateRibbonPanel(tabName, "Compliance");
 
             PushButtonData buttonData = new PushButtonData(
@@ -648,12 +653,29 @@ namespace RevitWebAppSync
             // Windows Credential Manager. No password is typed into Revit.
             PushButtonData loginButtonData = new PushButtonData(
                 "Login",
-                "Login",
+                "Login to\nAI",
                 Assembly.GetExecutingAssembly().Location,
                 "RevitWebAppSync.BrowserLoginCommand")
             {
-                ToolTip = "Login or register for BINA Cloud",
-                LongDescription = "Opens the BINA Cloud sign-in page in your browser to log in or create an account.",
+                ToolTip = "Sign in to BINA AI (Copilot, JKR compliance, space planning)",
+                LongDescription = "Opens the BINA AI sign-in page in your browser to log in or create an account. Separate from Login to CDE — that one signs you in to Cloud Docs for model sync, and the two backends issue their own tokens.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            };
+
+            // Second sign-in, against bina-be. Cloud Docs / BIM sync live on a
+            // different service from Copilot/JKR and it issues its own tokens, so
+            // a bina-ai session cannot authorise /api/cloud-docs/* calls. Both
+            // sessions are stored separately; merging the two buttons into one
+            // sign-in that mints both tokens is a follow-up.
+            PushButtonData cloudLoginButtonData = new PushButtonData(
+                "BinaCloudLogin",
+                "Login to\nCDE",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.BinaCloudLoginCommand")
+            {
+                ToolTip = "Sign in to the BINA CDE / Cloud Docs (projects, documents, model sync)",
+                LongDescription = "Signs in to BINA Cloud Docs in your browser. Required by Sync to BINA and Download BIM Disciplines — the other buttons on this panel. Separate from Login to AI, which Copilot, JKR and space planning use.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
@@ -767,12 +789,14 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
 
-            // BINA Cloud: sync, account, downloads
-            cloudPanel.AddItem(buttonData);
-            cloudPanel.AddItem(loginButtonData);
-            cloudPanel.AddItem(bimDisciplineButtonData);
+            // BINA CDE: the bina-be sign-in, then the two buttons that need it.
+            // Login leads the panel because both of the others fail without it.
+            cdePanel.AddItem(cloudLoginButtonData);
+            cdePanel.AddItem(buttonData);
+            cdePanel.AddItem(bimDisciplineButtonData);
 
-            // AI: copilot
+            // BINA AI: the bina-ai sign-in, then the copilot it unlocks.
+            aiPanel.AddItem(loginButtonData);
             aiPanel.AddItem(askAiButtonData);
 
             // Compliance: JKR (Cost/Fire hidden below)
@@ -780,11 +804,11 @@ namespace RevitWebAppSync
             compliancePanel.AddItem(bombaComplianceButtonData);
 
             // Stack: Export Cost Items / Import Prices
-            // cloudPanel.AddStackedItems(costExportButtonData, costImportButtonData); // Hidden as requested
+            // cdePanel.AddStackedItems(costExportButtonData, costImportButtonData); // Hidden as requested
 
             // Stack: Cost Tracker / Fire Compliance
             // compliancePanel.AddStackedItems(costDashboardButtonData, complianceButtonData); // Hidden as requested
-            // cloudPanel.AddItem(federateButtonData); // Hidden as requested
+            // cdePanel.AddItem(federateButtonData); // Hidden as requested
         }
 
         private BitmapImage LoadImage(string resourceName, int size = 32)

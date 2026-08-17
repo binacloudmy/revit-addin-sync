@@ -43,7 +43,7 @@ namespace RevitWebAppSync
                         }
                         else if (userInfoWindow.SwitchProject)
                         {
-                            ShowProjectPicker(config);
+                            ShowProjectPicker(config, commandData.Application);
                         }
                     }
 
@@ -112,12 +112,13 @@ namespace RevitWebAppSync
                     ? displayName
                     : $"BINA User #{tokens.UserId}";
 
-                // Demo: "projects" are a legacy bina-be concept — bina-ai keys off the
-                // signed-in user, not the project. Skip the (empty on bina-ai) picker and
-                // default to a Demo project. This ALSO guarantees config.Save() runs, so the
-                // session actually persists (the picker path previously skipped the save).
-                config.ProjectId = 1;
-                config.ProjectName = "Demo";
+                // Projects belong to bina-be, which this sign-in does not authenticate
+                // against — so this command no longer invents one. It used to set
+                // ProjectId=1/"Demo", which meant every browser-login user would have
+                // filed their Revit syncs under project 1 regardless of what they were
+                // working on. Project selection now happens in "Login to Cloud Docs".
+                // (config.Save() still runs unconditionally here so the bina-ai session
+                // persists — that was the other job this block was doing.)
                 config.Save();
                 Services.TelemetryService.SetUser(tokens.UserId);
 
@@ -149,9 +150,19 @@ namespace RevitWebAppSync
             }
         }
 
-        private void ShowProjectPicker(BinaConfig config)
+        private void ShowProjectPicker(BinaConfig config, UIApplication uiApp)
         {
-            var projectPicker = new ProjectPickerWindow(config.AccessToken);
+            // The project list comes from bina-be, so it needs the BINA Cloud token.
+            // Passing the bina-ai token here is why "Switch Project" came up empty.
+            if (!config.IsBinaCloudLoggedIn())
+            {
+                TaskDialog.Show("Not Signed In to Cloud Docs",
+                    "Projects come from Cloud Docs. Click 'Login to Cloud Docs' first.");
+                return;
+            }
+
+            var projectPicker = new ProjectPickerWindow(config.BeAccessToken, config.ProjectId);
+            Services.RevitWindowOwner.SetOwner(projectPicker, uiApp);
             if (projectPicker.ShowDialog() == true)
             {
                 config.ProjectId = projectPicker.SelectedProjectId;
