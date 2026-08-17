@@ -1,302 +1,363 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Collections.Specialized;
 using System.Linq;
+using System.Windows.Media;
+using RevitWebAppSync.Services;
 
 namespace RevitWebAppSync.UI.Bomba
 {
-    // Stub data for now: the pane is buildable and reviewable before the HTTP
-    // client to bina-ai exists, and before data/bomba_rules.json is verified.
-    //
-    // When the backend lands: replace LoadStubData() with a call to the
-    // /bomba endpoints and map Finding -> FindingVm. Nothing else changes.
+    /// One select of the band cascade (Setup screen). Levels are generic —
+    /// depth comes from the rules tree, never a fixed count. Since the top
+    /// pick moved into the Home inline select, Setup only appears for a
+    /// genuine needs_input boundary.
+    public class CascadeLevelVm : NotifyBase
+    {
+        private BombaOptionDto _selected;
 
+        /// Mono uppercase caption over the select ("BAND", …).
+        public string Label { get; set; }
+
+        public ObservableCollection<BombaOptionDto> Options { get; private set; }
+
+        public CascadeLevelVm() { Options = new ObservableCollection<BombaOptionDto>(); }
+
+        public BombaOptionDto Selected
+        {
+            get { return _selected; }
+            set { Set(ref _selected, value); }
+        }
+    }
+
+    // Modern Flow (design 10A): the pane is a state machine of screens. The
+    // panel code-behind runs the scan and navigation; this VM only holds what
+    // the screens bind to. It never talks HTTP.
     public class BombaDashboardViewModel : NotifyBase
     {
-        private PaneState _state = PaneState.Ready;
-        private CheckVm _selected;
-        private string _scopeLabel = "Aras 01 — Blok A";
-        private string _scopeDetail = "24 rooms · 31 doors";
-        private int _changedSinceRun = 3;
-
-        private CoverageVm _coverage;
-
-        public ObservableCollection<CheckVm> Checks { get; private set; }
-
-        public CoverageVm Coverage
-        {
-            get { return _coverage; }
-            set
-            {
-                if (Set(ref _coverage, value)) RaiseAggregates();
-            }
-        }
+        private BombaScreen _screen = BombaScreen.Home;
+        private bool _scanning;
+        private IssueVm _current;
+        private string _notice;
 
         public BombaDashboardViewModel()
         {
-            Checks = new ObservableCollection<CheckVm>();
-            // A re-check replaces the contents of Checks. Without this, the
-            // tab strip and finding list refresh but the verdict block keeps
-            // showing the previous run's numbers.
-            Checks.CollectionChanged += (s, e) => RaiseAggregates();
-            LoadStubData();
-            _selected = Checks.FirstOrDefault();
+            Issues = new ObservableCollection<IssueVm>();
+            FilteredIssues = new ObservableCollection<IssueVm>();
+            Chips = new ObservableCollection<ChipVm>();
+            PgOptions = new ObservableCollection<PgOptionVm>();
+            Extinguishing = new ObservableCollection<ReqRowVm>();
+            Alarm = new ObservableCollection<ReqRowVm>();
+            Cascade = new ObservableCollection<CascadeLevelVm>();
+            Dots = new ObservableCollection<DotVm>();
+            CheckRows = new ObservableCollection<CheckRowVm>
+            {
+                new CheckRowVm { Label = "Read rooms & measure" },
+                new CheckRowVm { Label = "Resolve requirements" },
+                new CheckRowVm { Label = "Fire systems" },
+            };
         }
 
-        /// Single place to keep the verdict block's derived numbers in sync.
-        /// Everything the 26pt verdict reads from must be raised here.
-        private void RaiseAggregates()
-        {
-            Raise("TotalFailures");
-            Raise("TotalNotChecked");
-            Raise("NotCheckedSuffix");
-            Raise("VerdictCount");
-            Raise("VerdictWord");
-            Raise("VerdictBreakdown");
-        }
+        // ── screens ─────────────────────────────────────────────────────────
 
-        public PaneState State
+        public BombaScreen Screen
         {
-            get { return _state; }
+            get { return _screen; }
             set
             {
-                if (Set(ref _state, value))
+                if (Set(ref _screen, value))
                 {
-                    Raise("ShowSetup");
-                    Raise("ShowStale");
-                    Raise("ShowResults");
+                    Raise("OnHome"); Raise("OnSetup"); Raise("OnChecking");
+                    Raise("OnSummary"); Raise("OnDetail"); Raise("OnDone"); Raise("OnNeeds");
+                    Raise("BackVisible"); Raise("DotsVisible");
                 }
             }
         }
 
-        public CheckVm SelectedCheck
+        public bool OnHome { get { return Screen == BombaScreen.Home; } }
+        public bool OnNeeds { get { return Screen == BombaScreen.Needs; } }
+        public bool OnSetup { get { return Screen == BombaScreen.Setup; } }
+        public bool OnChecking { get { return Screen == BombaScreen.Checking; } }
+        public bool OnSummary { get { return Screen == BombaScreen.Summary; } }
+        public bool OnDetail { get { return Screen == BombaScreen.Detail; } }
+        public bool OnDone { get { return Screen == BombaScreen.Done; } }
+        public bool BackVisible { get { return Screen == BombaScreen.Summary || Screen == BombaScreen.Detail || Screen == BombaScreen.Setup || Screen == BombaScreen.Needs; } }
+        public bool DotsVisible { get { return Screen == BombaScreen.Detail; } }
+
+        public bool Scanning
         {
-            get { return _selected; }
+            get { return _scanning; }
             set
             {
-                if (Set(ref _selected, value))
+                if (Set(ref _scanning, value)) Raise("NotScanning");
+            }
+        }
+
+        public bool NotScanning { get { return !Scanning; } }
+
+        /// Amber banner on Home — login required, backend unreachable.
+        public string Notice
+        {
+            get { return _notice; }
+            set
+            {
+                if (Set(ref _notice, value)) Raise("HasNotice");
+            }
+        }
+
+        public bool HasNotice { get { return !string.IsNullOrEmpty(Notice); } }
+
+        // ── home: building type (inline select) ────────────────────────────
+
+        private string _buildingType = "Not set";
+        private string _pgTag = "tap to choose";
+        private string _pgEvidence = "";
+        private bool _pgOpen;
+        private bool _pgLoading;
+
+        public string BuildingType { get { return _buildingType; } set { Set(ref _buildingType, value); } }
+
+        /// "auto" (room-name read), "your pick" (asserted), or the empty
+        /// prompt — who decided is always one glance away.
+        public string PgTag { get { return _pgTag; } set { Set(ref _pgTag, value); } }
+
+        public string PgEvidence
+        {
+            get { return _pgEvidence; }
+            set { if (Set(ref _pgEvidence, value)) Raise("HasPgEvidence"); }
+        }
+
+        public bool HasPgEvidence { get { return !string.IsNullOrEmpty(PgEvidence); } }
+
+        public bool PgOpen
+        {
+            get { return _pgOpen; }
+            set { if (Set(ref _pgOpen, value)) Raise("PgChev"); }
+        }
+
+        public string PgChev { get { return PgOpen ? "▴" : "▾"; } }
+
+        public bool PgLoading { get { return _pgLoading; } set { Set(ref _pgLoading, value); } }
+
+        public ObservableCollection<PgOptionVm> PgOptions { get; private set; }
+
+        // ── home: model + M&E scope rows ────────────────────────────────────
+
+        private string _floorLabel = "";
+        private string _readLabel = "";
+        private string _meValue = "";
+        private Brush _meInk = M.Sub;
+        private string _meWarn = "";
+
+        public string FloorLabel { get { return _floorLabel; } set { Set(ref _floorLabel, value); } }
+        public string ReadLabel { get { return _readLabel; } set { Set(ref _readLabel, value); } }
+
+        public string MeValue { get { return _meValue; } set { Set(ref _meValue, value); } }
+        public Brush MeInk { get { return _meInk; } set { Set(ref _meInk, value); } }
+
+        public string MeWarn
+        {
+            get { return _meWarn; }
+            set { if (Set(ref _meWarn, value)) Raise("HasMeWarn"); }
+        }
+
+        public bool HasMeWarn { get { return !string.IsNullOrEmpty(MeWarn); } }
+
+        // ── setup (band ask only) ───────────────────────────────────────────
+
+        public ObservableCollection<CascadeLevelVm> Cascade { get; private set; }
+
+        private bool _canRun;
+        private string _setupGuidance =
+            "The measured facts sit on a boundary — choose the band that applies.";
+
+        public bool CanRun { get { return _canRun; } set { Set(ref _canRun, value); } }
+        public string SetupGuidance { get { return _setupGuidance; } set { Set(ref _setupGuidance, value); } }
+
+        private string _measuredFacts = "";
+        public string MeasuredFacts
+        {
+            get { return _measuredFacts; }
+            set { if (Set(ref _measuredFacts, value)) Raise("HasMeasuredFacts"); }
+        }
+        public bool HasMeasuredFacts { get { return !string.IsNullOrEmpty(MeasuredFacts); } }
+
+        // ── checking ────────────────────────────────────────────────────────
+
+        private int _progressPct;
+        private string _progressTitle = "Reading the model";
+        private string _progressSub = "";
+
+        public ObservableCollection<CheckRowVm> CheckRows { get; private set; }
+
+        public int ProgressPct
+        {
+            get { return _progressPct; }
+            set
+            {
+                if (Set(ref _progressPct, value)) Raise("ProgressText");
+            }
+        }
+
+        public string ProgressText { get { return ProgressPct + "%"; } }
+        public string ProgressTitle { get { return _progressTitle; } set { Set(ref _progressTitle, value); } }
+        public string ProgressSub { get { return _progressSub; } set { Set(ref _progressSub, value); } }
+
+        // ── summary: filter chips + list ────────────────────────────────────
+
+        public ObservableCollection<IssueVm> Issues { get; private set; }
+        public ObservableCollection<IssueVm> FilteredIssues { get; private set; }
+        public ObservableCollection<ChipVm> Chips { get; private set; }
+        public ObservableCollection<DotVm> Dots { get; private set; }
+
+        private string _filterCls = "open";
+        private int _passCount;
+        private string _fixedSinceLast = "";
+
+        public int PassCount { get { return _passCount; } set { Set(ref _passCount, value); } }
+
+        /// "3 fixed since last check ✓" — computed by subject diff between
+        /// scans, so it only ever states what two real scans proved.
+        public string FixedSinceLast
+        {
+            get { return _fixedSinceLast; }
+            set { if (Set(ref _fixedSinceLast, value)) Raise("HasFixedSinceLast"); }
+        }
+
+        public bool HasFixedSinceLast { get { return !string.IsNullOrEmpty(FixedSinceLast); } }
+
+        public string FilterCls
+        {
+            get { return _filterCls; }
+            set
+            {
+                if (Set(ref _filterCls, value)) RebuildFiltered();
+            }
+        }
+
+        private bool _filterEmpty;
+        public bool FilterEmpty { get { return _filterEmpty; } set { Set(ref _filterEmpty, value); } }
+
+        /// Chips are derived from the live issue list — the headline number
+        /// and the chip counts share one source and cannot disagree.
+        public void RebuildChips()
+        {
+            Chips.Clear();
+            var open = Issues.Where(i => !i.Done).ToList();
+            Chips.Add(new ChipVm { Cls = "open", Label = open.Count + " open", Ink = M.Ink, Bg = M.ChipNeutral });
+            int nFix = open.Count(i => i.Cls == "fix");
+            int nCant = open.Count(i => i.Cls == "cant");
+            if (nFix > 0) Chips.Add(new ChipVm { Cls = "fix", Label = "! " + nFix + " to fix", Ink = M.Red, Bg = M.RedTint });
+            if (nCant > 0) Chips.Add(new ChipVm { Cls = "cant", Label = "— " + nCant + " can't check", Ink = M.Dim, Bg = M.Line });
+            if (PassCount > 0) Chips.Add(new ChipVm { Cls = "pass", Label = "✓ " + PassCount + " pass", Ink = M.Green, Bg = M.GreenTint });
+            foreach (var c in Chips) c.Active = c.Cls == _filterCls;
+            RebuildFiltered();
+        }
+
+        private void RebuildFiltered()
+        {
+            foreach (var c in Chips) c.Active = c.Cls == _filterCls;
+            FilteredIssues.Clear();
+            // "pass" has no issue rows — the pass chip filters the list to
+            // empty and the empty-state line explains where the passes live
+            // (the Required fire systems screen carries the green chips).
+            if (_filterCls != "pass")
+                foreach (var i in Issues.Where(x => !x.Done && (_filterCls == "open" || x.Cls == _filterCls)))
+                    FilteredIssues.Add(i);
+            FilterEmpty = FilteredIssues.Count == 0;
+            Raise("FilterEmptyText");
+        }
+
+        public string FilterEmptyText
+        {
+            get
+            {
+                if (_filterCls == "pass")
+                    return PassCount + " systems pass — see them with their counts under Required fire systems.";
+                return "Nothing in this bucket — tap “open” to see the working set.";
+            }
+        }
+
+        public IssueVm CurrentIssue
+        {
+            get { return _current; }
+            set
+            {
+                if (Set(ref _current, value)) { Raise("CurPos"); RebuildDots(); }
+            }
+        }
+
+        public int OpenCount { get { return Issues.Count(i => !i.Done); } }
+        public string OpenCountText { get { return OpenCount.ToString(); } }
+        public string OpenWord { get { return OpenCount == 1 ? "open item" : "open items"; } }
+
+        public string CurPos
+        {
+            get
+            {
+                if (_current == null) return "";
+                return "Issue " + (Issues.IndexOf(_current) + 1) + " of " + Issues.Count;
+            }
+        }
+
+        public void RaiseCounts()
+        {
+            Raise("OpenCount"); Raise("OpenCountText"); Raise("OpenWord");
+            RebuildChips();
+            RebuildDots();
+        }
+
+        private void RebuildDots()
+        {
+            Dots.Clear();
+            foreach (var it in Issues)
+            {
+                Dots.Add(new DotVm
                 {
-                    Raise("VisibleFindings");
-                    Raise("HasFindings");
-                }
+                    W = ReferenceEquals(it, _current) ? 20 : 7,
+                    Fill = it.Done ? M.Green : ReferenceEquals(it, _current) ? M.Accent : M.Line,
+                });
             }
         }
 
-        public string ScopeLabel { get { return _scopeLabel; } set { Set(ref _scopeLabel, value); } }
-        public string ScopeDetail { get { return _scopeDetail; } set { Set(ref _scopeDetail, value); } }
-        public int ChangedSinceRun { get { return _changedSinceRun; } set { Set(ref _changedSinceRun, value); } }
+        // ── required fire systems (the schedule row's full answer) ──────────
 
-        public bool ShowSetup { get { return State == PaneState.NeedsSetup; } }
-        public bool ShowStale { get { return State == PaneState.Stale; } }
-        public bool ShowResults { get { return State == PaneState.Ready || State == PaneState.Stale; } }
+        public ObservableCollection<ReqRowVm> Extinguishing { get; private set; }
+        public ObservableCollection<ReqRowVm> Alarm { get; private set; }
 
-        public int TotalFailures { get { return Checks.Sum(c => c.FailCount); } }
-        public int TotalNotChecked { get { return Checks.Sum(c => c.NotCheckedCount); } }
+        private string _needsSub = "";
+        private string _needsNote = "";
+        private string _needsCite = "";
 
-        public string VerdictCount { get { return TotalFailures.ToString(); } }
-        public string VerdictWord { get { return TotalFailures == 1 ? "finding" : "findings"; } }
+        public string NeedsSub { get { return _needsSub; } set { Set(ref _needsSub, value); } }
+        public string NeedsCite { get { return _needsCite; } set { Set(ref _needsCite, value); } }
 
-        /// A different quantity from Coverage.Summary: that one counts ROOMS
-        /// skipped, this one counts FINDINGS that could not be verified. Both
-        /// render amber; the wording is what keeps them from reading as the
-        /// same fact contradicting itself.
-        public string NotCheckedSuffix
+        public string NeedsNote
         {
-            get { return TotalNotChecked == 1 ? " finding not verified" : " findings not verified"; }
+            get { return _needsNote; }
+            set { if (Set(ref _needsNote, value)) Raise("HasNeedsNote"); }
         }
 
-        /// Names which checks contributed, by SUBJECT — never by schedule number.
-        /// Zero failures is NOT the same claim as "all checks ran" — coverage
-        /// gaps and unavailable checks must still surface here, or this line
-        /// repeats the exact "all passed while rooms went unchecked" mistake
-        /// this pane exists to avoid.
-        public string VerdictBreakdown
+        public bool HasNeedsNote { get { return !string.IsNullOrEmpty(NeedsNote); } }
+
+        private bool _bylawOpen;
+
+        /// The "WHY — the rule behind this" expander (By-law 225).
+        public bool BylawOpen
         {
-            get
+            get { return _bylawOpen; }
+            set
             {
-                List<string> parts = Checks
-                    .Where(c => c.Available && c.FailCount > 0)
-                    .Select(c => c.Title + " " + c.FailCount)
-                    .ToList();
-                if (parts.Count > 0) return string.Join(" · ", parts.ToArray());
-
-                List<string> notes = new List<string>();
-                notes.Add("No failures");
-                notes.Add(Coverage == null ? "coverage unknown" : "coverage " + Coverage.Label);
-                if (TotalNotChecked > 0) notes.Add(TotalNotChecked + NotCheckedSuffix);
-
-                List<string> unavailable = Checks.Where(c => !c.Available).Select(c => c.Title).ToList();
-                if (unavailable.Count > 0) notes.Add(string.Join(", ", unavailable.ToArray()) + " not available");
-
-                return string.Join(" · ", notes.ToArray());
+                if (Set(ref _bylawOpen, value)) Raise("BylawChev");
             }
         }
 
-        public string StaleLabel { get { return ChangedSinceRun + " rooms changed since this run"; } }
+        public string BylawChev { get { return BylawOpen ? "▴" : "▾"; } }
 
-        public IEnumerable<FindingVm> VisibleFindings
-        {
-            get
-            {
-                if (SelectedCheck == null) return Enumerable.Empty<FindingVm>();
-                // Failures first, then not-checked, then passes.
-                return SelectedCheck.Findings
-                    .OrderBy(f => f.Passed == false ? 0 : (!f.Passed.HasValue ? 1 : 2))
-                    .ToList();
-            }
-        }
+        // ── done ────────────────────────────────────────────────────────────
 
-        public bool HasFindings
-        {
-            get { return SelectedCheck != null && SelectedCheck.Findings.Count > 0; }
-        }
+        private string _doneTitle = "All clear";
+        private string _doneSub = "";
 
-        // ── stub data ───────────────────────────────────────────────────────
-        // Measured values are plausible model reads. Every rule-derived
-        // threshold is FindingVm.PlaceholderValue and stays so until verified.
-
-        private void LoadStubData()
-        {
-            const string P = FindingVm.PlaceholderValue;
-
-            Coverage = new CoverageVm();
-            Coverage.RoomsChecked = 20;
-            Coverage.RoomsTotal = 24;
-            Coverage.SkipReasons.Add("unenclosed_or_unplaced");
-            Coverage.SkipReasons.Add("no_boundary");
-
-            CheckVm exit = new CheckVm();
-            exit.Title = "Exit width";
-            FindingVm dewan = new FindingVm();
-            dewan.Subject = "Dewan Serbaguna";
-            dewan.RoomNumber = "R-1-04";
-            dewan.Headline = "Exit width short by " + P + " mm";
-            dewan.Passed = false;
-            dewan.Severity = Severity.High;
-            dewan.Metrics = P + " occupants from 321 m²\nneed " + P + " mm · have 1800 mm";
-            dewan.ClauseRef = "UBBL 1984 " + P;
-            dewan.RulesVersion = "bomba_rules v0.1";
-            dewan.Jurisdiction = "peninsular";
-            dewan.SchedulePath = "III.2.a.ii";
-            dewan.Action = FindingAction.Fixable;
-            dewan.FixLabel = "Widen both doors";
-            dewan.ElementIds.Add(884213);
-            dewan.ElementIds.Add(884219);
-            dewan.Steps.Add(NewStep("Occupants per floor", "321 m² ÷ " + P + " m²/person = " + P, P));
-            dewan.Steps.Add(NewStep("Exit width units", P + " ÷ " + P + " = " + P + " units", P));
-            dewan.Steps.Add(NewStep("Round TOTAL first", P + " → " + P + " units", "181"));
-            dewan.Steps.Add(NewStep("Convert to mm", P + " units = " + P + " mm", "177(e)"));
-            exit.Findings.Add(dewan);
-
-            FindingVm pejabat = new FindingVm();
-            pejabat.Subject = "Pejabat";
-            pejabat.RoomNumber = "R-1-02";
-            pejabat.Headline = "Passes with " + P + " mm to spare";
-            pejabat.Passed = true;
-            pejabat.Severity = Severity.Pass;
-            pejabat.Metrics = P + " occupants from 48 m² · have 900 mm";
-            pejabat.ClauseRef = "UBBL 1984 " + P;
-            pejabat.RulesVersion = "bomba_rules v0.1";
-            pejabat.Jurisdiction = "peninsular";
-            exit.Findings.Add(pejabat);
-
-            // The differentiator: competitors report the permitted limit only.
-            CheckVm travel = new CheckVm();
-            travel.Title = "Travel distance";
-            FindingVm terbuka = new FindingVm();
-            terbuka.Subject = "Pejabat Terbuka";
-            terbuka.RoomNumber = "R-1-11";
-            terbuka.Headline = "Measured 42.6 m — two-way limit " + P + " m applies";
-            terbuka.Passed = false;
-            terbuka.Severity = Severity.High;
-            terbuka.Metrics =
-                "measured                42.6 m\n" +
-                "limit · two-way         " + P + " m  ← applies\n" +
-                "limit · one-way dead-end " + P + " m\n" +
-                "limit · corridor dead-end " + P + " m";
-            terbuka.Guidance = "Needs a design decision — add a second exit on the east façade, "
-                             + "or relocate the corridor entry. All three limits are shown because "
-                             + "changing the design can change which one binds.";
-            terbuka.ClauseRef = "UBBL 1984 " + P;
-            terbuka.RulesVersion = "bomba_rules v0.1";
-            terbuka.Jurisdiction = "peninsular";
-            terbuka.Action = FindingAction.GuidanceOnly;
-            travel.Findings.Add(terbuka);
-
-            // "Missing" vs "cannot verify" — the distinction that avoids a
-            // false accusation of absent fire protection.
-            CheckVm systems = new CheckVm();
-            systems.Title = "Fire systems";
-            FindingVm callPoint = new FindingVm();
-            callPoint.Subject = "Manual call point";
-            callPoint.Headline = "Cannot verify — no M&E model was searched";
-            callPoint.Passed = null;   // NOT CHECKED, not failed
-            callPoint.Severity = Severity.NotChecked;
-            callPoint.Metrics = "required " + P;
-            callPoint.Guidance = "Fire systems are modelled in the M&E discipline. "
-                               + "Link the M&E model and re-check. This is not a finding of absence.";
-            callPoint.ClauseRef = "UBBL 1984 " + P;
-            callPoint.RulesVersion = "bomba_rules v0.1";
-            callPoint.Jurisdiction = "peninsular";
-            callPoint.SchedulePath = "IV.1.a.ii";
-            callPoint.Action = FindingAction.GuidanceOnly;
-            callPoint.SearchedModels.Add("Architecture");
-            systems.Findings.Add(callPoint);
-
-            FindingVm hoseReel = new FindingVm();
-            hoseReel.Subject = "Hose reel system";
-            hoseReel.Headline = "6 found across 2 levels";
-            hoseReel.Passed = true;
-            hoseReel.Severity = Severity.Pass;
-            hoseReel.Metrics = "required " + P + " · present 6";
-            hoseReel.ClauseRef = "UBBL 1984 " + P;
-            hoseReel.RulesVersion = "bomba_rules v0.1";
-            hoseReel.Jurisdiction = "peninsular";
-            hoseReel.SearchedModels.Add("Architecture");
-            hoseReel.SearchedModels.Add("M&E");
-            systems.Findings.Add(hoseReel);
-
-            // The third action variant (NeedsModelling): both models that
-            // could plausibly contain it WERE searched, and it genuinely
-            // was not found — distinct from callPoint above, where only one
-            // model was searched and absence cannot yet be asserted.
-            FindingVm detector = new FindingVm();
-            detector.Subject = "Automatic fire detector system";
-            detector.Headline = "Not found in either model searched";
-            detector.Passed = false;
-            detector.Severity = Severity.High;
-            detector.Metrics = "required " + P;
-            detector.Guidance = "Not found in the Architecture or M&E models searched. It may exist "
-                               + "under a different category — check before assuming it is missing.";
-            detector.ClauseRef = "UBBL 1984 " + P;
-            detector.RulesVersion = "bomba_rules v0.1";
-            detector.Jurisdiction = "peninsular";
-            detector.SchedulePath = "IV.1.a.iii";
-            detector.Action = FindingAction.NeedsModelling;
-            detector.SearchedModels.Add("Architecture");
-            detector.SearchedModels.Add("M&E");
-            systems.Findings.Add(detector);
-
-            // Visible but disabled. Hiding it makes users wonder whether it
-            // exists; guessing its content would be dangerous.
-            CheckVm unprotected = new CheckVm();
-            unprotected.Title = "Unprotected areas";
-            unprotected.Available = false;
-            unprotected.UnavailableReason = "rules pending verification";
-
-            Checks.Add(exit);
-            Checks.Add(travel);
-            Checks.Add(systems);
-            Checks.Add(unprotected);
-        }
-
-        private static CalcStepVm NewStep(string label, string expression, string byLaw)
-        {
-            CalcStepVm s = new CalcStepVm();
-            s.Label = label;
-            s.Expression = expression;
-            s.ByLaw = byLaw;
-            return s;
-        }
+        public string DoneTitle { get { return _doneTitle; } set { Set(ref _doneTitle, value); } }
+        public string DoneSub { get { return _doneSub; } set { Set(ref _doneSub, value); } }
     }
 }
