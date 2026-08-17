@@ -62,10 +62,24 @@ namespace RevitWebAppSync
                 // a WPF picker window (DisciplinePickerWindow), same pattern as
                 // ProjectPickerWindow.
                 var disciplinesTask = Task.Run(() => binaService.GetProjectDisciplinesAsync(accessToken, config.ProjectId));
-                var disciplines = disciplinesTask.Result;
+                var disciplinesResult = disciplinesTask.Result;
+                var disciplines = disciplinesResult.Disciplines;
 
                 if (disciplines == null)
                 {
+                    // Distinguish an expired/invalid token (actionable — the
+                    // user just needs to log in again, same as the "Not
+                    // Logged In" gate above) from a genuine fetch failure
+                    // (network/server issue — no amount of re-logging-in
+                    // fixes that). See GetProjectDisciplinesAsync's doc
+                    // comment for how Unauthenticated is detected.
+                    if (disciplinesResult.Unauthenticated)
+                    {
+                        TaskDialog.Show("Session Expired", "Your BINA session has expired. Please log in again using the 'Login' button, then try syncing again.");
+                        binaService.Dispose();
+                        return Result.Cancelled;
+                    }
+
                     TaskDialog.Show("Error", "Failed to fetch the project's discipline list. Check the log file on Desktop for more details, and try again.");
                     binaService.Dispose();
                     return Result.Failed;

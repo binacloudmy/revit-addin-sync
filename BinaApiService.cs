@@ -352,8 +352,19 @@ namespace RevitWebAppSync
         /// every REST call in this file, so this reuses the existing auth
         /// pattern rather than inventing a new one — only the request shape
         /// (JSON {query, variables} instead of query-string REST) is new.
+        ///
+        /// Returns a (Disciplines, Unauthenticated) tuple — same shape idiom as
+        /// GetFileParameters below — rather than collapsing every failure mode
+        /// into a bare null like the rest of this file. Unauthenticated is true
+        /// only when the failure is specifically an invalid/expired/missing
+        /// token (GraphQL's errors[].extensions.code == "UNAUTHENTICATED", or a
+        /// literal HTTP 401/403 if a gateway ever sits in front of this route);
+        /// any other failure (network error, 5xx, malformed response) leaves it
+        /// false so callers can show a message distinguishing "log in again"
+        /// from a generic "try again" without a token-expiry clock check (see
+        /// task-8-followups-report.md for why a clock check was rejected).
         /// </summary>
-        public async Task<List<BimDiscipline>> GetProjectDisciplinesAsync(string accessToken, int projectId)
+        public async Task<(List<BimDiscipline> Disciplines, bool Unauthenticated)> GetProjectDisciplinesAsync(string accessToken, int projectId)
         {
             try
             {
@@ -396,7 +407,9 @@ namespace RevitWebAppSync
                 if (!response.IsSuccessStatusCode)
                 {
                     LogToFile($"❌ Failed to get project disciplines. Status: {response.StatusCode}");
-                    return null;
+                    bool httpUnauthenticated = response.StatusCode == System.Net.HttpStatusCode.Unauthorized
+                        || response.StatusCode == System.Net.HttpStatusCode.Forbidden;
+                    return (null, httpUnauthenticated);
                 }
 
                 var jsonResponse = JObject.Parse(responseBody);
@@ -407,25 +420,36 @@ namespace RevitWebAppSync
                 if (jsonResponse["errors"] is JArray errors && errors.Count > 0)
                 {
                     LogToFile($"❌ GraphQL errors fetching project disciplines: {errors}");
-                    return null;
+
+                    bool unauthenticated = false;
+                    foreach (var error in errors)
+                    {
+                        if (string.Equals((string)error["extensions"]?["code"], "UNAUTHENTICATED", StringComparison.OrdinalIgnoreCase))
+                        {
+                            unauthenticated = true;
+                            break;
+                        }
+                    }
+
+                    return (null, unauthenticated);
                 }
 
                 var disciplinesToken = jsonResponse["data"]?["projectDisciplines"];
                 if (disciplinesToken == null)
                 {
                     LogToFile("❌ GraphQL response had no data.projectDisciplines field");
-                    return null;
+                    return (null, false);
                 }
 
                 var disciplines = disciplinesToken.ToObject<List<BimDiscipline>>();
                 LogToFile($"✅ Retrieved {disciplines.Count} project disciplines for project {projectId}");
 
-                return disciplines;
+                return (disciplines, false);
             }
             catch (Exception ex)
             {
                 LogToFile($"❌ GetProjectDisciplinesAsync failed with exception: {ex.Message}");
-                return null;
+                return (null, false);
             }
         }
 
@@ -453,7 +477,12 @@ namespace RevitWebAppSync
         {
             var models = new BimDisciplineModels();
 
-            var disciplines = await GetProjectDisciplinesAsync(accessToken, projectId);
+            // Mechanical adaptation to GetProjectDisciplinesAsync's new tuple
+            // return (see that method's doc comment) — the Unauthenticated
+            // flag isn't consumed here since this method already collapses to
+            // a bare null on any failure; that's unchanged, pre-existing
+            // behavior for this call site, not part of this follow-up.
+            var (disciplines, _) = await GetProjectDisciplinesAsync(accessToken, projectId);
             if (disciplines == null)
             {
                 return null;

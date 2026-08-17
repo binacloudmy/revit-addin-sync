@@ -55,11 +55,14 @@ namespace RevitWebAppSync
                 // BinaApiService is not IDisposable (see its Dispose() below,
                 // called explicitly everywhere in this codebase) — no `using`.
                 List<BimDiscipline> disciplines;
+                bool disciplinesUnauthenticated;
                 var registryService = new BinaApiService(config.Email, config.Password);
                 try
                 {
                     var registryTask = Task.Run(() => registryService.GetProjectDisciplinesAsync(config.AccessToken, config.ProjectId));
-                    disciplines = registryTask.Result;
+                    var registryResult = registryTask.Result;
+                    disciplines = registryResult.Disciplines;
+                    disciplinesUnauthenticated = registryResult.Unauthenticated;
                 }
                 finally
                 {
@@ -68,6 +71,18 @@ namespace RevitWebAppSync
 
                 if (disciplines == null)
                 {
+                    // Distinguish an expired/invalid token (actionable — the
+                    // user just needs to log in again, same as the "Not
+                    // Logged In" gate above) from a genuine fetch failure
+                    // (network/server issue — no amount of re-logging-in
+                    // fixes that). See GetProjectDisciplinesAsync's doc
+                    // comment for how Unauthenticated is detected.
+                    if (disciplinesUnauthenticated)
+                    {
+                        TaskDialog.Show("Session Expired", "Your BINA session has expired. Please log in again using the 'Login' button, then try federating discipline files again.");
+                        return Result.Cancelled;
+                    }
+
                     TaskDialog.Show("Error", "Failed to fetch the project's discipline list. Check the log file on Desktop for more details, and try again.");
                     return Result.Failed;
                 }
