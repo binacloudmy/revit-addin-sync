@@ -1206,17 +1206,33 @@ namespace BinaVibe.Mcp.Tools
                 return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
 
             var els = new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType().ToList();
+            // Aggregates + a CAPPED id sample instead of one dict per element.
+            // Measured 2026-08-17 (Langfuse 48906553e3): 1458 element dicts
+            // fed the backend's result compressor 227k input tokens and two
+            // 8k-capped 30s+ model calls — the whole turn crawled. The model
+            // needs counts to report and act on, never 646 raw ids
+            // (select_by_filter selects without an id list).
+            const int SampleCap = 50;
             var missing = new List<object>();
+            var byType = new Dictionary<string, int>();
+            var byLevel = new Dictionary<string, int>();
+            int missingCount = 0;
             foreach (var e in els)
             {
                 if (!string.IsNullOrWhiteSpace(ResolveParamValue(doc, e, param))) continue;
+                missingCount++;
                 var typeEl = e.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(e.GetTypeId()) : null;
-                missing.Add(new Dictionary<string, object?>
-                {
-                    ["id"] = e.Id.Value,
-                    ["type_name"] = typeEl?.Name,
-                    ["level"] = doc.GetElement(e.LevelId)?.Name,
-                });
+                var typeName = typeEl?.Name ?? "(no type)";
+                var levelName = doc.GetElement(e.LevelId)?.Name ?? "(no level)";
+                byType[typeName] = byType.TryGetValue(typeName, out var tc) ? tc + 1 : 1;
+                byLevel[levelName] = byLevel.TryGetValue(levelName, out var lc) ? lc + 1 : 1;
+                if (missing.Count < SampleCap)
+                    missing.Add(new Dictionary<string, object?>
+                    {
+                        ["id"] = e.Id.Value,
+                        ["type_name"] = typeName,
+                        ["level"] = levelName,
+                    });
             }
             // missing == total with the parameter absent everywhere means the
             // NAME is wrong (asked "detail kontraktor", real column is
@@ -1230,9 +1246,13 @@ namespace BinaVibe.Mcp.Tools
             var result = new Dictionary<string, object?>
             {
                 ["ok"] = true, ["category"] = category, ["parameter"] = param,
-                ["missing"] = missing.Count, ["total"] = els.Count, ["elements"] = missing,
+                ["missing"] = missingCount, ["total"] = els.Count,
+                ["by_type"] = byType, ["by_level"] = byLevel,
+                ["elements"] = missing,
                 ["param_exists"] = paramExists,
             };
+            if (missingCount > SampleCap)
+                result["elements_note"] = $"showing {SampleCap} of {missingCount} — by_type/by_level carry the full counts";
             if (!paramExists && els.Count > 0)
                 result["suggestions"] = SuggestParamNames(doc, els[0], param);
             return result;

@@ -247,7 +247,11 @@ namespace BinaVibe.Mcp.Tools
                 ["skipped_groups"] = skippedGroups,
                 ["skipped_readonly"] = skippedReadOnly,
                 ["param_missing_on"] = paramMissingOn,
-                ["failures"] = failures,
+                // Cap: a mass-fill can fail on hundreds of elements; the model
+                // needs the pattern, not 646 rows (compressor-tax lesson,
+                // Langfuse 48906553e3).
+                ["failures"] = failures.Take(25).ToList(),
+                ["failures_total"] = failures.Count,
                 ["total"] = els.Count,
             };
             if (groupedWritten > 0) result["grouped_written"] = groupedWritten;
@@ -393,7 +397,8 @@ namespace BinaVibe.Mcp.Tools
                 ["already_filled"] = alreadyFilled,
                 ["skipped_groups"] = skippedGroups,
                 ["skipped_readonly"] = skippedReadOnly,
-                ["failures"] = failures,
+                ["failures"] = failures.Take(25).ToList(),
+                ["failures_total"] = failures.Count,
                 ["total"] = els.Count,
             };
             if (groupedWritten > 0) result["grouped_written"] = groupedWritten;
