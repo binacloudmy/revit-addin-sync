@@ -203,6 +203,21 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string Hint;
     }
 
+    // ─── ask_user structured clarify (2026-08-18) ───────────────────────────
+    public class ClarifyOptionModel
+    {
+        public string Label;
+        public string Description;
+    }
+
+    public class ClarifyQuestionModel
+    {
+        public string Question;
+        public string Header;        // ≤12-char category chip ("Skop", "Nilai")
+        public bool MultiSelect;
+        public List<ClarifyOptionModel> Options = new List<ClarifyOptionModel>();
+    }
+
     /// <summary>A chat thread message. The VM swaps Kind by replacing the item in the
     /// ObservableCollection (so the DataTemplate selector re-evaluates).</summary>
     public class ChatMessage
@@ -215,6 +230,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<Mention> Mentions = new List<Mention>();
         public string Question;      // clarify
         public List<ClarifyOption> Options = new List<ClarifyOption>();  // clarify
+        // Structured ask_user questions (2026-08-18): rendered as tappable
+        // option rows (single) / checkbox rows + Hantar (multi_select). The
+        // card OWNS ChoiceBatch (opaque RevitChatRouter.PendingHitl) so a tap
+        // resolves even after the router's parked field was cleared — same
+        // ownership pattern as PendingBatch on the confirm card.
+        public List<ClarifyQuestionModel> Questions;
+        public object ChoiceBatch;
+        public string ChoiceSummary;   // collapsed decision record after submit
         public ResultModel Result;   // result
         public string Code;          // proposal — generated C# (backend or catalog sample)
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English

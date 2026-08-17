@@ -1248,19 +1248,42 @@ namespace RevitWebAppSync.UI.Copilot
             // the question as a Clarify card; the user's NEXT message is routed
             // back into the paused run by the router (resume-input), so no
             // option chips are required — they type the answer in the prompt bar.
-            if (rr != null && rr.NeedsClarification && !string.IsNullOrWhiteSpace(rr.ClarifyingQuestion))
+            if (rr != null && rr.NeedsClarification
+                && (!string.IsNullOrWhiteSpace(rr.ClarifyingQuestion)
+                    || (rr.Choices != null && rr.Choices.Count > 0)))
             {
+                // Structured ask_user questions render as tappable option rows;
+                // free-text stays available via the prompt bar (the router's
+                // BuildAnswers treats a typed message as the Lain-lain escape).
+                var questions = new List<ClarifyQuestionModel>();
+                foreach (var req in rr.Choices ?? new List<RevitWebAppSync.Services.ChoiceRequirement>())
+                    foreach (var q in req.Questions ?? new List<RevitWebAppSync.Services.AskQuestionDto>())
+                        questions.Add(new ClarifyQuestionModel
+                        {
+                            Question = q.Question,
+                            Header = q.Header ?? "",
+                            MultiSelect = q.MultiSelect,
+                            Options = (q.Options ?? new List<RevitWebAppSync.Services.AskOptionDto>())
+                                .Select(o => new ClarifyOptionModel { Label = o.Label, Description = o.Description })
+                                .ToList(),
+                        });
                 ReplaceLastThinking(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.Clarify,
                     Question = rr.ClarifyingQuestion,
                     Options = new List<ClarifyOption>(),
+                    Questions = questions.Count > 0 ? questions : null,
+                    ChoiceBatch = rr.ChoiceBatch,
                     Steps = rr.Steps,
                 });
                 // Persist the clarify turn — without this the early return drops
                 // both the user's message and the question from History/Export
                 // (the user side is only ever saved paired with a bot reply).
-                AppendToCurrentSession(displayText, rr.ClarifyingQuestion, "ok", null, historyFiles);
+                AppendToCurrentSession(displayText,
+                    !string.IsNullOrWhiteSpace(rr.ClarifyingQuestion)
+                        ? rr.ClarifyingQuestion
+                        : string.Join(" | ", questions.Select(q => q.Question)),
+                    "ok", null, historyFiles);
                 return;
             }
 
@@ -1529,6 +1552,50 @@ namespace RevitWebAppSync.UI.Copilot
         // agent acknowledges without retrying. Either way the follow-on outcome
         // renders through RenderRouteResult — which may be the final reply,
         // ANOTHER confirm card (multi-round run), or a clarify question.
+        /// <summary>Submit tapped ask_user selections — {question -> labels}.
+        /// Collapses the card into a decision record, resumes the paused run
+        /// through the router (card-owned batch), renders the follow-on. Same
+        /// tail shape as RunResolution.</summary>
+        public async void SubmitChoiceSelections(ChatMessage m, Dictionary<string, List<string>> selections)
+        {
+            if (m == null || m.ActionsResolved || selections == null || selections.Count == 0) return;
+            m.ActionsResolved = true;
+            m.ChoiceSummary = string.Join(" · ", selections.Select(kv => string.Join(", ", kv.Value)));
+            int i = Thread.IndexOf(m);
+            if (i >= 0) Thread[i] = Thread[i];   // redraw: collapse the card into the record
+
+            var revitRouter = Router as RevitChatRouter;
+            if (revitRouter == null) return;
+            _lastSteps = null;
+            _lastReasoning = null;
+            Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Thinking…" });
+            HookStreaming(revitRouter);
+            IsSending = true;
+            RouteResult rr = null;
+            System.Exception submitError = null;
+            try { rr = await revitRouter.SubmitChoiceSelectionsAsync(selections, m.ChoiceBatch); }
+            catch (System.Exception ex) { rr = null; submitError = ex; }
+            finally
+            {
+                IsSending = false;
+                UnhookStreaming(revitRouter);
+            }
+            _ = RefreshUsageAsync();
+            if (rr == null)
+            {
+                ReplaceLastThinking(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply,
+                    Text = submitError != null
+                        ? "Ralat semasa menghantar jawapan: " + submitError.Message
+                        : "Soalan ini telah pun dijawab.",
+                    Time = System.DateTime.Now.ToString("h:mm tt"),
+                });
+                return;
+            }
+            RenderRouteResult(rr, LastPrompt, m.ChoiceSummary, "ai-generated", null);
+        }
+
         public void AcceptActions(ChatMessage m) => ResolveActions(m, approve: true);
 
         public void DeclineActions(ChatMessage m) => ResolveActions(m, approve: false);

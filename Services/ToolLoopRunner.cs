@@ -60,6 +60,9 @@ namespace RevitWebAppSync.Services
         public string RunId { get; set; }
         public string SessionId { get; set; }
         public List<ClarifyRequirement> Clarify { get; set; }
+        // Structured ask_user questions (options + multi_select) riding the
+        // same pause — rendered as tappable option rows by the pane.
+        public List<ChoiceRequirement> Choices { get; set; }
         // Mutate-confirmation pause: the pending batch would MODIFY the model,
         // so the loop parks BEFORE executing and the pane renders the Ya/Tidak
         // card. Re-enter via ResumeWithConfirmationAsync (approve executes the
@@ -311,6 +314,7 @@ namespace RevitWebAppSync.Services
                     outcome.RunId = turn.RunId;
                     outcome.SessionId = string.IsNullOrEmpty(turn.SessionId) ? sessionFallback : turn.SessionId;
                     outcome.Clarify = turn.Clarify;
+                    outcome.Choices = turn.Choices;
                     outcome.Reply = turn.Reply ?? "";
                     ProgressReducer.CompleteRunning(trail);
                     // Push the finalized trail so a live view never keeps showing

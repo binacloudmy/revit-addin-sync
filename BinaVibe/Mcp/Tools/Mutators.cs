@@ -127,6 +127,30 @@ namespace BinaVibe.Mcp.Tools
             catch (Exception ex) { return "could not enable vary-between-groups: " + ex.Message; }
         }
 
+        // WHY is this parameter read-only here? One-call diagnosis so the
+        // model reports the cause instead of burning rounds experimenting
+        // (measured 2026-08-18: 294 read-only walls → 20+ probing rounds,
+        // 3.69M input tokens). Detection order from the read-only research:
+        // duplicate same-named twin → stacked subwall → global-parameter
+        // association → corrupt binding.
+        private static string DiagnoseReadOnly(Document doc, Element e, string paramName)
+        {
+            try
+            {
+                var multi = e.GetParameters(paramName);
+                if (multi != null && multi.Count > 1)
+                    return $"element carries {multi.Count} parameters named '{paramName}' — the lookup returns a read-only twin (duplicate/built-in name collision); rebind or rename the duplicate parameter";
+                if (e is Wall w && w.IsStackedWallMember)
+                    return "stacked-wall subwall whose owner parameter is also unwritable";
+                var p = e.LookupParameter(paramName);
+                var gp = p?.GetAssociatedGlobalParameter();
+                if (gp != null && gp != ElementId.InvalidElementId)
+                    return "parameter is driven by a GLOBAL parameter — set the global parameter's value instead of the instances";
+                return "IsReadOnly with no detectable cause — likely a corrupt parameter binding; remove and re-add the project parameter binding for this category";
+            }
+            catch (Exception ex) { return "diagnosis failed: " + ex.Message; }
+        }
+
         // ─── fill_missing_parameter ─────────────────────────────────────
         // Write half of Inspectors.FindMissingParameter: fills parameter =
         // value on every category element whose value is EMPTY (instance AND
@@ -225,7 +249,10 @@ namespace BinaVibe.Mcp.Tools
                             else stackedViaOwner++;   // owner already carries the value — subwall inherits
                             continue;
                         }
-                        skippedReadOnly++; continue;
+                        skippedReadOnly++;
+                        if (!resultExtras.ContainsKey("readonly_diagnosis"))
+                            resultExtras["readonly_diagnosis"] = DiagnoseReadOnly(doc, e, paramName);
+                        continue;
                     }
                     try { SetParamValue(p, value); updated++; if (grouped) groupedWritten++; }
                     catch (Exception ex) { failures.Add(new { id = e.Id.Value, error = ex.Message }); }
@@ -312,6 +339,7 @@ namespace BinaVibe.Mcp.Tools
             var noSource = new List<object>();
             var failures = new List<object>();
             string groupedNote = null;
+            string readonlyDiagnosis = null;
 
             using var tx = new Transaction(doc, $"BinaVibe: propagate_parameter_by_name {paramName}");
             TxGuard.StartSwallowing(tx);
@@ -372,7 +400,10 @@ namespace BinaVibe.Mcp.Tools
                                 else stackedViaOwner++;
                                 continue;
                             }
-                            skippedReadOnly++; continue;
+                            skippedReadOnly++;
+                            if (readonlyDiagnosis == null)
+                                readonlyDiagnosis = DiagnoseReadOnly(doc, e, paramName);
+                            continue;
                         }
                         try { SetParamValue(p, value); updated++; wroteAny = true; if (grouped) groupedWritten++; }
                         catch (Exception ex) { failures.Add(new { id = e.Id.Value, error = ex.Message }); }
@@ -404,6 +435,7 @@ namespace BinaVibe.Mcp.Tools
             if (groupedWritten > 0) result["grouped_written"] = groupedWritten;
             if (groupedNote != null) result["grouped_note"] = groupedNote;
             if (stackedViaOwner > 0) result["stacked_via_owner"] = stackedViaOwner;
+            if (readonlyDiagnosis != null) result["readonly_diagnosis"] = readonlyDiagnosis;
             return result;
         }
 

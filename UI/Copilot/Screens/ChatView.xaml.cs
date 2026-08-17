@@ -1317,6 +1317,142 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 }
                 body.Children.Add(pilihanChips);
             }
+            // ─── ask_user structured questions (2026-08-18) ────────────────
+            // Claude-Code-style option rows: full-width stacked rows (narrow
+            // pane — never a wrapping chip strip), label + consequence
+            // description, ○/● radio for single-select, ☐/☑ + Hantar for
+            // multi_select. Single question + single-select submits on tap.
+            // Free text stays available: typing in the prompt bar answers the
+            // question (router BuildAnswers treats it as the Lain-lain escape).
+            if (m.Questions != null && m.Questions.Count > 0)
+            {
+                if (m.ActionsResolved)
+                {
+                    var done = new TextBlock
+                    {
+                        Text = "✓ " + (m.ChoiceSummary ?? "dijawab"),
+                        FontSize = 12, FontWeight = FontWeights.Medium,
+                        TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4),
+                    };
+                    done.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
+                    body.Children.Add(done);
+                }
+                else
+                {
+                    var selected = new System.Collections.Generic.Dictionary<ClarifyQuestionModel, System.Collections.Generic.HashSet<string>>();
+                    var rowMarks = new System.Collections.Generic.Dictionary<ClarifyQuestionModel, System.Collections.Generic.List<System.Tuple<Border, TextBlock, string>>>();
+                    foreach (var q0 in m.Questions)
+                    {
+                        selected[q0] = new System.Collections.Generic.HashSet<string>();
+                        rowMarks[q0] = new System.Collections.Generic.List<System.Tuple<Border, TextBlock, string>>();
+                    }
+                    bool instant = m.Questions.Count == 1 && !m.Questions[0].MultiSelect;
+                    Button hantarBtn = null;
+                    System.Action refreshHantar = () =>
+                    {
+                        if (hantarBtn != null)
+                            hantarBtn.IsEnabled = m.Questions.All(qq => selected[qq].Count > 0);
+                    };
+                    System.Action submit = () =>
+                    {
+                        if (m.Questions.Any(qq => selected[qq].Count == 0)) return;
+                        var sel = m.Questions.ToDictionary(qq => qq.Question, qq => selected[qq].ToList());
+                        Vm?.SubmitChoiceSelections(m, sel);
+                    };
+                    foreach (var q in m.Questions)
+                    {
+                        var qLocal = q;
+                        var qRow = new StackPanel { Margin = new Thickness(0, 2, 0, 8) };
+                        if (!string.IsNullOrWhiteSpace(q.Header))
+                        {
+                            var chip = new Border
+                            {
+                                CornerRadius = new CornerRadius(4), Background = CopilotColors.From("#eff6ff"),
+                                Padding = new Thickness(6, 2, 6, 2), HorizontalAlignment = HorizontalAlignment.Left,
+                                Margin = new Thickness(0, 0, 0, 4),
+                            };
+                            var chipText = new TextBlock { Text = q.Header, FontSize = 10.5, FontWeight = FontWeights.SemiBold };
+                            chipText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
+                            chip.Child = chipText;
+                            qRow.Children.Add(chip);
+                        }
+                        var qt = CopilotMessageBubble.MarkdownText(q.Question, 460);
+                        qt.Margin = new Thickness(0, 0, 0, 6);
+                        qRow.Children.Add(qt);
+                        foreach (var opt in q.Options ?? new System.Collections.Generic.List<ClarifyOptionModel>())
+                        {
+                            var optLocal = opt;
+                            var rowBorder = new Border
+                            {
+                                CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1),
+                                BorderBrush = CopilotColors.From("#140F1B2D"), Background = Brushes.Transparent,
+                                Margin = new Thickness(0, 0, 0, 5), Cursor = System.Windows.Input.Cursors.Hand,
+                                MinHeight = 40,
+                            };
+                            var g2 = new Grid();
+                            g2.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                            g2.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                            var mark = new TextBlock
+                            {
+                                Text = q.MultiSelect ? "☐" : "○", FontSize = 13,
+                                Foreground = CopilotColors.From("#99a3b3"),
+                                Margin = new Thickness(10, 9, 8, 8), VerticalAlignment = VerticalAlignment.Top,
+                            };
+                            Grid.SetColumn(mark, 0); g2.Children.Add(mark);
+                            var oc2 = new StackPanel { Margin = new Thickness(0, 8, 10, 8), VerticalAlignment = VerticalAlignment.Center };
+                            oc2.Children.Add(new TextBlock { Text = opt.Label, FontSize = 12, FontWeight = FontWeights.Medium, Foreground = CopilotColors.From("#131c2b"), TextWrapping = TextWrapping.Wrap });
+                            if (!string.IsNullOrWhiteSpace(opt.Description))
+                                oc2.Children.Add(new TextBlock { Text = opt.Description, FontSize = 10.5, Foreground = CopilotColors.From("#586273"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 1, 0, 0) });
+                            Grid.SetColumn(oc2, 1); g2.Children.Add(oc2);
+                            rowBorder.Child = g2;
+                            rowMarks[qLocal].Add(System.Tuple.Create(rowBorder, mark, optLocal.Label));
+                            rowBorder.MouseLeftButtonUp += (_, __) =>
+                            {
+                                if (m.ActionsResolved) return;
+                                var set = selected[qLocal];
+                                if (qLocal.MultiSelect)
+                                {
+                                    if (!set.Add(optLocal.Label)) set.Remove(optLocal.Label);
+                                }
+                                else
+                                {
+                                    set.Clear(); set.Add(optLocal.Label);
+                                }
+                                foreach (var t in rowMarks[qLocal])
+                                {
+                                    bool on = set.Contains(t.Item3);
+                                    t.Item2.Text = qLocal.MultiSelect ? (on ? "☑" : "☐") : (on ? "●" : "○");
+                                    t.Item2.Foreground = CopilotColors.From(on ? "#2563eb" : "#99a3b3");
+                                    t.Item1.BorderBrush = CopilotColors.From(on ? "#2563eb" : "#140F1B2D");
+                                    t.Item1.Background = on ? CopilotColors.From("#0D2563EB") : Brushes.Transparent;
+                                }
+                                refreshHantar();
+                                if (instant) submit();
+                            };
+                            qRow.Children.Add(rowBorder);
+                        }
+                        body.Children.Add(qRow);
+                    }
+                    if (!instant)
+                    {
+                        hantarBtn = new Button
+                        {
+                            Content = "Hantar", FontSize = 12, FontWeight = FontWeights.SemiBold,
+                            Padding = new Thickness(14, 6, 14, 6), Margin = new Thickness(0, 2, 0, 6),
+                            HorizontalAlignment = HorizontalAlignment.Left,
+                            Cursor = System.Windows.Input.Cursors.Hand, IsEnabled = false,
+                        };
+                        hantarBtn.Click += (_, __) => submit();
+                        body.Children.Add(hantarBtn);
+                    }
+                    body.Children.Add(new TextBlock
+                    {
+                        Text = "Atau taip jawapan anda sendiri di ruang mesej.",
+                        FontSize = 10.5, Foreground = CopilotColors.From("#99a3b3"),
+                        Margin = new Thickness(0, 0, 0, 2),
+                    });
+                }
+            }
             foreach (var o in m.Options)
             {
                 var tool = CopilotCatalog.Find(o.ToolId);

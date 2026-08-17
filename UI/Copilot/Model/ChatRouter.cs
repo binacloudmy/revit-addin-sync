@@ -38,6 +38,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // delete anything — Auto mode never fast-tracks it); defaults true
         // fail-safe. Meaningless unless Code is non-empty.
         public bool CodeRequiresConfirmation = true;
+        // Structured ask_user questions (2026-08-18): options + multi_select
+        // per question — the pane renders tappable option rows. ChoiceBatch is
+        // the card-owned opaque HITL batch (RevitChatRouter.PendingHitl) the
+        // submit passes back, same ownership pattern as PendingBatch below.
+        public List<ChoiceRequirement> Choices;
+        public object ChoiceBatch;
         // The parked MUTATE batch behind this confirmation card, as an opaque
         // handle (RevitChatRouter.PendingConfirm). The CARD owns its batch:
         // resolution passes this back so a Ya click still works after the

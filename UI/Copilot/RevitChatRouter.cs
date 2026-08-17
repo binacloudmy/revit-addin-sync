@@ -175,11 +175,17 @@ namespace RevitWebAppSync.UI.Copilot
         // the user's NEXT message is the answer (resumed via /tool/resume-input),
         // not a new command. Cleared on consume; a stale entry (server restart)
         // fails the resume and surfaces as a normal error reply.
-        private sealed class PendingHitl
+        internal sealed class PendingHitl
         {
             public string RunId;
             public string SessionId;
             public List<ClarifyRequirement> Clarify;
+            public List<ChoiceRequirement> Choices;
+            // One-shot claim, same rationale as PendingConfirm: a typed
+            // free-text answer and a tapped option submit must never resume
+            // the same requirement twice.
+            private int _claimed;
+            public bool TryClaim() => System.Threading.Interlocked.Exchange(ref _claimed, 1) == 0;
         }
         private PendingHitl _pendingHitl;
 
@@ -266,12 +272,15 @@ namespace RevitWebAppSync.UI.Copilot
                     RunId = outcome.RunId,
                     SessionId = outcome.SessionId,
                     Clarify = outcome.Clarify,
+                    Choices = outcome.Choices,
                 };
                 return new RouteResult
                 {
                     ToolId = "ai-generated",
                     NeedsClarification = true,
                     ClarifyingQuestion = ComposeClarifyQuestion(outcome),
+                    Choices = outcome.Choices,
+                    ChoiceBatch = _pendingHitl,
                     IsQuery = true,
                     Steps = outcome.Steps,
                 };
@@ -386,7 +395,84 @@ namespace RevitWebAppSync.UI.Copilot
                 }
                 answers.Add(a);
             }
+            // Typed message while an ask_user card is open = the free-text
+            // ("Lain-lain") escape: the text answers the FIRST question of
+            // each choice requirement (single-question cards in practice).
+            foreach (var req in h.Choices ?? new List<ChoiceRequirement>())
+            {
+                var a = new ClarifyAnswerDto { RequirementId = req.RequirementId };
+                foreach (var q in req.Questions ?? new List<AskQuestionDto>())
+                {
+                    if (!used) { a.Selections[q.Question] = new List<string> { message }; used = true; }
+                    else a.Selections[q.Question] = new List<string> { message };
+                }
+                answers.Add(a);
+            }
             return answers;
+        }
+
+        /// <summary>Resume an ask_user pause with TAPPED selections —
+        /// {question text -> selected labels}. Uses the CARD-OWNED batch
+        /// (survives router swaps/stale clears, one-shot claim) and the same
+        /// resume-input lane as a typed answer.</summary>
+        public async Task<RouteResult> SubmitChoiceSelectionsAsync(
+            Dictionary<string, List<string>> selections, object batch = null)
+        {
+            var hitl = (batch as PendingHitl) ?? _pendingHitl;
+            if (hitl == null) return null;
+            if (ReferenceEquals(hitl, _pendingHitl)) _pendingHitl = null;
+            if (!hitl.TryClaim())
+                return new RouteResult
+                {
+                    ToolId = "ai-generated", IsQuery = true,
+                    Reply = "Soalan ini telah pun dijawab. Hantar semula permintaan jika perlu.",
+                };
+
+            var answers = new List<ClarifyAnswerDto>();
+            foreach (var req in hitl.Choices ?? new List<ChoiceRequirement>())
+            {
+                var a = new ClarifyAnswerDto { RequirementId = req.RequirementId };
+                foreach (var q in req.Questions ?? new List<AskQuestionDto>())
+                    if (selections.TryGetValue(q.Question, out var picked) && picked != null && picked.Count > 0)
+                        a.Selections[q.Question] = picked;
+                if (a.Selections.Count > 0) answers.Add(a);
+            }
+            if (answers.Count == 0) return null;
+
+            var token = BinaConfig.Load()?.AccessToken ?? "";
+            EmitProgress("Thinking…");
+            CancellationTokenSource scts = new CancellationTokenSource();
+            lock (_cancelLock)
+            {
+                try { _streamCts?.Dispose(); } catch { }
+                _streamCts = scts;
+            }
+            ToolLoopOutcome so = null;
+            bool scanceled = false;
+            try
+            {
+                so = await _toolLoop.ResumeWithInputAsync(
+                    hitl.RunId, hitl.SessionId, answers, token, EmitProgress,
+                    scts.Token, onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
+                    onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } },
+                    onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } }
+                    ).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) { scanceled = true; }
+            catch (Exception ex) { so = new ToolLoopOutcome { Success = false, Error = ex.Message }; }
+            finally
+            {
+                if (scts.IsCancellationRequested) scanceled = true;
+                ClearProgress();
+                lock (_cancelLock)
+                {
+                    if (ReferenceEquals(_streamCts, scts)) _streamCts = null;
+                }
+                try { scts.Dispose(); } catch { }
+            }
+            if (scanceled)
+                return new RouteResult { ToolId = "ai-generated", Reply = "Interrupted.", IsQuery = true, Interrupted = true };
+            return ToolOutcomeToRoute(so);
         }
 
         /// <summary>Resolve the parked mutate-confirmation card. Ya (approve=true)
@@ -502,6 +588,7 @@ namespace RevitWebAppSync.UI.Copilot
             // The previous turn paused on get_user_input — THIS message is the
             // user's ANSWER, not a new command. Resume the paused run with it.
             var hitl = _pendingHitl;
+            if (hitl != null && !hitl.TryClaim()) { _pendingHitl = null; hitl = null; }   // spent by a tapped submit
             if (hitl != null)
             {
                 _pendingHitl = null;

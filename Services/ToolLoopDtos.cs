@@ -42,6 +42,10 @@ namespace RevitWebAppSync.Services
         [JsonPropertyName("tool_calls")] public List<ServerToolCall> ToolCalls { get; set; } = new();
         // Clarify requirements when the agent paused to ask the user (HITL).
         [JsonPropertyName("clarify")] public List<ClarifyRequirement> Clarify { get; set; } = new();
+        // Structured twin (2026-08-18): ask_user QUESTIONS with 2-4 options
+        // each — rendered as tappable option rows, answered via the same
+        // /tool/resume-input lane with `selections` keyed by question text.
+        [JsonPropertyName("choices")] public List<ChoiceRequirement> Choices { get; set; } = new();
         // Done-frame follow-up chips (0-3) — 2026-08-02 offer_actions spec.
         // Wire shape is now list[{label, prompt}], but an older backend can
         // still send plain strings; FollowupActionListConverter tolerates
@@ -172,6 +176,31 @@ namespace RevitWebAppSync.Services
     {
         [JsonPropertyName("requirement_id")] public string RequirementId { get; set; } = "";
         [JsonPropertyName("values")] public Dictionary<string, object> Values { get; set; } = new();
+        // ask_user answers: selected option labels (or free text via the
+        // Lain-lain escape) keyed by QUESTION TEXT — provide_user_feedback's
+        // contract backend-side.
+        [JsonPropertyName("selections")] public Dictionary<string, List<string>> Selections { get; set; } = new();
+    }
+
+    // ─── ask_user (structured clarify) wire shapes ──────────────────────────
+    public sealed class AskOptionDto
+    {
+        [JsonPropertyName("label")] public string Label { get; set; } = "";
+        [JsonPropertyName("description")] public string Description { get; set; } = "";
+    }
+
+    public sealed class AskQuestionDto
+    {
+        [JsonPropertyName("question")] public string Question { get; set; } = "";
+        [JsonPropertyName("header")] public string Header { get; set; } = "";
+        [JsonPropertyName("multi_select")] public bool MultiSelect { get; set; }
+        [JsonPropertyName("options")] public List<AskOptionDto> Options { get; set; } = new();
+    }
+
+    public sealed class ChoiceRequirement
+    {
+        [JsonPropertyName("requirement_id")] public string RequirementId { get; set; } = "";
+        [JsonPropertyName("questions")] public List<AskQuestionDto> Questions { get; set; } = new();
     }
 
     public sealed class PendingToolCall
