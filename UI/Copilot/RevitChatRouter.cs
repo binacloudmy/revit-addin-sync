@@ -82,7 +82,7 @@ namespace RevitWebAppSync.UI.Copilot
             // does not sit paused forever with its session unflushed.
             var parked = _pendingConfirm;
             _pendingConfirm = null;
-            if (parked != null)
+            if (parked != null && parked.TryClaim())
             {
                 var token = BinaConfig.Load()?.AccessToken ?? "";
                 _ = Task.Run(async () =>
@@ -188,7 +188,7 @@ namespace RevitWebAppSync.UI.Copilot
         // resolves via ResolvePendingActionsAsync; a NEW user message instead
         // auto-rejects the stale batch in the background (the paused run must be
         // resumed so session history stays coherent) and routes normally.
-        private sealed class PendingConfirm
+        internal sealed class PendingConfirm
         {
             public string RunId;
             public string SessionId;
@@ -196,6 +196,16 @@ namespace RevitWebAppSync.UI.Copilot
             public string Narration;
             public IReadOnlyList<ProgressStep> Steps;
             public IReadOnlyList<ReasoningStep> ReasoningSteps;
+            // One-shot resolution claim. EVERY path that resumes this batch
+            // (Ya/Tidak click, Auto mode, the stale-confirm auto-reject, and
+            // ResetSession's abandon reject) must claim it first — a batch may
+            // only be resumed ONCE, and the race loser gets told the truth
+            // instead of resuming twice (backend "run not found") or silently
+            // doing nothing (2026-08-18 UAT: Ya clicked → "Tiada tindakan
+            // tertunda", nothing executed — a background auto-reject had
+            // already spent the batch).
+            private int _claimed;
+            public bool TryClaim() => System.Threading.Interlocked.Exchange(ref _claimed, 1) == 0;
         }
         private PendingConfirm _pendingConfirm;
 
@@ -299,6 +309,10 @@ namespace RevitWebAppSync.UI.Copilot
                     // vacuously true — guard explicitly rather than rely on that).
                     AutoApprovable = outcome.PendingActions != null && outcome.PendingActions.Count > 0
                         && outcome.PendingActions.All(c => !c.RequiresConfirmation),
+                    // Card-owned batch: the SAME object as _pendingConfirm, so a
+                    // Ya click resolves THIS batch even if the router field was
+                    // cleared/swapped in the meantime (one-shot claim inside).
+                    PendingBatch = _pendingConfirm,
                 };
             }
             return new RouteResult
@@ -380,11 +394,20 @@ namespace RevitWebAppSync.UI.Copilot
         /// the run with rejected results so the agent acknowledges. Returns the
         /// follow-on RouteResult (done / another confirm card / clarify), or null
         /// when no confirmation is pending (double-click, stale card).</summary>
-        public async Task<RouteResult> ResolvePendingActionsAsync(bool approve)
+        public async Task<RouteResult> ResolvePendingActionsAsync(bool approve, object batch = null)
         {
-            var pc = _pendingConfirm;
+            // The card's own batch wins (survives router swaps and the stale
+            // path clearing the field); the router field is the legacy
+            // fallback for callers that predate card-owned batches.
+            var pc = (batch as PendingConfirm) ?? _pendingConfirm;
             if (pc == null) return null;
-            _pendingConfirm = null;
+            if (ReferenceEquals(pc, _pendingConfirm)) _pendingConfirm = null;
+            if (!pc.TryClaim())
+                return new RouteResult
+                {
+                    ToolId = "ai-generated", IsQuery = true,
+                    Reply = "Tindakan ini telah pun diselesaikan (mesej baru menolaknya sebelum klik sampai). Hantar semula permintaan untuk cuba lagi.",
+                };
 
             var cfg = BinaConfig.Load();
             var token = cfg?.AccessToken ?? "";
@@ -460,9 +483,9 @@ namespace RevitWebAppSync.UI.Copilot
             // session history the next turn reads is complete — then route the
             // new message normally. The VM kills the stale card's buttons.
             var staleConfirm = _pendingConfirm;
-            if (staleConfirm != null)
+            _pendingConfirm = null;   // spent or not, never leave a stale field behind
+            if (staleConfirm != null && staleConfirm.TryClaim())
             {
-                _pendingConfirm = null;
                 _ = Task.Run(async () =>
                 {
                     try

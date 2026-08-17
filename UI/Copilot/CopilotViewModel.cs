@@ -1292,6 +1292,10 @@ namespace RevitWebAppSync.UI.Copilot
                     ActionsResolved = auto,
                     ActionsApproved = auto ? (bool?)true : null,
                     AutoApproved = auto,
+                    // Card owns its batch: resolution works even if the
+                    // router's parked field is cleared by a newer message
+                    // before the click/auto-resolve lands (2026-08-18 UAT).
+                    PendingBatch = rr.PendingBatch,
                 };
                 ReplaceLastThinking(confirmMsg);
                 AppendToCurrentSession(displayText,
@@ -1562,8 +1566,9 @@ namespace RevitWebAppSync.UI.Copilot
             HookStreaming(revitRouter);
             IsSending = true;
             RouteResult rr = null;
-            try { rr = await revitRouter.ResolvePendingActionsAsync(approve); }
-            catch { rr = null; }
+            System.Exception resolveError = null;
+            try { rr = await revitRouter.ResolvePendingActionsAsync(approve, m.PendingBatch); }
+            catch (System.Exception ex) { rr = null; resolveError = ex; }
             finally
             {
                 IsSending = false;
@@ -1572,11 +1577,17 @@ namespace RevitWebAppSync.UI.Copilot
             _ = RefreshUsageAsync();
             if (rr == null)
             {
-                // Nothing pending (stale/double resolve) — drop the Thinking bubble.
+                // Two very different situations used to collapse into the same
+                // silent "Tiada tindakan tertunda." line (2026-08-18 UAT: Ya
+                // clicked, nothing executed, no evidence). Separate them:
+                // a resume that THREW gets its error surfaced; only a genuinely
+                // absent batch keeps the old wording.
                 ReplaceLastThinking(new ChatMessage
                 {
                     Role = "ai", Kind = CpMsgKind.AiReply,
-                    Text = approve ? "Tiada tindakan tertunda." : "Baik, tindakan itu dibatalkan.",
+                    Text = resolveError != null
+                        ? "Ralat semasa menjalankan tindakan — tiada apa yang dilaksanakan. (" + resolveError.Message + "). Cuba hantar semula permintaan."
+                        : (approve ? "Tiada tindakan tertunda." : "Baik, tindakan itu dibatalkan."),
                     Time = System.DateTime.Now.ToString("h:mm tt"),
                 });
                 return;

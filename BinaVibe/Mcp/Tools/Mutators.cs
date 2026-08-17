@@ -106,6 +106,27 @@ namespace BinaVibe.Mcp.Tools
             };
         }
 
+        // Make a parameter writable on GROUP MEMBERS: flip the definition's
+        // "values can vary by group instance" flag (The Building Coder 1960 /
+        // InternalDefinition.SetAllowVaryBetweenGroups). Only Text/Area/Volume/
+        // Currency/URL/Material INSTANCE params are eligible — an ineligible
+        // type throws ArgumentException, returned here as the reason string so
+        // the caller keeps skipping grouped elements and reports WHY instead
+        // of failing the batch. Must be called inside an open Transaction.
+        // NOTE: this is a one-time, project-wide schema change on the
+        // definition — after the flip each group instance's member owns its
+        // own value (exactly what a per-element fill wants).
+        private static string TryEnableVaryBetweenGroups(Document doc, Parameter sample)
+        {
+            var def = sample?.Definition as InternalDefinition;
+            if (def == null) return "parameter definition is not project/shared-bound — cannot vary between groups";
+            if (def.VariesAcrossGroups) return null;
+            try { def.SetAllowVaryBetweenGroups(doc, true); return null; }
+            catch (Autodesk.Revit.Exceptions.ArgumentException)
+            { return "parameter type cannot vary between groups (only Text/Area/Volume/Currency/URL/Material instance params are eligible)"; }
+            catch (Exception ex) { return "could not enable vary-between-groups: " + ex.Message; }
+        }
+
         // ─── fill_missing_parameter ─────────────────────────────────────
         // Write half of Inspectors.FindMissingParameter: fills parameter =
         // value on every category element whose value is EMPTY (instance AND
@@ -122,6 +143,7 @@ namespace BinaVibe.Mcp.Tools
             var value = ArgsHelp.GetValueRaw(args, "value") ?? throw new ArgumentException("missing value");
             var level = ArgsHelp.GetString(args, "level");
             var typeContains = ArgsHelp.GetString(args, "type_name_contains");
+            var includeGrouped = ArgsHelp.GetBool(args, "include_grouped") ?? false;
 
             var bic = Inspectors.ResolveCategoryRobust(doc, category)
                 ?? throw new ArgumentException($"category '{category}' not recognised");
@@ -154,23 +176,61 @@ namespace BinaVibe.Mcp.Tools
                     ["suggestions"] = Inspectors.SuggestParamNames(doc, els[0], paramName),
                 };
 
-            int updated = 0, alreadyFilled = 0, skippedGroups = 0, skippedReadOnly = 0, paramMissingOn = 0;
+            int updated = 0, alreadyFilled = 0, skippedGroups = 0, skippedReadOnly = 0, paramMissingOn = 0, groupedWritten = 0;
             var failures = new List<object>();
+            var resultExtras = new Dictionary<string, object?>();
+            string groupedNote = null;
 
             using var tx = new Transaction(doc, $"BinaVibe: fill_missing_parameter {paramName}");
             TxGuard.StartSwallowing(tx);
             try
             {
+                // Force lane ("masukkan jugak walaupun dalam group"): grouped
+                // members are writable once the definition varies between
+                // groups. Flip it here (one-time, inside this tx); if the
+                // param type is ineligible, fall back to skipping with the
+                // reason surfaced instead of erroring the whole fill.
+                if (includeGrouped)
+                {
+                    var sample = els.Select(e => e.LookupParameter(paramName)).FirstOrDefault(q => q != null);
+                    groupedNote = TryEnableVaryBetweenGroups(doc, sample);
+                    if (groupedNote != null) includeGrouped = false;
+                }
+
+                int stackedViaOwner = 0;
                 foreach (var e in els)
                 {
                     if (!string.IsNullOrWhiteSpace(Inspectors.ResolveParamValue(doc, e, paramName))) { alreadyFilled++; continue; }
-                    if (e.GroupId.Value != ElementId.InvalidElementId.Value) { skippedGroups++; continue; }
+                    var grouped = e.GroupId.Value != ElementId.InvalidElementId.Value;
+                    if (grouped && !includeGrouped) { skippedGroups++; continue; }
                     var p = e.LookupParameter(paramName);
                     if (p == null) { paramMissingOn++; continue; }   // type-only param — not writable per instance
-                    if (p.IsReadOnly) { skippedReadOnly++; continue; }
-                    try { SetParamValue(p, value); updated++; }
+                    if (p.IsReadOnly)
+                    {
+                        // Stacked-wall subwall: instance params are inherited
+                        // from the OWNER stacked wall and read-only by design
+                        // (measured 2026-08-18: 294 "read-only" walls = paired
+                        // 55mm brick + 20mm plaster subwalls). The correct
+                        // write target is the owner — not a forced write here.
+                        var ownerId = (e as Wall)?.StackedWallOwnerId ?? ElementId.InvalidElementId;
+                        var ownerP = ownerId != ElementId.InvalidElementId
+                            ? doc.GetElement(ownerId)?.LookupParameter(paramName) : null;
+                        if (ownerP != null && !ownerP.IsReadOnly)
+                        {
+                            if (string.IsNullOrWhiteSpace(ownerP.AsString() ?? ownerP.AsValueString()))
+                            {
+                                try { SetParamValue(ownerP, value); stackedViaOwner++; updated++; }
+                                catch (Exception ex) { failures.Add(new { id = e.Id.Value, error = "owner write: " + ex.Message }); }
+                            }
+                            else stackedViaOwner++;   // owner already carries the value — subwall inherits
+                            continue;
+                        }
+                        skippedReadOnly++; continue;
+                    }
+                    try { SetParamValue(p, value); updated++; if (grouped) groupedWritten++; }
                     catch (Exception ex) { failures.Add(new { id = e.Id.Value, error = ex.Message }); }
                 }
+                if (stackedViaOwner > 0) resultExtras["stacked_via_owner"] = stackedViaOwner;
                 tx.Commit();
             }
             catch
@@ -179,7 +239,7 @@ namespace BinaVibe.Mcp.Tools
                 throw;
             }
 
-            return new Dictionary<string, object?>
+            var result = new Dictionary<string, object?>
             {
                 ["ok"] = true,
                 ["updated"] = updated,
@@ -190,6 +250,10 @@ namespace BinaVibe.Mcp.Tools
                 ["failures"] = failures,
                 ["total"] = els.Count,
             };
+            if (groupedWritten > 0) result["grouped_written"] = groupedWritten;
+            if (groupedNote != null) result["grouped_note"] = groupedNote;
+            foreach (var kv in resultExtras) result[kv.Key] = kv.Value;
+            return result;
         }
 
         // ─── propagate_parameter_by_name ────────────────────────────────
@@ -206,6 +270,7 @@ namespace BinaVibe.Mcp.Tools
             var paramName = ArgsHelp.GetString(args, "parameter") ?? ArgsHelp.GetString(args, "param")
                 ?? throw new ArgumentException("missing parameter");
             var matchKey = ArgsHelp.GetString(args, "match_key") ?? "type_name";
+            var includeGrouped = ArgsHelp.GetBool(args, "include_grouped") ?? false;
 
             var bic = Inspectors.ResolveCategoryRobust(doc, category)
                 ?? throw new ArgumentException($"category '{category}' not recognised");
@@ -238,15 +303,24 @@ namespace BinaVibe.Mcp.Tools
 
             var groups = els.GroupBy(KeyOf).Where(g => !string.IsNullOrWhiteSpace(g.Key)).ToList();
 
-            int updated = 0, alreadyFilled = 0, groupsFilled = 0, skippedGroups = 0, skippedReadOnly = 0;
+            int updated = 0, alreadyFilled = 0, groupsFilled = 0, skippedGroups = 0, skippedReadOnly = 0, groupedWritten = 0, stackedViaOwner = 0;
             var conflicts = new List<object>();
             var noSource = new List<object>();
             var failures = new List<object>();
+            string groupedNote = null;
 
             using var tx = new Transaction(doc, $"BinaVibe: propagate_parameter_by_name {paramName}");
             TxGuard.StartSwallowing(tx);
             try
             {
+                // Same force lane as FillMissingParameter: grouped members are
+                // writable once the definition varies between groups.
+                if (includeGrouped)
+                {
+                    var sample = els.Select(e => e.LookupParameter(paramName)).FirstOrDefault(q => q != null);
+                    groupedNote = TryEnableVaryBetweenGroups(doc, sample);
+                    if (groupedNote != null) includeGrouped = false;
+                }
                 foreach (var g in groups)
                 {
                     var filledValues = g
@@ -273,11 +347,30 @@ namespace BinaVibe.Mcp.Tools
                     var wroteAny = false;
                     foreach (var e in blanks)
                     {
-                        if (e.GroupId.Value != ElementId.InvalidElementId.Value) { skippedGroups++; continue; }
+                        var grouped = e.GroupId.Value != ElementId.InvalidElementId.Value;
+                        if (grouped && !includeGrouped) { skippedGroups++; continue; }
                         var p = e.LookupParameter(paramName);
                         if (p == null) continue;                       // type-only param — not writable per instance
-                        if (p.IsReadOnly) { skippedReadOnly++; continue; }
-                        try { SetParamValue(p, value); updated++; wroteAny = true; }
+                        if (p.IsReadOnly)
+                        {
+                            // Stacked-wall subwall — write the OWNER instead
+                            // (same rationale as FillMissingParameter).
+                            var ownerId = (e as Wall)?.StackedWallOwnerId ?? ElementId.InvalidElementId;
+                            var ownerP = ownerId != ElementId.InvalidElementId
+                                ? doc.GetElement(ownerId)?.LookupParameter(paramName) : null;
+                            if (ownerP != null && !ownerP.IsReadOnly)
+                            {
+                                if (string.IsNullOrWhiteSpace(ownerP.AsString() ?? ownerP.AsValueString()))
+                                {
+                                    try { SetParamValue(ownerP, value); stackedViaOwner++; updated++; wroteAny = true; }
+                                    catch (Exception ex) { failures.Add(new { id = e.Id.Value, error = "owner write: " + ex.Message }); }
+                                }
+                                else stackedViaOwner++;
+                                continue;
+                            }
+                            skippedReadOnly++; continue;
+                        }
+                        try { SetParamValue(p, value); updated++; wroteAny = true; if (grouped) groupedWritten++; }
                         catch (Exception ex) { failures.Add(new { id = e.Id.Value, error = ex.Message }); }
                     }
                     if (wroteAny) groupsFilled++;
@@ -290,7 +383,7 @@ namespace BinaVibe.Mcp.Tools
                 throw;
             }
 
-            return new Dictionary<string, object?>
+            var result = new Dictionary<string, object?>
             {
                 ["ok"] = true,
                 ["updated"] = updated,
@@ -303,6 +396,10 @@ namespace BinaVibe.Mcp.Tools
                 ["failures"] = failures,
                 ["total"] = els.Count,
             };
+            if (groupedWritten > 0) result["grouped_written"] = groupedWritten;
+            if (groupedNote != null) result["grouped_note"] = groupedNote;
+            if (stackedViaOwner > 0) result["stacked_via_owner"] = stackedViaOwner;
+            return result;
         }
 
         // ─── set_type_parameter ─────────────────────────────────────────

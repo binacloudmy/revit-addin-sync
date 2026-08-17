@@ -280,6 +280,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public string PendingCodeRoutePrompt;
         public string PendingCodeDisplayPrompt;
         public List<HistoryFile> PendingCodeHistoryFiles;
+        // Card-owned MUTATE batch (opaque RevitChatRouter.PendingConfirm).
+        // Ya/Tidak resolves against THIS, not the router's parked field — a
+        // click must still work after a newer message or router swap cleared
+        // the field (2026-08-18 UAT: Ya → "Tiada tindakan tertunda").
+        public object PendingBatch;
 
         // ─── Streaming reasoning timeline (2026-08-02 copilot-reasoning-ui spec) ──
         // Persisted trail — set once the turn finishes, so a completed AiReply/

@@ -38,6 +38,14 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // delete anything — Auto mode never fast-tracks it); defaults true
         // fail-safe. Meaningless unless Code is non-empty.
         public bool CodeRequiresConfirmation = true;
+        // The parked MUTATE batch behind this confirmation card, as an opaque
+        // handle (RevitChatRouter.PendingConfirm). The CARD owns its batch:
+        // resolution passes this back so a Ya click still works after the
+        // router's own parked field was cleared by a newer message or a router
+        // swap — the 2026-08-18 UAT dead-end ("Tiada tindakan tertunda" on Ya,
+        // batch silently auto-rejected). Meaningless unless
+        // NeedsActionConfirmation is true.
+        public object PendingBatch;
     }
 
     /// <summary>
