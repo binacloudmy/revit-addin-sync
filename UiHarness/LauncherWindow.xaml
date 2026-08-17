@@ -7,6 +7,7 @@
         <TextBlock Text="Open a window with mock data:" Margin="0,0,0,8"/>
         <Button Content="Login" Click="OpenLogin" Margin="0,4" Padding="8,6"/>
         <Button Content="Project Picker" Click="OpenProjectPicker" Margin="0,4" Padding="8,6"/>
+        <Button Content="Discipline Picker" Click="OpenDisciplinePicker" Margin="0,4" Padding="8,6"/>
         <Button Content="Sync Results" Click="OpenSyncResults" Margin="0,4" Padding="8,6"/>
         <Button Content="Download Results" Click="OpenDownloadResults" Margin="0,4" Padding="8,6"/>
         <Button Content="User Info" Click="OpenUserInfo" Margin="0,4" Padding="8,6"/>

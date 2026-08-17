@@ -49,6 +49,14 @@
          dependency. -->
     <Compile Include="..\Helpers\WpfAppBootstrap.cs" Link="WpfAppBootstrap.cs" />
     <Compile Include="..\Services\JkrCodeParser.cs" Link="JkrCodeParser.cs" />
+    <!-- DisciplinePrefixMatcher + the BimDiscipline DTO it matches against:
+         pure logic (System only, no WPF/Revit) — filename-prefix matching for
+         the registry-driven discipline list, split out precisely so the
+         ShortCode/Code fallback and the HVAC->Mechanical legacy alias are
+         testable here. BimDisciplineModels.cs also declares BimDisciplineFile/
+         BimDisciplineModels, which are fine to pull in unused. -->
+    <Compile Include="..\BimDisciplineModels.cs" Link="BimDisciplineModels.cs" />
+    <Compile Include="..\DisciplinePrefixMatcher.cs" Link="DisciplinePrefixMatcher.cs" />
     <!-- TableCsv: pure CSV serializer + filename slug for the Download-CSV
          button under AI tables (System + Regex only, no WPF/Revit). -->
     <Compile Include="..\Helpers\TableCsv.cs" Link="TableCsv.cs" />

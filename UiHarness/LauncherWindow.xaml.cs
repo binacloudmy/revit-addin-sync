@@ -36,6 +36,21 @@ namespace UiHarness
         private void OpenProjectPicker(object sender, RoutedEventArgs e) =>
             Open(() => new ProjectPickerWindow("harness-fake-token"));
 
+        // Mock registry: the 6 system disciplines plus one custom discipline,
+        // so the picker's scrollable list (vs. the old 4-CommandLink cap) is
+        // visible in the harness.
+        private void OpenDisciplinePicker(object sender, RoutedEventArgs e) =>
+            Open(() => new DisciplinePickerWindow(new List<BimDiscipline>
+            {
+                new BimDiscipline { Id = 1, Code = "Architecture", Name = "Architecture", ShortCode = "AR", Color = "#1890ff", SortOrder = 1, IsSystem = true },
+                new BimDiscipline { Id = 2, Code = "Structure", Name = "Structure", ShortCode = "ST", Color = "#52c41a", SortOrder = 2, IsSystem = true },
+                new BimDiscipline { Id = 3, Code = "Mechanical", Name = "Mechanical", ShortCode = "ME", Color = "#faad14", SortOrder = 3, IsSystem = true },
+                new BimDiscipline { Id = 4, Code = "Electrical", Name = "Electrical", ShortCode = "EL", Color = "#eb2f96", SortOrder = 4, IsSystem = true },
+                new BimDiscipline { Id = 5, Code = "Civil", Name = "Civil", ShortCode = "CV", Color = "#13c2c2", SortOrder = 5, IsSystem = true },
+                new BimDiscipline { Id = 6, Code = "MainFile", Name = "Coordinated Model", ShortCode = "MF", Color = "#722ed1", SortOrder = 6, IsSystem = true },
+                new BimDiscipline { Id = 7, Code = "FireProtection", Name = "Fire Protection", ShortCode = "FP", Color = "#f5222d", SortOrder = 7, IsSystem = false },
+            }, "Hospital_FireProtection.rvt"));
+
         private void OpenSyncResults(object sender, RoutedEventArgs e) =>
             Open(() => new SyncResultsWindow(new SyncResultData
             {
