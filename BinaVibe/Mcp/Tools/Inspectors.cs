@@ -1314,7 +1314,14 @@ namespace BinaVibe.Mcp.Tools
 
             ICollection<ElementId> ids = matched.Select(e => e.Id).ToList();
             uidoc.Selection.SetElementIds(ids);
-            try { uidoc.ShowElements(ids); } catch { /* view may not show them */ }
+            // A schedule/non-graphical active view renders no highlight and no
+            // isolate — switch to an open canvas first (UAT 2026-08-18:
+            // "renders nothing" while the drafter was reading the schedule).
+            var canvas = RevitWebAppSync.Services.TurnReceiptService.EnsureGraphicalView(uidoc, doc);
+            if (canvas == null)
+            {
+                try { uidoc.ShowElements(ids); } catch { /* view may not show them */ }
+            }
 
             if (isolate)
             {

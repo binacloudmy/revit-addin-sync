@@ -217,12 +217,32 @@ namespace RevitWebAppSync.Services
 
         // ─── visuals ────────────────────────────────────────────────────────
 
+        /// <summary>A highlight needs a canvas. Measured UAT 2026-08-18: the
+        /// drafter clicked [Tunjuk semula] while READING the Kontraktor
+        /// schedule — selection landed invisibly, zoom no-oped, "renders
+        /// nothing". When the active view is non-graphical (schedule/sheet
+        /// list/etc), switch to an already-open graphical view first; returns
+        /// null when none is open (caller falls back to ShowElements, which
+        /// hunts for a good view itself).</summary>
+        internal static View EnsureGraphicalView(UIDocument uidoc, Document doc)
+        {
+            var view = doc.ActiveView;
+            if (view is ViewPlan || view is View3D || view is ViewSection) return view;
+            var target = uidoc.GetOpenUIViews()
+                .Select(v => doc.GetElement(v.ViewId) as View)
+                .FirstOrDefault(v => v != null && !v.IsTemplate
+                    && (v is ViewPlan || v is View3D || v is ViewSection));
+            if (target == null) return null;
+            try { uidoc.ActiveView = target; return target; } catch { return null; }
+        }
+
         private static void FlashAndZoom(UIDocument uidoc, Document doc, List<ElementId> ids)
         {
             try { uidoc.Selection.SetElementIds(ids); } catch { }
             try
             {
-                var view = doc.ActiveView;
+                var view = EnsureGraphicalView(uidoc, doc);
+                if (view == null) { try { uidoc.ShowElements(ids); } catch { } return; }
                 BoundingBoxXYZ union = null;
                 foreach (var id in ids)
                 {
