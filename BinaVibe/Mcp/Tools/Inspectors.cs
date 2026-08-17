@@ -924,7 +924,10 @@ namespace BinaVibe.Mcp.Tools
             if (v.HasValue) d[key] = v.Value;
         }
 
-        private static bool PredicateMatches(Element el, Document doc, string? predicate)
+        // internal (was private): SelectByFilter and Mutators.SetWorksetBulk
+        // reuse the exact same predicate semantics as find_elements_by_filter
+        // so a select and a find can never disagree about what matches.
+        internal static bool PredicateMatches(Element el, Document doc, string? predicate)
         {
             if (string.IsNullOrWhiteSpace(predicate)) return true;
             // Tiny predicate language: "type_name=JKR-Partition-100mm",
@@ -1215,10 +1218,173 @@ namespace BinaVibe.Mcp.Tools
                     ["level"] = doc.GetElement(e.LevelId)?.Name,
                 });
             }
-            return new Dictionary<string, object?>
+            // missing == total with the parameter absent everywhere means the
+            // NAME is wrong (asked "detail kontraktor", real column is
+            // "Kontraktor_jkr_sit") — surface that instead of a 100%-empty lie.
+            var paramExists = els.Any(e =>
+            {
+                if (e.LookupParameter(param) != null) return true;
+                var t = e.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(e.GetTypeId()) : null;
+                return t?.LookupParameter(param) != null;
+            });
+            var result = new Dictionary<string, object?>
             {
                 ["ok"] = true, ["category"] = category, ["parameter"] = param,
                 ["missing"] = missing.Count, ["total"] = els.Count, ["elements"] = missing,
+                ["param_exists"] = paramExists,
+            };
+            if (!paramExists && els.Count > 0)
+                result["suggestions"] = SuggestParamNames(doc, els[0], param);
+            return result;
+        }
+
+        // Closest real parameter names on a sample element (instance + type),
+        // ranked by character-bigram overlap with the asked-for name. Shared
+        // by find_missing_parameter and Mutators.FillMissingParameter for the
+        // wrong-param-name guard.
+        internal static List<string> SuggestParamNames(Document doc, Element sample, string query)
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            void Collect(Element? el)
+            {
+                if (el == null) return;
+                foreach (Parameter q in el.Parameters)
+                {
+                    var n = q.Definition?.Name;
+                    if (!string.IsNullOrWhiteSpace(n)) names.Add(n!);
+                }
+            }
+            Collect(sample);
+            Collect(sample.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(sample.GetTypeId()) : null);
+
+            static HashSet<string> Bigrams(string s)
+            {
+                s = s.ToLowerInvariant().Replace("_", " ");
+                var h = new HashSet<string>();
+                for (int i = 0; i + 1 < s.Length; i++) h.Add(s.Substring(i, 2));
+                return h;
+            }
+            var qb = Bigrams(query);
+            return names
+                .Select(n => { var nb = Bigrams(n); var inter = nb.Count(b => qb.Contains(b)); return (n, score: qb.Count + nb.Count == 0 ? 0.0 : (double)inter / (qb.Count + nb.Count - inter)); })
+                .OrderByDescending(x => x.score).ThenBy(x => x.n, StringComparer.OrdinalIgnoreCase)
+                .Take(5).Select(x => x.n).ToList();
+        }
+
+        // ─── select_by_filter ───────────────────────────────────────────
+        // One-shot predicate → UI select/isolate. Exists because the
+        // find→ids→select relay truncates at 100 ids (measured 2026-08-17:
+        // an isolate ask burned 5 turns relaying ids). No cap here — the
+        // ids never leave the process.
+        public static Dictionary<string, object?> SelectByFilter(UIDocument uidoc, JsonElement args)
+        {
+            var doc = uidoc.Document;
+            var category = TryGetString(args, "category") ?? "";
+            var predicate = TryGetString(args, "predicate");
+            var isolate = args.TryGetProperty("isolate", out var iso) && iso.ValueKind == JsonValueKind.True;
+
+            var bic = ResolveCategoryRobust(doc, category);
+            if (bic == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
+
+            var matched = new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType()
+                .Where(el => PredicateMatches(el, doc, predicate)).ToList();
+            if (matched.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = true, ["matched"] = 0, ["selected"] = 0, ["isolated"] = false };
+
+            ICollection<ElementId> ids = matched.Select(e => e.Id).ToList();
+            uidoc.Selection.SetElementIds(ids);
+            try { uidoc.ShowElements(ids); } catch { /* view may not show them */ }
+
+            if (isolate)
+            {
+                var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
+                using var tx = new Transaction(doc, "BinaVibe: select_by_filter isolate");
+                TxGuard.StartSwallowing(tx);
+                try { view.IsolateElementsTemporary(ids); tx.Commit(); }
+                catch { tx.RollBack(); throw; }
+            }
+
+            Dictionary<string, int> CountBy(Func<Element, string?> key) =>
+                matched.GroupBy(e => key(e) ?? "(none)").ToDictionary(g => g.Key, g => g.Count());
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["matched"] = matched.Count,
+                ["selected"] = matched.Count,
+                ["isolated"] = isolate,
+                ["by_type"] = CountBy(e => e.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(e.GetTypeId())?.Name : null),
+                ["by_level"] = CountBy(e => e.LevelId.Value != ElementId.InvalidElementId.Value ? doc.GetElement(e.LevelId)?.Name : null),
+            };
+        }
+
+        // ─── reset_temporary_hide ───────────────────────────────────────
+        public static Dictionary<string, object?> ResetTemporaryHide(Document doc)
+        {
+            var view = doc.ActiveView ?? throw new InvalidOperationException("no active view");
+            using var tx = new Transaction(doc, "BinaVibe: reset_temporary_hide");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                view.DisableTemporaryViewMode(TemporaryViewMode.TemporaryHideIsolate);
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+            return new Dictionary<string, object?> { ["ok"] = true, ["view"] = view.Name };
+        }
+
+        // ─── export_parameters_to_excel ─────────────────────────────────
+        // Read half of the Excel roundtrip: one row per element, element_id
+        // first (the write-back key apply_parameter_import addresses), then
+        // informational type_name/level, then one column per requested
+        // param via the same ResolveParamValue as the find/fill family.
+        public static Dictionary<string, object?> ExportParametersToExcel(Document doc, JsonElement args)
+        {
+            var category = TryGetString(args, "category") ?? "";
+            var level = TryGetString(args, "level");
+            var paramNames = new List<string>();
+            if (args.TryGetProperty("param_names", out var pn) && pn.ValueKind == JsonValueKind.Array)
+                foreach (var item in pn.EnumerateArray())
+                    if (item.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(item.GetString()))
+                        paramNames.Add(item.GetString()!);
+            if (paramNames.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "param_names is empty" };
+
+            var bic = ResolveCategoryRobust(doc, category);
+            if (bic == null)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"category '{category}' not recognised" };
+
+            var els = new FilteredElementCollector(doc).OfCategory(bic.Value).WhereElementIsNotElementType().ToList();
+            if (!string.IsNullOrWhiteSpace(level))
+                els = els.Where(e => string.Equals(doc.GetElement(e.LevelId)?.Name, level, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            string fileName = SanitizeFileName(category + "_parameters") + ".xlsx";
+            string dir = Environment.GetFolderPath(Environment.SpecialFolder.Desktop);
+            string path = System.IO.Path.Combine(dir, fileName);
+            using (var wb = new ClosedXML.Excel.XLWorkbook())
+            {
+                var ws = wb.Worksheets.Add("Sheet1");
+                var headers = new List<string> { "element_id", "type_name", "level" };
+                headers.AddRange(paramNames);
+                for (int c = 0; c < headers.Count; c++) ws.Cell(1, c + 1).Value = headers[c];
+                for (int r = 0; r < els.Count; r++)
+                {
+                    var e = els[r];
+                    var typeEl = e.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(e.GetTypeId()) : null;
+                    ws.Cell(r + 2, 1).Value = e.Id.Value;
+                    ws.Cell(r + 2, 2).Value = typeEl?.Name ?? "";
+                    ws.Cell(r + 2, 3).Value = doc.GetElement(e.LevelId)?.Name ?? "";
+                    for (int c = 0; c < paramNames.Count; c++)
+                        ws.Cell(r + 2, c + 4).Value = ResolveParamValue(doc, e, paramNames[c]);
+                }
+                wb.SaveAs(path);
+            }
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["kind"] = "file", ["headline"] = fileName,
+                ["path"] = dir, ["sub"] = els.Count + " rows · " + category,
+                ["full_path"] = path, ["rows"] = els.Count,
             };
         }
 

@@ -106,6 +106,867 @@ namespace BinaVibe.Mcp.Tools
             };
         }
 
+        // ─── fill_missing_parameter ─────────────────────────────────────
+        // Write half of Inspectors.FindMissingParameter: fills parameter =
+        // value on every category element whose value is EMPTY (instance AND
+        // type checked via the same ResolveParamValue, so find and fill can
+        // never disagree about what "missing" means). Enumerates server-side
+        // on purpose — chat-side query results truncate at 100 ids, so an
+        // explicit-id contract (set_parameter_bulk) can never cover a
+        // category-wide fill (2026-08-17: 1458 walls, "masukkan kontraktor").
+        public static Dictionary<string, object?> FillMissingParameter(Document doc, JsonElement args)
+        {
+            var category = ArgsHelp.GetString(args, "category") ?? throw new ArgumentException("missing category");
+            var paramName = ArgsHelp.GetString(args, "parameter") ?? ArgsHelp.GetString(args, "param")
+                ?? throw new ArgumentException("missing parameter");
+            var value = ArgsHelp.GetValueRaw(args, "value") ?? throw new ArgumentException("missing value");
+            var level = ArgsHelp.GetString(args, "level");
+            var typeContains = ArgsHelp.GetString(args, "type_name_contains");
+
+            var bic = Inspectors.ResolveCategoryRobust(doc, category)
+                ?? throw new ArgumentException($"category '{category}' not recognised");
+
+            var els = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType().ToList();
+            if (!string.IsNullOrWhiteSpace(level))
+                els = els.Where(e => string.Equals(doc.GetElement(e.LevelId)?.Name, level, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (!string.IsNullOrWhiteSpace(typeContains))
+                els = els.Where(e =>
+                {
+                    var t = e.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(e.GetTypeId()) : null;
+                    return t?.Name != null && t.Name.IndexOf(typeContains, StringComparison.OrdinalIgnoreCase) >= 0;
+                }).ToList();
+
+            // Existence guard: a parameter no element carries is a WRONG NAME
+            // ("detail kontraktor" vs the real schedule column
+            // "Kontraktor_jkr_sit"), not a 100%-empty audit. Refuse and offer
+            // real names instead of silently filling nothing.
+            var anyHasParam = els.Any(e =>
+            {
+                if (e.LookupParameter(paramName) != null) return true;
+                var t = e.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(e.GetTypeId()) : null;
+                return t?.LookupParameter(paramName) != null;
+            });
+            if (els.Count > 0 && !anyHasParam)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"parameter '{paramName}' does not exist on any {category} element or type — the name is wrong",
+                    ["suggestions"] = Inspectors.SuggestParamNames(doc, els[0], paramName),
+                };
+
+            int updated = 0, alreadyFilled = 0, skippedGroups = 0, skippedReadOnly = 0, paramMissingOn = 0;
+            var failures = new List<object>();
+
+            using var tx = new Transaction(doc, $"BinaVibe: fill_missing_parameter {paramName}");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var e in els)
+                {
+                    if (!string.IsNullOrWhiteSpace(Inspectors.ResolveParamValue(doc, e, paramName))) { alreadyFilled++; continue; }
+                    if (e.GroupId.Value != ElementId.InvalidElementId.Value) { skippedGroups++; continue; }
+                    var p = e.LookupParameter(paramName);
+                    if (p == null) { paramMissingOn++; continue; }   // type-only param — not writable per instance
+                    if (p.IsReadOnly) { skippedReadOnly++; continue; }
+                    try { SetParamValue(p, value); updated++; }
+                    catch (Exception ex) { failures.Add(new { id = e.Id.Value, error = ex.Message }); }
+                }
+                tx.Commit();
+            }
+            catch
+            {
+                tx.RollBack();
+                throw;
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["updated"] = updated,
+                ["already_filled"] = alreadyFilled,
+                ["skipped_groups"] = skippedGroups,
+                ["skipped_readonly"] = skippedReadOnly,
+                ["param_missing_on"] = paramMissingOn,
+                ["failures"] = failures,
+                ["total"] = els.Count,
+            };
+        }
+
+        // ─── propagate_parameter_by_name ────────────────────────────────
+        // "Schedule as mapping table": some rows of a schedule already carry
+        // the value, the blank rows should inherit it from rows with the
+        // SAME name. Groups category elements by match_key ("type_name" or a
+        // parameter display name like "Mark"), then copies each group's
+        // filled value onto that group's empty elements. Same
+        // ResolveParamValue empty-semantics as find/fill; groups whose filled
+        // elements disagree get NOTHING written (reported as conflicts).
+        public static Dictionary<string, object?> PropagateParameterByName(Document doc, JsonElement args)
+        {
+            var category = ArgsHelp.GetString(args, "category") ?? throw new ArgumentException("missing category");
+            var paramName = ArgsHelp.GetString(args, "parameter") ?? ArgsHelp.GetString(args, "param")
+                ?? throw new ArgumentException("missing parameter");
+            var matchKey = ArgsHelp.GetString(args, "match_key") ?? "type_name";
+
+            var bic = Inspectors.ResolveCategoryRobust(doc, category)
+                ?? throw new ArgumentException($"category '{category}' not recognised");
+
+            var els = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType().ToList();
+
+            var anyHasParam = els.Any(e =>
+            {
+                if (e.LookupParameter(paramName) != null) return true;
+                var t = e.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(e.GetTypeId()) : null;
+                return t?.LookupParameter(paramName) != null;
+            });
+            if (els.Count > 0 && !anyHasParam)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"parameter '{paramName}' does not exist on any {category} element or type — the name is wrong",
+                    ["suggestions"] = Inspectors.SuggestParamNames(doc, els[0], paramName),
+                };
+
+            string KeyOf(Element e)
+            {
+                if (string.Equals(matchKey, "type_name", StringComparison.OrdinalIgnoreCase))
+                {
+                    var t = e.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(e.GetTypeId()) : null;
+                    return t?.Name ?? "";
+                }
+                return Inspectors.ResolveParamValue(doc, e, matchKey);
+            }
+
+            var groups = els.GroupBy(KeyOf).Where(g => !string.IsNullOrWhiteSpace(g.Key)).ToList();
+
+            int updated = 0, alreadyFilled = 0, groupsFilled = 0, skippedGroups = 0, skippedReadOnly = 0;
+            var conflicts = new List<object>();
+            var noSource = new List<object>();
+            var failures = new List<object>();
+
+            using var tx = new Transaction(doc, $"BinaVibe: propagate_parameter_by_name {paramName}");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var g in groups)
+                {
+                    var filledValues = g
+                        .Select(e => Inspectors.ResolveParamValue(doc, e, paramName))
+                        .Where(v => !string.IsNullOrWhiteSpace(v))
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+                    var blanks = g.Where(e => string.IsNullOrWhiteSpace(Inspectors.ResolveParamValue(doc, e, paramName))).ToList();
+                    alreadyFilled += g.Count() - blanks.Count;
+
+                    if (filledValues.Count == 0)
+                    {
+                        if (blanks.Count > 0) noSource.Add(new { key = g.Key, count = blanks.Count });
+                        continue;
+                    }
+                    if (filledValues.Count > 1)
+                    {
+                        conflicts.Add(new { key = g.Key, values = filledValues, count = blanks.Count });
+                        continue;
+                    }
+                    if (blanks.Count == 0) continue;
+
+                    var value = filledValues[0];
+                    var wroteAny = false;
+                    foreach (var e in blanks)
+                    {
+                        if (e.GroupId.Value != ElementId.InvalidElementId.Value) { skippedGroups++; continue; }
+                        var p = e.LookupParameter(paramName);
+                        if (p == null) continue;                       // type-only param — not writable per instance
+                        if (p.IsReadOnly) { skippedReadOnly++; continue; }
+                        try { SetParamValue(p, value); updated++; wroteAny = true; }
+                        catch (Exception ex) { failures.Add(new { id = e.Id.Value, error = ex.Message }); }
+                    }
+                    if (wroteAny) groupsFilled++;
+                }
+                tx.Commit();
+            }
+            catch
+            {
+                tx.RollBack();
+                throw;
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["updated"] = updated,
+                ["groups_filled"] = groupsFilled,
+                ["conflicts"] = conflicts,
+                ["no_source"] = noSource,
+                ["already_filled"] = alreadyFilled,
+                ["skipped_groups"] = skippedGroups,
+                ["skipped_readonly"] = skippedReadOnly,
+                ["failures"] = failures,
+                ["total"] = els.Count,
+            };
+        }
+
+        // ─── set_type_parameter ─────────────────────────────────────────
+        // Type-level fix the instance-param family (fill/propagate) points
+        // at via param_missing_on: edits a TYPE parameter addressed by type
+        // NAME — the model never holds type element ids. One write changes
+        // every placed instance, so the result carries instances_affected
+        // (the blast radius the model must report).
+        public static Dictionary<string, object?> SetTypeParameter(Document doc, JsonElement args)
+        {
+            var category = ArgsHelp.GetString(args, "category") ?? throw new ArgumentException("missing category");
+            var typeName = ArgsHelp.GetString(args, "type_name") ?? throw new ArgumentException("missing type_name");
+            var paramName = ArgsHelp.GetString(args, "param") ?? ArgsHelp.GetString(args, "parameter")
+                ?? throw new ArgumentException("missing param/parameter");
+            var value = ArgsHelp.GetValueRaw(args, "value");
+
+            var bic = Inspectors.ResolveCategoryRobust(doc, category)
+                ?? throw new ArgumentException($"category '{category}' not recognised");
+
+            var types = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsElementType().ToList();
+
+            // Name resolution, strictest first: exact, then the segment after
+            // the last " @ " (inspectors render types as "family @ type"),
+            // then contains. Ambiguity is an answer, not a guess.
+            List<Element> Match(string needle) =>
+                types.Where(t => string.Equals(t.Name, needle, StringComparison.OrdinalIgnoreCase)).ToList();
+            var matched = Match(typeName);
+            if (matched.Count == 0 && typeName.Contains(" @ "))
+                matched = Match(typeName.Substring(typeName.LastIndexOf(" @ ", StringComparison.Ordinal) + 3));
+            if (matched.Count == 0)
+                matched = types.Where(t => t.Name.IndexOf(typeName, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+            if (matched.Count == 0)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"no {category} type named '{typeName}'",
+                    ["candidates"] = types.Select(t => t.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).Take(20).ToList(),
+                };
+            if (matched.Count > 1)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"type_name '{typeName}' is ambiguous ({matched.Count} matches) — retry with the exact name",
+                    ["candidates"] = matched.Select(t => t.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).Take(20).ToList(),
+                };
+
+            var typeEl = matched[0];
+            var p = typeEl.LookupParameter(paramName);
+            if (p == null)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false,
+                    ["error"] = $"parameter '{paramName}' not on type '{typeEl.Name}' — the name is wrong",
+                    ["suggestions"] = Inspectors.SuggestParamNames(doc, typeEl, paramName),
+                };
+            if (p.IsReadOnly) throw new InvalidOperationException($"parameter {paramName} is read-only on type '{typeEl.Name}'");
+
+            var instances = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType()
+                .Count(e => e.GetTypeId() == typeEl.Id);
+
+            using var tx = new Transaction(doc, $"BinaVibe: set_type_parameter {paramName}");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                SetParamValue(p, value);
+                tx.Commit();
+            }
+            catch
+            {
+                tx.RollBack();
+                throw;
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["type_name"] = typeEl.Name,
+                ["parameter"] = paramName,
+                ["new_value"] = value?.ToString(),
+                ["instances_affected"] = instances,
+            };
+        }
+
+        // ─── duplicate_sheet ────────────────────────────────────────────
+        // Clone a sheet WITH layout. Plans cannot live on two sheets, so
+        // model/plan views are DUPLICATED (WithDetailing) and placed at the
+        // source viewport's box centre; legends may live on many sheets and
+        // are re-placed directly; ScheduleSheetInstances re-placed too.
+        public static Dictionary<string, object?> DuplicateSheet(Document doc, JsonElement args)
+        {
+            var sourceNumber = ArgsHelp.GetString(args, "source_number") ?? throw new ArgumentException("missing source_number");
+            var newNumber = ArgsHelp.GetString(args, "new_number") ?? throw new ArgumentException("missing new_number");
+            var newName = ArgsHelp.GetString(args, "new_name");
+            var viewSuffix = ArgsHelp.GetString(args, "view_suffix") ?? " - " + newNumber;
+
+            var src = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>()
+                .FirstOrDefault(s => string.Equals(s.SheetNumber, sourceNumber, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException($"sheet '{sourceNumber}' not found");
+            if (new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>()
+                    .Any(s => string.Equals(s.SheetNumber, newNumber, StringComparison.OrdinalIgnoreCase)))
+                throw new ArgumentException($"sheet number '{newNumber}' already exists");
+
+            // Titleblock type from the source sheet's own titleblock instance.
+            var tb = new FilteredElementCollector(doc, src.Id).OfCategory(BuiltInCategory.OST_TitleBlocks)
+                .OfClass(typeof(FamilyInstance)).Cast<FamilyInstance>().FirstOrDefault();
+            var tbId = tb?.Symbol?.Id ?? ElementId.InvalidElementId;
+
+            int viewsDuplicated = 0, legendsPlaced = 0, schedulesPlaced = 0;
+            long sheetId;
+            using var tx = new Transaction(doc, "BinaVibe: duplicate_sheet");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                var sheet = ViewSheet.Create(doc, tbId);
+                sheet.SheetNumber = newNumber;
+                sheet.Name = newName ?? src.Name;
+                sheetId = sheet.Id.Value;
+
+                foreach (var vpId in src.GetAllViewports())
+                {
+                    if (doc.GetElement(vpId) is not Viewport vp) continue;
+                    var view = doc.GetElement(vp.ViewId) as View;
+                    if (view == null) continue;
+                    var center = vp.GetBoxCenter();
+
+                    ElementId placeId;
+                    if (view.ViewType == ViewType.Legend)
+                    {
+                        placeId = view.Id;              // legends may sit on many sheets
+                        legendsPlaced++;
+                    }
+                    else
+                    {
+                        var opt = view.CanViewBeDuplicated(ViewDuplicateOption.WithDetailing)
+                            ? ViewDuplicateOption.WithDetailing : ViewDuplicateOption.Duplicate;
+                        placeId = view.Duplicate(opt);
+                        if (doc.GetElement(placeId) is View nv)
+                        {
+                            try { nv.Name = view.Name + viewSuffix; } catch { /* name clash — keep auto name */ }
+                        }
+                        viewsDuplicated++;
+                    }
+                    var nvp = Viewport.Create(doc, sheet.Id, placeId, center);
+                    try { if (nvp != null && vp.GetTypeId() != ElementId.InvalidElementId) nvp.ChangeTypeId(vp.GetTypeId()); }
+                    catch { /* viewport type best-effort */ }
+                }
+
+                foreach (var ssi in new FilteredElementCollector(doc, src.Id).OfClass(typeof(ScheduleSheetInstance)).Cast<ScheduleSheetInstance>())
+                {
+                    if (ssi.IsTitleblockRevisionSchedule) continue;
+                    ScheduleSheetInstance.Create(doc, sheet.Id, ssi.ScheduleId, ssi.Point);
+                    schedulesPlaced++;
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["sheet_id"] = sheetId, ["number"] = newNumber,
+                ["views_duplicated"] = viewsDuplicated,
+                ["legends_placed"] = legendsPlaced,
+                ["schedules_placed"] = schedulesPlaced,
+            };
+        }
+
+        // ─── create_sheets_batch ────────────────────────────────────────
+        public static Dictionary<string, object?> CreateSheetsBatch(Document doc, JsonElement args)
+        {
+            if (!args.TryGetProperty("rows", out var rowsEl) || rowsEl.ValueKind != JsonValueKind.Array)
+                throw new ArgumentException("missing rows");
+
+            var titleblocks = new FilteredElementCollector(doc).OfClass(typeof(FamilySymbol))
+                .OfCategory(BuiltInCategory.OST_TitleBlocks).Cast<FamilySymbol>().ToList();
+            var existing = new HashSet<string>(
+                new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>().Select(s => s.SheetNumber),
+                StringComparer.OrdinalIgnoreCase);
+
+            var created = new List<object>();
+            var skipped = new List<object>();
+            using var tx = new Transaction(doc, "BinaVibe: create_sheets_batch");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var row in rowsEl.EnumerateArray())
+                {
+                    var number = row.TryGetProperty("number", out var n) ? n.GetString() : null;
+                    var name = row.TryGetProperty("name", out var nm) ? nm.GetString() : null;
+                    var tbName = row.TryGetProperty("titleblock", out var tbn) ? tbn.GetString() : null;
+                    if (string.IsNullOrWhiteSpace(number) || string.IsNullOrWhiteSpace(name))
+                    { skipped.Add(new { number, reason = "missing number/name" }); continue; }
+                    if (existing.Contains(number!))
+                    { skipped.Add(new { number, reason = "sheet number already exists" }); continue; }
+
+                    var tbId = ElementId.InvalidElementId;
+                    if (!string.IsNullOrWhiteSpace(tbName))
+                    {
+                        var match = titleblocks.FirstOrDefault(t =>
+                            string.Equals(t.Name, tbName, StringComparison.OrdinalIgnoreCase) ||
+                            string.Equals($"{t.FamilyName} : {t.Name}", tbName, StringComparison.OrdinalIgnoreCase));
+                        if (match == null) { skipped.Add(new { number, reason = $"titleblock '{tbName}' not found" }); continue; }
+                        tbId = match.Id;
+                    }
+                    else if (titleblocks.Count > 0) tbId = titleblocks[0].Id;
+
+                    var sheet = ViewSheet.Create(doc, tbId);
+                    sheet.SheetNumber = number!;
+                    sheet.Name = name!;
+                    existing.Add(number!);
+                    created.Add(new { sheet_id = sheet.Id.Value, number });
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["created"] = created, ["skipped"] = skipped,
+                ["count"] = created.Count,
+            };
+        }
+
+        // ─── create_views_for_levels ────────────────────────────────────
+        public static Dictionary<string, object?> CreateViewsForLevels(Document doc, JsonElement args)
+        {
+            var viewType = ArgsHelp.GetString(args, "view_type") ?? "floor";
+            var pattern = ArgsHelp.GetString(args, "name_pattern") ?? "Pelan {level}";
+            var templateName = ArgsHelp.GetString(args, "template_name");
+            var wanted = new List<string>();
+            if (args.TryGetProperty("levels", out var lv) && lv.ValueKind == JsonValueKind.Array)
+                foreach (var item in lv.EnumerateArray())
+                    if (item.ValueKind == JsonValueKind.String) wanted.Add(item.GetString()!);
+
+            var family = string.Equals(viewType, "ceiling", StringComparison.OrdinalIgnoreCase)
+                ? ViewFamily.CeilingPlan : ViewFamily.FloorPlan;
+            var vft = new FilteredElementCollector(doc).OfClass(typeof(ViewFamilyType)).Cast<ViewFamilyType>()
+                .FirstOrDefault(t => t.ViewFamily == family)
+                ?? throw new InvalidOperationException($"no {family} view family type in this project");
+
+            View? template = null;
+            if (!string.IsNullOrWhiteSpace(templateName))
+                template = new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>()
+                    .FirstOrDefault(v => v.IsTemplate && string.Equals(v.Name, templateName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException($"view template '{templateName}' not found");
+
+            var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .OrderBy(l => l.Elevation)
+                .Where(l => wanted.Count == 0 || wanted.Any(w => string.Equals(w, l.Name, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            if (levels.Count == 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no matching levels" };
+
+            var taken = new HashSet<string>(
+                new FilteredElementCollector(doc).OfClass(typeof(View)).Cast<View>().Where(v => !v.IsTemplate).Select(v => v.Name),
+                StringComparer.OrdinalIgnoreCase);
+
+            var created = new List<object>();
+            using var tx = new Transaction(doc, "BinaVibe: create_views_for_levels");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var level in levels)
+                {
+                    var view = ViewPlan.Create(doc, vft.Id, level.Id);
+                    var baseName = pattern.Replace("{level}", level.Name);
+                    var name = baseName;
+                    for (int i = 2; taken.Contains(name); i++) name = $"{baseName} ({i})";
+                    try { view.Name = name; taken.Add(name); } catch { /* keep auto name */ }
+                    if (template != null) view.ViewTemplateId = template.Id;
+                    created.Add(new { view_id = view.Id.Value, name = view.Name, level = level.Name });
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?> { ["ok"] = true, ["created"] = created, ["count"] = created.Count };
+        }
+
+        // ─── align_viewports ────────────────────────────────────────────
+        // Copies the source sheet's MAIN (largest-area) viewport box centre
+        // onto each target sheet's main viewport. Legends/schedules are not
+        // "main" — targets whose largest viewport is a legend are skipped.
+        public static Dictionary<string, object?> AlignViewports(Document doc, JsonElement args)
+        {
+            var sourceNumber = ArgsHelp.GetString(args, "source_sheet_number") ?? throw new ArgumentException("missing source_sheet_number");
+            var targets = new List<string>();
+            if (args.TryGetProperty("target_sheet_numbers", out var t) && t.ValueKind == JsonValueKind.Array)
+                foreach (var item in t.EnumerateArray())
+                    if (item.ValueKind == JsonValueKind.String) targets.Add(item.GetString()!);
+            if (targets.Count == 0) throw new ArgumentException("target_sheet_numbers is empty");
+
+            var sheets = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>().ToList();
+            ViewSheet Find(string num) => sheets.FirstOrDefault(s => string.Equals(s.SheetNumber, num, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ArgumentException($"sheet '{num}' not found");
+
+            Viewport? MainViewport(ViewSheet s) => s.GetAllViewports()
+                .Select(id => doc.GetElement(id) as Viewport).Where(vp => vp != null)
+                .Select(vp => vp!)
+                .Where(vp => (doc.GetElement(vp.ViewId) as View)?.ViewType != ViewType.Legend)
+                .OrderByDescending(vp => { var o = vp.GetBoxOutline(); var d = o.MaximumPoint - o.MinimumPoint; return d.X * d.Y; })
+                .FirstOrDefault();
+
+            var srcVp = MainViewport(Find(sourceNumber))
+                ?? throw new ArgumentException($"sheet '{sourceNumber}' has no model viewport");
+            var target = srcVp.GetBoxCenter();
+
+            var aligned = new List<object>();
+            var skipped = new List<object>();
+            using var tx = new Transaction(doc, "BinaVibe: align_viewports");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var num in targets)
+                {
+                    if (string.Equals(num, sourceNumber, StringComparison.OrdinalIgnoreCase)) continue;
+                    ViewSheet sheet;
+                    try { sheet = Find(num); }
+                    catch (ArgumentException) { skipped.Add(new { sheet = num, reason = "not found" }); continue; }
+                    var vp = MainViewport(sheet);
+                    if (vp == null) { skipped.Add(new { sheet = num, reason = "no model viewport" }); continue; }
+                    var before = vp.GetBoxCenter();
+                    vp.SetBoxCenter(new XYZ(target.X, target.Y, before.Z));
+                    var movedMm = Math.Round(Math.Sqrt(Math.Pow(target.X - before.X, 2) + Math.Pow(target.Y - before.Y, 2)) * 304.8, 1);
+                    aligned.Add(new { sheet = num, moved_mm = movedMm });
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?> { ["ok"] = true, ["aligned"] = aligned, ["skipped"] = skipped };
+        }
+
+        // ─── create_revision ────────────────────────────────────────────
+        public static Dictionary<string, object?> CreateRevision(Document doc, JsonElement args)
+        {
+            var description = ArgsHelp.GetString(args, "description") ?? throw new ArgumentException("missing description");
+            var date = ArgsHelp.GetString(args, "date");
+            var issuedBy = ArgsHelp.GetString(args, "issued_by");
+            var issuedTo = ArgsHelp.GetString(args, "issued_to");
+
+            using var tx = new Transaction(doc, "BinaVibe: create_revision");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                var rev = Revision.Create(doc);
+                rev.Description = description;
+                if (!string.IsNullOrWhiteSpace(date)) rev.RevisionDate = date;
+                if (!string.IsNullOrWhiteSpace(issuedBy)) rev.IssuedBy = issuedBy;
+                if (!string.IsNullOrWhiteSpace(issuedTo)) rev.IssuedTo = issuedTo;
+                tx.Commit();
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["revision_id"] = rev.Id.Value, ["sequence"] = rev.SequenceNumber,
+                };
+            }
+            catch { tx.RollBack(); throw; }
+        }
+
+        // ─── set_revision_on_sheets ─────────────────────────────────────
+        public static Dictionary<string, object?> SetRevisionOnSheets(Document doc, JsonElement args)
+        {
+            var revArg = ArgsHelp.GetString(args, "revision") ?? throw new ArgumentException("missing revision");
+            var sheetNumbers = new List<string>();
+            if (args.TryGetProperty("sheet_numbers", out var sn) && sn.ValueKind == JsonValueKind.Array)
+                foreach (var item in sn.EnumerateArray())
+                    if (item.ValueKind == JsonValueKind.String) sheetNumbers.Add(item.GetString()!);
+
+            var revisions = new FilteredElementCollector(doc).OfClass(typeof(Revision)).Cast<Revision>().ToList();
+            Revision? rev = null;
+            if (int.TryParse(revArg, out var seq))
+                rev = revisions.FirstOrDefault(r => r.SequenceNumber == seq);
+            if (rev == null)
+            {
+                var byDesc = revisions.Where(r => (r.Description ?? "").IndexOf(revArg, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
+                if (byDesc.Count > 1)
+                    return new Dictionary<string, object?>
+                    {
+                        ["ok"] = false,
+                        ["error"] = $"revision '{revArg}' is ambiguous",
+                        ["candidates"] = byDesc.Select(r => $"{r.SequenceNumber}: {r.Description}").ToList(),
+                    };
+                rev = byDesc.FirstOrDefault();
+            }
+            if (rev == null)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false, ["error"] = $"no revision matching '{revArg}'",
+                    ["candidates"] = revisions.Select(r => $"{r.SequenceNumber}: {r.Description}").ToList(),
+                };
+
+            var sheets = new FilteredElementCollector(doc).OfClass(typeof(ViewSheet)).Cast<ViewSheet>()
+                .Where(s => sheetNumbers.Count == 0 || sheetNumbers.Any(n => string.Equals(n, s.SheetNumber, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+
+            int stamped = 0, alreadyHad = 0;
+            using var tx = new Transaction(doc, "BinaVibe: set_revision_on_sheets");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var sheet in sheets)
+                {
+                    var ids = sheet.GetAdditionalRevisionIds().ToList();
+                    if (ids.Contains(rev.Id)) { alreadyHad++; continue; }
+                    ids.Add(rev.Id);
+                    sheet.SetAdditionalRevisionIds(ids);
+                    stamped++;
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["stamped"] = stamped, ["already_had"] = alreadyHad,
+                ["sheets"] = sheets.Count, ["revision"] = $"{rev.SequenceNumber}: {rev.Description}",
+            };
+        }
+
+        // ─── set_workset_bulk ───────────────────────────────────────────
+        public static Dictionary<string, object?> SetWorksetBulk(Document doc, JsonElement args)
+        {
+            var worksetName = ArgsHelp.GetString(args, "workset") ?? throw new ArgumentException("missing workset");
+            var category = ArgsHelp.GetString(args, "category") ?? throw new ArgumentException("missing category");
+            var predicate = ArgsHelp.GetString(args, "predicate");
+
+            if (!doc.IsWorkshared)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "model is not workshared — worksets do not exist here" };
+
+            var workset = new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset)
+                .FirstOrDefault(w => string.Equals(w.Name, worksetName, StringComparison.OrdinalIgnoreCase));
+            if (workset == null)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = false, ["error"] = $"workset '{worksetName}' not found",
+                    ["candidates"] = new FilteredWorksetCollector(doc).OfKind(WorksetKind.UserWorkset).Select(w => w.Name).ToList(),
+                };
+
+            var bic = Inspectors.ResolveCategoryRobust(doc, category)
+                ?? throw new ArgumentException($"category '{category}' not recognised");
+            var els = new FilteredElementCollector(doc).OfCategory(bic).WhereElementIsNotElementType()
+                .Where(el => Inspectors.PredicateMatches(el, doc, predicate)).ToList();
+
+            int moved = 0, alreadyThere = 0, skipped = 0;
+            using var tx = new Transaction(doc, $"BinaVibe: set_workset_bulk {worksetName}");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var el in els)
+                {
+                    var p = el.get_Parameter(BuiltInParameter.ELEM_PARTITION_PARAM);
+                    if (p == null || p.IsReadOnly) { skipped++; continue; }
+                    if (p.AsInteger() == workset.Id.IntegerValue) { alreadyThere++; continue; }
+                    try { p.Set(workset.Id.IntegerValue); moved++; }
+                    catch { skipped++; }
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["moved"] = moved, ["already_there"] = alreadyThere,
+                ["skipped"] = skipped, ["total"] = els.Count, ["workset"] = workset.Name,
+            };
+        }
+
+        // ─── fix_warnings ───────────────────────────────────────────────
+        // Fixes ONE class of warnings per call, dry-run first by contract.
+        // duplicate_mark: blank Mark on all but the first element per
+        // warning. identical_instances: delete the overlapping duplicate.
+        public static Dictionary<string, object?> FixWarnings(Document doc, JsonElement args)
+        {
+            var kind = ArgsHelp.GetString(args, "kind") ?? throw new ArgumentException("missing kind");
+            var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? true;
+
+            bool isDupMark = string.Equals(kind, "duplicate_mark", StringComparison.OrdinalIgnoreCase);
+            bool isIdentical = string.Equals(kind, "identical_instances", StringComparison.OrdinalIgnoreCase);
+            if (!isDupMark && !isIdentical)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = $"unknown kind '{kind}' — use duplicate_mark or identical_instances" };
+
+            var warnings = doc.GetWarnings().Where(w =>
+            {
+                var text = w.GetDescriptionText() ?? "";
+                return isDupMark
+                    ? text.IndexOf("Mark", StringComparison.OrdinalIgnoreCase) >= 0
+                        && (text.IndexOf("duplicate", StringComparison.OrdinalIgnoreCase) >= 0
+                            || text.IndexOf("same", StringComparison.OrdinalIgnoreCase) >= 0)
+                    : text.IndexOf("identical instances", StringComparison.OrdinalIgnoreCase) >= 0;
+            }).ToList();
+
+            var details = new List<object>();
+            var fixIds = new List<ElementId>();     // identical: elements to delete
+            var blankIds = new List<ElementId>();   // dup mark: elements whose Mark blanks
+            foreach (var w in warnings)
+            {
+                var ids = w.GetFailingElements().ToList();
+                if (ids.Count < 2) continue;
+                // keep the FIRST element of each warning, act on the rest
+                foreach (var id in ids.Skip(1))
+                {
+                    var el = doc.GetElement(id);
+                    if (el == null) continue;
+                    if (isIdentical) fixIds.Add(id); else blankIds.Add(id);
+                    details.Add(new
+                    {
+                        id = id.Value,
+                        type_name = (el.GetTypeId().Value != ElementId.InvalidElementId.Value ? doc.GetElement(el.GetTypeId())?.Name : null),
+                        action = isIdentical ? "delete" : "blank Mark",
+                    });
+                }
+            }
+
+            if (dryRun)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["kind"] = kind, ["dry_run"] = true,
+                    ["warnings_matched"] = warnings.Count,
+                    ["would_fix"] = details.Count, ["details"] = details.Take(100).ToList(),
+                };
+
+            int fixedCount = 0;
+            using var tx = new Transaction(doc, $"BinaVibe: fix_warnings {kind}");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                if (isIdentical)
+                {
+                    foreach (var id in fixIds.Distinct())
+                        try { if (doc.Delete(id).Count > 0) fixedCount++; } catch { /* already gone */ }
+                }
+                else
+                {
+                    foreach (var id in blankIds.Distinct())
+                    {
+                        var p = doc.GetElement(id)?.LookupParameter("Mark");
+                        if (p == null || p.IsReadOnly) continue;
+                        try { p.Set(""); fixedCount++; } catch { }
+                    }
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["kind"] = kind, ["dry_run"] = false,
+                ["warnings_matched"] = warnings.Count, ["fixed"] = fixedCount,
+                ["details"] = details.Take(100).ToList(),
+            };
+        }
+
+        // ─── apply_parameter_import ─────────────────────────────────────
+        // Write half of the Excel roundtrip. table_text = the attached
+        // file's CSV (pane flattens .xlsx). element_id column is the key;
+        // category/type_name/level columns are informational and ignored.
+        public static Dictionary<string, object?> ApplyParameterImport(Document doc, JsonElement args)
+        {
+            var text = ArgsHelp.GetString(args, "table_text") ?? throw new ArgumentException("missing table_text");
+            var dryRun = ArgsHelp.GetBool(args, "dry_run") ?? true;
+
+            var rows = ParseCsv(text);
+            if (rows.Count < 2)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "table has no data rows" };
+
+            var header = rows[0].Select(h => h.Trim()).ToList();
+            var idCol = header.FindIndex(h => string.Equals(h, "element_id", StringComparison.OrdinalIgnoreCase));
+            if (idCol < 0)
+                return new Dictionary<string, object?> { ["ok"] = false, ["error"] = "no element_id column — export with export_parameters_to_excel first" };
+            var ignore = new HashSet<string>(new[] { "element_id", "category", "type_name", "level" }, StringComparer.OrdinalIgnoreCase);
+
+            var changes = new List<(long id, string param, string from, string to)>();
+            var errors = new List<object>();
+            int unchanged = 0;
+
+            foreach (var row in rows.Skip(1))
+            {
+                if (row.Length <= idCol || string.IsNullOrWhiteSpace(row[idCol])) continue;
+                if (!long.TryParse(row[idCol].Trim(), out var idVal))
+                { errors.Add(new { row = row[idCol], error = "element_id not a number" }); continue; }
+                var el = doc.GetElement(ElemIds.From(idVal));
+                if (el == null) { errors.Add(new { id = idVal, error = "element no longer exists" }); continue; }
+
+                for (int c = 0; c < header.Count && c < row.Length; c++)
+                {
+                    if (ignore.Contains(header[c])) continue;
+                    var newVal = (row[c] ?? "").Trim();
+                    var current = (Inspectors.ResolveParamValue(doc, el, header[c]) ?? "").Trim();
+                    if (string.Equals(current, newVal, StringComparison.Ordinal)) { unchanged++; continue; }
+                    changes.Add((idVal, header[c], current, newVal));
+                }
+            }
+
+            object Diff() => changes.Take(100).Select(ch => new { id = ch.id, param = ch.param, from = ch.from, to = ch.to }).ToList();
+
+            if (dryRun)
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true, ["dry_run"] = true, ["changed"] = 0,
+                    ["would_change"] = changes.Count, ["unchanged"] = unchanged,
+                    ["changes"] = Diff(), ["errors"] = errors,
+                };
+
+            int applied = 0;
+            using var tx = new Transaction(doc, "BinaVibe: apply_parameter_import");
+            TxGuard.StartSwallowing(tx);
+            try
+            {
+                foreach (var ch in changes)
+                {
+                    var el = doc.GetElement(ElemIds.From(ch.id));
+                    var p = el?.LookupParameter(ch.param);
+                    if (p == null) { errors.Add(new { id = ch.id, param = ch.param, error = "parameter not on element" }); continue; }
+                    if (p.IsReadOnly) { errors.Add(new { id = ch.id, param = ch.param, error = "read-only" }); continue; }
+                    try { SetParamValue(p, ch.to); applied++; }
+                    catch (Exception ex) { errors.Add(new { id = ch.id, param = ch.param, error = ex.Message }); }
+                }
+                tx.Commit();
+            }
+            catch { tx.RollBack(); throw; }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true, ["dry_run"] = false, ["changed"] = applied,
+                ["unchanged"] = unchanged, ["changes"] = Diff(), ["errors"] = errors,
+            };
+        }
+
+        // Minimal RFC-ish CSV parser: quoted fields, embedded commas and
+        // newlines. Shared by ApplyParameterImport only — parse_rule_table
+        // has its own richer parser backend-side.
+        private static List<string[]> ParseCsv(string text)
+        {
+            var rows = new List<string[]>();
+            var field = new System.Text.StringBuilder();
+            var current = new List<string>();
+            bool inQuotes = false;
+            for (int i = 0; i < text.Length; i++)
+            {
+                var ch = text[i];
+                if (inQuotes)
+                {
+                    if (ch == '"')
+                    {
+                        if (i + 1 < text.Length && text[i + 1] == '"') { field.Append('"'); i++; }
+                        else inQuotes = false;
+                    }
+                    else field.Append(ch);
+                }
+                else if (ch == '"') inQuotes = true;
+                else if (ch == ',') { current.Add(field.ToString()); field.Clear(); }
+                else if (ch == '\r') { /* swallow */ }
+                else if (ch == '\n')
+                {
+                    current.Add(field.ToString()); field.Clear();
+                    if (current.Any(f => !string.IsNullOrWhiteSpace(f))) rows.Add(current.ToArray());
+                    current = new List<string>();
+                }
+                else field.Append(ch);
+            }
+            current.Add(field.ToString());
+            if (current.Any(f => !string.IsNullOrWhiteSpace(f))) rows.Add(current.ToArray());
+            return rows;
+        }
+
         // ─── change_type ────────────────────────────────────────────────
         public static Dictionary<string, object?> ChangeType(Document doc, JsonElement args)
         {
@@ -1800,38 +2661,80 @@ namespace BinaVibe.Mcp.Tools
             if (bic == BuiltInCategory.INVALID)
                 throw new ArgumentException($"category '{category}' not recognised");
 
-            var elements = new FilteredElementCollector(doc)
+            var level = ArgsHelp.GetString(args, "level");
+            var order = ArgsHelp.GetString(args, "order") ?? "id";
+            var byRoom = ArgsHelp.GetBool(args, "by_room") ?? false;
+
+            var pool = new FilteredElementCollector(doc)
                 .OfCategory(bic)
                 .WhereElementIsNotElementType()
-                .OrderBy(el => el.Id.Value)   // stable ordering by ElementId
-                .ToList();
+                .Where(el => string.IsNullOrWhiteSpace(level)
+                    || string.Equals(doc.GetElement(el.LevelId)?.Name, level, StringComparison.OrdinalIgnoreCase));
 
-            int renumbered = 0;
+            // Plan order = reading order: top-left → bottom-right (−Y then X).
+            static XYZ? LocOf(Element el) => el.Location switch
+            {
+                LocationPoint lp => lp.Point,
+                LocationCurve lc => lc.Curve.Evaluate(0.5, true),
+                _ => null,
+            };
+            var elements = string.Equals(order, "position", StringComparison.OrdinalIgnoreCase)
+                ? pool.OrderByDescending(el => LocOf(el)?.Y ?? double.MinValue)
+                      .ThenBy(el => LocOf(el)?.X ?? double.MaxValue)
+                      .ThenBy(el => el.Id.Value).ToList()
+                : pool.OrderBy(el => el.Id.Value).ToList();   // stable ordering by ElementId
+
+            int renumbered = 0, skippedNoRoom = 0;
             using var tx = new Transaction(doc, $"BinaVibe: renumber_elements ({category})");
             TxGuard.StartSwallowing(tx);
             try
             {
-                for (int i = 0; i < elements.Count; i++)
+                if (byRoom)
                 {
-                    var el = elements[i];
-                    var p = el.LookupParameter(parameter);
-                    if (p == null || p.IsReadOnly) continue;
-                    try
+                    // Door number ikut bilik: Mark = room number, +A/B/C when a
+                    // room has several doors (2014-wishlist behavior).
+                    var perRoom = new Dictionary<string, int>();
+                    foreach (var el in elements)
                     {
-                        p.Set(prefix + (start + i).ToString());
-                        renumbered++;
+                        var fi = el as FamilyInstance;
+                        var room = fi?.ToRoom ?? fi?.FromRoom;
+                        var roomNumber = room?.Number;
+                        if (string.IsNullOrWhiteSpace(roomNumber)) { skippedNoRoom++; continue; }
+                        perRoom.TryGetValue(roomNumber!, out var seen);
+                        perRoom[roomNumber!] = seen + 1;
+                        var suffix = seen == 0 ? "" : ((char)('A' + seen - 1)).ToString();
+                        var p = el.LookupParameter(parameter);
+                        if (p == null || p.IsReadOnly) continue;
+                        try { p.Set(prefix + roomNumber + suffix); renumbered++; }
+                        catch { /* skip this element */ }
                     }
-                    catch { /* skip this element */ }
+                }
+                else
+                {
+                    for (int i = 0; i < elements.Count; i++)
+                    {
+                        var el = elements[i];
+                        var p = el.LookupParameter(parameter);
+                        if (p == null || p.IsReadOnly) continue;
+                        try
+                        {
+                            p.Set(prefix + (start + i).ToString());
+                            renumbered++;
+                        }
+                        catch { /* skip this element */ }
+                    }
                 }
                 tx.Commit();
             }
             catch { tx.RollBack(); throw; }
 
-            return new Dictionary<string, object?>
+            var result = new Dictionary<string, object?>
             {
                 ["ok"] = true,
                 ["renumbered"] = renumbered,
             };
+            if (byRoom) result["skipped_no_room"] = skippedNoRoom;
+            return result;
         }
 
         // ─── create_view_filter ──────────────────────────────────────────

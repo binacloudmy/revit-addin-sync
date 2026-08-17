@@ -153,6 +153,29 @@ namespace BinaVibe.Mcp.Tools
                 "execute_revit_batch"    => BatchExecutor.Run(app, args),
                 "set_parameter"          => Mutators.SetParameter(doc, args),
                 "set_parameter_bulk"     => Mutators.SetParameterBulk(doc, args),
+                // Category-wide fill of EMPTY values — enumerates in-process
+                // so no id list / 100-element truncation applies.
+                "fill_missing_parameter" => Mutators.FillMissingParameter(doc, args),
+                // Schedule-as-mapping-table: blank rows inherit the value
+                // from same-named rows that already carry it.
+                "propagate_parameter_by_name" => Mutators.PropagateParameterByName(doc, args),
+                // Type-level param edit by type NAME (one write = every
+                // placed instance of the type).
+                "set_type_parameter"     => Mutators.SetTypeParameter(doc, args),
+                // 2026-08-17 remeh-temeh batch — sheet pack, Excel roundtrip,
+                // revisions, worksets, warnings, predicate select.
+                "duplicate_sheet"        => Mutators.DuplicateSheet(doc, args),
+                "create_sheets_batch"    => Mutators.CreateSheetsBatch(doc, args),
+                "create_views_for_levels" => Mutators.CreateViewsForLevels(doc, args),
+                "align_viewports"        => Mutators.AlignViewports(doc, args),
+                "create_revision"        => Mutators.CreateRevision(doc, args),
+                "set_revision_on_sheets" => Mutators.SetRevisionOnSheets(doc, args),
+                "set_workset_bulk"       => Mutators.SetWorksetBulk(doc, args),
+                "fix_warnings"           => Mutators.FixWarnings(doc, args),
+                "apply_parameter_import" => Mutators.ApplyParameterImport(doc, args),
+                "select_by_filter"       => Inspectors.SelectByFilter(uidoc, args),
+                "reset_temporary_hide"   => Inspectors.ResetTemporaryHide(doc),
+                "export_parameters_to_excel" => Inspectors.ExportParametersToExcel(doc, args),
                 // Writes element parameters behind schedule columns (Revit has
                 // no settable cell); fields validated against the schedule.
                 "write_schedule"         => Schedules.Write(doc, args),
