@@ -233,9 +233,21 @@ else                                             { $mandatoryFlag = $true }
 # Rollback is a pointer flip, and it should not depend on anyone remembering
 # which version preceded this one.
 $previous = $null
+# Engine bundle fields (published by bina-ai's engine flow) must survive the
+# addin pointer flip — dropping them de-colocates the fleet on the next
+# release.
+$carriedEngineVersion = $null
+$carriedEngineKey = $null
+$carriedEngineSha = $null
 try {
     $prevJson = aws s3 cp "s3://$bucket/$prefix/latest.json" - --endpoint-url $endpoint 2>$null
-    if ($LASTEXITCODE -eq 0 -and $prevJson) { $previous = ($prevJson | ConvertFrom-Json).version }
+    if ($LASTEXITCODE -eq 0 -and $prevJson) {
+        $prevObj = $prevJson | ConvertFrom-Json
+        $previous = $prevObj.version
+        $carriedEngineVersion = $prevObj.engine_version
+        $carriedEngineKey = $prevObj.engine_key
+        $carriedEngineSha = $prevObj.engine_sha256
+    }
 } catch { }
 
 $pointer = [ordered]@{
@@ -249,6 +261,9 @@ $pointer = [ordered]@{
     mandatory        = $mandatoryFlag
     previous_version = $previous
     published_at     = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    engine_version   = $carriedEngineVersion
+    engine_key       = $carriedEngineKey
+    engine_sha256    = $carriedEngineSha
 }
 $pointerFile = Join-Path $repo 'latest.json'
 $pointer | ConvertTo-Json -Depth 5 | Set-Content $pointerFile

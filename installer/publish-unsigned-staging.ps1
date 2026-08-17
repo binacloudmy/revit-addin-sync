@@ -175,12 +175,21 @@ if ($PublishInstaller) {
 # instead — fresh installs then get the CURRENT version too.
 $previous = $null
 $carriedInstallerKey = $null
+# Engine bundle fields are published by a SEPARATE flow (bina-ai engine
+# bundle publish) and must survive every addin pointer flip — dropping them
+# would silently de-colocate the staging fleet on the next addin release.
+$carriedEngineVersion = $null
+$carriedEngineKey = $null
+$carriedEngineSha = $null
 try {
     $prevJson = aws s3 cp "s3://$bucket/$prefix/latest.json" - --endpoint-url $endpoint 2>$null
     if ($LASTEXITCODE -eq 0 -and $prevJson) {
         $prevObj = $prevJson | ConvertFrom-Json
         $previous = $prevObj.version
         $carriedInstallerKey = $prevObj.installer_key
+        $carriedEngineVersion = $prevObj.engine_version
+        $carriedEngineKey = $prevObj.engine_key
+        $carriedEngineSha = $prevObj.engine_sha256
     }
 } catch { }
 $effectiveInstallerKey = if ($PublishInstaller) { $installerKey } else { $carriedInstallerKey }
@@ -198,6 +207,9 @@ $pointer = [ordered]@{
     mandatory        = $Mandatory
     previous_version = $previous
     published_at     = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    engine_version   = $carriedEngineVersion
+    engine_key       = $carriedEngineKey
+    engine_sha256    = $carriedEngineSha
 }
 $pointerFile = Join-Path $repo 'latest.json'
 $pointer | ConvertTo-Json -Depth 5 | Set-Content $pointerFile
