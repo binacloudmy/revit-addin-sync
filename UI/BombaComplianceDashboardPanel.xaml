@@ -577,6 +577,9 @@
                 <Button Style="{StaticResource M.BtnGhost}" Content="Show in model ›" Foreground="#A97F00"
                         Margin="0,14,0,0" Click="ShowInModel_Click"
                         Visibility="{Binding CurrentIssue.HasElements, Converter={StaticResource BoolVis}}"/>
+                <Button Style="{StaticResource M.BtnGhost}" Content="{Binding CurrentIssue.FixLabel}"
+                        Foreground="#1F9D5B" FontWeight="SemiBold" Margin="0,14,0,0" Click="AutoFix_Click"
+                        Visibility="{Binding CurrentIssue.CanFix, Converter={StaticResource BoolVis}}"/>
                 <Button Style="{StaticResource M.BtnGhost}" Content="{Binding CurrentIssue.DoLabel}"
                         Foreground="#B8721A" Margin="0,8,0,0" Click="Rescan_Click"/>
                 <Button Style="{StaticResource M.BtnText}" Content="Later" HorizontalAlignment="Center"

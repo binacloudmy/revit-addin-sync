@@ -78,10 +78,14 @@ namespace RevitWebAppSync.UI.Bomba
         public ObservableCollection<FactVm> Facts { get; private set; }
         public IList<long> ElementIds { get; private set; }
 
-        // Phase 1 has no automatic fixes, so every issue resolves in the
-        // model; the primary action is an honest re-check, never a simulate.
+        // Most issues resolve in the model; the primary action is an honest
+        // re-check. Findings that are a pure parameter write (fire-rating
+        // audit) additionally carry an autofix.
         public string DoLabel { get; set; }
         public string NoFixNote { get; set; }    // amber note; null hides it
+        public bool CanFix { get; set; }         // shows the autofix button
+        public string FixLabel { get; set; }     // e.g. "Fix automatically — set ratings"
+        public int FixRequiredMinutes { get; set; }
 
         public IssueVm()
         {

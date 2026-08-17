@@ -686,6 +686,29 @@ namespace RevitWebAppSync.UI
 
         // ── scan ────────────────────────────────────────────────────────────
 
+        /// Autofix: write the required Fire Rating onto unrated/under-rated
+        /// types via the ExternalEvent (writes need API context), then
+        /// re-scan so the findings flip on measured truth, not optimism.
+        private void AutoFix_Click(object sender, RoutedEventArgs e)
+        {
+            var issue = _vm.CurrentIssue;
+            if (issue == null || !issue.CanFix) return;
+            if (App.BombaAutoFixHandler == null || App.BombaAutoFixEvent == null) return;
+            _vm.Notice = "Applying fix…";
+            App.BombaAutoFixHandler.Pending = new BombaAutoFixHandler.FixRequest
+            {
+                RequiredMinutes = issue.FixRequiredMinutes > 0 ? issue.FixRequiredMinutes : 120,
+            };
+            App.BombaAutoFixHandler.Completed = changed => Dispatcher.Invoke(() =>
+            {
+                _vm.Notice = changed > 0
+                    ? "Set Fire Rating on " + changed + " type(s) — re-checking…"
+                    : "Nothing to change — re-checking…";
+                Rescan_Click(null, null);
+            });
+            App.BombaAutoFixEvent.Raise();
+        }
+
         private void Rescan_Click(object sender, RoutedEventArgs e)
         {
             var path = RememberedPath ?? DeepestSelectedPath();
