@@ -295,6 +295,14 @@ namespace RevitWebAppSync
         [JsonIgnore]
         public string ResolvedAuthBaseUrl => ResolvedCloudBaseUrl;
 
+        // Bomba compliance: the colocated engine mounts /v1/compliance/bomba-*
+        // itself (rules are a repo JSON, no DB — bina-ai c2d8b7e), so engine
+        // mode keeps the scan on-box; cloud-only seats fall through to the
+        // cloud base like every other compliance surface.
+        [JsonIgnore]
+        public string ResolvedBombaBaseUrl =>
+            Services.UrlResolution.ResolveBombaBase(ResolvedAIBaseUrl, ResolvedCloudBaseUrl);
+
         // bina-be REST API (/api/cloud-docs/*, /api/system/*, /api/auth/user/*).
         // Uses the ngrok-aware resolver so a Windows Revit box can be aimed at a
         // developer's local bina-be with AllowNgrokApiBaseUrl=true.
