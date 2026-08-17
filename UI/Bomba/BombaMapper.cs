@@ -65,6 +65,27 @@ namespace RevitWebAppSync.UI.Bomba
             vm.Facts.Add(new FactVm("In the model", Count(f), M.Red));
             vm.Facts.Add(new FactVm("Schedule row", f.SchedulePath ?? "—", M.Ink));
             CopyIds(f, vm);
+
+            // Fire-rating failures are a parameter write, not modelling work
+            // — the one bomba finding class with a real autofix. One
+            // transaction, one undo; already-compliant types are never touched.
+            if (f.Check == "fire_resistance")
+            {
+                double requiredMin;
+                if (f.Metrics != null && f.Metrics.TryGetValue("required_min", out requiredMin))
+                {
+                    vm.CanFix = true;
+                    vm.FixRequiredMinutes = (int)requiredMin;
+                    var label = vm.FixRequiredMinutes % 60 == 0
+                        ? (vm.FixRequiredMinutes / 60) + " hr"
+                        : vm.FixRequiredMinutes + " min";
+                    vm.FixLabel = "Fix automatically — set ratings to " + label;
+                    vm.Tag = "AUTO-FIXABLE";
+                    vm.NoFixNote = "One click writes \"" + label + "\" into the Fire Rating "
+                        + "parameter of every unrated/under-rated type in use — one "
+                        + "transaction, one Ctrl+Z. Types already rated ≥ required are never touched.";
+                }
+            }
             return vm;
         }
 

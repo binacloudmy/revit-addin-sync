@@ -302,9 +302,27 @@ namespace RevitWebAppSync.Services
                         long dl = door.LevelId != null ? door.LevelId.Value : -1;
 #endif
                         if (dl != lowestOccupied) continue;
-                        var wall = door.Host as Wall;
-                        if (wall == null || wall.WallType == null) continue;
-                        if (wall.WallType.Function != WallFunction.Exterior) continue;
+
+                        // Final exit = a door that leads OUTSIDE. Primary
+                        // evidence is room topology (exactly one side sits in
+                        // a room); exterior-function host wall is corroborating
+                        // — real JKR models often leave wall Function at the
+                        // default, so function alone missed every exit.
+                        bool exits = false;
+                        try
+                        {
+                            var from = door.FromRoom;
+                            var to = door.ToRoom;
+                            exits = (from == null) != (to == null);
+                        }
+                        catch { }
+                        if (!exits)
+                        {
+                            var wall = door.Host as Wall;
+                            exits = wall != null && wall.WallType != null
+                                && wall.WallType.Function == WallFunction.Exterior;
+                        }
+                        if (!exits) continue;
 
                         double? w = null;
                         var wp = door.get_Parameter(BuiltInParameter.DOOR_WIDTH);
@@ -326,6 +344,7 @@ namespace RevitWebAppSync.Services
 
                 try
                 {
+                    double sampleZ = bestElev + 3.0; // ~waist height above the level
                     double perim = 0;
                     bool anyWall = false;
                     foreach (var wall in new FilteredElementCollector(doc)
@@ -337,9 +356,34 @@ namespace RevitWebAppSync.Services
                         long wl = wall.LevelId != null ? wall.LevelId.Value : -1;
 #endif
                         if (wl != lowestOccupied) continue;
-                        if (wall.WallType == null || wall.WallType.Function != WallFunction.Exterior) continue;
                         var lc = wall.Location as LocationCurve;
                         if (lc == null || lc.Curve == null) continue;
+
+                        bool exterior = wall.WallType != null
+                            && wall.WallType.Function == WallFunction.Exterior;
+                        if (!exterior)
+                        {
+                            // Room-adjacency fallback: a wall with a room on
+                            // exactly one side bounds the outside.
+                            try
+                            {
+                                var mid = lc.Curve.Evaluate(0.5, true);
+                                var d = lc.Curve.ComputeDerivatives(0.5, true).BasisX;
+                                var dir = new XYZ(d.X, d.Y, 0);
+                                if (dir.GetLength() > 1e-9)
+                                {
+                                    dir = dir.Normalize();
+                                    var n = new XYZ(-dir.Y, dir.X, 0);
+                                    var pA = new XYZ(mid.X + n.X * 2, mid.Y + n.Y * 2, sampleZ);
+                                    var pB = new XYZ(mid.X - n.X * 2, mid.Y - n.Y * 2, sampleZ);
+                                    var rA = doc.GetRoomAtPoint(pA);
+                                    var rB = doc.GetRoomAtPoint(pB);
+                                    exterior = (rA == null) != (rB == null);
+                                }
+                            }
+                            catch { }
+                        }
+                        if (!exterior) continue;
                         perim += lc.Curve.Length;
                         anyWall = true;
                     }

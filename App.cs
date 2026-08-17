@@ -26,6 +26,8 @@ namespace RevitWebAppSync
         public static ExternalEvent BombaPickEvent { get; private set; }
         public static RevitWebAppSync.Services.BombaScopeWriteHandler BombaScopeHandler { get; private set; }
         public static ExternalEvent BombaScopeEvent { get; private set; }
+        public static RevitWebAppSync.Services.BombaAutoFixHandler BombaAutoFixHandler { get; private set; }
+        public static ExternalEvent BombaAutoFixEvent { get; private set; }
         public static JkrRenameHandler JkrRenameHandler { get; private set; }
 
         // Cost Dashboard dockable pane host
@@ -259,6 +261,9 @@ namespace RevitWebAppSync
 
                 BombaScopeHandler = new RevitWebAppSync.Services.BombaScopeWriteHandler();
                 BombaScopeEvent = ExternalEvent.Create(BombaScopeHandler);
+
+                BombaAutoFixHandler = new RevitWebAppSync.Services.BombaAutoFixHandler();
+                BombaAutoFixEvent = ExternalEvent.Create(BombaAutoFixHandler);
 
                 // Tool-calling execution handler — ALWAYS created (independent of
                 // the gated tunnel/MCP transport). The HTTP tool-loop (ToolLoopRunner)
