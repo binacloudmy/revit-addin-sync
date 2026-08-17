@@ -285,7 +285,7 @@ namespace RevitWebAppSync
                         System.Diagnostics.Debug.WriteLine("[BINA] Document saved with federation links");
                         
                         // Now upload the federated file to BINA
-                        UploadFederatedFile(doc, linkedFiles);
+                        UploadFederatedFile(doc, linkedFiles, disciplines);
                     }
                     catch (Exception saveEx)
                     {
@@ -304,7 +304,7 @@ namespace RevitWebAppSync
             }
         }
 
-        private async void UploadFederatedFile(Document doc, List<string> linkedFiles)
+        private async void UploadFederatedFile(Document doc, List<string> linkedFiles, List<BimDiscipline> disciplines)
         {
             try
             {
@@ -347,14 +347,13 @@ namespace RevitWebAppSync
                         return;
                     }
 
-                    // Fetch the discipline registry once, up front, for the
-                    // linked-file discipline classification below (ExtractRevitLinks,
-                    // ExtractDisciplineNames). Best-effort: if it fails, those
-                    // calls fall back to an empty list and every linked file is
-                    // classified as MainFile (same as an unmatched file always
-                    // was) rather than failing the whole upload.
-                    var disciplinesTask = Task.Run(() => binaService.GetProjectDisciplinesAsync(binaAccessToken, config.ProjectId));
-                    var disciplines = await disciplinesTask ?? new List<BimDiscipline>();
+                    // The discipline registry was already fetched once in
+                    // Execute() (for local-file filtering) and is passed in
+                    // via the `disciplines` parameter — re-fetching it here
+                    // used to mean a second login AND a second network round
+                    // trip for the exact same data. `disciplines` is guaranteed
+                    // non-null: Execute() returns Failed before calling this
+                    // method if the registry fetch came back null.
 
                     // Step 2: Upload to OBS (Original BINA Upload)
                     System.Diagnostics.Debug.WriteLine("[BINA] Uploading to OBS (Original BINA storage)...");
