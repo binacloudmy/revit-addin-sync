@@ -21,6 +21,11 @@ namespace RevitWebAppSync.Services
         /// Count of levels that own placed rooms — the storey count the
         /// schedule's "tingkat" bands key on. Null when no rooms are placed.
         public int? Storeys { get; set; }
+        /// Highest level owning placed rooms, mm above the LOWEST level
+        /// (fire-appliance access assumed there — rising mains §B.2). Null
+        /// when no rooms are placed: a roof/plant level with no rooms must
+        /// never trigger a wet riser.
+        public double? TopmostOccupiedMm { get; set; }
         public List<string> SearchedModels { get; set; }
 
         public BombaModelFacts() { SearchedModels = new List<string>(); }
@@ -95,13 +100,39 @@ namespace RevitWebAppSync.Services
 
             // Building height: top level minus bottom level. Two levels
             // minimum — a single-level model cannot state a height.
-            var elevations = new FilteredElementCollector(doc)
-                .OfClass(typeof(Level))
-                .Cast<Level>()
-                .Select(l => l.Elevation)
-                .ToList();
-            if (elevations.Count >= 2)
-                facts.HeightMm = Math.Round((elevations.Max() - elevations.Min()) * FtToMm, 0);
+            var levelElevations = new Dictionary<long, double>();
+            foreach (var l in new FilteredElementCollector(doc)
+                .OfClass(typeof(Level)).Cast<Level>())
+            {
+#if REVIT2023_24
+                levelElevations[l.Id.IntegerValue] = l.Elevation;
+#else
+                levelElevations[l.Id.Value] = l.Elevation;
+#endif
+            }
+            if (levelElevations.Count >= 2)
+                facts.HeightMm = Math.Round(
+                    (levelElevations.Values.Max() - levelElevations.Values.Min()) * FtToMm, 0);
+
+            // Topmost OCCUPIED floor above the lowest level (rising mains
+            // §B.2): highest level that owns placed rooms. A roof or plant
+            // level with no rooms is not occupied and must not raise the
+            // riser regime.
+            if (roomCount > 0 && levelElevations.Count > 0)
+            {
+                double topOccupied = double.MinValue;
+                bool any = false;
+                foreach (var key in perLevelSqFt.Keys)
+                {
+                    double e;
+                    if (!levelElevations.TryGetValue(key, out e)) continue;
+                    if (e > topOccupied) topOccupied = e;
+                    any = true;
+                }
+                if (any)
+                    facts.TopmostOccupiedMm = Math.Round(
+                        (topOccupied - levelElevations.Values.Min()) * FtToMm, 0);
+            }
 
             return facts;
         }

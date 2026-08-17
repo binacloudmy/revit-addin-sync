@@ -983,6 +983,7 @@ namespace RevitWebAppSync.UI
             request.Facts.FloorAreaM2 = facts.FloorAreaM2;
             request.Facts.HeightMm = facts.HeightMm;
             request.Facts.Storeys = facts.Storeys;
+            request.Facts.TopmostOccupiedMm = facts.TopmostOccupiedMm;
             // Rooms (hotel bands: bilik per block) deliberately unsent — the
             // guest-room count is not generically measurable; null means ASK.
             // Counts are NEUTRAL detection keys (§A.3); the engine translates
