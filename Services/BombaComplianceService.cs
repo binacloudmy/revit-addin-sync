@@ -180,6 +180,9 @@ namespace RevitWebAppSync.Services
         [JsonProperty("height_mm")] public double? HeightMm { get; set; }
         [JsonProperty("storeys")] public int? Storeys { get; set; }
         [JsonProperty("rooms")] public int? Rooms { get; set; }
+        // Highest level OWNING placed rooms above the lowest level (rising
+        // mains §B.2). Null = no placed rooms — unmeasured, never 0.
+        [JsonProperty("topmost_occupied_mm")] public double? TopmostOccupiedMm { get; set; }
     }
 
     public class BombaCheckRequestDto

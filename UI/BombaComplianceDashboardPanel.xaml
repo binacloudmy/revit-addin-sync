@@ -345,14 +345,25 @@
                                 </StackPanel>
                             </DockPanel>
                         </Border>
+                        <Border Padding="16,12">
+                            <DockPanel>
+                                <Border Width="34" Height="34" CornerRadius="10" Background="#2434C07A" DockPanel.Dock="Left">
+                                    <TextBlock Text="🧯" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <StackPanel Margin="12,0,0,0">
+                                    <TextBlock Text="Rising mains" FontSize="14" Foreground="#1A1C20" FontWeight="SemiBold"/>
+                                    <TextBlock Text="dry/wet riser by topmost occupied floor — By-laws 230/231" FontSize="12" Foreground="#6B7078"/>
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
                         <Border Padding="16,12" Opacity=".45">
                             <DockPanel>
                                 <Border Width="34" Height="34" CornerRadius="10" Background="#2434C07A" DockPanel.Dock="Left">
                                     <TextBlock Text="🧱" FontSize="15" HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                 </Border>
                                 <StackPanel Margin="12,0,0,0">
-                                    <TextBlock Text="Compartmentation &amp; risers" FontSize="14" Foreground="#1A1C20" FontWeight="SemiBold"/>
-                                    <TextBlock Text="storey limits, rising mains — arrives with a later update" FontSize="12" Foreground="#6B7078"/>
+                                    <TextBlock Text="Compartmentation" FontSize="14" Foreground="#1A1C20" FontWeight="SemiBold"/>
+                                    <TextBlock Text="storey area/volume limits — arrives with a later update" FontSize="12" Foreground="#6B7078"/>
                                 </StackPanel>
                             </DockPanel>
                         </Border>
