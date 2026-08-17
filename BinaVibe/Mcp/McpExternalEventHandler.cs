@@ -41,6 +41,9 @@ namespace BinaVibe.Mcp
         /// (cancelled) jobs.</summary>
         public int DrainOnce(UIApplication app)
         {
+            // Turn-receipt recorder must exist BEFORE the first mutate tx of
+            // the first batch commits (idempotent, cheap).
+            RevitWebAppSync.Services.TurnReceiptService.EnsureSubscribed(app);
             int n = 0;
             while (Pending.TryDequeue(out var job))
             {

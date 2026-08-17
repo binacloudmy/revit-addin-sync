@@ -680,6 +680,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // !hasFollowups (2026-08-02 old-backend-compat pass).
             bool hasTindakan = m.Kind == CpMsgKind.AiReply && !hasFollowups && !string.IsNullOrWhiteSpace(m.Tindakan)
                 && !m.TindakanResolved && IsLastAiReply(m);
+            // Turn receipt (2026-08-18): deterministic change evidence — counts
+            // from the transaction, [Tunjuk semula]/[Undo], optional
+            // before/after thumbnails. Above the summary bars: proof first.
+            if (m.Kind == CpMsgKind.AiReply && m.Receipt != null)
+            {
+                col.Children.Add(ReceiptCard(m.Receipt));
+            }
             if (m.Kind == CpMsgKind.AiReply && (hasResultBars || hasFollowups || hasTindakan))
             {
                 col.Children.Add(ResultSummaryCard(m, hasResultBars, hasFollowups, hasTindakan, col.MaxWidth));
@@ -1760,6 +1767,88 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// can send a full long AI sentence there). "Undo" stays client-side:
         /// it asks the agent in natural language rather than assuming a
         /// dedicated undo tool exists server-side.</summary>
+        /// <summary>Turn-receipt card (spec 2026-08-18): counts assembled by
+        /// TurnReceiptService from DocumentChanged transaction ground truth —
+        /// the model never authors this. Buttons run addin-internal jobs on
+        /// the Revit thread via the same McpJobPump the tools use.</summary>
+        private FrameworkElement ReceiptCard(ReceiptModel r)
+        {
+            var outer = new Border
+            {
+                CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1),
+                BorderBrush = CopilotColors.From("#1F16A34A"), Background = CopilotColors.From("#F0FDF4"),
+                Margin = new Thickness(0, 4, 0, 8), Padding = new Thickness(12, 9, 12, 9),
+            };
+            var sp = new StackPanel();
+
+            var headline = new TextBlock
+            {
+                FontSize = 12.5, FontWeight = FontWeights.SemiBold,
+                Foreground = CopilotColors.From("#166534"), TextWrapping = TextWrapping.Wrap,
+            };
+            var parts = new System.Collections.Generic.List<string>();
+            if (r.Added > 0) parts.Add($"+{r.Added} ditambah");
+            if (r.Modified > 0) parts.Add($"{r.Modified} diubah");
+            if (r.Deleted > 0) parts.Add($"{r.Deleted} dipadam");
+            headline.Text = "✓ " + string.Join(" · ", parts);
+            sp.Children.Add(headline);
+
+            if (r.ByCategory.Count > 0)
+            {
+                var cats = string.Join(" · ", r.ByCategory.Take(4).Select(kv => $"{kv.Value} {kv.Key}"));
+                if (r.ByCategory.Count > 4) cats += " · …";
+                sp.Children.Add(new TextBlock
+                {
+                    Text = cats, FontSize = 10.5, Foreground = CopilotColors.From("#4d7c5f"),
+                    TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0),
+                });
+            }
+
+            // Before/after thumbnails (confirm-gated captures only).
+            if (!string.IsNullOrEmpty(r.BeforeImage) || !string.IsNullOrEmpty(r.AfterImage))
+            {
+                var pair = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 6, 0, 0) };
+                foreach (var t in new[] { System.Tuple.Create("Sebelum", r.BeforeImage), System.Tuple.Create("Selepas", r.AfterImage) })
+                {
+                    if (string.IsNullOrEmpty(t.Item2) || !System.IO.File.Exists(t.Item2)) continue;
+                    try
+                    {
+                        var bi = new System.Windows.Media.Imaging.BitmapImage();
+                        bi.BeginInit();
+                        bi.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                        bi.UriSource = new Uri(t.Item2);
+                        bi.DecodePixelWidth = 200;
+                        bi.EndInit();
+                        var cell = new StackPanel { Margin = new Thickness(0, 0, 8, 0) };
+                        cell.Children.Add(new Border
+                        {
+                            CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1),
+                            BorderBrush = CopilotColors.From("#140F1B2D"),
+                            Child = new Image { Source = bi, Width = 200, Stretch = Stretch.UniformToFill, MaxHeight = 130 },
+                        });
+                        cell.Children.Add(new TextBlock { Text = t.Item1, FontSize = 10, Foreground = CopilotColors.From("#586273"), HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 2, 0, 0) });
+                        pair.Children.Add(cell);
+                    }
+                    catch { /* a broken thumbnail never breaks the receipt */ }
+                }
+                if (pair.Children.Count > 0) sp.Children.Add(pair);
+            }
+
+            var buttons = new WrapPanel { Margin = new Thickness(0, 7, 0, 0) };
+            buttons.Children.Add(FollowupChip("Tunjuk semula", () => EnqueueReceiptJob("__receipt_show")));
+            buttons.Children.Add(FollowupChip("Undo", () => EnqueueReceiptJob("__receipt_undo")));
+            sp.Children.Add(buttons);
+
+            outer.Child = sp;
+            return outer;
+        }
+
+        private static void EnqueueReceiptJob(string tool)
+        {
+            try { BinaVibe.Mcp.McpJobPump.Enqueue(new BinaVibe.Mcp.McpJob { Tool = tool }); }
+            catch { /* best-effort UI action */ }
+        }
+
         private FrameworkElement ResultSummaryCard(ChatMessage m, bool hasBars, bool hasFollowups, bool hasTindakan, double maxCardWidth)
         {
             var outer = new StackPanel { Margin = new Thickness(0, 4, 0, 8) };

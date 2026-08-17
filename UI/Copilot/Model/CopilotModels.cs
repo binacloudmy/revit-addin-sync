@@ -218,6 +218,20 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<ClarifyOptionModel> Options = new List<ClarifyOptionModel>();
     }
 
+    // ─── Turn receipt (2026-08-18) ──────────────────────────────────────────
+    // Assembled by TurnReceiptService from DocumentChanged transaction ground
+    // truth — the model never authors it.
+    public class ReceiptModel
+    {
+        public int Added;
+        public int Modified;
+        public int Deleted;
+        public List<System.Collections.Generic.KeyValuePair<string, int>> ByCategory
+            = new List<System.Collections.Generic.KeyValuePair<string, int>>();
+        public string BeforeImage;   // confirm-gated capture; null when absent
+        public string AfterImage;
+    }
+
     /// <summary>A chat thread message. The VM swaps Kind by replacing the item in the
     /// ObservableCollection (so the DataTemplate selector re-evaluates).</summary>
     public class ChatMessage
@@ -238,6 +252,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public List<ClarifyQuestionModel> Questions;
         public object ChoiceBatch;
         public string ChoiceSummary;   // collapsed decision record after submit
+        // Turn receipt (harness-assembled evidence, spec 2026-08-18).
+        public ReceiptModel Receipt;
         public ResultModel Result;   // result
         public string Code;          // proposal — generated C# (backend or catalog sample)
         public List<string> PlanSteps = new List<string>();  // proposal — plan, English

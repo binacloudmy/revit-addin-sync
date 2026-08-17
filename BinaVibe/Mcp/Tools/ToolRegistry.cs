@@ -162,6 +162,13 @@ namespace BinaVibe.Mcp.Tools
                 // Type-level param edit by type NAME (one write = every
                 // placed instance of the type).
                 "set_type_parameter"     => Mutators.SetTypeParameter(doc, args),
+                // Turn-receipt internals (addin-only; the backend registry
+                // never advertises these, so the model cannot reach them via
+                // invoke_tool — validate_pending rejects unknown names).
+                "__turn_receipt"         => RevitWebAppSync.Services.TurnReceiptService.Epilogue(app),
+                "__receipt_precapture"   => RevitWebAppSync.Services.TurnReceiptService.PreCapture(app),
+                "__receipt_show"         => RevitWebAppSync.Services.TurnReceiptService.ReShow(app),
+                "__receipt_undo"         => RevitWebAppSync.Services.TurnReceiptService.Undo(app),
                 // 2026-08-17 remeh-temeh batch — sheet pack, Excel roundtrip,
                 // revisions, worksets, warnings, predicate select.
                 "duplicate_sheet"        => Mutators.DuplicateSheet(doc, args),

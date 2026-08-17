@@ -63,6 +63,9 @@ namespace RevitWebAppSync.Services
         // Structured ask_user questions (options + multi_select) riding the
         // same pause — rendered as tappable option rows by the pane.
         public List<ChoiceRequirement> Choices { get; set; }
+        // Turn receipt (harness-assembled evidence, spec 2026-08-18): counts
+        // by action/category + optional before/after capture paths.
+        public Dictionary<string, object?> Receipt { get; set; }
         // Mutate-confirmation pause: the pending batch would MODIFY the model,
         // so the loop parks BEFORE executing and the pane renders the Ya/Tidak
         // card. Re-enter via ResumeWithConfirmationAsync (approve executes the
@@ -444,6 +447,19 @@ namespace RevitWebAppSync.Services
                 // the SAME trail: a ▶ row on start (keyed by tool_call_id, which
                 // matches the step_id the backend already streamed, so it reuses
                 // that row rather than adding a duplicate) and ✓/✗ on finish.
+                // Turn receipt (spec 2026-08-18): arm the DocumentChanged
+                // recorder for mutate batches; a click-approved batch also
+                // gets a PRE screenshot (confirm-gated — never the hot path).
+                bool receiptArmed = false;
+                foreach (var c in turn.Pending)
+                    if (c != null && c.Mutate) { receiptArmed = true; break; }
+                if (receiptArmed)
+                {
+                    TurnReceiptService.BeginBatch();
+                    if (TurnReceiptService.ConsumePreCaptureRequest())
+                        await RunInternalJobAsync("__receipt_precapture", ct).ConfigureAwait(false);
+                }
+
                 var results = new List<ToolResultDto>(turn.Pending.Count);
                 foreach (var call in turn.Pending)
                 {
@@ -467,6 +483,28 @@ namespace RevitWebAppSync.Services
                     try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* best-effort UI */ }
                     try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* best-effort UI */ }
                     results.Add(res);
+                }
+
+                // Turn-receipt epilogue: build the receipt from tx ground
+                // truth, flash+zoom+badges, and FOLD it into the last mutate
+                // result so the model reads the same evidence the drafter
+                // sees (its narration can't contradict the screen).
+                if (receiptArmed)
+                {
+                    var receipt = await RunInternalJobAsync("__turn_receipt", ct).ConfigureAwait(false);
+                    if (receipt != null)
+                    {
+                        outcome.Receipt = receipt;
+                        for (int ri = results.Count - 1; ri >= 0; ri--)
+                        {
+                            if (ri >= turn.Pending.Count || turn.Pending[ri] == null || !turn.Pending[ri].Mutate) continue;
+                            if (results[ri].Result is Dictionary<string, object?> rd)
+                                rd["turn_receipt"] = receipt;
+                            else if (results[ri].Result is IDictionary<string, object> rd2)
+                                rd2["turn_receipt"] = receipt;
+                            break;
+                        }
+                    }
                 }
 
                 // The resume leg is the longest decode in the loop, and the backend
@@ -577,6 +615,26 @@ namespace RevitWebAppSync.Services
                 ToolCallId = call.ToolCallId, Ok = true,
                 Result = job.Result ?? new Dictionary<string, object?>(),
             };
+        }
+
+        /// <summary>Run an addin-internal job (turn-receipt family) on the
+        /// Revit UI thread via the same pump. Best-effort: null on timeout or
+        /// error — the receipt is evidence, never a blocker.</summary>
+        private static async Task<Dictionary<string, object?>> RunInternalJobAsync(string tool, CancellationToken ct)
+        {
+            try
+            {
+                var job = new McpJob { Tool = tool };
+                McpJobPump.Enqueue(job);
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                var delay = Task.Delay(TimeSpan.FromSeconds(12), timeoutCts.Token);
+                var winner = await Task.WhenAny(job.Done.Task, delay).ConfigureAwait(false);
+                timeoutCts.Cancel();
+                try { await delay.ConfigureAwait(false); } catch { }
+                if (winner != job.Done.Task) { job.Abandoned = true; return null; }
+                return job.Error != null ? null : job.Result;
+            }
+            catch { return null; }
         }
     }
 }

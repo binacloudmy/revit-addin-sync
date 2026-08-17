@@ -44,6 +44,8 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // submit passes back, same ownership pattern as PendingBatch below.
         public List<ChoiceRequirement> Choices;
         public object ChoiceBatch;
+        // Turn receipt — deterministic per-batch change evidence.
+        public ReceiptModel Receipt;
         // The parked MUTATE batch behind this confirmation card, as an opaque
         // handle (RevitChatRouter.PendingConfirm). The CARD owns its batch:
         // resolution passes this back so a Ya click still works after the

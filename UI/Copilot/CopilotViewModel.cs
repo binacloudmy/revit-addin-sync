@@ -1353,6 +1353,7 @@ namespace RevitWebAppSync.UI.Copilot
                     ReasoningElapsedSeconds = rr.ReasoningElapsedSeconds,
                     Followups = rr.Followups,
                     ResultSummary = rr.ResultSummary,
+                    Receipt = rr.Receipt,
                     Verdict = rr.Verdict,
                     Interrupted = rr.Interrupted,
                     Time = System.DateTime.Now.ToString("h:mm tt"),
@@ -1390,6 +1391,7 @@ namespace RevitWebAppSync.UI.Copilot
                     ReasoningElapsedSeconds = rr.ReasoningElapsedSeconds,
                     Followups = rr.Followups,
                     ResultSummary = rr.ResultSummary,
+                    Receipt = rr.Receipt,
                     Tindakan = rr.Tindakan ?? "",
                     Time = System.DateTime.Now.ToString("h:mm tt"),
                     PendingCode = rr.Code,
@@ -1605,6 +1607,9 @@ namespace RevitWebAppSync.UI.Copilot
             if (m == null || m.ActionsResolved) return;
             m.ActionsResolved = true;
             m.ActionsApproved = approve;
+            // A REAL Ya click earns the before/after capture lane (Auto mode's
+            // programmatic accept never passes through here) — spec 2026-08-18.
+            if (approve) RevitWebAppSync.Services.TurnReceiptService.RequestPreCapture();
             RunResolution(m, approve);
         }
 

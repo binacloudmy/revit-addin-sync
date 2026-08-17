@@ -327,6 +327,7 @@ namespace RevitWebAppSync.UI.Copilot
             return new RouteResult
             {
                 ToolId = "ai-generated",
+                Receipt = ToUiReceipt(outcome.Receipt),
                 // Empty when tools ran (nothing for the pane to execute);
                 // populated when the agent fell back to codegen → the pane
                 // runs it through the normal executor (compile-gate + tx).
@@ -344,6 +345,29 @@ namespace RevitWebAppSync.UI.Copilot
                 ResultSummary = ToUiResultSummary(outcome.ResultSummary),
                 CodeRequiresConfirmation = outcome.CodeRequiresConfirmation,
             };
+        }
+
+        // Turn receipt: service dict -> UI model. Null when nothing actually
+        // changed — a receipt claiming zero changes is noise, not evidence.
+        private static ReceiptModel ToUiReceipt(Dictionary<string, object> raw)
+        {
+            if (raw == null) return null;
+            int I(string k) => raw.TryGetValue(k, out var v) && v != null && int.TryParse(v.ToString(), out var i) ? i : 0;
+            var m = new ReceiptModel { Added = I("added"), Modified = I("modified"), Deleted = I("deleted") };
+            if (m.Added + m.Modified + m.Deleted == 0) return null;
+            if (raw.TryGetValue("by_category", out var bc))
+            {
+                if (bc is Dictionary<string, int> d1)
+                    foreach (var kv in d1.OrderByDescending(k => k.Value))
+                        m.ByCategory.Add(new KeyValuePair<string, int>(kv.Key, kv.Value));
+                else if (bc is System.Collections.IDictionary d2)
+                    foreach (System.Collections.DictionaryEntry e in d2)
+                        if (int.TryParse(e.Value?.ToString(), out var c))
+                            m.ByCategory.Add(new KeyValuePair<string, int>(e.Key?.ToString() ?? "?", c));
+            }
+            m.BeforeImage = raw.TryGetValue("before_image", out var b) ? b?.ToString() : null;
+            m.AfterImage = raw.TryGetValue("after_image", out var a) ? a?.ToString() : null;
+            return m;
         }
 
         // ─── Wire DTO -> UI model mapping (2026-08-02 reasoning-ui spec) ────────
