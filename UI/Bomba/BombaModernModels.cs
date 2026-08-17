@@ -86,6 +86,11 @@ namespace RevitWebAppSync.UI.Bomba
         public bool CanFix { get; set; }         // shows the autofix button
         public string FixLabel { get; set; }     // e.g. "Fix automatically — set ratings"
         public int FixRequiredMinutes { get; set; }
+        // Placement/modelling fixes hand off to the copilot: the pane opens
+        // the AI pane and sends this prompt — the drafter watches it work in
+        // whichever model is open (right-discipline by the drafter's choice).
+        public string CopilotPrompt { get; set; }
+        public bool CanCopilotFix { get { return !string.IsNullOrEmpty(CopilotPrompt); } }
 
         public IssueVm()
         {
