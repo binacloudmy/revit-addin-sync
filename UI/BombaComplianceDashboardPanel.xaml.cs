@@ -984,6 +984,23 @@ namespace RevitWebAppSync.UI
             request.Facts.HeightMm = facts.HeightMm;
             request.Facts.Storeys = facts.Storeys;
             request.Facts.TopmostOccupiedMm = facts.TopmostOccupiedMm;
+            request.Facts.PerimeterMm = facts.PerimeterMm;
+            foreach (var s in facts.StoreysDetail)
+                request.Facts.StoreysDetail.Add(new BombaStoreyDto { Name = s.Name, AreaM2 = s.AreaM2, VolumeM3 = s.VolumeM3 });
+            foreach (var s in facts.Stairs)
+                request.Facts.Stairs.Add(new BombaStairDto { LevelName = s.LevelName, WidthMm = s.WidthMm });
+            foreach (var d in facts.ExitDoors)
+                request.Facts.ExitDoors.Add(new BombaExitDoorDto { WidthMm = d.WidthMm });
+            foreach (var r in facts.RoomExits)
+                request.Facts.RoomExits.Add(new BombaRoomExitDto { Room = r.Room, DirectMm = r.DirectMm });
+            foreach (var fr in facts.FireRatings)
+                request.Facts.FireRatings.Add(new BombaFireRatingDto
+                {
+                    ElementClass = fr.ElementClass,
+                    TypeName = fr.TypeName,
+                    RatingText = fr.RatingText,
+                    Count = fr.Count,
+                });
             // Rooms (hotel bands: bilik per block) deliberately unsent — the
             // guest-room count is not generically measurable; null means ASK.
             // Counts are NEUTRAL detection keys (§A.3); the engine translates

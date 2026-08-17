@@ -26,9 +26,57 @@ namespace RevitWebAppSync.Services
         /// when no rooms are placed: a roof/plant level with no rooms must
         /// never trigger a wet riser.
         public double? TopmostOccupiedMm { get; set; }
+
+        // §B.4–B.8 building facts — empty/null = not measured, never zero.
+        public List<StoreyInfo> StoreysDetail { get; set; }
+        public List<StairInfo> Stairs { get; set; }
+        public List<ExitDoorInfo> ExitDoors { get; set; }
+        public List<RoomExitInfo> RoomExits { get; set; }
+        public List<FireRatingInfo> FireRatings { get; set; }
+        public double? PerimeterMm { get; set; }
+
+        public class StoreyInfo
+        {
+            public string Name;
+            public double? AreaM2;
+            public double? VolumeM3;
+        }
+
+        public class StairInfo
+        {
+            public string LevelName;   // TOP level — the storey the stair serves
+            public double? WidthMm;
+        }
+
+        public class ExitDoorInfo
+        {
+            public double? WidthMm;
+        }
+
+        public class RoomExitInfo
+        {
+            public string Room;
+            public double? DirectMm;
+        }
+
+        public class FireRatingInfo
+        {
+            public string ElementClass; // wall | floor | column | framing
+            public string TypeName;
+            public string RatingText;
+            public int Count;
+        }
         public List<string> SearchedModels { get; set; }
 
-        public BombaModelFacts() { SearchedModels = new List<string>(); }
+        public BombaModelFacts()
+        {
+            SearchedModels = new List<string>();
+            StoreysDetail = new List<StoreyInfo>();
+            Stairs = new List<StairInfo>();
+            ExitDoors = new List<ExitDoorInfo>();
+            RoomExits = new List<RoomExitInfo>();
+            FireRatings = new List<FireRatingInfo>();
+        }
 
         /// One mono line for the setup card — what the model measured, so the
         /// drafter sees why a band resolved (or why the pane must ask).
@@ -134,7 +182,254 @@ namespace RevitWebAppSync.Services
                         (topOccupied - levelElevations.Values.Min()) * FtToMm, 0);
             }
 
+            // §B.4–B.8 building facts. Each section is best-effort: a failure
+            // leaves its facts unmeasured (honest NOT CHECKED downstream),
+            // never a crashed scan.
+            try { FillBuildingFacts(doc, facts, perLevelSqFt, levelElevations); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[BINA] bomba building facts failed: " + ex.Message);
+            }
+
             return facts;
+        }
+
+        private const double CuFtToCuM = 0.0283168;
+
+        /// §B.4–B.8: per-storey areas/volumes, staircases, final exits,
+        /// direct room-to-exit distances, fire-rating audit, perimeter.
+        /// Read-only — no transactions, safe from the pane thread.
+        private static void FillBuildingFacts(
+            Document doc,
+            BombaModelFacts facts,
+            Dictionary<long, double> perLevelSqFt,
+            Dictionary<long, double> levelElevations)
+        {
+            var levelNames = new Dictionary<long, string>();
+            foreach (var l in new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>())
+            {
+#if REVIT2023_24
+                long id = l.Id.IntegerValue;
+#else
+                long id = l.Id.Value;
+#endif
+                levelNames[id] = l.Name ?? "";
+            }
+            var sortedElevs = levelElevations.Values.OrderBy(v => v).ToList();
+
+            // ── Storeys: area per occupied level + volume to the next level
+            // above (top storey without a bounding level: volume unknown).
+            foreach (var pair in perLevelSqFt
+                .Where(p => levelElevations.ContainsKey(p.Key))
+                .OrderBy(p => levelElevations[p.Key]))
+            {
+                double elev = levelElevations[pair.Key];
+                double? nextAbove = null;
+                foreach (var e in sortedElevs)
+                {
+                    if (e > elev + 0.001) { nextAbove = e; break; }
+                }
+                facts.StoreysDetail.Add(new BombaModelFacts.StoreyInfo
+                {
+                    Name = levelNames.ContainsKey(pair.Key) ? levelNames[pair.Key] : "?",
+                    AreaM2 = Math.Round(pair.Value * SqFtToSqM, 1),
+                    VolumeM3 = nextAbove.HasValue
+                        ? (double?)Math.Round(pair.Value * (nextAbove.Value - elev) * CuFtToCuM, 0)
+                        : null,
+                });
+            }
+
+            // ── Staircases: keyed by TOP level (the storey the stair
+            // serves); width = narrowest run.
+            var stairPoints = new List<XYZ>();
+            try
+            {
+                foreach (var st in new FilteredElementCollector(doc)
+                    .OfClass(typeof(Stairs)).Cast<Stairs>())
+                {
+                    string topName = "";
+                    var tp = st.get_Parameter(BuiltInParameter.STAIRS_TOP_LEVEL_PARAM);
+                    if (tp != null)
+                    {
+                        var lvl = doc.GetElement(tp.AsElementId()) as Level;
+                        if (lvl != null) topName = lvl.Name ?? "";
+                    }
+                    double? width = null;
+                    foreach (var runId in st.GetStairsRuns())
+                    {
+                        var run = doc.GetElement(runId) as StairsRun;
+                        if (run == null) continue;
+                        double w = run.ActualRunWidth * FtToMm;
+                        if (!width.HasValue || w < width.Value) width = w;
+                    }
+                    facts.Stairs.Add(new BombaModelFacts.StairInfo
+                    {
+                        LevelName = topName,
+                        WidthMm = width.HasValue ? (double?)Math.Round(width.Value, 0) : null,
+                    });
+                    var bb = st.get_BoundingBox(null);
+                    if (bb != null) stairPoints.Add((bb.Min + bb.Max) * 0.5);
+                }
+            }
+            catch { /* stairs stay unmeasured */ }
+
+            // ── Lowest occupied level: final exits + perimeter live there.
+            long lowestOccupied = long.MinValue;
+            double bestElev = double.MaxValue;
+            foreach (var key in perLevelSqFt.Keys)
+            {
+                double e;
+                if (levelElevations.TryGetValue(key, out e) && e < bestElev)
+                {
+                    bestElev = e;
+                    lowestOccupied = key;
+                }
+            }
+
+            var exitDoorPoints = new List<XYZ>();
+            if (lowestOccupied != long.MinValue)
+            {
+                try
+                {
+                    foreach (var el in new FilteredElementCollector(doc)
+                        .OfCategory(BuiltInCategory.OST_Doors).WhereElementIsNotElementType())
+                    {
+                        var door = el as FamilyInstance;
+                        if (door == null) continue;
+#if REVIT2023_24
+                        long dl = door.LevelId != null ? door.LevelId.IntegerValue : -1;
+#else
+                        long dl = door.LevelId != null ? door.LevelId.Value : -1;
+#endif
+                        if (dl != lowestOccupied) continue;
+                        var wall = door.Host as Wall;
+                        if (wall == null || wall.WallType == null) continue;
+                        if (wall.WallType.Function != WallFunction.Exterior) continue;
+
+                        double? w = null;
+                        var wp = door.get_Parameter(BuiltInParameter.DOOR_WIDTH);
+                        if (wp == null || wp.StorageType != StorageType.Double)
+                            wp = door.Symbol != null
+                                ? door.Symbol.get_Parameter(BuiltInParameter.DOOR_WIDTH)
+                                : null;
+                        if (wp != null && wp.StorageType == StorageType.Double)
+                            w = wp.AsDouble() * FtToMm;
+                        facts.ExitDoors.Add(new BombaModelFacts.ExitDoorInfo
+                        {
+                            WidthMm = w.HasValue ? (double?)Math.Round(w.Value, 0) : null,
+                        });
+                        var lp = door.Location as LocationPoint;
+                        if (lp != null) exitDoorPoints.Add(lp.Point);
+                    }
+                }
+                catch { /* exits stay unmeasured */ }
+
+                try
+                {
+                    double perim = 0;
+                    bool anyWall = false;
+                    foreach (var wall in new FilteredElementCollector(doc)
+                        .OfClass(typeof(Wall)).Cast<Wall>())
+                    {
+#if REVIT2023_24
+                        long wl = wall.LevelId != null ? wall.LevelId.IntegerValue : -1;
+#else
+                        long wl = wall.LevelId != null ? wall.LevelId.Value : -1;
+#endif
+                        if (wl != lowestOccupied) continue;
+                        if (wall.WallType == null || wall.WallType.Function != WallFunction.Exterior) continue;
+                        var lc = wall.Location as LocationCurve;
+                        if (lc == null || lc.Curve == null) continue;
+                        perim += lc.Curve.Length;
+                        anyWall = true;
+                    }
+                    if (anyWall) facts.PerimeterMm = Math.Round(perim * FtToMm, 0);
+                }
+                catch { /* perimeter stays unmeasured */ }
+            }
+
+            // ── DIRECT room-to-exit distances (§B.6 stage 1): ground rooms
+            // measure to final exits, upper rooms to the nearest staircase.
+            // Worst bounding-box corner approximates the farthest point.
+            try
+            {
+                foreach (var room in new FilteredElementCollector(doc)
+                    .OfCategory(BuiltInCategory.OST_Rooms)
+                    .WhereElementIsNotElementType().OfType<Room>())
+                {
+                    if (room.Area <= 0) continue;
+#if REVIT2023_24
+                    long rl = room.LevelId != null ? room.LevelId.IntegerValue : -1;
+#else
+                    long rl = room.LevelId != null ? room.LevelId.Value : -1;
+#endif
+                    var exits = rl == lowestOccupied ? exitDoorPoints : stairPoints;
+                    if (exits.Count == 0) continue; // unmeasured — honest
+                    var bb = room.get_BoundingBox(null);
+                    if (bb == null) continue;
+                    var corners = new[]
+                    {
+                        new XYZ(bb.Min.X, bb.Min.Y, 0), new XYZ(bb.Min.X, bb.Max.Y, 0),
+                        new XYZ(bb.Max.X, bb.Min.Y, 0), new XYZ(bb.Max.X, bb.Max.Y, 0),
+                    };
+                    double worst = 0;
+                    foreach (var c in corners)
+                    {
+                        double nearest = double.MaxValue;
+                        foreach (var ex in exits)
+                        {
+                            double dx = ex.X - c.X, dy = ex.Y - c.Y;
+                            double d = Math.Sqrt(dx * dx + dy * dy);
+                            if (d < nearest) nearest = d;
+                        }
+                        if (nearest > worst) worst = nearest;
+                    }
+                    facts.RoomExits.Add(new BombaModelFacts.RoomExitInfo
+                    {
+                        Room = room.Name ?? "",
+                        DirectMm = Math.Round(worst * FtToMm, 0),
+                    });
+                }
+            }
+            catch { /* distances stay unmeasured */ }
+
+            // ── Fire-rating audit (§B.7): distinct in-use types per element
+            // class with their raw Fire Rating text — parsing is engine-side.
+            try
+            {
+                var classMap = new Dictionary<BuiltInCategory, string>
+                {
+                    { BuiltInCategory.OST_Walls, "wall" },
+                    { BuiltInCategory.OST_Floors, "floor" },
+                    { BuiltInCategory.OST_StructuralColumns, "column" },
+                    { BuiltInCategory.OST_StructuralFraming, "framing" },
+                };
+                foreach (var cm in classMap)
+                {
+                    var counts = new Dictionary<ElementId, int>();
+                    foreach (var el in new FilteredElementCollector(doc)
+                        .OfCategory(cm.Key).WhereElementIsNotElementType())
+                    {
+                        var tid = el.GetTypeId();
+                        if (tid == ElementId.InvalidElementId) continue;
+                        counts[tid] = counts.ContainsKey(tid) ? counts[tid] + 1 : 1;
+                    }
+                    foreach (var kv in counts)
+                    {
+                        var typ = doc.GetElement(kv.Key) as ElementType;
+                        if (typ == null) continue;
+                        var rp = typ.get_Parameter(BuiltInParameter.FIRE_RATING);
+                        facts.FireRatings.Add(new BombaModelFacts.FireRatingInfo
+                        {
+                            ElementClass = cm.Value,
+                            TypeName = typ.Name ?? "?",
+                            RatingText = rp != null ? (rp.AsString() ?? "") : "",
+                            Count = kv.Value,
+                        });
+                    }
+                }
+            }
+            catch { /* ratings stay unmeasured */ }
         }
 
         // ── purpose-group detection (design 10A: "auto-detected from room names") ──
