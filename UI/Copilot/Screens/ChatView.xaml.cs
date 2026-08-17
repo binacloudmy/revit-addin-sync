@@ -1835,18 +1835,57 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
 
             var buttons = new WrapPanel { Margin = new Thickness(0, 7, 0, 0) };
-            buttons.Children.Add(FollowupChip("Tunjuk semula", () => EnqueueReceiptJob("__receipt_show")));
-            buttons.Children.Add(FollowupChip("Undo", () => EnqueueReceiptJob("__receipt_undo")));
+            buttons.Children.Add(FollowupChip("Tunjuk semula", () => RunReceiptJob("__receipt_show", "Perubahan diserlah dan dizum dalam pandangan.", "Tiada rekod perubahan untuk ditunjuk — resit ini dari sesi sebelum Revit dimulakan semula. Jalankan semula permintaan untuk resit baharu.")));
+            buttons.Children.Add(FollowupChip("Undo", () => RunReceiptJob("__receipt_undo", "Undo diposkan ke Revit.", "Undo tidak dapat diposkan.")));
             sp.Children.Add(buttons);
 
             outer.Child = sp;
             return outer;
         }
 
-        private static void EnqueueReceiptJob(string tool)
+        /// <summary>Run a receipt job and ALWAYS surface the outcome in the
+        /// pane. The fire-and-forget version reproduced the exact bug it was
+        /// built to prevent: a failed [Tunjuk semula] (e.g. static receipt
+        /// state reset by a Revit restart) rendered literally NOTHING (UAT
+        /// 2026-08-18) — a silent no-op from the feature whose whole job is
+        /// "never leave the drafter guessing".</summary>
+        private void RunReceiptJob(string tool, string okText, string failText)
         {
-            try { BinaVibe.Mcp.McpJobPump.Enqueue(new BinaVibe.Mcp.McpJob { Tool = tool }); }
-            catch { /* best-effort UI action */ }
+            var job = new BinaVibe.Mcp.McpJob { Tool = tool };
+            try { BinaVibe.Mcp.McpJobPump.Enqueue(job); }
+            catch { ReceiptFeedback(failText); return; }
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                string text;
+                try
+                {
+                    var done = await System.Threading.Tasks.Task.WhenAny(
+                        job.Done.Task, System.Threading.Tasks.Task.Delay(TimeSpan.FromSeconds(12)));
+                    if (done != job.Done.Task) { job.Abandoned = true; text = "Revit sibuk — cuba sekali lagi."; }
+                    else if (job.Error != null) text = failText + " (" + job.Error + ")";
+                    else
+                    {
+                        var ok = job.Result != null
+                            && (!job.Result.TryGetValue("ok", out var okVal) || !(okVal is bool b) || b);
+                        text = ok ? okText : failText;
+                    }
+                }
+                catch { text = failText; }
+                try { Dispatcher.Invoke(() => ReceiptFeedback(text)); } catch { }
+            });
+        }
+
+        private void ReceiptFeedback(string text)
+        {
+            try
+            {
+                Vm?.Thread.Add(new ChatMessage
+                {
+                    Role = "ai", Kind = CpMsgKind.AiReply, Text = text,
+                    Time = DateTime.Now.ToString("h:mm tt"),
+                });
+            }
+            catch { }
         }
 
         private FrameworkElement ResultSummaryCard(ChatMessage m, bool hasBars, bool hasFollowups, bool hasTindakan, double maxCardWidth)
