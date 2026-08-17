@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Text;
@@ -337,40 +338,196 @@ namespace RevitWebAppSync
             }
         }
 
-        public async Task<BimDisciplineResponse> GetBimDisciplineFilesAsync(string accessToken, int projectId)
+        /// <summary>
+        /// Fetches the project's discipline registry: projectDisciplines(projectId)
+        /// on ProjectDisciplineResolver. This is GraphQL-only — no REST endpoint
+        /// exists for it as of this change (verified against a locally-booted
+        /// bina-be: BIMDisciplineController exposes no discipline-list route).
+        /// GraphQL is mounted at {_baseUrl}/graphql, unprefixed by the REST
+        /// controllers' /api segment (Apollo's own middleware sits outside
+        /// Nest's setGlobalPrefix('api') — confirmed live: POST {_baseUrl}/graphql
+        /// with no token returns HTTP 200 + a GraphQL "Unauthorized" error body,
+        /// same as any expired/missing REST bearer token would). GqlAuthGuard
+        /// extracts the token from the same "Authorization: Bearer …" header as
+        /// every REST call in this file, so this reuses the existing auth
+        /// pattern rather than inventing a new one — only the request shape
+        /// (JSON {query, variables} instead of query-string REST) is new.
+        ///
+        /// Returns a (Disciplines, Unauthenticated) tuple — same shape idiom as
+        /// GetFileParameters below — rather than collapsing every failure mode
+        /// into a bare null like the rest of this file. Unauthenticated is true
+        /// only when the failure is specifically an invalid/expired/missing
+        /// token (GraphQL's errors[].extensions.code == "UNAUTHENTICATED", or a
+        /// literal HTTP 401/403 if a gateway ever sits in front of this route);
+        /// any other failure (network error, 5xx, malformed response) leaves it
+        /// false so callers can show a message distinguishing "log in again"
+        /// from a generic "try again" without a token-expiry clock check (see
+        /// task-8-followups-report.md for why a clock check was rejected).
+        /// </summary>
+        public async Task<(List<BimDiscipline> Disciplines, bool Unauthenticated)> GetProjectDisciplinesAsync(string accessToken, int projectId)
         {
             try
             {
+                LogToFile($"✨ Requesting project disciplines for project {projectId}... ✨");
+
+                _httpClient.DefaultRequestHeaders.Authorization =
+                    new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+
+                var graphqlRequest = new
+                {
+                    query = @"query ProjectDisciplines($projectId: ID!) {
+                        projectDisciplines(projectId: $projectId) {
+                            id
+                            code
+                            name
+                            shortCode
+                            color
+                            icon
+                            sortOrder
+                            isSystem
+                        }
+                    }",
+                    // GraphQL ID scalars serialize as strings; send it as one to
+                    // match bina-web's own ProjectDisciplines query.
+                    variables = new { projectId = projectId.ToString() }
+                };
+
+                string jsonContent = JsonConvert.SerializeObject(graphqlRequest);
+                var content = new StringContent(jsonContent, Encoding.UTF8, "application/json");
+
+                string url = $"{_baseUrl}/graphql";
+                LogToFile($"Requesting URL: {url}");
+
+                var response = await _httpClient.PostAsync(url, content);
+                string responseBody = await response.Content.ReadAsStringAsync();
+
+                LogToFile($"Response status: {response.StatusCode}");
+                LogToFile($"Response body: {responseBody}");
+
+                if (!response.IsSuccessStatusCode)
+                {
+                    LogToFile($"❌ Failed to get project disciplines. Status: {response.StatusCode}");
+                    bool httpUnauthenticated = response.StatusCode == System.Net.HttpStatusCode.Unauthorized
+                        || response.StatusCode == System.Net.HttpStatusCode.Forbidden;
+                    return (null, httpUnauthenticated);
+                }
+
+                var jsonResponse = JObject.Parse(responseBody);
+
+                // GraphQL returns HTTP 200 even for resolver-level failures
+                // (auth, not-found, etc.) — errors live in the body, not the
+                // status code.
+                if (jsonResponse["errors"] is JArray errors && errors.Count > 0)
+                {
+                    LogToFile($"❌ GraphQL errors fetching project disciplines: {errors}");
+
+                    bool unauthenticated = false;
+                    foreach (var error in errors)
+                    {
+                        if (string.Equals((string)error["extensions"]?["code"], "UNAUTHENTICATED", StringComparison.OrdinalIgnoreCase))
+                        {
+                            unauthenticated = true;
+                            break;
+                        }
+                    }
+
+                    return (null, unauthenticated);
+                }
+
+                var disciplinesToken = jsonResponse["data"]?["projectDisciplines"];
+                if (disciplinesToken == null)
+                {
+                    LogToFile("❌ GraphQL response had no data.projectDisciplines field");
+                    return (null, false);
+                }
+
+                var disciplines = disciplinesToken.ToObject<List<BimDiscipline>>();
+                LogToFile($"✅ Retrieved {disciplines.Count} project disciplines for project {projectId}");
+
+                return (disciplines, false);
+            }
+            catch (Exception ex)
+            {
+                LogToFile($"❌ GetProjectDisciplinesAsync failed with exception: {ex.Message}");
+                return (null, false);
+            }
+        }
+
+        /// <summary>
+        /// Combines the discipline registry with a best-effort map of the
+        /// latest downloadable file per discipline Code, for
+        /// BimDisciplineCommand's "Download BIM Disciplines" flow.
+        ///
+        /// CAVEAT (pre-existing, unrelated to the custom-disciplines change):
+        /// the file-map half of this call still hits
+        /// /api/cloud-docs/bim-discipline/project/{id}/latest-urls, the same URL
+        /// this method always called. That route no longer exists server-side —
+        /// it was renamed to latest-shared-urls with a completely different
+        /// (nested folders-of-files) response shape back in commit d16a29dd,
+        /// months before this task. So today this call 404s and FilesByCode
+        /// comes back empty every time; the download flow was already broken
+        /// before this change, independent of HVAC/Mechanical or the discipline
+        /// registry. Deserialization below is a tolerant Code-&gt;file dictionary
+        /// (replacing the old fixed Structure/Architecture/HVAC/Electrical
+        /// properties) so that IF that endpoint is fixed to return a flat
+        /// per-discipline-code map, this starts working with no further add-in
+        /// changes — but that fix is out of scope here and unverified.
+        /// </summary>
+        public async Task<BimDisciplineModels> GetBimDisciplineModelsAsync(string accessToken, int projectId)
+        {
+            var models = new BimDisciplineModels();
+
+            // Mechanical adaptation to GetProjectDisciplinesAsync's new tuple
+            // return (see that method's doc comment) — the Unauthenticated
+            // flag isn't consumed here since this method already collapses to
+            // a bare null on any failure; that's unchanged, pre-existing
+            // behavior for this call site, not part of this follow-up.
+            var (disciplines, _) = await GetProjectDisciplinesAsync(accessToken, projectId);
+            if (disciplines == null)
+            {
+                return null;
+            }
+            models.Disciplines = disciplines;
+
+            try
+            {
                 LogToFile($"✨ Requesting BIM discipline files for project {projectId}... ✨");
-                
-                _httpClient.DefaultRequestHeaders.Authorization = 
+
+                _httpClient.DefaultRequestHeaders.Authorization =
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
 
                 string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}/latest-urls";
-                
+
                 LogToFile($"Requesting URL: {url}");
 
                 var response = await _httpClient.GetAsync(url);
                 string responseBody = await response.Content.ReadAsStringAsync();
-                
+
                 LogToFile($"Response status: {response.StatusCode}");
                 LogToFile($"Response body: {responseBody}");
-                
+
                 if (!response.IsSuccessStatusCode)
                 {
-                    LogToFile($"❌ Failed to get BIM discipline files. Status: {response.StatusCode}");
-                    return null;
+                    // Known-broken endpoint (see method doc) — fail soft. The
+                    // registry list is still valid and usable.
+                    LogToFile($"❌ Failed to get BIM discipline files (known-broken endpoint). Status: {response.StatusCode}");
+                    return models;
                 }
 
-                var disciplineResponse = JsonConvert.DeserializeObject<BimDisciplineResponse>(responseBody);
+                var filesByCode = JsonConvert.DeserializeObject<Dictionary<string, BimDisciplineFile>>(responseBody);
+                if (filesByCode != null)
+                {
+                    models.FilesByCode = new Dictionary<string, BimDisciplineFile>(filesByCode, StringComparer.OrdinalIgnoreCase);
+                }
+
                 LogToFile($"✅ Successfully retrieved BIM discipline files for project {projectId}");
-                
-                return disciplineResponse;
+
+                return models;
             }
             catch (Exception ex)
             {
-                LogToFile($"❌ GetBimDisciplineFilesAsync failed with exception: {ex.Message}");
-                return null;
+                LogToFile($"❌ GetBimDisciplineModelsAsync file-map fetch failed with exception: {ex.Message}");
+                return models;
             }
         }
 

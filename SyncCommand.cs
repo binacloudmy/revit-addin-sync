@@ -38,46 +38,10 @@ namespace RevitWebAppSync
                     return Result.Failed;
                 }
 
-                // Show discipline selection dialog
-                TaskDialog disciplineDialog = new TaskDialog("Select Discipline Type");
-                disciplineDialog.MainInstruction = "What type of discipline file are you uploading?";
-                disciplineDialog.MainContent = $"File: {Path.GetFileName(doc.PathName)}\n\nPlease select the discipline type for this file:\n\nClick 'OK' for MainFile/General model.";
-                
-                disciplineDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink1, "Architecture", "Architectural design elements, walls, doors, windows, etc.");
-                disciplineDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink2, "Structure", "Structural elements, beams, columns, foundations, etc.");
-                disciplineDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink3, "HVAC", "Heating, ventilation, and air conditioning systems.");
-                disciplineDialog.AddCommandLink(TaskDialogCommandLinkId.CommandLink4, "Electrical", "Electrical systems, lighting, power distribution, etc.");
-                
-                disciplineDialog.CommonButtons = TaskDialogCommonButtons.Ok | TaskDialogCommonButtons.Cancel;
-                disciplineDialog.DefaultButton = TaskDialogResult.Ok;
-
-                var disciplineResult = disciplineDialog.Show();
-                
-                string selectedDiscipline;
-                switch (disciplineResult)
-                {
-                    case TaskDialogResult.CommandLink1:
-                        selectedDiscipline = "Architecture";
-                        break;
-                    case TaskDialogResult.CommandLink2:
-                        selectedDiscipline = "Structure";
-                        break;
-                    case TaskDialogResult.CommandLink3:
-                        selectedDiscipline = "HVAC";
-                        break;
-                    case TaskDialogResult.CommandLink4:
-                        selectedDiscipline = "Electrical";
-                        break;
-                    case TaskDialogResult.Ok:
-                        selectedDiscipline = "MainFile"; // Default to MainFile if OK is clicked
-                        break;
-                    default:
-                        return Result.Cancelled;
-                }
-
-                System.Diagnostics.Debug.WriteLine($"[BINA] Selected discipline type: {selectedDiscipline}");
-
-                // Load saved config
+                // Load saved config. Moved ahead of discipline selection (it
+                // used to run after) because the discipline list is no longer a
+                // hardcoded 4-item set baked into the dialog — it has to be
+                // fetched from the API, which needs a project + access token.
                 BinaConfig config = BinaConfig.Load();
 
                 // Check if user is logged in
@@ -91,10 +55,55 @@ namespace RevitWebAppSync
                 string accessToken = config.AccessToken;
                 var binaService = new BinaApiService(config.Email, config.Password);
 
+                // Fetch the project's discipline registry. A Revit TaskDialog
+                // only supports 4 CommandLinks, which can't represent an
+                // arbitrary, per-project discipline list (the 6 system
+                // disciplines alone already exceed that) — so selection moved to
+                // a WPF picker window (DisciplinePickerWindow), same pattern as
+                // ProjectPickerWindow.
+                var disciplinesTask = Task.Run(() => binaService.GetProjectDisciplinesAsync(accessToken, config.ProjectId));
+                var disciplinesResult = disciplinesTask.Result;
+                var disciplines = disciplinesResult.Disciplines;
+
+                if (disciplines == null)
+                {
+                    // Distinguish an expired/invalid token (actionable — the
+                    // user just needs to log in again, same as the "Not
+                    // Logged In" gate above) from a genuine fetch failure
+                    // (network/server issue — no amount of re-logging-in
+                    // fixes that). See GetProjectDisciplinesAsync's doc
+                    // comment for how Unauthenticated is detected.
+                    if (disciplinesResult.Unauthenticated)
+                    {
+                        TaskDialog.Show("Session Expired", "Your BINA session has expired. Please log in again using the 'Login' button, then try syncing again.");
+                        binaService.Dispose();
+                        return Result.Cancelled;
+                    }
+
+                    TaskDialog.Show("Error", "Failed to fetch the project's discipline list. Check the log file on Desktop for more details, and try again.");
+                    binaService.Dispose();
+                    return Result.Failed;
+                }
+
+                var pickerWindow = new DisciplinePickerWindow(disciplines, Path.GetFileName(doc.PathName));
+                bool? pickerResult = pickerWindow.ShowDialog();
+
+                if (pickerResult != true)
+                {
+                    binaService.Dispose();
+                    return Result.Cancelled;
+                }
+
+                // Code, never Name — the immutable identity persisted as
+                // disciplineType and embedded in storage keys.
+                string selectedDiscipline = pickerWindow.SelectedDisciplineCode;
+
+                System.Diagnostics.Debug.WriteLine($"[BINA] Selected discipline type: {selectedDiscipline}");
+
                 try
                 {
                     // Start dual upload process: BINA (OBS) + Autodesk OSS
-                    var uploadTask = Task.Run(() => UploadToMultiplePlatforms(doc, accessToken, binaService, selectedDiscipline, config));
+                    var uploadTask = Task.Run(() => UploadToMultiplePlatforms(doc, accessToken, binaService, selectedDiscipline, config, disciplines));
                     var resultData = uploadTask.Result;
 
                     // Show results window on main UI thread
@@ -140,7 +149,7 @@ namespace RevitWebAppSync
             }
         }
 
-        private async Task<SyncResultData> UploadToMultiplePlatforms(Document doc, string binaAccessToken, BinaApiService binaService, string disciplineType, BinaConfig config)
+        private async Task<SyncResultData> UploadToMultiplePlatforms(Document doc, string binaAccessToken, BinaApiService binaService, string disciplineType, BinaConfig config, List<BimDiscipline> disciplines)
         {
             var autodeskService = new AutodeskApiService();
             
@@ -221,7 +230,7 @@ namespace RevitWebAppSync
                     DisciplineType = disciplineType, // Selected discipline from dropdown
                     Metadata = new FederatedFileMetadata
                     {
-                        LinkedFiles = ExtractRevitLinks(doc)
+                        LinkedFiles = ExtractRevitLinks(doc, disciplines)
                     }
                 };
 
@@ -246,7 +255,7 @@ namespace RevitWebAppSync
                     
                     RegistrationSuccess = saveResult.Success,
                     
-                    LinkedFiles = ExtractRevitLinks(doc),
+                    LinkedFiles = ExtractRevitLinks(doc, disciplines),
                     ErrorMessage = GetErrorMessage(autodeskUploadResult, saveResult)
                 };
 
@@ -282,26 +291,16 @@ namespace RevitWebAppSync
             return errors.Count > 0 ? string.Join("\n\n", errors) : null;
         }
 
-        private static string GetDisciplineTypeFromFileName(string fileName)
+        /// <summary>The discipline Code (the immutable identity persisted as
+        /// disciplineType — never Name) for a linked-file's filename, or
+        /// "MainFile" if it doesn't match any known discipline prefix.</summary>
+        private static string GetDisciplineTypeFromFileName(string fileName, List<BimDiscipline> disciplines)
         {
-            if (string.IsNullOrEmpty(fileName))
-                return "MainFile";
-
-            string fileNameUpper = fileName.ToUpper();
-            
-            if (fileNameUpper.StartsWith("ARCHITECTURE"))
-                return "Architecture";
-            else if (fileNameUpper.StartsWith("STRUCTURE"))
-                return "Structure";
-            else if (fileNameUpper.StartsWith("HVAC"))
-                return "HVAC";
-            else if (fileNameUpper.StartsWith("ELECTRICAL"))
-                return "Electrical";
-            else
-                return "MainFile";
+            var match = DisciplinePrefixMatcher.Match(fileName, disciplines);
+            return match?.Code ?? "MainFile";
         }
 
-        private static List<LinkedFileInfo> ExtractRevitLinks(Document doc)
+        private static List<LinkedFileInfo> ExtractRevitLinks(Document doc, List<BimDiscipline> disciplines)
         {
             var linkedFiles = new List<LinkedFileInfo>();
             
@@ -358,7 +357,7 @@ namespace RevitWebAppSync
                             {
                                 FileName = fileName,
                                 RelativePath = relPath,
-                                DisciplineType = GetDisciplineTypeFromFileName(fileName)
+                                DisciplineType = GetDisciplineTypeFromFileName(fileName, disciplines)
                             });
                             
                             System.Diagnostics.Debug.WriteLine($"[BINA] Link added - FileName: {fileName}, RelativePath: {relPath}");
@@ -370,7 +369,7 @@ namespace RevitWebAppSync
                             {
                                 FileName = linkName,
                                 RelativePath = linkName,
-                                DisciplineType = GetDisciplineTypeFromFileName(linkName)
+                                DisciplineType = GetDisciplineTypeFromFileName(linkName, disciplines)
                             });
                             
                             System.Diagnostics.Debug.WriteLine($"[BINA] Link added (no external ref) - FileName: {linkName}");

@@ -60,11 +60,11 @@ namespace RevitWebAppSync
                         return Result.Failed;
                     }
 
-                    // Get BIM discipline files
-                    var disciplinesTask = Task.Run(() => binaService.GetBimDisciplineFilesAsync(accessToken, projectId));
-                    var disciplineResponse = disciplinesTask.Result;
+                    // Get the project's discipline registry + best-effort file map
+                    var disciplinesTask = Task.Run(() => binaService.GetBimDisciplineModelsAsync(accessToken, projectId));
+                    var disciplineModels = disciplinesTask.Result;
 
-                    if (disciplineResponse == null)
+                    if (disciplineModels == null)
                     {
                         resultData.ErrorMessage = $"Failed to fetch BIM discipline files for project {projectId}. Check the log file on Desktop for more details.";
                         ShowResultsWindow(resultData);
@@ -72,21 +72,23 @@ namespace RevitWebAppSync
                         return Result.Failed;
                     }
 
-                    // Download available discipline files
-                    var disciplines = new[]
+                    // Download available discipline files. MainFile is a
+                    // federation output, not a downloadable discipline — skip it.
+                    foreach (var discipline in disciplineModels.Disciplines)
                     {
-                        ("Structure", disciplineResponse.Structure),
-                        ("Architecture", disciplineResponse.Architecture),
-                        ("HVAC", disciplineResponse.HVAC),
-                        ("Electrical", disciplineResponse.Electrical)
-                    };
+                        if (discipline.IsMainFile) continue;
 
-                    foreach (var (disciplineName, disciplineFile) in disciplines)
-                    {
+                        if (!disciplineModels.FilesByCode.TryGetValue(discipline.Code, out var disciplineFile))
+                        {
+                            continue;
+                        }
+
                         if (disciplineFile != null && !string.IsNullOrEmpty(disciplineFile.FileUrl))
                         {
-                            // Create discipline-specific folder
-                            string disciplineDir = Path.Combine(downloadDir, disciplineName);
+                            // Create discipline-specific folder, keyed by the
+                            // immutable Code (never the display Name, which can
+                            // be renamed at any time).
+                            string disciplineDir = Path.Combine(downloadDir, discipline.Code);
                             if (!Directory.Exists(disciplineDir))
                             {
                                 Directory.CreateDirectory(disciplineDir);
@@ -102,7 +104,7 @@ namespace RevitWebAppSync
 
                             resultData.DownloadedFiles.Add(new DownloadedFileInfo
                             {
-                                DisciplineName = disciplineName,
+                                DisciplineName = discipline.Name,
                                 FileName = disciplineFile.FileName,
                                 FilePath = downloadedPath,
                                 Success = !string.IsNullOrEmpty(downloadedPath)

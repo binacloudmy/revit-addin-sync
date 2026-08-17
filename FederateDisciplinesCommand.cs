@@ -39,9 +39,57 @@ namespace RevitWebAppSync
                     return Result.Failed;
                 }
 
+                // Discipline prefix matching now comes from the project's
+                // discipline registry instead of a hardcoded 4-discipline list,
+                // so this command needs to be logged in and online before it can
+                // even scan local files — the old version could filter with the
+                // literal prefixes offline. See task-8-report.md for this
+                // trade-off.
+                BinaConfig config = BinaConfig.Load();
+                if (!config.IsLoggedIn())
+                {
+                    TaskDialog.Show("Not Logged In", "Please login first using the 'Login' button before federating discipline files.");
+                    return Result.Cancelled;
+                }
+
+                // BinaApiService is not IDisposable (see its Dispose() below,
+                // called explicitly everywhere in this codebase) — no `using`.
+                List<BimDiscipline> disciplines;
+                bool disciplinesUnauthenticated;
+                var registryService = new BinaApiService(config.Email, config.Password);
+                try
+                {
+                    var registryTask = Task.Run(() => registryService.GetProjectDisciplinesAsync(config.AccessToken, config.ProjectId));
+                    var registryResult = registryTask.Result;
+                    disciplines = registryResult.Disciplines;
+                    disciplinesUnauthenticated = registryResult.Unauthenticated;
+                }
+                finally
+                {
+                    registryService.Dispose();
+                }
+
+                if (disciplines == null)
+                {
+                    // Distinguish an expired/invalid token (actionable — the
+                    // user just needs to log in again, same as the "Not
+                    // Logged In" gate above) from a genuine fetch failure
+                    // (network/server issue — no amount of re-logging-in
+                    // fixes that). See GetProjectDisciplinesAsync's doc
+                    // comment for how Unauthenticated is detected.
+                    if (disciplinesUnauthenticated)
+                    {
+                        TaskDialog.Show("Session Expired", "Your BINA session has expired. Please log in again using the 'Login' button, then try federating discipline files again.");
+                        return Result.Cancelled;
+                    }
+
+                    TaskDialog.Show("Error", "Failed to fetch the project's discipline list. Check the log file on Desktop for more details, and try again.");
+                    return Result.Failed;
+                }
+
                 // Find the BINA Downloads directory
                 string downloadDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), "BINA_Downloads");
-                
+
                 if (!Directory.Exists(downloadDir))
                 {
                     TaskDialog.Show("No Downloads Found", $"BINA Downloads directory not found at:\n{downloadDir}\n\nPlease download discipline files first using the 'Download BIM Disciplines' button.");
@@ -51,32 +99,32 @@ namespace RevitWebAppSync
                 // Find all .rvt files in the downloads directory
                 var allRvtFiles = Directory.GetFiles(downloadDir, "*.rvt", SearchOption.TopDirectoryOnly).ToList();
                 System.Diagnostics.Debug.WriteLine($"[BINA] Found {allRvtFiles.Count} .rvt files in {downloadDir}");
-                
+
                 // Log all files found for debugging
                 foreach (var file in allRvtFiles)
                 {
                     System.Diagnostics.Debug.WriteLine($"[BINA] Found file: {Path.GetFileName(file)}");
                 }
-                
-                // Strict filtering - files must start with specific discipline prefixes
+
+                // Strict filtering - files must start with a known discipline
+                // prefix (ShortCode, or Code as a fallback; "HVAC_" still
+                // accepted as a legacy alias for Mechanical — see DisciplinePrefixMatcher).
                 var revitFiles = allRvtFiles
-                    .Where(file => Path.GetFileName(file).StartsWith("Architecture_") ||
-                                   Path.GetFileName(file).StartsWith("Structure_") ||
-                                   Path.GetFileName(file).StartsWith("HVAC_") ||
-                                   Path.GetFileName(file).StartsWith("Electrical_"))
+                    .Where(file => DisciplinePrefixMatcher.Match(Path.GetFileName(file), disciplines) != null)
                     .ToList();
 
                 System.Diagnostics.Debug.WriteLine($"[BINA] Filtered to {revitFiles.Count} discipline files");
 
                 if (revitFiles.Count == 0)
                 {
+                    string expectedPrefixes = DisciplinePrefixMatcher.DescribePrefixes(disciplines);
                     // Show all files found for user debugging
-                    string allFilesInfo = allRvtFiles.Count > 0 ? 
-                        $"\n\nFiles found in directory:\n{string.Join("\n", allRvtFiles.Select(Path.GetFileName))}\n\nExpected naming: Architecture_*, Structure_*, HVAC_*, Electrical_*" :
+                    string allFilesInfo = allRvtFiles.Count > 0 ?
+                        $"\n\nFiles found in directory:\n{string.Join("\n", allRvtFiles.Select(Path.GetFileName))}\n\nExpected naming: {expectedPrefixes}" :
                         "\n\nNo .rvt files found in directory.";
-                    
-                    TaskDialog.Show("No Discipline Files", 
-                        $"No discipline files found in:\n{downloadDir}\n\nExpected prefixes: Architecture_, Structure_, HVAC_, Electrical_{allFilesInfo}\n\nPlease download discipline files first using the 'Download BIM Disciplines' button.");
+
+                    TaskDialog.Show("No Discipline Files",
+                        $"No discipline files found in:\n{downloadDir}\n\nExpected prefixes: {expectedPrefixes}{allFilesInfo}\n\nPlease download discipline files first using the 'Download BIM Disciplines' button.");
                     return Result.Failed;
                 }
 
@@ -252,7 +300,7 @@ namespace RevitWebAppSync
                         System.Diagnostics.Debug.WriteLine("[BINA] Document saved with federation links");
                         
                         // Now upload the federated file to BINA
-                        UploadFederatedFile(doc, linkedFiles);
+                        UploadFederatedFile(doc, linkedFiles, disciplines);
                     }
                     catch (Exception saveEx)
                     {
@@ -271,7 +319,7 @@ namespace RevitWebAppSync
             }
         }
 
-        private async void UploadFederatedFile(Document doc, List<string> linkedFiles)
+        private async void UploadFederatedFile(Document doc, List<string> linkedFiles, List<BimDiscipline> disciplines)
         {
             try
             {
@@ -313,6 +361,14 @@ namespace RevitWebAppSync
                         TaskDialog.Show("Upload Failed", "Failed to login to BINA.\n\nCheck the log file on Desktop for more details.");
                         return;
                     }
+
+                    // The discipline registry was already fetched once in
+                    // Execute() (for local-file filtering) and is passed in
+                    // via the `disciplines` parameter — re-fetching it here
+                    // used to mean a second login AND a second network round
+                    // trip for the exact same data. `disciplines` is guaranteed
+                    // non-null: Execute() returns Failed before calling this
+                    // method if the registry fetch came back null.
 
                     // Step 2: Upload to OBS (Original BINA Upload)
                     System.Diagnostics.Debug.WriteLine("[BINA] Uploading to OBS (Original BINA storage)...");
@@ -383,7 +439,7 @@ namespace RevitWebAppSync
                         DisciplineType = "MainFile", // Federated files are always MainFile type
                         Metadata = new FederatedFileMetadata
                         {
-                            LinkedFiles = ExtractRevitLinks(doc)
+                            LinkedFiles = ExtractRevitLinks(doc, disciplines)
                         }
                     };
 
@@ -404,7 +460,7 @@ namespace RevitWebAppSync
                                             $"Autodesk Viewer: Ready\n";
                         }
                         
-                        successMessage += $"Linked disciplines: {string.Join(", ", ExtractDisciplineNames(linkedFiles))}\n\n" +
+                        successMessage += $"Linked disciplines: {string.Join(", ", ExtractDisciplineNames(linkedFiles, disciplines))}\n\n" +
                                         $"Your federated model is now available in the BINA cloud.";
 
                         TaskDialog.Show("Upload Success!", successMessage);
@@ -433,39 +489,30 @@ namespace RevitWebAppSync
             }
         }
 
-        private List<string> ExtractDisciplineNames(List<string> linkedFiles)
+        /// <summary>Display names (discipline.Name — never Code) of the
+        /// disciplines represented among the linked/reloaded file entries, for
+        /// the "Linked disciplines: …" success message.</summary>
+        private List<string> ExtractDisciplineNames(List<string> linkedFiles, List<BimDiscipline> disciplines)
         {
-            var disciplines = new HashSet<string>();
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var file in linkedFiles)
             {
-                if (file.StartsWith("Architecture")) disciplines.Add("Architecture");
-                else if (file.StartsWith("Structure")) disciplines.Add("Structure");
-                else if (file.StartsWith("HVAC")) disciplines.Add("HVAC");
-                else if (file.StartsWith("Electrical")) disciplines.Add("Electrical");
+                var match = DisciplinePrefixMatcher.Match(file, disciplines);
+                if (match != null) names.Add(match.Name);
             }
-            return disciplines.ToList();
+            return names.ToList();
         }
 
-        private static string GetDisciplineTypeFromFileName(string fileName)
+        /// <summary>The discipline Code (the immutable identity persisted as
+        /// disciplineType — never Name) for a linked-file's filename, or
+        /// "MainFile" if it doesn't match any known discipline prefix.</summary>
+        private static string GetDisciplineTypeFromFileName(string fileName, List<BimDiscipline> disciplines)
         {
-            if (string.IsNullOrEmpty(fileName))
-                return "MainFile";
-
-            string fileNameUpper = fileName.ToUpper();
-            
-            if (fileNameUpper.StartsWith("ARCHITECTURE"))
-                return "Architecture";
-            else if (fileNameUpper.StartsWith("STRUCTURE"))
-                return "Structure";
-            else if (fileNameUpper.StartsWith("HVAC"))
-                return "HVAC";
-            else if (fileNameUpper.StartsWith("ELECTRICAL"))
-                return "Electrical";
-            else
-                return "MainFile";
+            var match = DisciplinePrefixMatcher.Match(fileName, disciplines);
+            return match?.Code ?? "MainFile";
         }
 
-        private static List<LinkedFileInfo> ExtractRevitLinks(Document doc)
+        private static List<LinkedFileInfo> ExtractRevitLinks(Document doc, List<BimDiscipline> disciplines)
         {
             var linkedFiles = new List<LinkedFileInfo>();
             
@@ -522,7 +569,7 @@ namespace RevitWebAppSync
                             {
                                 FileName = fileName,
                                 RelativePath = relPath,
-                                DisciplineType = GetDisciplineTypeFromFileName(fileName)
+                                DisciplineType = GetDisciplineTypeFromFileName(fileName, disciplines)
                             });
                             
                             System.Diagnostics.Debug.WriteLine($"[BINA] Link added - FileName: {fileName}, RelativePath: {relPath}");
@@ -534,7 +581,7 @@ namespace RevitWebAppSync
                             {
                                 FileName = linkName,
                                 RelativePath = linkName,
-                                DisciplineType = GetDisciplineTypeFromFileName(linkName)
+                                DisciplineType = GetDisciplineTypeFromFileName(linkName, disciplines)
                             });
                             
                             System.Diagnostics.Debug.WriteLine($"[BINA] Link added (no external ref) - FileName: {linkName}");
