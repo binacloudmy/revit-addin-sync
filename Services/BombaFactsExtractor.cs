@@ -219,5 +219,143 @@ namespace RevitWebAppSync.Services
             }
             return result;
         }
+
+        // ── Phase 2: M&E scope choices + fire-system sweep (§A.4/§A.5) ──────
+
+        /// One row of the "which models carry your fire systems" checklist:
+        /// the host plus EVERY link (not just M&E-named ones — the drafter
+        /// designates, we never guess).
+        public class LinkChoice
+        {
+            public string Name;
+            public string UniqueId;   // link instance UniqueId; null = host
+            public bool Loaded;
+        }
+
+        public static List<LinkChoice> ListLinkChoices(Document doc)
+        {
+            var result = new List<LinkChoice>();
+            result.Add(new LinkChoice
+            {
+                Name = (doc.Title ?? "this model") + " (host)",
+                UniqueId = null,
+                Loaded = true,
+            });
+            var links = new FilteredElementCollector(doc)
+                .OfClass(typeof(RevitLinkInstance))
+                .Cast<RevitLinkInstance>();
+            foreach (var link in links)
+            {
+                var name = link.Name ?? "";
+                var cut = name.IndexOf(':');
+                result.Add(new LinkChoice
+                {
+                    Name = (cut > 0 ? name.Substring(0, cut) : name).Trim(),
+                    UniqueId = link.UniqueId,
+                    Loaded = link.GetLinkDocument() != null,
+                });
+            }
+            return result;
+        }
+
+        /// Designated scope → the documents actually available this scan.
+        /// A designated-but-unloaded link lands in unloadedNames (report it,
+        /// don't count it — and "M&E" must then NOT be asserted for it).
+        public static List<Document> ResolveScopeDocs(
+            Document host, BombaScopeStore.Scope scope, List<string> unloadedNames)
+        {
+            var docs = new List<Document>();
+            if (scope == null) return docs;
+            if (scope.HostIncluded) docs.Add(host);
+            if (scope.LinkUniqueIds.Count == 0) return docs;
+
+            var links = new FilteredElementCollector(host)
+                .OfClass(typeof(RevitLinkInstance))
+                .Cast<RevitLinkInstance>();
+            foreach (var link in links)
+            {
+                if (!scope.LinkUniqueIds.Contains(link.UniqueId)) continue;
+                var linkDoc = link.GetLinkDocument();
+                if (linkDoc != null) docs.Add(linkDoc);
+                else if (unloadedNames != null)
+                {
+                    var name = link.Name ?? "";
+                    var cut = name.IndexOf(':');
+                    unloadedNames.Add((cut > 0 ? name.Substring(0, cut) : name).Trim());
+                }
+            }
+            return docs;
+        }
+
+        /// Candidate categories for the sweep, mapped to the classifier's
+        /// Revit-free category keys (§A.5).
+        private static readonly Dictionary<BuiltInCategory, string> _sweepCategories =
+            new Dictionary<BuiltInCategory, string>
+            {
+                { BuiltInCategory.OST_Sprinklers, BombaSystemClassifier.CatSprinklers },
+                { BuiltInCategory.OST_FireAlarmDevices, BombaSystemClassifier.CatFireAlarm },
+                { BuiltInCategory.OST_MechanicalEquipment, BombaSystemClassifier.CatMechanical },
+                { BuiltInCategory.OST_PlumbingFixtures, BombaSystemClassifier.CatPlumbing },
+                { BuiltInCategory.OST_SpecialityEquipment, BombaSystemClassifier.CatSpecialty },
+                { BuiltInCategory.OST_CommunicationDevices, BombaSystemClassifier.CatCommunication },
+                { BuiltInCategory.OST_ElectricalFixtures, BombaSystemClassifier.CatElectricalFixtures },
+                { BuiltInCategory.OST_GenericModel, BombaSystemClassifier.CatGeneric },
+                { BuiltInCategory.OST_PipeAccessory, BombaSystemClassifier.CatPipeAccessory },
+            };
+
+        /// Count fire-system instances across the designated documents,
+        /// keyed by NEUTRAL detection key (the engine owns jurisdiction
+        /// prose). Zero-count keys are omitted — never send
+        /// "sprinkler_heads: 0" for a class we merely didn't find; absence
+        /// is the engine's inference, not the addin's assertion (§A.6).
+        public static Dictionary<string, int> ExtractSystemCounts(
+            IList<Document> docs, List<string> sweepNotes)
+        {
+            var counts = new Dictionary<string, int>();
+            foreach (var d in docs)
+            {
+                if (d == null) continue;
+                int docTotal = 0;
+                foreach (var pair in _sweepCategories)
+                {
+                    FilteredElementCollector collector;
+                    try
+                    {
+                        collector = new FilteredElementCollector(d)
+                            .OfCategory(pair.Key)
+                            .WhereElementIsNotElementType();
+                    }
+                    catch { continue; }
+                    foreach (var el in collector)
+                    {
+                        // Ghost/double-count filters (§A.5): non-primary
+                        // design options and demolished elements never count.
+                        if (el.DesignOption != null && !el.DesignOption.IsPrimary) continue;
+                        var demolished = el.get_Parameter(BuiltInParameter.PHASE_DEMOLISHED);
+                        if (demolished != null
+                            && demolished.AsElementId() != ElementId.InvalidElementId) continue;
+
+                        string family = "", type = "";
+                        var fi = el as FamilyInstance;
+                        if (fi != null && fi.Symbol != null)
+                        {
+                            family = fi.Symbol.FamilyName ?? "";
+                            type = fi.Symbol.Name ?? "";
+                        }
+                        else
+                        {
+                            type = el.Name ?? "";
+                        }
+                        var key = BombaSystemClassifier.Classify(pair.Value, family, type);
+                        if (key == null) continue;
+                        counts[key] = counts.ContainsKey(key) ? counts[key] + 1 : 1;
+                        docTotal++;
+                    }
+                }
+                if (sweepNotes != null)
+                    sweepNotes.Add((d.Title ?? "?") + ": " + docTotal + " fire-system element(s)");
+            }
+            return counts;
+        }
     }
 }
