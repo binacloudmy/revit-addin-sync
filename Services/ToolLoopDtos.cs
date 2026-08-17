@@ -71,8 +71,16 @@ namespace RevitWebAppSync.Services
         public bool AwaitingRevit =>
             Status == "awaiting_revit" && Pending != null && Pending.Count > 0;
 
+        // BOTH clarify shapes count: get_user_input fields (Clarify) AND
+        // ask_user option questions (Choices). The old Clarify-only guard
+        // silently swallowed every ask_user pause — the run parked backend-
+        // side while the pane rendered the default "Done." (UAT 2026-08-18,
+        // "buat rumah kedai" → model called ask_user twice → drafter saw
+        // "Done." and an empty box).
         public bool AwaitingUserInput =>
-            Status == "awaiting_user_input" && Clarify != null && Clarify.Count > 0;
+            Status == "awaiting_user_input"
+            && ((Clarify != null && Clarify.Count > 0)
+                || (Choices != null && Choices.Count > 0));
     }
 
     public sealed class ServerToolCall

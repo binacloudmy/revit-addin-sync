@@ -334,6 +334,20 @@ namespace RevitWebAppSync.Services
                     return outcome;
                 }
 
+                // Fail-loud backstop: the backend says it paused for input but
+                // the payload carried no shape this build recognises (a NEWER
+                // pause format). The old behavior silently fell through to the
+                // "done" branch and rendered "Done." over a parked run — the
+                // exact 2026-08-18 ask_user swallow. Never fake success.
+                if (turn.Status == "awaiting_user_input")
+                {
+                    return new ToolLoopOutcome
+                    {
+                        Success = false,
+                        Error = "Copilot berhenti untuk bertanya, tetapi versi add-in ini tidak memahami format soalannya — kemas kini BINA Sync.",
+                    };
+                }
+
                 if (!turn.AwaitingRevit)
                 {
                     // "done" — the agent finished (answered, ran tools, OR fell
