@@ -154,17 +154,34 @@ namespace RevitWebAppSync.UI
             catch { /* informational; the scan reads again */ }
         }
 
-        /// M&E scope row. Phase 1 never searches links — the row says so, and
-        /// an unloaded link gets the amber strip so a NOT CHECKED verdict is
-        /// never a surprise.
+        /// M&E scope row. With a designated scope (drafter's assertion, §A.4)
+        /// it shows what will be swept; without one it invites the tap. An
+        /// unloaded designated link gets the amber strip so a NOT CHECKED
+        /// verdict is never a surprise.
         private void RefreshMneRow(Autodesk.Revit.DB.Document doc)
         {
+            var scope = CurrentScope(doc);
+            if (scope != null)
+            {
+                var unloadedNames = new List<string>();
+                var docs = BombaFactsExtractor.ResolveScopeDocs(doc, scope, unloadedNames);
+                _vm.MeValue = docs.Count > 0
+                    ? string.Join(", ", docs.Select(d => d.Title).ToArray())
+                    : "designated model not available";
+                _vm.MeInk = unloadedNames.Count > 0 ? M.Amber : M.Sub;
+                _vm.MeWarn = unloadedNames.Count > 0
+                    ? "Designated M&E model (" + string.Join(", ", unloadedNames.ToArray())
+                        + ") is unloaded — load it and re-check. Until then presence is NOT CHECKED."
+                    : null;
+                return;
+            }
+
             var links = BombaFactsExtractor.ListMneLinks(doc);
             if (links.Count == 0)
             {
                 _vm.MeValue = "no M&E link found";
                 _vm.MeInk = M.Dim;
-                _vm.MeWarn = "Fire systems are modelled in M&E. Without a linked M&E model the check answers NOT CHECKED — never a false “missing”.";
+                _vm.MeWarn = "Fire systems are modelled in M&E. Without a linked M&E model the check answers NOT CHECKED — never a false “missing”. Tap the M&E scope row once a link is loaded.";
                 return;
             }
             var unloaded = links.Where(l => !l.Loaded).ToList();
@@ -172,7 +189,115 @@ namespace RevitWebAppSync.UI
             _vm.MeInk = unloaded.Count > 0 ? M.Amber : M.Sub;
             _vm.MeWarn = unloaded.Count > 0
                 ? "An M&E link is unloaded. Checks answer NOT CHECKED, never “missing”, until it’s loaded — load it in Revit and re-check."
-                : "Linked, not yet searched — fire-system counting arrives with the next update; until then presence is NOT CHECKED.";
+                : "Linked, not yet searched — tap this row and tick which models carry your fire systems, then re-check.";
+        }
+
+        /// The drafter's M&E designation for this session (Extensible Storage
+        /// write is async via ExternalEvent, so the in-session copy drives the
+        /// current scan even before persistence lands).
+        private BombaScopeStore.Scope _scopeSession;
+
+        private BombaScopeStore.Scope CurrentScope(Autodesk.Revit.DB.Document doc)
+        {
+            return _scopeSession ?? BombaScopeStore.Read(doc);
+        }
+
+        /// The §A.4 checklist: "Which of these models carry your fire
+        /// systems (M&E)?" — host + every link, nothing pre-ticked on first
+        /// open. The selection is the ONLY path to a "missing" verdict.
+        private void MeScope_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            var doc = LiveDoc;
+            if (doc == null) return;
+            try
+            {
+                var choices = BombaFactsExtractor.ListLinkChoices(doc);
+                var stored = CurrentScope(doc);
+
+                var panel = new StackPanel { Margin = new Thickness(18) };
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "Which of these models carry your fire systems (M&E)?",
+                    FontSize = 14,
+                    FontWeight = FontWeights.Bold,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 4),
+                });
+                panel.Children.Add(new TextBlock
+                {
+                    Text = "Ticking a model asserts its fire systems live there — a zero count then reads as genuinely missing, not unknown.",
+                    FontSize = 12,
+                    Foreground = M.Sub,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 0, 0, 10),
+                });
+
+                var boxes = new List<KeyValuePair<CheckBox, BombaFactsExtractor.LinkChoice>>();
+                foreach (var c in choices)
+                {
+                    var ticked = stored != null && (c.UniqueId == null
+                        ? stored.HostIncluded
+                        : stored.LinkUniqueIds.Contains(c.UniqueId));
+                    var cb = new CheckBox
+                    {
+                        Content = c.Name + (c.Loaded ? "" : "  (unloaded)"),
+                        IsChecked = ticked,
+                        Margin = new Thickness(0, 5, 0, 0),
+                    };
+                    boxes.Add(new KeyValuePair<CheckBox, BombaFactsExtractor.LinkChoice>(cb, c));
+                    panel.Children.Add(cb);
+                }
+
+                var save = new Button
+                {
+                    Content = "Save scope",
+                    Margin = new Thickness(0, 14, 0, 0),
+                    Padding = new Thickness(14, 6, 14, 6),
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                };
+                panel.Children.Add(save);
+
+                var win = new Window
+                {
+                    Title = "BINA Bomba — M&E scope",
+                    Content = new ScrollViewer { Content = panel },
+                    Width = 460,
+                    SizeToContent = SizeToContent.Height,
+                    MaxHeight = 560,
+                    WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                };
+                save.Click += (s2, e2) =>
+                {
+                    var scope = new BombaScopeStore.Scope();
+                    foreach (var kv in boxes)
+                    {
+                        if (kv.Key.IsChecked != true) continue;
+                        if (kv.Value.UniqueId == null) scope.HostIncluded = true;
+                        else scope.LinkUniqueIds.Add(kv.Value.UniqueId);
+                    }
+                    // Nothing ticked = un-designate (back to honest NOT CHECKED).
+                    _scopeSession = (scope.HostIncluded || scope.LinkUniqueIds.Count > 0) ? scope : null;
+                    PersistScope(scope);
+                    RefreshMneRow(doc);
+                    win.Close();
+                };
+                win.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                _vm.Notice = "Scope error: " + ex.Message;
+            }
+        }
+
+        private void PersistScope(BombaScopeStore.Scope scope)
+        {
+            try
+            {
+                if (App.BombaScopeHandler == null || App.BombaScopeEvent == null) return;
+                App.BombaScopeHandler.Pending = scope;
+                App.BombaScopeEvent.Raise();
+            }
+            catch { /* best-effort; _scopeSession still drives this session */ }
         }
 
         private static string BucketDisplay(string bucket)
@@ -684,14 +809,15 @@ namespace RevitWebAppSync.UI
         private async Task RunScanInner(Autodesk.Revit.DB.Document doc, string schedulePath)
         {
             var facts = BombaFactsExtractor.Extract(doc);
-            var response = await _bombaService.CheckAsync(BuildRequest(facts, schedulePath));
+            var counts = SweepDesignatedScope(doc, facts);
+            var response = await _bombaService.CheckAsync(BuildRequest(facts, schedulePath, counts));
             // A single needs_input option is no choice at all — advance through it.
             for (int hop = 0; hop < 4; hop++)
             {
                 if (response == null || response.Error != null || !response.NeedsInput) break;
                 if (response.Options == null || response.Options.Count != 1) break;
                 schedulePath = response.Options[0].Path;
-                response = await _bombaService.CheckAsync(BuildRequest(facts, schedulePath));
+                response = await _bombaService.CheckAsync(BuildRequest(facts, schedulePath, counts));
             }
             if (response == null) { _vm.Screen = BombaScreen.Home; return; }
 
@@ -799,7 +925,55 @@ namespace RevitWebAppSync.UI
             catch { /* persistence is best-effort; the session dictionaries still hold the pick */ }
         }
 
-        private static BombaCheckRequestDto BuildRequest(BombaModelFacts facts, string schedulePath)
+        /// §A.4: sweep only what the drafter designated. "M&E" is asserted
+        /// only when at least one designated document was actually swept —
+        /// a designated-but-unloaded link keeps NOT CHECKED honest. Returns
+        /// null when no scope is designated (phase-1 behaviour, unchanged).
+        private Dictionary<string, int> SweepDesignatedScope(
+            Autodesk.Revit.DB.Document doc, BombaModelFacts facts)
+        {
+            var scope = CurrentScope(doc);
+            if (scope == null) return null;
+            var unloadedNames = new List<string>();
+            var docs = BombaFactsExtractor.ResolveScopeDocs(doc, scope, unloadedNames);
+            if (docs.Count == 0) return null;
+
+            var notes = new List<string>();
+            var counts = BombaFactsExtractor.ExtractSystemCounts(docs, notes);
+            facts.SearchedModels.Add("M&E");
+            _vm.MeValue = string.Join(" · ", notes.ToArray())
+                + (counts.Count > 0 ? " — " + CountsSummary(counts) : "");
+            return counts;
+        }
+
+        private static string CountsSummary(Dictionary<string, int> counts)
+        {
+            return string.Join(", ", counts
+                .OrderByDescending(kv => kv.Value)
+                .Select(kv => kv.Value + " " + FriendlyKey(kv.Key))
+                .ToArray());
+        }
+
+        private static string FriendlyKey(string key)
+        {
+            switch (key)
+            {
+                case "sprinkler_heads": return "sprinklers";
+                case "hose_reels": return "hose reels";
+                case "hydrants": return "hydrants";
+                case "other_suppression": return "suppression";
+                case "detectors": return "detectors";
+                case "manual_call_points": return "call points";
+                case "fire_monitoring_panels": return "monitoring panels";
+                case "pa_speakers": return "PA speakers";
+                case "dry_riser_inlets": return "dry riser inlets";
+                case "wet_riser_outlets": return "wet riser outlets";
+                default: return key;
+            }
+        }
+
+        private static BombaCheckRequestDto BuildRequest(
+            BombaModelFacts facts, string schedulePath, Dictionary<string, int> presentCounts)
         {
             var request = new BombaCheckRequestDto();
             request.Project.ProjectName = facts.ProjectName;
@@ -811,9 +985,11 @@ namespace RevitWebAppSync.UI
             request.Facts.Storeys = facts.Storeys;
             // Rooms (hotel bands: bilik per block) deliberately unsent — the
             // guest-room count is not generically measurable; null means ASK.
-            // Phase 1: host model only, no fire-system counting. The backend
-            // answers NOT CHECKED for M&E-resident systems — honest, never a
-            // false "missing".
+            // Counts are NEUTRAL detection keys (§A.3); the engine translates
+            // them to the jurisdiction's legend prose. Null = no designated
+            // scope swept → the backend answers NOT CHECKED, never a false
+            // "missing".
+            if (presentCounts != null) request.PresentCounts = presentCounts;
             request.SearchedModels = facts.SearchedModels;
             return request;
         }

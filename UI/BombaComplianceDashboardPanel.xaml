@@ -287,9 +287,11 @@
                                 <TextBlock Text="Measured" FontSize="14" Foreground="#1A1C20"/>
                             </DockPanel>
                         </Border>
-                        <!-- M&E scope: phase 1 never searches links — the row
-                             says so, and an unloaded link gets the amber strip. -->
-                        <Border Padding="16,13">
+                        <!-- M&E scope: tap to designate which models carry the
+                             fire systems (§A.4 — ask once, persist in the model).
+                             An unloaded designated link gets the amber strip. -->
+                        <Border Padding="16,13" Background="Transparent" Cursor="Hand"
+                                MouseLeftButtonUp="MeScope_Click">
                             <DockPanel>
                                 <TextBlock Text="{Binding MeValue}" DockPanel.Dock="Right" FontSize="13"
                                            Foreground="{Binding MeInk}" TextWrapping="Wrap" MaxWidth="200"
