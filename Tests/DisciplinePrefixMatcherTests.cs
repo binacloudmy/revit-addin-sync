@@ -109,6 +109,41 @@ namespace RevitWebAppSync.Tests
             Assert.Null(DisciplinePrefixMatcher.Match("AR_Building.rvt", null));
         }
 
+        [Fact]
+        public void Match_ReturnsNull_ForEmptyButNonNullDisciplineList()
+        {
+            // Distinct from the null-list case above: an empty List<BimDiscipline>
+            // is what a project with disciplines configured but none matching
+            // (or a fetch that legitimately returned zero rows) looks like — it
+            // must fail the same way as "no match found", not throw.
+            var match = DisciplinePrefixMatcher.Match("AR_Building.rvt", new List<BimDiscipline>());
+            Assert.Null(match);
+        }
+
+        [Fact]
+        public void Match_FirstListEntryWins_OnShortCodeCollision()
+        {
+            // DisciplinePrefixMatcher.Match takes the first list-order match with
+            // no collision detection. That is intentional, not an oversight: the
+            // backend now rejects a second discipline sharing a ShortCode within
+            // the same project (project-discipline.service.ts create()/update(),
+            // added alongside this test) — see task-8-report.md's follow-up fix.
+            // Per-project ShortCode uniqueness is therefore a server-side
+            // invariant this code trusts, not something it needs to re-detect.
+            // This test only pins the (arbitrary, first-wins) fallback behaviour
+            // for data that predates that guard.
+            var disciplines = new List<BimDiscipline>
+            {
+                D("FireProtection", "FP", "Fire Protection"),
+                D("FirePump", "FP", "Fire Pump"),
+            };
+
+            var match = DisciplinePrefixMatcher.Match("FP_Riser.rvt", disciplines);
+
+            Assert.NotNull(match);
+            Assert.Equal("FireProtection", match.Code);
+        }
+
         // ── HVAC -> Mechanical legacy alias ─────────────────────
 
         [Fact]

@@ -64,6 +64,15 @@ namespace RevitWebAppSync
         /// start of fileName ("&lt;prefix&gt;_..."), case-insensitively. Returns
         /// null if none match (callers should then treat the file as MainFile,
         /// matching pre-existing GetDisciplineTypeFromFileName behaviour).
+        ///
+        /// Returns the first list-order match with no collision detection —
+        /// intentional, not an oversight. Per-project ShortCode uniqueness is a
+        /// server-side invariant this code trusts: bina-be's
+        /// ProjectDisciplineService.create()/update() reject a second discipline
+        /// sharing a ShortCode within the same project (added alongside
+        /// DisciplinePrefixMatcherTests.Match_FirstListEntryWins_OnShortCodeCollision),
+        /// so in practice at most one discipline in a well-formed list can ever
+        /// match a given prefix.
         /// </summary>
         public static BimDiscipline Match(string fileName, IEnumerable<BimDiscipline> disciplines)
         {
