@@ -67,6 +67,11 @@
     <Compile Include="..\Services\ToolLoopDtos.cs" Link="ToolLoopDtos.cs" />
     <Compile Include="..\Services\ConfirmGate.cs" Link="ConfirmGate.cs" />
     <Compile Include="..\Models\AIResponse.cs" Link="AIResponse.cs" />
+    <!-- AttachmentGate: pure file-type/size gate (System + System.IO only).
+         a3d74b6 added it WITH AttachmentGateTests.cs but never linked it —
+         the exact WpfAppBootstrap trap above, red check and all: 19 CS0103s,
+         no test in this project ran. -->
+    <Compile Include="..\UI\Copilot\Model\AttachmentGate.cs" Link="AttachmentGate.cs" />
     <Compile Include="..\Services\VettedToolCode.cs" Link="VettedToolCode.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotModels.cs" Link="CopilotModels.cs" />
     <!-- RouteText: the attachment wire format the backend parses ([Attached:] /

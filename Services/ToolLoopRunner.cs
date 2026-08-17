@@ -78,9 +78,24 @@ namespace RevitWebAppSync.Services
 
         // Cap addin↔backend ping-pong so a model that keeps emitting tools can't
         // loop forever. Each round = one external batch we execute.
-        // 10 (was 8): pull-based context typically adds one orientation
-        // round (get_scene_overview) before the real work.
-        private const int MaxRounds = 10;
+        // 16 (was 10, was 8): the P1 verified-build turn legitimately spends
+        // rounds the old cap never budgeted for — a repair round (rebuild +
+        // measure) adds a few honest rounds on top of the build itself.
+        // (Task 12: the post-build audit reads — get_design,
+        // measure_wall_openings, list_rooms — no longer spend this budget at
+        // all; a reads_only round spends InspectRoundsCap below instead.)
+        // Interim number until the backend ships a per-job budget with the
+        // spec (agentic-drafter P3) and this constant dies.
+        private const int MaxRounds = 16;
+        // Task 12: a reads_only pending batch (every call this round is a read —
+        // server's INSPECT_TOOL_NAMES verdict, "reads_only" on the awaiting_revit
+        // frame) spends THIS budget instead of MaxRounds. Verification never
+        // kills a turn: the post-build audit chain and a drafter's read-heavy
+        // question can run long without threatening the loop cap that exists to
+        // stop a runaway MUTATE spiral. 24 is generous on purpose — reads are
+        // cheap and side-effect-free; a genuinely runaway read loop is still
+        // caught, just on its own, larger budget.
+        private const int InspectRoundsCap = 24;
         // EXECUTION ceiling for a tool that actually started running in Revit
         // (commit + regen on a cold/large model). The old 600s was really an
         // "idle never came" wait — that hazard is now handled fast by the
@@ -272,8 +287,10 @@ namespace RevitWebAppSync.Services
             var outcome = new ToolLoopOutcome();
             var turnWatch = System.Diagnostics.Stopwatch.StartNew();
             bool approvedOnce = firstBatchApproved;
+            int round = 0;
+            int inspectRounds = 0;
 
-            for (int round = 0; round < MaxRounds; round++)
+            while (true)
             {
                 if (turn == null || turn.Status == "error" || !turn.Success)
                 {
@@ -364,6 +381,25 @@ namespace RevitWebAppSync.Services
                         TelemetryService.Track("ai_request", "slow_turn",
                             new { seconds = (int)turnWatch.Elapsed.TotalSeconds });
                     return outcome;
+                }
+
+                // Round-cap bookkeeping (task 12): a reads_only pending batch (every
+                // call this round is a read — server's INSPECT_TOOL_NAMES verdict)
+                // spends the separate, larger InspectRounds budget instead of
+                // MaxRounds, so verification (the post-build audit chain, a
+                // read-heavy question) never counts against the cap that exists to
+                // stop a runaway MUTATE spiral. Pre-increment + compare so both caps
+                // allow exactly their stated number of rounds through, same as the
+                // original `for (round = 0; round < MaxRounds; round++)`.
+                if (turn.ReadsOnly)
+                {
+                    if (++inspectRounds > InspectRoundsCap)
+                        return RoundCapOutcome(turn, InspectRoundsCap, "inspect rounds");
+                }
+                else
+                {
+                    if (++round > MaxRounds)
+                        return RoundCapOutcome(turn, MaxRounds, "rounds");
                 }
 
                 // Fold this round's reply into the running narration BEFORE the next
@@ -460,13 +496,30 @@ namespace RevitWebAppSync.Services
                     return new ToolLoopOutcome { Success = false, Error = $"tool/resume failed: {ex.Message}" };
                 }
             }
+        }
 
-            TelemetryService.Track("ai_request", "round_cap");
+        /// <summary>The honest "I stopped" outcome when a round budget is exhausted
+        /// (task 12: MaxRounds for mutate rounds, the separate, larger
+        /// InspectRounds cap for reads_only rounds) — same Malay message shape
+        /// either way, just the cap number and the telemetry/error tag differ.
+        /// The cap is OURS, so the message is ours to own in the drafter's
+        /// language — on 2026-08-11 the raw English internals shipped as the
+        /// entire answer bubble ("tool loop exceeded 10 rounds…"). The chat
+        /// router falls back to Error only when Reply is empty, so Reply carries
+        /// the honest report and Error stays telemetry/detail.</summary>
+        private static ToolLoopOutcome RoundCapOutcome(ToolTurn turn, int capValue, string capKind)
+        {
+            TelemetryService.Track("ai_request", "round_cap", new { cap_kind = capKind });
+            var partial = (turn?.Reply ?? "").Trim();
             return new ToolLoopOutcome
             {
                 Success = false,
-                Reply = turn?.Reply ?? "",
-                Error = $"tool loop exceeded {MaxRounds} rounds without finishing",
+                Reply = (partial.Length > 0 ? partial + "\n\n" : "")
+                      + $"Saya berhenti selepas {capValue} pusingan alat tanpa jawapan penuh — "
+                      + "soalan ini memerlukan terlalu banyak semakan berasingan dalam satu giliran. "
+                      + "Cuba pecahkan kepada soalan lebih kecil (contoh: \"kira pintu sahaja\"), "
+                      + "atau nyatakan bahagian yang mahu disemak dahulu.",
+                Error = $"tool loop exceeded {capValue} {capKind} without finishing",
             };
         }
 
