@@ -709,6 +709,38 @@ namespace RevitWebAppSync.UI
             App.BombaAutoFixEvent.Raise();
         }
 
+        /// Copilot handoff for placement/modelling fixes: show the AI pane
+        /// and fire the ready prompt. The drafter watches the copilot place
+        /// elements in whichever model is open — the bomba pane itself never
+        /// writes geometry.
+        private void FixWithCopilot_Click(object sender, RoutedEventArgs e)
+        {
+            var issue = _vm.CurrentIssue;
+            if (issue == null || string.IsNullOrEmpty(issue.CopilotPrompt)) return;
+            try
+            {
+                var uiApp = UiAppLive;
+                if (uiApp != null)
+                {
+                    var pane = uiApp.GetDockablePane(UI.Copilot.CopilotPaneHost.PaneId);
+                    if (pane != null && !pane.IsShown()) pane.Show();
+                }
+                var panel = App.CopilotPaneHost != null ? App.CopilotPaneHost.Panel : null;
+                if (panel == null)
+                {
+                    _vm.Notice = "Copilot pane not available — open it from the ribbon once, then retry.";
+                    return;
+                }
+                if (uiApp != null) panel.SetRevitContext(uiApp);
+                panel.ViewModel.ChatSend(issue.CopilotPrompt);
+                _vm.Notice = "Sent to the copilot — watch the AI pane, then re-check here.";
+            }
+            catch (Exception ex)
+            {
+                _vm.Notice = "Copilot handoff failed: " + ex.Message;
+            }
+        }
+
         private void Rescan_Click(object sender, RoutedEventArgs e)
         {
             var path = RememberedPath ?? DeepestSelectedPath();

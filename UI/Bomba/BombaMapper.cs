@@ -86,7 +86,54 @@ namespace RevitWebAppSync.UI.Bomba
                         + "transaction, one Ctrl+Z. Types already rated ≥ required are never touched.";
                 }
             }
+            else
+            {
+                // Placement/modelling failures hand off to the copilot with a
+                // ready prompt — the drafter fires it in whichever model is
+                // open (run it in the M&E file for real work; the pane itself
+                // still never writes geometry).
+                vm.CopilotPrompt = CopilotPromptFor(f);
+                if (vm.CopilotPrompt != null)
+                    vm.NoFixNote = "Placing this is modelling work. \"Fix with copilot\" opens the "
+                        + "AI pane with the placement prompt ready — run it with the right "
+                        + "model open (M&E file for fire systems), then re-check here.";
+            }
             return vm;
+        }
+
+        /// A ready-to-send copilot prompt per failing subject. Known systems
+        /// get a specific brief; anything else falls back to the finding's
+        /// own guidance.
+        private static string CopilotPromptFor(BombaFindingDto f)
+        {
+            var s = (f.Subject ?? "").ToLowerInvariant();
+            if (s.Contains("sprinkler"))
+                return "Letak automatic sprinkler heads dalam semua bilik di semua tingkat, "
+                    + "grid lebih kurang 3600mm, atas siling. Cari family sprinkler dalam "
+                    + "family library kalau tiada dalam model. Lepas siap, bagitahu bilangan yang diletak.";
+            if (s.Contains("monitoring"))
+                return "Letak satu fire alarm monitoring/annunciator panel pada dinding "
+                    + "berhampiran pintu masuk utama (ketinggian 1500mm). Cari family yang "
+                    + "sesuai dalam family library kalau perlu.";
+            if (s.Contains("hose reel"))
+                return "Letak hose reel pada dinding berhampiran tangga dan laluan utama, "
+                    + "satu setiap tingkat, supaya liputan 30m. Cari family hose reel dalam family library.";
+            if (s.Contains("call point") || s.Contains("manual electric"))
+                return "Letak manual call point (break glass) di setiap pintu keluar dan tangga, "
+                    + "ketinggian 1400mm. Cari family yang sesuai dalam family library.";
+            if (s.Contains("riser"))
+                return "Letak " + f.Subject + " di lokasi tangga/lobi bomba pada setiap tingkat "
+                    + "yang berkenaan. Cari family yang sesuai dalam family library.";
+            if (s.Contains("staircase width"))
+                return "Tangga dalam model ini tak cukup lebar untuk beban penghuni. "
+                    + (f.Guidance ?? "Lebarkan tangga mengikut keperluan By-law 168.");
+            if (s.Contains("exit door") || s.Contains("final exit"))
+                return "Pintu keluar akhir tak mencukupi. " + (f.Guidance ?? "Lebarkan atau tambah pintu keluar.");
+            if (s.Contains("compartment"))
+                return "Tingkat ini melebihi had saiz kompartmen. " + (f.Guidance ?? "Bahagikan dengan dinding kompartmen berperingkat api.");
+            if (s.Contains("travel distance"))
+                return "Ada bilik yang terlalu jauh dari pintu keluar. " + (f.Guidance ?? "Tambah pintu keluar atau susun semula pelan.");
+            return f.Guidance != null ? "Baiki isu bomba ini dalam model: " + f.Guidance : null;
         }
 
         private static IssueVm CantCheck(BombaFindingDto f, string cite)

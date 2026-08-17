@@ -580,6 +580,9 @@
                 <Button Style="{StaticResource M.BtnGhost}" Content="{Binding CurrentIssue.FixLabel}"
                         Foreground="#1F9D5B" FontWeight="SemiBold" Margin="0,14,0,0" Click="AutoFix_Click"
                         Visibility="{Binding CurrentIssue.CanFix, Converter={StaticResource BoolVis}}"/>
+                <Button Style="{StaticResource M.BtnGhost}" Content="Fix with copilot ›"
+                        Foreground="#1F9D5B" FontWeight="SemiBold" Margin="0,14,0,0" Click="FixWithCopilot_Click"
+                        Visibility="{Binding CurrentIssue.CanCopilotFix, Converter={StaticResource BoolVis}}"/>
                 <Button Style="{StaticResource M.BtnGhost}" Content="{Binding CurrentIssue.DoLabel}"
                         Foreground="#B8721A" Margin="0,8,0,0" Click="Rescan_Click"/>
                 <Button Style="{StaticResource M.BtnText}" Content="Later" HorizontalAlignment="Center"
