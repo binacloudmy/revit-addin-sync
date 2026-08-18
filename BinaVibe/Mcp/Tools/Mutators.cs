@@ -1354,12 +1354,28 @@ namespace BinaVibe.Mcp.Tools
             TxGuard.StartSwallowing(tx);
             int deleted = 0;
             var failures = new List<object>();
+            var refusedDatums = new List<object>();
             try
             {
                 foreach (var id in ids)
                 {
                     try
                     {
+                        // Datums are load-bearing: deleting a Level deletes its
+                        // views and everything constrained to it; a Grid anchors
+                        // columns. Refuse, never "fail" — the model must see this
+                        // as a policy, not a retryable error.
+                        var el = doc.GetElement(ElemIds.From(id));
+                        if (el is Level || el is Grid)
+                        {
+                            refusedDatums.Add(new
+                            {
+                                id,
+                                name = el.Name,
+                                kind = el is Level ? "Level" : "Grid",
+                            });
+                            continue;
+                        }
                         var del = doc.Delete(ElemIds.From(id));
                         deleted += del?.Count ?? 0;
                     }
@@ -1372,12 +1388,22 @@ namespace BinaVibe.Mcp.Tools
             }
             catch { tx.RollBack(); throw; }
 
-            return new Dictionary<string, object?>
+            var result = new Dictionary<string, object?>
             {
-                ["ok"] = true,
+                // Honest ok: a call where nothing was deleted is not a success,
+                // no matter how politely each per-id failure was swallowed.
+                ["ok"] = deleted > 0 || (ids.Count == 0),
                 ["deleted"] = deleted,
                 ["failures"] = failures,
             };
+            if (refusedDatums.Count > 0)
+            {
+                result["refused_datums"] = refusedDatums;
+                result["refused_reason"] =
+                    "Levels/Grids are datums - deleting a level deletes its views and every element constrained to it. " +
+                    "Use modify_level_stack to remove a level, or hide the element instead.";
+            }
+            return result;
         }
 
         // ─── duplicate_view ─────────────────────────────────────────────
@@ -1492,17 +1518,48 @@ namespace BinaVibe.Mcp.Tools
             var p2 = ArgsHelp.GetPointMm(args, "end_mm") ?? ArgsHelp.GetXyz(args, "end") ?? throw new ArgumentException("missing end [x,y,z]");
             var levelName = ArgsHelp.GetString(args, "level") ?? throw new ArgumentException("missing level");
             var typeName = ArgsHelp.GetString(args, "type_name");
-            double height = ArgsHelp.GetLengthMm(args, "height_mm", "height_ft") ?? (3000.0 / 304.8);
+            var topLevelName = ArgsHelp.GetString(args, "top_level");
+            double? heightArg = ArgsHelp.GetLengthMm(args, "height_mm", "height_ft");
+            double height = heightArg ?? (3000.0 / 304.8);
 
-            var level = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+            var levels = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>().ToList();
+            var level = levels
                 .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
-                ?? throw new ArgumentException($"level '{levelName}' not found");
+                ?? throw new ArgumentException(
+                    $"level '{levelName}' not found; levels: {string.Join(", ", levels.OrderBy(l => l.Elevation).Select(l => l.Name))}");
+
+            // Top constraint. Explicit top_level wins; otherwise, when the
+            // caller did not pin an explicit height and a level exists above,
+            // top-constrain to the next level up. Unconnected-height walls look
+            // identical but ignore level moves — the field-guide anti-pattern
+            // that made "floor to floor 3.6m" edits silently miss walls.
+            Level? topLevel = null;
+            if (!string.IsNullOrEmpty(topLevelName))
+            {
+                topLevel = levels.FirstOrDefault(l => string.Equals(l.Name, topLevelName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException(
+                        $"top_level '{topLevelName}' not found; levels: {string.Join(", ", levels.OrderBy(l => l.Elevation).Select(l => l.Name))}");
+            }
+            else if (heightArg == null)
+            {
+                topLevel = levels.Where(l => l.Elevation > level.Elevation + 1e-6)
+                                 .OrderBy(l => l.Elevation).FirstOrDefault();
+            }
 
             WallType? wallType = null;
             if (!string.IsNullOrEmpty(typeName))
             {
-                wallType = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
-                    .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase));
+                var allTypes = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().ToList();
+                wallType = allTypes.FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new ArgumentException(
+                        $"wall type '{typeName}' not found; closest: {TypeCandidates.Nearest(allTypes.Select(t => t.Name), typeName!)}");
+            }
+            else
+            {
+                // No name: resolve the document default instead of the parameterless
+                // Wall.Create overload, whose height-less signature silently
+                // discarded height_mm whenever type_name was absent.
+                wallType = doc.GetElement(doc.GetDefaultElementTypeId(ElementTypeGroup.WallType)) as WallType;
             }
 
             using var tx = new Transaction(doc, "BinaVibe: create_wall");
@@ -1513,6 +1570,8 @@ namespace BinaVibe.Mcp.Tools
                 var wall = wallType != null
                     ? Wall.Create(doc, line, wallType.Id, level.Id, height, 0, false, false)
                     : Wall.Create(doc, line, level.Id, false);
+                if (topLevel != null)
+                    wall.get_Parameter(BuiltInParameter.WALL_HEIGHT_TYPE)?.Set(topLevel.Id);
                 // Probe: tx.Commit() triggers the regen. Isolates the regen
                 // cost from the Wall.Create call. Big commit time => (B) regen tax.
                 var _swCommit = System.Diagnostics.Stopwatch.StartNew();
@@ -1526,6 +1585,8 @@ namespace BinaVibe.Mcp.Tools
                     ["created_id"] = wall.Id.Value,
                     ["level"] = levelName,
                     ["type_name"] = wallType?.Name ?? "<default>",
+                    ["top_level"] = topLevel?.Name,
+                    ["height_mode"] = topLevel != null ? "level_to_level" : "unconnected",
                 };
             }
             catch { tx.RollBack(); throw; }
@@ -2016,12 +2077,31 @@ namespace BinaVibe.Mcp.Tools
             var name = ArgsHelp.GetString(args, "name") ?? throw new ArgumentException("missing name");
             double elevation = ArgsHelp.GetLengthMm(args, "elevation_mm", "elevation") ?? throw new ArgumentException("missing elevation");
 
+            // Duplicate-name parity with create_levels_batch: report the existing
+            // level instead of throwing and rolling back — the single-shot tool is
+            // the one the model retries, and a retry after a half-failure used to
+            // die here every time.
+            var existing = new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
+                .FirstOrDefault(l => string.Equals(l.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+            {
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["level_id"] = existing.Id.Value,
+                    ["name"] = existing.Name,
+                    ["elevation"] = existing.Elevation,
+                    ["already_existed"] = true,
+                };
+            }
+
             using var tx = new Transaction(doc, "BinaVibe: create_level");
             TxGuard.StartSwallowing(tx);
             try
             {
                 var level = Level.Create(doc, elevation);
                 level.Name = name;
+                level.Pinned = true;   // datums pin at birth (field-guide guardrail)
                 tx.Commit();
                 return new Dictionary<string, object?>
                 {
@@ -2029,6 +2109,7 @@ namespace BinaVibe.Mcp.Tools
                     ["level_id"] = level.Id.Value,
                     ["name"] = level.Name,
                     ["elevation"] = elevation,
+                    ["pinned"] = true,
                 };
             }
             catch { tx.RollBack(); throw; }
@@ -2047,18 +2128,35 @@ namespace BinaVibe.Mcp.Tools
 
             var line = Line.CreateBound(new XYZ(startX, startY, 0), new XYZ(endX, endY, 0));
 
+            // Duplicate-name parity with create_levels_batch (same rationale as
+            // create_level above): return the existing grid, don't throw.
+            var existingGrid = new FilteredElementCollector(doc).OfClass(typeof(Grid)).Cast<Grid>()
+                .FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (existingGrid != null)
+            {
+                return new Dictionary<string, object?>
+                {
+                    ["ok"] = true,
+                    ["grid_id"] = existingGrid.Id.Value,
+                    ["name"] = existingGrid.Name,
+                    ["already_existed"] = true,
+                };
+            }
+
             using var tx = new Transaction(doc, "BinaVibe: create_grid");
             TxGuard.StartSwallowing(tx);
             try
             {
                 var grid = Grid.Create(doc, line);
                 grid.Name = name;
+                grid.Pinned = true;   // datums pin at birth (field-guide guardrail)
                 tx.Commit();
                 return new Dictionary<string, object?>
                 {
                     ["ok"] = true,
                     ["grid_id"] = grid.Id.Value,
                     ["name"] = grid.Name,
+                    ["pinned"] = true,
                 };
             }
             catch { tx.RollBack(); throw; }
@@ -3064,20 +3162,28 @@ namespace BinaVibe.Mcp.Tools
                 .FirstOrDefault(l => string.Equals(l.Name, levelName, StringComparison.OrdinalIgnoreCase))
                 ?? throw new ArgumentException($"level '{levelName}' not found");
 
-            // Resolve floor type — named or first available.
+            // Resolve floor type — named (with candidates on miss) or a real
+            // floor. FloorType covers structural foundation slabs too, and those
+            // often sort first: "first available" once produced an
+            // OST_StructuralFoundation the digest correctly counted as zero
+            // floors (same trap FindFloorType in DesignSpec guards against).
+            var allFloorTypes = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>().ToList();
+            if (allFloorTypes.Count == 0) throw new InvalidOperationException("no FloorType found in document");
             ElementId floorTypeId;
             if (!string.IsNullOrEmpty(typeName))
             {
-                var ft = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).Cast<FloorType>()
+                var ft = allFloorTypes
                     .FirstOrDefault(t => string.Equals(t.Name, typeName, StringComparison.OrdinalIgnoreCase))
-                    ?? throw new ArgumentException($"floor type '{typeName}' not found");
+                    ?? throw new ArgumentException(
+                        $"floor type '{typeName}' not found; closest: {TypeCandidates.Nearest(allFloorTypes.Select(t => t.Name), typeName!)}");
                 floorTypeId = ft.Id;
             }
             else
             {
-                var first = new FilteredElementCollector(doc).OfClass(typeof(FloorType)).FirstOrDefault()
-                    ?? throw new InvalidOperationException("no FloorType found in document");
-                floorTypeId = first.Id;
+                var floorsOnly = allFloorTypes.Where(t =>
+                    t.Category != null &&
+                    t.Category.Id.Value == (long)BuiltInCategory.OST_Floors).ToList();
+                floorTypeId = (floorsOnly.Count > 0 ? floorsOnly : allFloorTypes).First().Id;
             }
 
             using var tx = new Transaction(doc, "BinaVibe: create_floor");
@@ -3721,6 +3827,7 @@ namespace BinaVibe.Mcp.Tools
                 {
                     var elev = baseElev + f2fFt * (i + 1);
                     var lvl = Level.Create(doc, elev);
+                    lvl.Pinned = true;   // datums pin at birth (field-guide guardrail)
                     // Name collisions throw in Revit, so skip rather than fail the
                     // whole batch — the caller gets told which ones were skipped.
                     var want = $"{prefix}{startIndex + i}";

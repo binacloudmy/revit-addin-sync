@@ -44,6 +44,10 @@ namespace BinaVibe.Mcp.Tools
                     ["id"] = t.Id.Value,
                     ["name"] = t.Name,
                     ["family_name"] = t.FamilyName,
+                    // Kind matters: build_design/create_wall need Basic; a
+                    // Stacked/Curtain name copied from this list used to come
+                    // back "not found" with no explanation (trace 498a5cf1).
+                    ["kind"] = t.Kind.ToString(),
                 })
                 .ToList<object>();
             return new Dictionary<string, object?> { ["wall_types"] = types };

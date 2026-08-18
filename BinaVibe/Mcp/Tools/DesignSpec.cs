@@ -116,12 +116,26 @@ namespace BinaVibe.Mcp.Tools
 
         private static WallType FindWallType(Document doc, string? name, bool interior)
         {
-            var all = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
-                .Where(t => t.Kind == WallKind.Basic).ToList();
+            // Search ALL kinds, then explain kind mismatches. The old
+            // Basic-only collector made a Stacked/Curtain name copied straight
+            // from list_wall_types come back "not found" — a lying error that
+            // sent the model on a 3-round name-guessing flail before it
+            // abandoned build_design entirely (2026-08-18, trace 498a5cf1).
+            var every = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().ToList();
+            var all = every.Where(t => t.Kind == WallKind.Basic).ToList();
             if (all.Count == 0) throw new InvalidOperationException("no basic wall types in this project");
             if (!string.IsNullOrWhiteSpace(name))
-                return all.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))
-                    ?? throw new ArgumentException($"wall type '{name}' not found (use list_wall_types)");
+            {
+                var hit = all.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+                if (hit != null) return hit;
+                var wrongKind = every.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+                if (wrongKind != null)
+                    throw new ArgumentException(
+                        $"wall type '{name}' is a {wrongKind.Kind} wall type; build_design needs a Basic wall. " +
+                        $"Closest Basic types: {TypeCandidates.Nearest(all.Select(t => t.Name), name!)}");
+                throw new ArgumentException(
+                    $"wall type '{name}' not found; closest Basic types: {TypeCandidates.Nearest(all.Select(t => t.Name), name!)}");
+            }
             // No name given: pick by TARGET THICKNESS, not by extreme. "Take
             // the thickest" chose a 400mm+ compound wall on the 2026-08-11
             // smoke and the drafter's first question was "why the dinding so
@@ -1771,6 +1785,7 @@ namespace BinaVibe.Mcp.Tools
                 if (lvl == null)
                 {
                     lvl = Level.Create(doc, elev);
+                    lvl.Pinned = true;   // datums pin at birth (field-guide guardrail)
                     try { lvl.Name = i == count ? "Roof" : $"{prefix}{i + 1}"; } catch { }
                     own("level", lvl.Id.Value);
                 }
@@ -1836,12 +1851,14 @@ namespace BinaVibe.Mcp.Tools
             {
                 var x = minX + i * xs;
                 var g = Grid.Create(doc, Line.CreateBound(new XYZ(x, minY, 0), new XYZ(x, maxY, 0)));
+                g.Pinned = true;   // datums pin at birth (field-guide guardrail)
                 own("grid", g.Id.Value);
             }
             for (int j = 0; j <= yb; j++)
             {
                 var y = minY + j * ys;
                 var g = Grid.Create(doc, Line.CreateBound(new XYZ(minX, y, 0), new XYZ(maxX, y, 0)));
+                g.Pinned = true;
                 own("grid", g.Id.Value);
             }
             var colSym = FindSymbol(doc, BuiltInCategory.OST_StructuralColumns,
