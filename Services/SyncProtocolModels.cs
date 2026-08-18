@@ -138,6 +138,98 @@ namespace RevitWebAppSync.Services
         public List<BinaElementParameter> Parameters { get; set; }
     }
 
+    /// <summary>
+    /// An issue (BIM comment) as the panel lists it (ClickUp 86d3y5jtz).
+    ///
+    /// `Guid` is the BCF Topic GUID and never changes, so it is the key the
+    /// add-in holds on to. The web stays the source of truth: this release
+    /// reads, it does not write.
+    /// </summary>
+    public class BinaIssue
+    {
+        public string Guid { get; set; }
+        /// <summary>design today; coordination issues will arrive under the same field.</summary>
+        public string Source { get; set; }
+        public string Title { get; set; }
+        public string TopicType { get; set; }
+        public string Status { get; set; }
+        public string Priority { get; set; }
+        public DateTime? DueDate { get; set; }
+        public bool IsResolved { get; set; }
+        public BinaPerson Author { get; set; }
+        public int DesignId { get; set; }
+        public string DesignName { get; set; }
+        public int? VersionNumber { get; set; }
+        public string DisciplineType { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+
+        public override string ToString() =>
+            string.IsNullOrWhiteSpace(Title) ? $"({TopicType})" : Title;
+    }
+
+    public class BinaPerson
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+        public string Email { get; set; }
+    }
+
+    public class BinaIssueReply
+    {
+        public string Guid { get; set; }
+        public string Text { get; set; }
+        public BinaPerson Author { get; set; }
+        public DateTime? CreatedAt { get; set; }
+    }
+
+    /// <summary>
+    /// Where the issue was captured from, already converted server-side by the
+    /// same code the BCF export uses. Positions are in METRES — Revit works in
+    /// feet internally, so the caller divides by 0.3048.
+    /// </summary>
+    public class BinaIssueCamera
+    {
+        /// <summary>perspective | orthogonal</summary>
+        public string Type { get; set; }
+        public double[] ViewPoint { get; set; }
+        /// <summary>Unit vector, already normalised: the direction of gaze.</summary>
+        public double[] Direction { get; set; }
+        public double[] UpVector { get; set; }
+        public double? FieldOfView { get; set; }
+        public double? ViewToWorldScale { get; set; }
+        public string Units { get; set; }
+    }
+
+    /// <summary>Elements the issue points at, as Revit UniqueIds.</summary>
+    public class BinaIssueComponents
+    {
+        public string ModelUrn { get; set; }
+        public List<string> Selection { get; set; }
+        public List<string> Isolated { get; set; }
+        public List<string> Hidden { get; set; }
+    }
+
+    /// <summary>One issue in full (GET issue/:guid).</summary>
+    public class BinaIssueDetail : BinaIssue
+    {
+        public string Text { get; set; }
+        public string SnapshotUrl { get; set; }
+        public List<BinaIssueComponents> CapturedComponents { get; set; }
+        public BinaIssueCamera Camera { get; set; }
+        public double? UnitScale { get; set; }
+        public List<BinaIssueReply> Replies { get; set; }
+    }
+
+    /// <summary>Response of GET project/:projectId/issues.</summary>
+    public class BinaIssuePage
+    {
+        public int ProjectId { get; set; }
+        public int Count { get; set; }
+        public bool HasMore { get; set; }
+        public int? NextOffset { get; set; }
+        public List<BinaIssue> Issues { get; set; }
+    }
+
     /// <summary>Revit build + add-in version + worksharing state, stored on the version.</summary>
     public class SyncClientInfo
     {

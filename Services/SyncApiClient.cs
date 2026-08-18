@@ -194,6 +194,56 @@ namespace RevitWebAppSync.Services
             }
         }
 
+        /// <summary>
+        /// Issues for a project (ClickUp 86d3y5jtz). `designId` narrows to one
+        /// model and reads its whole version chain, so an issue raised on v3
+        /// still arrives for the model at v7.
+        /// </summary>
+        public async Task<BinaIssuePage> GetIssuesAsync(
+            int projectId,
+            int? designId = null,
+            string status = null,
+            int limit = 50)
+        {
+            var query = new List<string> { $"limit={limit}" };
+            if (designId.HasValue) query.Add($"designId={designId.Value}");
+            if (!string.IsNullOrEmpty(status)) query.Add($"status={Uri.EscapeDataString(status)}");
+
+            string url = $"{_baseUrl}/api/cloud-docs/bim-issues/project/{projectId}/issues" +
+                         $"?{string.Join("&", query)}";
+
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException(
+                        $"Could not load issues (HTTP {(int)resp.StatusCode}): {body}");
+
+                var page = JsonConvert.DeserializeObject<BinaIssuePage>(body) ?? new BinaIssuePage();
+                if (page.Issues == null) page.Issues = new List<BinaIssue>();
+                return page;
+            }
+        }
+
+        /// <summary>
+        /// One issue in full: the elements it points at, the camera it was
+        /// captured from, its replies and a snapshot URL.
+        /// </summary>
+        public async Task<BinaIssueDetail> GetIssueAsync(string guid)
+        {
+            string url = $"{_baseUrl}/api/cloud-docs/bim-issues/issue/{Uri.EscapeDataString(guid)}";
+
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException(
+                        $"Could not load the issue (HTTP {(int)resp.StatusCode}): {body}");
+
+                return JsonConvert.DeserializeObject<BinaIssueDetail>(body);
+            }
+        }
+
         public Task<SyncInitResponse> InitAsync(SyncInitRequest request) =>
             PostAsync<SyncInitResponse>("sync/init", request);
 
