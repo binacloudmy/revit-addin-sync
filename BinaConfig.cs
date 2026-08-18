@@ -501,12 +501,15 @@ namespace RevitWebAppSync
             return !string.IsNullOrEmpty(Email) && !string.IsNullOrEmpty(Password) && ProjectId > 0 && UserId > 0;
         }
 
-        public bool IsLoggedIn()
-        {
-            return !string.IsNullOrEmpty(AccessToken)
-                && !string.IsNullOrEmpty(UserName)
-                && ProjectId > 0;
-        }
+        /// <summary>
+        /// The bina-ai (Copilot/JKR) session — the counterpart of
+        /// <see cref="IsBinaCloudLoggedIn"/>. Token-presence only: UserName is a
+        /// display nicety, and ProjectId belongs to the Cloud Docs session (the
+        /// AI browser login deliberately stopped setting it — see
+        /// BrowserLoginCommand). Requiring them here meant an AI-only sign-in
+        /// could never pass the Copilot auth gate (2026-08-18).
+        /// </summary>
+        public bool IsLoggedIn() => !string.IsNullOrEmpty(AccessToken);
 
         public void ClearSession()
         {
