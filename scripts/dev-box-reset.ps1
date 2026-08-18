@@ -132,10 +132,32 @@ if ($Mode -eq "DevColocate" -and (Test-Path $engineDir)) {
 # ── 2. Manifests per mode ──────────────────────────────────────────────────
 Write-Host "manifests ($Mode):"
 if ($Mode -eq "Production") {
-    Enable-Manifests  "BinaSync.addin"
+    Enable-Manifests  "*.addin"
     Remove-Manifests  "RevitWebAppSync.addin"       # dev direct-load out of the way
 } else {
-    Disable-Manifests "BinaSync.addin"              # fleet loader out of the way
+    # Content-based sweep, not filename-based: the fleet installer has shipped
+    # under more than one manifest name, and a single missed manifest = the
+    # "Wrong Full Class Name — Login to AI" dialog on every start (2026-08-18,
+    # twice). Anything mentioning Bina that is NOT the dev manifest gets
+    # disabled; a ProgramData rename that fails (needs admin) is now a HARD
+    # STOP, not a scrollback warning.
+    $failed = @()
+    foreach ($root in $addinRoots) {
+        if (-not (Test-Path $root)) { continue }
+        Get-ChildItem $root -Recurse -Filter "*.addin" -ErrorAction SilentlyContinue |
+          Where-Object { $_.Name -ne "RevitWebAppSync.addin" -and
+                         (Get-Content $_.FullName -Raw -ErrorAction SilentlyContinue) -match "Bina" } |
+          ForEach-Object {
+            try {
+                if (Test-Path ($_.FullName + ".disabled")) { Remove-Item $_.FullName -Force }
+                else { Rename-Item $_.FullName ($_.Name + ".disabled") -ErrorAction Stop }
+                Write-Host "  disabled: $($_.FullName)"
+            } catch { $failed += $_.FullName }
+          }
+    }
+    if ($failed.Count -gt 0) {
+        throw "Could not disable: $($failed -join '; ') — re-run this script in an ADMIN PowerShell (ProgramData manifests need elevation)."
+    }
 }
 
 # ── 3. config.json surgery: strip poison, keep tokens ──────────────────────
