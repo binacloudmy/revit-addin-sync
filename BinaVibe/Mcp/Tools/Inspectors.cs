@@ -1548,21 +1548,51 @@ namespace BinaVibe.Mcp.Tools
         }
 
         // ─── list_model_groups ──────────────────────────────────────────
+        /// <summary>
+        /// The Project Browser lists group TYPES (the definitions). A type with
+        /// no placed instance still shows there, so collecting Group INSTANCES
+        /// and grouping them by name reported count 0 on a project that visibly
+        /// had "Group 1" under Groups > Model — and the agent then told the
+        /// drafter their group did not exist. Enumerate the definitions, count
+        /// the instances against them, and report the unplaced ones as
+        /// placed:false rather than omitting them.
+        ///
+        /// Detail groups are included with kind:"detail" — they share the
+        /// browser node and rename through the same GroupType.Name.
+        /// </summary>
         public static Dictionary<string, object?> ListModelGroups(Document doc)
         {
-            var modelGroups = new FilteredElementCollector(doc)
+            var instancesByType = new FilteredElementCollector(doc)
                 .OfClass(typeof(Autodesk.Revit.DB.Group)).Cast<Autodesk.Revit.DB.Group>()
-                .Where(g => g.Category != null && g.Category.Id.Value == (long)BuiltInCategory.OST_IOSModelGroups)
-                .GroupBy(g => g.GroupType?.Name ?? g.Name)
-                .Select(grp => new Dictionary<string, object?>
+                .Where(g => g.GroupType != null)
+                .GroupBy(g => g.GroupType.Id.Value)
+                .ToDictionary(grp => grp.Key, grp => grp.ToList());
+
+            var modelGroups = new FilteredElementCollector(doc)
+                .OfClass(typeof(GroupType)).Cast<GroupType>()
+                .Where(gt => gt.Category != null
+                          && (gt.Category.Id.Value == (long)BuiltInCategory.OST_IOSModelGroups
+                           || gt.Category.Id.Value == (long)BuiltInCategory.OST_IOSDetailGroups))
+                .Select(gt =>
                 {
-                    ["name"] = grp.Key,
-                    ["instances"] = grp.Count(),
-                    ["instance_details"] = grp.Select(g => new Dictionary<string, object?>
+                    List<Autodesk.Revit.DB.Group>? insts;
+                    if (!instancesByType.TryGetValue(gt.Id.Value, out insts) || insts == null)
+                        insts = new List<Autodesk.Revit.DB.Group>();
+                    return new Dictionary<string, object?>
                     {
-                        ["id"] = g.Id.Value,
-                        ["members"] = g.GetMemberIds().Count,
-                    }).ToList<object>(),
+                        ["id"] = gt.Id.Value,
+                        ["name"] = gt.Name,
+                        ["kind"] = gt.Category.Id.Value == (long)BuiltInCategory.OST_IOSModelGroups ? "model" : "detail",
+                        ["instances"] = insts.Count,
+                        // An unplaced definition is still renameable and still
+                        // occupies the browser — say so instead of dropping it.
+                        ["placed"] = insts.Count > 0,
+                        ["instance_details"] = insts.Select(g => new Dictionary<string, object?>
+                        {
+                            ["id"] = g.Id.Value,
+                            ["members"] = g.GetMemberIds().Count,
+                        }).ToList<object>(),
+                    };
                 }).ToList<object>();
             return new Dictionary<string, object?> { ["ok"] = true, ["model_groups"] = modelGroups, ["count"] = modelGroups.Count };
         }

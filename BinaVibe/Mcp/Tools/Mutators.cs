@@ -4419,10 +4419,19 @@ namespace BinaVibe.Mcp.Tools
         ///   instances element instances (previous behaviour)
         ///   auto      families + types when a category is given, else instances
         ///
+        /// ``category`` also takes "Groups" / "Model Groups" / "Detail Groups",
+        /// which rename the GroupType. A group's name is an Element.Name
+        /// property, not a Parameter, so set_parameter cannot reach it and this
+        /// is the only path. ``scope`` is ignored there — a group has one node.
+        ///
         /// ``dry_run`` returns exactly what WOULD change without opening a
         /// transaction. A find/replace across a project browser is wide and
         /// awkward to undo by hand, so the agent can show the diff and let the
         /// drafter confirm first.
+        ///
+        /// Names Revit refuses come back as ``skipped`` (count) and ``skips``
+        /// ([{id, name, reason}], first 8) — a duplicate name is the normal
+        /// failure and the count alone cannot say so.
         /// </summary>
         public static Dictionary<string, object?> RenameElements(Document doc, JsonElement args)
         {
@@ -4447,6 +4456,25 @@ namespace BinaVibe.Mcp.Tools
                 // "rename jkrAR17 to jkrAR26" is usually a naming-standard sweep
                 // that spans categories.
                 targets = new FilteredElementCollector(doc).OfClass(typeof(Family)).ToList();
+            else if (lc == "groups" || lc == "group"
+                  || lc == "model groups" || lc == "model group"
+                  || lc == "detail groups" || lc == "detail group")
+            {
+                // GroupType.Name is a direct Element property, not a Parameter, so
+                // set_parameter can never reach it and this tool is the only path.
+                // OfCategory on the internal IOS categories does not return
+                // GroupType reliably across versions — collect by class and filter
+                // on the type's own Category, the shape ListModelGroups uses
+                // (Inspectors.cs:1551).
+                bool wantModel = !lc.StartsWith("detail");
+                bool wantDetail = !lc.StartsWith("model");
+                targets = new FilteredElementCollector(doc).OfClass(typeof(GroupType))
+                    .Cast<GroupType>()
+                    .Where(gt => gt.Category != null
+                              && ((wantModel && gt.Category.Id.Value == (long)BuiltInCategory.OST_IOSModelGroups)
+                               || (wantDetail && gt.Category.Id.Value == (long)BuiltInCategory.OST_IOSDetailGroups)))
+                    .Cast<Element>().ToList();
+            }
             else if (TryResolveCatOrLive(doc, category, out var bic))
             {
                 targets = new List<Element>();
@@ -4497,6 +4525,7 @@ namespace BinaVibe.Mcp.Tools
             }
 
             int renamed = 0, matched = 0; var examples = new List<object>();
+            var skips = new List<object>();
             using var tx = new Transaction(doc, "BinaVibe: rename_elements");
             TxGuard.StartSwallowing(tx);
             try
@@ -4508,7 +4537,15 @@ namespace BinaVibe.Mcp.Tools
                     var nn = name.Replace(find, replace);
                     if (nn == name || string.IsNullOrWhiteSpace(nn)) continue;
                     matched++;
-                    try { e.Name = nn; renamed++; if (examples.Count < 8) examples.Add(name + " → " + nn); } catch { /* dup / read-only */ }
+                    try { e.Name = nn; renamed++; if (examples.Count < 8) examples.Add(name + " → " + nn); }
+                    catch (Exception ex)
+                    {
+                        // Duplicate or read-only name. A bare count reads as a
+                        // mystery on groups, where a name collision is the
+                        // normal failure — carry Revit's own message back.
+                        if (skips.Count < 8) skips.Add(new Dictionary<string, object?>
+                        { ["id"] = e.Id.Value, ["name"] = name, ["reason"] = ex.Message });
+                    }
                 }
                 tx.Commit();
             }
@@ -4522,6 +4559,9 @@ namespace BinaVibe.Mcp.Tools
                 // A duplicate or read-only name throws per element and is skipped;
                 // reporting the count stops "renamed 3" reading as "all 40 done".
                 ["skipped"] = matched - renamed,
+                // …and why, for the first few — a duplicate group-type name is
+                // the usual cause and is unguessable from the count alone.
+                ["skips"] = skips,
                 ["examples"] = examples,
                 ["nothing"] = renamed == 0,
                 ["headline"] = renamed + " of " + matched + " renamed (" + scope + ")",
