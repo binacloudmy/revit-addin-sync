@@ -170,6 +170,22 @@ namespace RevitWebAppSync.Services
             if (!string.IsNullOrEmpty(cfg.DeviceToken))
                 psi.Environment["BINA_ENGINE_TOKEN"] = cfg.DeviceToken;
 
+            // Colocate tracing (2026-08-18): the engine holds NO Langfuse
+            // credentials (poison-pill design). Its Langfuse client is
+            // pointed at the GATEWAY's tracing proxy instead, authenticating
+            // with the machine's own device token as the "public key" —
+            // /gateway/langfuse validates the token and forwards to the real
+            // Langfuse host with server-side creds. Without this, every
+            // colocate turn is invisible to tracing (the 2026-08-18 blind
+            // debugging session). Both gateway URL + token required.
+            if (!string.IsNullOrEmpty(cfg.ResolvedGatewayUrl) && !string.IsNullOrEmpty(cfg.DeviceToken))
+            {
+                psi.Environment["LANGFUSE_BASE_URL"] =
+                    cfg.ResolvedGatewayUrl.TrimEnd('/') + "/gateway/langfuse";
+                psi.Environment["LANGFUSE_PUBLIC_KEY"] = cfg.DeviceToken;
+                psi.Environment["LANGFUSE_SECRET_KEY"] = "engine";
+            }
+
             Status = "starting";
             // Track the process THIS attempt started in a local — even if a
             // queued attempt later replaces _proc, our timeout path can only
