@@ -142,6 +142,58 @@ namespace RevitWebAppSync.Services
             }
         }
 
+        /// <summary>
+        /// Which BINA design an open document is, from the lineage GUID stamped
+        /// inside it. Null when nothing readable carries that stamp.
+        ///
+        /// Not `sync/head`: that keys on the folder as well as the name, and an
+        /// open .rvt carries no idea which BINA folder it came from — so the
+        /// head lookup only works when the user has already named the folder.
+        /// </summary>
+        public async Task<ResolvedDesign> ResolveDesignAsync(string docGuid)
+        {
+            if (string.IsNullOrEmpty(docGuid)) return null;
+
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/design/resolve" +
+                         $"?docGuid={Uri.EscapeDataString(docGuid)}";
+
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
+            {
+                if (!resp.IsSuccessStatusCode) return null;   // unknown model is not an error
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                return JsonConvert.DeserializeObject<ResolvedDesign>(body);
+            }
+        }
+
+        /// <summary>
+        /// Bina parameters to write into this model (ClickUp 86d3y5jxx).
+        ///
+        /// The default scope reads the whole version chain and keeps the newest
+        /// write per (element, parameter): values are stored against a single
+        /// version, so a model synced since they were entered would otherwise
+        /// come back empty.
+        /// </summary>
+        public async Task<ElementParametersResponse> GetElementParametersAsync(
+            int designId,
+            string scope = "lineage")
+        {
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/design/{designId}" +
+                         $"/element-parameters?scope={Uri.EscapeDataString(scope)}";
+
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException(
+                        $"Could not load parameters (HTTP {(int)resp.StatusCode}): {body}");
+
+                var parsed = JsonConvert.DeserializeObject<ElementParametersResponse>(body)
+                             ?? new ElementParametersResponse();
+                if (parsed.Parameters == null) parsed.Parameters = new List<BinaElementParameter>();
+                return parsed;
+            }
+        }
+
         public Task<SyncInitResponse> InitAsync(SyncInitRequest request) =>
             PostAsync<SyncInitResponse>("sync/init", request);
 
