@@ -61,8 +61,15 @@ function Disable-Manifests([string]$pattern) {
         if (-not (Test-Path $root)) { continue }
         Get-ChildItem $root -Recurse -Filter $pattern -ErrorAction SilentlyContinue | ForEach-Object {
             try {
-                Rename-Item $_.FullName ($_.Name + ".disabled") -ErrorAction Stop
-                Write-Host "  disabled: $($_.FullName)"
+                # Idempotent: a .disabled twin already there means an earlier
+                # reset ran — just remove the live one, never stack suffixes.
+                if (Test-Path ($_.FullName + ".disabled")) {
+                    Remove-Item $_.FullName -Force
+                    Write-Host "  removed (already disabled once): $($_.FullName)"
+                } else {
+                    Rename-Item $_.FullName ($_.Name + ".disabled") -ErrorAction Stop
+                    Write-Host "  disabled: $($_.FullName)"
+                }
             } catch {
                 Write-Warning "  could not disable $($_.FullName) (admin needed for ProgramData?) — $_"
             }
