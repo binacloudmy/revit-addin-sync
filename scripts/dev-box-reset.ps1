@@ -54,7 +54,16 @@ $addinRoots = @(
 )
 $syncDir    = Join-Path $env:APPDATA "RevitWebAppSync"
 $configPath = Join-Path $syncDir "config.json"
-$versionsDir = Join-Path $syncDir "versions"
+# OTA staging lives under LOCALAPPDATA\Bina\RevitSync (verified on-box
+# 2026-08-18: the old APPDATA\RevitWebAppSync\versions guess was a no-op —
+# three staged builds survived the "purge"). Old path kept as a defensive
+# second target in case any legacy install ever used it.
+$otaRoot     = Join-Path $env:LOCALAPPDATA "Bina\RevitSync"
+$versionsDirs = @(
+    (Join-Path $otaRoot "versions"),
+    (Join-Path $syncDir "versions")
+)
+$engineDir   = Join-Path $otaRoot "engine"
 
 function Disable-Manifests([string]$pattern) {
     foreach ($root in $addinRoots) {
@@ -106,9 +115,18 @@ function Remove-Manifests([string]$pattern) {
 }
 
 # ── 1. OTA-staged copies always go: they shadow whatever should load next ──
-if (Test-Path $versionsDir) {
-    Remove-Item $versionsDir -Recurse -Force
-    Write-Host "purged: $versionsDir"
+foreach ($vd in $versionsDirs) {
+    if (Test-Path $vd) {
+        Remove-Item $vd -Recurse -Force
+        Write-Host "purged: $vd"
+    }
+}
+# DevColocate runs the engine from SOURCE on 48810 — a staged engine bundle
+# that ever auto-spawns would contend for the port. Remove it; the fleet
+# updater re-stages it whenever the box goes back to Staging/Production.
+if ($Mode -eq "DevColocate" -and (Test-Path $engineDir)) {
+    Remove-Item $engineDir -Recurse -Force
+    Write-Host "purged staged engine: $engineDir"
 }
 
 # ── 2. Manifests per mode ──────────────────────────────────────────────────
