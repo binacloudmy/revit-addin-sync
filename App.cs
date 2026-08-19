@@ -41,6 +41,12 @@ namespace RevitWebAppSync
 
         public static BombaComplianceDashboardHost BombaComplianceDashboardHost { get; private set; }
 
+        // Issues dockable pane + the event that lets it touch the model
+        // (ClickUp 86d3y5jtz). The pane is plain WPF with no API context.
+        public static UI.Issues.IssuesPaneHost IssuesPaneHost { get; private set; }
+        public static Handlers.IssueShowHandler IssueShowHandler { get; private set; }
+        public static ExternalEvent IssueShowEvent { get; private set; }
+
         // Revit Copilot dockable pane host (right-docked side panel)
         public static CopilotPaneHost CopilotPaneHost { get; private set; }
 
@@ -391,6 +397,29 @@ namespace RevitWebAppSync
                     System.Diagnostics.Debug.WriteLine($"[BINA] Copilot dockable pane registration failed: {copilotEx.Message}");
                     Services.TelemetryService.Track("subsystem", "failed",
                         new { name = "copilot_pane", error_class = copilotEx.GetType().Name });
+                }
+
+                // Register the Issues dockable pane
+                try
+                {
+                    IssuesPaneHost = new UI.Issues.IssuesPaneHost();
+                    application.RegisterDockablePane(
+                        UI.Issues.IssuesPaneHost.PaneId,
+                        "BINA Issues",
+                        IssuesPaneHost);
+
+                    IssueShowHandler = new Handlers.IssueShowHandler
+                    {
+                        OnCompleted = (issue, result, error) =>
+                            IssuesPaneHost?.Panel?.ReportShown(issue, result, error)
+                    };
+                    IssueShowEvent = ExternalEvent.Create(IssueShowHandler);
+                }
+                catch (Exception issuesEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Issues dockable pane registration failed: {issuesEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "issues_pane", error_class = issuesEx.GetType().Name });
                 }
 
                 // Subscribe to document changes for live cost updates
@@ -744,6 +773,20 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
             };
 
+            // Issues raised in the BINA viewer, shown against the open model
+            // (ClickUp 86d3y5jtz). Read-only in this release.
+            PushButtonData syncIssuesButtonData = new PushButtonData(
+                "SyncIssues",
+                "Issues",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.SyncIssuesCommand")
+            {
+                ToolTip = "Show BINA issues against this model",
+                LongDescription = "Pulls the issues raised on this model in BINA Cloud, selects the elements an issue points at, and restores the viewpoint it was captured from.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            };
+
             // LEGACY — Federate Disciplines is retired; the command itself is
             // excluded from the build (FederateDisciplinesCommand.cs). This button
             // was already never added to a panel; kept commented for reference.
@@ -850,6 +893,7 @@ namespace RevitWebAppSync
             cdePanel.AddItem(buttonData);
             cdePanel.AddItem(bimDisciplineButtonData);
             cdePanel.AddItem(syncParametersButtonData);
+            cdePanel.AddItem(syncIssuesButtonData);
 
             // BINA AI: the bina-ai sign-in, then the copilot it unlocks.
             aiPanel.AddItem(loginButtonData);
