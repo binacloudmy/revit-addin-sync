@@ -77,6 +77,12 @@ namespace RevitWebAppSync.UI.Issues
         {
             if (_loading || _projectId <= 0) return;
 
+            bool modelOnly = ScopeFilter.SelectedIndex == 0 && _designId.HasValue;
+            int? designId = modelOnly ? _designId : null;
+            string source = SourceFilter.SelectedIndex == 1 ? "design"
+                : SourceFilter.SelectedIndex == 2 ? "coordination"
+                : null;
+
             try
             {
                 SetBusy(true, "Loading issues from BINA…");
@@ -85,6 +91,8 @@ namespace RevitWebAppSync.UI.Issues
                 string token = await BinaCloudSession.EnsureValidTokenAsync(config);
                 if (string.IsNullOrEmpty(token))
                 {
+                    if (ShowCached(designId, source, "your Cloud Docs session has expired")) return;
+
                     SetBusy(false, "Your Cloud Docs session has expired — click 'Login to CDE' and sync again.");
                     return;
                 }
@@ -92,36 +100,88 @@ namespace RevitWebAppSync.UI.Issues
                 using (var api = new SyncApiClient(config.ResolvedApiBaseUrl, token, http: null,
                            refreshToken: () => BinaCloudSession.RefreshAsync(config)))
                 {
-                    // "This model" reads the whole version chain, so an issue
-                    // raised on v3 still belongs to the model at v7.
-                    bool modelOnly = ScopeFilter.SelectedIndex == 0 && _designId.HasValue;
-                    // A coordination issue counts as "this model" when that model
-                    // was one of those loaded in the federated view — the server
-                    // matches it on the loadedModels URNs.
-                    string source = SourceFilter.SelectedIndex == 1 ? "design"
-                        : SourceFilter.SelectedIndex == 2 ? "coordination"
-                        : null;
+                    // "This model" reads the whole version chain for a design
+                    // issue, and matches a coordination issue when this model
+                    // was one of those loaded when it was raised.
+                    var page = await api.GetIssuesAsync(_projectId, designId, source: source);
 
-                    var page = await api.GetIssuesAsync(_projectId, modelOnly ? _designId : null, source: source);
-
-                    _all.Clear();
-                    // Rows name their model only when the list spans the project;
-                    // scoped to one model the header already says which.
-                    _all.AddRange(page.Issues.Select(issue => new IssueCardModel(issue, showModel: !modelOnly)));
-                    ApplyFilter();
+                    Render(page.Issues, showModel: !modelOnly);
 
                     SetBusy(false, page.HasMore
                         ? $"Showing the first {page.Count}. Narrow by status to see the rest."
                         : "Read-only — edit issues in BINA Cloud.");
 
-                    // Thumbnails after the list is on screen: the text is what the
-                    // user reads first, and a slow image should not hold it back.
+                    // Kept for the next time there is no signal (decision 6).
+                    IssueCache.SavePage(_projectId, designId, source, page);
+
+                    // Thumbnails after the list is on screen: the text is what
+                    // the user reads first, and a slow image should not hold it
+                    // back.
                     await LoadThumbnailsAsync();
                 }
             }
             catch (Exception ex)
             {
+                // A site with no signal is the case this cache exists for, so
+                // the last list is shown rather than an error page — labelled
+                // with when it was taken, never passed off as current.
+                if (ShowCached(designId, source, ex.Message)) return;
+
                 SetBusy(false, $"Could not load issues: {ex.Message}");
+            }
+        }
+
+        /// <returns>True when a cached list was shown.</returns>
+        private bool ShowCached(int? designId, string source, string reason)
+        {
+            var cached = IssueCache.LoadPage(_projectId, designId, source);
+            if (cached == null) return false;
+
+            Render(cached.Value.Page.Issues, showModel: !designId.HasValue, fromCache: true);
+
+            string when = cached.Value.SavedAt.ToString("d MMM HH:mm");
+            SetBusy(false, $"Offline — showing the list from {when}. ({reason})");
+            return true;
+        }
+
+        private void Render(List<BinaIssue> issues, bool showModel, bool fromCache = false)
+        {
+            _all.Clear();
+            // Rows name their model only when the list spans the project;
+            // scoped to one model the header already says which.
+            _all.AddRange((issues ?? new List<BinaIssue>()).Select(issue => new IssueCardModel(issue, showModel)));
+
+            if (fromCache)
+            {
+                // The images were kept as bytes, so they survive the presigned
+                // URLs in the cached JSON having expired.
+                foreach (var card in _all)
+                {
+                    byte[] bytes = IssueCache.LoadThumbnail(card.Guid);
+                    if (bytes != null) card.Thumbnail = ToImage(bytes, 160);
+                }
+            }
+
+            ApplyFilter();
+        }
+
+        private static BitmapImage ToImage(byte[] bytes, int decodeWidth)
+        {
+            try
+            {
+                var image = new BitmapImage();
+                image.BeginInit();
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                if (decodeWidth > 0) image.DecodePixelWidth = decodeWidth;
+                image.StreamSource = new MemoryStream(bytes);
+                image.EndInit();
+                image.Freeze();
+                return image;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA Issues] could not decode an image: {ex.Message}");
+                return null;
             }
         }
 
@@ -138,15 +198,8 @@ namespace RevitWebAppSync.UI.Issues
                     // hour, so a cached URL would render a broken image later.
                     byte[] bytes = await Http.GetByteArrayAsync(url);
 
-                    var image = new BitmapImage();
-                    image.BeginInit();
-                    image.CacheOption = BitmapCacheOption.OnLoad;
-                    image.DecodePixelWidth = 160;   // twice the drawn width, for crispness
-                    image.StreamSource = new MemoryStream(bytes);
-                    image.EndInit();
-                    image.Freeze();
-
-                    card.Thumbnail = image;
+                    card.Thumbnail = ToImage(bytes, 160);
+                    IssueCache.SaveThumbnail(card.Guid, bytes);
                 }
                 catch (Exception ex)
                 {
@@ -214,6 +267,14 @@ namespace RevitWebAppSync.UI.Issues
                 string token = await BinaCloudSession.EnsureValidTokenAsync(config);
                 if (string.IsNullOrEmpty(token))
                 {
+                    _open = IssueCache.LoadDetail(card.Guid);
+                    if (_open != null)
+                    {
+                        ShowDetail(card, _open);
+                        DetailStatusLine.Text = "Signed out — showing the copy saved the last time this issue was opened.";
+                        return;
+                    }
+
                     DetailStatusLine.Text = "Your Cloud Docs session has expired — click 'Login to CDE'.";
                     return;
                 }
@@ -224,11 +285,23 @@ namespace RevitWebAppSync.UI.Issues
                     _open = await api.GetIssueAsync(card.Guid);
                 }
 
+                IssueCache.SaveDetail(_open);
                 ShowDetail(card, _open);
                 await LoadDetailImageAsync(_open);
             }
             catch (Exception ex)
             {
+                // An issue opened once can be opened again with no connection —
+                // including Show in model, since the elements and the viewpoint
+                // are in the cached copy (decision 6).
+                _open = IssueCache.LoadDetail(card.Guid);
+                if (_open != null)
+                {
+                    ShowDetail(card, _open);
+                    DetailStatusLine.Text = "Offline — showing the copy saved the last time this issue was opened.";
+                    return;
+                }
+
                 DetailStatusLine.Text = $"Could not open the issue: {ex.Message}";
             }
         }
