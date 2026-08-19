@@ -24,6 +24,7 @@ namespace RevitWebAppSync.UI.Issues
         private static readonly HttpClient Http = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
 
         private readonly List<IssueCardModel> _all = new List<IssueCardModel>();
+        private BinaIssueDetail _open;
         private int _projectId;
         private int? _designId;
         private string _modelLabel;
@@ -163,6 +164,11 @@ namespace RevitWebAppSync.UI.Issues
         /// <summary>
         /// Clicking a card fetches the issue in full and hands it to Revit.
         /// </summary>
+        /// <summary>
+        /// Opening a card fetches the issue in full and shows it in the pane —
+        /// description, markup image and replies — rather than throwing the user
+        /// straight into the model. Showing it in Revit is then their choice.
+        /// </summary>
         private async void Card_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             var card = (sender as FrameworkElement)?.Tag as IssueCardModel;
@@ -170,31 +176,107 @@ namespace RevitWebAppSync.UI.Issues
 
             try
             {
-                StatusText.Text = $"Opening \"{card.Title}\"…";
+                ShowDetail(card, null);
+                DetailStatusLine.Text = "Loading…";
 
                 var config = BinaConfig.Load();
                 string token = await BinaCloudSession.EnsureValidTokenAsync(config);
                 if (string.IsNullOrEmpty(token))
                 {
-                    StatusText.Text = "Your Cloud Docs session has expired — click 'Login to CDE'.";
+                    DetailStatusLine.Text = "Your Cloud Docs session has expired — click 'Login to CDE'.";
                     return;
                 }
 
-                BinaIssueDetail detail;
                 using (var api = new SyncApiClient(config.ResolvedApiBaseUrl, token, http: null,
                            refreshToken: () => BinaCloudSession.RefreshAsync(config)))
                 {
-                    detail = await api.GetIssueAsync(card.Guid);
+                    _open = await api.GetIssueAsync(card.Guid);
                 }
 
-                // Revit work happens on Revit's thread, not this one.
-                App.IssueShowHandler?.Queue(detail);
-                App.IssueShowEvent?.Raise();
+                ShowDetail(card, _open);
+                await LoadDetailImageAsync(_open);
             }
             catch (Exception ex)
             {
-                StatusText.Text = $"Could not open the issue: {ex.Message}";
+                DetailStatusLine.Text = $"Could not open the issue: {ex.Message}";
             }
+        }
+
+        private void ShowDetail(IssueCardModel card, BinaIssueDetail detail)
+        {
+            ListView.Visibility = Visibility.Collapsed;
+            DetailView.Visibility = Visibility.Visible;
+
+            DetailTitle.Text = card.Title;
+            DetailStatusPill.Background = card.StatusBackground;
+            DetailStatusText.Text = card.StatusLabel;
+            DetailStatusText.Foreground = card.StatusForeground;
+            DetailPriorityPill.Background = card.PriorityBackground;
+            DetailPriorityPill.Visibility = card.PriorityVisibility;
+            DetailPriorityText.Text = card.Priority;
+            DetailPriorityText.Foreground = card.PriorityForeground;
+            DetailByline.Text = card.Byline;
+
+            DetailImage.Source = card.Thumbnail;                 // the list's copy, until the full one loads
+            DetailImageBox.Visibility = card.Thumbnail == null ? Visibility.Collapsed : Visibility.Visible;
+
+            DetailText.Text = detail?.Text ?? card.Preview;
+
+            int elements = detail?.CapturedComponents?.Sum(c => (c.Selection?.Count ?? 0) + (c.Isolated?.Count ?? 0)) ?? 0;
+            DetailElements.Text = detail == null
+                ? ""
+                : elements > 0
+                    ? $"Points at {elements} element{(elements == 1 ? "" : "s")} in the model."
+                    : "This issue records a viewpoint but no elements — Show in model will restore the view only.";
+
+            var replies = (detail?.Replies ?? new List<BinaIssueReply>())
+                .Select(r => new { Who = r.Author?.Name ?? "Someone", r.Text })
+                .ToList();
+            RepliesItems.ItemsSource = replies;
+            RepliesHeader.Visibility = replies.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+
+            if (detail != null) DetailStatusLine.Text = "";
+        }
+
+        /// <summary>The full-size markup image, once the detail is open.</summary>
+        private async Task LoadDetailImageAsync(BinaIssueDetail detail)
+        {
+            if (string.IsNullOrEmpty(detail?.SnapshotUrl)) return;
+
+            try
+            {
+                byte[] bytes = await Http.GetByteArrayAsync(detail.SnapshotUrl);
+                var image = new BitmapImage();
+                image.BeginInit();
+                image.CacheOption = BitmapCacheOption.OnLoad;
+                image.StreamSource = new MemoryStream(bytes);
+                image.EndInit();
+                image.Freeze();
+
+                DetailImage.Source = image;
+                DetailImageBox.Visibility = Visibility.Visible;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BINA Issues] detail image failed: {ex.Message}");
+            }
+        }
+
+        private void BackButton_Click(object sender, RoutedEventArgs e)
+        {
+            DetailView.Visibility = Visibility.Collapsed;
+            ListView.Visibility = Visibility.Visible;
+            _open = null;
+        }
+
+        /// <summary>Hands the open issue to Revit, on Revit's own thread.</summary>
+        private void ShowInModel_Click(object sender, RoutedEventArgs e)
+        {
+            if (_open == null) return;
+
+            DetailStatusLine.Text = "Showing in the model…";
+            App.IssueShowHandler?.Queue(_open);
+            App.IssueShowEvent?.Raise();
         }
 
         /// <summary>Called back from the handler once Revit has done the work.</summary>
@@ -204,7 +286,7 @@ namespace RevitWebAppSync.UI.Issues
             {
                 if (error != null)
                 {
-                    StatusText.Text = $"Could not show the issue: {error}";
+                    DetailStatusLine.Text = $"Could not show the issue: {error}";
                     return;
                 }
 
@@ -217,8 +299,8 @@ namespace RevitWebAppSync.UI.Issues
                 if (result.SwitchedView) parts.Add($"switched to \"{result.ViewName}\"");
                 parts.Add(result.CameraApplied ? "viewpoint restored" : $"viewpoint skipped ({result.CameraNote})");
 
-                StatusText.Text = char.ToUpper(parts[0][0]) + parts[0].Substring(1) + " — " +
-                                  string.Join(", ", parts.Skip(1)) + ".";
+                DetailStatusLine.Text = char.ToUpper(parts[0][0]) + parts[0].Substring(1) + " — " +
+                                        string.Join(", ", parts.Skip(1)) + ".";
             });
         }
 
@@ -226,7 +308,7 @@ namespace RevitWebAppSync.UI.Issues
         {
             _loading = busy;
             SyncButton.IsEnabled = !busy;
-            SyncButton.Content = busy ? "…" : "Sync";
+            Busy.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
             if (status != null) StatusText.Text = status;
         }
     }

@@ -41,6 +41,16 @@ namespace RevitWebAppSync.UI.Issues
             _ => "#F3F4F6"
         });
 
+        /// <summary>The dot the web puts inside the status pill.</summary>
+        public Brush StatusDot => Brush(Source.Status switch
+        {
+            "Open" => "#DC2626",
+            "InProgress" => "#F59E0B",
+            "Resolved" => "#16A34A",
+            "Closed" => "#6B7280",
+            _ => "#6B7280"
+        });
+
         public Brush StatusForeground => Brush(Source.Status switch
         {
             "Open" => "#991B1B",
@@ -90,6 +100,10 @@ namespace RevitWebAppSync.UI.Issues
 
         public Visibility ThumbnailVisibility =>
             Thumbnail == null ? Visibility.Collapsed : Visibility.Visible;
+
+        /// <summary>Keeps the row aligned when an issue has no markup image.</summary>
+        public Visibility PlaceholderVisibility =>
+            Thumbnail == null ? Visibility.Visible : Visibility.Collapsed;
 
         private static Brush Brush(string hex) =>
             new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
