@@ -5,8 +5,8 @@ namespace RevitWebAppSync.Services
     /// <summary>
     /// Pure env-first URL resolution rules (no IO, no Revit — unit-testable,
     /// mirrors the AiUrl.cs pattern). One rule everywhere: a persisted
-    /// config.json override that points at one of OUR *.azurewebsites.net
-    /// hosts is an environment pin from an old install, not a customization —
+    /// config.json override that points at one of OUR hosts (see OurHosts) is
+    /// an environment pin from an old install, not a customization —
     /// the embedded .env (via the envDefault argument) owns which of our
     /// clouds the build talks to. Only genuinely custom values (self-hosted,
     /// dev tunnel, localhost engine) are honored. This is what moves an
@@ -15,9 +15,31 @@ namespace RevitWebAppSync.Services
     /// </summary>
     public static class UrlResolution
     {
+        /// <summary>
+        /// Host fragments we own or have owned. A persisted value matching any
+        /// of these is a pin at one of our environments, so it must follow the
+        /// embedded .env rather than override it.
+        ///
+        /// Retired domains stay on this list on purpose: a config.json still
+        /// pinned to a host that no longer resolves is the exact case a new
+        /// build has to rescue, and dropping the entry would freeze that
+        /// install on a dead origin forever. Add the new domain HERE before
+        /// pointing any .env at it — matching only the old domain is what
+        /// makes a cutover un-shippable.
+        /// </summary>
+        private static readonly string[] OurHosts =
+        {
+            ".azurewebsites.net",                 // bina-ai staging/prod
+            ".binacloud.ai",                      // bina-be API + CDE web (api/app, api-stg/app-stg)
+            "plugins.jkrbinaxone.com",            // AI browser-login landing page
+            "bina.cloud",                         // RETIRED 2026-08 — replaced by binacloud.ai
+            "bypass-api-stgbinacloud.workers.dev" // RETIRED — old staging landing page
+        };
+
         public static bool IsOurCloudHost(string url) =>
             !string.IsNullOrWhiteSpace(url) &&
-            url.IndexOf(".azurewebsites.net", StringComparison.OrdinalIgnoreCase) >= 0;
+            Array.Exists(OurHosts,
+                h => url.IndexOf(h, StringComparison.OrdinalIgnoreCase) >= 0);
 
         public static bool IsLoopback(string url) =>
             !string.IsNullOrWhiteSpace(url) &&

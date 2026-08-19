@@ -50,9 +50,9 @@ namespace RevitWebAppSync
                     {
                         MainInstruction = "You're signed in to BINA Cloud Docs",
                         MainContent = string.IsNullOrWhiteSpace(config.BeUserName)
-                            ? "Use Sync to BINA to upload the open model. You'll choose the project and folder as you sync."
+                            ? "Use Sync to upload the open model. You'll choose the project and folder as you sync."
                             : $"Signed in as {config.BeUserName}.\n\n" +
-                              "Use Sync to BINA to upload the open model. You'll choose the project and folder as you sync.",
+                              "Use Sync to upload the open model. You'll choose the project and folder as you sync.",
                         CommonButtons = TaskDialogCommonButtons.Close,
                         DefaultButton = TaskDialogResult.Close
                     };
@@ -126,15 +126,26 @@ namespace RevitWebAppSync
                 // trip also left Revit blocked behind an invisible dialog.
                 TaskDialog.Show("BINA Cloud Docs",
                     string.IsNullOrWhiteSpace(config.BeUserName)
-                        ? "Signed in.\n\nUse Sync to BINA to upload the open model — you'll choose the project and folder as you sync."
-                        : $"Signed in as {config.BeUserName}.\n\nUse Sync to BINA to upload the open model — you'll choose the project and folder as you sync.");
+                        ? "Signed in.\n\nUse Sync to upload the open model — you'll choose the project and folder as you sync."
+                        : $"Signed in as {config.BeUserName}.\n\nUse Sync to upload the open model — you'll choose the project and folder as you sync.");
                 return Result.Succeeded;
             }
             catch (Exception ex)
             {
                 Services.TelemetryService.Track("auth", "bina_cloud_login_failed",
                     new { error_class = ex.GetType().Name });
-                TaskDialog.Show("Error", $"Cloud Docs login failed: {ex.Message}");
+                // Name the hosts that were actually used. A login failure here is
+                // usually a host problem (dead origin pinned in config.json, a
+                // build on the wrong channel), and the message alone never said
+                // which bina-be the exchange was attempted against.
+                var failedDialog = new TaskDialog("Error")
+                {
+                    MainInstruction = "Cloud Docs login failed",
+                    MainContent = ex.Message,
+                    ExpandedContent = BinaConfig.Load().DescribeEndpoints(),
+                    CommonButtons = TaskDialogCommonButtons.Close
+                };
+                failedDialog.Show();
                 message = ex.Message;
                 return Result.Failed;
             }

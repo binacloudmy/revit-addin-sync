@@ -30,7 +30,7 @@
 #
 # Always preserved in config.json: login/device tokens (wiping them would
 # force the whole browser-login dance again). Always stripped: the poison
-# URL overrides (BaseUrl / ApiBaseUrl / LoginWebUrl / LoginUrl /
+# URL overrides (BaseUrl / ApiBaseUrl / CloudWebUrl / LoginWebUrl / LoginUrl /
 # UpdateFeedUrl / AllowNgrok* / AllowBackendOverride).
 param(
     [ValidateSet("DevColocate", "Staging", "Production")]
@@ -140,7 +140,7 @@ if ($Mode -eq "Production") {
 }
 
 # ── 3. config.json surgery: strip poison, keep tokens ──────────────────────
-$poisonKeys = @("BaseUrl", "ApiBaseUrl", "LoginWebUrl", "LoginUrl", "UpdateFeedUrl",
+$poisonKeys = @("BaseUrl", "ApiBaseUrl", "CloudWebUrl", "LoginWebUrl", "LoginUrl", "UpdateFeedUrl",
                 "AllowNgrokAIBaseUrl", "AllowNgrokApiBaseUrl", "AllowBackendOverride")
 $cfg = @{}
 if (Test-Path $configPath) {
