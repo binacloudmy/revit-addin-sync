@@ -178,9 +178,13 @@ namespace RevitWebAppSync
             if (applied.SwitchedView)
                 detail.AppendLine($"Switched to the 3D view \"{applied.ViewName}\" to restore the viewpoint.");
 
-            detail.AppendLine(applied.CameraApplied
-                ? "Viewpoint restored."
-                : $"Viewpoint not restored — {applied.CameraNote}.");
+            if (applied.CameraApplied && applied.FramedOnElements)
+                detail.AppendLine("Viewpoint restored, then zoomed to fit the issue's elements.");
+            else if (applied.CameraApplied)
+                detail.AppendLine("Viewpoint restored.");
+            else
+                detail.AppendLine($"Viewpoint not restored — {applied.CameraNote}." +
+                    (applied.FramedOnElements ? " Zoomed to the elements instead." : ""));
 
             if (issue.Replies != null && issue.Replies.Count > 0)
             {

@@ -29,6 +29,8 @@ namespace RevitWebAppSync.Services
             public int Found { get; set; }
             public int NotFound { get; set; }
             public bool CameraApplied { get; set; }
+            /// <summary>The view was zoomed to fit the elements after the camera was set.</summary>
+            public bool FramedOnElements { get; set; }
             public bool SwitchedView { get; set; }
             public string ViewName { get; set; }
             /// <summary>Why the camera was not applied, when it was not.</summary>
@@ -61,21 +63,31 @@ namespace RevitWebAppSync.Services
             result.Found = ids.Count;
             result.NotFound = missing;
 
-            if (ids.Count > 0)
-            {
-                uidoc.Selection.SetElementIds(ids);
-                // ShowElements zooms to fit them; it also opens a view that can
-                // show them when the active one cannot.
-                uidoc.ShowElements(ids);
-            }
-
             if (view3d == null)
             {
                 result.CameraNote = "no 3D view in this model, so the viewpoint could not be restored";
-                return result;
+            }
+            else
+            {
+                ApplyCamera(doc, view3d, issue.Camera, result);
             }
 
-            ApplyCamera(doc, view3d, issue.Camera, result);
+            if (ids.Count > 0)
+            {
+                uidoc.Selection.SetElementIds(ids);
+
+                // Framing comes AFTER the camera, deliberately. The stored
+                // viewpoint gives the direction the issue was raised from, but
+                // it can put the eye anywhere — inside the building, below
+                // ground, or pointing at a model it was never captured on. Then
+                // the right elements are selected and the user is looking at
+                // nothing. ShowElements keeps the view direction and zooms to
+                // fit the elements, so the issue's angle survives and its
+                // subject is always on screen.
+                uidoc.ShowElements(ids);
+                result.FramedOnElements = true;
+            }
+
             uidoc.RefreshActiveView();
             return result;
         }
