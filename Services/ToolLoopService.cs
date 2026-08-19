@@ -59,6 +59,50 @@ namespace RevitWebAppSync.Services
                 _http.DefaultRequestHeaders.Add("X-Tenant-Id", tenant);
         }
 
+        // ─── Engine preflight + self-heal (2026-08-19) ───────────────────────
+        // "stream connect failed: … refused (localhost:48810)" reached drafters
+        // raw because nothing between the pane and the socket consulted
+        // EngineManager: the spawn is fire-and-forget at Revit startup, and a
+        // box in error:* state (or still cold-starting) simply failed every
+        // dial. Before each turn in engine mode: make sure a spawn is in
+        // flight, await it (EnsureRunningAsync returns only after the health
+        // gate), and translate a non-healthy Status into an honest message.
+        // A connect failure mid-turn gets ONE heal+retry — the engine may have
+        // died between turns and the watchdog not finished respawning yet.
+        private static bool EngineModeOn()
+        {
+            try { return BinaConfig.Load().EngineMode; } catch { return false; }
+        }
+
+        internal static async Task<string> EnsureEngineReadyAsync()
+        {
+            if (!EngineModeOn()) return null;
+            var eng = App.VibeEngine;
+            // No manager (dev rig running start-engine.ps1 by hand, autospawn
+            // off): dial and let the socket answer, exactly as before.
+            if (eng == null) return null;
+            try { await eng.EnsureRunningAsync().ConfigureAwait(false); }
+            catch { /* Status below still tells the truth */ }
+            var s = eng.Status ?? "";
+            switch (s)
+            {
+                case "healthy":
+                    return null;
+                case "error:not-installed":
+                    return "BINA Engine is not installed on this machine — the copilot cannot run locally yet. Wait for the engine update to arrive, or reinstall.";
+                case "error:addin-too-old":
+                    return "This add-in version is too old for the installed BINA Engine — update the add-in.";
+                case "error:crash-loop":
+                    return "BINA Engine keeps crashing on start — restart Revit; if it persists, send the engine log to support.";
+                case "error:start-timeout":
+                    return "BINA Engine did not come up in time — it may still be warming up. Try again in a minute.";
+                case "starting":
+                    return "BINA Engine is still starting — try again in a few seconds.";
+                default:
+                    return "BINA Engine is not ready (" + s + ") — try again shortly.";
+            }
+        }
+
         /// <summary>START a tool-calling turn. Body matches the codegen AIRequest
         /// ({prompt, context, session_id, user_id}) — reuse it so context capture
         /// stays in one place.</summary>
@@ -138,22 +182,48 @@ namespace RevitWebAppSync.Services
             // Same idea for the reasoning ("working narrative") timeline — a
             // SEPARATE trail from the tool/status one above (see ReasoningStep).
             reasoningTrail ??= new ObservableCollection<ReasoningStep>();
-            using var req = new HttpRequestMessage(HttpMethod.Post, url)
-            {
-                Content = new StringContent(bodyJson, Encoding.UTF8, "application/json"),
-            };
-            req.Headers.Accept.ParseAdd("text/event-stream");
-            if (!string.IsNullOrEmpty(accessToken))
-                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            // Engine preflight — see EnsureEngineReadyAsync. Returns an honest
+            // status message instead of letting the dial fail with a raw
+            // WinSock string.
+            var notReady = await EnsureEngineReadyAsync().ConfigureAwait(false);
+            if (notReady != null)
+                return new ToolTurn { Status = "error", Success = false, Error = notReady };
 
-            HttpResponseMessage resp;
-            try
+            HttpRequestMessage BuildReq()
             {
-                resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                var r = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = new StringContent(bodyJson, Encoding.UTF8, "application/json"),
+                };
+                r.Headers.Accept.ParseAdd("text/event-stream");
+                if (!string.IsNullOrEmpty(accessToken))
+                    r.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                return r;
             }
-            catch (Exception ex)
+
+            HttpResponseMessage resp = null;
+            for (var attempt = 0; resp == null; attempt++)
             {
-                return new ToolTurn { Status = "error", Success = false, Error = $"stream connect failed: {ex.Message}" };
+                var req = BuildReq();
+                try
+                {
+                    resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    req.Dispose();
+                    // ONE self-heal + retry: the engine may have died between
+                    // turns (watchdog mid-respawn). EnsureEngineReadyAsync
+                    // awaits the respawn's health gate; if it comes back
+                    // healthy, re-dial — otherwise surface its honest message.
+                    if (attempt == 0 && !ct.IsCancellationRequested && EngineModeOn())
+                    {
+                        var healErr = await EnsureEngineReadyAsync().ConfigureAwait(false);
+                        if (healErr == null) continue;
+                        return new ToolTurn { Status = "error", Success = false, Error = healErr };
+                    }
+                    return new ToolTurn { Status = "error", Success = false, Error = $"stream connect failed: {ex.Message}" };
+                }
             }
             using (resp)
             {
@@ -417,14 +487,44 @@ namespace RevitWebAppSync.Services
 
         private async Task<ToolTurn> PostAsync(string url, string bodyJson, string accessToken, CancellationToken ct)
         {
-            using var req = new HttpRequestMessage(HttpMethod.Post, url)
-            {
-                Content = new StringContent(bodyJson, Encoding.UTF8, "application/json"),
-            };
-            if (!string.IsNullOrEmpty(accessToken))
-                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            // Same preflight + single heal/retry as StreamTurnAsync — this
+            // blocking path previously let the raw socket exception PROPAGATE.
+            var notReady = await EnsureEngineReadyAsync().ConfigureAwait(false);
+            if (notReady != null)
+                return new ToolTurn { Status = "error", Success = false, Error = notReady };
 
-            using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            HttpRequestMessage BuildReq()
+            {
+                var r = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = new StringContent(bodyJson, Encoding.UTF8, "application/json"),
+                };
+                if (!string.IsNullOrEmpty(accessToken))
+                    r.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                return r;
+            }
+
+            HttpResponseMessage resp = null;
+            for (var attempt = 0; resp == null; attempt++)
+            {
+                var req = BuildReq();
+                try
+                {
+                    resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    req.Dispose();
+                    if (attempt == 0 && !ct.IsCancellationRequested && EngineModeOn())
+                    {
+                        var healErr = await EnsureEngineReadyAsync().ConfigureAwait(false);
+                        if (healErr == null) continue;
+                        return new ToolTurn { Status = "error", Success = false, Error = healErr };
+                    }
+                    return new ToolTurn { Status = "error", Success = false, Error = $"connect failed: {ex.Message}" };
+                }
+            }
+            using var _ = resp;
             var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
                 return new ToolTurn { Status = "error", Success = false, Error = $"HTTP {(int)resp.StatusCode}: {text}" };
