@@ -29,6 +29,8 @@ namespace RevitWebAppSync
         public static RevitWebAppSync.Services.BombaAutoFixHandler BombaAutoFixHandler { get; private set; }
         public static ExternalEvent BombaAutoFixEvent { get; private set; }
         public static JkrRenameHandler JkrRenameHandler { get; private set; }
+        public static RevitWebAppSync.Handlers.RollbackSwapHandler RollbackSwapHandler { get; private set; }
+        public static ExternalEvent RollbackSwapEvent { get; private set; }
 
         // Cost Dashboard dockable pane host
         public static CostDashboardHost CostDashboardHost { get; private set; }
@@ -255,6 +257,11 @@ namespace RevitWebAppSync
 
                 JkrRenameHandler = new JkrRenameHandler();
                 JkrRenameEvent = ExternalEvent.Create(JkrRenameHandler);
+
+                // Opening and closing documents is Revit API work that begins in a
+                // download continuation, so it has to be marshalled (86d3ut47q).
+                RollbackSwapHandler = new RevitWebAppSync.Handlers.RollbackSwapHandler();
+                RollbackSwapEvent = ExternalEvent.Create(RollbackSwapHandler);
 
                 BombaPickHandler = new RevitWebAppSync.Services.BombaPickWriteHandler();
                 BombaPickEvent = ExternalEvent.Create(BombaPickHandler);
@@ -702,6 +709,19 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
             };
 
+            PushButtonData rollbackButtonData = new PushButtonData(
+                "RollbackVersion",
+                "Roll Back\nVersion",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.RollbackCommand")
+            {
+                ToolTip = "Restore a previously synced version of this model",
+                LongDescription = "List every version of this model synced to BINA and restore one locally. " +
+                    "Nothing is deleted — your next sync publishes the restored model as a new version.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            };
+
             PushButtonData federateButtonData = new PushButtonData(
                 "FederateDisciplines",
                 "Federate Disciplines",
@@ -804,6 +824,7 @@ namespace RevitWebAppSync
             cdePanel.AddItem(cloudLoginButtonData);
             cdePanel.AddItem(buttonData);
             cdePanel.AddItem(bimDisciplineButtonData);
+            cdePanel.AddItem(rollbackButtonData);
 
             // BINA AI: the bina-ai sign-in, then the copilot it unlocks.
             aiPanel.AddItem(loginButtonData);

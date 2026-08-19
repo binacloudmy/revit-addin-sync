@@ -55,6 +55,37 @@ namespace RevitWebAppSync.Services
         public SyncHead Head { get; set; }
     }
 
+    /// <summary>
+    /// One row of the rollback picker: a version that was synced at some point,
+    /// current or not (86d3ut47q).
+    /// </summary>
+    public class DesignVersion
+    {
+        public int DesignId { get; set; }
+        public int? VersionNumber { get; set; }
+        public string Name { get; set; }
+        public DateTime? UploadedAt { get; set; }
+        public int? UploadedBy { get; set; }
+        public string UploaderName { get; set; }
+        public long? FileSize { get; set; }
+        public string SyncComment { get; set; }
+        public string SyncSource { get; set; }
+        public string DesignStatus { get; set; }
+        public string UrnInBase64 { get; set; }
+        public string XktConversionStatus { get; set; }
+
+        /// <summary>True on the version the cloud currently considers head.</summary>
+        public bool IsActive { get; set; }
+
+        /// <summary>Set when this version was itself published by a rollback.</summary>
+        public int? RolledBackFromDesignId { get; set; }
+    }
+
+    public class DesignVersionsResponse
+    {
+        public List<DesignVersion> Versions { get; set; }
+    }
+
     public class SyncCommitRequest : SyncInitRequest
     {
         public string FileKey { get; set; }
@@ -64,6 +95,13 @@ namespace RevitWebAppSync.Services
         public string UrnInBase64 { get; set; }
         public object ClientInfo { get; set; }
         public object Metadata { get; set; }
+
+        /// <summary>
+        /// Design id this model was restored from, sent on the FIRST sync after a
+        /// rollback so the server can label the version it creates (86d3ut47q).
+        /// Null on an ordinary sync.
+        /// </summary>
+        public int? RolledBackFromDesignId { get; set; }
     }
 
     public class SyncCommitResponse

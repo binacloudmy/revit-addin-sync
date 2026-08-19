@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using Newtonsoft.Json;
@@ -139,6 +140,107 @@ namespace RevitWebAppSync.Services
                 string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
                 if (!resp.IsSuccessStatusCode) return null;   // never-synced is not an error
                 return JsonConvert.DeserializeObject<SyncHeadResponse>(body)?.Head;
+            }
+        }
+
+        /// <summary>
+        /// Every synced version of one model's chain, newest first — the rollback
+        /// picker's list (86d3ut47q).
+        ///
+        /// Anchored on the document GUID rather than a design id: identifying a
+        /// lineage the sync/head way needs the parent folder, which the user picks
+        /// during a sync and which is never persisted. Someone opening a model to
+        /// look at its history has the GUID and nothing else.
+        ///
+        /// Goes through SendWithRefreshAsync because a picker opened on a stale
+        /// token would otherwise 401 — the GETs above predate that helper.
+        /// </summary>
+        public async Task<List<DesignVersion>> GetVersionsAsync(int projectId, string docGuid)
+        {
+            if (string.IsNullOrEmpty(docGuid))
+                throw new ArgumentException("docGuid is required", nameof(docGuid));
+
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/sync/versions"
+                       + $"?projectId={projectId}&docGuid={Uri.EscapeDataString(docGuid)}";
+
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                // A model this project has never synced has no history — an empty
+                // picker, not an error the user has to dismiss.
+                if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    return new List<DesignVersion>();
+
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException(
+                        $"Could not load versions (HTTP {(int)resp.StatusCode}): {body}");
+
+                return JsonConvert.DeserializeObject<DesignVersionsResponse>(body)?.Versions
+                       ?? new List<DesignVersion>();
+            }
+        }
+
+        /// <summary>
+        /// Streams a design's bytes to <paramref name="destinationPath"/>.
+        ///
+        /// Deliberately NOT BinaApiService.DownloadFileAsync, which reads the whole
+        /// response into a byte[] — a central model would exhaust Revit's heap.
+        /// Mirrors UpdateService's staging download: headers first, fixed buffer,
+        /// progress in MB.
+        ///
+        /// A cancelled or failed download deletes its partial file. Half a .rvt on
+        /// disk is worse than none: it looks openable.
+        /// </summary>
+        public async Task DownloadAsync(
+            int designId,
+            string destinationPath,
+            IProgress<(double Fraction, string Message)> progress = null,
+            CancellationToken cancellationToken = default(CancellationToken))
+        {
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/discipline/{designId}/download";
+
+            try
+            {
+                using (var resp = await SendWithRefreshAsync(() =>
+                    _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+                    .ConfigureAwait(false))
+                {
+                    if (!resp.IsSuccessStatusCode)
+                    {
+                        string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        throw new InvalidOperationException(
+                            $"Could not download version (HTTP {(int)resp.StatusCode}): {body}");
+                    }
+
+                    long total = resp.Content.Headers.ContentLength ?? -1L;
+
+                    using (var source = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                    using (var file = File.Create(destinationPath))
+                    {
+                        var buffer = new byte[81920];
+                        long done = 0;
+                        int read;
+
+                        while ((read = await source.ReadAsync(buffer, 0, buffer.Length, cancellationToken)
+                                   .ConfigureAwait(false)) > 0)
+                        {
+                            await file.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
+                            done += read;
+
+                            if (total > 0)
+                                progress?.Report(((double)done / total,
+                                    $"Downloading… {done / 1048576.0:F1} / {total / 1048576.0:F1} MB"));
+                            else
+                                progress?.Report((0.0, $"Downloading… {done / 1048576.0:F1} MB"));
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                try { if (File.Exists(destinationPath)) File.Delete(destinationPath); } catch { }
+                throw;
             }
         }
 

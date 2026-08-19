@@ -28,6 +28,12 @@ namespace RevitWebAppSync.Services
             public string Comment { get; set; }
             public SyncClientInfo ClientInfo { get; set; }
             public List<LinkedFileInfo> LinkedFiles { get; set; }
+
+            /// <summary>
+            /// Design id this model was restored from, when the user rolled back
+            /// and has not yet published the result (86d3ut47q). Null otherwise.
+            /// </summary>
+            public int? RolledBackFromDesignId { get; set; }
         }
 
         public sealed class Result
@@ -130,6 +136,10 @@ namespace RevitWebAppSync.Services
                     Comment = req.Comment,
                     UrnInBase64 = urn,
                     ClientInfo = req.ClientInfo,
+                    // Present only on the first sync after a rollback; the server
+                    // labels the version it creates and the caller then clears the
+                    // marker from the model (86d3ut47q).
+                    RolledBackFromDesignId = req.RolledBackFromDesignId,
                     Metadata = req.LinkedFiles == null
                         ? null
                         : (object)new { linkedFiles = req.LinkedFiles }
