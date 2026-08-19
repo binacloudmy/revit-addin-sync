@@ -105,6 +105,10 @@
          (System only), same split as ProgressStep — CopilotModels.ChatMessage
          references ReasoningStep, so this must be linked wherever that is. -->
     <Compile Include="..\UI\Copilot\Model\ReasoningStep.cs" Link="ReasoningStep.cs" />
+    <!-- TurnBlock + TurnBlocks (stream v2 segmented turn body): pure reducer,
+         same split rationale as ReasoningStep — ChatMessage references
+         TurnBlock, so it must be linked wherever CopilotModels is. -->
+    <Compile Include="..\UI\Copilot\Model\TurnBlock.cs" Link="TurnBlock.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\BatchRefResolver.cs" Link="BatchRefResolver.cs" />
     <!-- PDF attachment reading: PdfPig + System only, no Revit and no WPF, so
          the extractor and its caps are testable here. (DwgReader is not — it

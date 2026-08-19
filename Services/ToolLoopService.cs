@@ -125,13 +125,14 @@ namespace RevitWebAppSync.Services
             ObservableCollection<ProgressStep> trail = null, CancellationToken ct = default,
             Action<string> onReply = null, Action<IReadOnlyList<ProgressStep>> onSteps = null,
             ObservableCollection<ReasoningStep> reasoningTrail = null,
-            Action<IReadOnlyList<ReasoningStep>> onReasoning = null)
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
+            TurnBlocks blocks = null, Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
             var bodyJson = Newtonsoft.Json.JsonConvert.SerializeObject(request);
             return await StreamTurnAsync(
                 AiUrl.Build(_baseUrl, "tool/generate/stream"),
                 bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps,
-                reasoningTrail, onReasoning).ConfigureAwait(false);
+                reasoningTrail, onReasoning, blocks, onBlocks).ConfigureAwait(false);
         }
 
         /// <summary>RESUME a paused run over SSE — the resume leg is where the
@@ -148,14 +149,15 @@ namespace RevitWebAppSync.Services
             Action<string> onReply = null, CancellationToken ct = default,
             Action<IReadOnlyList<ProgressStep>> onSteps = null,
             ObservableCollection<ReasoningStep> reasoningTrail = null,
-            Action<IReadOnlyList<ReasoningStep>> onReasoning = null)
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
+            TurnBlocks blocks = null, Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
             var body = new ToolResumeBody { RunId = runId, SessionId = sessionId, ToolResults = results };
             var bodyJson = JsonSerializer.Serialize(body, _json);
             var turn = await StreamTurnAsync(
                 AiUrl.Build(_baseUrl, "tool/resume/stream"),
                 bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps,
-                reasoningTrail, onReasoning).ConfigureAwait(false);
+                reasoningTrail, onReasoning, blocks, onBlocks).ConfigureAwait(false);
             // Older backend without the streaming twin → transparent fallback.
             if (turn != null && turn.Status == "error" && (turn.Error ?? "").StartsWith("HTTP 404"))
                 return await ResumeAsync(runId, sessionId, results, accessToken, ct).ConfigureAwait(false);
@@ -171,7 +173,8 @@ namespace RevitWebAppSync.Services
             ObservableCollection<ProgressStep> trail, Action<string> onReply, CancellationToken ct,
             Action<IReadOnlyList<ProgressStep>> onSteps = null,
             ObservableCollection<ReasoningStep> reasoningTrail = null,
-            Action<IReadOnlyList<ReasoningStep>> onReasoning = null)
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
+            TurnBlocks blocks = null, Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
             // Accumulate phase/tool events into a step trail (BIMLogiq-style)
             // and push the rendered trail through onProgress, instead of a
@@ -248,7 +251,7 @@ namespace RevitWebAppSync.Services
                 {
                     if (ev != null && data.Length > 0)
                         final = HandleStreamEvent(ev, data.ToString(), onProgress, trail, onReply, replySb, onSteps,
-                            reasoningTrail, onReasoning) ?? final;
+                            reasoningTrail, onReasoning, blocks, onBlocks) ?? final;
                     data.Clear();
                 }
                 while (!reader.EndOfStream)
@@ -282,7 +285,8 @@ namespace RevitWebAppSync.Services
             ObservableCollection<ProgressStep> trail, Action<string> onReply, StringBuilder replySb,
             Action<IReadOnlyList<ProgressStep>> onSteps = null,
             ObservableCollection<ReasoningStep> reasoningTrail = null,
-            Action<IReadOnlyList<ReasoningStep>> onReasoning = null)
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
+            TurnBlocks blocks = null, Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
             switch (ev)
             {
@@ -303,10 +307,35 @@ namespace RevitWebAppSync.Services
                             if (string.IsNullOrEmpty(state)) state = "running";
                             if (string.IsNullOrEmpty(stepId))
                                 stepId = string.IsNullOrEmpty(label) ? Guid.NewGuid().ToString("N") : "reason:" + label;
+                            // Stream v2 dedupe (T3): when tool cards are live this
+                            // turn, the strip drops the one-line tool headline the
+                            // card supersedes (phases + notes always pass).
+                            if (blocks != null && blocks.ShouldSuppressReasoning(stepId, delta))
+                                continue;
                             ReasoningReducer.Apply(reasoningTrail, stepId, label, delta, ReasoningReducer.StateFrom(state));
                         }
                         try { onReasoning?.Invoke(new List<ReasoningStep>(reasoningTrail ?? new ObservableCollection<ReasoningStep>())); }
                         catch { /* UI hiccup */ }
+                    }
+                    catch { }
+                    return null;
+                case "tool_result":
+                    // Stream v2 (V2.2): the per-execution tool card frame. Ignored
+                    // entirely until a segmented reply flipped the turn to v2 —
+                    // same fail-safe as blocks.ApplyToolResult's Active gate.
+                    try
+                    {
+                        if (blocks == null) return null;
+                        bool added = false;
+                        foreach (var objJson in ExtractAllJsonObjects(raw))
+                        {
+                            var evt = JsonSerializer.Deserialize<ToolResultEvent>(objJson, _json);
+                            if (evt != null && blocks.ApplyToolResult(evt)) added = true;
+                        }
+                        if (added)
+                        {
+                            try { onBlocks?.Invoke(blocks.Snapshot()); } catch { /* UI hiccup */ }
+                        }
                     }
                     catch { }
                     return null;
@@ -321,6 +350,7 @@ namespace RevitWebAppSync.Services
                     try
                     {
                         bool grew = false;
+                        bool blocksGrew = false;
                         foreach (var objJson in ExtractAllJsonObjects(raw))
                         {
                             using var d = JsonDocument.Parse(objJson);
@@ -330,10 +360,20 @@ namespace RevitWebAppSync.Services
                                 replySb.Append(delta);
                                 grew = true;
                             }
+                            // Stream v2 (V2.1): a segment id flips the turn into
+                            // segmented rendering; the accumulator ignores
+                            // untagged deltas until then (legacy path).
+                            if (blocks != null
+                                && blocks.ApplyReply(delta, GetStr(d.RootElement, "segment")))
+                                blocksGrew = true;
                         }
                         if (grew)
                         {
                             try { onReply?.Invoke(replySb.ToString()); } catch { /* UI hiccup */ }
+                        }
+                        if (blocksGrew)
+                        {
+                            try { onBlocks?.Invoke(blocks.Snapshot()); } catch { /* UI hiccup */ }
                         }
                     }
                     catch { }
@@ -359,6 +399,12 @@ namespace RevitWebAppSync.Services
                             label = string.IsNullOrEmpty(tool)
                                 ? "Working…"
                                 : "Running " + tool.Replace('_', ' ').Trim() + "…";
+                        // T3 dedupe bookkeeping: a completed call's NEXT
+                        // reasoning headline is superseded by its v2 tool card
+                        // (wire order: tool done → reasoning headline →
+                        // tool_result). No-op until v2 is active.
+                        if (blocks != null && (state == "done" || state == "error"))
+                            blocks.NoteToolCompletion();
                         ReduceAndEmit(trail, onProgress, onSteps, stepId, phase, label, detail, state);
                     }
                     catch { }

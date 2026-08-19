@@ -464,16 +464,31 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // ProgressTrailPanel/ThinkingTrail indicator untouched below.
             bool hasLiveReasoning = m.Kind == CpMsgKind.Thinking
                 && m.LiveReasoningSteps != null && m.LiveReasoningSteps.Count > 0;
+            // Stream v2 (T1): the segmented turn body. Non-empty only when this
+            // turn's backend tagged reply legs with segment ids (feature-detect)
+            // AND the kill switch is on — every other turn renders the legacy
+            // paths below byte-identically.
+            bool hasBlocks = m.Blocks != null && m.Blocks.Count > 0;
 
             if (m.Kind == CpMsgKind.Thinking && !m.StreamingReply)
             {
                 if (hasLiveReasoning)
-                    col.Children.Add(ReasoningTimelinePanel(m.LiveReasoningSteps, streaming: true, answerStarting: false));
-                else
+                    // v2: the narrative streaming below the card counts as the
+                    // answer starting — auto-collapse (unless drafter-toggled)
+                    // while the spinner/elapsed keep ticking honestly.
+                    col.Children.Add(ReasoningTimelinePanel(m.LiveReasoningSteps, streaming: true, answerStarting: hasBlocks));
+                else if (!hasBlocks)
                     // Typed live step trail (mock 1+2 combined): multi-row trail,
                     // ticking as rows go running -> done. Falls back to the old
                     // single-line ThinkingTrail when the backend never sent steps.
                     col.Children.Add(m.LiveSteps != null ? ProgressTrailPanel(m.LiveSteps) : ThinkingTrail(m.Text));
+                if (hasBlocks)
+                {
+                    // v2 live body: narrative legs + tool cards in arrival order,
+                    // dots pinned underneath for liveness.
+                    col.Children.Add(BlocksPanel(m, col.MaxWidth));
+                    col.Children.Add(StreamingDots());
+                }
                 aiRow.Children.Add(col);
                 return aiRow;
             }
@@ -484,12 +499,14 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     // pass answerStarting so the timeline auto-collapses (unless
                     // the drafter already toggled it open this turn).
                     col.Children.Add(ReasoningTimelinePanel(m.LiveReasoningSteps, streaming: false, answerStarting: true));
-                else if (m.LiveSteps != null)
+                else if (m.LiveSteps != null && !hasBlocks)
                     // Once reply prose starts streaming, the trail stays pinned
                     // ABOVE the growing answer (rows keep ticking) instead of
                     // collapsing.
                     col.Children.Add(ProgressTrailPanel(m.LiveSteps));
-                if (!string.IsNullOrEmpty(m.Text))
+                if (hasBlocks)
+                    col.Children.Add(BlocksPanel(m, col.MaxWidth));
+                else if (!string.IsNullOrEmpty(m.Text))
                     col.Children.Add(CopilotMessageBubble.MarkdownText(m.Text, col.MaxWidth));
                 // Pin the pulsing-dots liveness indicator below the partial prose.
                 // Still Kind=Thinking, so this only shows while the turn runs; the
@@ -648,7 +665,26 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 col.Children.Add(trailView);
             }
 
-            if (!string.IsNullOrEmpty(m.Text))
+            // Stream v2: a completed v2 turn keeps its segmented body — ordered
+            // narrative blocks + tool cards — instead of collapsing back into
+            // one blob. Same one-card-per-turn guard as the reasoning block: a
+            // ConfirmActions message only shows the thread while it's still the
+            // tail; once the turn continues past it, the later message carries
+            // the full (longer) block list and this one defers. Copy still
+            // hands over m.Text — the full accumulated reply.
+            bool renderBlocks = hasBlocks
+                && (m.Kind == CpMsgKind.AiReply
+                    || (m.Kind == CpMsgKind.ConfirmActions && IsThreadTail(m)));
+            if (renderBlocks)
+            {
+                col.Children.Add(BlocksPanel(m, col.MaxWidth));
+                if (!string.IsNullOrEmpty(m.Text))
+                {
+                    CopilotMessageBubble.AttachCopyMenu(col, m.Text);
+                    col.Children.Add(CopilotMessageBubble.HoverReveal(aiRow, CopilotMessageBubble.CopyButton(m.Text)));
+                }
+            }
+            else if (!string.IsNullOrEmpty(m.Text))
             {
                 // AI replies are markdown (headers, **bold**, tables, lists) —
                 // render formatted, not as raw text. User bubbles stay plain.
@@ -1252,6 +1288,63 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             view.Update(m.ReasoningSteps, streaming: false, answerStarting: false, seedOpen: false);
             view.Margin = new Thickness(0, 0, 0, 12);
             return view;
+        }
+
+        // ─── Stream v2 segmented turn body (T1/T3) ───────────────────────────
+        // Ordered Narrative | ToolCard | ConfirmCard blocks — the Hermes-parity
+        // rendering. Rebuilt per tick (cheap StackPanel of MarkdownText/cards);
+        // block objects are shared snapshots, read synchronously on the UI
+        // thread, same contract as LiveSteps.
+        private FrameworkElement BlocksPanel(ChatMessage m, double maxWidth)
+        {
+            var panel = new StackPanel();
+            foreach (var b in m.Blocks)
+            {
+                if (b == null) continue;
+                switch (b.Kind)
+                {
+                    case TurnBlockKind.Narrative:
+                        if (!string.IsNullOrWhiteSpace(b.Text))
+                        {
+                            var md = CopilotMessageBubble.MarkdownText(b.Text, maxWidth);
+                            md.Margin = new Thickness(0, 0, 0, 8);
+                            panel.Children.Add(md);
+                        }
+                        break;
+                    case TurnBlockKind.ToolCard:
+                        if (b.ToolResult != null)
+                            panel.Children.Add(new ToolResultCard(b.ToolResult));
+                        break;
+                    case TurnBlockKind.ConfirmCard:
+                        panel.Children.Add(ConfirmRecordLine(b));
+                        break;
+                }
+            }
+            return panel;
+        }
+
+        // Compact in-thread decision record (T5): after Ya/Tidak the confirm
+        // reads as one line inside the continuing thread — the interactive
+        // card itself still renders via ConfirmActionsCard while pending.
+        private FrameworkElement ConfirmRecordLine(TurnBlock b)
+        {
+            bool ok = b.Approved == true;
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 8) };
+            var mark = new TextBlock
+            {
+                Text = ok ? "✓" : "✗", FontSize = 11, FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center,
+            };
+            mark.SetResourceReference(TextBlock.ForegroundProperty, ok ? "Cp.Green" : "Cp.IssueFg");
+            row.Children.Add(mark);
+            var label = new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(b.Text) ? (ok ? "Diluluskan" : "Ditolak") : b.Text,
+                FontSize = 11, FontStyle = FontStyles.Italic, VerticalAlignment = VerticalAlignment.Center,
+            };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            row.Children.Add(label);
+            return row;
         }
 
         private FrameworkElement ClarifyCard(ChatMessage m)
