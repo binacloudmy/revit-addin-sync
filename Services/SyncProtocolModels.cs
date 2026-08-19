@@ -148,7 +148,7 @@ namespace RevitWebAppSync.Services
     public class BinaIssue
     {
         public string Guid { get; set; }
-        /// <summary>design today; coordination issues will arrive under the same field.</summary>
+        /// <summary>design | coordination — which store the issue came from.</summary>
         public string Source { get; set; }
         public string Title { get; set; }
         public string TopicType { get; set; }
@@ -157,7 +157,11 @@ namespace RevitWebAppSync.Services
         public DateTime? DueDate { get; set; }
         public bool IsResolved { get; set; }
         public BinaPerson Author { get; set; }
-        public int DesignId { get; set; }
+        /// <summary>
+        /// Null for a coordination issue: it belongs to the federated set in
+        /// `Models`, not to one design.
+        /// </summary>
+        public int? DesignId { get; set; }
         public string DesignName { get; set; }
         public int? VersionNumber { get; set; }
         public string DisciplineType { get; set; }
@@ -166,9 +170,21 @@ namespace RevitWebAppSync.Services
         public string Text { get; set; }
         /// <summary>Presigned markup snapshot; expires, so the panel caches the bytes.</summary>
         public string SnapshotUrl { get; set; }
+        /// <summary>
+        /// The models the issue belongs to. One for a design issue; for a
+        /// coordination issue, every model that was loaded in the federated view
+        /// when it was raised.
+        /// </summary>
+        public List<BinaIssueModel> Models { get; set; }
 
         public override string ToString() =>
             string.IsNullOrWhiteSpace(Title) ? $"({TopicType})" : Title;
+    }
+
+    public class BinaIssueModel
+    {
+        public string FileName { get; set; }
+        public int? DesignId { get; set; }
     }
 
     public class BinaPerson
