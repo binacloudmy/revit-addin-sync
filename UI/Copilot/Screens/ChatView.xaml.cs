@@ -75,6 +75,16 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // allows, Esc rejects — bubbles up from wherever focus is (composer
             // included), so the drafter never has to click into the card.
             PreviewKeyDown += OnApprovalKeyDown;
+            // Ctrl+K → command palette (PRD A8), from anywhere in the pane.
+            PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.K
+                    && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0)
+                {
+                    Prompt.OpenCommandPalette();
+                    e.Handled = true;
+                }
+            };
         }
 
         // ─── Element-id click → local select+zoom (Task 7) ──────────────────
@@ -99,24 +109,29 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// (select_elements is a single fire-and-observe call). `async void` is
         /// deliberate here — this IS the event handler, and a click must never
         /// throw into WPF, so every failure path is swallowed into a status log.</summary>
-        private static async void OnElementIdClicked(long elementId)
+        private static void OnElementIdClicked(long elementId) => SelectElements(new[] { elementId });
+
+        /// <summary>Also the engine behind the answer's "Highlight in model"
+        /// action row (PRD A9), which fires the WHOLE id set in one call.</summary>
+        private static async void SelectElements(long[] elementIds)
         {
+            if (elementIds == null || elementIds.Length == 0) return;
             try
             {
                 var args = System.Text.Json.JsonSerializer.SerializeToElement(
                     new System.Collections.Generic.Dictionary<string, object>
                     {
-                        ["element_ids"] = new[] { elementId },
+                        ["element_ids"] = elementIds,
                     });
                 var job = new McpJob { Tool = "select_elements", Args = args };
                 McpJobPump.Enqueue(job);
                 await job.Done.Task.ConfigureAwait(false);
                 if (job.Error != null)
-                    System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements({elementId}) failed: {job.Error}");
+                    System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements(×{elementIds.Length}) failed: {job.Error}");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements({elementId}) threw: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements(×{elementIds.Length}) threw: {ex.Message}");
             }
         }
 
@@ -722,6 +737,16 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (m.Kind == CpMsgKind.AiReply && m.Receipt != null)
             {
                 col.Children.Add(ReceiptCard(m.Receipt));
+            }
+            // "Highlight in model" action row (PRD A9): when the answer lists
+            // 2+ clickable element ids, offer the whole set as one selection —
+            // the per-id click stays for single elements. Same local
+            // select_elements path, no backend round-trip.
+            if (m.Kind == CpMsgKind.AiReply && !string.IsNullOrEmpty(m.Text))
+            {
+                var elementIds = RevitWebAppSync.Helpers.MarkdownRenderer.ExtractElementIds(m.Text);
+                if (elementIds.Count >= 2)
+                    col.Children.Add(HighlightRow(elementIds));
             }
             if (m.Kind == CpMsgKind.AiReply && (hasResultBars || hasFollowups || hasTindakan))
             {
@@ -2185,6 +2210,60 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             b.Child = tb;
             if (onClick != null) b.MouseLeftButtonUp += (_, __) => onClick();
             return b;
+        }
+
+        // Answer action row (PRD A9): count tag + "Highlight in model" chip.
+        // Same chip idiom as FollowupChip; the crosshair glyph is drawn inline
+        // (CopilotIcons has no crosshair and one icon doesn't warrant a map row).
+        private FrameworkElement HighlightRow(System.Collections.Generic.List<long> elementIds)
+        {
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 8, 0, 0),
+            };
+
+            var countTag = new Border
+            {
+                CornerRadius = new CornerRadius(9), Padding = new Thickness(9, 4, 9, 4),
+                Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center,
+            };
+            countTag.SetResourceReference(Border.BackgroundProperty, "Cp.BlueSoft");
+            var countText = new TextBlock { Text = elementIds.Count + " elements", FontSize = 11.5 };
+            countText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
+            countTag.Child = countText;
+            row.Children.Add(countTag);
+
+            var chip = new Border
+            {
+                CornerRadius = new CornerRadius(9), BorderThickness = new Thickness(1),
+                Padding = new Thickness(11, 5, 11, 5), Cursor = System.Windows.Input.Cursors.Hand,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            chip.SetResourceReference(Border.BorderBrushProperty, "Cp.Reasoning.Border2");
+            chip.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
+            chip.MouseEnter += (_, __) => chip.SetResourceReference(Border.BackgroundProperty, "Cp.Reasoning.Hover");
+            chip.MouseLeave += (_, __) => chip.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
+
+            var content = new StackPanel { Orientation = Orientation.Horizontal };
+            var crosshair = new Path
+            {
+                Width = 12, Height = 12, Stretch = Stretch.Uniform, StrokeThickness = 1.6,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                Data = Geometry.Parse("M12,3 v4 M12,17 v4 M3,12 h4 M17,12 h4 M7,12 a5,5 0 1 0 10,0 a5,5 0 1 0 -10,0"),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
+            };
+            crosshair.SetResourceReference(Shape.StrokeProperty, "Cp.BlueText");
+            content.Children.Add(crosshair);
+            var label = new TextBlock { Text = "Highlight in model", FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextPrimary");
+            content.Children.Add(label);
+            chip.Child = content;
+
+            var ids = elementIds.ToArray();
+            chip.MouseLeftButtonUp += (_, __) => SelectElements(ids);
+            row.Children.Add(chip);
+            return row;
         }
 
         // Design command card (lines 186-218): a hairline-topped SECTION inside the

@@ -237,6 +237,29 @@ namespace RevitWebAppSync.Helpers
         private static bool TryParseElementId(string cellText, out long id) =>
             long.TryParse((cellText ?? "").Trim(), out id) && id >= 100000;
 
+        /// <summary>Every element id this renderer would make clickable in the
+        /// given markdown — table cells passing the strict rule above plus
+        /// bina://select/&lt;id&gt; links. Distinct, first-appearance order.
+        /// Pure (no WPF) — feeds ChatView's "Highlight in model" action row,
+        /// which selects the whole set in one select_elements call.</summary>
+        public static List<long> ExtractElementIds(string markdown)
+        {
+            var ids = new List<long>();
+            var seen = new HashSet<long>();
+            if (string.IsNullOrEmpty(markdown)) return ids;
+            foreach (var line in markdown.Split('\n'))
+            {
+                if (line.IndexOf('|') < 0) continue;
+                foreach (var cell in SplitCells(line))
+                    if (TryParseElementId(cell, out var id) && seen.Add(id))
+                        ids.Add(id);
+            }
+            foreach (Match m in Regex.Matches(markdown, @"bina://select/(\d+)"))
+                if (long.TryParse(m.Groups[1].Value, out var id) && id >= 100000 && seen.Add(id))
+                    ids.Add(id);
+            return ids;
+        }
+
         /// <summary>Accent-underlined, hand-cursor TextBlock for a detected
         /// element-id cell. Hover background + click both mirror the `[text](url)`
         /// Hyperlink branch below (same event, two different WPF primitives —

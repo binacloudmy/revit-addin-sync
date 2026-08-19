@@ -409,6 +409,28 @@ namespace RevitWebAppSync.Services
                     }
                     catch { }
                     return null;
+                case "progress":
+                    // Determinate scan counts {step_id, tool?, current, total?,
+                    // unit?, label?} — additive; never terminal (done/error still
+                    // rides tool/status on the same step_id). Coalesce a merged
+                    // buffer to the LAST frame: counts are cumulative, so
+                    // intermediate values in the same chunk carry no information.
+                    try
+                    {
+                        using var d = JsonDocument.Parse(ExtractLastJsonObject(raw));
+                        var root = d.RootElement;
+                        string stepId = GetStr(root, "step_id");
+                        if (string.IsNullOrEmpty(stepId)) stepId = GetStr(root, "tool");
+                        int cur = root.TryGetProperty("current", out var pc) && pc.TryGetInt32(out var pcv) ? pcv : -1;
+                        int tot = root.TryGetProperty("total", out var pt) && pt.TryGetInt32(out var ptv) ? ptv : -1;
+                        if (!string.IsNullOrEmpty(stepId) && cur >= 0 && trail != null)
+                        {
+                            ProgressReducer.ApplyCount(trail, stepId, cur, tot, GetStr(root, "unit"), GetStr(root, "label"));
+                            try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* UI hiccup */ }
+                        }
+                    }
+                    catch { }
+                    return null;
                 case "status":
                     try
                     {

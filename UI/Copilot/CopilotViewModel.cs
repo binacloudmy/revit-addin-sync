@@ -61,6 +61,7 @@ namespace RevitWebAppSync.UI.Copilot
                 _currentSession = null;
                 (Router as RevitChatRouter)?.ResetSession();
                 Tab = CpTab.Chat;   // "+" from the History tab must land on the new empty chat
+                RunStatus = "Ready";
             });
             ClearHighlightsCommand = new RelayCommand(_ => Highlights.Clear());
             ChatSendCommand = new RelayCommand(ChatSendAny);
@@ -455,7 +456,30 @@ namespace RevitWebAppSync.UI.Copilot
         // PromptBar so the send button becomes a Stop button the user can click
         // to cancel the prompt mid-reply.
         private bool _isSending;
-        public bool IsSending { get => _isSending; set { _isSending = value; Raise(); } }
+        public bool IsSending
+        {
+            get => _isSending;
+            set
+            {
+                _isSending = value;
+                Raise();
+                // Header status pill (PRD A7) rides the same transitions: a
+                // send opens Running; its end lands on Stopped (user clicked
+                // Stop this turn) or Done. No extra state machine.
+                if (value) RunStatus = "Running";
+                else if (RunStatus == "Running") RunStatus = _stopRequested ? "Stopped" : "Done";
+                _stopRequested = false;
+            }
+        }
+
+        // ─── Header status pill (PRD A7): Ready / Running / Done / Stopped ──
+        private bool _stopRequested;
+        private string _runStatus = "Ready";
+        public string RunStatus
+        {
+            get => _runStatus;
+            private set { if (_runStatus == value) return; _runStatus = value; Raise(); }
+        }
 
         // Live step trail state for the CURRENT turn. _lastSteps is the latest
         // typed-steps snapshot from RevitChatRouter.OnSteps (null until the
@@ -479,6 +503,7 @@ namespace RevitWebAppSync.UI.Copilot
         /// IsSending clears in ResolveProposalAsync's finally.</summary>
         public void CancelSend()
         {
+            _stopRequested = true;
             try { (Router as RevitChatRouter)?.CancelStream(); } catch { /* already done */ }
         }
         public RelayCommand ChatRunCommand { get; }

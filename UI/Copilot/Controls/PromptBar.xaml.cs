@@ -215,6 +215,22 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Input.Editor.Focus();
         }
 
+        /// <summary>Open the "/" command palette by keyboard (Ctrl+K, PRD A8).
+        /// Empty composer: seed the "/" trigger — the normal text-changed path
+        /// opens the palette exactly as if it was typed, so close/pick behave
+        /// identically. Non-empty: only focus; a shortcut must never rewrite a
+        /// draft the user is mid-way through.</summary>
+        public void OpenCommandPalette()
+        {
+            if (Input?.Editor == null) return;
+            if (string.IsNullOrWhiteSpace(Input.Editor.Text))
+            {
+                Input.Editor.Text = "/";
+                Input.Editor.CaretIndex = 1;
+            }
+            Input.Editor.Focus();
+        }
+
         private void OnToolPicked(Model.SlashTool tool)
         {
             _pendingTool = tool;
