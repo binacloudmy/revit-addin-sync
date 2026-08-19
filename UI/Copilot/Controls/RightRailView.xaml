@@ -99,9 +99,18 @@
                 </Border>
 
                 <!-- Floor plan surface: rooms + doors rendered as plain rectangles -->
-                <Border Margin="7%,48,7%,44" Background="Transparent" ClipToBounds="True">
-                    <Canvas x:Name="PlanCanvas"/>
-                </Border>
+                <!-- 7% side insets via star columns: Thickness has no percentage
+                     syntax, and "7%" throws at BAML load (TypeConverter). -->
+                <Grid Margin="0,48,0,44">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="7*"/>
+                        <ColumnDefinition Width="86*"/>
+                        <ColumnDefinition Width="7*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="1" Background="Transparent" ClipToBounds="True">
+                        <Canvas x:Name="PlanCanvas"/>
+                    </Border>
+                </Grid>
 
                 <!-- bottom level chips -->
                 <StackPanel Orientation="Horizontal" Margin="18,0,0,12" VerticalAlignment="Bottom" HorizontalAlignment="Left">

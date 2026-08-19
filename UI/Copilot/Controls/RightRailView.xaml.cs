@@ -4,6 +4,7 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;   // ToggleButton (tab bar)
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
