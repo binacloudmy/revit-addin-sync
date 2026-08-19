@@ -30,23 +30,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private int _active;
         private string _query = "";
 
-        private static readonly List<Cmd> Commands = new List<Cmd>
-        {
-            new Cmd("new",        "New chat",                "Clear the thread and start a new conversation",   "ph-chat-circle", null,                () => ActionInvoked?.Invoke("new")),
-            new Cmd("nav-history","Jump to History",         "Browse past runs",                                "ph-clock-counter-clockwise", "Nav:History", null),
-            new Cmd("nav-library","Jump to Library",         "Open the tool library",                            "ph-bookmarks",     "Nav:Library", null),
-            new Cmd("nav-model",  "Jump to Model",           "Open model inspector",                             "ph-cube",          "Nav:Model",   null),
-            new Cmd("nav-settings","Jump to Settings",        "Copilot preferences",                              "ph-gear",          "Nav:Settings",null),
-            new Cmd("theme",      "Toggle theme",            "Light / dark",                                     "ph-moon",          null,           () => ActionInvoked?.Invoke("theme")),
-            new Cmd("resync",     "Resync model",            "Re-index the active document",                     "ph-arrows-clockwise", null,         () => ActionInvoked?.Invoke("resync")),
-            new Cmd("undo",       "Undo the last change",    "Roll back the most recent model edit",             "ph-arrow-counter-clockwise", null, () => ActionInvoked?.Invoke("undo")),
-            new Cmd("doors",      "List all doors in this model", "Quick query preset",                           "ph-door-open",     "Preset:Doors", null),
-            new Cmd("walls",      "List all walls in this model", "Quick query preset",                           "ph-ruler",         "Preset:Walls", null),
-            new Cmd("rooms",      "Tag all untagged rooms",       "Quick query preset",                           "ph-house-line",    "Preset:Rooms", null),
-            new Cmd("rate",       "Rate Copilot",            "Leave a thumbs-up / thumbs-down",                  "ph-star",          null,           () => ActionInvoked?.Invoke("rate")),
-            new Cmd("bug",        "Report a bug",            "Open the bug-report sheet",                        "ph-bug",           null,           () => ActionInvoked?.Invoke("bug")),
-            new Cmd("help",       "Get help on WhatsApp",    "Open the support channel",                         "ph-whatsapp-logo", null,           () => ActionInvoked?.Invoke("help")),
-        };
+        // Populated in the constructor, not here: the action lambdas capture
+        // ActionInvoked (an instance event), and a field initializer cannot
+        // reference instance members (CS0236).
+        private readonly List<Cmd> Commands;
 
         private sealed class RowInfo { public Cmd Cmd; public Border Row; }
 
@@ -59,6 +46,24 @@ namespace RevitWebAppSync.UI.Copilot.Controls
 
         public CmdKPalette()
         {
+            Commands = new List<Cmd>
+            {
+                new Cmd("new",        "New chat",                "Clear the thread and start a new conversation",   "ph-chat-circle", null,                () => ActionInvoked?.Invoke("new")),
+                new Cmd("nav-history","Jump to History",         "Browse past runs",                                "ph-clock-counter-clockwise", "Nav:History", null),
+                new Cmd("nav-library","Jump to Library",         "Open the tool library",                            "ph-bookmarks",     "Nav:Library", null),
+                new Cmd("nav-model",  "Jump to Model",           "Open model inspector",                             "ph-cube",          "Nav:Model",   null),
+                new Cmd("nav-settings","Jump to Settings",        "Copilot preferences",                              "ph-gear",          "Nav:Settings",null),
+                new Cmd("theme",      "Toggle theme",            "Light / dark",                                     "ph-moon",          null,           () => ActionInvoked?.Invoke("theme")),
+                new Cmd("resync",     "Resync model",            "Re-index the active document",                     "ph-arrows-clockwise", null,         () => ActionInvoked?.Invoke("resync")),
+                new Cmd("undo",       "Undo the last change",    "Roll back the most recent model edit",             "ph-arrow-counter-clockwise", null, () => ActionInvoked?.Invoke("undo")),
+                new Cmd("doors",      "List all doors in this model", "Quick query preset",                           "ph-door-open",     "Preset:Doors", null),
+                new Cmd("walls",      "List all walls in this model", "Quick query preset",                           "ph-ruler",         "Preset:Walls", null),
+                new Cmd("rooms",      "Tag all untagged rooms",       "Quick query preset",                           "ph-house-line",    "Preset:Rooms", null),
+                new Cmd("rate",       "Rate Copilot",            "Leave a thumbs-up / thumbs-down",                  "ph-star",          null,           () => ActionInvoked?.Invoke("rate")),
+                new Cmd("bug",        "Report a bug",            "Open the bug-report sheet",                        "ph-bug",           null,           () => ActionInvoked?.Invoke("bug")),
+                new Cmd("help",       "Get help on WhatsApp",    "Open the support channel",                         "ph-whatsapp-logo", null,           () => ActionInvoked?.Invoke("help")),
+            };
+
             SnapsToDevicePixels = true;
             UseLayoutRounding = true;
             TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);

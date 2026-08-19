@@ -141,7 +141,7 @@
                         <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource Cp.SlimScrollBar}"/>
                     </ScrollViewer.Resources>
                     <StackPanel x:Name="LogsList" Margin="16,12,16,12"
-                                FontFamily="{DynamicResource Cp.FontMono}" FontSize="11"/>
+                                TextElement.FontFamily="{DynamicResource Cp.FontMono}" TextElement.FontSize="11"/>
                 </ScrollViewer>
                 <TextBlock x:Name="EmptyLogs" Text="— log is empty —"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
