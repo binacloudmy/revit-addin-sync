@@ -193,6 +193,33 @@ namespace RevitWebAppSync
                 Services.TelemetryService.Init(application.ControlledApplication.VersionNumber);
                 Services.TelemetryService.Track("startup", "started");
 
+                // Which backends THIS build resolved. The channel .env is baked
+                // in at compile time and config.json can still pin individual
+                // hosts, so "which backend is this install talking to" had no
+                // answer short of disassembling the DLL — and a stale host is
+                // the usual cause of a sign-in that succeeds but leaves every
+                // feature 404ing. Best-effort: diagnostics must never be what
+                // stops the add-in loading.
+                try
+                {
+                    var endpoints = BinaConfig.Load();
+                    System.Diagnostics.Debug.WriteLine(
+                        "[BINA] resolved endpoints\n" + endpoints.DescribeEndpoints());
+                    Services.TelemetryService.Track("startup", "endpoints", new
+                    {
+                        channel = BinaConfig.Channel,
+                        ai_base = endpoints.ResolvedAIBaseUrl,
+                        api_base = endpoints.ResolvedApiBaseUrl,
+                        login_web = endpoints.ResolvedLoginWebUrl,
+                        cloud_web = endpoints.ResolvedCloudWebUrl
+                    });
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA] endpoint diagnostics failed: {ex.Message}");
+                }
+
                 // Self-heal legacy direct-load installs (stale RevitWebAppSync
                 // manifest + DLL in Addins collide with the loader path — the
                 // "assembly with same name is already loaded" dialog). The
@@ -648,7 +675,7 @@ namespace RevitWebAppSync
 
             PushButtonData buttonData = new PushButtonData(
                 "SyncToWebApp",
-                "Sync to BINA",
+                "Sync",
                 Assembly.GetExecutingAssembly().Location,
                 "RevitWebAppSync.SyncCommand")
             {
@@ -685,18 +712,18 @@ namespace RevitWebAppSync
                 "RevitWebAppSync.BinaCloudLoginCommand")
             {
                 ToolTip = "Sign in to the BINA CDE / Cloud Docs (projects, documents, model sync)",
-                LongDescription = "Signs in to BINA Cloud Docs in your browser. Required by Sync to BINA and Download BIM Disciplines — the other buttons on this panel. Separate from Login to AI, which Copilot, JKR and space planning use.",
+                LongDescription = "Signs in to BINA Cloud Docs in your browser. Required by Sync and Shared Download — the other buttons on this panel. Separate from Login to AI, which Copilot, JKR and space planning use.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
 
             PushButtonData bimDisciplineButtonData = new PushButtonData(
                 "BimDiscipline",
-                "Download BIM\nDisciplines",
+                "Shared\nDownload",
                 Assembly.GetExecutingAssembly().Location,
                 "RevitWebAppSync.BimDisciplineCommand")
             {
-                ToolTip = "Download BIM Discipline Files",
+                ToolTip = "Download the latest shared discipline files",
                 LongDescription = "Download the latest Architecture, Structure, HVAC, and Electrical discipline files from BINA cloud.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
@@ -717,17 +744,20 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
             };
 
-            PushButtonData federateButtonData = new PushButtonData(
-                "FederateDisciplines",
-                "Federate Disciplines",
-                Assembly.GetExecutingAssembly().Location,
-                "RevitWebAppSync.FederateDisciplinesCommand")
-            {
-                ToolTip = "Link Downloaded Discipline Files",
-                LongDescription = "Link previously downloaded discipline files to the current Revit document for coordination and clash detection.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
-            };
+            // LEGACY — Federate Disciplines is retired; the command itself is
+            // excluded from the build (FederateDisciplinesCommand.cs). This button
+            // was already never added to a panel; kept commented for reference.
+            // PushButtonData federateButtonData = new PushButtonData(
+            // "FederateDisciplines",
+            // "Federate Disciplines",
+            // Assembly.GetExecutingAssembly().Location,
+            // "RevitWebAppSync.FederateDisciplinesCommand")
+            // {
+            // ToolTip = "Link Downloaded Discipline Files",
+            // LongDescription = "Link previously downloaded discipline files to the current Revit document for coordination and clash detection.",
+            // Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+            // LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            // };
 
             PushButtonData askAiButtonData = new PushButtonData(
                 "AskAI",

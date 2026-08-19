@@ -39,7 +39,7 @@
 # at the local engine. Omit it and the installer is addin-only/cloud-mode,
 # exactly as before this flag existed.
 #
-#   installer\build-installer.ps1 -Version 0.0.8 -GatewayUrl https://gw.bina.cloud
+#   installer\build-installer.ps1 -Version 0.0.8 -GatewayUrl https://gw.binacloud.ai
 
 param(
     [string]$Version = "0.0.1",
