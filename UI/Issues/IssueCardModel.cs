@@ -134,10 +134,14 @@ namespace RevitWebAppSync.UI.Issues
             }
         }
 
+        /// <summary>
+        /// Always shown when there is something to show. Hiding it in model
+        /// scope was a mistake: the header names the model but not the version
+        /// an issue was raised on, and that is the part a reader wants — an
+        /// issue from v3 reads differently to one from v7.
+        /// </summary>
         public Visibility ModelVisibility =>
-            (_showModel || IsCoordination) && !string.IsNullOrEmpty(ModelName)
-                ? Visibility.Visible
-                : Visibility.Collapsed;
+            string.IsNullOrEmpty(ModelName) ? Visibility.Collapsed : Visibility.Visible;
 
         /// <summary>The markup snapshot, fetched lazily by the panel.</summary>
         public BitmapImage Thumbnail { get; set; }
