@@ -60,6 +60,39 @@
                         <TextBlock FontSize="10.5" Foreground="{DynamicResource Cp.Muted}" FontFamily="{DynamicResource Cp.Reasoning.FontMono}">
                             <Run Text="Main Model · "/><Run Text="{Binding DocumentTitle, Mode=OneWay}"/>
                         </TextBlock>
+                        <!-- Run-status pill (PRD A7): Ready / Running / Done / Stopped,
+                             driven by IsSending transitions in the VM. Plain triggers,
+                             no Storyboard (Revit pane constraint). -->
+                        <Border CornerRadius="7" Padding="7,1,7,1.5" Margin="8,0,0,0" VerticalAlignment="Center">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Setter Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Running">
+                                            <Setter Property="Background" Value="{DynamicResource Cp.BlueSoft}"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding RunStatus}" Value="Done">
+                                            <Setter Property="Background" Value="{DynamicResource Cp.OkBg}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <TextBlock FontSize="9.5" FontWeight="SemiBold" Text="{Binding RunStatus, Mode=OneWay}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource Cp.Muted}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding RunStatus}" Value="Running">
+                                                <Setter Property="Foreground" Value="{DynamicResource Cp.BlueText}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding RunStatus}" Value="Done">
+                                                <Setter Property="Foreground" Value="{DynamicResource Cp.Green}"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </Border>
                     </StackPanel>
                     <!-- Live tool activity: "applying create_wall…" while a mutation
                          runs on Revit's main thread (a slow cold-model build reads as

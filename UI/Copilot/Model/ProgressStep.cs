@@ -27,6 +27,44 @@ namespace RevitWebAppSync.UI.Copilot.Model
         private StepState _state = StepState.Running;
         public StepState State { get => _state; set { _state = value; Raise(nameof(State)); Raise(nameof(ElapsedText)); } }
 
+        // Determinate scan progress (wire event "progress", additive v2-style).
+        // Current/Total = -1 means "no count reported" — the row renders exactly
+        // as before. Total may stay -1 while Current counts (counter-only mode).
+        private int _current = -1;
+        public int Current { get => _current; set { _current = value; Raise(nameof(Current)); Raise(nameof(CountText)); } }
+
+        private int _total = -1;
+        public int Total { get => _total; set { _total = value; Raise(nameof(Total)); Raise(nameof(CountText)); } }
+
+        private string _unit = "";
+        public string Unit { get => _unit; set { _unit = value; Raise(nameof(Unit)); Raise(nameof(CountText)); } }
+
+        public bool HasCount => _current >= 0;
+        public bool HasTotal => _total > 0;
+
+        /// <summary>"36 / 62" (determinate) or "36" (counter-only), with the unit
+        /// when one was supplied: "36 / 62 elements".</summary>
+        public string CountText
+        {
+            get
+            {
+                if (!HasCount) return "";
+                var n = HasTotal ? _current + " / " + _total : _current.ToString();
+                return string.IsNullOrEmpty(_unit) ? n : n + " " + _unit;
+            }
+        }
+
+        /// <summary>0..1 fill fraction for the determinate bar; 0 when no total.</summary>
+        public double Fraction
+        {
+            get
+            {
+                if (!HasCount || !HasTotal) return 0;
+                var f = (double)_current / _total;
+                return f < 0 ? 0 : f > 1 ? 1 : f;
+            }
+        }
+
         public DateTime StartedUtc { get; set; } = DateTime.UtcNow;
 
         private DateTime? _endedUtc = null;
@@ -95,8 +133,41 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 {
                     existing.EndedUtc = DateTime.UtcNow;
                 }
+                if (state == StepState.Done && existing.HasTotal && existing.Current < existing.Total)
+                {
+                    // Freeze the bar at full on success — the terminal frame is
+                    // authoritative, not the last (throttled) count frame.
+                    existing.Current = existing.Total;
+                }
                 existing.State = state;
             }
+        }
+
+        /// <summary>Apply one count frame (wire event "progress") to the step with
+        /// this id. Unknown step_id opens a Running row (count frames can beat the
+        /// tool's running frame across SSE chunk boundaries). Counts never regress;
+        /// a supplied total is sticky. Pure — unit-testable.</summary>
+        public static void ApplyCount(ObservableCollection<ProgressStep> steps, string stepId,
+                                      int current, int total, string unit, string label)
+        {
+            if (steps == null || string.IsNullOrEmpty(stepId)) return;
+            ProgressStep step = null;
+            foreach (var s in steps)
+            {
+                if (s.StepId == stepId) { step = s; break; }
+            }
+            if (step == null)
+            {
+                step = new ProgressStep { StepId = stepId, Label = label ?? "" };
+                steps.Add(step);
+            }
+            else if (!string.IsNullOrEmpty(label))
+            {
+                step.Label = label;
+            }
+            if (total > 0 && total > step.Total) step.Total = total;
+            if (current >= 0 && current > step.Current) step.Current = current;
+            if (!string.IsNullOrEmpty(unit)) step.Unit = unit;
         }
 
         /// <summary>On SUCCESSFUL completion, flip any row still marked Running to

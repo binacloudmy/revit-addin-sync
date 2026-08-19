@@ -529,6 +529,16 @@ namespace RevitWebAppSync.Services
                     var res = await ExecuteOneAsync(call, ct).ConfigureAwait(false);
                     execWatch.Stop();
 
+                    // Local half of the "progress" wire event (PRD A5): a query
+                    // tool's result already carries its honest final count —
+                    // surface it on the trail row ("62 / 62 elements") the same
+                    // way an engine-emitted progress frame would. Incremental
+                    // counts during the collector pass are Phase B (IProgress
+                    // through McpJob); this is only ever the real final number.
+                    if (res.Ok && TryExtractCount(res.Result, out var foundCount))
+                        ProgressReducer.ApplyCount(trail, call.ToolCallId, foundCount, foundCount,
+                            CountUnit(call.Tool), "");
+
                     ProgressReducer.Apply(trail, call.ToolCallId, "executing", "", "",
                         res.Ok ? StepState.Done : StepState.Error);
                     try { onProgress?.Invoke(ProgressTrail.Render(trail)); } catch { /* best-effort UI */ }
@@ -641,6 +651,40 @@ namespace RevitWebAppSync.Services
                 Error = $"tool loop exceeded {capValue} {capKind} without finishing",
             };
         }
+
+        /// <summary>Pull the integer "count" a query tool reports in its result
+        /// payload ({ok, items, count} — ElementFilter et al.). False when the
+        /// result carries no count; never throws. Internal for tests.</summary>
+        internal static bool TryExtractCount(object result, out int count)
+        {
+            count = -1;
+            try
+            {
+                object raw = null;
+                if (result is IDictionary<string, object?> dNullable && dNullable.TryGetValue("count", out var v1))
+                    raw = v1;
+                else if (result is IDictionary<string, object> d && d.TryGetValue("count", out var v2))
+                    raw = v2;
+                if (raw == null) return false;
+                if (raw is System.Text.Json.JsonElement je)
+                {
+                    if (je.ValueKind == System.Text.Json.JsonValueKind.Number && je.TryGetInt32(out var jn))
+                    { count = jn; return count >= 0; }
+                    return false;
+                }
+                count = Convert.ToInt32(raw, System.Globalization.CultureInfo.InvariantCulture);
+                return count >= 0;
+            }
+            catch { count = -1; return false; }
+        }
+
+        /// <summary>Unit string for a locally-synthesized count — "elements" for
+        /// the element-query tools, empty (bare number) for everything else so a
+        /// room/sheet count is never mislabelled.</summary>
+        internal static string CountUnit(string tool) =>
+            tool == "find_elements_by_filter" || tool == "filter_elements"
+            || tool == "find_mep_elements" || tool == "find_elements_between_grids"
+                ? "elements" : "";
 
         /// <summary>Synthesize the tool_result frame for a batch THIS addin
         /// executed (stream v2, T4) — same shape and 2KB digest budget as the
