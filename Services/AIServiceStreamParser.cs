@@ -11,7 +11,7 @@ using RevitWebAppSync.Models;
 
 namespace RevitWebAppSync.Services
 {
-    public enum StreamChunkKind { Meta, Status, Tool, Reply, CodePartial, Done, Error, Unknown }
+    public enum StreamChunkKind { Meta, Status, Tool, Reply, CodePartial, Done, Error, ToolResult, Unknown }
 
     public sealed class StreamChunk
     {
@@ -20,6 +20,14 @@ namespace RevitWebAppSync.Services
         public string Delta { get; init; } = "";      // for CodePartial
         public AIResponse Final { get; init; }         // for Done
         public string Error { get; init; }             // for Error
+
+        // Reply only — stream-v2 per-leg segment id (copilot-stream-v2 spec
+        // V2.1). Empty on old backends; its presence is the v2 feature-detect
+        // that flips the pane into segmented rendering for the turn.
+        public string Segment { get; init; } = "";
+
+        // ToolResult only — the typed per-execution frame (V2.2).
+        public ToolResultEvent ToolResult { get; init; }
 
         // Status / Tool — a single human-readable progress line for the pane's
         // live progress card. For Status it's the backend's "label"; for Tool
@@ -131,8 +139,17 @@ namespace RevitWebAppSync.Services
                             {
                                 Kind = StreamChunkKind.Reply,
                                 Delta = rdoc.RootElement.TryGetProperty("delta", out var rd) ? (rd.GetString() ?? "") : "",
+                                // v2 leg id — absent on old backends (empty).
+                                Segment = rdoc.RootElement.TryGetProperty("segment", out var sg) ? (sg.GetString() ?? "") : "",
                                 RawData = raw,
                             };
+                    case "tool_result":
+                        return new StreamChunk
+                        {
+                            Kind = StreamChunkKind.ToolResult,
+                            ToolResult = System.Text.Json.JsonSerializer.Deserialize<ToolResultEvent>(raw),
+                            RawData = raw,
+                        };
                     case "code_partial":
                         using (var doc = JsonDocument.Parse(raw))
                             return new StreamChunk

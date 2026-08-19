@@ -343,6 +343,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // Turn-scoped only; not meaningful once the message is persisted.
         public bool ReasoningUserToggled;
 
+        // ─── Stream v2 segmented turn body (copilot-stream-v2 spec, T1) ────────
+        // Ordered Narrative/ToolCard/ConfirmCard blocks for this turn. On the
+        // live Thinking message it's the growing snapshot from OnBlocks; on a
+        // completed message it's the persisted final list. Null/empty = legacy
+        // turn (no segment ids) — ChatView renders Text exactly as today.
+        public List<TurnBlock> Blocks;
+
         // Done-frame follow-up chips (0-3), model-derived {label, prompt} —
         // never a fixed menu. Null/empty = none. "Undo" is a client-side chip
         // ChatView adds itself after any write, not carried here.
