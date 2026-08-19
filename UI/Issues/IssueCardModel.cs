@@ -102,19 +102,46 @@ namespace RevitWebAppSync.UI.Issues
             }
         }
 
+        public bool IsCoordination =>
+            string.Equals(Source.Source, "coordination", StringComparison.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Coordination issues are flagged because they behave differently: they
+        /// span several models, so some of their elements will belong to a model
+        /// the user does not have open.
+        /// </summary>
+        public string SourceLabel => IsCoordination ? "Coordination" : "Design";
+
+        public Visibility CoordinationVisibility =>
+            IsCoordination ? Visibility.Visible : Visibility.Collapsed;
+
         /// <summary>"jkrAR24_5a_… · v6" — which model this issue belongs to.</summary>
         public string ModelName
         {
             get
             {
+                // A coordination issue names its federated set, and there are
+                // often six of them — a count reads better than a wall of names.
+                if (IsCoordination)
+                {
+                    int count = Source.Models?.Count ?? 0;
+                    return count > 1 ? $"{count} models" : Source.DesignName ?? "";
+                }
+
                 string name = Source.DesignName;
                 if (string.IsNullOrEmpty(name)) return "";
                 return Source.VersionNumber.HasValue ? $"{name} · v{Source.VersionNumber}" : name;
             }
         }
 
+        /// <summary>
+        /// Always shown when there is something to show. Hiding it in model
+        /// scope was a mistake: the header names the model but not the version
+        /// an issue was raised on, and that is the part a reader wants — an
+        /// issue from v3 reads differently to one from v7.
+        /// </summary>
         public Visibility ModelVisibility =>
-            _showModel && !string.IsNullOrEmpty(ModelName) ? Visibility.Visible : Visibility.Collapsed;
+            string.IsNullOrEmpty(ModelName) ? Visibility.Collapsed : Visibility.Visible;
 
         /// <summary>The markup snapshot, fetched lazily by the panel.</summary>
         public BitmapImage Thumbnail { get; set; }

@@ -84,6 +84,8 @@
                          Visibility="Collapsed" Foreground="#2A64F9" BorderThickness="0" Background="Transparent"/>
 
             <Border Grid.Row="2" Background="#FFFFFF" BorderBrush="#E5E7EB" BorderThickness="0,0,0,1" Padding="14,8">
+                <StackPanel>
+                    <ComboBox x:Name="ScopeFilter" Height="26" Margin="0,0,0,6" SelectionChanged="Filter_Changed"/>
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -91,10 +93,11 @@
                         <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <ComboBox Grid.Column="0" x:Name="StatusFilter" Height="26" SelectionChanged="Filter_Changed"/>
-                    <ComboBox Grid.Column="1" x:Name="ScopeFilter" Height="26" Margin="8,0,0,0" SelectionChanged="Filter_Changed"/>
+                    <ComboBox Grid.Column="1" x:Name="SourceFilter" Height="26" Margin="8,0,0,0" SelectionChanged="Filter_Changed"/>
                     <TextBlock Grid.Column="2" x:Name="CountText" FontSize="11" Foreground="#6B7280"
                                VerticalAlignment="Center" Margin="10,0,0,0"/>
                 </Grid>
+                </StackPanel>
             </Border>
 
             <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" Padding="12,12,12,0">
@@ -142,6 +145,12 @@
                                                     </StackPanel>
                                                 </Border>
                                             </Grid>
+
+                                            <Border Style="{StaticResource Pill}" Background="#EEF2FF"
+                                                    HorizontalAlignment="Left" Margin="0,5,0,0"
+                                                    Visibility="{Binding CoordinationVisibility}">
+                                                <TextBlock Text="Coordination" FontSize="9.5" Foreground="#3730A3"/>
+                                            </Border>
 
                                             <TextBlock Text="{Binding Preview}" FontSize="11" Foreground="#6B7280"
                                                        TextWrapping="Wrap" MaxHeight="32" Margin="0,4,0,0"/>
