@@ -146,6 +146,15 @@
                                             <TextBlock Text="{Binding Preview}" FontSize="11" Foreground="#6B7280"
                                                        TextWrapping="Wrap" MaxHeight="32" Margin="0,4,0,0"/>
 
+                                            <!-- Which model, when the list spans the project -->
+                                            <StackPanel Orientation="Horizontal" Margin="0,6,0,0"
+                                                        Visibility="{Binding ModelVisibility}">
+                                                <TextBlock Text="&#x1F5CE;" FontSize="9.5" Foreground="#9CA3AF"
+                                                           VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                <TextBlock Text="{Binding ModelName}" FontSize="10" Foreground="#6B7280"
+                                                           TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                            </StackPanel>
+
                                             <StackPanel Orientation="Horizontal" Margin="0,7,0,0">
                                                 <Border Style="{StaticResource Pill}" Background="{Binding PriorityBackground}"
                                                         Visibility="{Binding PriorityVisibility}">

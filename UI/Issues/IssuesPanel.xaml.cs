@@ -76,7 +76,9 @@ namespace RevitWebAppSync.UI.Issues
                     var page = await api.GetIssuesAsync(_projectId, modelOnly ? _designId : null);
 
                     _all.Clear();
-                    _all.AddRange(page.Issues.Select(issue => new IssueCardModel(issue)));
+                    // Rows name their model only when the list spans the project;
+                    // scoped to one model the header already says which.
+                    _all.AddRange(page.Issues.Select(issue => new IssueCardModel(issue, showModel: !modelOnly)));
                     ApplyFilter();
 
                     SetBusy(false, page.HasMore

@@ -17,10 +17,17 @@ namespace RevitWebAppSync.UI.Issues
     public class IssueCardModel
     {
         public BinaIssue Source { get; }
+        private readonly bool _showModel;
 
-        public IssueCardModel(BinaIssue issue)
+        /// <param name="showModel">
+        /// True when the list spans the whole project, where a row is ambiguous
+        /// without naming the model it belongs to. Scoped to one model, the
+        /// header already says which, and repeating it on every card is noise.
+        /// </param>
+        public IssueCardModel(BinaIssue issue, bool showModel = false)
         {
             Source = issue;
+            _showModel = showModel;
         }
 
         public string Guid => Source.Guid;
@@ -94,6 +101,20 @@ namespace RevitWebAppSync.UI.Issues
                 return when == null ? who : $"{who} · {when}";
             }
         }
+
+        /// <summary>"jkrAR24_5a_… · v6" — which model this issue belongs to.</summary>
+        public string ModelName
+        {
+            get
+            {
+                string name = Source.DesignName;
+                if (string.IsNullOrEmpty(name)) return "";
+                return Source.VersionNumber.HasValue ? $"{name} · v{Source.VersionNumber}" : name;
+            }
+        }
+
+        public Visibility ModelVisibility =>
+            _showModel && !string.IsNullOrEmpty(ModelName) ? Visibility.Visible : Visibility.Collapsed;
 
         /// <summary>The markup snapshot, fetched lazily by the panel.</summary>
         public BitmapImage Thumbnail { get; set; }
