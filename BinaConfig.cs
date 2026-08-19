@@ -446,6 +446,21 @@ namespace RevitWebAppSync
                 EngineAutoSpawn = true;
             }
 
+            // Heal hand-configured boxes (2026-08-19). The block above only
+            // runs when EngineMode is FALSE — every UAT machine set up
+            // manually per the Phases 1-3 docs ({"EngineMode": true, ...},
+            // start-engine.ps1 era) skips it, so EngineAutoSpawn stays at its
+            // false default and the add-in NEVER spawns the engine. Those
+            // boxes only worked while someone re-ran start-engine.ps1 each
+            // session; otherwise every turn died with "connection refused
+            // localhost:48810". If a bundle is installed, a manual EngineMode
+            // config earns auto-spawn too.
+            if (EngineMode && !EngineAutoSpawn &&
+                !string.IsNullOrEmpty(Services.EngineManager.NewestEngineLauncher()))
+            {
+                EngineAutoSpawn = true;
+            }
+
             // Once Engine mode is on, AI calls must target the local engine,
             // not the cloud. Only steer AIBaseUrl away from blank or an
             // obvious cloud default (binacloud.ai / any https:// URL) — a

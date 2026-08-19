@@ -245,11 +245,17 @@ namespace RevitWebAppSync.Services
                 return;
             }
 
-            // Readiness: poll every 1s against a hard 20s wall-clock deadline
-            // (a fixed 20-iteration count could stretch to ~60s when each
-            // health probe eats its full 2s HttpClient timeout).
+            // Readiness: poll every 1s against a hard 60s wall-clock deadline
+            // (a fixed iteration count could stretch further when each health
+            // probe eats its full 2s HttpClient timeout).
+            // 60s, was 20s (2026-08-19): a cold engine-bundle first boot on a
+            // drafter box (AV scan + python import) routinely exceeds 20s —
+            // same cost class as the measured 58s first-regen tax. At 20s this
+            // KILLED a healthy-but-slow engine, the watchdog counted the kill
+            // as a crash, and three rounds later Status locked at crash-loop —
+            // every turn then died with "connection refused localhost:48810".
             var deadline = Stopwatch.StartNew();
-            while (deadline.Elapsed < TimeSpan.FromSeconds(20))
+            while (deadline.Elapsed < TimeSpan.FromSeconds(60))
             {
                 await Task.Delay(1000);
                 if (await IsHealthyAsync())
@@ -262,7 +268,7 @@ namespace RevitWebAppSync.Services
             }
 
             Status = "error:start-timeout";
-            Debug.WriteLine("[BINA] engine did not become healthy within 20s — killing.");
+            Debug.WriteLine("[BINA] engine did not become healthy within 60s — killing.");
             KillProcessSafely(proc);
         }
 
