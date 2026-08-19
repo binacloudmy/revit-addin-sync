@@ -51,6 +51,26 @@ namespace RevitWebAppSync.UI.Issues
             _designId = designId;
             _modelLabel = modelLabel;
             SubtitleText.Text = modelLabel ?? $"Project #{projectId}";
+
+            // Without a design there is no model to filter by, and offering the
+            // choice anyway was dishonest: "This model" quietly returned the
+            // whole project, so the two options looked broken rather than
+            // unavailable. Say why instead.
+            bool identified = designId.HasValue;
+            ScopeFilter.IsEnabled = identified;
+            if (!identified)
+            {
+                ScopeFilter.SelectedIndex = 1;   // whole project
+                ScopeFilter.ToolTip =
+                    "This model is not in BINA yet, so its issues cannot be told apart from the rest " +
+                    "of the project. Sync it to BINA once and this filter becomes available.";
+                SubtitleText.Text = $"{modelLabel} — not in BINA, showing the whole project";
+            }
+            else
+            {
+                ScopeFilter.ToolTip =
+                    "This model reads its whole version chain, plus coordination issues raised with it loaded.";
+            }
         }
 
         public async Task SyncAsync()
