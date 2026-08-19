@@ -38,6 +38,8 @@ namespace RevitWebAppSync.UI.Issues
             StatusFilter.SelectedIndex = 0;
             ScopeFilter.ItemsSource = new[] { "This model", "Whole project" };
             ScopeFilter.SelectedIndex = 0;
+            SourceFilter.ItemsSource = new[] { "All issues", "Design", "Coordination" };
+            SourceFilter.SelectedIndex = 0;
         }
 
         /// <summary>
@@ -73,7 +75,14 @@ namespace RevitWebAppSync.UI.Issues
                     // "This model" reads the whole version chain, so an issue
                     // raised on v3 still belongs to the model at v7.
                     bool modelOnly = ScopeFilter.SelectedIndex == 0 && _designId.HasValue;
-                    var page = await api.GetIssuesAsync(_projectId, modelOnly ? _designId : null);
+                    // A coordination issue counts as "this model" when that model
+                    // was one of those loaded in the federated view — the server
+                    // matches it on the loadedModels URNs.
+                    string source = SourceFilter.SelectedIndex == 1 ? "design"
+                        : SourceFilter.SelectedIndex == 2 ? "coordination"
+                        : null;
+
+                    var page = await api.GetIssuesAsync(_projectId, modelOnly ? _designId : null, source: source);
 
                     _all.Clear();
                     // Rows name their model only when the list spans the project;
@@ -159,7 +168,7 @@ namespace RevitWebAppSync.UI.Issues
             if (!IsLoaded) return;
 
             // Scope is a different question to the server; status is local.
-            if (ReferenceEquals(sender, ScopeFilter)) await SyncAsync();
+            if (ReferenceEquals(sender, ScopeFilter) || ReferenceEquals(sender, SourceFilter)) await SyncAsync();
             else ApplyFilter();
         }
 
@@ -225,11 +234,31 @@ namespace RevitWebAppSync.UI.Issues
             DetailText.Text = detail?.Text ?? card.Preview;
 
             int elements = detail?.CapturedComponents?.Sum(c => (c.Selection?.Count ?? 0) + (c.Isolated?.Count ?? 0)) ?? 0;
-            DetailElements.Text = detail == null
-                ? ""
-                : elements > 0
-                    ? $"Points at {elements} element{(elements == 1 ? "" : "s")} in the model."
-                    : "This issue records a viewpoint but no elements — Show in model will restore the view only.";
+
+            if (detail == null)
+            {
+                DetailElements.Text = "";
+            }
+            else if (elements == 0)
+            {
+                DetailElements.Text = "This issue records a viewpoint but no elements — Show in model will restore the view only.";
+            }
+            else if (card.IsCoordination)
+            {
+                // Spanning several models, some of those elements are in files
+                // that are not open. Saying so beforehand beats a summary that
+                // reads like a failure.
+                var others = (detail.Models ?? new List<BinaIssueModel>())
+                    .Select(m => m.FileName).Where(n => !string.IsNullOrEmpty(n)).ToList();
+                DetailElements.Text =
+                    $"Points at {elements} element{(elements == 1 ? "" : "s")} across {others.Count} model" +
+                    $"{(others.Count == 1 ? "" : "s")}: {string.Join(", ", others)}. " +
+                    "Only elements in the model you have open can be selected.";
+            }
+            else
+            {
+                DetailElements.Text = $"Points at {elements} element{(elements == 1 ? "" : "s")} in the model.";
+            }
 
             var replies = (detail?.Replies ?? new List<BinaIssueReply>())
                 .Select(r => new { Who = r.Author?.Name ?? "Someone", r.Text })

@@ -166,9 +166,21 @@ namespace RevitWebAppSync.Services
         public string Text { get; set; }
         /// <summary>Presigned markup snapshot; expires, so the panel caches the bytes.</summary>
         public string SnapshotUrl { get; set; }
+        /// <summary>
+        /// The models the issue belongs to. One for a design issue; for a
+        /// coordination issue, every model that was loaded in the federated view
+        /// when it was raised.
+        /// </summary>
+        public List<BinaIssueModel> Models { get; set; }
 
         public override string ToString() =>
             string.IsNullOrWhiteSpace(Title) ? $"({TopicType})" : Title;
+    }
+
+    public class BinaIssueModel
+    {
+        public string FileName { get; set; }
+        public int? DesignId { get; set; }
     }
 
     public class BinaPerson

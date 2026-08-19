@@ -203,11 +203,14 @@ namespace RevitWebAppSync.Services
             int projectId,
             int? designId = null,
             string status = null,
+            string source = null,
             int limit = 50)
         {
             var query = new List<string> { $"limit={limit}" };
             if (designId.HasValue) query.Add($"designId={designId.Value}");
             if (!string.IsNullOrEmpty(status)) query.Add($"status={Uri.EscapeDataString(status)}");
+            // design | coordination; omitted means both.
+            if (!string.IsNullOrEmpty(source)) query.Add($"source={Uri.EscapeDataString(source)}");
 
             string url = $"{_baseUrl}/api/cloud-docs/bim-issues/project/{projectId}/issues" +
                          $"?{string.Join("&", query)}";
