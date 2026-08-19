@@ -298,6 +298,23 @@ namespace RevitWebAppSync
             DialogResult = false;
         }
 
+        /// <summary>
+        /// Closing the window mid-download (title-bar X, Esc) must stop the
+        /// transfer: the caller disposes the API client as soon as ShowDialog
+        /// returns, so a download left running writes on into a disposed client.
+        /// </summary>
+        protected override void OnClosed(EventArgs e)
+        {
+            if (_cancellation != null)
+            {
+                try { _cancellation.Cancel(); } catch { }
+                _cancellation.Dispose();
+                _cancellation = null;
+            }
+
+            base.OnClosed(e);
+        }
+
         private void ShowError(string message)
         {
             ErrorMessage.Text = message;

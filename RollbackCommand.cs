@@ -101,6 +101,19 @@ namespace RevitWebAppSync
                     }
                 }
 
+                // A previous rollback that could not write back to the original
+                // file leaves the user working inside the cache. Rolling back again
+                // from there would save the next restore over the cache folder and
+                // never touch their real file — so refuse until they get out.
+                if (IsInsideCache(doc.PathName))
+                {
+                    TaskDialog.Show("Working From a Restore Copy",
+                        "This model is open from BINA's rollback cache, not from your own file.\n\n" +
+                        "Save it over your original file first, then roll back again from there.\n\n" +
+                        doc.PathName);
+                    return Result.Cancelled;
+                }
+
                 // ---- Model identity (Revit API — UI thread only) ------------------
                 var stamp = ModelLineage.Read(doc);
                 string lineageId = stamp != null ? stamp.LineageId : null;
@@ -231,6 +244,24 @@ namespace RevitWebAppSync
         /// (where the discipline downloader writes) because these are working files
         /// the user opens in place, not deliverables they went looking for.
         /// </summary>
+        private static bool IsInsideCache(string documentPath)
+        {
+            if (string.IsNullOrEmpty(documentPath)) return false;
+
+            try
+            {
+                string cache = Path.GetFullPath(CacheRoot());
+                string doc = Path.GetFullPath(documentPath);
+                return doc.StartsWith(cache, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                // An unreadable path is not evidence of anything; let the rollback
+                // proceed rather than blocking on a formatting quirk.
+                return false;
+            }
+        }
+
         private static string CacheRoot()
         {
             return Path.Combine(

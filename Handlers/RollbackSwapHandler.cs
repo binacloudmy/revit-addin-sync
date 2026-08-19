@@ -15,12 +15,14 @@ namespace RevitWebAppSync.Handlers
     ///          to be active before step 2 is even legal
     ///     2. close the document that used to be active
     ///        — which also releases its file, so step 3 can overwrite it
-    ///     3. save the restored model back over the ORIGINAL path
+    ///     3. stamp the rollback marker, BEFORE saving, so the bytes written in
+    ///        step 4 already carry it — a marker held only in memory is lost if
+    ///        the user closes without saving
+    ///     4. save the restored model back over the ORIGINAL path
     ///        — without this the user is working out of a cache directory: their
     ///          real file still holds the old version, the next sync would save
     ///          into %LocalAppData%, and the changed path would make the lineage
     ///          check prompt "new model or new version?" and risk forking the chain
-    ///     4. stamp the rollback marker so the next sync labels the version
     ///
     /// Runs through an ExternalEvent because the download that produces the file
     /// finishes on a thread-pool thread while every call below is Revit API. The
@@ -130,24 +132,41 @@ namespace RevitWebAppSync.Handlers
                     }
                 }
 
-                // ---- 3. Put the restored bytes back at the original path ----------
+                // ---- 3. Mark it BEFORE saving --------------------------------------
+                // Stamped first so the bytes written in step 4 already contain the
+                // marker. Written after the save it would live only in memory: the
+                // user closes without saving, or Revit falls over, and the next
+                // sync publishes an unlabelled version — which is the one thing
+                // this feature exists to prevent.
                 string finalNote = null;
+
+                try
+                {
+                    Services.RollbackMarkerStore.Write(restored, fromDesignId, fromVersion);
+                }
+                catch (Exception ex)
+                {
+                    finalNote =
+                        "This model could not be marked as a rollback, so the next sync will publish it as an "
+                        + "ordinary version. (" + ex.Message + ")";
+                }
+
+                // ---- 4. Put the restored bytes back at the original path ----------
 
                 if (sameFile)
                 {
                     // The downloaded copy already IS the original path — nothing to
                     // move. Only possible if the cache and the model coincide.
-                    finalNote = null;
                 }
                 else if (!closed)
                 {
                     // The original file is still open and locked, so it cannot be
                     // overwritten. The restore is real but lives in the cache; say
                     // exactly that rather than implying the model was replaced.
-                    finalNote =
+                    finalNote = Append(finalNote,
                         "The previous model could not be closed, so your original file still holds the old version. "
                         + "You are now working in a copy at:\n" + path
-                        + "\n\nClose the other model and save this one over your original before syncing.";
+                        + "\n\nClose the other model and save this one over your original before syncing.");
                 }
                 else
                 {
@@ -158,35 +177,32 @@ namespace RevitWebAppSync.Handlers
                     }
                     catch (Exception ex)
                     {
-                        finalNote =
+                        finalNote = Append(finalNote,
                             "Restored, but the file could not be written back to its original location, so you are "
                             + "working in a copy at:\n" + path
-                            + "\n\nSave it over your original before syncing. (" + ex.Message + ")";
+                            + "\n\nSave it over your original before syncing. (" + ex.Message + ")");
                     }
                 }
 
-                // ---- 4. Mark it, so the NEXT sync labels the version --------------
-                try
-                {
-                    Services.RollbackMarkerStore.Write(restored, fromDesignId, fromVersion);
-                }
-                catch (Exception ex)
-                {
-                    string markerNote =
-                        "This model could not be marked as a rollback, so the next sync will publish it as an "
-                        + "ordinary version. (" + ex.Message + ")";
-
-                    finalNote = string.IsNullOrEmpty(finalNote)
-                        ? markerNote
-                        : finalNote + "\n\n" + markerNote;
-                }
-
-                Complete(callback, true, finalNote);
+                // Success means the user's own file now holds the restored version.
+                // A degraded restore (original still open, or the write-back failed)
+                // reports as a failure with the explanation, so the dialog title
+                // never contradicts its own body.
+                bool replacedOriginal = sameFile || (closed && string.IsNullOrEmpty(finalNote));
+                Complete(callback, replacedOriginal, finalNote);
             }
             catch (Exception ex)
             {
                 Complete(callback, false, DescribeFailure(ex, previousTitle));
             }
+        }
+
+        /// <summary>Joins notes so one failure never silently erases another.</summary>
+        private static string Append(string existing, string addition)
+        {
+            if (string.IsNullOrEmpty(existing)) return addition;
+            if (string.IsNullOrEmpty(addition)) return existing;
+            return existing + "\n\n" + addition;
         }
 
         private static string NormalisePath(string path)
