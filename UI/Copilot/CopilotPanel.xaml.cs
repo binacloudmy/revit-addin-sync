@@ -89,6 +89,7 @@ namespace RevitWebAppSync.UI.Copilot
                 CopilotTheme.ThemeChanged -= SwapLocalTheme;
                 CopilotTheme.ThemeChanged += SwapLocalTheme;
                 SwapLocalTheme();
+                EnsureCmdKKeybinding();
             };
             Unloaded += (_, __) =>
             {
@@ -265,7 +266,137 @@ namespace RevitWebAppSync.UI.Copilot
             _vm.GoTab(CpTab.Chat);
         }
 
+        // ─── ⌘K / Ctrl+K palette ──────────────────────────────────────────
+        // Global keybinding (page-level) so it fires from anywhere inside the pane,
+        // including the composer. Esc / scrim click dismiss; Ctrl+K toggles.
+        private bool _cmdKKeybindingWired;
+        private void EnsureCmdKKeybinding()
+        {
+            if (_cmdKKeybindingWired) return;
+            PreviewKeyDown += OnPanelPreviewKeyDown;
+            _cmdKKeybindingWired = true;
+        }
+
+        private void OnPanelPreviewKeyDown(object sender, KeyEventArgs e)
+        {
+            // Ctrl+K (and Cmd+K on Mac — ModifierKeys split: WPF reports Win / Ctrl
+            // distinctly; on Mac the OS swaps Ctrl→Cmd for many bindings, so accept
+            // both for cross-platform parity inside the same dockable pane).
+            bool isToggle = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control
+                          && e.Key == Key.K;
+            if (!isToggle) return;
+            ToggleCmdK();
+            e.Handled = true;
+        }
+
+        private void ToggleCmdK()
+        {
+            if (CmdKLayer.Visibility == Visibility.Visible) CloseCmdK();
+            else OpenCmdK();
+        }
+
+        private void OpenCmdK()
+        {
+            CmdKLayer.Visibility = Visibility.Visible;
+            CmdK.Focus();
+        }
+
+        private void CloseCmdK()
+        {
+            CmdKLayer.Visibility = Visibility.Collapsed;
+        }
+
+        private void OnCmdKScrimClick(object sender, MouseButtonEventArgs e)
+        {
+            // Scrim click closes; clicks inside the palette card don't bubble here
+            // because the card is a sibling, not a child of the scrim grid.
+            CloseCmdK();
+            e.Handled = true;
+        }
+
+        private void OnCmdKAction(string action)
+        {
+            // "__close__" is the Esc signal; anything else we route, then dismiss.
+            if (action == "__close__") { CloseCmdK(); return; }
+
+            // Strip the "Nav:" / "Preset:" prefix into a tab/screen name.
+            string raw = action;
+            string prefix = null;
+            int colon = action.IndexOf(':');
+            if (colon > 0) { prefix = action.Substring(0, colon); raw = action.Substring(colon + 1); }
+
+            try
+            {
+                switch (prefix)
+                {
+                    case "Nav":
+                        {
+                            // CpTab currently knows Chat/Library/History/Saved.
+                            // Settings/Model are deferred (design Phase C). Fall back
+                            // to Chat for unknown nav so the palette never silently no-ops.
+                            CpTab tab;
+                            if (Enum.TryParse(raw, out tab)) _vm.GoTab(tab);
+                            else _vm.GoTab(CpTab.Chat);
+                            break;
+                        }
+                    case "Preset":
+                        {
+                            // Drop the preset prompt into the composer without sending.
+                            _vm.GoTab(CpTab.Chat);
+                            var chat = View(ref _chat);
+                            Dispatcher.BeginInvoke(new Action(() =>
+                                chat.Prompt.InsertStarterPrompt(MapPresetPrompt(raw))),
+                                System.Windows.Threading.DispatcherPriority.Background);
+                            break;
+                        }
+                    default:
+                        // Built-in actions (no prefix).
+                        switch (raw)
+                        {
+                            case "new": _vm.ClearChatCommand.Execute(null); _vm.GoTab(CpTab.Chat); break;
+                            case "theme": CopilotTheme.Toggle(); UpdateThemeIcon(); break;
+                            case "resync": _vm.GoTab(CpTab.Chat); break;   // TODO: wire to mirror re-index when added
+                            case "undo": _vm.GoTab(CpTab.Chat); chat_InsertPreset("Undo the last change"); break;
+                            case "rate": ShowSheet(BuildRateSheet()); break;
+                            case "bug": ShowSheet(BuildReportSheet()); break;
+                            case "help":
+                                try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://wa.me/60129000742") { UseShellExecute = true }); } catch { }
+                                break;
+                        }
+                        break;
+                }
+            }
+            finally
+            {
+                CloseCmdK();
+            }
+        }
+
+        private static string MapPresetPrompt(string key) => key switch
+        {
+            "Doors" => "List all doors in this model",
+            "Walls" => "List all walls in this model",
+            "Rooms" => "Tag all untagged rooms",
+            _ => key,
+        };
+
+        // Local helper so the "undo" preset can reuse the chat insert path
+        // without depending on _chat being non-null (OnNewChat handles that).
+        private void chat_InsertPreset(string prompt)
+        {
+            var chat = View(ref _chat);
+            Dispatcher.BeginInvoke(new Action(() => chat.Prompt.InsertStarterPrompt(prompt)),
+                System.Windows.Threading.DispatcherPriority.Background);
+        }
+
         private void OnOpenMenu(object sender, RoutedEventArgs e) => MenuPopup.IsOpen = true;
+
+        // Header chip click opens the global ⌘K palette (same as the keybinding).
+        private void OnOpenCmdKFromHeader(object sender, MouseButtonEventArgs e)
+        {
+            OpenCmdK();
+            e.Handled = true;
+        }
 
         // Library row tapped: switch to Chat, then drop the prompt into the
         // composer for the user to edit and send. InsertStarterPrompt owns the
