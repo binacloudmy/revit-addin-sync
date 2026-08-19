@@ -1,0 +1,162 @@
+<UserControl x:Class="RevitWebAppSync.UI.Copilot.Controls.RightRailView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
+             Background="#f2f3f1"
+             FontFamily="{DynamicResource Cp.Font}">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>  <!-- tab bar -->
+            <RowDefinition Height="*"/>     <!-- tab content -->
+        </Grid.RowDefinitions>
+
+        <!-- ═══ Tab bar ═══ -->
+        <Border Grid.Row="0" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1" Padding="14,9,14,9">
+            <StackPanel Orientation="Horizontal" x:Name="TabBar">
+                <ToggleButton x:Name="TabViewport" Style="{DynamicResource Cp.TabButton}" Click="OnTabPick" Tag="Viewport" IsChecked="True">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Width="11" Height="11" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center"
+                              Data="M2,12 a10,10 0 1 0 20,0 a10,10 0 1 0 -20,0 M16,12 l5,5 -3,1 -2,-3"/>
+                        <TextBlock Text="Viewport" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </ToggleButton>
+                <ToggleButton x:Name="TabElements" Style="{DynamicResource Cp.TabButton}" Click="OnTabPick" Tag="Elements">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Width="11" Height="11" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center"
+                              Data="M3,4 h18 v16 h-18 z M3,9 h18 M8,4 v16"/>
+                        <TextBlock Text="Elements" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                        <Border CornerRadius="8" Padding="5,1,5,1" Margin="6,0,0,0" VerticalAlignment="Center"
+                                Background="{DynamicResource Cp.TabBadgeBg}">
+                            <TextBlock x:Name="ElementsBadge" Text="0" FontSize="10" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource Cp.Muted}"/>
+                        </Border>
+                    </StackPanel>
+                </ToggleButton>
+                <ToggleButton x:Name="TabLogs" Style="{DynamicResource Cp.TabButton}" Click="OnTabPick" Tag="Logs">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Width="11" Height="11" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center"
+                              Data="M5,3 h11 l3,3 v15 h-14 z M9,8 h6 M9,12 h6 M9,16 h4"/>
+                        <TextBlock Text="Logs" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </ToggleButton>
+                <!-- right side: Revit live status -->
+                <StackPanel Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
+                    <Ellipse Width="7" Height="7" Fill="{DynamicResource Cp.Green}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Revit 2026" FontSize="11" Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- �══ Tab content ═══ -->
+        <Grid Grid.Row="1">
+
+            <!-- VIEWPORT: design canvas (lines 352-378) -->
+            <Grid x:Name="ViewportHost" Visibility="Visible">
+                <!-- Grid pattern backdrop -->
+                <Rectangle>
+                    <Rectangle.Fill>
+                        <DrawingBrush TileMode="Tile" Stretch="None" Viewport="0,0,44,44" ViewportUnits="Absolute">
+                            <DrawingBrush.Drawing>
+                                <DrawingGroup>
+                                    <GeometryDrawing Brush="Transparent">
+                                        <GeometryDrawing.Geometry>
+                                            <RectangleGeometry Rect="0,0,44,44"/>
+                                        </GeometryDrawing.Geometry>
+                                    </GeometryDrawing>
+                                    <GeometryDrawing Brush="#1A22242A" Geometry="M0,0 L44,0 M0,0 L0,44"/>
+                                </DrawingGroup>
+                            </DrawingBrush.Drawing>
+                        </DrawingBrush>
+                    </Rectangle.Fill>
+                </Rectangle>
+
+                <!-- top-left plan label -->
+                <StackPanel Orientation="Horizontal" Margin="18,14,0,0" VerticalAlignment="Top" HorizontalAlignment="Left">
+                    <Path Width="13" Height="13" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                          VerticalAlignment="Center" Margin="0,0,8,0"
+                          Data="M12,2 A10,10 0 1 0 12,22 A10,10 0 1 0 12,2 M16,12 l5,5"/>
+                    <TextBlock Text="LEVEL 01 — FLOOR PLAN · 1 : 100" FontSize="11" FontWeight="SemiBold"
+                               Foreground="{DynamicResource Cp.Muted}" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <!-- top-right live count badge (design lines 359-364) -->
+                <Border x:Name="CountBadge" CornerRadius="8" Padding="11,4,11,4" Margin="0,11,16,0"
+                        VerticalAlignment="Top" HorizontalAlignment="Right" Visibility="Collapsed"
+                        Background="#D2FFFFFF" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1">
+                    <StackPanel Orientation="Horizontal">
+                        <Rectangle Width="7" Height="7" RadiusX="2" RadiusY="2" Fill="{DynamicResource Cp.Accent}" VerticalAlignment="Center" Margin="0,0,8,0">
+                            <Rectangle.Effect>
+                                <BlurEffect Radius="4"/>
+                            </Rectangle.Effect>
+                        </Rectangle>
+                        <TextBlock x:Name="CountBadgeText" Text="0 / 0 · Doors" FontSize="11.5"
+                                   Foreground="{DynamicResource Cp.Text}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- Floor plan surface: rooms + doors rendered as plain rectangles -->
+                <!-- 7% side insets via star columns: Thickness has no percentage
+                     syntax, and "7%" throws at BAML load (TypeConverter). -->
+                <Grid Margin="0,48,0,44">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="7*"/>
+                        <ColumnDefinition Width="86*"/>
+                        <ColumnDefinition Width="7*"/>
+                    </Grid.ColumnDefinitions>
+                    <Border Grid.Column="1" Background="Transparent" ClipToBounds="True">
+                        <Canvas x:Name="PlanCanvas"/>
+                    </Border>
+                </Grid>
+
+                <!-- bottom level chips -->
+                <StackPanel Orientation="Horizontal" Margin="18,0,0,12" VerticalAlignment="Bottom" HorizontalAlignment="Left">
+                    <Border CornerRadius="6" Padding="10,3,10,3" Margin="0,0,6,0" BorderThickness="1"
+                            BorderBrush="{DynamicResource Cp.Accent}">
+                        <TextBlock Text="Level 01" FontSize="11" Foreground="{DynamicResource Cp.Accent}"/>
+                    </Border>
+                    <Border CornerRadius="6" Padding="10,3,10,3" Margin="0,0,6,0" BorderThickness="1"
+                            BorderBrush="{DynamicResource Cp.Line}">
+                        <TextBlock Text="Level 02" FontSize="11" Foreground="{DynamicResource Cp.Muted}"/>
+                    </Border>
+                    <Border CornerRadius="6" Padding="10,3,10,3" BorderThickness="1"
+                            BorderBrush="{DynamicResource Cp.Line}">
+                        <TextBlock Text="3D" FontSize="11" Foreground="{DynamicResource Cp.Muted}"/>
+                    </Border>
+                </StackPanel>
+            </Grid>
+
+            <!-- ELEMENTS: design lines 380-393 — list rows bound to Highlights -->
+            <Grid x:Name="ElementsHost" Visibility="Collapsed">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <ScrollViewer.Resources>
+                        <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource Cp.SlimScrollBar}"/>
+                    </ScrollViewer.Resources>
+                    <StackPanel x:Name="ElementsList" Margin="14,8,14,8"/>
+                </ScrollViewer>
+                <TextBlock x:Name="EmptyElements" Text="No elements yet — run a query to see results here."
+                           HorizontalAlignment="Center" VerticalAlignment="Center" Margin="10,30,10,30"
+                           FontSize="12" Foreground="{DynamicResource Cp.Muted}" Visibility="Visible"/>
+            </Grid>
+
+            <!-- LOGS: design lines 395-403 — monospaced lines -->
+            <Grid x:Name="LogsHost" Visibility="Collapsed">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                              x:Name="LogsScroller">
+                    <ScrollViewer.Resources>
+                        <Style TargetType="{x:Type ScrollBar}" BasedOn="{StaticResource Cp.SlimScrollBar}"/>
+                    </ScrollViewer.Resources>
+                    <StackPanel x:Name="LogsList" Margin="16,12,16,12"
+                                TextElement.FontFamily="{DynamicResource Cp.FontMono}" TextElement.FontSize="11"/>
+                </ScrollViewer>
+                <TextBlock x:Name="EmptyLogs" Text="— log is empty —"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           FontSize="11" FontFamily="{DynamicResource Cp.FontMono}"
+                           Foreground="{DynamicResource Cp.Muted}" Visibility="Visible"/>
+            </Grid>
+        </Grid>
+    </Grid>
+</UserControl>

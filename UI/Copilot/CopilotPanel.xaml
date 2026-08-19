@@ -26,6 +26,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>  <!-- search/palette -->
                     <ColumnDefinition Width="Auto"/>  <!-- credit badge -->
                     <ColumnDefinition Width="Auto"/>  <!-- theme -->
                     <ColumnDefinition Width="Auto"/>  <!-- new chat -->
@@ -105,10 +106,34 @@
                     </StackPanel>
                 </StackPanel>
 
+                <!-- ⌘K palette affordance (design lines 87-90). Click anywhere on
+                     the chip opens the global palette; the kbd hint chip on the
+                     right is the same Cmd+K keybinding. -->
+                <Border Grid.Column="2" Margin="0,0,12,0" Padding="9,5,8,5"
+                        BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1" CornerRadius="8"
+                        Background="Transparent" Cursor="Hand"
+                        MouseLeftButtonUp="OnOpenCmdKFromHeader">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Width="12" Height="12" Stretch="Uniform"
+                              Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                              VerticalAlignment="Center"
+                              Data="M11,4 a7,7 0 1 0 0,14 a7,7 0 1 0 0,-14 M16,16 l5,5"/>
+                        <TextBlock Text="Search or jump to…" FontSize="12"
+                                   Foreground="{DynamicResource Cp.Muted}" Margin="7,0,0,0"
+                                   VerticalAlignment="Center" MinWidth="120"/>
+                        <Border CornerRadius="4" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1"
+                                Padding="5,1,5,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="⌘K" FontFamily="Cascadia Mono, Consolas, monospace" FontSize="10"
+                                       Foreground="{DynamicResource Cp.Faint}"/>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
                 <!-- Usage lives in the composer footer (design "footer" placement):
                      plan-name button + popover above the composer. -->
 
-                <Button x:Name="ThemeBtn" Grid.Column="3" Style="{DynamicResource Cp.IconButton}" Click="OnToggleTheme" ToolTip="Toggle theme">
+                <Button x:Name="ThemeBtn" Grid.Column="4" Style="{DynamicResource Cp.IconButton}" Click="OnToggleTheme" ToolTip="Toggle theme">
                     <Path x:Name="ThemeIcon" Width="15" Height="15" Stretch="Uniform" Fill="Transparent"
                           Stroke="{DynamicResource Cp.Faint}" StrokeThickness="2"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
@@ -116,12 +141,12 @@
                 </Button>
                 <!-- New chat: also in the conversation subheader, but kept here so it's
                      reachable from the empty greeting screen (which has no subheader). -->
-                <Button x:Name="NewChatBtn" Grid.Column="4" Style="{DynamicResource Cp.IconButton}"
+                <Button x:Name="NewChatBtn" Grid.Column="5" Style="{DynamicResource Cp.IconButton}"
                         Command="{Binding ClearChatCommand}" ToolTip="New chat">
                     <Path Width="16" Height="16" Stretch="Uniform" Stroke="{DynamicResource Cp.Faint}" StrokeThickness="1.9"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M12,5 v14 M5,12 h14"/>
                 </Button>
-                <Button x:Name="MenuBtn" Grid.Column="5" Style="{DynamicResource Cp.IconButton}" Click="OnOpenMenu" ToolTip="Menu">
+                <Button x:Name="MenuBtn" Grid.Column="6" Style="{DynamicResource Cp.IconButton}" Click="OnOpenMenu" ToolTip="Menu">
                     <Path Width="16" Height="16" Stretch="Uniform" Fill="{DynamicResource Cp.Faint}"
                           Data="M11,5 A1,1 0 1 0 13,5 A1,1 0 1 0 11,5 Z M11,12 A1,1 0 1 0 13,12 A1,1 0 1 0 11,12 Z M11,19 A1,1 0 1 0 13,19 A1,1 0 1 0 11,19 Z"/>
                 </Button>
@@ -235,7 +260,14 @@
         </Border>
 
         <!-- ═══ Body ═══ -->
-        <ContentControl Grid.Row="3" x:Name="BodyHost"/>
+        <Grid Grid.Row="3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="380"/>  <!-- right rail (design flex:0.95;min-width:380px) -->
+            </Grid.ColumnDefinitions>
+            <ContentControl Grid.Column="0" x:Name="BodyHost"/>
+            <ctl:RightRailView Grid.Column="1" x:Name="RightRail" DataContext="{Binding}"/>
+        </Grid>
 
         <!-- ═══ Indexing overlay ═══
              Covers the whole pane (all rows) while the model mirror is being
@@ -271,6 +303,15 @@
         <Grid x:Name="SheetLayer" Grid.Row="0" Grid.RowSpan="4" Visibility="Collapsed">
             <Border x:Name="SheetScrim" Background="#66000000" MouseLeftButtonDown="OnScrimClick"/>
             <ContentControl x:Name="SheetHost" VerticalAlignment="Bottom"/>
+        </Grid>
+
+        <!-- ═══ ⌘K command palette overlay ═══
+             Modal overlay (scrim + centered card). Ctrl+K / Cmd+K toggles it
+             from anywhere in the pane. Closed via Esc or scrim click. -->
+        <Grid x:Name="CmdKLayer" Grid.Row="0" Grid.RowSpan="4" Visibility="Collapsed"
+              Background="#66000000" MouseLeftButtonDown="OnCmdKScrimClick">
+            <ctl:CmdKPalette x:Name="CmdK" HorizontalAlignment="Center" VerticalAlignment="Top"
+                             Margin="0,12,0,0" ActionInvoked="OnCmdKAction"/>
         </Grid>
     </Grid>
 </Page>
