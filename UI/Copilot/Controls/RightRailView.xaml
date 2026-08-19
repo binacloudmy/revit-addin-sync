@@ -13,15 +13,15 @@
         <!-- ═══ Tab bar ═══ -->
         <Border Grid.Row="0" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1" Padding="14,9,14,9">
             <StackPanel Orientation="Horizontal" x:Name="TabBar">
-                <Button x:Name="TabViewport" Style="{DynamicResource Cp.TabButton}" Click="OnTabPick" Tag="Viewport">
+                <ToggleButton x:Name="TabViewport" Style="{DynamicResource Cp.TabButton}" Click="OnTabPick" Tag="Viewport" IsChecked="True">
                     <StackPanel Orientation="Horizontal">
                         <Path Width="11" Height="11" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"
                               StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center"
                               Data="M2,12 a10,10 0 1 0 20,0 a10,10 0 1 0 -20,0 M16,12 l5,5 -3,1 -2,-3"/>
                         <TextBlock Text="Viewport" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
-                </Button>
-                <Button x:Name="TabElements" Style="{DynamicResource Cp.TabButton}" Click="OnTabPick" Tag="Elements">
+                </ToggleButton>
+                <ToggleButton x:Name="TabElements" Style="{DynamicResource Cp.TabButton}" Click="OnTabPick" Tag="Elements">
                     <StackPanel Orientation="Horizontal">
                         <Path Width="11" Height="11" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"
                               StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center"
@@ -33,15 +33,15 @@
                                        Foreground="{DynamicResource Cp.Muted}"/>
                         </Border>
                     </StackPanel>
-                </Button>
-                <Button x:Name="TabLogs" Style="{DynamicResource Cp.TabButton}" Click="OnTabPick" Tag="Logs">
+                </ToggleButton>
+                <ToggleButton x:Name="TabLogs" Style="{DynamicResource Cp.TabButton}" Click="OnTabPick" Tag="Logs">
                     <StackPanel Orientation="Horizontal">
                         <Path Width="11" Height="11" Stretch="Uniform" Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.6"
                               StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center"
                               Data="M5,3 h11 l3,3 v15 h-14 z M9,8 h6 M9,12 h6 M9,16 h4"/>
                         <TextBlock Text="Logs" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
-                </Button>
+                </ToggleButton>
                 <!-- right side: Revit live status -->
                 <StackPanel Orientation="Horizontal" Margin="14,0,0,0" VerticalAlignment="Center">
                     <Ellipse Width="7" Height="7" Fill="{DynamicResource Cp.Green}" Margin="0,0,6,0" VerticalAlignment="Center"/>

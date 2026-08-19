@@ -309,7 +309,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // ────────────── Tab switching ──────────────
         private void OnTabPick(object sender, RoutedEventArgs e)
         {
-            if (sender is Button b && b.Tag is string tag &&
+            if (sender is ToggleButton b && b.Tag is string tag &&
                 Enum.TryParse<RailTab>(tag, out var t))
             {
                 Activate(t);
@@ -319,13 +319,16 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private void Activate(RailTab t)
         {
             _active = t;
+            // ToggleButton.IsChecked drives the Cp.TabButton style's "checked" state
+            // (underline + bold). Keep them mutually exclusive — clicking the active
+            // tab should re-select it, not deselect it.
+            TabViewport.IsChecked = t == RailTab.Viewport;
+            TabElements.IsChecked = t == RailTab.Elements;
+            TabLogs.IsChecked = t == RailTab.Logs;
+
             ViewportHost.Visibility = t == RailTab.Viewport ? Visibility.Visible : Visibility.Collapsed;
             ElementsHost.Visibility = t == RailTab.Elements ? Visibility.Visible : Visibility.Collapsed;
             LogsHost.Visibility = t == RailTab.Logs ? Visibility.Visible : Visibility.Collapsed;
-            // visual hint via header text weight — keep it simple
-            TabViewport.FontWeight = t == RailTab.Viewport ? FontWeights.SemiBold : FontWeights.Medium;
-            TabElements.FontWeight = t == RailTab.Elements ? FontWeights.SemiBold : FontWeights.Medium;
-            TabLogs.FontWeight = t == RailTab.Logs ? FontWeights.SemiBold : FontWeights.Medium;
         }
 
         // ────────────── Status poller (lightweight) ──────────────
