@@ -148,7 +148,7 @@ namespace RevitWebAppSync.Services
     public class BinaIssue
     {
         public string Guid { get; set; }
-        /// <summary>design today; coordination issues will arrive under the same field.</summary>
+        /// <summary>design | coordination — which store the issue came from.</summary>
         public string Source { get; set; }
         public string Title { get; set; }
         public string TopicType { get; set; }
@@ -157,7 +157,11 @@ namespace RevitWebAppSync.Services
         public DateTime? DueDate { get; set; }
         public bool IsResolved { get; set; }
         public BinaPerson Author { get; set; }
-        public int DesignId { get; set; }
+        /// <summary>
+        /// Null for a coordination issue: it belongs to the federated set in
+        /// `Models`, not to one design.
+        /// </summary>
+        public int? DesignId { get; set; }
         public string DesignName { get; set; }
         public int? VersionNumber { get; set; }
         public string DisciplineType { get; set; }
