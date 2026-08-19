@@ -162,6 +162,10 @@ namespace RevitWebAppSync.Services
         public int? VersionNumber { get; set; }
         public string DisciplineType { get; set; }
         public DateTime? UpdatedAt { get; set; }
+        /// <summary>Two-line preview under the title, as the web list shows.</summary>
+        public string Text { get; set; }
+        /// <summary>Presigned markup snapshot; expires, so the panel caches the bytes.</summary>
+        public string SnapshotUrl { get; set; }
 
         public override string ToString() =>
             string.IsNullOrWhiteSpace(Title) ? $"({TopicType})" : Title;

@@ -41,6 +41,12 @@ namespace RevitWebAppSync
 
         public static BombaComplianceDashboardHost BombaComplianceDashboardHost { get; private set; }
 
+        // Issues dockable pane + the event that lets it touch the model
+        // (ClickUp 86d3y5jtz). The pane is plain WPF with no API context.
+        public static UI.Issues.IssuesPaneHost IssuesPaneHost { get; private set; }
+        public static Handlers.IssueShowHandler IssueShowHandler { get; private set; }
+        public static ExternalEvent IssueShowEvent { get; private set; }
+
         // Revit Copilot dockable pane host (right-docked side panel)
         public static CopilotPaneHost CopilotPaneHost { get; private set; }
 
@@ -391,6 +397,29 @@ namespace RevitWebAppSync
                     System.Diagnostics.Debug.WriteLine($"[BINA] Copilot dockable pane registration failed: {copilotEx.Message}");
                     Services.TelemetryService.Track("subsystem", "failed",
                         new { name = "copilot_pane", error_class = copilotEx.GetType().Name });
+                }
+
+                // Register the Issues dockable pane
+                try
+                {
+                    IssuesPaneHost = new UI.Issues.IssuesPaneHost();
+                    application.RegisterDockablePane(
+                        UI.Issues.IssuesPaneHost.PaneId,
+                        "BINA Issues",
+                        IssuesPaneHost);
+
+                    IssueShowHandler = new Handlers.IssueShowHandler
+                    {
+                        OnCompleted = (issue, result, error) =>
+                            IssuesPaneHost?.Panel?.ReportShown(issue, result, error)
+                    };
+                    IssueShowEvent = ExternalEvent.Create(IssueShowHandler);
+                }
+                catch (Exception issuesEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Issues dockable pane registration failed: {issuesEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "issues_pane", error_class = issuesEx.GetType().Name });
                 }
 
                 // Subscribe to document changes for live cost updates

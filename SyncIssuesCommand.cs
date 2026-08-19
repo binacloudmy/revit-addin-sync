@@ -99,44 +99,24 @@ namespace RevitWebAppSync
                         config.Save();
                     }
 
-                    BinaIssuePage page;
-                    try
+                    // The pane does the fetching from here on; the command's job
+                    // is to work out which model this is and open it (86d3y5jtz).
+                    var host = App.IssuesPaneHost;
+                    if (host?.Panel == null)
                     {
-                        page = Task.Run(() => api.GetIssuesAsync(projectId, model?.DesignId)).Result;
-                    }
-                    catch (AggregateException aex)
-                    {
-                        TaskDialog.Show("Could not load issues", (aex.InnerException ?? aex).Message);
+                        TaskDialog.Show("Issues unavailable",
+                            "The Issues pane did not load with the add-in. Restart Revit, and if it persists, check the BINA log.");
                         return Result.Failed;
                     }
 
-                    if (page.Issues.Count == 0)
-                    {
-                        TaskDialog.Show("No issues",
-                            model == null
-                                ? $"BINA holds no issues for project #{projectId}."
-                                : $"BINA holds no issues for \"{model.Name}\".\n\n" +
-                                  "Issues raised on elements in the BINA viewer will appear here.");
-                        return Result.Succeeded;
-                    }
+                    host.Panel.SetContext(projectId, model?.DesignId, model?.Name ?? fileName);
 
-                    var picker = new IssuePickerWindow(page.Issues, model?.Name ?? fileName, model?.VersionNumber);
-                    RevitWindowOwner.SetOwner(picker, commandData.Application);
-                    if (picker.ShowDialog() != true) return Result.Cancelled;
+                    var pane = commandData.Application.GetDockablePane(UI.Issues.IssuesPaneHost.PaneId);
+                    pane.Show();
 
-                    BinaIssueDetail issue;
-                    try
-                    {
-                        issue = Task.Run(() => api.GetIssueAsync(picker.SelectedIssue.Guid)).Result;
-                    }
-                    catch (AggregateException aex)
-                    {
-                        TaskDialog.Show("Could not open the issue", (aex.InnerException ?? aex).Message);
-                        return Result.Failed;
-                    }
-
-                    var applied = IssueViewpointApplier.Apply(uidoc, issue);
-                    ShowSummary(issue, applied);
+                    // Fire and forget: the pane owns its own busy state, and the
+                    // command must not block Revit waiting on the network.
+                    _ = host.Panel.SyncAsync();
                     return Result.Succeeded;
                 }
             }
@@ -148,55 +128,5 @@ namespace RevitWebAppSync
             }
         }
 
-        private static void ShowSummary(BinaIssueDetail issue, IssueViewpointApplier.Result applied)
-        {
-            string headline = applied.Found > 0
-                ? $"{applied.Found} element{(applied.Found == 1 ? "" : "s")} selected"
-                : "No elements from this issue are in the open model";
-
-            var dialog = new TaskDialog("Issue shown")
-            {
-                MainInstruction = headline,
-                MainContent =
-                    $"\"{issue.Title}\" — {issue.Status}" +
-                    (string.IsNullOrEmpty(issue.Priority) ? "" : $", {issue.Priority} priority") +
-                    (issue.Author?.Name == null ? "" : $", raised by {issue.Author.Name}") + "."
-            };
-
-            var detail = new System.Text.StringBuilder();
-            if (!string.IsNullOrWhiteSpace(issue.Text)) detail.AppendLine(issue.Text.Trim()).AppendLine();
-
-            if (applied.NotFound > 0)
-            {
-                // Almost always version drift: the model in front of the user is
-                // not the version the issue was captured on.
-                detail.AppendLine(
-                    $"{applied.NotFound} element(s) referenced by this issue are not in this model — " +
-                    "it may be a different version, or they were deleted.");
-            }
-
-            if (applied.SwitchedView)
-                detail.AppendLine($"Switched to the 3D view \"{applied.ViewName}\" to restore the viewpoint.");
-
-            if (applied.CameraApplied && applied.FramedOnElements)
-                detail.AppendLine("Viewpoint restored, then zoomed to fit the issue's elements.");
-            else if (applied.CameraApplied)
-                detail.AppendLine("Viewpoint restored.");
-            else
-                detail.AppendLine($"Viewpoint not restored — {applied.CameraNote}." +
-                    (applied.FramedOnElements ? " Zoomed to the elements instead." : ""));
-
-            if (issue.Replies != null && issue.Replies.Count > 0)
-            {
-                detail.AppendLine();
-                detail.AppendLine($"{issue.Replies.Count} repl{(issue.Replies.Count == 1 ? "y" : "ies")}:");
-                foreach (var reply in issue.Replies.Take(5))
-                    detail.AppendLine($"  {reply.Author?.Name ?? "Someone"}: {reply.Text}");
-            }
-
-            dialog.ExpandedContent = detail.ToString().TrimEnd();
-            dialog.FooterText = "Read-only in this release — edit issues in BINA Cloud.";
-            dialog.Show();
-        }
     }
 }
