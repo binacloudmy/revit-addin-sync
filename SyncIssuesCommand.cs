@@ -83,10 +83,20 @@ namespace RevitWebAppSync
                     int projectId = model?.ProjectId ?? config.ProjectId;
                     if (projectId <= 0)
                     {
-                        TaskDialog.Show("No project",
-                            "This model is not in BINA yet, and no project is remembered on this machine.\n\n" +
-                            "Sync the model to BINA first, or open Sync to BINA once to choose a project.");
-                        return Result.Cancelled;
+                        // A model with no BINA stamp and no remembered project is
+                        // not a dead end: the account knows its own projects, so
+                        // ask rather than refuse.
+                        var projectPicker = new ProjectPickerWindow(beToken, config.ProjectId);
+                        RevitWindowOwner.SetOwner(projectPicker, commandData.Application);
+                        if (projectPicker.ShowDialog() != true) return Result.Cancelled;
+
+                        projectId = projectPicker.SelectedProjectId;
+                        if (projectId <= 0) return Result.Cancelled;
+
+                        // Remember it, so the next run goes straight through.
+                        config.ProjectId = projectId;
+                        config.ProjectName = projectPicker.SelectedProjectName;
+                        config.Save();
                     }
 
                     BinaIssuePage page;
