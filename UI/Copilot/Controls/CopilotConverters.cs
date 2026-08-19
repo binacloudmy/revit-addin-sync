@@ -62,6 +62,41 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 ["#e0f2fe"] = "#260ea5e9", ["#fee2e2"] = "#26ef4444", ["#f1f5f9"] = "#12ffffff",
             };
 
+        // Slate-light hex → v6-panel hex (docs/design/bina-copilot-v6-panel.dc.html).
+        // The v6 redesign recolours the SAME code-behind literals the dark map
+        // keys off — one central table instead of rewriting 120+ call sites.
+        // v6 ramp: text #22242a, neutrals #4a4e5c/#5d6170/#9397ab, panel #f7f7f6,
+        // sunken #f0f1f7, accent #2a69c6 (300 #22549e, 200 #1a3f76), success
+        // #2f9a72 (+tint #d2f3e4, deep #143528), warn #d98a2b, danger #d95757.
+        private static readonly System.Collections.Generic.Dictionary<string, string> _v6 =
+            new System.Collections.Generic.Dictionary<string, string>(System.StringComparer.OrdinalIgnoreCase)
+            {
+                // text ramp
+                ["#131c2b"] = "#22242a", ["#0b0d12"] = "#22242a",
+                ["#3d4a5f"] = "#4a4e5c", ["#374151"] = "#4a4e5c",
+                ["#586273"] = "#5d6170", ["#6b7280"] = "#5d6170",
+                ["#99a3b3"] = "#9397ab", ["#9ca3af"] = "#9397ab",
+                // hairlines / surfaces (divider = 13% of #22242a)
+                ["#140f1b2d"] = "#2122242A", ["#e5e7eb"] = "#2122242A",
+                ["#290f1b2d"] = "#3D22242A", ["#0d0f1b2d"] = "#1522242A",
+                ["#f1f3f5"] = "#f0f1f7", ["#eef0f3"] = "#f0f1f7",
+                ["#f7f9fb"] = "#f7f7f6", ["#f3f6f9"] = "#f0f1f7",
+                ["#f6f8fa"] = "#f0f1f7", ["#fafafa"] = "#f7f7f6",
+                ["#eef1f5"] = "#ffffff",   // user bubble = surface + shadow in v6
+                ["#eff6ff"] = "#edf3fd", ["#f5f3ff"] = "#edf3fd", ["#faf5ff"] = "#edf3fd",
+                // accent / blue
+                ["#1d4ed8"] = "#2a69c6", ["#2563eb"] = "#2a69c6",
+                ["#1e40af"] = "#22549e", ["#1e3a8a"] = "#1a3f76", ["#5b21b6"] = "#22549e",
+                ["#7c3aed"] = "#2a69c6", ["#6d28d9"] = "#22549e",
+                ["#dbeafe"] = "#d9e6fa", ["#bfdbfe"] = "#a9c6f4",
+                // green
+                ["#10b981"] = "#2f9a72", ["#16a34a"] = "#2f9a72", ["#15803d"] = "#143528",
+                ["#dcfce7"] = "#d2f3e4", ["#bbf7d0"] = "#d2f3e4",
+                // red / amber
+                ["#dc2626"] = "#d95757", ["#b91c1c"] = "#c24545",
+                ["#d97706"] = "#d98a2b", ["#92400e"] = "#8a5a1e",
+            };
+
         public static Brush From(string hex)
         {
             if (string.IsNullOrWhiteSpace(hex)) return Brushes.Transparent;
@@ -71,6 +106,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 if (_cache.TryGetValue(key, out var cached)) return cached;
                 string resolved = hex;
                 if (IsDark && _dark.TryGetValue(hex.Trim(), out var d)) resolved = d;
+                else if (!IsDark && _v6.TryGetValue(hex.Trim(), out var v)) resolved = v;
                 Brush b;
                 try
                 {

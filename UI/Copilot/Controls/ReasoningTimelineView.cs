@@ -80,8 +80,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                     _clock = new System.Windows.Threading.DispatcherTimer
                     { Interval = TimeSpan.FromMilliseconds(250) };
                     _clock.Tick += (_, __) =>
-                        _label.Text = ReasoningTrail.ElapsedLabel(
-                            ReasoningTrail.TotalElapsedSeconds(_clockSteps), streaming: true);
+                        _label.Text = DurText(ReasoningTrail.TotalElapsedSeconds(_clockSteps));
                 }
                 if (!_clock.IsEnabled) _clock.Start();
             }
@@ -90,6 +89,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 _clock?.Stop();
             }
         }
+
+        // v6 header duration chip text: whole seconds, blank under half a second.
+        private static string DurText(double elapsed) =>
+            elapsed < 0.5 ? "" : Math.Round(elapsed) + "s";
 
         public ReasoningTimelineView()
         {
@@ -134,8 +137,18 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             };
             _chevron.SetResourceReference(Shape.StrokeProperty, "Cp.Reasoning.TextFaint");
 
+            // v6 header: sparkle · "AGENT ACTIVITY" kicker · duration · caret.
+            var kicker = new TextBlock
+            {
+                Text = "AGENT ACTIVITY", FontSize = 10.5,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(0, 0, 8, 0),
+            };
+            kicker.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextSecondary");
+
             var headerContent = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
             headerContent.Children.Add(_iconSlot);
+            headerContent.Children.Add(kicker);
             headerContent.Children.Add(_label);
             headerContent.Children.Add(_badge);
             var headerGrid = new Grid();
@@ -208,7 +221,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             _bodyOuter.Visibility = IsOpen ? Visibility.Visible : Visibility.Collapsed;
 
             double elapsed = ReasoningTrail.TotalElapsedSeconds(steps);
-            _label.Text = ReasoningTrail.ElapsedLabel(elapsed, streaming);
+            _label.Text = DurText(elapsed);
             SetClock(streaming, steps);
 
             _iconSlot.Children.Clear();
@@ -219,12 +232,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             }
             else
             {
+                // v6: the settled header keeps the accent sparkle, not a faint one.
                 var doneMark = new TextBlock
                 {
                     Text = "✦", FontSize = 11, HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center,
                 };
-                doneMark.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextFaint");
+                doneMark.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.Accent");
                 _iconSlot.Children.Add(doneMark);
                 _badgeText.Text = ReasoningTrail.StepBadge(steps.Count);
                 _badge.Visibility = steps.Count > 0 ? Visibility.Visible : Visibility.Collapsed;

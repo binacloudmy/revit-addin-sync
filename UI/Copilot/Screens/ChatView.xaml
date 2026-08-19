@@ -3,6 +3,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Copilot.Controls"
              FontFamily="{DynamicResource Cp.Font}">
+    <UserControl.Resources>
+        <ctl:BoolToVisibilityConverter x:Key="BoolVisChat"/>
+    </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -10,14 +13,78 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- Subheader (only with a thread) -->
-        <Border x:Name="SubHeader" Grid.Row="0" BorderBrush="{DynamicResource Cp.LineSoft}" BorderThickness="0,0,0,1"
-                Padding="14,7" Visibility="Collapsed">
+        <!-- Subheader (only with a thread) — v6: session title · status tag ·
+             Stop while running · "+ New". -->
+        <Border x:Name="SubHeader" Grid.Row="0" Padding="14,9,14,7" Visibility="Collapsed">
             <Grid>
-                <TextBlock x:Name="ConvCount" FontSize="11.5" Foreground="{DynamicResource Cp.Text}" VerticalAlignment="Center"/>
-                <Button HorizontalAlignment="Right" Background="Transparent" BorderThickness="0" Cursor="Hand"
-                        Foreground="{DynamicResource Cp.Muted}" FontSize="11.5" Command="{Binding ClearChatCommand}"
-                        Content="+ New chat"/>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>  <!-- status tag -->
+                    <ColumnDefinition Width="Auto"/>  <!-- stop -->
+                    <ColumnDefinition Width="Auto"/>  <!-- new -->
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="SessionTitle" Grid.Column="0" FontSize="14" FontWeight="Medium"
+                           Foreground="{DynamicResource Cp.Ink}" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" Margin="0,0,10,0"/>
+                <!-- Status tag: Ready/Running/Done/Stopped off the VM's RunStatus
+                     (PRD A7, relocated here per the v6 layout). -->
+                <Border Grid.Column="1" CornerRadius="7" Padding="9,2,9,2.5" Margin="0,0,8,0" VerticalAlignment="Center">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Background" Value="{DynamicResource Cp.TabBadgeBg}"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding RunStatus}" Value="Running">
+                                    <Setter Property="Background" Value="{DynamicResource Cp.BlueSoft}"/>
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding RunStatus}" Value="Done">
+                                    <Setter Property="Background" Value="{DynamicResource Cp.OkBg}"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <TextBlock FontSize="10.5" Text="{Binding RunStatus, Mode=OneWay}">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Foreground" Value="{DynamicResource Cp.Muted}"/>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding RunStatus}" Value="Running">
+                                        <Setter Property="Foreground" Value="{DynamicResource Cp.BlueText}"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding RunStatus}" Value="Done">
+                                        <Setter Property="Foreground" Value="{DynamicResource Cp.Tier1Fg}"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
+                </Border>
+                <Button Grid.Column="2" Cursor="Hand" Margin="0,0,8,0" VerticalAlignment="Center"
+                        Background="Transparent" Foreground="{DynamicResource Cp.Ink}" FontSize="11"
+                        BorderBrush="{DynamicResource Cp.Line}" BorderThickness="1" Padding="9,2"
+                        Command="{Binding CancelSendCommand}"
+                        Visibility="{Binding IsSending, Converter={StaticResource BoolVisChat}}">
+                    <Button.Template>
+                        <ControlTemplate TargetType="Button">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="8" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Button.Template>
+                    <StackPanel Orientation="Horizontal">
+                        <Border Width="8" Height="8" Background="{DynamicResource Cp.Ink}" CornerRadius="1.5"
+                                Margin="0,0,6,0" VerticalAlignment="Center"/>
+                        <TextBlock Text="Stop" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="3" HorizontalAlignment="Right" Background="Transparent" BorderThickness="0" Cursor="Hand"
+                        Foreground="{DynamicResource Cp.Accent}" FontSize="12" Command="{Binding ClearChatCommand}"
+                        VerticalAlignment="Center" Content="+ New"/>
             </Grid>
         </Border>
 

@@ -76,6 +76,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // included), so the drafter never has to click into the card.
             PreviewKeyDown += OnApprovalKeyDown;
             // Ctrl+K → command palette (PRD A8), from anywhere in the pane.
+            // (Also reachable from the header's search button via OpenPalette.)
             PreviewKeyDown += (_, e) =>
             {
                 if (e.Key == System.Windows.Input.Key.K
@@ -86,6 +87,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 }
             };
         }
+
+        /// <summary>Open the command palette (header search button / Ctrl+K).</summary>
+        public void OpenPalette() => Prompt.OpenCommandPalette();
 
         // ─── Element-id click → local select+zoom (Task 7) ──────────────────
         // MarkdownRenderer.ElementIdClicked is STATIC and ChatView is cached
@@ -362,7 +366,11 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             if (empty) { BodyHost.Children.Add(EmptyState()); return; }
 
-            ConvCount.Text = $"Conversation · {Vm.Thread.Count(m => m.Role == "user")} messages";
+            // v6 subheader: the session is titled by its first user message
+            // (design sessionTitle — first letter uppercased), not a count.
+            var firstUser = Vm.Thread.FirstOrDefault(m => m.Role == "user")?.Text?.Trim() ?? "";
+            SessionTitle.Text = firstUser.Length == 0 ? "New session"
+                : char.ToUpperInvariant(firstUser[0]) + firstUser.Substring(1);
             var thread = new StackPanel { Margin = new Thickness(16, 16, 16, 16) };
             foreach (var m in Vm.Thread)
                 thread.Children.Add(Message(m));
@@ -2757,105 +2765,103 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return char.ToUpperInvariant(s[0]) + s.Substring(1);
         }
 
-        // ─── Empty state (Slate: centered hero star + suggestion rows) ───────
+        // Welcome-card icon geometry (24-box, stroke-drawn — table / shield-check /
+        // ruler / tag, from the design's Phosphor set redrawn as paths).
+        private static string WelcomeIcon(string key)
+        {
+            switch (key)
+            {
+                case "shield": return "M12,3 l7,2.5 v5 c0,4.5 -3,8 -7,10.5 c-4,-2.5 -7,-6 -7,-10.5 v-5 Z M9,11.5 l2,2 4,-4";
+                case "ruler": return "M20.5,14.7 a1.8,1.8 0 0 1 0,2.6 l-3.2,3.2 a1.8,1.8 0 0 1 -2.6,0 L3.5,9.3 a1.8,1.8 0 0 1 0,-2.6 l3.2,-3.2 a1.8,1.8 0 0 1 2.6,0 Z M13.8,11.8 l1.6,-1.6 M11,9 l1.6,-1.6 M16.6,14.6 l1.6,-1.6";
+                case "tagIcon": return "M9,5 H5 a2,2 0 0 0 -2,2 v4 l9,9 a1.5,1.5 0 0 0 2.1,0 l4,-4 a1.5,1.5 0 0 0 0,-2.1 L9,5 z M7.5,8.5 h0.01";
+                default: return "M4,4.5 h16 a1,1 0 0 1 1,1 v13 a1,1 0 0 1 -1,1 h-16 a1,1 0 0 1 -1,-1 v-13 a1,1 0 0 1 1,-1 z M3,9.5 h18 M3,14.5 h18 M9.5,9.5 v9";
+            }
+        }
+
+        // ─── Empty state (v6-panel: brand diamond · "Ready when you are." ·
+        //     single-column welcome cards) ───────────────────────────────────
         private FrameworkElement EmptyState()
         {
-            var root = new StackPanel { Margin = new Thickness(26, 56, 26, 24) };
+            var root = new StackPanel { Margin = new Thickness(16, 40, 16, 24) };
 
-            // Hero: sparkle cluster — one big gradient star with a soft blue
-            // glow plus two small satellite stars at its top/bottom right.
-            var starGeom = Geometry.Parse("M12,1.1 C12.45,7.05 16.95,11.55 22.9,12 C16.95,12.45 12.45,16.95 12,22.9 C11.55,16.95 7.05,12.45 1.1,12 C7.05,11.55 11.55,7.05 12,1.1 Z");
-            Path Star(double size, double glow)
+            // Brand diamond — 20×20 rotated rounded square, blue→jade→gold.
+            var diamond = new Grid { Width = 34, Height = 34, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 13) };
+            diamond.Children.Add(new Border
             {
-                var p = new Path
-                {
-                    Width = size, Height = size, Stretch = Stretch.Uniform,
-                    Fill = CopilotMessageBubble.StarGradient(), Data = starGeom,
-                };
-                p.Effect = new System.Windows.Media.Effects.DropShadowEffect
-                {
-                    Color = (Color)ColorConverter.ConvertFromString("#3b8ef7"),
-                    BlurRadius = glow, ShadowDepth = 0, Opacity = 0.55,
-                };
-                return p;
-            }
-            var hero = new Grid { Width = 72, Height = 60, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 22) };
-            var big = Star(50, 16);
-            big.HorizontalAlignment = HorizontalAlignment.Left;
-            big.VerticalAlignment = VerticalAlignment.Center;
-            big.Margin = new Thickness(2, 0, 0, 0);
-            var small1 = Star(17, 8);
-            small1.HorizontalAlignment = HorizontalAlignment.Right;
-            small1.VerticalAlignment = VerticalAlignment.Top;
-            small1.Margin = new Thickness(0, 0, 4, 0);
-            var small2 = Star(13, 6);
-            small2.HorizontalAlignment = HorizontalAlignment.Right;
-            small2.VerticalAlignment = VerticalAlignment.Bottom;
-            small2.Margin = new Thickness(0, 0, 0, 8);
-            hero.Children.Add(big); hero.Children.Add(small1); hero.Children.Add(small2);
-            root.Children.Add(hero);
-
-            root.Children.Add(new TextBlock
-            {
-                Text = "How can I help with your model?",
-                FontSize = 19, FontWeight = FontWeights.Bold,
-                Foreground = CopilotColors.From("#131c2b"),
-                TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap,
-            });
-            root.Children.Add(new TextBlock
-            {
-                Text = "Describe what you need in plain words — I'll turn it into a Revit command you can review and apply.",
-                FontSize = 12.5, Foreground = CopilotColors.From("#586273"),
-                TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap,
-                LineHeight = 19, MaxWidth = 268, Margin = new Thickness(0, 9, 0, 0),
+                Width = 20, Height = 20, CornerRadius = new CornerRadius(6),
+                Background = CopilotTheme.LogoGrad(),
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new RotateTransform(45),
                 HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            root.Children.Add(diamond);
+
+            root.Children.Add(new TextBlock
+            {
+                Text = "Ready when you are.",
+                FontSize = 17, FontWeight = FontWeights.Medium,
+                Foreground = CopilotColors.From("#131c2b"),
+                TextWrapping = TextWrapping.Wrap,
+            });
+            root.Children.Add(new TextBlock
+            {
+                Text = "Connected to Main Model — ask anything, or start from a task.",
+                FontSize = 13, Foreground = CopilotColors.From("#586273"),
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0),
             });
 
-            // Suggestions: hairline-separated rows (icon · label · chevron).
-            var sug = new StackPanel { Margin = new Thickness(0, 22, 0, 0) };
-            sug.Children.Add(new Border { Height = 1, Background = CopilotColors.From("#140F1B2D") });
-            (string icon, string label, string prompt)[] suggestions =
+            // Welcome cards (design welcomeCards): one bordered card per starter
+            // task, single column. Click INSERTS the prompt (house behaviour —
+            // the drafter reviews before sending; the design auto-runs).
+            var cards = new StackPanel { Margin = new Thickness(0, 13, 0, 0) };
+            (string icon, string title, string desc, string prompt)[] welcome =
             {
-                ("M3,4.5 h18 v15 h-18 Z M3,9.5 h18 M3,14.5 h18 M8,4.5 v5 M14,9.5 v5 M10,14.5 v5", "Create walls", "Create exterior walls on Level 2 along grid A–F"),
-                ("M3.5,3.5 h17 v17 h-17 Z M3.5,9 h17 M9,9 v11.5 M13,13 h4 M13,16.5 h4", "Generate schedule", "Generate a door schedule for Block A"),
-                ("M3.5,11.3 V4.5 a1,1 0 0 1 1,-1 h6.8 a1,1 0 0 1 0.7,0.3 l8,8 a1,1 0 0 1 0,1.4 l-6.8,6.8 a1,1 0 0 1 -1.4,0 l-8,-8 a1,1 0 0 1 -0.3,-0.7 Z M8,8 m-1.4,0 a1.4,1.4 0 1 0 2.8,0 a1.4,1.4 0 1 0 -2.8,0", "Tag rooms", "Tag all rooms on Level 1 with name and number"),
+                ("table",  "Door schedule", "Generate a door schedule grouped by type and level.",
+                 "Create a door schedule grouped by type and level"),
+                ("shield", "Clash check", "Structural vs MEP hard clashes with an element list.",
+                 "Check structural vs MEP clashes"),
+                ("ruler",  "Room areas", "Floor area per room with totals per level.",
+                 "Calculate floor area per room"),
+                ("tagIcon", "Auto-tag", "Tag untagged doors, rooms and windows in the active view.",
+                 "Tag all untagged elements in the active view"),
             };
-            foreach (var (icon, label, prompt) in suggestions)
+            foreach (var (icon, title, desc, prompt) in welcome)
             {
-                var btn = new Button
+                var body = new StackPanel();
+                body.Children.Add(new Path
                 {
-                    Cursor = System.Windows.Input.Cursors.Hand,
-                    Background = Brushes.Transparent, BorderThickness = new Thickness(0),
-                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                    Padding = new Thickness(4, 13, 4, 13),
-                };
-                btn.Template = SuggestionRowTemplate();
-                var g = new Grid();
-                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                var ic = new Path
-                {
-                    Width = 18, Height = 18, Stretch = Stretch.Uniform,
-                    Stroke = CopilotColors.From("#131c2b"), StrokeThickness = 1.7,
+                    Width = 16, Height = 16, Stretch = Stretch.Uniform,
+                    Stroke = CopilotColors.From("#1d4ed8"), StrokeThickness = 1.7,
                     StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
-                    Data = Geometry.Parse(icon), VerticalAlignment = VerticalAlignment.Center,
+                    Data = Geometry.Parse(WelcomeIcon(icon)),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Margin = new Thickness(0, 0, 0, 5),
+                });
+                body.Children.Add(new TextBlock
+                {
+                    Text = title, FontSize = 12.5, FontWeight = FontWeights.Medium,
+                    Foreground = CopilotColors.From("#131c2b"),
+                });
+                body.Children.Add(new TextBlock
+                {
+                    Text = desc, FontSize = 11, Foreground = CopilotColors.From("#586273"),
+                    TextWrapping = TextWrapping.Wrap, LineHeight = 15.4,
+                });
+                var card = new Border
+                {
+                    BorderBrush = CopilotColors.From("#140F1B2D"), BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 11, 12, 11),
+                    Margin = new Thickness(0, 0, 0, 8), Background = CopilotColors.From("#ffffff"),
+                    Cursor = System.Windows.Input.Cursors.Hand, Child = body,
                 };
-                Grid.SetColumn(ic, 0); g.Children.Add(ic);
-                var tb = new TextBlock { Text = label, FontSize = 13, FontWeight = FontWeights.Medium, Foreground = CopilotColors.From("#131c2b"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
-                Grid.SetColumn(tb, 1); g.Children.Add(tb);
-                var chev = new Path { Width = 15, Height = 15, Stretch = Stretch.Uniform, Stroke = CopilotColors.From("#99a3b3"), StrokeThickness = 2, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, Data = Geometry.Parse("M9,6 l6,6 -6,6"), VerticalAlignment = VerticalAlignment.Center };
-                Grid.SetColumn(chev, 2); g.Children.Add(chev);
-                btn.Content = g;
+                card.MouseEnter += (_, __) => card.BorderBrush = CopilotColors.From("#1d4ed8");
+                card.MouseLeave += (_, __) => card.BorderBrush = CopilotColors.From("#140F1B2D");
                 var p = prompt;
-                // Behavior change: don't send — drop the starter prompt into the
-                // composer for the user to edit, then they press send themselves.
-                btn.Click += (_, __) => Prompt.InsertStarterPrompt(p);
-                sug.Children.Add(btn);
-                sug.Children.Add(new Border { Height = 1, Background = CopilotColors.From("#140F1B2D") });
+                card.MouseLeftButtonUp += (_, __) => Prompt.InsertStarterPrompt(p);
+                cards.Children.Add(card);
             }
-            sug.Children.RemoveAt(sug.Children.Count - 1);  // no hairline after the last row
-            root.Children.Add(sug);
+            root.Children.Add(cards);
 
             // // Suggested prompts
             // root.Children.Add(Label("TRY ONE OF THESE"));

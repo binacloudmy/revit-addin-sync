@@ -20,31 +20,37 @@
             <RowDefinition Height="*"/>     <!-- body -->
         </Grid.RowDefinitions>
 
-        <!-- ═══ Header (Slate: star logo · title + status dot · icon actions) ═══ -->
-        <Border Grid.Row="0" Padding="14,15,14,13">
+        <!-- ═══ Header (v6-panel: brand diamond · title + synced line · search · gear) ═══
+             docs/design/bina-copilot-v6-panel.dc.html header block, 1:1. -->
+        <Border Grid.Row="0" Padding="14,12,14,10" Background="{DynamicResource Cp.Bg}">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>  <!-- credit badge -->
+                    <ColumnDefinition Width="Auto"/>  <!-- search -->
+                    <ColumnDefinition Width="Auto"/>  <!-- settings gear -->
                     <ColumnDefinition Width="Auto"/>  <!-- theme -->
                     <ColumnDefinition Width="Auto"/>  <!-- new chat -->
                     <ColumnDefinition Width="Auto"/>  <!-- menu -->
                 </Grid.ColumnDefinitions>
 
-                <!-- BINA star logo (gradient four-point star with a soft glow) -->
-                <Grid Grid.Column="0" Width="30" Height="30" VerticalAlignment="Center">
-                    <Path Width="24" Height="24" Stretch="Uniform"
-                          Fill="{DynamicResource Cp.BotGradient}"
-                          Data="{DynamicResource Cp.StarPath}">
-                        <Path.Effect>
-                            <DropShadowEffect Color="#2563eb" BlurRadius="10" ShadowDepth="1" Direction="270" Opacity="0.55"/>
-                        </Path.Effect>
-                    </Path>
+                <!-- Brand diamond: 16×16 rounded square rotated 45°, blue→jade→gold,
+                     soft accent glow (design logo mark). -->
+                <Grid Grid.Column="0" Width="26" Height="26" VerticalAlignment="Center">
+                    <Border Width="16" Height="16" CornerRadius="5"
+                            Background="{DynamicResource Cp.LogoGrad}"
+                            RenderTransformOrigin="0.5,0.5">
+                        <Border.RenderTransform>
+                            <RotateTransform Angle="45"/>
+                        </Border.RenderTransform>
+                        <Border.Effect>
+                            <DropShadowEffect Color="#2a69c6" BlurRadius="10" ShadowDepth="0" Opacity="0.45"/>
+                        </Border.Effect>
+                    </Border>
                 </Grid>
 
-                <StackPanel Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center">
-                    <TextBlock Text="BINA AI Copilot" FontSize="14" FontWeight="SemiBold" Foreground="{DynamicResource Cp.Ink}"/>
+                <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="Bina AI Copilot" FontSize="14" FontWeight="Medium" Foreground="{DynamicResource Cp.Ink}"/>
                     <!-- Mono subline (2026-08-02 spec): "«model» · «doc name»", live —
                          "Main Model" is the fixed connection/model-scope label from
                          the canonical design (docs/design/copilot-reasoning),
@@ -55,44 +61,14 @@
                          ModelName's own fallback is ALSO the literal string "Main
                          Model", so binding both halves to it could render "Main
                          Model · Main Model" before a document loads. -->
-                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
-                        <Ellipse Width="5" Height="5" Fill="{DynamicResource Cp.Accent}" VerticalAlignment="Center" Margin="0,0,5,0"/>
-                        <TextBlock FontSize="10.5" Foreground="{DynamicResource Cp.Muted}" FontFamily="{DynamicResource Cp.Reasoning.FontMono}">
-                            <Run Text="Main Model · "/><Run Text="{Binding DocumentTitle, Mode=OneWay}"/>
+                    <!-- v6 synced line: green dot + "Main Model · «doc» · synced".
+                         (The Ready/Running/Done status tag moved to the chat
+                         subheader, where the design places it.) -->
+                    <StackPanel Orientation="Horizontal" Margin="0,1,0,0">
+                        <Ellipse Width="6" Height="6" Fill="{DynamicResource Cp.Green}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBlock FontSize="11" Foreground="{DynamicResource Cp.Muted}" TextTrimming="CharacterEllipsis">
+                            <Run Text="Main Model · "/><Run Text="{Binding DocumentTitle, Mode=OneWay}"/><Run Text=" · synced"/>
                         </TextBlock>
-                        <!-- Run-status pill (PRD A7): Ready / Running / Done / Stopped,
-                             driven by IsSending transitions in the VM. Plain triggers,
-                             no Storyboard (Revit pane constraint). -->
-                        <Border CornerRadius="7" Padding="7,1,7,1.5" Margin="8,0,0,0" VerticalAlignment="Center">
-                            <Border.Style>
-                                <Style TargetType="Border">
-                                    <Setter Property="Background" Value="{DynamicResource Cp.Hover}"/>
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding RunStatus}" Value="Running">
-                                            <Setter Property="Background" Value="{DynamicResource Cp.BlueSoft}"/>
-                                        </DataTrigger>
-                                        <DataTrigger Binding="{Binding RunStatus}" Value="Done">
-                                            <Setter Property="Background" Value="{DynamicResource Cp.OkBg}"/>
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Border.Style>
-                            <TextBlock FontSize="9.5" FontWeight="SemiBold" Text="{Binding RunStatus, Mode=OneWay}">
-                                <TextBlock.Style>
-                                    <Style TargetType="TextBlock">
-                                        <Setter Property="Foreground" Value="{DynamicResource Cp.Muted}"/>
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding RunStatus}" Value="Running">
-                                                <Setter Property="Foreground" Value="{DynamicResource Cp.BlueText}"/>
-                                            </DataTrigger>
-                                            <DataTrigger Binding="{Binding RunStatus}" Value="Done">
-                                                <Setter Property="Foreground" Value="{DynamicResource Cp.Green}"/>
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </TextBlock.Style>
-                            </TextBlock>
-                        </Border>
                     </StackPanel>
                     <!-- Live tool activity: "applying create_wall…" while a mutation
                          runs on Revit's main thread (a slow cold-model build reads as
@@ -108,7 +84,20 @@
                 <!-- Usage lives in the composer footer (design "footer" placement):
                      plan-name button + popover above the composer. -->
 
-                <Button x:Name="ThemeBtn" Grid.Column="3" Style="{DynamicResource Cp.IconButton}" Click="OnToggleTheme" ToolTip="Toggle theme">
+                <!-- Search · ⌘K (v6): opens the command palette in the chat body. -->
+                <Button x:Name="SearchBtn" Grid.Column="2" Style="{DynamicResource Cp.IconButton}" Click="OnOpenSearch" ToolTip="Search · Ctrl+K">
+                    <Path Width="15" Height="15" Stretch="Uniform" Stroke="{DynamicResource Cp.Faint}" StrokeThickness="1.9"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                          Data="M3,10 a7,7 0 1 0 14,0 a7,7 0 1 0 -14,0 M21,21 l-5.2,-5.2"/>
+                </Button>
+                <!-- Settings gear (v6): opens the Settings view. -->
+                <Button x:Name="GearBtn" Grid.Column="3" Style="{DynamicResource Cp.IconButton}" Command="{Binding GoTabCommand}" CommandParameter="Settings" ToolTip="Settings">
+                    <Path Width="15" Height="15" Stretch="Uniform" Stroke="{DynamicResource Cp.Faint}" StrokeThickness="1.7"
+                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                          Data="M12,8.5 a3.5,3.5 0 1 0 0,7 a3.5,3.5 0 1 0 0,-7 M19.4,15 a1.65,1.65 0 0 0 0.33,1.82 l0.06,0.06 a2,2 0 1 1 -2.83,2.83 l-0.06,-0.06 a1.65,1.65 0 0 0 -1.82,-0.33 a1.65,1.65 0 0 0 -1,1.51 V21 a2,2 0 1 1 -4,0 v-0.09 a1.65,1.65 0 0 0 -1.08,-1.51 a1.65,1.65 0 0 0 -1.82,0.33 l-0.06,0.06 a2,2 0 1 1 -2.83,-2.83 l0.06,-0.06 a1.65,1.65 0 0 0 0.33,-1.82 a1.65,1.65 0 0 0 -1.51,-1 H3 a2,2 0 1 1 0,-4 h0.09 a1.65,1.65 0 0 0 1.51,-1.08 a1.65,1.65 0 0 0 -0.33,-1.82 l-0.06,-0.06 a2,2 0 1 1 2.83,-2.83 l0.06,0.06 a1.65,1.65 0 0 0 1.82,0.33 h0 a1.65,1.65 0 0 0 1,-1.51 V3 a2,2 0 1 1 4,0 v0.09 a1.65,1.65 0 0 0 1,1.51 h0 a1.65,1.65 0 0 0 1.82,-0.33 l0.06,-0.06 a2,2 0 1 1 2.83,2.83 l-0.06,0.06 a1.65,1.65 0 0 0 -0.33,1.82 v0 a1.65,1.65 0 0 0 1.51,1 H21 a2,2 0 1 1 0,4 h-0.09 a1.65,1.65 0 0 0 -1.51,1 z"/>
+                </Button>
+
+                <Button x:Name="ThemeBtn" Grid.Column="4" Style="{DynamicResource Cp.IconButton}" Click="OnToggleTheme" ToolTip="Toggle theme">
                     <Path x:Name="ThemeIcon" Width="15" Height="15" Stretch="Uniform" Fill="Transparent"
                           Stroke="{DynamicResource Cp.Faint}" StrokeThickness="2"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
@@ -116,12 +105,12 @@
                 </Button>
                 <!-- New chat: also in the conversation subheader, but kept here so it's
                      reachable from the empty greeting screen (which has no subheader). -->
-                <Button x:Name="NewChatBtn" Grid.Column="4" Style="{DynamicResource Cp.IconButton}"
+                <Button x:Name="NewChatBtn" Grid.Column="5" Style="{DynamicResource Cp.IconButton}"
                         Command="{Binding ClearChatCommand}" ToolTip="New chat">
                     <Path Width="16" Height="16" Stretch="Uniform" Stroke="{DynamicResource Cp.Faint}" StrokeThickness="1.9"
                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" Data="M12,5 v14 M5,12 h14"/>
                 </Button>
-                <Button x:Name="MenuBtn" Grid.Column="5" Style="{DynamicResource Cp.IconButton}" Click="OnOpenMenu" ToolTip="Menu">
+                <Button x:Name="MenuBtn" Grid.Column="6" Style="{DynamicResource Cp.IconButton}" Click="OnOpenMenu" ToolTip="Menu">
                     <Path Width="16" Height="16" Stretch="Uniform" Fill="{DynamicResource Cp.Faint}"
                           Data="M11,5 A1,1 0 1 0 13,5 A1,1 0 1 0 11,5 Z M11,12 A1,1 0 1 0 13,12 A1,1 0 1 0 11,12 Z M11,19 A1,1 0 1 0 13,19 A1,1 0 1 0 11,19 Z"/>
                 </Button>
@@ -218,6 +207,9 @@
                 <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Library"
                               IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Library}"
                               Content="Library"/>
+                <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Model"
+                              IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Model}"
+                              Content="Model"/>
             </StackPanel>
         </Border>
 

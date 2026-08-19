@@ -6,7 +6,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
 {
     // ─── Enums (mirror the prototype state machine) ──────────────────────────
     public enum CpScreen { Home, ToolForm, ToolReview, Running, Result }
-    public enum CpTab { Chat, Library, History, Saved }
+    public enum CpTab { Chat, Library, History, Saved, Model, Settings }
     public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, AiReply, ConfirmActions }
     // AiReply = plain-text AI response (no card, no Save/Copy/Undo). Used
     // when the backend marks is_query=true: code is auto-run and the

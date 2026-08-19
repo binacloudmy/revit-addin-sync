@@ -12,9 +12,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
     /// </summary>
     public partial class PromptBar : UserControl
     {
-        // Up arrow (send) vs. square (stop), drawn in the 24×24 icon viewbox.
-        private static readonly Geometry SendGeom = Geometry.Parse("M12,4 L19,11.5 L14.4,11.5 L14.4,19 L9.6,19 L9.6,11.5 L5,11.5 Z");
-        private static readonly Geometry StopGeom = Geometry.Parse("M6,6 H18 V18 H6 Z");
+        // v6 stroke arrow-up (send) vs. filled square (stop), 24×24 viewbox.
+        private static readonly Geometry SendGeom = Geometry.Parse("M12,19 V5 M5,12 l7,-7 7,7");
+        private static readonly Geometry StopGeom = Geometry.Parse("M7,7 H17 V17 H7 Z");
 
         public PromptBar()
         {
@@ -214,6 +214,9 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             Input.Editor.CaretIndex = Input.Editor.Text.Length;
             Input.Editor.Focus();
         }
+
+        /// <summary>"/" tools button (v6 composer) — same path as Ctrl+K.</summary>
+        private void OnSlashBtnClick(object sender, RoutedEventArgs e) => OpenCommandPalette();
 
         /// <summary>Open the "/" command palette by keyboard (Ctrl+K, PRD A8).
         /// Empty composer: seed the "/" trigger — the normal text-changed path
@@ -525,26 +528,27 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             pb.UpdateSendVisual();
         }
 
-        // Idle (no text): transparent circle + faint arrow. Armed (text present)
-        // or Busy (stop): ink-black circle + white glyph (2026-08-02 defect #6
-        // fix — the artifact's composer send button is always ink-black when
-        // armed, not the accent gradient the rest of the pane uses elsewhere).
+        // v6 btn-primary btn-icon: accent OUTLINE button — accent border +
+        // accent glyph on transparent, dimmed to 45% until armed (design
+        // sendStyle opacity rule). Busy swaps the glyph for a filled accent
+        // stop square. One-shot theme reads, same pattern as before.
         private void UpdateSendVisual()
         {
             if (SendBtn == null || SendIcon == null || Input?.Editor == null) return;
             bool armed = Busy || _pendingTool != null || !string.IsNullOrWhiteSpace(Input.Editor.Text);
-            if (armed)
+            var accent = TryFindResource("Cp.Accent") as System.Windows.Media.Brush ?? Brushes.RoyalBlue;
+            SendBtn.Background = Brushes.Transparent;
+            SendBtn.BorderBrush = accent;
+            SendBtn.Opacity = armed ? 1.0 : 0.45;
+            if (Busy)
             {
-                SendBtn.Background = TryFindResource("Cp.Reasoning.Ink") as System.Windows.Media.Brush ?? Brushes.Black;
-                // Always white — NOT Cp.AccentContrast (which is near-black in dark theme,
-                // giving a black glyph on the blue button). A send/stop glyph reads best
-                // white on an ink-black button in both themes.
-                SendIcon.Fill = Brushes.White;
+                SendIcon.Fill = accent;
+                SendIcon.Stroke = null;
             }
             else
             {
-                SendBtn.Background = Brushes.Transparent;
-                SendIcon.Fill = TryFindResource("Cp.Faint") as System.Windows.Media.Brush ?? Brushes.Gray;
+                SendIcon.Fill = Brushes.Transparent;
+                SendIcon.Stroke = accent;
             }
         }
 

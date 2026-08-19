@@ -11,11 +11,11 @@
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Foreground" Value="{DynamicResource Cp.Faint}"/>
         <Setter Property="FontFamily" Value="{DynamicResource Cp.Font}"/>
-        <Setter Property="FontSize" Value="13"/>
-        <Setter Property="FontWeight" Value="Medium"/>
+        <Setter Property="FontSize" Value="12.5"/>
+        <Setter Property="FontWeight" Value="Normal"/>
         <Setter Property="Cursor" Value="Hand"/>
-        <Setter Property="Padding" Value="2,10,2,10"/>
-        <Setter Property="Margin" Value="0,0,20,0"/>
+        <Setter Property="Padding" Value="4,8,4,8"/>
+        <Setter Property="Margin" Value="0,0,14,0"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="ToggleButton">
@@ -29,9 +29,10 @@
                             <Setter Property="Foreground" Value="{DynamicResource Cp.Ink}"/>
                         </Trigger>
                         <Trigger Property="IsChecked" Value="True">
+                            <!-- v6: the active tab reads in the accent, not ink. -->
                             <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource Cp.Accent}"/>
-                            <Setter Property="Foreground" Value="{DynamicResource Cp.Ink}"/>
-                            <Setter Property="FontWeight" Value="SemiBold"/>
+                            <Setter Property="Foreground" Value="{DynamicResource Cp.Accent}"/>
+                            <Setter Property="FontWeight" Value="Medium"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
