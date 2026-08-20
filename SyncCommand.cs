@@ -216,7 +216,12 @@ namespace RevitWebAppSync
                     // result means nothing was published and the marker is still
                     // owed to a future sync.
                     if (rollbackMarker != null && runResult.Succeeded && !runResult.Unchanged)
+                    {
                         Services.RollbackMarkerStore.Clear(doc);
+                        // Clear opens a transaction, leaving doc dirty. Save so the
+                        // next rollback attempt doesn't prompt about unsaved changes.
+                        if (doc.IsModified) doc.Save();
+                    }
 
                     ShowOutcome(runResult, prepared.Action);
                     return runResult.Succeeded ? Result.Succeeded : Result.Failed;
