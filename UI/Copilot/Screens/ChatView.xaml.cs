@@ -362,6 +362,15 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _thinkingView = null;
                 _progressTrailView = null;
                 _reasoningView = null;
+                _activityView = null;
+            }
+            if (empty)
+            {
+                // Per-thread render caches (tool cards / narrative blocks) only
+                // clear with the thread itself — mid-thread they are exactly
+                // what keeps re-renders from resetting card expand state.
+                _threadToolCards.Clear();
+                _threadNarratives.Clear();
             }
 
             if (empty) { BodyHost.Children.Add(EmptyState()); return; }
@@ -495,21 +504,27 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             if (m.Kind == CpMsgKind.Thinking && !m.StreamingReply)
             {
-                if (hasLiveReasoning)
-                    // v2: the narrative streaming below the card counts as the
-                    // answer starting — auto-collapse (unless drafter-toggled)
-                    // while the spinner/elapsed keep ticking honestly.
-                    col.Children.Add(ReasoningTimelinePanel(m.LiveReasoningSteps, streaming: true, answerStarting: hasBlocks));
+                System.Collections.Generic.ISet<string> claimed = null;
+                bool hasLiveEvidence = hasLiveReasoning || (m.LiveSteps != null && m.LiveSteps.Count > 0);
+                if (hasLiveEvidence)
+                {
+                    // v6: ONE agent-activity card — thinking prose + step
+                    // checklist + nested tool cards. The narrative streaming
+                    // below counts as the answer starting (auto-collapse
+                    // unless drafter-toggled) while the clock keeps ticking.
+                    var activity = ActivityPanel(m, streaming: true, answerStarting: hasBlocks);
+                    claimed = activity.ClaimedToolIds;
+                    col.Children.Add(activity);
+                }
                 else if (!hasBlocks)
-                    // Typed live step trail (mock 1+2 combined): multi-row trail,
-                    // ticking as rows go running -> done. Falls back to the old
-                    // single-line ThinkingTrail when the backend never sent steps.
-                    col.Children.Add(m.LiveSteps != null ? ProgressTrailPanel(m.LiveSteps) : ThinkingTrail(m.Text));
+                    // No reasoning AND no steps yet — the old single-line
+                    // ThinkingTrail placeholder until the first frame lands.
+                    col.Children.Add(ThinkingTrail(m.Text));
                 if (hasBlocks)
                 {
-                    // v2 live body: narrative legs + tool cards in arrival order,
-                    // dots pinned underneath for liveness.
-                    col.Children.Add(BlocksPanel(m, col.MaxWidth));
+                    // v2 live body: narrative legs (+ any tool card the activity
+                    // card did NOT claim) in arrival order, dots underneath.
+                    col.Children.Add(BlocksPanel(m, col.MaxWidth, claimed));
                     col.Children.Add(StreamingDots());
                 }
                 aiRow.Children.Add(col);
@@ -517,18 +532,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
             if (m.Kind == CpMsgKind.Thinking && m.StreamingReply)
             {
-                if (hasLiveReasoning)
-                    // Reasoning is done narrating the moment the answer starts —
-                    // pass answerStarting so the timeline auto-collapses (unless
-                    // the drafter already toggled it open this turn).
-                    col.Children.Add(ReasoningTimelinePanel(m.LiveReasoningSteps, streaming: false, answerStarting: true));
-                else if (m.LiveSteps != null && !hasBlocks)
-                    // Once reply prose starts streaming, the trail stays pinned
-                    // ABOVE the growing answer (rows keep ticking) instead of
-                    // collapsing.
-                    col.Children.Add(ProgressTrailPanel(m.LiveSteps));
+                System.Collections.Generic.ISet<string> claimed = null;
+                if (hasLiveReasoning || (m.LiveSteps != null && m.LiveSteps.Count > 0))
+                {
+                    // Answer streaming: the activity card auto-collapses (unless
+                    // the drafter toggled it open) and stays pinned above the
+                    // growing answer.
+                    var activity = ActivityPanel(m, streaming: false, answerStarting: true);
+                    claimed = activity.ClaimedToolIds;
+                    col.Children.Add(activity);
+                }
                 if (hasBlocks)
-                    col.Children.Add(BlocksPanel(m, col.MaxWidth));
+                    col.Children.Add(BlocksPanel(m, col.MaxWidth, claimed));
                 else if (!string.IsNullOrEmpty(m.Text))
                     col.Children.Add(CopilotMessageBubble.MarkdownText(m.Text, col.MaxWidth));
                 // Pin the pulsing-dots liveness indicator below the partial prose.
@@ -568,9 +583,15 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             bool showReasoningBlock = m.ReasoningSteps != null && m.ReasoningSteps.Count > 0
                 && (m.Kind == CpMsgKind.AiReply
                     || (m.Kind == CpMsgKind.ConfirmActions && IsThreadTail(m)));
+            System.Collections.Generic.ISet<string> claimedTools = null;
             if (showReasoningBlock)
             {
-                col.Children.Add(ReasoningBlock(m));
+                // v6: the persisted card carries the WHOLE run's evidence —
+                // prose + steps + nested tool cards (ActivityBlock replaces the
+                // old reasoning-only ReasoningBlock).
+                var activity = ActivityBlock(m);
+                claimedTools = activity.ClaimedToolIds;
+                col.Children.Add(activity);
             }
 
             // Progress trail pill: collapsed expandable summary on final AI replies
@@ -706,7 +727,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     || (m.Kind == CpMsgKind.ConfirmActions && IsThreadTail(m)));
             if (renderBlocks)
             {
-                col.Children.Add(BlocksPanel(m, col.MaxWidth));
+                col.Children.Add(BlocksPanel(m, col.MaxWidth, claimedTools));
                 if (!string.IsNullOrEmpty(m.Text))
                 {
                     CopilotMessageBubble.AttachCopyMenu(col, m.Text);
@@ -1312,6 +1333,81 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return _reasoningView;
         }
 
+        // ─── v6 Agent-activity card (2026-08-20 parity pass) ─────────────────
+        // ONE card per turn holding thinking prose + the step checklist with
+        // nested tool cards — replaces the separate reasoning card + progress
+        // chip + orphan cards. The LIVE instance is cached per turn (same
+        // lifecycle as _reasoningView); completed messages build a fresh,
+        // collapsed one per Rebuild, but their tool cards come from the shared
+        // per-thread cache so expand state survives re-renders.
+        private AgentActivityView _activityView;
+        private readonly System.Collections.Generic.Dictionary<string, ToolResultCard> _threadToolCards =
+            new System.Collections.Generic.Dictionary<string, ToolResultCard>(System.StringComparer.Ordinal);
+        private readonly System.Collections.Generic.Dictionary<string, (int len, double width, FrameworkElement el)> _threadNarratives =
+            new System.Collections.Generic.Dictionary<string, (int, double, FrameworkElement)>(System.StringComparer.Ordinal);
+
+        // Cache key for one execution's card. tool_call_ids are per-run nonces
+        // (globally unique), so a card keyed on one survives the live-Thinking →
+        // persisted-AiReply hand-off with its expand state. Id-less events fall
+        // back to tool name SCOPED to the message — leg/tool names repeat
+        // across turns, and an unscoped name key would re-parent an old turn's
+        // card into the new one.
+        private static string CardKey(ChatMessage m, RevitWebAppSync.Services.ToolResultEvent ev) =>
+            !string.IsNullOrEmpty(ev.ToolCallId) ? ev.ToolCallId
+                : m.GetHashCode().ToString() + ":" + (ev.Tool ?? "");
+
+        private ToolResultCard GetToolCard(ChatMessage m, RevitWebAppSync.Services.ToolResultEvent ev)
+        {
+            var key = CardKey(m, ev);
+            if (!_threadToolCards.TryGetValue(key, out var card))
+                _threadToolCards[key] = card = new ToolResultCard(ev);
+            return card;
+        }
+
+        /// <summary>Step-id → nested tool card resolver for one message: matches
+        /// a step to its execution by tool_call_id (locally-run batches key their
+        /// trail rows off exactly that id) or, failing that, the raw tool name
+        /// (the parser's step-id fallback). Cards are created once per thread.</summary>
+        private System.Func<string, ToolResultCard> ToolCardResolver(ChatMessage m)
+        {
+            var events = new System.Collections.Generic.Dictionary<string, RevitWebAppSync.Services.ToolResultEvent>(System.StringComparer.Ordinal);
+            if (m.Blocks != null)
+                foreach (var b in m.Blocks)
+                    if (b != null && b.Kind == TurnBlockKind.ToolCard && b.ToolResult != null)
+                    {
+                        if (!string.IsNullOrEmpty(b.ToolResult.ToolCallId)) events[b.ToolResult.ToolCallId] = b.ToolResult;
+                        if (!string.IsNullOrEmpty(b.ToolResult.Tool) && !events.ContainsKey(b.ToolResult.Tool)) events[b.ToolResult.Tool] = b.ToolResult;
+                    }
+            return id =>
+                !string.IsNullOrEmpty(id) && events.TryGetValue(id, out var ev)
+                    ? GetToolCard(m, ev) : null;
+        }
+
+        private AgentActivityView ActivityPanel(ChatMessage m, bool streaming, bool answerStarting)
+        {
+            if (_activityView == null)
+            {
+                _activityView = new AgentActivityView { Margin = new Thickness(0, 0, 0, 12) };
+                _activityView.OnLayoutChanged = RepinIfSticky;
+            }
+            else if (_activityView.Parent is Panel oldParent)
+                oldParent.Children.Remove(_activityView);
+            _activityView.ResolveToolCard = ToolCardResolver(m);
+            _activityView.Update(m.LiveReasoningSteps, m.LiveSteps, streaming, answerStarting);
+            return _activityView;
+        }
+
+        /// <summary>Fresh, collapsed activity card for a COMPLETED message —
+        /// same lifecycle as the old ReasoningBlock (once per Rebuild).</summary>
+        private AgentActivityView ActivityBlock(ChatMessage m)
+        {
+            var view = new AgentActivityView { Margin = new Thickness(0, 0, 0, 12) };
+            view.OnLayoutChanged = RepinIfSticky;
+            view.ResolveToolCard = ToolCardResolver(m);
+            view.Update(m.ReasoningSteps, m.Steps, streaming: false, answerStarting: false, seedOpen: false);
+            return view;
+        }
+
         /// <summary>Fresh (non-cached) reasoning timeline for a COMPLETED message —
         /// AiReply/ConfirmActions render this once per Rebuild (same lifecycle as
         /// ClarifyCard/ConfirmActionsCard below), always starting collapsed. The
@@ -1331,10 +1427,14 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         // ─── Stream v2 segmented turn body (T1/T3) ───────────────────────────
         // Ordered Narrative | ToolCard | ConfirmCard blocks — the Hermes-parity
-        // rendering. Rebuilt per tick (cheap StackPanel of MarkdownText/cards);
-        // block objects are shared snapshots, read synchronously on the UI
-        // thread, same contract as LiveSteps.
-        private FrameworkElement BlocksPanel(ChatMessage m, double maxWidth)
+        // rendering. Smoothness pass (2026-08-20): narrative markdown and tool
+        // cards are cached per thread and RE-PARENTED instead of rebuilt on
+        // every SSE tick — a settled narrative leg is never re-parsed, and a
+        // tool card keeps its expand state across re-renders (the old
+        // rebuild-per-tick reset both). `suppressToolIds` skips cards the
+        // agent-activity card already nested under their steps.
+        private FrameworkElement BlocksPanel(ChatMessage m, double maxWidth,
+            System.Collections.Generic.ISet<string> suppressToolIds = null)
         {
             var panel = new StackPanel();
             foreach (var b in m.Blocks)
@@ -1345,14 +1445,36 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     case TurnBlockKind.Narrative:
                         if (!string.IsNullOrWhiteSpace(b.Text))
                         {
-                            var md = CopilotMessageBubble.MarkdownText(b.Text, maxWidth);
-                            md.Margin = new Thickness(0, 0, 0, 8);
+                            // Message-scoped: leg ids restart per stream, so an
+                            // unscoped key would steal an older turn's element.
+                            var key = "n:" + m.GetHashCode() + ":" + (b.SegmentId ?? "");
+                            FrameworkElement md;
+                            if (_threadNarratives.TryGetValue(key, out var cached)
+                                && cached.len == b.Text.Length && cached.width == maxWidth)
+                            {
+                                md = cached.el;
+                                if (md.Parent is Panel oldP) oldP.Children.Remove(md);
+                            }
+                            else
+                            {
+                                md = CopilotMessageBubble.MarkdownText(b.Text, maxWidth);
+                                md.Margin = new Thickness(0, 0, 0, 8);
+                                _threadNarratives[key] = (b.Text.Length, maxWidth, md);
+                            }
                             panel.Children.Add(md);
                         }
                         break;
                     case TurnBlockKind.ToolCard:
                         if (b.ToolResult != null)
-                            panel.Children.Add(new ToolResultCard(b.ToolResult));
+                        {
+                            if (suppressToolIds != null
+                                && (suppressToolIds.Contains(b.ToolResult.ToolCallId ?? "")
+                                    || suppressToolIds.Contains(b.ToolResult.Tool ?? "")))
+                                break;   // nested under its step in the activity card
+                            var card = GetToolCard(m, b.ToolResult);
+                            if (card.Parent is Panel oldP) oldP.Children.Remove(card);
+                            panel.Children.Add(card);
+                        }
                         break;
                     case TurnBlockKind.ConfirmCard:
                         panel.Children.Add(ConfirmRecordLine(b));
