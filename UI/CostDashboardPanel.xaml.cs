@@ -38,6 +38,9 @@ namespace RevitWebAppSync.UI
         // UI references
         private TextBlock _subtitleText;
         private TextBlock _grandTotalText;
+        private TextBlock _markupNoteText;
+        private TextBlock _estimateRangeText;
+        private double _appliedMarkupPct;
         private TextBlock _itemCountText;
         private TextBlock _levelCountText;
         private TextBlock _pricedPercentText;
@@ -217,6 +220,10 @@ namespace RevitWebAppSync.UI
 
             _grandTotalText = new TextBlock { Text = "RM 0", FontSize = 28, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(TextPrimary), Margin = new Thickness(0, 4, 0, 8) };
             totalStack.Children.Add(_grandTotalText);
+            _markupNoteText = new TextBlock { Text = "", FontSize = 9, Foreground = new SolidColorBrush(TextMuted), Margin = new Thickness(0, -6, 0, 6), Visibility = Visibility.Collapsed };
+            totalStack.Children.Add(_markupNoteText);
+            _estimateRangeText = new TextBlock { Text = "", FontSize = 9, Foreground = new SolidColorBrush(WarningAmber), Margin = new Thickness(0, -4, 0, 6), Visibility = Visibility.Collapsed, TextWrapping = TextWrapping.Wrap };
+            totalStack.Children.Add(_estimateRangeText);
 
             // Stats row
             var statsGrid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
@@ -450,12 +457,31 @@ namespace RevitWebAppSync.UI
         {
             if (_summary == null) return;
             _grandTotalText.Text = $"RM {_summary.GrandTotal:N0}";
+            _markupNoteText.Text = _appliedMarkupPct > 0 ? $"incl. {_appliedMarkupPct:G4}% markup" : "";
+            _markupNoteText.Visibility = _appliedMarkupPct > 0 ? Visibility.Visible : Visibility.Collapsed;
             UpdateStatBlock(_itemCountText, $"{_summary.TotalItems:N0}");
             UpdateStatBlock(_levelCountText, $"{_summary.LevelCount}");
             int pricedPct = _summary.TotalItems > 0 ? (int)((_summary.PricedItems / (double)_summary.TotalItems) * 100) : 0;
             UpdateStatBlock(_pricedPercentText, $"{pricedPct}%");
             _coverageBar.Value = pricedPct;
             _coverageBar.Foreground = new SolidColorBrush(pricedPct >= 80 ? SuccessGreen : pricedPct >= 50 ? WarningAmber : Color.FromRgb(200, 50, 50));
+
+            // Estimate range: an incomplete pricing pass makes the single grand
+            // total a floor, not the answer — extrapolate the ceiling from the
+            // priced fraction and say what's missing instead of implying certainty.
+            int unitMismatches = _allItems?.Count(i => i.UnitMismatch) ?? 0;
+            if (_summary.TotalItems > 0 && _summary.GrandTotal > 0 && (pricedPct < 100 || unitMismatches > 0))
+            {
+                double pricedFraction = _summary.PricedItems / (double)_summary.TotalItems;
+                double high = pricedFraction > 0 ? _summary.GrandTotal / pricedFraction : _summary.GrandTotal;
+                string mismatchNote = unitMismatches > 0 ? $", {unitMismatches} unit-mismatch" : "";
+                _estimateRangeText.Text = $"est. RM {_summary.GrandTotal:N0} – RM {high:N0} ({pricedPct}% priced{mismatchNote})";
+                _estimateRangeText.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                _estimateRangeText.Visibility = Visibility.Collapsed;
+            }
         }
 
         private void UpdateLevelFilter(Document doc)
@@ -556,6 +582,9 @@ namespace RevitWebAppSync.UI
             var titleStack = new StackPanel();
             titleStack.Children.Add(new TextBlock { Text = group.Name, FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(TextPrimary) });
             titleStack.Children.Add(new TextBlock { Text = $"RM {group.TotalCost:N0}  |  {group.ItemCount} items  |  {group.Percentage:F1}%", FontSize = 10, Foreground = new SolidColorBrush(TextSecondary), Margin = new Thickness(0, 2, 0, 0) });
+            string confidenceLine = BuildGroupConfidence(group);
+            if (confidenceLine != null)
+                titleStack.Children.Add(new TextBlock { Text = confidenceLine, FontSize = 9, Foreground = new SolidColorBrush(TextMuted), Margin = new Thickness(0, 2, 0, 0) });
             titleCard.Child = titleStack;
             _contentPanel.Children.Add(titleCard);
 
@@ -566,14 +595,14 @@ namespace RevitWebAppSync.UI
             var grouped = group.Items
                 .Where(i => !string.IsNullOrEmpty(i.JkrCode))
                 .GroupBy(i => i.JkrCode)
-                .Select(g => new { Code = g.Key, Name = g.First().Name, Qty = g.Sum(i => i.Quantity), Unit = g.First().Unit, UnitPrice = g.First().UnitPrice, Total = g.Sum(i => i.TotalPrice) })
+                .Select(g => new { Code = g.Key, Name = g.First().Name, Qty = g.Sum(i => i.Quantity), Unit = g.First().Unit, UnitPrice = g.First().UnitPrice, Total = g.Sum(i => i.TotalPrice), Provenance = BuildProvenance(g.First()) })
                 .OrderByDescending(x => x.Total);
 
             int rowIdx = 0;
             foreach (var item in grouped)
             {
                 string displayName = $"{item.Code}  {TruncateName(item.Name, 25)}";
-                var detailRow = CreateDetailRow(displayName, $"{item.Qty:F1} {item.Unit}", item.UnitPrice > 0 ? $"{item.UnitPrice:N0}" : "-", item.Total > 0 ? $"{item.Total:N0}" : "-", false, rowIdx % 2 == 1);
+                var detailRow = CreateDetailRow(displayName, $"{item.Qty:F1} {item.Unit}", item.UnitPrice > 0 ? $"{item.UnitPrice:N0}" : "-", item.Total > 0 ? $"{item.Total:N0}" : "-", false, rowIdx % 2 == 1, item.Provenance);
                 _contentPanel.Children.Add(detailRow);
                 rowIdx++;
             }
@@ -591,7 +620,55 @@ namespace RevitWebAppSync.UI
             _contentPanel.Children.Add(subtotalBorder);
         }
 
-        private Grid CreateDetailRow(string name, string qty, string price, string total, bool isHeader = false, bool altRow = false)
+        /// <summary>
+        /// One-line group confidence roll-up: "8 AI-matched (6 high, 2 medium) ·
+        /// ⚠ 1 unit-mismatch · 3 unpriced". Null when nothing to say (all manual).
+        /// </summary>
+        private static string BuildGroupConfidence(CostGroup group)
+        {
+            var aiMatched = group.Items.Where(i => !string.IsNullOrEmpty(i.MatchLayer)).ToList();
+            int mismatches = group.Items.Count(i => i.UnitMismatch);
+            int unpriced = group.Items.Count(i => i.UnitPrice <= 0 && !i.UnitMismatch);
+            if (aiMatched.Count == 0 && mismatches == 0 && unpriced == 0) return null;
+
+            var parts = new List<string>();
+            if (aiMatched.Count > 0)
+            {
+                int high = aiMatched.Count(i => i.MatchConfidence == "high");
+                int medium = aiMatched.Count(i => i.MatchConfidence == "medium");
+                int other = aiMatched.Count - high - medium;
+                var bands = new List<string>();
+                if (high > 0) bands.Add($"{high} high");
+                if (medium > 0) bands.Add($"{medium} medium");
+                if (other > 0) bands.Add($"{other} low");
+                parts.Add($"{aiMatched.Count} AI-matched ({string.Join(", ", bands)})");
+            }
+            if (mismatches > 0) parts.Add($"⚠ {mismatches} unit-mismatch");
+            if (unpriced > 0) parts.Add($"{unpriced} unpriced");
+            return string.Join(" · ", parts);
+        }
+
+        /// <summary>
+        /// Provenance badge for a priced item: "AI · layer3_vector · sim 0.63 ·
+        /// unit OK". Null (no badge) for manual/imported rows with no match info.
+        /// </summary>
+        private static string BuildProvenance(CostItem item)
+        {
+            if (item.UnitMismatch)
+                return "⚠ unit mismatch — rate not applied, needs review";
+            if (string.IsNullOrEmpty(item.PriceSource) && string.IsNullOrEmpty(item.MatchLayer))
+                return null;
+            var parts = new List<string> { (item.PriceSource ?? "?").ToUpperInvariant() };
+            if (!string.IsNullOrEmpty(item.MatchLayer)) parts.Add(item.MatchLayer);
+            // Similarity lives in the server reasoning string ("similarity: 0.63")
+            var m = System.Text.RegularExpressions.Regex.Match(item.MatchReasoning ?? "", @"similarity: ([\d.]+)");
+            if (m.Success) parts.Add($"sim {m.Groups[1].Value}");
+            if (!string.IsNullOrEmpty(item.MatchConfidence)) parts.Add(item.MatchConfidence);
+            parts.Add("unit OK");
+            return string.Join(" · ", parts);
+        }
+
+        private Grid CreateDetailRow(string name, string qty, string price, string total, bool isHeader = false, bool altRow = false, string subtitle = null)
         {
             var grid = new Grid { Margin = new Thickness(0, 0, 0, 1) };
             if (altRow) grid.Background = new SolidColorBrush(RowAlt);
@@ -604,7 +681,25 @@ namespace RevitWebAppSync.UI
             var fw = isHeader ? FontWeights.SemiBold : FontWeights.Normal;
             double fs = isHeader ? 9 : 11;
 
-            var t1 = new TextBlock { Text = name, Foreground = fg, FontWeight = fw, FontSize = fs, Padding = new Thickness(2) };
+            UIElement t1;
+            var nameText = new TextBlock { Text = name, Foreground = fg, FontWeight = fw, FontSize = fs, Padding = new Thickness(2) };
+            if (!string.IsNullOrEmpty(subtitle))
+            {
+                var stack = new StackPanel();
+                stack.Children.Add(nameText);
+                stack.Children.Add(new TextBlock
+                {
+                    Text = subtitle,
+                    Foreground = new SolidColorBrush(subtitle.StartsWith("⚠") ? Color.FromRgb(180, 100, 0) : TextMuted),
+                    FontSize = 8.5,
+                    Padding = new Thickness(2, 0, 2, 2)
+                });
+                t1 = stack;
+            }
+            else
+            {
+                t1 = nameText;
+            }
             var t2 = new TextBlock { Text = qty, Foreground = new SolidColorBrush(TextSecondary), FontSize = fs, TextAlignment = TextAlignment.Center, Padding = new Thickness(2) };
             var t3 = new TextBlock { Text = price, Foreground = new SolidColorBrush(isHeader ? TextMuted : PrimaryBlue), FontSize = fs, TextAlignment = TextAlignment.Right, Padding = new Thickness(2) };
             var t4 = new TextBlock { Text = total, Foreground = new SolidColorBrush(TextPrimary), FontWeight = FontWeights.SemiBold, FontSize = fs, TextAlignment = TextAlignment.Right, Padding = new Thickness(2) };
@@ -756,13 +851,15 @@ namespace RevitWebAppSync.UI
                 int reviewQueued = 0;
                 string matchRate = "0%";
 
+                int unitSkipped = 0;
                 if (aiAvailable)
                 {
                     ShowBanner($"🤖 AI pipeline: {_allItems.Count} items...", "Layer 1: Exact code → Layer 2: Learned → Layer 3: Vector search", Color.FromRgb(0, 120, 215));
                     await Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
 
                     string projectName = _subtitleText?.Text?.Split('|')?.FirstOrDefault()?.Trim() ?? "Untitled";
-                    var result = await aiEstimator.MatchPipelineAsync(_allItems, projectName);
+                    double markupPct = BinaConfig.Load()?.CostMarkupPct ?? 0;
+                    var result = await aiEstimator.MatchPipelineAsync(_allItems, projectName, markupPct: markupPct);
 
                     if (result.Success)
                     {
@@ -770,6 +867,8 @@ namespace RevitWebAppSync.UI
                         pipelineMatched = stats.TotalMatched;
                         reviewQueued = stats.Layer4Review;
                         matchRate = stats.MatchRate;
+                        _appliedMarkupPct = stats.MarkupPct;
+                        double markupFactor = 1 + stats.MarkupPct / 100;
 
                         // Apply matched prices
                         foreach (var match in result.Matches)
@@ -780,11 +879,25 @@ namespace RevitWebAppSync.UI
                                 var item = _allItems.FirstOrDefault(x => x.ElementId == match.ElementId);
                                 if (item != null && item.UnitPrice <= 0 && match.UnitPrice > 0)
                                 {
-                                    item.UnitPrice = match.UnitPrice;
+                                    // Unit guard (twin of the server-side check): never
+                                    // apply a rate whose unit can't price this quantity
+                                    if (!CostUnitRules.Compatible(item.Unit, match.Unit, item.ThicknessMm))
+                                    {
+                                        item.UnitMismatch = true;
+                                        unitSkipped++;
+                                        continue;
+                                    }
+                                    // Server prices total_price with markup; the local
+                                    // rate must carry it too so TotalPrice agrees
+                                    item.UnitPrice = match.UnitPrice * markupFactor;
                                     item.JkrCode = match.JkrCode;
-                                    item.PriceSource = match.MatchLayer == "exact" ? "master" : 
+                                    item.PriceSource = match.MatchLayer == "exact" ? "master" :
                                                        match.MatchLayer == "learned" ? "learned" : "ai";
-                                    _priceDb?.SetPrice(item.JkrCode, item.UnitPrice, item.Unit);
+                                    item.MatchLayer = match.MatchLayer;
+                                    item.MatchConfidence = match.Confidence;
+                                    item.MatchReasoning = match.Reasoning;
+                                    item.UnitMismatch = false;
+                                    _priceDb?.SetPrice(item.JkrCode, match.UnitPrice, item.Unit);
                                 }
                             }
                         }
@@ -808,6 +921,8 @@ namespace RevitWebAppSync.UI
                 if (localMatched > 0) parts.Add($"Local: {localMatched}");
                 if (pipelineMatched > 0) parts.Add($"Pipeline: {pipelineMatched}");
                 parts.Add($"Rate: {matchRate}");
+                if (unitSkipped > 0) parts.Add($"⚠ {unitSkipped} unit-mismatch (not priced)");
+                if (_appliedMarkupPct > 0) parts.Add($"incl. {_appliedMarkupPct:G4}% markup");
                 string detail = string.Join(" | ", parts);
 
                 if (reviewQueued > 0)
