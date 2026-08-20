@@ -193,23 +193,51 @@
         <Border Grid.Row="1" BorderBrush="{DynamicResource Cp.Line}" BorderThickness="0,0,0,1" Padding="16,0,16,0"
                 Visibility="{Binding IsSubScreen, Converter={StaticResource BoolVis}, ConverterParameter=Invert}">
             <StackPanel Orientation="Horizontal">
+                <!-- v6 tabs: 14px stroke icon + label per tab. Icons inherit the
+                     tab's Foreground (faint → accent when active) via
+                     Stroke="{Binding Foreground, RelativeSource=…}". -->
                 <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Chat"
-                              IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Chat}"
-                              Content="Chat"/>
+                              IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Chat}">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Width="13" Height="13" Stretch="Uniform" StrokeThickness="1.8" Margin="0,0,6,0" VerticalAlignment="Center"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
+                              Data="M12,3 a9,9 0 0 1 9,9 a9,9 0 0 1 -9,9 c-1.6,0 -3.1,-0.4 -4.4,-1.1 L3,21 l1.1,-4.6 C3.4,15.1 3,13.6 3,12 a9,9 0 0 1 9,-9 Z M8,12 h0.01 M12,12 h0.01 M16,12 h0.01"/>
+                        <TextBlock Text="Chat" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </ToggleButton>
                 <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="History"
                               IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=History}">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="History"/>
+                        <Path Width="13" Height="13" Stretch="Uniform" StrokeThickness="1.8" Margin="0,0,6,0" VerticalAlignment="Center"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
+                              Data="M3.5,12 a8.5,8.5 0 1 0 2.5,-6 L3.5,8.5 M3.5,3.5 v5 h5 M12,7.5 V12 l3,2"/>
+                        <TextBlock Text="History" VerticalAlignment="Center"/>
                         <TextBlock Text="{Binding History.Count, Mode=OneWay}" FontSize="10.5" FontWeight="SemiBold"
                                    Foreground="{DynamicResource Cp.Faint}" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </ToggleButton>
                 <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Library"
-                              IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Library}"
-                              Content="Library"/>
+                              IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Library}">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Width="13" Height="13" Stretch="Uniform" StrokeThickness="1.8" Margin="0,0,6,0" VerticalAlignment="Center"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
+                              Data="M5,4 h3 v16 H5 Z M10,4 h3 v16 h-3 Z M15.5,5 l3.5,0.8 -3.4,14.7 -3.5,-0.8 Z"/>
+                        <TextBlock Text="Library" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </ToggleButton>
                 <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Model"
-                              IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Model}"
-                              Content="Model"/>
+                              IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Model}">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Width="13" Height="13" Stretch="Uniform" StrokeThickness="1.8" Margin="0,0,6,0" VerticalAlignment="Center"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
+                              Data="M12,3 l8,4.5 v9 L12,21 l-8,-4.5 v-9 Z M12,12 l8,-4.5 M12,12 v9 M12,12 L4,7.5"/>
+                        <TextBlock Text="Model" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </ToggleButton>
             </StackPanel>
         </Border>
 

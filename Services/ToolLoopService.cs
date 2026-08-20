@@ -355,16 +355,26 @@ namespace RevitWebAppSync.Services
                         {
                             using var d = JsonDocument.Parse(objJson);
                             var delta = GetStr(d.RootElement, "delta");
+                            var segment = GetStr(d.RootElement, "segment");
                             if (!string.IsNullOrEmpty(delta) && replySb != null)
                             {
+                                // Leg boundary → paragraph break in the flat copy
+                                // buffer, or the copied text glues sentences
+                                // ("…rename.The audit is complete", 2026-08-20).
+                                // Display was never glued (segments render as
+                                // separate blocks); this aligns copy with it.
+                                if (blocks != null && !string.IsNullOrEmpty(segment)
+                                    && segment != blocks.CurrentSegment
+                                    && replySb.Length > 0
+                                    && !char.IsWhiteSpace(replySb[replySb.Length - 1]))
+                                    replySb.Append("\n\n");
                                 replySb.Append(delta);
                                 grew = true;
                             }
                             // Stream v2 (V2.1): a segment id flips the turn into
                             // segmented rendering; the accumulator ignores
                             // untagged deltas until then (legacy path).
-                            if (blocks != null
-                                && blocks.ApplyReply(delta, GetStr(d.RootElement, "segment")))
+                            if (blocks != null && blocks.ApplyReply(delta, segment))
                                 blocksGrew = true;
                         }
                         if (grew)

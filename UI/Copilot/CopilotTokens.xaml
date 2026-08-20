@@ -125,7 +125,7 @@
 
     <!-- ═══════════ TYPOGRAPHY ═══════════ -->
     <!-- Geist preferred; falls back to Segoe UI until woff2/ttf is embedded (Task 17). -->
-    <FontFamily x:Key="Cp.Font">Geist, Segoe UI, system-ui, sans-serif</FontFamily>
+    <FontFamily x:Key="Cp.Font">pack://application:,,,/RevitWebAppSync;component/Fonts/#Inter, Segoe UI, system-ui, sans-serif</FontFamily>
     <FontFamily x:Key="Cp.FontMono">Geist Mono, Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
 
     <!-- ═══════════ DIMENSIONS ═══════════ -->
@@ -202,7 +202,7 @@
          WPF can't resolve the pack URI family and silently falls through to
          the fallback names — dropping the files in later "just works" with NO
          further code change, matching the Cp.Font precedent (Task 17). -->
-    <FontFamily x:Key="Cp.Reasoning.Font">pack://application:,,,/RevitWebAppSync;component/Fonts/#Instrument Sans, Segoe UI, system-ui, sans-serif</FontFamily>
+    <FontFamily x:Key="Cp.Reasoning.Font">pack://application:,,,/RevitWebAppSync;component/Fonts/#Inter, Segoe UI, system-ui, sans-serif</FontFamily>
     <FontFamily x:Key="Cp.Reasoning.FontMono">pack://application:,,,/RevitWebAppSync;component/Fonts/#JetBrains Mono, Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
 
     <!-- Spacing scale (README: 4/6/8/9/10/11/13/14/16/20/22px) — exposed as

@@ -576,7 +576,13 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // Progress trail pill: collapsed expandable summary on final AI replies
             // only (not Clarify/Proposal/Running/Result — those carry Steps too but
             // render their own cards, so the pill would be a stray duplicate).
-            if (m.Kind == CpMsgKind.AiReply && m.Steps != null && m.Steps.Count > 0)
+            // v6 dedupe (2026-08-20 parity pass): when the turn ALSO carries a
+            // reasoning trail, the Agent-activity card above already presents
+            // the run's evidence — a second "N · Xs · label" chip under it read
+            // as clutter in the JKR-audit screenshot. Steps stay reachable for
+            // reasoning-less turns (old backends) exactly as before.
+            if (m.Kind == CpMsgKind.AiReply && m.Steps != null && m.Steps.Count > 0
+                && (m.ReasoningSteps == null || m.ReasoningSteps.Count == 0))
             {
                 // ── Collapsed chip ────────────────────────────────────────────
                 // Redesigned 2026-07-27. The old pill stretched the full column
