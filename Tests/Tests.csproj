@@ -137,6 +137,17 @@
     <!-- Lean-context wire contract: AIRequest/ModelContext (pure Newtonsoft
          DTOs). No Revit refs. -->
     <Compile Include="..\Models\AIRequest.cs" Link="AIRequest.cs" />
+    <!-- Grounding layer, both System-only by design so they can be linked
+         here. EnvelopeTrace turns exterior wall centrelines into one outer
+         ring (the geometry the backend grounds roofs and stairs on);
+         TxOwnership decides whether a document change was ours, which is what
+         keeps the agent's own writes from expiring its own model context.
+         Their Revit-typed callers (ModelContextTool.cs, DocVersion.cs) are
+         deliberately NOT linked — a linked file with Revit types in its
+         signatures makes the runner skip the ENTIRE suite while exiting
+         green, which is why CategoryNames.cs exists too. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\EnvelopeTrace.cs" Link="EnvelopeTrace.cs" />
+    <Compile Include="..\BinaVibe\Mcp\Tools\TxOwnership.cs" Link="TxOwnership.cs" />
     <!--
       DocumentChangedIndexer: included for BuildBulkPayload / SnapshotDoc /
       SnapshotPayload (pure logic, no Revit refs). BulkIndexAsync and the

@@ -3206,6 +3206,15 @@ namespace BinaVibe.Mcp.Tools
             {
                 int count = 0;
                 double area = 0;
+                // PER-CATEGORY z, separate from the whole-model zMin/zMax
+                // above. Every other number in this digest describes the model
+                // in PLAN, which is why a roof lying on the ground clipping
+                // through its own walls scored 100% covered and shipped
+                // (2026-08-18): in plan it is exactly where it should be.
+                // geometry_review's elevation check compares roofs' z against
+                // walls' z and cannot run without these two numbers.
+                double catZMin = double.PositiveInfinity;
+                double catZMax = double.NegativeInfinity;
                 foreach (var el in new FilteredElementCollector(doc)
                              .OfCategory(bic).WhereElementIsNotElementType())
                 {
@@ -3213,6 +3222,8 @@ namespace BinaVibe.Mcp.Tools
                     var bb = el.get_BoundingBox(null);
                     if (bb == null) continue;
                     count++;
+                    catZMin = Math.Min(catZMin, bb.Min.Z);
+                    catZMax = Math.Max(catZMax, bb.Max.Z);
                     xMin = Math.Min(xMin, bb.Min.X); yMin = Math.Min(yMin, bb.Min.Y); zMin = Math.Min(zMin, bb.Min.Z);
                     xMax = Math.Max(xMax, bb.Max.X); yMax = Math.Max(yMax, bb.Max.Y); zMax = Math.Max(zMax, bb.Max.Z);
                     var a = (bb.Max.X - bb.Min.X) * (bb.Max.Y - bb.Min.Y);
@@ -3239,6 +3250,15 @@ namespace BinaVibe.Mcp.Tools
                 {
                     ["count"] = count,
                     ["plan_area_m2"] = Math.Round(area * FT * FT / 1e6, 1),
+                    // Omitted entirely when the category is empty rather than
+                    // sent as infinities: the reviewer fails OPEN on a missing
+                    // z (older addins never sent one), and a null reads the
+                    // same as "not measured" instead of as a roof at zero.
+                    ["z_mm"] = count == 0 ? null : new Dictionary<string, object?>
+                    {
+                        ["min"] = Math.Round(catZMin * FT, 1),
+                        ["max"] = Math.Round(catZMax * FT, 1),
+                    },
                 };
             }
 

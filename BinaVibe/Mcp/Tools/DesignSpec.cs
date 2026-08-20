@@ -103,6 +103,40 @@ namespace BinaVibe.Mcp.Tools
                 ? v.GetDouble() : (double?)null;
         }
 
+        /// <summary>Where this part sits in z, in FEET, absolute — the one
+        /// number app/services/elevation.py computed for it, arriving on the
+        /// part's own `info.z`.
+        ///
+        /// This addin used to work elevation out for itself: a `wallHeight`
+        /// expression here, a second copy in the legacy path, a `roofLevel`
+        /// ladder indexing `levels[]` three different ways, and GableEnd
+        /// recomputing the ridge from a hand-copied formula that had already
+        /// drifted on the overhang. They agreed by coincidence until they
+        /// didn't, and a roof came out on the ground. Now there is one source
+        /// and this file reads it.
+        ///
+        /// `(null, null)` means the backend sent no z — a spec older than this
+        /// contract. Callers fall back to their level, and say so.</summary>
+        private static (double? BaseFt, double? PlateFt, double? TopFt) PartZ(
+            IReadOnlyDictionary<string, JsonElement> partsById, string id)
+        {
+            if (!partsById.TryGetValue(id, out var el)
+                || !el.TryGetProperty("info", out var info)
+                || !info.TryGetProperty("z", out var z)
+                || z.ValueKind != JsonValueKind.Object)
+                return (null, null, null);
+            double? G(string key) =>
+                z.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number
+                    ? v.GetDouble() / FT : (double?)null;
+            // slabs carry bottom/top, walls base/plate/top, roofs base/ridge —
+            // one shape per part kind, one accessor. A wall's PLATE is where it
+            // would stop under a flat roof and its TOP is where it actually
+            // stops; they differ only on a gable end, and the addin needs both
+            // rather than re-deriving one from the other.
+            var top = G("top_mm") ?? G("ridge_mm");
+            return (G("base_mm") ?? G("bottom_mm"), G("plate_mm") ?? top, top);
+        }
+
         private static List<XYZ> Footprint(JsonElement args)
         {
             var pts = ArgsHelp.GetPointListMm(args, "footprint_mm");
@@ -196,36 +230,12 @@ namespace BinaVibe.Mcp.Tools
             return pool.FirstOrDefault();
         }
 
-        private static FamilySymbol? FindSymbol(Document doc, BuiltInCategory bic, string? name)
-        {
-            var all = new FilteredElementCollector(doc).WhereElementIsElementType()
-                .OfCategory(bic).Cast<FamilySymbol>().ToList();
-            if (all.Count == 0) return null;
-            if (string.IsNullOrWhiteSpace(name)) return all.First();
-            // Accept every spelling a model plausibly sends: the type name
-            // ("900 x 2100mm"), "Family : Type" (how Revit DISPLAYS types, so
-            // models copy it — 2026-08-11 loop: every such guess threw), and a
-            // bare family name (first type of that family).
-            var trimmed = name.Trim();
-            var byType = all.FirstOrDefault(s => string.Equals(s.Name, trimmed, StringComparison.OrdinalIgnoreCase));
-            if (byType != null) return byType;
-            var colon = trimmed.LastIndexOf(':');
-            if (colon > 0)
-            {
-                var fam = trimmed.Substring(0, colon).Trim();
-                var typ = trimmed.Substring(colon + 1).Trim();
-                var combo = all.FirstOrDefault(s =>
-                    string.Equals(s.FamilyName, fam, StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(s.Name, typ, StringComparison.OrdinalIgnoreCase));
-                if (combo != null) return combo;
-            }
-            var byFamily = all.FirstOrDefault(s =>
-                string.Equals(s.FamilyName, trimmed, StringComparison.OrdinalIgnoreCase));
-            if (byFamily != null) return byFamily;
-            throw new ArgumentException(
-                $"type '{name}' not found in {bic} — known: "
-                + string.Join(", ", all.Take(8).Select(s => $"{s.FamilyName} : {s.Name}")));
-        }
+        /// <summary>The family type a spec names. Delegates to SymbolLookup so
+        /// build_design and the granular place_* tools resolve a type name by
+        /// exactly one rule — they used to have two, and the same name that
+        /// worked here was rejected by place_door.</summary>
+        private static FamilySymbol? FindSymbol(Document doc, BuiltInCategory bic, string? name) =>
+            SymbolLookup.Find(doc, bic, name);
 
         private static CurveArray Loop(IList<XYZ> pts, double z)
         {
@@ -326,7 +336,25 @@ namespace BinaVibe.Mcp.Tools
             if (parts != null && parts.Value.ValueKind == JsonValueKind.Array
                 && parts.Value.GetArrayLength() > 0)
                 return BuildFromParts(doc, args, uidoc, parts.Value);
-            return BuildLegacy(doc, args, uidoc);
+
+            // No `parts` means the backend never solved this build — no room
+            // plan, no opening positions, no elevations, and no scorecard to
+            // measure any of it against. BuildLegacy would still put SOMETHING
+            // in the model: its own door heuristic ("the interior edge nearest
+            // the plan centre"), its own roof elevation, its own idea of where
+            // a window goes. That is how a house ships looking roughly right
+            // with rooms you cannot walk into and a roof lying on the floor,
+            // and it ships SILENTLY because nothing unmeasured can fail.
+            //
+            // So: refuse, and say what would make it work. The legacy path
+            // below is kept for one release in case a caller still reaches it
+            // that this change has not found; nothing reaches it by accident.
+            throw new InvalidOperationException(
+                "build_design needs a solved plan: this call carries no `parts` checklist, "
+                + "which means the backend had no `program` to lay out. Re-issue build_design "
+                + "with a `program` (one entry per room) so the layout, the openings and the "
+                + "elevations are solved and measured. Refusing rather than placing walls, "
+                + "doors and a roof that nothing can verify.");
         }
 
         /// <summary>Repair entry: rebuild only the subset `parts` names, against
@@ -904,7 +932,25 @@ namespace BinaVibe.Mcp.Tools
                     var (wallsBase, wallsLevel) = SplitLevel(id);
                     var role = wallsBase.Substring("walls.".Length);
                     var vol = VolByRole(role);
-                    var wallHeight = vol.HeightFt > TOL ? vol.HeightFt : f2f;
+                    // Height is the backend's number now, not a local rule. It
+                    // used to be `vol.HeightFt > TOL ? vol.HeightFt : f2f` here
+                    // AND in the legacy path AND, as `_wall_top_mm`, in
+                    // design_parts.py — three copies of one decision, which is
+                    // how a wall could be predicted at one height and built at
+                    // another (the 2026-08-11 smoke: 3600 measured, 3000
+                    // predicted).
+                    var (wallBaseFt, wallPlateFt, wallTopFt) = PartZ(partsById, id);
+                    if (wallBaseFt == null || wallPlateFt == null || wallTopFt == null)
+                        throw new InvalidOperationException(
+                            $"part '{id}' carries no info.z — this addin no longer derives wall "
+                            + "elevation from the volume's own height. Re-issue the build so the "
+                            + "backend ships the elevation it solved.");
+                    var wallHeight = wallPlateFt.Value - wallBaseFt.Value;
+                    // The rake a gable end climbs above its plate — the SAME
+                    // rise elevation.py gave the roof above the same plate, so
+                    // wall and roof underside meet along the whole rake by
+                    // construction rather than by two files agreeing.
+                    var ridgeRiseFt = wallTopFt.Value - wallPlateFt.Value;
                     var wallLvl = levels[wallsLevel - 1];
                     // Gable-end treatment (below) belongs ONLY on the level the
                     // roof actually bears on. A climbing primary volume's
@@ -940,7 +986,7 @@ namespace BinaVibe.Mcp.Tools
                         var isGableEnd = isTopLevel && GableEnd.IsGableEnd(vol, a, b, args);
                         var w = isGableEnd
                             ? GableEnd.CreateProfiled(doc, vol, a, b, extType, wallLvl,
-                                                      wallHeight, args)
+                                                      wallHeight, ridgeRiseFt, args)
                             : Wall.Create(doc, Line.CreateBound(a, b), extType.Id, wallLvl.Id,
                                           wallHeight, 0, false, false);
                         // NEVER top-constrain a profiled wall: the constraint
@@ -1274,50 +1320,33 @@ namespace BinaVibe.Mcp.Tools
                     // tightly, which is why the offset is applied here, not
                     // trusted to the scorecard.
                     var boundary = Volumes.WithEaves(vol.Outline, overhangFt);
-                    // The PRIMARY volume's roof bears on the TOP OCCUPIED
-                    // level regardless of its own height_mm — `count` IS that
-                    // level: EnsureLevels' levels[count] is the "Roof" level,
-                    // and design_preflight refuses a spec where the primary's
-                    // program does not populate every storey 1..count, so
-                    // `count` always equals the backend's own `top_level`
-                    // (design_parts.py). Every OTHER volume (porch, garage) is
-                    // a single-storey add-on no matter how tall the house
-                    // gets, so it keeps today's own-height rule at level 1 —
-                    // unchanged for a single-storey build, where levels[1] ==
-                    // levels[count] anyway (rung 4, task 8).
-                    //
-                    // A part shorter than the storey carries its roof at its own
-                    // height, not the top of the house. It stays on level 0 (the
-                    // level stack has no level at 2700) and is lifted by a base
-                    // offset instead — building it AT level 0 would put a porch
-                    // roof on the ground, which is what the part predicts against.
-                    var isPrimaryRoof = string.Equals(vol.Role, primaryRole,
-                                                      StringComparison.OrdinalIgnoreCase);
-                    // I2 (final review 2026-08-13): a SINGLE-STOREY primary
-                    // volume whose own height_mm is set below the storey
-                    // height is "short" exactly like a porch/garage would
-                    // be — its roof belongs at its own wall top, not at
-                    // levels[count]. For count==1, levels[count] ==
-                    // levels[1], the SAME elevation as f2f, which sits
-                    // above the volume's own (shorter) walls — the
-                    // isPrimaryRoof branch below used to send it there with
-                    // NO offset, opening a gap between wall top and roof
-                    // that the old, pre-rung-4 code (roof at the wall's own
-                    // top) never had. A multi-storey (count>=2) primary
-                    // volume is never "short" this way — `count` IS its top
-                    // occupied level regardless of its own height_mm, by
-                    // design (comment above) — so this only ever fires for
-                    // count==1.
-                    var shortPrimary = isPrimaryRoof && count == 1
-                                       && vol.HeightFt > TOL && vol.HeightFt < f2f - TOL;
-                    var shortVol = !isPrimaryRoof && vol.HeightFt > TOL && vol.HeightFt < f2f - TOL;
-                    var roofLevel = shortPrimary ? levels[0]
-                                    : isPrimaryRoof ? levels[count]
-                                    : (shortVol ? levels[0] : levels[1]);
+                    // WHERE the roof bears is not this file's call any more.
+                    // It used to be a three-way ladder over levels[0] /
+                    // levels[1] / levels[count] plus a base offset, with a
+                    // second, different ladder in the legacy path and a third
+                    // prediction in design_parts.py — and when they disagreed
+                    // a roof ended up on the ground, through the walls it was
+                    // meant to sit on. One number now, from
+                    // app/services/elevation.py, on the part's own info.z.
+                    var (roofBaseFt, _, _) = PartZ(partsById, kv.Key);
+                    if (roofBaseFt == null)
+                        throw new InvalidOperationException(
+                            $"part '{kv.Key}' carries no info.z.base_mm — this addin no longer "
+                            + "derives roof elevation from the level stack. Re-issue the build "
+                            + "so the backend ships the elevation it solved.");
+                    // The roof is ASSOCIATED with the nearest level at or below
+                    // where it bears (Revit wants one); the remainder becomes an
+                    // offset inside RoofBuilder. Which level that is no longer
+                    // changes the elevation, so picking it wrong is cosmetic
+                    // rather than the difference between a roof and a floor.
+                    var roofLevel = levels
+                        .Where(l => l.Elevation <= roofBaseFt.Value + TOL)
+                        .OrderByDescending(l => l.Elevation)
+                        .FirstOrDefault() ?? levels[0];
                     var res = RoofBuilder.Build(doc, boundary, roofLevel, roofType,
                                                 roofKind == "flat" ? null : roofPitch,
-                                                null, roofKind,
-                                                (shortVol || shortPrimary) ? vol.HeightFt : 0);
+                                                roofBaseFt.Value,
+                                                null, roofKind);
                     if (!res.Ok)
                     {
                         SetScore(scorecard, kv.Key, "failed", expected.ToString(),
@@ -2473,11 +2502,17 @@ namespace BinaVibe.Mcp.Tools
                     {
                         var boundary = Volumes.WithEaves(vol.Outline, overhangFt);
                         // A part shorter than the storey carries its roof at its
-                        // own height, not the top of the house.
-                        var roofLevel = vol.HeightFt > TOL && vol.HeightFt < f2f - TOL
-                            ? levels[0] : levels[count];
+                        // own height, not the top of the house. This path has no
+                        // parts and therefore no backend-solved elevation, so it
+                        // still derives one — but it derives the SAME expression
+                        // the parts path gets from elevation.py, and it no longer
+                        // silently drops the lift the way passing no offset did.
+                        var shortVol = vol.HeightFt > TOL && vol.HeightFt < f2f - TOL;
+                        var roofBaseFt = shortVol ? vol.HeightFt : f2f * count;
+                        var roofLevel = shortVol ? levels[0] : levels[count];
                         var res = RoofBuilder.Build(doc, boundary, roofLevel, roofType,
                                                     roofKind == "flat" ? null : roofPitch,
+                                                    levels[0].Elevation + roofBaseFt,
                                                     null, roofKind);
                         if (res.Ok) roofIds.Add(res.Id!.Value);
                         roofRes ??= res;

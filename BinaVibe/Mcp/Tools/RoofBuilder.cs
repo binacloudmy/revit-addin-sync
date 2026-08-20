@@ -10,6 +10,20 @@
 // Order matters: footprint roofs are the "correct" Revit construction and keep
 // slope-per-edge control, so they are tried first. The extrusion is the
 // fallback that actually works when the API refuses.
+//
+// There used to be a THIRD strategy between them: the same footprint call with
+// its sketch curves at literal Z=0, while still passing the roof's own level.
+// It was not a fallback. It was a roof on the ground, through the walls it was
+// meant to sit on — and it "succeeded", so it was reported as a built roof and
+// the plan-only coverage check in geometry_review could not see it (a roof
+// directly under the building covers 100% of it in plan). Deleted 2026-08-18.
+// If the footprint API refuses, the extrusion path is the fallback; there is no
+// such thing as a correct roof at an elevation nobody asked for.
+//
+// Elevation is now an INPUT, not a decision: `baseZFt` is where the roof bears,
+// absolute, computed once by app/services/elevation.py and threaded through the
+// part's `info.z`. This file no longer derives z from a level index, and
+// neither does DesignSpec.
 
 using System;
 using System.Collections.Generic;
@@ -30,24 +44,32 @@ namespace BinaVibe.Mcp.Tools
             public bool Ok => Id != null;
         }
 
-        /// <summary>Create a roof over <paramref name="boundary"/>, trying each
-        /// strategy in turn. The caller owns NO transaction — each attempt opens
-        /// and commits (or rolls back) its own, so one failure cannot poison the
-        /// next.</summary>
+        /// <summary>Create a roof over <paramref name="boundary"/> bearing at
+        /// <paramref name="baseZFt"/>, trying each strategy in turn. The caller
+        /// owns NO transaction — each attempt opens and commits (or rolls back)
+        /// its own, so one failure cannot poison the next.
+        ///
+        /// <paramref name="baseZFt"/> is ABSOLUTE, in feet, in the project's own
+        /// coordinate frame — the single elevation the backend computed for this
+        /// roof. <paramref name="level"/> is the Revit level the roof is
+        /// associated with; where it sits relative to <paramref name="baseZFt"/>
+        /// becomes a level offset, never a different elevation.</summary>
         public static Result Build(Document doc, IList<XYZ> boundary, Level level,
                                    RoofType roofType, double? slopeDeg,
+                                   double baseZFt,
                                    IList<long>? slopeEdgeIndices = null,
-                                   string kind = "flat",
-                                   double baseOffsetFt = 0)
+                                   string kind = "flat")
         {
             var res = new Result();
             var edges = slopeEdgeIndices ?? new List<long>();
+            // The roof bears at baseZFt; the level it is hosted on may sit
+            // elsewhere, and the difference is the offset parameter.
+            var baseOffsetFt = baseZFt - level.Elevation;
 
-            // ── 1 & 2: footprint roof, curves at the level elevation then at Z=0.
-            foreach (var (z, label) in new[]
-                     { (level.Elevation, "footprint roof at level elevation"),
-                       (0.0, "footprint roof at Z=0") })
+            // ── 1: footprint roof, curves at the elevation the roof bears at.
             {
+                var z = baseZFt;
+                const string label = "footprint roof at bearing elevation";
                 var curves = new CurveArray();
                 var mids = new List<XYZ>();
                 var idxs = new List<int>();
@@ -118,7 +140,7 @@ namespace BinaVibe.Mcp.Tools
                 }
             }
 
-            // ── 3: extrusion roof. A pitched roof IS a cross-section swept along
+            // ── 2: extrusion roof. A pitched roof IS a cross-section swept along
             // a ridge, and this API path succeeds where the footprint one is
             // refused. Flat roofs are given a shallow fall rather than nothing,
             // because a flat extrusion is degenerate.
@@ -127,10 +149,10 @@ namespace BinaVibe.Mcp.Tools
                 var minX = boundary.Min(p => p.X); var maxX = boundary.Max(p => p.X);
                 var minY = boundary.Min(p => p.Y); var maxY = boundary.Max(p => p.Y);
                 var alongX = (maxX - minX) >= (maxY - minY);
-                var z0 = level.Elevation + baseOffsetFt;   // extrusion roofs ignore
-                // ROOF_LEVEL_OFFSET, so a short volume's lift must be drawn
+                var z0 = baseZFt;          // extrusion roofs ignore
+                // ROOF_LEVEL_OFFSET, so the bearing elevation must be drawn
                 // into the profile itself (porch measured z -248 vs predicted
-                // 2700 on 2026-08-11).
+                // 2700 on 2026-08-11). Same number the footprint path uses.
                 var pitch = (slopeDeg ?? 5.0) * Math.PI / 180.0;   // 5° fall for "flat"
                 var half = (alongX ? (maxY - minY) : (maxX - minX)) / 2.0;
                 var rise = half * Math.Tan(pitch);

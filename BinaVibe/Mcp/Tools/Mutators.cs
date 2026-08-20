@@ -3247,7 +3247,12 @@ namespace BinaVibe.Mcp.Tools
             // did not. Must happen BEFORE any Transaction opens.
             using var viewSwitch = ViewGuard.EnsurePlanView(doc, uidoc);
 
-            var res = RoofBuilder.Build(doc, boundary, level, roofType, slopeDeg, slopeEdges,
+            // create_roof is level-relative by contract (the drafter names a
+            // level and an optional offset), so the absolute bearing elevation
+            // RoofBuilder now takes is derived right here — one line, one
+            // place, instead of a strategy quietly choosing a different z.
+            var res = RoofBuilder.Build(doc, boundary, level, roofType, slopeDeg,
+                                        level.Elevation + offsetFt, slopeEdges,
                                         slopeDeg.HasValue ? "gable" : "flat");
             if (!res.Ok)
                 throw new InvalidOperationException(
@@ -3320,10 +3325,9 @@ namespace BinaVibe.Mcp.Tools
                 for (int i = 0; i < n; i++) offsets.Add(startFt + step * (i + 0.5));
             }
 
-            var symbol = new FilteredElementCollector(doc).WhereElementIsElementType()
-                .OfCategory(BuiltInCategory.OST_Windows).Cast<FamilySymbol>()
-                .FirstOrDefault(s => string.Equals(s.Name, typeName, StringComparison.OrdinalIgnoreCase))
-                ?? throw new ArgumentException($"window type '{typeName}' not found");
+            var symbol = SymbolLookup.Find(doc, BuiltInCategory.OST_Windows, typeName)
+                ?? throw new ArgumentException(
+                    "no window family is loaded in this project — load one first (load_family).");
             var hostLevel = doc.GetElement(host.LevelId) as Level
                 ?? throw new InvalidOperationException("host wall has no level");
 
@@ -3441,6 +3445,15 @@ namespace BinaVibe.Mcp.Tools
                 ?? throw new ArgumentException("missing location_mm [x,y] (start of the run)");
             var widthFt = ArgsHelp.GetLengthMm(args, "width_mm") ?? (1200.0 / 304.8);
             var dirDeg = ArgsHelp.GetDouble(args, "direction_deg") ?? 0.0;
+            // The backend's grounding layer sizes a run for the REAL rise and
+            // ships that budget along. BuildStraightStairRun already refuses —
+            // before creating any geometry — when the project's actual
+            // StairsType needs more run than the caller reserved; DesignSpec's
+            // stairs.main part has always passed it and this tool never did,
+            // which is why a too-tight Lane B stair failed halfway built
+            // instead of cleanly up front. Null (an ungrounded legacy call)
+            // keeps the old unbudgeted behaviour.
+            var maxRunFt = ArgsHelp.GetLengthMm(args, "max_run_length_mm");
 
             Level Find(string n) => new FilteredElementCollector(doc).OfClass(typeof(Level)).Cast<Level>()
                 .FirstOrDefault(l => string.Equals(l.Name, n, StringComparison.OrdinalIgnoreCase))
@@ -3449,7 +3462,8 @@ namespace BinaVibe.Mcp.Tools
             var topLevel = Find(topName);
 
             var built = BuildStraightStairRun(doc, baseLevel, topLevel,
-                new XYZ(start.X, start.Y, 0), dirDeg * Math.PI / 180.0, widthFt);
+                new XYZ(start.X, start.Y, 0), dirDeg * Math.PI / 180.0, widthFt,
+                maxRunFt);
 
             return new Dictionary<string, object?>
             {
@@ -4120,10 +4134,15 @@ namespace BinaVibe.Mcp.Tools
             var host = doc.GetElement(ElemIds.From(hostId)) as Wall
                 ?? throw new ArgumentException($"host wall {hostId} not found");
 
-            var symbol = new FilteredElementCollector(doc).WhereElementIsElementType()
-                .OfCategory(cat).Cast<FamilySymbol>()
-                .FirstOrDefault(s => string.Equals(s.Name, typeName, StringComparison.OrdinalIgnoreCase))
-                ?? throw new ArgumentException($"type '{typeName}' not found in category {cat}");
+            // One resolver, shared with build_design (SymbolLookup): the type
+            // name, "Family : Type", or a family name all work here now. This
+            // used to match the type name and nothing else, so a drafter who
+            // pasted what Revit displays got "type not found" with no list of
+            // what the project actually has.
+            var symbol = SymbolLookup.Find(doc, cat, typeName)
+                ?? throw new ArgumentException(
+                    $"no {cat} family is loaded in this project, so '{typeName}' cannot be placed. "
+                    + "Load a door/window family first (load_family), then retry.");
 
             using var tx = new Transaction(doc, $"BinaVibe: {label}");
             TxGuard.StartSwallowing(tx);

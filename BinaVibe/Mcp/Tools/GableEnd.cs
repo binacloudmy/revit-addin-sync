@@ -70,12 +70,19 @@ namespace BinaVibe.Mcp.Tools
         }
 
         /// <summary>Create the end wall as a PROFILE wall: rectangle up to the
-        /// eave line, then the roof's triangle to the ridge. The apex height
-        /// reuses RoofBuilder's arithmetic over the same eaves outline, so wall
-        /// and roof underside coincide along the whole rake.</summary>
+        /// eave line, then the roof's triangle to the ridge.
+        ///
+        /// <paramref name="ridgeRiseFt"/> is how far the ridge sits above the
+        /// plate — the SAME rise app/services/elevation.py gave the roof over
+        /// the same plate, threaded in through the part's info.z. This file
+        /// used to recompute it from the volume outline and the pitch, which
+        /// was a hand-copy of RoofBuilder's own line; the two happened to
+        /// agree, but nothing made them agree, and elsewhere in this build that
+        /// exact arrangement put a roof on the ground. Wall and roof underside
+        /// now coincide along the rake by construction.</summary>
         public static Wall CreateProfiled(Document doc, BuildVolume vol, XYZ a, XYZ b,
                                           WallType type, Level level, double wallHeight,
-                                          JsonElement args)
+                                          double ridgeRiseFt, JsonElement args)
         {
             var spec = PitchedRoofOver(vol, args)
                 ?? throw new InvalidOperationException("CreateProfiled on an unroofed volume");
@@ -84,10 +91,6 @@ namespace BinaVibe.Mcp.Tools
             var minX = vol.Outline.Min(p => p.X); var maxX = vol.Outline.Max(p => p.X);
             var minY = vol.Outline.Min(p => p.Y); var maxY = vol.Outline.Max(p => p.Y);
             var alongX = (maxX - minX) >= (maxY - minY);
-            // Short half-span of the EAVES outline — identical to RoofBuilder's
-            // `half` over Volumes.WithEaves (symmetric offset adds overhang on
-            // both sides).
-            var half = (alongX ? (maxY - minY) : (maxX - minX)) / 2.0 + spec.OverhangFt;
 
             var z0 = level.Elevation;
             var zTop = z0 + wallHeight;
@@ -101,7 +104,10 @@ namespace BinaVibe.Mcp.Tools
             // equals the eave line at the outline corners by construction.
             var volMid = alongX ? (minY + maxY) / 2.0 : (minX + maxX) / 2.0;
             double CoordOf(XYZ p) => alongX ? p.Y : p.X;
-            double ZAt(double c) => zTop + (half - Math.Abs(c - volMid)) * tan;
+            // At the mid-axis this is exactly zTop + ridgeRiseFt (the ridge);
+            // it falls away at the roof pitch toward each eave, reaching the
+            // eave line at the outline corners by construction.
+            double ZAt(double c) => zTop + ridgeRiseFt - Math.Abs(c - volMid) * tan;
 
             var ca = CoordOf(a); var cb = CoordOf(b);
             var pts = new List<XYZ>

@@ -91,11 +91,23 @@ namespace RevitWebAppSync.Services
         {
             try
             {
+                // Version counters first: a FOREIGN edit landing between
+                // batches is exactly what invalidates a cached model context,
+                // and between batches is precisely when _recording is false.
+                // So this must sit above the gate below, not inside it.
+                BinaVibe.Mcp.Tools.DocVersion.Observe(e);
+
                 if (!_recording) return;
                 // Only our own tool transactions — a drafter editing mid-batch
                 // must not be claimed on our receipt.
+                //
+                // Ownership moved to DocVersion.IsOurs because this test used
+                // to match "BinaVibe" alone, while PartLoop names its per-part
+                // transactions "BINA part <id>" — so every build_design part
+                // was silently missing from its own receipt. One prefix list,
+                // both consumers.
                 var names = e.GetTransactionNames();
-                if (names == null || !names.Any(n => n != null && n.StartsWith("BinaVibe", StringComparison.OrdinalIgnoreCase)))
+                if (!BinaVibe.Mcp.Tools.DocVersion.IsOurs(names))
                     return;
                 lock (_lock)
                 {

@@ -229,6 +229,7 @@ namespace BinaVibe.Mcp.Tools
                 "place_window_array"            => Mutators.PlaceWindowArray(doc, args),
                 "create_wall_opening"           => Mutators.CreateWallOpening(doc, args),
                 "create_stairs"                 => Mutators.CreateStairs(doc, args),
+                "get_model_context"             => ModelContextTool.Run(doc, args),
                 "capture_view_image"            => Mutators.CaptureViewImage(doc, args),
                 "set_wall_endpoints"            => Mutators.SetWallEndpoints(doc, args),
                 "set_curtain_grid"              => Mutators.SetCurtainGrid(doc, args),
