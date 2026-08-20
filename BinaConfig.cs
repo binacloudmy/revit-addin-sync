@@ -15,6 +15,13 @@ namespace RevitWebAppSync
         public int UserId { get; set; }
         public int? OrgId { get; set; }   // organisation/team id, when the user belongs to one
 
+        // Uniform installed-rate markup (%) applied by the cost match
+        // pipeline on top of N3C material rates. 0 = raw material prices.
+        // Surfaced on the cost dashboard total ("incl. N% markup") so the
+        // drafter always knows what the number contains.
+        [JsonProperty("costMarkupPct")]
+        public double CostMarkupPct { get; set; } = 0;
+
         // Session data
         public string UserName { get; set; }
         public string ProjectName { get; set; }

@@ -193,7 +193,8 @@ namespace RevitWebAppSync.Services
         public async Task<PipelineResult> MatchPipelineAsync(
             List<CostItem> items,
             string projectName,
-            double similarityThreshold = 0.50)
+            double similarityThreshold = 0.50,
+            double markupPct = 0)
         {
             try
             {
@@ -208,11 +209,15 @@ namespace RevitWebAppSync.Services
                         category = i.Category,
                         jkr_code = i.JkrCode,
                         qty = i.Quantity,
-                        unit = i.Unit
+                        unit = i.Unit,
+                        width_mm = i.WidthMm,
+                        height_mm = i.HeightMm,
+                        thickness_mm = i.ThicknessMm
                     }).ToList(),
                     project_name = projectName,
                     auto_queue_review = true,
-                    similarity_threshold = similarityThreshold
+                    similarity_threshold = similarityThreshold,
+                    markup_pct = markupPct
                 };
 
                 var json = JsonConvert.SerializeObject(payload);
@@ -443,6 +448,12 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("match_rate")]
         public string MatchRate { get; set; }
+
+        [JsonProperty("markup_pct")]
+        public double MarkupPct { get; set; }
+
+        [JsonProperty("unit_mismatch")]
+        public int UnitMismatch { get; set; }
     }
 
     public class PipelineMatch
@@ -479,6 +490,9 @@ namespace RevitWebAppSync.Services
 
         [JsonProperty("reasoning")]
         public string Reasoning { get; set; }
+
+        [JsonProperty("reject_reason")]
+        public string RejectReason { get; set; }  // e.g. "unit_mismatch"
     }
 
     public class ReviewItemBrief
