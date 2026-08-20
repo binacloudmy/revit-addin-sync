@@ -42,6 +42,21 @@ namespace RevitWebAppSync.Handlers
         public int FromVersion { get; set; }
 
         /// <summary>
+        /// Lineage id of the model being replaced, carried onto the restored
+        /// document so the chain survives the swap.
+        ///
+        /// A downloaded version does NOT reliably carry the stamp: anything
+        /// uploaded through the web has no sourceDocumentGuid at all, so
+        /// restoring one leaves an unstamped model and the next sync mints a
+        /// fresh GUID. The server's own lineageId then only matches by filename,
+        /// which a rename would break.
+        /// </summary>
+        public string LineageId { get; set; }
+
+        /// <summary>Path the lineage stamp was originally minted at.</summary>
+        public string LineageOriginPath { get; set; }
+
+        /// <summary>
         /// Called on the Revit thread when the swap ends, successfully or not.
         /// Consumers touching WPF must marshal to their own dispatcher.
         /// </summary>
@@ -54,11 +69,15 @@ namespace RevitWebAppSync.Handlers
             string path = DownloadedPath;
             int fromDesignId = FromDesignId;
             int fromVersion = FromVersion;
+            string lineageId = LineageId;
+            string lineageOriginPath = LineageOriginPath;
             var callback = OnCompleted;
 
             DownloadedPath = null;
             FromDesignId = 0;
             FromVersion = 0;
+            LineageId = null;
+            LineageOriginPath = null;
             OnCompleted = null;
 
             if (string.IsNullOrEmpty(path))
@@ -140,15 +159,37 @@ namespace RevitWebAppSync.Handlers
                 // this feature exists to prevent.
                 string finalNote = null;
 
+                // Re-stamp the lineage FIRST. The restored bytes may carry no
+                // stamp (web uploads have none) or a stale one, and without this
+                // the next sync mints a new GUID and the chain silently forks.
+                if (!string.IsNullOrEmpty(lineageId))
+                {
+                    try
+                    {
+                        using (var tx = new Transaction(restored, "BINA: carry model identity"))
+                        {
+                            tx.Start();
+                            Services.ModelLineage.Write(restored, lineageId, lineageOriginPath ?? originalPath);
+                            tx.Commit();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        finalNote =
+                            "Restored, but this model's BINA identity could not be carried over. The next sync may "
+                            + "start a new version chain. (" + ex.Message + ")";
+                    }
+                }
+
                 try
                 {
                     Services.RollbackMarkerStore.Write(restored, fromDesignId, fromVersion);
                 }
                 catch (Exception ex)
                 {
-                    finalNote =
+                    finalNote = Append(finalNote,
                         "This model could not be marked as a rollback, so the next sync will publish it as an "
-                        + "ordinary version. (" + ex.Message + ")";
+                        + "ordinary version. (" + ex.Message + ")");
                 }
 
                 // ---- 4. Put the restored bytes back at the original path ----------

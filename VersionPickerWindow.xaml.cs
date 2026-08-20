@@ -88,6 +88,7 @@ namespace RevitWebAppSync
                 }
 
                 var rows = versions.Select(ToRow).ToList();
+                LabelRestoredFrom(rows);
                 VersionsListBox.ItemsSource = rows;
 
                 CountText.Text = rows.Count == 1
@@ -123,7 +124,8 @@ namespace RevitWebAppSync
                 CommentVisibility = string.IsNullOrWhiteSpace(v.SyncComment)
                     ? Visibility.Collapsed
                     : Visibility.Visible,
-                RestoredFromLine = "restored from an earlier version",
+                // Filled by LabelRestoredFrom once the whole list is known.
+                RestoredFromLine = null,
                 RestoredFromVisibility = v.RolledBackFromDesignId.HasValue
                     ? Visibility.Visible
                     : Visibility.Collapsed,
@@ -131,6 +133,32 @@ namespace RevitWebAppSync
                 TranslationText = DescribeTranslation(v),
                 CurrentBadgeVisibility = v.IsActive ? Visibility.Visible : Visibility.Collapsed
             };
+        }
+
+        /// <summary>
+        /// Names the version a rollback started from, resolving the design id
+        /// against the rest of the list — the API returns an id, and "V3" is what
+        /// a human can act on.
+        ///
+        /// "based on", not "restored from": the user may have edited before
+        /// syncing, so the bytes are not necessarily V3's. What is always true is
+        /// that V3 is where this version started.
+        /// </summary>
+        private static void LabelRestoredFrom(List<VersionRow> rows)
+        {
+            foreach (var row in rows)
+            {
+                int? fromId = row.Source.RolledBackFromDesignId;
+                if (!fromId.HasValue) continue;
+
+                var source = rows.FirstOrDefault(r => r.Source.DesignId == fromId.Value);
+
+                // The referenced version can be outside this list — a different
+                // status, or soft-deleted. Say what is known rather than nothing.
+                row.RestoredFromLine = source != null
+                    ? "based on " + source.VersionLabel
+                    : "based on an earlier version";
+            }
         }
 
         private static string FormatSize(long? bytes)

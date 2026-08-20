@@ -153,7 +153,8 @@ namespace RevitWebAppSync
 
                     // The dialog is closed by this point, so Idling resumes and the
                     // ExternalEvent below will actually fire.
-                    RaiseSwap(picker.DownloadedPath, picker.SelectedDesignId, picker.SelectedVersionNumber);
+                    RaiseSwap(picker.DownloadedPath, picker.SelectedDesignId, picker.SelectedVersionNumber,
+                        lineageId, stamp != null ? stamp.OriginPath : null);
                 }
 
                 return Result.Succeeded;
@@ -198,7 +199,9 @@ namespace RevitWebAppSync
         /// Hands the swap to the Revit API thread. Must run with no modal dialog
         /// open — see the class remarks.
         /// </summary>
-        private static void RaiseSwap(string downloadedPath, int fromDesignId, int fromVersion)
+        private static void RaiseSwap(
+            string downloadedPath, int fromDesignId, int fromVersion,
+            string lineageId, string lineageOriginPath)
         {
             var handler = App.RollbackSwapHandler;
             var evt = App.RollbackSwapEvent;
@@ -214,6 +217,10 @@ namespace RevitWebAppSync
             handler.DownloadedPath = downloadedPath;
             handler.FromDesignId = fromDesignId;
             handler.FromVersion = fromVersion;
+            // Carried so the restored model keeps this chain's identity — the
+            // downloaded bytes may have no stamp of their own.
+            handler.LineageId = lineageId;
+            handler.LineageOriginPath = lineageOriginPath;
             handler.OnCompleted = (success, note) => ReportOutcome(success, note, fromVersion, downloadedPath);
 
             evt.Raise();
