@@ -899,15 +899,20 @@ namespace RevitWebAppSync
             aiPanel.AddItem(loginButtonData);
             aiPanel.AddItem(askAiButtonData);
 
-            // Compliance: JKR (Cost/Fire hidden below)
+            // Compliance: JKR
             compliancePanel.AddItem(jkrComplianceButtonData);
             compliancePanel.AddItem(bombaComplianceButtonData);
 
-            // Stack: Export Cost Items / Import Prices
-            // cdePanel.AddStackedItems(costExportButtonData, costImportButtonData); // Hidden as requested
+            // Cost-to-BIM: Cost Tracker dashboard (restored standalone — see
+            // commit 3903b7f which had stacked it with Fire Compliance and hid
+            // both. We surface only the cost button; Fire stays hidden.)
+            compliancePanel.AddItem(costDashboardButtonData);
 
-            // Stack: Cost Tracker / Fire Compliance
-            // compliancePanel.AddStackedItems(costDashboardButtonData, complianceButtonData); // Hidden as requested
+            // Stack: Export Cost Items / Import Prices (hidden as requested)
+            // cdePanel.AddStackedItems(costExportButtonData, costImportButtonData);
+
+            // Fire Compliance stays hidden (restored only if explicitly requested)
+            // compliancePanel.AddItem(complianceButtonData);
             // cdePanel.AddItem(federateButtonData); // Hidden as requested
         }
 
