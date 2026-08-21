@@ -761,24 +761,19 @@ namespace BinaVibe.Mcp.Tools.Audit
 
         private static CheckOutcome SchedulesRequired(AuditContext ctx, AuditFormRow row)
         {
-            var required = new (string label, string[] tokens)[]
-            {
-                ("Schedule of Accommodation", new[] { "accommodation", "accomodation", "soa" }),
-                ("Building Component Schedule", new[] { "component" }),
-                ("Material Takeoff Schedule", new[] { "takeoff", "take off", "material" }),
-            };
-            string rule = "nama jadual mengandungi: "
-                + string.Join(" / ", required.Select(r => r.label + " (" + string.Join("|", r.tokens) + ")"));
+            // Token lists + JKR prefix convention (jkrAR_mto_* / jkrAR_sch_rom_* /
+            // jkrAR_sch_mc_*, per-component "<door|wall|…> schedule") live in
+            // AuditMatching so the decision is unit-tested without Revit.
+            string rule = "nama jadual mengandungi (termasuk awalan JKR): "
+                + string.Join(" / ", AuditMatching.RequiredSchedules.Select(r =>
+                    r.label + " (" + string.Join("|", r.tokens) + ")"))
+                + " / jadual komponen (door|window|wall|floor|ceiling|roof|stair|railing + schedule)";
 
             var names = ctx.Schedules.Select(v => v.Name).ToList();
-            var found = new List<object>();
-            var missing = new List<string>();
-            foreach (var (label, tokens) in required)
-            {
-                var hit = names.FirstOrDefault(n => tokens.Any(t => n.IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0));
-                if (hit != null) found.Add(new Dictionary<string, object?> { ["required"] = label, ["schedule"] = hit });
-                else missing.Add(label);
-            }
+            var (hits, missing) = AuditMatching.MatchRequiredSchedules(names);
+            var found = hits
+                .Select(h => (object)new Dictionary<string, object?> { ["required"] = h.required, ["schedule"] = h.schedule })
+                .ToList();
             var o = new CheckOutcome { RulePattern = rule };
             o.Evidence["rule"] = rule;
             o.Evidence["schedules_in_model"] = names.Count;
@@ -790,7 +785,8 @@ namespace BinaVibe.Mcp.Tools.Audit
             o.Compliance = ok ? "yes" : "no";
             o.Remark = ok
                 ? $"Peraturan: {rule}. Ketiga-tiga jadual wajib dijumpai daripada {names.Count} "
-                  + "jadual dalam model — patuh."
+                  + "jadual dalam model ("
+                  + string.Join("; ", hits.Select(h => $"{h.required}: {h.schedule}")) + ") — patuh."
                 : $"Peraturan: {rule}. Tiada nama jadual yang sepadan untuk: "
                   + $"{string.Join(", ", missing)} ({names.Count} jadual dalam model disemak). "
                   + "Jana jadual tersebut.";

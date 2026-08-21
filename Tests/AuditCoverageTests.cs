@@ -3,7 +3,8 @@
 // fill_audit's honesty contract is "unmatched row → not_verifiable, never
 // guess". That makes the SET of unmatched rows the tool's accuracy budget, and
 // today it is exactly the rows no rule can judge: two subjective A rows and
-// the four Section C sub-headings that carry no criterion. A keyword edit that
+// the six "x.0" section headers (C 1.0–C 5.0, E 1.0), which carry no criterion
+// and are routed past the checkers by RowRef alone. A keyword edit that
 // silently drops a real row into not_verifiable (or makes a subjective row
 // "match" something) must fail here, not be discovered on a filled form.
 //
@@ -34,10 +35,14 @@ namespace Tests
         {
             ["A 1"] = "subjective: 'in accordance to specified architectural design'",
             ["A 3"] = "subjective: 'structured according to rules that are easily managed'",
-            ["C 1.0"] = "sub-heading 'Views (Architectural)' — no criterion",
-            ["C 2.0"] = "sub-heading 'Legends' — no criterion",
-            ["C 4.0"] = "sub-heading 'Sheets' — no criterion",
-            ["C 5.0"] = "sub-heading 'Link Files' — no criterion",
+            // Every "x.0" row is a section header: AuditMatching.IsSectionHeader
+            // routes them past the checkers regardless of their wording.
+            ["C 1.0"] = "section header 'Views (Architectural)' — no criterion",
+            ["C 2.0"] = "section header 'Legends' — no criterion",
+            ["C 3.0"] = "section header 'Schedules/Quantities' — no criterion (the 'quantities' keyword must not score it)",
+            ["C 4.0"] = "section header 'Sheets' — no criterion",
+            ["C 5.0"] = "section header 'Link Files' — no criterion",
+            ["E 1.0"] = "section header 'View Template' — names no view set, no criterion",
         };
 
         /// <summary>Golden row → checker mapping for every row that must match.
@@ -57,16 +62,10 @@ namespace Tests
             ["C 1.5"] = "views_dokumen",
             ["C 1.6"] = "area_plans",
             ["C 2.1"] = "legends",
-            // "Schedules/Quantities" heading carries the 'quantities' keyword, so
-            // it resolves like 3.1 — recorded, not endorsed.
-            ["C 3.0"] = "schedules_required",
             ["C 3.1"] = "schedules_required",
             ["C 4.1"] = "sheets_contents",
             ["C 4.2"] = "titleblock_jkr",
             ["C 5.1"] = "links_current",
-            // E 1.0 matches but its evaluator returns not_verifiable at run time
-            // because the heading names no view set (BOMBA/PBT) — honest by design.
-            ["E 1.0"] = "view_template_applied",
             ["E 1.1"] = "view_template_applied",
             ["E 1.2"] = "view_template_applied",
         };
@@ -167,6 +166,115 @@ namespace Tests
             Assert.Equal("structural column", AuditMatching.Match(Row("D", "Structural Column")).category);
             Assert.Equal("columns", AuditMatching.Match(Row("D", "Columns")).category);
             Assert.Equal((null, null), AuditMatching.Match(Row("D", "Signage")));
+        }
+
+        // ─── section headers ────────────────────────────────────────────
+
+        [Fact]
+        public void EveryDotZeroRowOnTheFormIsAHeaderAndNeverMatches()
+        {
+            var headers = Parsed().Where(r => r.RowRef.EndsWith(".0")).ToList();
+            Assert.Equal(new[] { "C 1.0", "C 2.0", "C 3.0", "C 4.0", "C 5.0", "E 1.0" },
+                headers.Select(Key).ToArray());
+            foreach (var h in headers)
+            {
+                Assert.True(AuditMatching.IsSectionHeader(h), Key(h));
+                Assert.Equal((null, null), AuditMatching.Match(h));
+            }
+        }
+
+        [Theory]
+        [InlineData("3.0", "Schedules/Quantities", "C", true)]          // would score via 'quantities'
+        [InlineData("1.0", "View Template", "E", true)]
+        [InlineData("3.1", "Schedule of Accommodation / Building Component Schedule / Material Takeoff", "C", false)]
+        [InlineData("10", "Floors", "D", false)]
+        [InlineData("1", "Files are named according to guidelines", "A", false)]
+        public void HeaderRoutingIsDecidedByRowRefNotWording(string rowRef, string description, string section, bool header)
+        {
+            var row = new AuditFormRow { Section = section, RowRef = rowRef, Description = description };
+            Assert.Equal(header, AuditMatching.IsSectionHeader(row));
+            if (header) Assert.Null(AuditMatching.Match(row).checkerId);
+            else Assert.NotNull(AuditMatching.Match(row).checkerId);
+        }
+
+        // ─── C 3.1 required schedules: JKR prefix convention ────────────
+
+        /// <summary>Schedule names as found in a live JKR model (2026-08-22).</summary>
+        private static readonly string[] LiveJkrSchedules =
+        {
+            "jkrAR_mto_dor_Door Material Takeoff",
+            "jkrAR_mto_wll_Wall Material Takeoff",
+            "jkrAR_mto_mc_Multi-Category Material Takeoff",
+            "jkrAR_sch_rom_Room Master Schedule",
+            "Room Schedule Menurut Tingkat",
+            "Room Schedule (Utiliti)",
+            "Room Key Properties",
+            "jkrAR_sch_are_Area Schedule (Gross Building)",
+            "jkrAR_sch_mc_Multi-Category Schedule",
+            "Door Schedule",
+            "Window Schedule",
+            "Wall Schedule",
+            "Ceiling Schedule",
+            "Roof Schedule",
+            "Stair Schedule",
+            "Railing Schedule",
+        };
+
+        [Fact]
+        public void LiveJkrModelSatisfiesAllThreeRequiredSchedules()
+        {
+            var (found, missing) = AuditMatching.MatchRequiredSchedules(LiveJkrSchedules);
+            Assert.Empty(missing);
+            Assert.Equal(
+                new[]
+                {
+                    ("Schedule of Accommodation", "jkrAR_sch_rom_Room Master Schedule"),
+                    ("Building Component Schedule", "jkrAR_sch_mc_Multi-Category Schedule"),
+                    ("Material Takeoff Schedule", "jkrAR_mto_dor_Door Material Takeoff"),
+                },
+                found.ToArray());
+        }
+
+        [Theory]
+        // JKR prefixes alone, no English function word
+        [InlineData("jkrAR_mto_wll_", "Material Takeoff Schedule")]
+        [InlineData("jkrAR_sch_rom_", "Schedule of Accommodation")]
+        [InlineData("jkrAR_sch_mc_", "Building Component Schedule")]
+        // plain-English aliases
+        [InlineData("Room Schedule Menurut Tingkat", "Schedule of Accommodation")]
+        [InlineData("Room Key Properties", "Schedule of Accommodation")]
+        [InlineData("Area Schedule (Rentable)", "Schedule of Accommodation")]
+        [InlineData("Schedule of Accomodation", "Schedule of Accommodation")]
+        [InlineData("SOA", "Schedule of Accommodation")]
+        [InlineData("Building Component Schedule", "Building Component Schedule")]
+        // per-component schedules need BOTH a component word and "schedule"
+        [InlineData("Door Schedule", "Building Component Schedule")]
+        [InlineData("Floor Schedule", "Building Component Schedule")]
+        [InlineData("Doors", null)]
+        [InlineData("Multi-Category Schedule", "Building Component Schedule")]
+        [InlineData("Door Material Takeoff", "Material Takeoff Schedule")]
+        [InlineData("Wall Take-Off", "Material Takeoff Schedule")]
+        // never invented
+        [InlineData("Test", null)]
+        [InlineData("Schedule 1", null)]
+        [InlineData("Sheet List", null)]
+        [InlineData("jkrAR_xyz_Something", null)]
+        public void ClassifiesScheduleNamesConservatively(string name, string? expected)
+        {
+            Assert.Equal(expected, AuditMatching.ClassifySchedule(name));
+        }
+
+        [Fact]
+        public void MissingRequiredSchedulesAreReportedInOrder()
+        {
+            var (found, missing) = AuditMatching.MatchRequiredSchedules(new[] { "Test", "Door Material Takeoff" });
+            Assert.Single(found);
+            Assert.Equal("Material Takeoff Schedule", found[0].required);
+            Assert.Equal(new[] { "Schedule of Accommodation", "Building Component Schedule" }, missing.ToArray());
+
+            var (none, all) = AuditMatching.MatchRequiredSchedules(Array.Empty<string>());
+            Assert.Empty(none);
+            Assert.Equal(3, all.Count);
         }
 
         [Fact]
