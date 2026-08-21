@@ -36,14 +36,18 @@ namespace BinaVibe.Mcp.Tools.Audit
 
         /// <summary>Whitespace runs → sep, runs of '-'/'_' → one sep, ends
         /// trimmed of separators. Whitespace and existing separators are the
-        /// only things touched.</summary>
+        /// only things touched. Invisible Unicode format characters (zero-width
+        /// space U+200B, ZWNJ/ZWJ, BOM — category Cf) count as whitespace: they
+        /// are boundaries the author typed (usually pasted) that render as a
+        /// stray gap in a PDF, never as part of a token. A token with no such
+        /// boundary is never split.</summary>
         private static string Normalise(string s, char sep)
         {
             var sb = new System.Text.StringBuilder(s.Length);
             bool lastWasSep = false;
             foreach (var ch in s)
             {
-                bool isSep = char.IsWhiteSpace(ch) || ch == '-' || ch == '_';
+                bool isSep = IsBoundary(ch) || ch == '-' || ch == '_';
                 if (isSep)
                 {
                     if (!lastWasSep) sb.Append(sep);
@@ -57,6 +61,11 @@ namespace BinaVibe.Mcp.Tools.Audit
             }
             return sb.ToString().Trim(SeparatorChars);
         }
+
+        private static bool IsBoundary(char ch) =>
+            char.IsWhiteSpace(ch)
+            || System.Globalization.CharUnicodeInfo.GetUnicodeCategory(ch)
+               == System.Globalization.UnicodeCategory.Format;
 
         private static int SegmentCount(string s) =>
             s.Split(SeparatorChars).Count(seg => seg.Trim().Length > 0);

@@ -26,6 +26,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Autodesk.Revit.DB;
+using Autodesk.Revit.DB.Architecture;
 
 namespace BinaVibe.Mcp.Tools.Audit
 {
@@ -944,6 +945,10 @@ namespace BinaVibe.Mcp.Tools.Audit
             if (!CategoryMap.TryGetValue(label, out var entry))
                 throw new InvalidOperationException(
                     $"AuditMatching.CategoryLabels has '{label}' but AuditCheckers.CategoryMap does not");
+            // Rooms have no ElementType, so the type-naming rule below can never
+            // apply; they get an instance-level check instead. Every other
+            // category keeps the naming path unchanged.
+            if (label == "room") return EvaluateRoomInstances(ctx, entry.expected);
             var instances = new FilteredElementCollector(ctx.Doc).OfCategory(entry.bic)
                 .WhereElementIsNotElementType().ToList();
             var types = new FilteredElementCollector(ctx.Doc).OfCategory(entry.bic)
@@ -1037,6 +1042,98 @@ namespace BinaVibe.Mcp.Tools.Audit
                         + "secara manual mengikut format itu. "
                       : "")
                   + "(Kualiti/maklumat/geometri: semak manual.)" + FullListNote(nonConforming.Count);
+            return o;
+        }
+
+        /// <summary>Section D "Room": placed rooms must each carry a Number AND a
+        /// Name (ROOM_NUMBER / ROOM_NAME). Department is NOT checked here — A6
+        /// (RoomsDepartment) owns it, and two rows must not cite the same fact
+        /// under different rules. Unplaced rooms (Area 0) are counted for
+        /// context only; they have no geometry to audit.</summary>
+        private static CheckOutcome EvaluateRoomInstances(AuditContext ctx, bool expected)
+        {
+            const string rule = "setiap bilik (Room) yang diletakkan ada Number dan Name";
+            var rooms = ctx.Rooms;
+            int allRooms = new FilteredElementCollector(ctx.Doc).OfCategory(BuiltInCategory.OST_Rooms)
+                .WhereElementIsNotElementType().GetElementCount();
+
+            var offenders = new List<(Room r, bool noNumber, bool noName)>();
+            int unreadable = 0;
+            foreach (var r in rooms)
+            {
+                string? number, name;
+                try
+                {
+                    number = r.get_Parameter(BuiltInParameter.ROOM_NUMBER)?.AsString();
+                    name = r.get_Parameter(BuiltInParameter.ROOM_NAME)?.AsString();
+                }
+                catch { unreadable++; continue; }
+                bool noNumber = string.IsNullOrWhiteSpace(number);
+                bool noName = string.IsNullOrWhiteSpace(name);
+                if (noNumber || noName) offenders.Add((r, noNumber, noName));
+            }
+
+            var o = new CheckOutcome { RulePattern = rule };
+            o.Evidence["rule"] = rule;
+            o.Evidence["category"] = "room";
+            o.Evidence["category_expected"] = expected;
+            o.Evidence["rooms_placed"] = rooms.Count;
+            o.Evidence["rooms_unplaced"] = Math.Max(0, allRooms - rooms.Count);
+            o.Evidence["without_number"] = offenders.Count(x => x.noNumber);
+            o.Evidence["without_name"] = offenders.Count(x => x.noName);
+            o.Evidence["unreadable"] = unreadable;
+            o.Evidence["automated_scope"] = "number + name presence only; department in A6; quality/information/geometry manual";
+            AddNames(o, "examples", offenders.Select(x =>
+                $"[{x.r.Id.Value}] {(x.noNumber ? "(tiada Number)" : x.r.Number)} {(x.noName ? "(tiada Name)" : x.r.Name)}".Trim())
+                .ToList());
+            o.ElementIds = offenders.Take(IdCap).Select(x => (long)x.r.Id.Value).ToList();
+
+            if (rooms.Count == 0)
+            {
+                if (expected)
+                {
+                    // Same stance as A6: rooms are expected in an architectural
+                    // model, so zero placed rooms is a finding, not a vacuous pass.
+                    o.Compliance = "no";
+                    o.Evidence["zero_count_expected"] = true;
+                    o.SeverityOverride = Severities.Major;
+                    o.Remark = $"Peraturan: {rule}. Dijumpai 0 bilik yang diletakkan (placed Room) "
+                               + (allRooms > 0 ? $"— {allRooms} Room wujud tetapi tidak diletakkan (Area 0). " : "dalam model. ")
+                               + "Letak Room dahulu sebelum Number/Name boleh disemak. "
+                               + "(Kualiti/maklumat/geometri: semak manual.)";
+                    return o;
+                }
+                o.Compliance = "not_verifiable";
+                o.Evidence["checked_count"] = 0;
+                o.Evidence["not_verifiable_reason"] = "category_not_present";
+                o.Remark = $"0 bilik diletakkan dalam model dan kategori ini tidak wajib — baris ini "
+                           + "tidak berkenaan, atau semak manual jika sepatutnya ada.";
+                return o;
+            }
+
+            if (unreadable == rooms.Count)
+            {
+                o.Compliance = "not_verifiable";
+                o.Evidence["checked_count"] = 0;
+                o.Evidence["not_verifiable_reason"] = "parameters_unreadable";
+                o.Remark = $"Peraturan: {rule}. {rooms.Count} bilik diletakkan tetapi parameter "
+                           + "Number/Name tidak dapat dibaca — semak manual.";
+                return o;
+            }
+
+            int checkedCount = rooms.Count - unreadable;
+            o.Evidence["checked_count"] = checkedCount;
+            bool ok = offenders.Count == 0;
+            o.Compliance = ok ? "yes" : "no";
+            string unreadNote = unreadable > 0 ? $" ({unreadable} bilik tidak dapat dibaca, tidak dikira.)" : "";
+            o.Remark = ok
+                ? $"Peraturan: {rule}. Semua {checkedCount} bilik yang diletakkan ada Number dan Name — patuh."
+                  + unreadNote + " (Kualiti/maklumat/geometri: semak manual.)"
+                : $"Peraturan: {rule}. {offenders.Count}/{checkedCount} bilik tidak lengkap "
+                  + $"({o.Evidence["without_number"]} tiada Number, {o.Evidence["without_name"]} tiada Name; cth: "
+                  + string.Join(", ", offenders.Take(3).Select(x => $"[{x.r.Id.Value}]")) + "). "
+                  + "Isi Number dan Name untuk bilik tersebut." + unreadNote
+                  + " (Kualiti/maklumat/geometri: semak manual.)" + FullListNote(offenders.Count);
             return o;
         }
 
