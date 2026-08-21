@@ -39,6 +39,18 @@ namespace UiHarness
                 return;
             }
 
+            // Same idea for the WIP browser: `UiHarness --shot-wip <dir>` renders
+            // it against the stub backend (folders, models, versions, the 403
+            // folder and the browse-only row) and exits.
+            if (e.Args.Length >= 1 && e.Args[0] == "--shot-wip")
+            {
+                ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                var wipDir = e.Args.Length >= 2 ? e.Args[1] : System.AppContext.BaseDirectory;
+                WipBrowseShots.Capture(wipDir);
+                Shutdown();
+                return;
+            }
+
             new LauncherWindow().Show();
         }
     }

@@ -81,19 +81,90 @@ namespace RevitWebAppSync.Services
             ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
         };
 
-        /// <summary>WIP folders for a project, optionally narrowed to one discipline.</summary>
-        public async Task<List<WipFolder>> GetWipFoldersAsync(int projectId, string disciplineType = null)
+        /// <summary>
+        /// Folders for one area of a project, optionally narrowed to a
+        /// discipline. Area defaults to WIP, which is what the sync flows want —
+        /// only the browser passes anything else.
+        ///
+        /// The route was `wip-folders` before the Shared work; that name still
+        /// resolves server-side but is deprecated, so this calls the new one.
+        /// </summary>
+        public async Task<List<BimFolder>> GetFoldersAsync(
+            int projectId, string area = BimArea.Wip, string disciplineType = null)
         {
-            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}/wip-folders";
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}/folders"
+                       + $"?area={Uri.EscapeDataString(area ?? BimArea.Wip)}";
             if (!string.IsNullOrEmpty(disciplineType))
-                url += $"?disciplineType={Uri.EscapeDataString(disciplineType)}";
+                url += $"&disciplineType={Uri.EscapeDataString(disciplineType)}";
 
-            using (var resp = await _http.GetAsync(url).ConfigureAwait(false))
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
             {
                 string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                if (resp.StatusCode == HttpStatusCode.Forbidden)
+                    throw new BinaAccessDeniedException(
+                        "You do not have access to this project's " + BimArea.Label(area) + " folders.");
+
                 if (!resp.IsSuccessStatusCode)
                     throw new InvalidOperationException($"Could not load folders (HTTP {(int)resp.StatusCode}): {body}");
-                return JsonConvert.DeserializeObject<List<WipFolder>>(body) ?? new List<WipFolder>();
+                return JsonConvert.DeserializeObject<List<BimFolder>>(body) ?? new List<BimFolder>();
+            }
+        }
+
+        /// <summary>
+        /// Models inside one folder, in any browsable area
+        /// (docs/wip-browse-backend-spec.md, docs/shared-browse-backend-spec.md).
+        ///
+        /// The server returns only what the caller's role permits — the add-in
+        /// renders the answer as-is and filters nothing, because it holds no copy
+        /// of the permission model. A 403 therefore means "not yours to see", and
+        /// is reported as that rather than as an empty folder.
+        ///
+        /// Folder ids are unique project-wide, so the server derives the area
+        /// from the folder and <paramref name="area"/> is only an assertion: a
+        /// mismatch is a 404 rather than a cross-area read. Sending it turns a
+        /// stale folder list into an error instead of silently correct-looking
+        /// rows from the wrong area.
+        /// </summary>
+        public async Task<BimDesignsResponse> GetDesignsAsync(
+            int projectId, int folderId, string area = null,
+            string search = null, string cursor = null,
+            int? limit = null,
+            CancellationToken cancellationToken = default(CancellationToken))
+        {
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}"
+                       + $"/folder/{folderId}/designs";
+
+            var query = new List<string>();
+            if (!string.IsNullOrWhiteSpace(area)) query.Add("area=" + Uri.EscapeDataString(area));
+            if (!string.IsNullOrWhiteSpace(search)) query.Add("search=" + Uri.EscapeDataString(search));
+            if (!string.IsNullOrWhiteSpace(cursor)) query.Add("cursor=" + Uri.EscapeDataString(cursor));
+            if (limit.HasValue) query.Add("limit=" + limit.Value);
+            if (query.Count > 0) url += "?" + string.Join("&", query);
+
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url, cancellationToken))
+                .ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                if (resp.StatusCode == HttpStatusCode.Forbidden)
+                    throw new BinaAccessDeniedException(
+                        "You do not have access to the models in this folder.");
+
+                // 404 is a stale list, not a crash: the folder was renamed,
+                // removed, or belongs to a different area than the one asserted
+                // — all of which mean "reload and try again", not "broken".
+                if (resp.StatusCode == HttpStatusCode.NotFound)
+                    return new BimDesignsResponse { Designs = new List<BimDesign>(), Area = area };
+
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException(
+                        $"Could not load models (HTTP {(int)resp.StatusCode}): {body}");
+
+                var parsed = JsonConvert.DeserializeObject<BimDesignsResponse>(body)
+                             ?? new BimDesignsResponse();
+                if (parsed.Designs == null) parsed.Designs = new List<BimDesign>();
+                return parsed;
             }
         }
 
@@ -260,17 +331,54 @@ namespace RevitWebAppSync.Services
         /// Goes through SendWithRefreshAsync because a picker opened on a stale
         /// token would otherwise 401 — the GETs above predate that helper.
         /// </summary>
-        public async Task<List<DesignVersion>> GetVersionsAsync(int projectId, string docGuid)
+        public async Task<List<DesignVersion>> GetVersionsAsync(
+            int projectId, string docGuid, string area = null)
         {
             if (string.IsNullOrEmpty(docGuid))
                 throw new ArgumentException("docGuid is required", nameof(docGuid));
 
-            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/sync/versions"
-                       + $"?projectId={projectId}&docGuid={Uri.EscapeDataString(docGuid)}";
+            // Promoted rows carry no docGuid at all today (the copy path does not
+            // copy sourceDocumentGuid), so a GUID lookup can only be a WIP row.
+            // The area is sent anyway: if the copy path ever starts carrying the
+            // GUID, an unscoped lookup would silently resolve to WIP for a Shared
+            // model — the wrong file's history, presented as the right one.
+            return await GetVersionsInternalAsync(
+                $"{_baseUrl}/api/cloud-docs/bim-discipline/sync/versions"
+                + $"?projectId={projectId}&docGuid={Uri.EscapeDataString(docGuid)}"
+                + AreaParam(area))
+                .ConfigureAwait(false);
+        }
 
+        /// <summary>
+        /// The same history, keyed by design id — the key the browse hands us,
+        /// and the right one for most rows. Models uploaded through the web carry
+        /// no docGuid, and neither do promoted Shared/Published rows, so for
+        /// everything outside WIP this is the only lookup that resolves.
+        /// </summary>
+        public Task<List<DesignVersion>> GetVersionsByDesignAsync(
+            int projectId, int designId, string area = null)
+        {
+            if (designId <= 0)
+                throw new ArgumentException("designId is required", nameof(designId));
+
+            return GetVersionsInternalAsync(
+                $"{_baseUrl}/api/cloud-docs/bim-discipline/sync/versions"
+                + $"?projectId={projectId}&designId={designId}"
+                + AreaParam(area));
+        }
+
+        private static string AreaParam(string area) =>
+            string.IsNullOrWhiteSpace(area) ? "" : "&area=" + Uri.EscapeDataString(area);
+
+        private async Task<List<DesignVersion>> GetVersionsInternalAsync(string url)
+        {
             using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
             {
                 string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                if (resp.StatusCode == HttpStatusCode.Forbidden)
+                    throw new BinaAccessDeniedException(
+                        "You do not have access to this model's version history.");
 
                 // A model this project has never synced has no history — an empty
                 // picker, not an error the user has to dismiss.
@@ -311,6 +419,13 @@ namespace RevitWebAppSync.Services
                     _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
                     .ConfigureAwait(false))
                 {
+                    // The server re-checks the caller's role on download, so a row
+                    // that listed fine can still be refused here — a grant that
+                    // changed since the list was fetched, or a browse-only role.
+                    if (resp.StatusCode == HttpStatusCode.Forbidden)
+                        throw new BinaAccessDeniedException(
+                            "You do not have permission to download this version.");
+
                     if (!resp.IsSuccessStatusCode)
                     {
                         string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);

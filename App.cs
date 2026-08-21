@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Reflection;
 using System.Windows.Media.Imaging;
@@ -29,6 +29,8 @@ namespace RevitWebAppSync
         public static RevitWebAppSync.Services.BombaAutoFixHandler BombaAutoFixHandler { get; private set; }
         public static ExternalEvent BombaAutoFixEvent { get; private set; }
         public static JkrRenameHandler JkrRenameHandler { get; private set; }
+        public static RevitWebAppSync.Handlers.RollbackSwapHandler RollbackSwapHandler { get; private set; }
+        public static ExternalEvent RollbackSwapEvent { get; private set; }
 
         // Cost Dashboard dockable pane host
         public static CostDashboardHost CostDashboardHost { get; private set; }
@@ -288,6 +290,11 @@ namespace RevitWebAppSync
 
                 JkrRenameHandler = new JkrRenameHandler();
                 JkrRenameEvent = ExternalEvent.Create(JkrRenameHandler);
+
+                // Opening and closing documents is Revit API work that begins in a
+                // download continuation, so it has to be marshalled (86d3ut47q).
+                RollbackSwapHandler = new RevitWebAppSync.Handlers.RollbackSwapHandler();
+                RollbackSwapEvent = ExternalEvent.Create(RollbackSwapHandler);
 
                 BombaPickHandler = new RevitWebAppSync.Services.BombaPickWriteHandler();
                 BombaPickEvent = ExternalEvent.Create(BombaPickHandler);
@@ -741,32 +748,33 @@ namespace RevitWebAppSync
                 "RevitWebAppSync.BinaCloudLoginCommand")
             {
                 ToolTip = "Sign in to the BINA CDE / Cloud Docs (projects, documents, model sync)",
-                LongDescription = "Signs in to BINA Cloud Docs in your browser. Required by Sync and Shared Download — the other buttons on this panel. Separate from Login to AI, which Copilot, JKR and space planning use.",
+                LongDescription = "Signs in to BINA Cloud Docs in your browser. Required by Sync and Download Model — the other buttons on this panel. Separate from Login to AI, which Copilot, JKR and space planning use.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
 
-            PushButtonData bimDisciplineButtonData = new PushButtonData(
-                "BimDiscipline",
-                "Shared\nDownload",
-                Assembly.GetExecutingAssembly().Location,
-                "RevitWebAppSync.BimDisciplineCommand")
-            {
-                ToolTip = "Download the latest shared discipline files",
-                LongDescription = "Download the latest Architecture, Structure, HVAC, and Electrical discipline files from BINA cloud.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
-            };
+            // "Shared Download" retired: Download Model browses the Shared area
+            // itself now, with role filtering and version choice, where this pulled
+            // every discipline's latest file in one go off latest-shared-urls.
+            // BimDisciplineCommand stays in the tree — nothing calls it, but a bulk
+            // pull is a reasonable thing to want back, and re-adding a button is
+            // cheaper than rewriting the command.
 
-            PushButtonData rollbackButtonData = new PushButtonData(
-                "RollbackVersion",
-                "Roll Back\nVersion",
+            // Replaces the old "Roll Back Version" button, which could only show
+            // the history of the model already open. Browsing starts from the
+            // project's WIP folders instead, so a drafter can pull any version of
+            // any model their role reaches — including ones they have never
+            // opened. RollbackCommand is left in the tree, unreferenced, so
+            // restoring in place can be rewired without rewriting it.
+            PushButtonData downloadModelButtonData = new PushButtonData(
+                "DownloadModelVersion",
+                "Download\nModel",
                 Assembly.GetExecutingAssembly().Location,
-                "RevitWebAppSync.RollbackCommand")
+                "RevitWebAppSync.DownloadModelCommand")
             {
-                ToolTip = "Restore a previously synced version of this model",
-                LongDescription = "List every version of this model synced to BINA and restore one locally. " +
-                    "Nothing is deleted — your next sync publishes the restored model as a new version.",
+                ToolTip = "Download a version of any model in this project's WIP area",
+                LongDescription = "Browse the project's WIP folders, pick a model and a version, and save it " +
+                    "to your machine. Only the folders and models your BINA role gives you access to are listed.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
@@ -904,10 +912,9 @@ namespace RevitWebAppSync
             // Login leads the panel because both of the others fail without it.
             cdePanel.AddItem(cloudLoginButtonData);
             cdePanel.AddItem(buttonData);
-            cdePanel.AddItem(bimDisciplineButtonData);
             cdePanel.AddItem(syncParametersButtonData);
             cdePanel.AddItem(syncIssuesButtonData);
-            cdePanel.AddItem(rollbackButtonData);
+            cdePanel.AddItem(downloadModelButtonData);
 
             // BINA AI: the bina-ai sign-in, then the copilot it unlocks.
             aiPanel.AddItem(loginButtonData);
