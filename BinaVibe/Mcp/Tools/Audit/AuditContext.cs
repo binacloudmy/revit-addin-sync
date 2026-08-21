@@ -24,6 +24,7 @@ namespace BinaVibe.Mcp.Tools.Audit
     /// base-point check).</summary>
     public sealed class GridInfo
     {
+        public long Id;
         public string Name = "";
         public bool IsLine;
         public Curve? Curve;
@@ -44,7 +45,7 @@ namespace BinaVibe.Mcp.Tools.Audit
                 string name; Curve? curve = null;
                 try { name = g.Name ?? ""; } catch { name = ""; }
                 try { curve = g.Curve; } catch { /* multi-segment grid */ }
-                return new GridInfo { Name = name, IsLine = curve is Line, Curve = curve };
+                return new GridInfo { Id = (long)g.Id.Value, Name = name, IsLine = curve is Line, Curve = curve };
             })
             .ToList();
 
