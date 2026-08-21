@@ -73,6 +73,39 @@ namespace BinaVibe.Mcp.Tools.Audit
                         && v.ViewType != ViewType.DrawingSheet)
             .ToList();
 
+        /// <summary>Every View Template in the model grouped by the ViewType it
+        /// applies to. A "no template" finding is only actionable when this has
+        /// an entry for the view's type — see AuditTemplateAvailability.</summary>
+        private Dictionary<ViewType, List<View>>? _templatesByViewType;
+        public Dictionary<ViewType, List<View>> TemplatesByViewType => _templatesByViewType ??=
+            new FilteredElementCollector(Doc)
+                .OfClass(typeof(View)).Cast<View>()
+                .Where(v => v.IsTemplate)
+                .GroupBy(v => v.ViewType)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+        public int TemplateCount => TemplatesByViewType.Values.Sum(l => l.Count);
+
+        /// <summary>ViewType names (enum ToString) that have ≥1 template — the
+        /// Revit-free shape AuditTemplateAvailability.Split consumes.</summary>
+        private HashSet<string>? _viewTypesWithTemplates;
+        public HashSet<string> ViewTypesWithTemplates => _viewTypesWithTemplates ??=
+            new HashSet<string>(TemplatesByViewType.Keys.Select(k => k.ToString()));
+
+        public bool TemplateExistsFor(ViewType type) => TemplatesByViewType.ContainsKey(type);
+
+        /// <summary>Project the views lacking a template into the Revit-free
+        /// partition input.</summary>
+        public List<UntemplatedView> UntemplatedOf(IEnumerable<View> views) => views
+            .Where(v => v.ViewTemplateId == ElementId.InvalidElementId)
+            .Select(v => new UntemplatedView
+            {
+                Id = (long)v.Id.Value,
+                Name = v.Name ?? "",
+                ViewType = v.ViewType.ToString(),
+            })
+            .ToList();
+
         private List<View>? _legends;
         public List<View> Legends => _legends ??= new FilteredElementCollector(Doc)
             .OfClass(typeof(View)).Cast<View>()
