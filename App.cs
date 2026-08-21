@@ -758,6 +758,19 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
             };
 
+            PushButtonData rollbackButtonData = new PushButtonData(
+                "RollbackVersion",
+                "Roll Back\nVersion",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.RollbackCommand")
+            {
+                ToolTip = "Restore a previously synced version of this model",
+                LongDescription = "List every version of this model synced to BINA and restore one locally. " +
+                    "Nothing is deleted — your next sync publishes the restored model as a new version.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            };
+
             // Parameters entered in the BINA viewer live in BINA's database, not
             // in the .rvt — so a downloaded model opens without them. This writes
             // them back onto the elements (ClickUp 86d3y5jxx).
@@ -894,6 +907,7 @@ namespace RevitWebAppSync
             cdePanel.AddItem(bimDisciplineButtonData);
             cdePanel.AddItem(syncParametersButtonData);
             cdePanel.AddItem(syncIssuesButtonData);
+            cdePanel.AddItem(rollbackButtonData);
 
             // BINA AI: the bina-ai sign-in, then the copilot it unlocks.
             aiPanel.AddItem(loginButtonData);

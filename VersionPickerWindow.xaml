@@ -1,0 +1,186 @@
+<Window x:Class="RevitWebAppSync.VersionPickerWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Roll Back to a Previous Version"
+        Height="620" Width="760"
+        MinHeight="480" MinWidth="640"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        Background="#F7F8FA">
+
+    <Window.Resources>
+        <!-- Rows carry five facts and a badge, so they are taller than the
+             project picker's and the whole row is the hit target. -->
+        <Style x:Key="VersionItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Row" Background="Transparent"
+                                BorderBrush="#EDEFF3" BorderThickness="0,0,0,1"
+                                Padding="14,10">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Row" Property="Background" Value="#F0F4FF"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Row" Property="Background" Value="#E4ECFF"/>
+                                <Setter TargetName="Row" Property="BorderBrush" Value="#C7D7FF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#2563EB"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#1D4ED8"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bg" Property="Background" Value="#C7D2E0"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="22,20,22,18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Roll back to a previous version"
+                   FontSize="19" FontWeight="SemiBold" Foreground="#1F2937"/>
+
+        <TextBlock Grid.Row="1" x:Name="SubtitleText"
+                   Text="Nothing in BINA is deleted. Restoring an older version replaces the model on your machine; your next sync publishes it as a new version."
+                   Foreground="#6B7280" Margin="0,4,0,14" TextWrapping="Wrap"/>
+
+        <Border Grid.Row="2" BorderBrush="#D8DEE9" BorderThickness="1"
+                CornerRadius="4" Background="White">
+            <Grid>
+                <ListBox x:Name="VersionsListBox"
+                         BorderThickness="0" Background="Transparent"
+                         ItemContainerStyle="{StaticResource VersionItemStyle}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         SelectionMode="Single"
+                         SelectionChanged="VersionsListBox_SelectionChanged">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Grid.Column="0" Orientation="Horizontal"
+                                            VerticalAlignment="Top" Margin="0,0,12,0">
+                                    <TextBlock Text="{Binding VersionLabel}" FontSize="15"
+                                               FontWeight="SemiBold" Foreground="#1F2937"
+                                               VerticalAlignment="Center"/>
+                                    <Border Background="#DCFCE7" CornerRadius="3"
+                                            Padding="6,2" Margin="8,0,0,0"
+                                            VerticalAlignment="Center"
+                                            Visibility="{Binding CurrentBadgeVisibility}">
+                                        <TextBlock Text="Current" FontSize="10"
+                                                   FontWeight="SemiBold" Foreground="#166534"/>
+                                    </Border>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="{Binding SyncedByLine}" FontSize="13"
+                                               Foreground="#1F2937" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding CommentLine}" FontSize="12"
+                                               Foreground="#6B7280" Margin="0,2,0,0"
+                                               TextWrapping="Wrap"
+                                               Visibility="{Binding CommentVisibility}"/>
+                                    <TextBlock Text="{Binding RestoredFromLine}" FontSize="11"
+                                               Foreground="#B45309" Margin="0,2,0,0"
+                                               Visibility="{Binding RestoredFromVisibility}"/>
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="2" HorizontalAlignment="Right">
+                                    <TextBlock Text="{Binding SizeText}" FontSize="12"
+                                               Foreground="#6B7280" HorizontalAlignment="Right"/>
+                                    <TextBlock Text="{Binding TranslationText}" FontSize="11"
+                                               Foreground="#9AA3B2" Margin="0,2,0,0"
+                                               HorizontalAlignment="Right"/>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+
+                <!-- Loading / empty / error share this space so the dialog never
+                     shows a blank white box with no explanation. -->
+                <StackPanel x:Name="LoadingPanel" VerticalAlignment="Center"
+                            HorizontalAlignment="Center" Visibility="Visible">
+                    <TextBlock Text="Loading previous versions…" Foreground="#6B7280" FontSize="13"/>
+                </StackPanel>
+
+                <TextBlock x:Name="EmptyPanel"
+                           Text="No previous versions — this model has not been synced yet."
+                           VerticalAlignment="Center" HorizontalAlignment="Center"
+                           Foreground="#9AA3B2" FontSize="13" TextWrapping="Wrap"
+                           MaxWidth="380" TextAlignment="Center" Visibility="Collapsed"/>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="3" x:Name="ErrorBox" Background="#FEF2F2" BorderBrush="#FCA5A5"
+                BorderThickness="1" CornerRadius="4" Padding="12,9" Margin="0,10,0,0"
+                Visibility="Collapsed">
+            <TextBlock x:Name="ErrorMessage" Foreground="#B91C1C" TextWrapping="Wrap" FontSize="12"/>
+        </Border>
+
+        <!-- Download progress replaces the buttons rather than sitting beside
+             them: once the transfer starts the only useful action is Cancel. -->
+        <Border Grid.Row="4" x:Name="ProgressBox" Background="#EFF6FF" BorderBrush="#BFDBFE"
+                BorderThickness="1" CornerRadius="4" Padding="12,10" Margin="0,10,0,0"
+                Visibility="Collapsed">
+            <StackPanel>
+                <TextBlock x:Name="ProgressText" Foreground="#1E40AF" FontSize="12"
+                           Text="Preparing…"/>
+                <ProgressBar x:Name="ProgressBar" Height="6" Margin="0,8,0,0"
+                             Minimum="0" Maximum="1" Foreground="#2563EB"
+                             Background="#DBEAFE" BorderThickness="0"/>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="5" Margin="0,14,0,0">
+            <TextBlock x:Name="CountText" VerticalAlignment="Center"
+                       Foreground="#9AA3B2" FontSize="12"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="CancelButton" Content="Cancel" Width="96" Height="34"
+                        Margin="0,0,10,0" Click="CancelButton_Click"/>
+                <Button x:Name="RestoreButton" Content="Restore this version"
+                        Width="176" Height="34" IsEnabled="False"
+                        Style="{StaticResource PrimaryButton}"
+                        Click="RestoreButton_Click"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>
