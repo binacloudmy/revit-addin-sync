@@ -1,0 +1,337 @@
+<Window x:Class="RevitWebAppSync.ModelBrowserWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Download a Model from BINA"
+        Height="660" Width="1040"
+        MinHeight="520" MinWidth="860"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="CanResize"
+        Background="#F7F8FA">
+
+    <Window.Resources>
+        <!-- One row style for all three columns: the whole row is the hit
+             target, and selection reads the same left to right. -->
+        <Style x:Key="BrowseItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Padding" Value="0"/>
+            <Setter Property="Margin" Value="0"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Row" Background="Transparent"
+                                BorderBrush="#EDEFF3" BorderThickness="0,0,0,1"
+                                Padding="12,9">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Row" Property="Background" Value="#F0F4FF"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Row" Property="Background" Value="#E4ECFF"/>
+                                <Setter TargetName="Row" Property="BorderBrush" Value="#C7D7FF"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="ColumnHeader" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="#6B7280"/>
+            <Setter Property="Margin" Value="2,0,0,6"/>
+        </Style>
+
+        <Style x:Key="PrimaryButton" TargetType="Button">
+            <Setter Property="Background" Value="#2563EB"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#1D4ED8"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bg" Property="Background" Value="#C7D2E0"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="22,20,22,18">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" Text="Download a model from BINA"
+                   FontSize="19" FontWeight="SemiBold" Foreground="#1F2937"/>
+
+        <TextBlock Grid.Row="1" x:Name="SubtitleText"
+                   Text="Pick an area, a folder, a model, then the version you want. Only the folders and models your role gives you access to are listed."
+                   Foreground="#6B7280" Margin="0,4,0,14" TextWrapping="Wrap"/>
+
+        <!-- Area first: it decides which folders exist, so it sits above them
+             rather than beside the results it produces. -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,0,0,12">
+            <RadioButton x:Name="WipRadio" GroupName="Area" Tag="wip"
+                         Content="WIP" IsChecked="True" Margin="0,0,18,0"
+                         VerticalContentAlignment="Center"
+                         Checked="AreaRadio_Checked"/>
+            <RadioButton x:Name="SharedRadio" GroupName="Area" Tag="shared"
+                         Content="Shared" Margin="0,0,18,0"
+                         VerticalContentAlignment="Center"
+                         Checked="AreaRadio_Checked"/>
+            <RadioButton x:Name="PublishedRadio" GroupName="Area" Tag="published"
+                         Content="Published"
+                         VerticalContentAlignment="Center"
+                         Checked="AreaRadio_Checked"/>
+        </StackPanel>
+
+        <!-- Folder, model, version. Each column loads when the one before it is
+             selected, so a wrong turn costs one request, not four. -->
+        <Grid Grid.Row="3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.0*"/>
+                <ColumnDefinition Width="14"/>
+                <ColumnDefinition Width="1.5*"/>
+                <ColumnDefinition Width="14"/>
+                <ColumnDefinition Width="1.5*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- ============ WIP folders ============ -->
+            <DockPanel Grid.Column="0">
+                <TextBlock DockPanel.Dock="Top" Text="FOLDER" Style="{StaticResource ColumnHeader}"/>
+                <Border BorderBrush="#D8DEE9" BorderThickness="1" CornerRadius="4" Background="White">
+                    <Grid>
+                        <ListBox x:Name="FoldersListBox"
+                                 BorderThickness="0" Background="Transparent"
+                                 ItemContainerStyle="{StaticResource BrowseItemStyle}"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 SelectionMode="Single"
+                                 SelectionChanged="FoldersListBox_SelectionChanged">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Name}" FontSize="13"
+                                                   Foreground="#1F2937" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{Binding DisciplineLine}" FontSize="11"
+                                                   Foreground="#9AA3B2" Margin="0,2,0,0"
+                                                   Visibility="{Binding DisciplineVisibility}"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <TextBlock x:Name="FoldersMessage"
+                                   Text="Loading folders…"
+                                   VerticalAlignment="Center" HorizontalAlignment="Center"
+                                   Foreground="#9AA3B2" FontSize="12" TextWrapping="Wrap"
+                                   MaxWidth="200" TextAlignment="Center"/>
+                    </Grid>
+                </Border>
+            </DockPanel>
+
+            <!-- ============ Models in the folder ============ -->
+            <DockPanel Grid.Column="2">
+                <TextBlock DockPanel.Dock="Top" Text="MODEL" Style="{StaticResource ColumnHeader}"/>
+                <Border BorderBrush="#D8DEE9" BorderThickness="1" CornerRadius="4" Background="White">
+                    <Grid>
+                        <DockPanel>
+                            <TextBox x:Name="SearchBox" DockPanel.Dock="Top"
+                                     Padding="8,6" Margin="8,8,8,4"
+                                     BorderBrush="#E3E7EE" BorderThickness="1"
+                                     TextChanged="SearchBox_TextChanged"
+                                     Visibility="Collapsed"/>
+                            <ListBox x:Name="ModelsListBox"
+                                     BorderThickness="0" Background="Transparent"
+                                     ItemContainerStyle="{StaticResource BrowseItemStyle}"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     SelectionMode="Single"
+                                     SelectionChanged="ModelsListBox_SelectionChanged">
+                                <ListBox.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <StackPanel Grid.Column="0">
+                                                <TextBlock Text="{Binding Name}" FontSize="13"
+                                                           Foreground="{Binding NameBrush}"
+                                                           TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding SubLine}" FontSize="11"
+                                                           Foreground="#9AA3B2" Margin="0,2,0,0"
+                                                           TextWrapping="Wrap"/>
+                                                <TextBlock Text="{Binding PromotedLine}"
+                                                           FontSize="11" Foreground="#6B7280" Margin="0,2,0,0"
+                                                           TextWrapping="Wrap"
+                                                           Visibility="{Binding PromotedVisibility}"/>
+                                                <TextBlock Text="Browse only — your role cannot download this model"
+                                                           FontSize="11" Foreground="#B45309" Margin="0,2,0,0"
+                                                           TextWrapping="Wrap"
+                                                           Visibility="{Binding LockedVisibility}"/>
+                                            </StackPanel>
+
+                                            <TextBlock Grid.Column="1" Text="{Binding SizeText}" FontSize="11"
+                                                       Foreground="#9AA3B2" Margin="10,0,0,0"
+                                                       VerticalAlignment="Top"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ListBox.ItemTemplate>
+                            </ListBox>
+                        </DockPanel>
+
+                        <TextBlock x:Name="ModelsMessage"
+                                   Text="Pick a folder to see its models."
+                                   VerticalAlignment="Center" HorizontalAlignment="Center"
+                                   Foreground="#9AA3B2" FontSize="12" TextWrapping="Wrap"
+                                   MaxWidth="260" TextAlignment="Center"/>
+                    </Grid>
+                </Border>
+            </DockPanel>
+
+            <!-- ============ Versions of the model ============ -->
+            <DockPanel Grid.Column="4">
+                <TextBlock DockPanel.Dock="Top" Text="VERSION" Style="{StaticResource ColumnHeader}"/>
+                <Border BorderBrush="#D8DEE9" BorderThickness="1" CornerRadius="4" Background="White">
+                    <Grid>
+                        <ListBox x:Name="VersionsListBox"
+                                 BorderThickness="0" Background="Transparent"
+                                 ItemContainerStyle="{StaticResource BrowseItemStyle}"
+                                 ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                 SelectionMode="Single"
+                                 SelectionChanged="VersionsListBox_SelectionChanged">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+
+                                        <StackPanel Grid.Column="0" Orientation="Horizontal"
+                                                    VerticalAlignment="Top" Margin="0,0,10,0">
+                                            <TextBlock Text="{Binding VersionLabel}" FontSize="14"
+                                                       FontWeight="SemiBold" Foreground="#1F2937"
+                                                       VerticalAlignment="Center"/>
+                                            <Border Background="#DCFCE7" CornerRadius="3"
+                                                    Padding="5,1" Margin="6,0,0,0"
+                                                    VerticalAlignment="Center"
+                                                    Visibility="{Binding CurrentBadgeVisibility}">
+                                                <TextBlock Text="Latest" FontSize="10"
+                                                           FontWeight="SemiBold" Foreground="#166534"/>
+                                            </Border>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="1">
+                                            <TextBlock Text="{Binding SyncedByLine}" FontSize="12"
+                                                       Foreground="#1F2937" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{Binding CommentLine}" FontSize="11"
+                                                       Foreground="#6B7280" Margin="0,2,0,0"
+                                                       TextWrapping="Wrap"
+                                                       Visibility="{Binding CommentVisibility}"/>
+                                            <TextBlock Text="{Binding RestoredFromLine}" FontSize="11"
+                                                       Foreground="#B45309" Margin="0,2,0,0"
+                                                       Visibility="{Binding RestoredFromVisibility}"/>
+                                            <TextBlock Text="{Binding PromotedLine}" FontSize="11"
+                                                       Foreground="#6B7280" Margin="0,2,0,0"
+                                                       TextWrapping="Wrap"
+                                                       Visibility="{Binding PromotedVisibility}"/>
+                                        </StackPanel>
+
+                                        <StackPanel Grid.Column="2" HorizontalAlignment="Right">
+                                            <TextBlock Text="{Binding SizeText}" FontSize="11"
+                                                       Foreground="#6B7280" HorizontalAlignment="Right"/>
+                                            <TextBlock Text="{Binding TranslationText}" FontSize="10"
+                                                       Foreground="#9AA3B2" Margin="0,2,0,0"
+                                                       HorizontalAlignment="Right"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <TextBlock x:Name="VersionsMessage"
+                                   Text="Pick a model to see its versions."
+                                   VerticalAlignment="Center" HorizontalAlignment="Center"
+                                   Foreground="#9AA3B2" FontSize="12" TextWrapping="Wrap"
+                                   MaxWidth="260" TextAlignment="Center"/>
+                    </Grid>
+                </Border>
+            </DockPanel>
+        </Grid>
+
+        <!-- Destination is shown before the download starts, not after: a
+             drafter who is about to pull 200 MB should see where it lands. -->
+        <Border Grid.Row="4" Background="White" BorderBrush="#E3E7EE" BorderThickness="1"
+                CornerRadius="4" Padding="12,9" Margin="0,12,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0" Text="Save to" FontSize="12" FontWeight="SemiBold"
+                           Foreground="#6B7280" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                <TextBlock Grid.Column="1" x:Name="DestinationText" FontSize="12"
+                           Foreground="#1F2937" VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis"
+                           Text="Pick a version first."/>
+                <Button Grid.Column="2" x:Name="ChangeDestinationButton" Content="Change…"
+                        Width="88" Height="28" IsEnabled="False"
+                        Click="ChangeDestinationButton_Click"/>
+            </Grid>
+        </Border>
+
+        <Border Grid.Row="5" x:Name="ErrorBox" Background="#FEF2F2" BorderBrush="#FCA5A5"
+                BorderThickness="1" CornerRadius="4" Padding="12,9" Margin="0,10,0,0"
+                Visibility="Collapsed">
+            <TextBlock x:Name="ErrorMessage" Foreground="#B91C1C" TextWrapping="Wrap" FontSize="12"/>
+        </Border>
+
+        <Border Grid.Row="6" x:Name="ProgressBox" Background="#EFF6FF" BorderBrush="#BFDBFE"
+                BorderThickness="1" CornerRadius="4" Padding="12,10" Margin="0,10,0,0"
+                Visibility="Collapsed">
+            <StackPanel>
+                <TextBlock x:Name="ProgressText" Foreground="#1E40AF" FontSize="12" Text="Preparing…"/>
+                <ProgressBar x:Name="ProgressBar" Height="6" Margin="0,8,0,0"
+                             Minimum="0" Maximum="1" Foreground="#2563EB"
+                             Background="#DBEAFE" BorderThickness="0"/>
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="7" Margin="0,14,0,0">
+            <TextBlock x:Name="CountText" VerticalAlignment="Center"
+                       Foreground="#9AA3B2" FontSize="12"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="CancelButton" Content="Close" Width="96" Height="34"
+                        Margin="0,0,10,0" Click="CancelButton_Click"/>
+                <Button x:Name="DownloadButton" Content="Download this version"
+                        Width="186" Height="34" IsEnabled="False"
+                        Style="{StaticResource PrimaryButton}"
+                        Click="DownloadButton_Click"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

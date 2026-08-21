@@ -32,6 +32,31 @@ namespace UiHarness
         private void OpenLogin(object sender, RoutedEventArgs e) =>
             Open(() => new LoginWindow("friend@bina.cloud"));
 
+        /// <summary>
+        /// The WIP browser against WipBrowseStubHandler. SyncApiClient accepts an
+        /// HttpClient, so the whole browse -> pick -> download path runs here with
+        /// no backend and no Revit — including the 403 folder, the browse-only
+        /// model, and the docGuid-less web upload.
+        ///
+        /// Downloads land in %TEMP%\BINA_HarnessDownloads rather than the real
+        /// Desktop\BINA_Downloads: reviewing the UI should not litter a desktop.
+        /// </summary>
+        private void OpenModelBrowser(object sender, RoutedEventArgs e) =>
+            Open(() =>
+            {
+                var api = new RevitWebAppSync.Services.SyncApiClient(
+                    "https://harness.invalid",
+                    "harness-fake-token",
+                    new System.Net.Http.HttpClient(new WipBrowseStubHandler()));
+
+                return new ModelBrowserWindow(
+                    api,
+                    projectId: 77,
+                    projectName: "Harness Project",
+                    downloadRoot: System.IO.Path.Combine(
+                        System.IO.Path.GetTempPath(), "BINA_HarnessDownloads"));
+            });
+
         // Fake token: the picker opens, fires its load, and shows its error state.
         private void OpenProjectPicker(object sender, RoutedEventArgs e) =>
             Open(() => new ProjectPickerWindow("harness-fake-token"));

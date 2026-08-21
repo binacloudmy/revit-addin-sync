@@ -98,7 +98,7 @@ namespace RevitWebAppSync
             {
                 SetBusy(true, "Loading folders…");
                 string discipline = (DisciplineCombo.SelectedItem as DisciplineChoice)?.ApiValue;
-                var folders = await _api.GetWipFoldersAsync(SelectedProjectId, discipline);
+                var folders = await _api.GetFoldersAsync(SelectedProjectId, BimArea.Wip, discipline);
                 FolderCombo.ItemsSource = folders;
                 FolderCombo.SelectedItem = folders.FirstOrDefault();
 
@@ -152,7 +152,7 @@ namespace RevitWebAppSync
 
         private void ContinueButton_Click(object sender, RoutedEventArgs e)
         {
-            SelectedFolderId = (FolderCombo.SelectedItem as WipFolder)?.Id;
+            SelectedFolderId = (FolderCombo.SelectedItem as BimFolder)?.Id;
             if (SelectedFolderId == null)
             {
                 StatusText.Text = "Pick the folder this model lives in.";
