@@ -1,11 +1,11 @@
 // AuditCheckers — deterministic checker library for fill_audit.
 //
-// Each checker owns: keyword groups that match a checklist row's wording
-// (EN + BM), an evaluator that reads the LIVE Revit document through the shared
-// AuditContext, and a remark template filled ONLY from that evaluation's
-// evidence. No LLM anywhere: a row either matches a checker (≥ MinGroups
-// keyword groups hit) and gets an evidence-backed verdict, or it is honestly
-// not_verifiable. Never guess.
+// Each checker owns: an evaluator that reads the LIVE Revit document through
+// the shared AuditContext, and a remark template filled ONLY from that
+// evaluation's evidence. Which row maps to which checker is decided by
+// AuditMatching (keyword groups, EN + BM, pure string logic kept Revit-free so
+// it is unit-tested). No LLM anywhere: a row either matches a checker and gets
+// an evidence-backed verdict, or it is honestly not_verifiable. Never guess.
 //
 // Three rules every evaluator obeys:
 //   1. Zero denominator is NOT a pass. "0 of 0 broke the rule" says nothing
@@ -55,10 +55,6 @@ namespace BinaVibe.Mcp.Tools.Audit
     public sealed class AuditChecker
     {
         public string Id = "";
-        /// <summary>Row matches when at least MinGroups groups each have ≥1
-        /// keyword present in the row's description+reference (lowercased).</summary>
-        public string[][] KeywordGroups = Array.Empty<string[]>();
-        public int MinGroups = 2;
         public string Severity = Severities.Major;
         /// <summary>An AUTHORITATIVE guideline clause for this check (e.g.
         /// "Appendix B.1.A (a)"), used to backfill a row whose Reference cell the
@@ -66,14 +62,6 @@ namespace BinaVibe.Mcp.Tools.Audit
         /// verified clause string belongs here; nothing is ever synthesised.</summary>
         public string GuidelineRef = "";
         public Func<AuditContext, AuditFormRow, CheckOutcome> Evaluate = (_, _) => new CheckOutcome();
-
-        public int MatchScore(string text)
-        {
-            int hit = 0;
-            foreach (var group in KeywordGroups)
-                if (group.Any(k => text.Contains(k))) hit++;
-            return hit >= MinGroups ? hit : 0;
-        }
     }
 
     public static class AuditCheckers
@@ -84,25 +72,17 @@ namespace BinaVibe.Mcp.Tools.Audit
 
         // ─── matching ───────────────────────────────────────────────────
 
-        /// <summary>Best-scoring checker for a row, or null (→ not_verifiable).
-        /// Section D rows resolve through the category map instead — their
-        /// "description" is just a category name.</summary>
+        /// <summary>Checker for a row, or null (→ not_verifiable). The decision
+        /// itself is AuditMatching.Match — pure keyword scoring, unit-tested
+        /// without Revit; this only resolves the id to the registered checker.</summary>
         public static (AuditChecker checker, string? category)? Match(AuditFormRow row)
         {
-            if (row.Section == "D")
-            {
-                var cat = MatchCategory(row.Description);
-                return cat == null ? null : (FamilyCategoryChecker, cat);
-            }
-            var text = (row.Description + " " + row.GuidelineRef).ToLowerInvariant();
-            AuditChecker? best = null;
-            int bestScore = 0;
-            foreach (var c in All)
-            {
-                var s = c.MatchScore(text);
-                if (s > bestScore) { best = c; bestScore = s; }
-            }
-            return best == null ? null : (best, null);
+            var (id, category) = AuditMatching.Match(row);
+            if (id == null) return null;
+            var checker = ById(id)
+                ?? throw new InvalidOperationException(
+                    $"AuditMatching names checker '{id}' but AuditCheckers.All has no such entry");
+            return (checker, category);
         }
 
         // ─── registry ───────────────────────────────────────────────────
@@ -113,185 +93,95 @@ namespace BinaVibe.Mcp.Tools.Audit
             {
                 Id = "file_naming",
                 Severity = Severities.Minor,
-                KeywordGroups = new[]
-                {
-                    new[] { "files are named", "file name", "named according", "penamaan fail", "nama fail" },
-                    new[] { "guidelines", "standards", "garis panduan", "piawaian" },
-                },
                 Evaluate = FileNaming,
             },
             new AuditChecker
             {
                 Id = "base_point",
                 Severity = Severities.Critical,
-                KeywordGroups = new[]
-                {
-                    // "project base" too: a wrapped cell can split "Base Point"
-                    // across two text lines.
-                    new[] { "base point", "project base", "titik asas" },
-                    new[] { "grid", "positioned", "kedudukan" },
-                },
                 Evaluate = BasePoint,
             },
-            // rooms_department sits BEFORE grids_levels so that a row mentioning
-            // both wins for rooms on a tie — a row that says "rooms" is a rooms
-            // row. (Historically this compensated for parser line bleed; the
-            // banding fix removed the bleed, the tie order is kept because it is
-            // the correct precedence regardless.)
             new AuditChecker
             {
                 Id = "rooms_department",
-                KeywordGroups = new[]
-                {
-                    new[] { "rooms", "room", "bilik", "ruang" },
-                    new[] { "department", "catagorised", "categorised", "categorized", "jabatan" },
-                },
                 Evaluate = RoomsDepartment,
             },
             new AuditChecker
             {
                 Id = "grids_levels",
                 Severity = Severities.Critical,
-                KeywordGroups = new[]
-                {
-                    new[] { "gridlines and levels", "gridlines", "grid", "grid dan aras" },
-                    new[] { "organised", "organized", "floor plan", "levels", "aras", "tersusun" },
-                },
                 Evaluate = GridsLevels,
             },
             new AuditChecker
             {
                 Id = "materials_assigned",
-                KeywordGroups = new[]
-                {
-                    new[] { "materials", "bahan" },
-                    new[] { "included in model", "model elements", "assigned", "elemen model" },
-                },
                 Evaluate = MaterialsAssigned,
             },
             new AuditChecker
             {
                 Id = "project_info",
-                KeywordGroups = new[]
-                {
-                    new[] { "project information", "maklumat projek" },
-                    new[] { "updated", "dikemaskini", "kemas kini" },
-                },
                 Evaluate = ProjectInfo,
             },
             new AuditChecker
             {
                 Id = "views_template",
-                KeywordGroups = new[]
-                {
-                    new[] { "views" },
-                    new[] { "template", "templat" },
-                    new[] { "created based", "architectural" },
-                },
-                MinGroups = 3,
                 Evaluate = ViewsFromTemplate,
             },
             new AuditChecker
             {
                 Id = "views_wip",
-                KeywordGroups = new[] { new[] { "wip" }, new[] { "views", "view" } },
                 Evaluate = (ctx, row) => ViewBucket(ctx, "WIP"),
             },
-            // "submission" alone is deliberately NOT in group 2: section E's
-            // "BOMBA/PBT Submission" rows must fall through to
-            // view_template_applied, not the view-existence buckets.
             new AuditChecker
             {
                 Id = "views_pbt",
-                KeywordGroups = new[] { new[] { "pbt" }, new[] { "views", "view" } },
                 Evaluate = (ctx, row) => ViewBucket(ctx, "PBT"),
             },
             new AuditChecker
             {
                 Id = "views_bomba",
-                KeywordGroups = new[] { new[] { "bomba" }, new[] { "views", "view" } },
                 Evaluate = (ctx, row) => ViewBucket(ctx, "BOMBA"),
             },
             new AuditChecker
             {
                 Id = "views_dokumen",
-                KeywordGroups = new[]
-                {
-                    new[] { "dokumen" },
-                    new[] { "views", "view", "documentation", "contract" },
-                },
                 Evaluate = (ctx, row) => ViewBucket(ctx, "Dokumen"),
             },
             new AuditChecker
             {
                 Id = "area_plans",
-                KeywordGroups = new[]
-                {
-                    new[] { "spatial", "zoning", "zon" },
-                    new[] { "area plan", "pelan keluasan" },
-                },
                 Evaluate = AreaPlans,
             },
             new AuditChecker
             {
                 Id = "legends",
-                KeywordGroups = new[]
-                {
-                    new[] { "legends", "legend", "legenda" },
-                    new[] { "components", "general notes", "managed", "contents" },
-                },
                 Evaluate = Legends,
             },
             new AuditChecker
             {
                 Id = "schedules_required",
-                KeywordGroups = new[]
-                {
-                    new[] { "schedules", "schedule", "jadual" },
-                    new[] { "accomodation", "accommodation", "component", "takeoff", "quantities" },
-                },
                 Evaluate = SchedulesRequired,
             },
             new AuditChecker
             {
                 Id = "sheets_contents",
-                KeywordGroups = new[]
-                {
-                    new[] { "sheets", "sheet", "helaian" },
-                    new[] { "drawings", "managed", "title block", "plans", "elevations" },
-                },
                 Evaluate = SheetsContents,
             },
             new AuditChecker
             {
                 Id = "titleblock_jkr",
                 Severity = Severities.Critical,
-                KeywordGroups = new[]
-                {
-                    new[] { "jkr title block", "title block" },
-                    new[] { "jkr", "furnished" },
-                },
                 Evaluate = TitleblockJkr,
             },
             new AuditChecker
             {
                 Id = "links_current",
                 Severity = Severities.Critical,
-                KeywordGroups = new[]
-                {
-                    new[] { "link", "linked", "pautan" },
-                    new[] { "up-to-date", "correct", "models linked", "terkini" },
-                },
                 Evaluate = LinksCurrent,
             },
             new AuditChecker
             {
                 Id = "view_template_applied",
-                KeywordGroups = new[]
-                {
-                    new[] { "bomba submission", "pbt submission", "view template", "templat" },
-                    new[] { "applied", "submission", "correctly" },
-                },
                 Evaluate = ViewTemplateApplied,
             },
         };
@@ -299,46 +189,40 @@ namespace BinaVibe.Mcp.Tools.Audit
         // Section D category map: printed row label → Revit category, plus
         // whether an architectural model is EXPECTED to contain it. Expected +
         // zero instances is a finding ("verify this is intentional"), not a
-        // shrug — that distinction is the whole point of the flag.
-        private static readonly (string label, BuiltInCategory bic, bool expected)[] CategoryMap =
+        // shrug — that distinction is the whole point of the flag. Match ORDER
+        // lives in AuditMatching.CategoryLabels; every label there must be a
+        // key here.
+        private static readonly Dictionary<string, (BuiltInCategory bic, bool expected)> CategoryMap = new()
         {
-            ("floors", BuiltInCategory.OST_Floors, true),
-            ("walls", BuiltInCategory.OST_Walls, true),
-            ("ceilings", BuiltInCategory.OST_Ceilings, true),
-            ("roofs", BuiltInCategory.OST_Roofs, true),
-            ("stairs", BuiltInCategory.OST_Stairs, true),
-            ("railings", BuiltInCategory.OST_StairsRailing, true),
-            ("ramps", BuiltInCategory.OST_Ramps, false),
-            ("room", BuiltInCategory.OST_Rooms, true),
-            ("curtain", BuiltInCategory.OST_CurtainWallPanels, false),
-            ("doors", BuiltInCategory.OST_Doors, true),
-            ("windows", BuiltInCategory.OST_Windows, true),
-            ("caseworks", BuiltInCategory.OST_Casework, false),
-            ("casework", BuiltInCategory.OST_Casework, false),
-            ("furniture systems", BuiltInCategory.OST_FurnitureSystems, false),
-            ("furniture", BuiltInCategory.OST_Furniture, false),
-            ("plumbing", BuiltInCategory.OST_PlumbingFixtures, false),
-            ("specialty", BuiltInCategory.OST_SpecialityEquipment, false),
-            ("generic", BuiltInCategory.OST_GenericModel, false),
-            ("structural column", BuiltInCategory.OST_StructuralColumns, true),
-            ("columns", BuiltInCategory.OST_Columns, true),
-            ("parking", BuiltInCategory.OST_Parking, false),
-            ("pipes", BuiltInCategory.OST_PipeCurves, false),
-            ("toposurface", BuiltInCategory.OST_Topography, false),
-            ("mass", BuiltInCategory.OST_Mass, false),
+            ["floors"] = (BuiltInCategory.OST_Floors, true),
+            ["walls"] = (BuiltInCategory.OST_Walls, true),
+            ["ceilings"] = (BuiltInCategory.OST_Ceilings, true),
+            ["roofs"] = (BuiltInCategory.OST_Roofs, true),
+            ["stairs"] = (BuiltInCategory.OST_Stairs, true),
+            ["railings"] = (BuiltInCategory.OST_StairsRailing, true),
+            ["ramps"] = (BuiltInCategory.OST_Ramps, false),
+            ["room"] = (BuiltInCategory.OST_Rooms, true),
+            ["curtain"] = (BuiltInCategory.OST_CurtainWallPanels, false),
+            ["doors"] = (BuiltInCategory.OST_Doors, true),
+            ["windows"] = (BuiltInCategory.OST_Windows, true),
+            ["caseworks"] = (BuiltInCategory.OST_Casework, false),
+            ["casework"] = (BuiltInCategory.OST_Casework, false),
+            ["furniture systems"] = (BuiltInCategory.OST_FurnitureSystems, false),
+            ["furniture"] = (BuiltInCategory.OST_Furniture, false),
+            ["plumbing"] = (BuiltInCategory.OST_PlumbingFixtures, false),
+            ["specialty"] = (BuiltInCategory.OST_SpecialityEquipment, false),
+            ["generic"] = (BuiltInCategory.OST_GenericModel, false),
+            ["structural column"] = (BuiltInCategory.OST_StructuralColumns, true),
+            ["columns"] = (BuiltInCategory.OST_Columns, true),
+            ["parking"] = (BuiltInCategory.OST_Parking, false),
+            ["pipes"] = (BuiltInCategory.OST_PipeCurves, false),
+            ["toposurface"] = (BuiltInCategory.OST_Topography, false),
+            ["mass"] = (BuiltInCategory.OST_Mass, false),
         };
-
-        private static string? MatchCategory(string description)
-        {
-            var d = description.ToLowerInvariant();
-            foreach (var (label, _, _) in CategoryMap)
-                if (d.Contains(label)) return label;
-            return null;
-        }
 
         private static readonly AuditChecker FamilyCategoryChecker = new()
         {
-            Id = "family_category",
+            Id = AuditMatching.FamilyCategoryId,
             Severity = Severities.Minor,
             Evaluate = (_, _) => new CheckOutcome(),   // real call goes through EvaluateCategory
         };
@@ -500,11 +384,35 @@ namespace BinaVibe.Mcp.Tools.Audit
 
         private static CheckOutcome GridsLevels(AuditContext ctx, AuditFormRow row)
         {
-            const string rule = "grid > 0, aras > 0, dan setiap pelan lantai terikat pada satu aras";
+            const string rule = "grid > 0 dan aras > 0; setiap grid dan aras ada nama yang unik "
+                                + "(tiada nama kosong/berganda); setiap pelan lantai terikat pada satu aras";
             int grids = ctx.Grids.Count;
             int levels = ctx.Levels.Count;
             var plans = ctx.FloorPlans;
-            var noLevel = plans.Where(v => v.GenLevel == null).Select(v => v.Name).ToList();
+            var noLevel = plans.Where(v => v.GenLevel == null).ToList();
+
+            // Naming: a grid or level the drafter cannot refer to by a unique
+            // name is not "organised". Empty names and duplicates are objective;
+            // the letter/number split is reported as context only (prime grids
+            // like A' or A1 are legitimate), never as a verdict.
+            var gridUnnamed = ctx.Grids.Where(g => string.IsNullOrWhiteSpace(g.Name)).ToList();
+            var gridDupes = ctx.Grids.Where(g => !string.IsNullOrWhiteSpace(g.Name))
+                .GroupBy(g => g.Name.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Where(gr => gr.Count() > 1).ToList();
+            int gridLetters = ctx.Grids.Count(g => g.Name.Trim().Length > 0 && g.Name.Trim().All(char.IsLetter));
+            int gridNumbers = ctx.Grids.Count(g => g.Name.Trim().Length > 0 && g.Name.Trim().All(char.IsDigit));
+
+            var levelInfo = ctx.Levels.Select(l =>
+            {
+                string name; double elevMm;
+                try { name = l.Name ?? ""; } catch { name = ""; }
+                try { elevMm = Math.Round(l.Elevation * 304.8, 1); } catch { elevMm = double.NaN; }
+                return (id: (long)l.Id.Value, name, elevMm);
+            }).ToList();
+            var levelUnnamed = levelInfo.Where(l => string.IsNullOrWhiteSpace(l.name)).ToList();
+            var levelDupes = levelInfo.Where(l => !string.IsNullOrWhiteSpace(l.name))
+                .GroupBy(l => l.name.Trim(), StringComparer.OrdinalIgnoreCase)
+                .Where(gr => gr.Count() > 1).ToList();
 
             var o = new CheckOutcome { RulePattern = rule };
             o.Evidence["rule"] = rule;
@@ -513,9 +421,24 @@ namespace BinaVibe.Mcp.Tools.Audit
             o.Evidence["floor_plans"] = plans.Count;
             // Same inventory base_point cites, so rows about grids agree.
             AddNames(o, "grid_names", ctx.Grids.Select(g => g.Name).ToList());
-            AddNames(o, "floor_plans_without_level", noLevel);
-            o.ElementIds = plans.Where(v => v.GenLevel == null).Take(IdCap)
-                                .Select(v => (long)v.Id.Value).ToList();
+            o.Evidence["grids_letter_named"] = gridLetters;
+            o.Evidence["grids_number_named"] = gridNumbers;
+            o.Evidence["grids_other_named"] = grids - gridLetters - gridNumbers - gridUnnamed.Count;
+            o.Evidence["grids_unnamed"] = gridUnnamed.Count;
+            o.Evidence["grids_duplicate_names"] = gridDupes.Count;
+            AddNames(o, "grid_duplicate_examples", gridDupes.Select(gr => $"{gr.Key} x{gr.Count()}").ToList());
+            AddNames(o, "level_names", levelInfo.Select(l =>
+                double.IsNaN(l.elevMm) ? l.name : $"{l.name} ({l.elevMm} mm)").ToList());
+            o.Evidence["levels_unnamed"] = levelUnnamed.Count;
+            o.Evidence["levels_duplicate_names"] = levelDupes.Count;
+            AddNames(o, "level_duplicate_examples", levelDupes.Select(gr => $"{gr.Key} x{gr.Count()}").ToList());
+            AddNames(o, "floor_plans_without_level", noLevel.Select(v => v.Name).ToList());
+            o.ElementIds = gridUnnamed.Select(g => g.Id)
+                .Concat(gridDupes.SelectMany(gr => gr).Select(g => g.Id))
+                .Concat(levelUnnamed.Select(l => l.id))
+                .Concat(levelDupes.SelectMany(gr => gr).Select(l => l.id))
+                .Concat(noLevel.Select(v => (long)v.Id.Value))
+                .Distinct().Take(IdCap).ToList();
 
             if (grids == 0 && levels == 0 && plans.Count == 0)
             {
@@ -524,19 +447,30 @@ namespace BinaVibe.Mcp.Tools.Audit
                 return empty;
             }
 
-            bool ok = grids > 0 && levels > 0 && noLevel.Count == 0;
+            var problems = new List<string>();
+            if (grids == 0) problems.Add("Tiada grid dalam model");
+            if (levels == 0) problems.Add("Tiada aras dalam model");
+            if (gridUnnamed.Count > 0) problems.Add($"{gridUnnamed.Count}/{grids} grid tanpa nama");
+            if (gridDupes.Count > 0)
+                problems.Add($"{gridDupes.Count} nama grid berganda (cth: "
+                             + string.Join(", ", gridDupes.Take(3).Select(gr => $"{gr.Key} x{gr.Count()}")) + ")");
+            if (levelUnnamed.Count > 0) problems.Add($"{levelUnnamed.Count}/{levels} aras tanpa nama");
+            if (levelDupes.Count > 0)
+                problems.Add($"{levelDupes.Count} nama aras berganda (cth: "
+                             + string.Join(", ", levelDupes.Take(3).Select(gr => $"{gr.Key} x{gr.Count()}")) + ")");
+            if (noLevel.Count > 0)
+                problems.Add($"{noLevel.Count}/{plans.Count} pelan lantai tanpa aras (cth: "
+                             + string.Join(", ", noLevel.Take(3).Select(v => v.Name)) + ")");
+
+            bool ok = problems.Count == 0;
             o.Compliance = ok ? "yes" : "no";
             if (grids == 0 || levels == 0) o.SeverityOverride = Severities.Critical;
             o.Remark = ok
-                ? $"Peraturan: {rule}. Dijumpai {grids} grid, {levels} aras; semua {plans.Count} "
-                  + "pelan lantai terikat pada aras — patuh."
+                ? $"Peraturan: {rule}. Dijumpai {grids} grid ({gridLetters} huruf, {gridNumbers} nombor), "
+                  + $"{levels} aras, semua bernama unik; semua {plans.Count} pelan lantai terikat pada "
+                  + "aras — patuh."
                 : $"Peraturan: {rule}. Dijumpai {grids} grid, {levels} aras. "
-                  + (grids == 0 ? "Tiada grid dalam model. " : "")
-                  + (levels == 0 ? "Tiada aras dalam model. " : "")
-                  + (noLevel.Count > 0
-                      ? $"{noLevel.Count}/{plans.Count} pelan lantai tanpa aras (cth: "
-                        + $"{string.Join(", ", noLevel.Take(3))})." + FullListNote(noLevel.Count)
-                      : "");
+                  + string.Join(". ", problems) + "." + FullListNote(o.ElementIds.Count);
             return o;
         }
 
@@ -578,22 +512,31 @@ namespace BinaVibe.Mcp.Tools.Audit
         private static CheckOutcome MaterialsAssigned(AuditContext ctx, AuditFormRow row)
         {
             const string rule = "setiap elemen Walls/Floors/Ceilings/Roofs ada sekurang-kurangnya satu material";
-            var cats = new[]
+            var cats = new (string label, BuiltInCategory bic)[]
             {
-                BuiltInCategory.OST_Walls, BuiltInCategory.OST_Floors,
-                BuiltInCategory.OST_Ceilings, BuiltInCategory.OST_Roofs,
+                ("Walls", BuiltInCategory.OST_Walls), ("Floors", BuiltInCategory.OST_Floors),
+                ("Ceilings", BuiltInCategory.OST_Ceilings), ("Roofs", BuiltInCategory.OST_Roofs),
             };
             int scanned = 0;
-            var offenders = new List<Element>();
-            foreach (var bic in cats)
+            bool capReached = false;
+            var offenders = new List<(Element e, string label)>();
+            var perCategory = new List<object>();
+            foreach (var (label, bic) in cats)
             {
+                int catScanned = 0, catWithout = 0;
                 foreach (var e in new FilteredElementCollector(ctx.Doc).OfCategory(bic).WhereElementIsNotElementType())
                 {
-                    if (++scanned > ElementScanCap) break;
+                    if (scanned >= ElementScanCap) { capReached = true; break; }
+                    scanned++; catScanned++;
                     ICollection<ElementId> mats;
                     try { mats = e.GetMaterialIds(false); } catch { continue; }
-                    if (mats == null || mats.Count == 0) offenders.Add(e);
+                    if (mats == null || mats.Count == 0) { offenders.Add((e, label)); catWithout++; }
                 }
+                perCategory.Add(new Dictionary<string, object?>
+                {
+                    ["category"] = label, ["scanned"] = catScanned, ["without_material"] = catWithout,
+                });
+                if (capReached) break;
             }
 
             if (scanned == 0) return NothingToCheck("elemen Walls/Floors/Ceilings/Roofs", rule);
@@ -601,56 +544,100 @@ namespace BinaVibe.Mcp.Tools.Audit
             var o = new CheckOutcome { RulePattern = rule };
             o.Evidence["rule"] = rule;
             o.Evidence["elements_scanned"] = scanned;
-            o.Evidence["scan_cap_reached"] = scanned > ElementScanCap;
+            o.Evidence["scan_cap"] = ElementScanCap;
+            o.Evidence["scan_cap_reached"] = capReached;
             o.Evidence["without_material"] = offenders.Count;
-            o.Evidence["scanned_categories"] = new List<object> { "Walls", "Floors", "Ceilings", "Roofs" };
-            AddNames(o, "examples", offenders.Select(e => e.Name ?? "").ToList());
-            o.ElementIds = offenders.Take(IdCap).Select(e => (long)e.Id.Value).ToList();
+            o.Evidence["per_category"] = perCategory;
+            // Type name alone ("Generic - 200mm") does not say which category it
+            // is; prefix it so the drafter can find the element.
+            AddNames(o, "examples", offenders.Select(x => x.label + ": " + (x.e.Name ?? "") + " [" + x.e.Id.Value + "]").ToList());
+            o.ElementIds = offenders.Take(IdCap).Select(x => (long)x.e.Id.Value).ToList();
 
+            string breakdown = string.Join(", ", perCategory.Cast<Dictionary<string, object?>>()
+                .Select(d => $"{d["category"]} {d["without_material"]}/{d["scanned"]}"));
+            string capNote = capReached
+                ? $" Imbasan dihadkan kepada {ElementScanCap} elemen; elemen selebihnya tidak disemak."
+                : "";
+            if (offenders.Count == 0 && capReached)
+            {
+                // A clean PARTIAL scan proves nothing about the unscanned rest.
+                // Offenders found under the cap are still a real "no".
+                o.Compliance = "not_verifiable";
+                o.Evidence["not_verifiable_reason"] = "scan_cap_reached_without_offenders";
+                o.Remark = $"Peraturan: {rule}. {scanned} elemen pertama semuanya ada material ({breakdown}), "
+                           + "tetapi model melebihi had imbasan jadi elemen selebihnya tidak disemak — "
+                           + "semak manual." + capNote;
+                return o;
+            }
             bool ok = offenders.Count == 0;
             o.Compliance = ok ? "yes" : "no";
             o.Remark = ok
-                ? $"Peraturan: {rule}. Semua {scanned} elemen ada material — patuh."
-                : $"Peraturan: {rule}. {offenders.Count}/{scanned} elemen tiada material (cth id: "
-                  + $"{string.Join(", ", o.ElementIds.Take(3))}). Tetapkan material pada jenis "
-                  + "elemen berkenaan." + FullListNote(offenders.Count);
+                ? $"Peraturan: {rule}. Semua {scanned} elemen ada material ({breakdown}) — patuh." + capNote
+                : $"Peraturan: {rule}. {offenders.Count}/{scanned} elemen tiada material "
+                  + $"(tanpa material/diimbas: {breakdown}; cth: "
+                  + $"{string.Join(", ", offenders.Take(3).Select(x => x.label + " " + (x.e.Name ?? "") + " id " + x.e.Id.Value))}). "
+                  + "Tetapkan material pada jenis elemen berkenaan." + FullListNote(offenders.Count) + capNote;
             return o;
         }
 
         private static CheckOutcome ProjectInfo(AuditContext ctx, AuditFormRow row)
         {
-            const string rule = "Project Name/Number/Address/Client Name/Status terisi dan bukan nilai lalai Revit";
+            const string rule = "Project Name/Number/Address/Client Name/Status/Issue Date terisi "
+                                + "dan bukan nilai lalai Revit";
             var info = ctx.Doc.ProjectInformation;
+            if (info == null)
+            {
+                var none = NothingToCheck("elemen Project Information", rule, "no_project_information_element");
+                none.Remark = "Dokumen tiada elemen Project Information untuk dibaca — semak manual "
+                              + "di Manage > Project Information.";
+                return none;
+            }
+
+            // Typed wrapper first; the BuiltInParameter is the same storage and
+            // catches a wrapper that throws on an odd document.
+            static string? Read(ProjectInfo pi, Func<string?> typed, BuiltInParameter bip)
+            {
+                try { var v = typed(); if (v != null) return v; } catch { /* fall through */ }
+                try { return pi.get_Parameter(bip)?.AsString(); } catch { return null; }
+            }
             var fields = new (string name, string? val)[]
             {
-                ("Project Name", info?.Name),
-                ("Project Number", info?.Number),
-                ("Address", info?.Address),
-                ("Client Name", info?.ClientName),
-                ("Status", info?.Status),
+                ("Project Name", Read(info, () => info.Name, BuiltInParameter.PROJECT_NAME)),
+                ("Project Number", Read(info, () => info.Number, BuiltInParameter.PROJECT_NUMBER)),
+                ("Address", Read(info, () => info.Address, BuiltInParameter.PROJECT_ADDRESS)),
+                ("Client Name", Read(info, () => info.ClientName, BuiltInParameter.CLIENT_NAME)),
+                ("Status", Read(info, () => info.Status, BuiltInParameter.PROJECT_STATUS)),
+                ("Issue Date", Read(info, () => info.IssueDate, BuiltInParameter.PROJECT_ISSUE_DATE)),
             };
+            // What a fresh Revit template ships in each box.
             var defaults = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 "project name", "project number", "enter address here", "project address",
-                "owner", "project status",
+                "owner", "project status", "issue date",
             };
-            var empty = fields
-                .Where(f => string.IsNullOrWhiteSpace(f.val) || defaults.Contains(f.val!.Trim()))
-                .Select(f => string.IsNullOrWhiteSpace(f.val)
-                    ? f.name + " (kosong)"
-                    : f.name + $" (\"{f.val!.Trim()}\" — nilai lalai)")
-                .ToList();
+            var empty = new List<string>();
+            var values = new Dictionary<string, object?>();
+            foreach (var (name, val) in fields)
+            {
+                var v = (val ?? "").Trim();
+                values[name] = v;
+                if (v.Length == 0) empty.Add(name + " (kosong)");
+                else if (defaults.Contains(v)) empty.Add(name + $" (\"{v}\" — nilai lalai)");
+            }
 
             var o = new CheckOutcome { RulePattern = rule };
             o.Evidence["rule"] = rule;
             o.Evidence["fields_checked"] = fields.Select(f => f.name).ToList();
+            o.Evidence["values"] = values;
+            o.Evidence["filled"] = fields.Length - empty.Count;
             o.Evidence["empty_or_default"] = empty;
             bool ok = empty.Count == 0;
             o.Compliance = ok ? "yes" : "no";
             o.Remark = ok
-                ? $"Peraturan: {rule}. Kelima-lima medan terisi — patuh."
-                : $"Peraturan: {rule}. Belum dikemaskini: {string.Join(", ", empty)}. "
-                  + "Isi di Manage > Project Information.";
+                ? $"Peraturan: {rule}. Keenam-enam medan terisi (Project Name \"{values["Project Name"]}\", "
+                  + $"Project Number \"{values["Project Number"]}\") — patuh."
+                : $"Peraturan: {rule}. {empty.Count}/{fields.Length} medan belum dikemaskini: "
+                  + $"{string.Join(", ", empty)}. Isi di Manage > Project Information.";
             return o;
         }
 
@@ -954,7 +941,9 @@ namespace BinaVibe.Mcp.Tools.Audit
         public static CheckOutcome EvaluateCategory(AuditContext ctx, string label)
         {
             const string rule = ">=2 segmen dipisah '-' atau '_' pada nama jenis (ElementType)";
-            var entry = CategoryMap.First(c => c.label == label);
+            if (!CategoryMap.TryGetValue(label, out var entry))
+                throw new InvalidOperationException(
+                    $"AuditMatching.CategoryLabels has '{label}' but AuditCheckers.CategoryMap does not");
             var instances = new FilteredElementCollector(ctx.Doc).OfCategory(entry.bic)
                 .WhereElementIsNotElementType().ToList();
             var types = new FilteredElementCollector(ctx.Doc).OfCategory(entry.bic)

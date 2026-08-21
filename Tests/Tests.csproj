@@ -46,6 +46,10 @@
          dependency. -->
     <Compile Include="..\Helpers\WpfAppBootstrap.cs" Link="WpfAppBootstrap.cs" />
     <Compile Include="..\Services\JkrCodeParser.cs" Link="JkrCodeParser.cs" />
+    <!-- CostUnitRules: pure (System only). 3a6ed6f added it WITH
+         CostUnitRulesTests.cs but never linked it — the WpfAppBootstrap trap
+         again: 28 CS0103s, no test in this project ran. -->
+    <Compile Include="..\Services\CostUnitRules.cs" Link="CostUnitRules.cs" />
     <!-- TableCsv: pure CSV serializer + filename slug for the Download-CSV
          button under AI tables (System + Regex only, no WPF/Revit). -->
     <Compile Include="..\Helpers\TableCsv.cs" Link="TableCsv.cs" />
@@ -123,6 +127,11 @@
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditFormParser.cs" Link="AuditFormParser.cs" />
     <!-- Rename suggestion transform: System only, no Revit — unit-tested here. -->
     <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditNaming.cs" Link="AuditNaming.cs" />
+    <!-- Row → checker decision (keyword scoring): System only, split out of
+         AuditCheckers precisely so AuditCoverageTests can pin which form rows
+         fall through to not_verifiable. The checkers themselves need a live
+         Document and stay out. -->
+    <Compile Include="..\BinaVibe\Mcp\Tools\Audit\AuditMatching.cs" Link="AuditMatching.cs" />
     <!-- Socket placement layout math + plan cache: System only, mm throughout.
          Split out of SocketCandidates.cs/SocketPlacement.cs (which need a live
          Revit Document) precisely so the spacing, corner-clearance and
