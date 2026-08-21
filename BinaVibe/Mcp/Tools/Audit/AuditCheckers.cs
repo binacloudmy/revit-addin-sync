@@ -648,22 +648,50 @@ namespace BinaVibe.Mcp.Tools.Audit
             var views = ctx.GraphicalViews;
             if (views.Count == 0) return NothingToCheck("view grafik", rule);
 
-            var without = views.Where(v => v.ViewTemplateId == ElementId.InvalidElementId).ToList();
+            var without = ctx.UntemplatedOf(views);
+            var split = AuditTemplateAvailability.Split(without, ctx.ViewTypesWithTemplates);
             var o = new CheckOutcome { RulePattern = rule };
             o.Evidence["rule"] = rule;
             o.Evidence["views"] = views.Count;
             o.Evidence["without_view_template"] = without.Count;
-            AddNames(o, "examples", without.Select(v => v.Name).ToList());
-            o.ElementIds = without.Take(IdCap).Select(v => (long)v.Id.Value).ToList();
+            AddTemplateAvailability(o, ctx, split);
+            AddNames(o, "examples", split.Actionable.Select(v => v.Name).ToList());
+            o.ElementIds = split.Actionable.Take(IdCap).Select(v => v.Id).ToList();
 
-            bool ok = without.Count == 0;
-            o.Compliance = ok ? "yes" : "no";
-            o.Remark = ok
-                ? $"Peraturan: {rule}. Semua {views.Count} view ada template — patuh."
-                : $"Peraturan: {rule}. {without.Count}/{views.Count} view tiada template (cth: "
-                  + $"{string.Join(", ", without.Take(3).Select(v => v.Name))}). Sapukan template "
-                  + "daripada templat seni bina." + FullListNote(without.Count);
+            o.Compliance = AuditTemplateAvailability.Compliance(split);
+            o.Remark = o.Compliance switch
+            {
+                "yes" => $"Peraturan: {rule}. Semua {views.Count} view ada template — patuh.",
+                "no" => $"Peraturan: {rule}. {without.Count}/{views.Count} view tiada template (cth: "
+                        + $"{string.Join(", ", split.Actionable.Take(3).Select(v => v.Name))}). Sapukan template "
+                        + "daripada templat seni bina." + AuditTemplateAvailability.ActionabilityClause(split)
+                        + FullListNote(split.Actionable.Count),
+                _ => $"Peraturan: {rule}. {views.Count - without.Count}/{views.Count} view ada template; "
+                     + $"{without.Count} view tiada template tetapi tiada template jenis tersebut wujud dalam "
+                     + $"model ({split.UnactionableTypesText}; cth: "
+                     + $"{string.Join(", ", split.Unactionable.Take(3).Select(v => v.Name))}) — tidak boleh "
+                     + "tindakan. Wujudkan template jenis itu dahulu jika dikehendaki, kemudian semak semula.",
+            };
+            if (o.Compliance == "not_verifiable")
+                o.Evidence["not_verifiable_reason"] = "no_template_of_view_type_in_model";
             return o;
+        }
+
+        /// <summary>Template-inventory evidence shared by the view-template
+        /// rows: how many templates exist per ViewType, and the split of
+        /// offenders into actionable vs unactionable (with names/ids of the
+        /// unactionable set kept separately so the main lists stay actionable).</summary>
+        private static void AddTemplateAvailability(CheckOutcome o, AuditContext ctx, TemplateAvailabilitySplit split)
+        {
+            o.Evidence["templates_in_model"] = ctx.TemplateCount;
+            o.Evidence["templates_by_view_type"] = ctx.TemplatesByViewType
+                .ToDictionary(kv => kv.Key.ToString(), kv => (object?)kv.Value.Count);
+            o.Evidence["actionable"] = split.Actionable.Count;
+            o.Evidence["unactionable_no_template_of_type"] = split.Unactionable.Count;
+            o.Evidence["unactionable_by_view_type"] = split.UnactionableByType
+                .ToDictionary(kv => kv.Key, kv => (object?)kv.Value);
+            AddNames(o, "unactionable_examples", split.Unactionable.Select(v => v.Name).ToList());
+            o.Evidence["unactionable_element_ids"] = split.Unactionable.Take(IdCap).Select(v => v.Id).ToList();
         }
 
         private static CheckOutcome ViewBucket(AuditContext ctx, string token)
@@ -907,15 +935,18 @@ namespace BinaVibe.Mcp.Tools.Audit
             string rule = $"setiap view dengan '{token}' dalam namanya ada View Template";
             var all = ctx.GraphicalViews;
             var views = all.Where(v => v.Name.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0).ToList();
-            var without = views.Where(v => v.ViewTemplateId == ElementId.InvalidElementId).ToList();
+            var without = ctx.UntemplatedOf(views);
+            var split = AuditTemplateAvailability.Split(without, ctx.ViewTypesWithTemplates);
 
             var o = new CheckOutcome { RulePattern = rule };
             o.Evidence["rule"] = rule;
             o.Evidence["token"] = token;
             o.Evidence["views"] = views.Count;
             o.Evidence["total_views"] = all.Count;
-            AddNames(o, "without_template", without.Select(v => v.Name).ToList());
-            o.ElementIds = without.Take(IdCap).Select(v => (long)v.Id.Value).ToList();
+            o.Evidence["without_view_template"] = without.Count;
+            AddTemplateAvailability(o, ctx, split);
+            AddNames(o, "without_template", split.Actionable.Select(v => v.Name).ToList());
+            o.ElementIds = split.Actionable.Take(IdCap).Select(v => v.Id).ToList();
 
             if (views.Count == 0)
             {
@@ -926,13 +957,22 @@ namespace BinaVibe.Mcp.Tools.Audit
                            + "view template.";
                 return o;
             }
-            bool ok = without.Count == 0;
-            o.Compliance = ok ? "yes" : "no";
-            o.Remark = ok
-                ? $"Peraturan: {rule}. Semua {views.Count} view {token} ada template — patuh."
-                : $"Peraturan: {rule}. {without.Count}/{views.Count} view {token} tiada template "
-                  + $"(cth: {string.Join(", ", without.Take(3).Select(v => v.Name))}). Sapukan "
-                  + $"template {token}." + FullListNote(without.Count);
+            o.Compliance = AuditTemplateAvailability.Compliance(split);
+            o.Remark = o.Compliance switch
+            {
+                "yes" => $"Peraturan: {rule}. Semua {views.Count} view {token} ada template — patuh.",
+                "no" => $"Peraturan: {rule}. {without.Count}/{views.Count} view {token} tiada template "
+                        + $"(cth: {string.Join(", ", split.Actionable.Take(3).Select(v => v.Name))}). Sapukan "
+                        + $"template {token}." + AuditTemplateAvailability.ActionabilityClause(split)
+                        + FullListNote(split.Actionable.Count),
+                _ => $"Peraturan: {rule}. {views.Count - without.Count}/{views.Count} view {token} ada template; "
+                     + $"{without.Count} view {token} tiada template tetapi tiada template jenis tersebut wujud "
+                     + $"dalam model ({split.UnactionableTypesText}; cth: "
+                     + $"{string.Join(", ", split.Unactionable.Take(3).Select(v => v.Name))}) — tidak boleh "
+                     + "tindakan. Wujudkan template jenis itu dahulu jika dikehendaki, kemudian semak semula.",
+            };
+            if (o.Compliance == "not_verifiable")
+                o.Evidence["not_verifiable_reason"] = "no_template_of_view_type_in_model";
             return o;
         }
 
