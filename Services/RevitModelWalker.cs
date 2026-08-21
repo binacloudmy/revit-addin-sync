@@ -17,7 +17,12 @@ namespace RevitWebAppSync.Services
         {
             "Rooms", "Areas", "Project Information", "Sheets", "Views",
             "Grids", "Levels", "Reference Planes", "Scope Boxes",
-            "Matchline", "Survey Point", "Project Base Point"
+            "Matchline", "Survey Point", "Project Base Point",
+            // Non-model rows that priced as instances in real exports
+            // (legend symbols / material definitions double-count real elements)
+            "Legend Components", "Materials", "Lines", "Dimensions",
+            "Detail Items", "Schedules", "Schedule Graphics", "Cameras",
+            "Room Tags", "Area Tags", "Sketch Lines"
         };
 
         // Categories measured by area (m²)
@@ -72,11 +77,21 @@ namespace RevitWebAppSync.Services
             {
                 if (elem.Category == null) continue;
 
+                // Only price model element instances: annotation/internal/analytical
+                // categories (legend components, materials, dimensions, tags, sketch
+                // lines, view/schedule data) are symbols of elements already counted.
+                if (elem.Category.CategoryType != CategoryType.Model) continue;
+                if (elem.ViewSpecific) continue;
+
                 string categoryName = elem.Category.Name;
                 if (SkipCategories.Contains(categoryName)) continue;
 
                 // Skip area/room boundaries
                 if (categoryName.StartsWith("<")) continue;
+
+                // Stacked-wall members are priced through their stacked-wall
+                // shell (GetQuantity sums member areas) — skip to avoid doubles.
+                if (elem is Wall memberWall && memberWall.IsStackedWallMember) continue;
 
                 // Get level
                 string levelName = GetElementLevel(elem, doc);
@@ -193,6 +208,23 @@ namespace RevitWebAppSync.Services
         private static (double quantity, string unit) GetQuantity(Element elem, Document doc)
         {
             if (elem.Category == null) return (1, "unit");
+
+            // Stacked walls carry no area of their own ("Stacked Walls" category
+            // falls through to the count fallback → qty=1 unit). Take off as the
+            // sum of the member walls' computed areas so they measure in m².
+            if (elem is Wall stackedWall && stackedWall.IsStackedWall)
+            {
+                double totalArea = 0;
+                foreach (ElementId memberId in stackedWall.GetStackedWallMemberIds())
+                {
+                    Element member = doc.GetElement(memberId);
+                    if (member != null)
+                        totalArea += GetParameterDouble(member, BuiltInParameter.HOST_AREA_COMPUTED);
+                }
+                if (totalArea > 0)
+                    return (UnitUtils.ConvertFromInternalUnits(totalArea, UnitTypeId.SquareMeters), "m²");
+                return (1, "m²");
+            }
 
             var bic = (BuiltInCategory)elem.Category.Id.Value;
 
