@@ -1,19 +1,168 @@
 using System;
 using System.Collections.Generic;
+using Newtonsoft.Json;
 
 namespace RevitWebAppSync.Services
 {
+    // Wire types for the bina-be sync protocol
+    // (/api/cloud-docs/bim-discipline/sync/* and the browse routes,
+    // ClickUp 86d3x42mz).
+
     /// <summary>
-    /// Wire types for the bina-be sync protocol
-    /// (/api/cloud-docs/bim-discipline/sync/*, ClickUp 86d3x42mz).
+    /// The three browsable areas of a project. One design status each, and a
+    /// folder belongs to exactly one — bim_designs.id is a project-wide PK, so
+    /// ids never collide across areas and the server derives the area from the
+    /// folder itself. InReview and Archive are not browsable.
     /// </summary>
-    public class WipFolder
+    public static class BimArea
+    {
+        public const string Wip = "wip";
+        public const string Shared = "shared";
+        public const string Published = "published";
+
+        /// <summary>Title-case label for a UI that has to name the area.</summary>
+        public static string Label(string area)
+        {
+            if (string.Equals(area, Shared, StringComparison.OrdinalIgnoreCase)) return "Shared";
+            if (string.Equals(area, Published, StringComparison.OrdinalIgnoreCase)) return "Published";
+            if (string.Equals(area, Wip, StringComparison.OrdinalIgnoreCase)) return "WIP";
+            return area;
+        }
+    }
+
+    public class BimFolder
     {
         public int Id { get; set; }
         public string Name { get; set; }
         public string DisciplineType { get; set; }
 
+        /// <summary>wip | shared | published, as the folder list reports it.</summary>
+        public string Area { get; set; }
+
         public override string ToString() => Name;
+    }
+
+    /// <summary>
+    /// One model in a WIP folder, as the browse endpoint returns it
+    /// (docs/wip-browse-backend-spec.md §1). One row per LINEAGE, not per
+    /// version: the row carries the head version so "download the latest"
+    /// costs no second call, and the full history is fetched only once the
+    /// user picks a model.
+    /// </summary>
+    public class BimDesign
+    {
+        /// <summary>
+        /// Null on models never synced from Revit (uploaded through the web).
+        /// Those resolve by <see cref="DesignId"/> instead — the version route
+        /// accepts either key.
+        /// </summary>
+        public string DocGuid { get; set; }
+
+        /// <summary>Head version's design id — downloadable as-is.</summary>
+        public int DesignId { get; set; }
+
+        /// <summary>
+        /// The lineage this model belongs to. This — not docGuid — is what
+        /// bina-be anchors version history on: it survives rename, move and
+        /// promotion, where the filename scope does not. Carried so later work
+        /// can key on it; the version lookup still goes through docGuid/designId
+        /// because those are the two keys the route accepts.
+        /// </summary>
+        public string LineageId { get; set; }
+
+        public string Name { get; set; }
+        public int? VersionNumber { get; set; }
+        public int? VersionCount { get; set; }
+        public DateTime? UploadedAt { get; set; }
+        public int? UploadedBy { get; set; }
+        public string UploaderName { get; set; }
+        public long? FileSize { get; set; }
+        public string FileHash { get; set; }
+        public string DisciplineType { get; set; }
+        public string DesignStatus { get; set; }
+        public string SyncSource { get; set; }
+        public string UrnInBase64 { get; set; }
+        public string XktConversionStatus { get; set; }
+
+        /// <summary>
+        /// False for a role that may browse but not download. Absent (null) means
+        /// allowed — the field is optional, and treating "not sent" as "denied"
+        /// would black out every row the day the server predates it.
+        /// </summary>
+        public bool? CanDownload { get; set; }
+
+        /// <summary>True unless the server explicitly said otherwise.</summary>
+        public bool IsDownloadable => !CanDownload.HasValue || CanDownload.Value;
+
+        /// <summary>wip | shared | published. Sent on every row, never inferred.</summary>
+        public string Area { get; set; }
+
+        /// <summary>
+        /// Where a promoted row came from. Absent on rows that were never
+        /// promoted, so presence IS the flag.
+        ///
+        /// Promotion mirrors the version number rather than restarting it — WIP
+        /// V6 approved into Shared is V6 there — and only steps up when that
+        /// number is already taken in the target folder by different content.
+        /// These fields exist for exactly that case: when the numbers do diverge,
+        /// the picker can say so instead of showing a number the drafter does not
+        /// recognise.
+        /// </summary>
+        public int? PromotedFromDesignId { get; set; }
+        public int? PromotedFromVersionNumber { get; set; }
+        public string PromotedFromArea { get; set; }
+
+        /// <summary>
+        /// True when this row's version number differs from the one it was
+        /// promoted from — the only case worth putting in front of a drafter.
+        /// </summary>
+        public bool HasPromotionMismatch =>
+            PromotedFromVersionNumber.HasValue
+            && VersionNumber.HasValue
+            && PromotedFromVersionNumber.Value != VersionNumber.Value;
+
+        public override string ToString() => Name;
+    }
+
+    public class BimDesignsResponse
+    {
+        public List<BimDesign> Designs { get; set; }
+
+        /// <summary>Area these rows belong to, echoed by the server.</summary>
+        public string Area { get; set; }
+
+        /// <summary>
+        /// Keyset cursor for the next page, base64url. bina-be always sends
+        /// <see cref="HasMore"/> alongside, so the client never has to infer
+        /// "is that everything?" from a page being full.
+        /// </summary>
+        public string NextCursor { get; set; }
+
+        /// <summary>
+        /// Alias for the same value: the server names this field `cursor` in
+        /// some responses. Newtonsoft maps whichever one arrives; both write the
+        /// same slot, so the caller reads NextCursor either way.
+        /// </summary>
+        [JsonProperty("cursor")]
+        public string Cursor
+        {
+            get { return NextCursor; }
+            set { if (!string.IsNullOrEmpty(value)) NextCursor = value; }
+        }
+
+        /// <summary>Always present. Null only against a server that predates it.</summary>
+        public bool? HasMore { get; set; }
+
+        /// <summary>Page size the server actually applied (default 200, max 500).</summary>
+        public int? Limit { get; set; }
+
+        /// <summary>
+        /// True when this page is not the whole folder. Trusts HasMore, and falls
+        /// back to the cursor only if the field is missing.
+        /// </summary>
+        [JsonIgnore]
+        public bool IsPartial =>
+            HasMore.HasValue ? HasMore.Value : !string.IsNullOrEmpty(NextCursor);
     }
 
     /// <summary>Current server-side state of a lineage; null when never synced.</summary>
@@ -55,6 +204,52 @@ namespace RevitWebAppSync.Services
         public SyncHead Head { get; set; }
     }
 
+    /// <summary>
+    /// One row of the rollback picker: a version that was synced at some point,
+    /// current or not (86d3ut47q).
+    /// </summary>
+    public class DesignVersion
+    {
+        public int DesignId { get; set; }
+        public int? VersionNumber { get; set; }
+        public string Name { get; set; }
+        public DateTime? UploadedAt { get; set; }
+        public int? UploadedBy { get; set; }
+        public string UploaderName { get; set; }
+        public long? FileSize { get; set; }
+        public string SyncComment { get; set; }
+        public string SyncSource { get; set; }
+        public string DesignStatus { get; set; }
+        public string UrnInBase64 { get; set; }
+        public string XktConversionStatus { get; set; }
+
+        /// <summary>True on the version the cloud currently considers head.</summary>
+        public bool IsActive { get; set; }
+
+        /// <summary>Set when this version was itself published by a rollback.</summary>
+        public int? RolledBackFromDesignId { get; set; }
+
+        /// <summary>
+        /// Set on a version that arrived in this area by promotion. Same
+        /// mirroring rule as the design row: normally the numbers match, and
+        /// these only matter when they do not.
+        /// </summary>
+        public int? PromotedFromDesignId { get; set; }
+        public int? PromotedFromVersionNumber { get; set; }
+        public string PromotedFromArea { get; set; }
+
+        [JsonIgnore]
+        public bool HasPromotionMismatch =>
+            PromotedFromVersionNumber.HasValue
+            && VersionNumber.HasValue
+            && PromotedFromVersionNumber.Value != VersionNumber.Value;
+    }
+
+    public class DesignVersionsResponse
+    {
+        public List<DesignVersion> Versions { get; set; }
+    }
+
     public class SyncCommitRequest : SyncInitRequest
     {
         public string FileKey { get; set; }
@@ -64,6 +259,13 @@ namespace RevitWebAppSync.Services
         public string UrnInBase64 { get; set; }
         public object ClientInfo { get; set; }
         public object Metadata { get; set; }
+
+        /// <summary>
+        /// Design id this model was restored from, sent on the FIRST sync after a
+        /// rollback so the server can label the version it creates (86d3ut47q).
+        /// Null on an ordinary sync.
+        /// </summary>
+        public int? RolledBackFromDesignId { get; set; }
     }
 
     public class SyncCommitResponse
@@ -136,6 +338,118 @@ namespace RevitWebAppSync.Services
         /// <summary>True when the server clipped the set at its ceiling.</summary>
         public bool Truncated { get; set; }
         public List<BinaElementParameter> Parameters { get; set; }
+    }
+
+    /// <summary>
+    /// An issue (BIM comment) as the panel lists it (ClickUp 86d3y5jtz).
+    ///
+    /// `Guid` is the BCF Topic GUID and never changes, so it is the key the
+    /// add-in holds on to. The web stays the source of truth: this release
+    /// reads, it does not write.
+    /// </summary>
+    public class BinaIssue
+    {
+        public string Guid { get; set; }
+        /// <summary>design | coordination — which store the issue came from.</summary>
+        public string Source { get; set; }
+        public string Title { get; set; }
+        public string TopicType { get; set; }
+        public string Status { get; set; }
+        public string Priority { get; set; }
+        public DateTime? DueDate { get; set; }
+        public bool IsResolved { get; set; }
+        public BinaPerson Author { get; set; }
+        /// <summary>
+        /// Null for a coordination issue: it belongs to the federated set in
+        /// `Models`, not to one design.
+        /// </summary>
+        public int? DesignId { get; set; }
+        public string DesignName { get; set; }
+        public int? VersionNumber { get; set; }
+        public string DisciplineType { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+        /// <summary>Two-line preview under the title, as the web list shows.</summary>
+        public string Text { get; set; }
+        /// <summary>Presigned markup snapshot; expires, so the panel caches the bytes.</summary>
+        public string SnapshotUrl { get; set; }
+        /// <summary>
+        /// The models the issue belongs to. One for a design issue; for a
+        /// coordination issue, every model that was loaded in the federated view
+        /// when it was raised.
+        /// </summary>
+        public List<BinaIssueModel> Models { get; set; }
+
+        public override string ToString() =>
+            string.IsNullOrWhiteSpace(Title) ? $"({TopicType})" : Title;
+    }
+
+    public class BinaIssueModel
+    {
+        public string FileName { get; set; }
+        public int? DesignId { get; set; }
+    }
+
+    public class BinaPerson
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+        public string Email { get; set; }
+    }
+
+    public class BinaIssueReply
+    {
+        public string Guid { get; set; }
+        public string Text { get; set; }
+        public BinaPerson Author { get; set; }
+        public DateTime? CreatedAt { get; set; }
+    }
+
+    /// <summary>
+    /// Where the issue was captured from, already converted server-side by the
+    /// same code the BCF export uses. Positions are in METRES — Revit works in
+    /// feet internally, so the caller divides by 0.3048.
+    /// </summary>
+    public class BinaIssueCamera
+    {
+        /// <summary>perspective | orthogonal</summary>
+        public string Type { get; set; }
+        public double[] ViewPoint { get; set; }
+        /// <summary>Unit vector, already normalised: the direction of gaze.</summary>
+        public double[] Direction { get; set; }
+        public double[] UpVector { get; set; }
+        public double? FieldOfView { get; set; }
+        public double? ViewToWorldScale { get; set; }
+        public string Units { get; set; }
+    }
+
+    /// <summary>Elements the issue points at, as Revit UniqueIds.</summary>
+    public class BinaIssueComponents
+    {
+        public string ModelUrn { get; set; }
+        public List<string> Selection { get; set; }
+        public List<string> Isolated { get; set; }
+        public List<string> Hidden { get; set; }
+    }
+
+    /// <summary>One issue in full (GET issue/:guid).</summary>
+    public class BinaIssueDetail : BinaIssue
+    {
+        public string Text { get; set; }
+        public string SnapshotUrl { get; set; }
+        public List<BinaIssueComponents> CapturedComponents { get; set; }
+        public BinaIssueCamera Camera { get; set; }
+        public double? UnitScale { get; set; }
+        public List<BinaIssueReply> Replies { get; set; }
+    }
+
+    /// <summary>Response of GET project/:projectId/issues.</summary>
+    public class BinaIssuePage
+    {
+        public int ProjectId { get; set; }
+        public int Count { get; set; }
+        public bool HasMore { get; set; }
+        public int? NextOffset { get; set; }
+        public List<BinaIssue> Issues { get; set; }
     }
 
     /// <summary>Revit build + add-in version + worksharing state, stored on the version.</summary>

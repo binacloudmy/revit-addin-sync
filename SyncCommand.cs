@@ -51,6 +51,10 @@ namespace RevitWebAppSync
                 var stamp = Services.ModelLineage.Read(doc);
                 string lineageId = stamp?.LineageId;
 
+                // Null unless the user rolled back and has not published it yet.
+                // Read here, on the UI thread, with the rest of the model identity.
+                var rollbackMarker = Services.RollbackMarkerStore.Read(doc);
+
                 if (Services.ModelLineage.LooksLikeCopy(stamp, docPathName))
                 {
                     // ExtensibleStorage travels with SaveAs, so a copy carries the
@@ -180,7 +184,12 @@ namespace RevitWebAppSync
                         Comment = options.Comment,
                         ClientInfo = clientInfo,
                         LinkedFiles = linkedFiles,
-                        AccessToken = beToken
+                        AccessToken = beToken,
+                        // Set only when this model was restored by a rollback and
+                        // the restore has not been published yet (86d3ut47q).
+                        RolledBackFromDesignId = rollbackMarker != null
+                            ? (int?)rollbackMarker.FromDesignId
+                            : null
                     };
 
                     // Blocks the UI thread. The upload itself touches no Revit API,
@@ -200,6 +209,20 @@ namespace RevitWebAppSync
                     }
 
                     CleanupTemp(prepared);
+
+                    // The rollback has been published, so the marker has done its
+                    // job. Left in place it would label every later version as a
+                    // restore. Cleared only on a real new version: an "unchanged"
+                    // result means nothing was published and the marker is still
+                    // owed to a future sync.
+                    if (rollbackMarker != null && runResult.Succeeded && !runResult.Unchanged)
+                    {
+                        Services.RollbackMarkerStore.Clear(doc);
+                        // Clear opens a transaction, leaving doc dirty. Save so the
+                        // next rollback attempt doesn't prompt about unsaved changes.
+                        if (doc.IsModified) doc.Save();
+                    }
+
                     ShowOutcome(runResult, prepared.Action);
                     return runResult.Succeeded ? Result.Succeeded : Result.Failed;
                 }

@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.IO;
+using System.Threading;
 using System.Text;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -80,19 +81,90 @@ namespace RevitWebAppSync.Services
             ContractResolver = new Newtonsoft.Json.Serialization.CamelCasePropertyNamesContractResolver()
         };
 
-        /// <summary>WIP folders for a project, optionally narrowed to one discipline.</summary>
-        public async Task<List<WipFolder>> GetWipFoldersAsync(int projectId, string disciplineType = null)
+        /// <summary>
+        /// Folders for one area of a project, optionally narrowed to a
+        /// discipline. Area defaults to WIP, which is what the sync flows want —
+        /// only the browser passes anything else.
+        ///
+        /// The route was `wip-folders` before the Shared work; that name still
+        /// resolves server-side but is deprecated, so this calls the new one.
+        /// </summary>
+        public async Task<List<BimFolder>> GetFoldersAsync(
+            int projectId, string area = BimArea.Wip, string disciplineType = null)
         {
-            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}/wip-folders";
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}/folders"
+                       + $"?area={Uri.EscapeDataString(area ?? BimArea.Wip)}";
             if (!string.IsNullOrEmpty(disciplineType))
-                url += $"?disciplineType={Uri.EscapeDataString(disciplineType)}";
+                url += $"&disciplineType={Uri.EscapeDataString(disciplineType)}";
 
-            using (var resp = await _http.GetAsync(url).ConfigureAwait(false))
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
             {
                 string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                if (resp.StatusCode == HttpStatusCode.Forbidden)
+                    throw new BinaAccessDeniedException(
+                        "You do not have access to this project's " + BimArea.Label(area) + " folders.");
+
                 if (!resp.IsSuccessStatusCode)
                     throw new InvalidOperationException($"Could not load folders (HTTP {(int)resp.StatusCode}): {body}");
-                return JsonConvert.DeserializeObject<List<WipFolder>>(body) ?? new List<WipFolder>();
+                return JsonConvert.DeserializeObject<List<BimFolder>>(body) ?? new List<BimFolder>();
+            }
+        }
+
+        /// <summary>
+        /// Models inside one folder, in any browsable area
+        /// (docs/wip-browse-backend-spec.md, docs/shared-browse-backend-spec.md).
+        ///
+        /// The server returns only what the caller's role permits — the add-in
+        /// renders the answer as-is and filters nothing, because it holds no copy
+        /// of the permission model. A 403 therefore means "not yours to see", and
+        /// is reported as that rather than as an empty folder.
+        ///
+        /// Folder ids are unique project-wide, so the server derives the area
+        /// from the folder and <paramref name="area"/> is only an assertion: a
+        /// mismatch is a 404 rather than a cross-area read. Sending it turns a
+        /// stale folder list into an error instead of silently correct-looking
+        /// rows from the wrong area.
+        /// </summary>
+        public async Task<BimDesignsResponse> GetDesignsAsync(
+            int projectId, int folderId, string area = null,
+            string search = null, string cursor = null,
+            int? limit = null,
+            CancellationToken cancellationToken = default(CancellationToken))
+        {
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/project/{projectId}"
+                       + $"/folder/{folderId}/designs";
+
+            var query = new List<string>();
+            if (!string.IsNullOrWhiteSpace(area)) query.Add("area=" + Uri.EscapeDataString(area));
+            if (!string.IsNullOrWhiteSpace(search)) query.Add("search=" + Uri.EscapeDataString(search));
+            if (!string.IsNullOrWhiteSpace(cursor)) query.Add("cursor=" + Uri.EscapeDataString(cursor));
+            if (limit.HasValue) query.Add("limit=" + limit.Value);
+            if (query.Count > 0) url += "?" + string.Join("&", query);
+
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url, cancellationToken))
+                .ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                if (resp.StatusCode == HttpStatusCode.Forbidden)
+                    throw new BinaAccessDeniedException(
+                        "You do not have access to the models in this folder.");
+
+                // 404 is a stale list, not a crash: the folder was renamed,
+                // removed, or belongs to a different area than the one asserted
+                // — all of which mean "reload and try again", not "broken".
+                if (resp.StatusCode == HttpStatusCode.NotFound)
+                    return new BimDesignsResponse { Designs = new List<BimDesign>(), Area = area };
+
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException(
+                        $"Could not load models (HTTP {(int)resp.StatusCode}): {body}");
+
+                var parsed = JsonConvert.DeserializeObject<BimDesignsResponse>(body)
+                             ?? new BimDesignsResponse();
+                if (parsed.Designs == null) parsed.Designs = new List<BimDesign>();
+                return parsed;
             }
         }
 
@@ -191,6 +263,204 @@ namespace RevitWebAppSync.Services
                              ?? new ElementParametersResponse();
                 if (parsed.Parameters == null) parsed.Parameters = new List<BinaElementParameter>();
                 return parsed;
+            }
+        }
+
+        /// <summary>
+        /// Issues for a project (ClickUp 86d3y5jtz). `designId` narrows to one
+        /// model and reads its whole version chain, so an issue raised on v3
+        /// still arrives for the model at v7.
+        /// </summary>
+        public async Task<BinaIssuePage> GetIssuesAsync(
+            int projectId,
+            int? designId = null,
+            string status = null,
+            string source = null,
+            int limit = 50)
+        {
+            var query = new List<string> { $"limit={limit}" };
+            if (designId.HasValue) query.Add($"designId={designId.Value}");
+            if (!string.IsNullOrEmpty(status)) query.Add($"status={Uri.EscapeDataString(status)}");
+            // design | coordination; omitted means both.
+            if (!string.IsNullOrEmpty(source)) query.Add($"source={Uri.EscapeDataString(source)}");
+
+            string url = $"{_baseUrl}/api/cloud-docs/bim-issues/project/{projectId}/issues" +
+                         $"?{string.Join("&", query)}";
+
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException(
+                        $"Could not load issues (HTTP {(int)resp.StatusCode}): {body}");
+
+                var page = JsonConvert.DeserializeObject<BinaIssuePage>(body) ?? new BinaIssuePage();
+                if (page.Issues == null) page.Issues = new List<BinaIssue>();
+                return page;
+            }
+        }
+
+        /// <summary>
+        /// One issue in full: the elements it points at, the camera it was
+        /// captured from, its replies and a snapshot URL.
+        /// </summary>
+        public async Task<BinaIssueDetail> GetIssueAsync(string guid)
+        {
+            string url = $"{_baseUrl}/api/cloud-docs/bim-issues/issue/{Uri.EscapeDataString(guid)}";
+
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException(
+                        $"Could not load the issue (HTTP {(int)resp.StatusCode}): {body}");
+
+                return JsonConvert.DeserializeObject<BinaIssueDetail>(body);
+            }
+        }
+
+        /// <summary>
+        /// Every synced version of one model's chain, newest first — the rollback
+        /// picker's list (86d3ut47q).
+        ///
+        /// Anchored on the document GUID rather than a design id: identifying a
+        /// lineage the sync/head way needs the parent folder, which the user picks
+        /// during a sync and which is never persisted. Someone opening a model to
+        /// look at its history has the GUID and nothing else.
+        ///
+        /// Goes through SendWithRefreshAsync because a picker opened on a stale
+        /// token would otherwise 401 — the GETs above predate that helper.
+        /// </summary>
+        public async Task<List<DesignVersion>> GetVersionsAsync(
+            int projectId, string docGuid, string area = null)
+        {
+            if (string.IsNullOrEmpty(docGuid))
+                throw new ArgumentException("docGuid is required", nameof(docGuid));
+
+            // Promoted rows carry no docGuid at all today (the copy path does not
+            // copy sourceDocumentGuid), so a GUID lookup can only be a WIP row.
+            // The area is sent anyway: if the copy path ever starts carrying the
+            // GUID, an unscoped lookup would silently resolve to WIP for a Shared
+            // model — the wrong file's history, presented as the right one.
+            return await GetVersionsInternalAsync(
+                $"{_baseUrl}/api/cloud-docs/bim-discipline/sync/versions"
+                + $"?projectId={projectId}&docGuid={Uri.EscapeDataString(docGuid)}"
+                + AreaParam(area))
+                .ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// The same history, keyed by design id — the key the browse hands us,
+        /// and the right one for most rows. Models uploaded through the web carry
+        /// no docGuid, and neither do promoted Shared/Published rows, so for
+        /// everything outside WIP this is the only lookup that resolves.
+        /// </summary>
+        public Task<List<DesignVersion>> GetVersionsByDesignAsync(
+            int projectId, int designId, string area = null)
+        {
+            if (designId <= 0)
+                throw new ArgumentException("designId is required", nameof(designId));
+
+            return GetVersionsInternalAsync(
+                $"{_baseUrl}/api/cloud-docs/bim-discipline/sync/versions"
+                + $"?projectId={projectId}&designId={designId}"
+                + AreaParam(area));
+        }
+
+        private static string AreaParam(string area) =>
+            string.IsNullOrWhiteSpace(area) ? "" : "&area=" + Uri.EscapeDataString(area);
+
+        private async Task<List<DesignVersion>> GetVersionsInternalAsync(string url)
+        {
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+
+                if (resp.StatusCode == HttpStatusCode.Forbidden)
+                    throw new BinaAccessDeniedException(
+                        "You do not have access to this model's version history.");
+
+                // A model this project has never synced has no history — an empty
+                // picker, not an error the user has to dismiss.
+                if (resp.StatusCode == System.Net.HttpStatusCode.NotFound)
+                    return new List<DesignVersion>();
+
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException(
+                        $"Could not load versions (HTTP {(int)resp.StatusCode}): {body}");
+
+                return JsonConvert.DeserializeObject<DesignVersionsResponse>(body)?.Versions
+                       ?? new List<DesignVersion>();
+            }
+        }
+
+        /// <summary>
+        /// Streams a design's bytes to <paramref name="destinationPath"/>.
+        ///
+        /// Deliberately NOT BinaApiService.DownloadFileAsync, which reads the whole
+        /// response into a byte[] — a central model would exhaust Revit's heap.
+        /// Mirrors UpdateService's staging download: headers first, fixed buffer,
+        /// progress in MB.
+        ///
+        /// A cancelled or failed download deletes its partial file. Half a .rvt on
+        /// disk is worse than none: it looks openable.
+        /// </summary>
+        public async Task DownloadAsync(
+            int designId,
+            string destinationPath,
+            IProgress<(double Fraction, string Message)> progress = null,
+            CancellationToken cancellationToken = default(CancellationToken))
+        {
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/discipline/{designId}/download";
+
+            try
+            {
+                using (var resp = await SendWithRefreshAsync(() =>
+                    _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, cancellationToken))
+                    .ConfigureAwait(false))
+                {
+                    // The server re-checks the caller's role on download, so a row
+                    // that listed fine can still be refused here — a grant that
+                    // changed since the list was fetched, or a browse-only role.
+                    if (resp.StatusCode == HttpStatusCode.Forbidden)
+                        throw new BinaAccessDeniedException(
+                            "You do not have permission to download this version.");
+
+                    if (!resp.IsSuccessStatusCode)
+                    {
+                        string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                        throw new InvalidOperationException(
+                            $"Could not download version (HTTP {(int)resp.StatusCode}): {body}");
+                    }
+
+                    long total = resp.Content.Headers.ContentLength ?? -1L;
+
+                    using (var source = await resp.Content.ReadAsStreamAsync().ConfigureAwait(false))
+                    using (var file = File.Create(destinationPath))
+                    {
+                        var buffer = new byte[81920];
+                        long done = 0;
+                        int read;
+
+                        while ((read = await source.ReadAsync(buffer, 0, buffer.Length, cancellationToken)
+                                   .ConfigureAwait(false)) > 0)
+                        {
+                            await file.WriteAsync(buffer, 0, read, cancellationToken).ConfigureAwait(false);
+                            done += read;
+
+                            if (total > 0)
+                                progress?.Report(((double)done / total,
+                                    $"Downloading… {done / 1048576.0:F1} / {total / 1048576.0:F1} MB"));
+                            else
+                                progress?.Report((0.0, $"Downloading… {done / 1048576.0:F1} MB"));
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                try { if (File.Exists(destinationPath)) File.Delete(destinationPath); } catch { }
+                throw;
             }
         }
 

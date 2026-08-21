@@ -51,6 +51,37 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         {
             Orientation = Orientation.Vertical;
             Margin = new Thickness(0, 4, 0, 2);
+            Unloaded += (_, __) => _clock?.Stop();
+        }
+
+        // Clock-driven elapsed tick for the LIVE line (PRD A6) — same rationale
+        // as ReasoningTimelineView.SetClock: without it the "· Ns" only moves
+        // when a frame arrives, so a silent decode leg reads as a hang. Touches
+        // the cached _liveTime TextBlock only; never rebuilds, never animates.
+        private System.Windows.Threading.DispatcherTimer _clock;
+        private IReadOnlyList<ProgressStep> _clockSteps;
+
+        private void SetClock(bool running, IReadOnlyList<ProgressStep> steps)
+        {
+            _clockSteps = steps;
+            if (running)
+            {
+                if (_clock == null)
+                {
+                    _clock = new System.Windows.Threading.DispatcherTimer
+                    { Interval = TimeSpan.FromMilliseconds(250) };
+                    _clock.Tick += (_, __) =>
+                    {
+                        if (_liveTime != null)
+                            _liveTime.Text = "· " + ProgressTrail.TotalElapsedText(_clockSteps);
+                    };
+                }
+                if (!_clock.IsEnabled) _clock.Start();
+            }
+            else
+            {
+                _clock?.Stop();
+            }
         }
 
         /// <summary>Rebuild from the given snapshot. No-op when nothing visible
@@ -81,32 +112,112 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         // trap the _renderedKey guard was added for with the arc spinner.
         private string _liveStepKey;
         private TextBlock _liveTime;
+        private TextBlock _liveCount;
+        private ColumnDefinition _liveBarFilled;
+        private ColumnDefinition _liveBarRest;
 
         private void UpdateLive(IReadOnlyList<ProgressStep> steps)
         {
             var current = ProgressTrail.Current(steps);
+            SetClock(current != null && current.State == StepState.Running, steps);
             if (current == null)
             {
                 if (Children.Count > 0) Children.Clear();
                 _liveStepKey = null;
                 _liveTime = null;
+                _liveCount = null;
+                _liveBarFilled = null;
+                _liveBarRest = null;
                 return;
             }
 
-            var stepKey = current.StepId + "|" + current.State + "|" + current.Label;
+            // HasCount/HasTotal are part of the key: a step growing its first
+            // count frame (or its total) changes the row's SHAPE and needs the
+            // one rebuild; after that, count ticks only touch text + columns.
+            var stepKey = current.StepId + "|" + current.State + "|" + current.Label
+                        + "|" + current.HasCount + "|" + current.HasTotal;
             var elapsed = ProgressTrail.TotalElapsedText(steps);
 
             if (stepKey == _liveStepKey)
             {
-                // Same step, more seconds: touch the text only, leave the
-                // spinner and its animation exactly where they are.
+                // Same step, more seconds / more matches: touch text and bar
+                // columns only, leave the spinner animation exactly where it is.
                 if (_liveTime != null) _liveTime.Text = "· " + elapsed;
+                if (_liveCount != null) _liveCount.Text = current.CountText;
+                SetBarFraction(current.Fraction);
                 return;
             }
 
             _liveStepKey = stepKey;
             Children.Clear();
+            _liveCount = null;
+            _liveBarFilled = null;
+            _liveBarRest = null;
             Children.Add(LiveRow(current, elapsed, out _liveTime));
+            if (current.HasCount)
+                Children.Add(CountRow(current, out _liveCount, out _liveBarFilled, out _liveBarRest));
+        }
+
+        // Star-sized columns carry the fill fraction, so the bar tracks the
+        // panel width with no ActualWidth math and no animation (a Storyboard
+        // would crash the Revit pane; direct width animation adds nothing at
+        // ≤10 count frames/s).
+        private void SetBarFraction(double f)
+        {
+            if (_liveBarFilled == null || _liveBarRest == null) return;
+            if (f < 0) f = 0; else if (f > 1) f = 1;
+            _liveBarFilled.Width = new GridLength(f, GridUnitType.Star);
+            _liveBarRest.Width = new GridLength(1 - f, GridUnitType.Star);
+        }
+
+        // Second live line under the current step: [count, tabular] then — when
+        // a total is known — a 3px determinate track. Counter-only steps (no
+        // total) show just the number climbing.
+        private static FrameworkElement CountRow(ProgressStep s,
+            out TextBlock countText, out ColumnDefinition filled, out ColumnDefinition rest)
+        {
+            var col = new StackPanel
+            {
+                Orientation = Orientation.Vertical,
+                // Align under the live label (spinner ~20px + 10 label margin).
+                Margin = new Thickness(30, 0, 2, 3),
+            };
+
+            countText = new TextBlock
+            {
+                Text = s.CountText,
+                FontSize = 11.5,
+                Margin = new Thickness(0, 0, 0, 3),
+            };
+            countText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            col.Children.Add(countText);
+
+            if (s.HasTotal)
+            {
+                var track = new Grid { Height = 3 };
+                filled = new ColumnDefinition { Width = new GridLength(s.Fraction, GridUnitType.Star) };
+                rest = new ColumnDefinition { Width = new GridLength(1 - s.Fraction, GridUnitType.Star) };
+                track.ColumnDefinitions.Add(filled);
+                track.ColumnDefinitions.Add(rest);
+
+                var trackBg = new Border { CornerRadius = new CornerRadius(1.5) };
+                trackBg.SetResourceReference(Border.BackgroundProperty, "Cp.Reasoning.BarTrack");
+                Grid.SetColumnSpan(trackBg, 2);
+                track.Children.Add(trackBg);
+
+                var fill = new Border { CornerRadius = new CornerRadius(1.5) };
+                fill.SetResourceReference(Border.BackgroundProperty, "Cp.Accent");
+                Grid.SetColumn(fill, 0);
+                track.Children.Add(fill);
+
+                col.Children.Add(track);
+            }
+            else
+            {
+                filled = null;
+                rest = null;
+            }
+            return col;
         }
 
         // The live line: [pulse dots] label · elapsed. Deliberately one row —
@@ -155,7 +266,8 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             var sb = new System.Text.StringBuilder();
             foreach (var s in steps)
                 sb.Append(s.StepId).Append('|').Append(s.State).Append('|')
-                  .Append(s.Label).Append('|').Append(s.ElapsedText).Append('\n');
+                  .Append(s.Label).Append('|').Append(s.ElapsedText).Append('|')
+                  .Append(s.CountText).Append('\n');
             return sb.ToString();
         }
 
@@ -201,6 +313,22 @@ namespace RevitWebAppSync.UI.Copilot.Controls
             elapsed.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
             DockPanel.SetDock(elapsed, Dock.Right);
             content.Children.Add(elapsed);
+
+            if (s.HasCount)
+            {
+                // "62 / 62 elements" — evidence of WHAT the scan covered, kept
+                // beside the duration column so labels still lead the row.
+                var count = new TextBlock
+                {
+                    Text = s.CountText,
+                    FontSize = 10.5,
+                    Margin = new Thickness(8, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
+                count.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+                DockPanel.SetDock(count, Dock.Right);
+                content.Children.Add(count);
+            }
 
             var label = new TextBlock
             {

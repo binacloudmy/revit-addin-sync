@@ -149,6 +149,13 @@ namespace RevitWebAppSync.UI.Copilot
         /// narrative (multi-sentence body per step), not terse tool labels.</summary>
         public Action<IReadOnlyList<ReasoningStep>> OnReasoning { get; set; }
 
+        /// <summary>Optional callback for the stream-v2 segmented turn body
+        /// (copilot-stream-v2 spec) — fires whenever the ordered block list
+        /// grows (a narrative leg extends, a new leg opens, a tool card lands).
+        /// Never fires on legacy turns (no segment ids), so a pane wired to it
+        /// still renders old backends exactly as today.</summary>
+        public Action<IReadOnlyList<TurnBlock>> OnBlocks { get; set; }
+
         /// <summary>Screenshots pasted with the NEXT prompt (base64 PNG). Set by
         /// the viewmodel right before RouteAsync, consumed and cleared by the
         /// route that builds the request — same per-call pattern as OnProgress.</summary>
@@ -202,6 +209,14 @@ namespace RevitWebAppSync.UI.Copilot
             public string Narration;
             public IReadOnlyList<ProgressStep> Steps;
             public IReadOnlyList<ReasoningStep> ReasoningSteps;
+            // Stream v2 (T5): the block list at pause time, carried across the
+            // confirm so the resumed stream appends to the same visual thread.
+            public IReadOnlyList<TurnBlock> Blocks;
+            // When the pause began — the thinking timer must EXCLUDE the
+            // drafter's decision time (the 457s lesson, 2026-08-18): on
+            // resolution every carried step's StartedUtc shifts forward by the
+            // pause duration so elapsed math never counts the wait.
+            public DateTime PausedUtc = DateTime.UtcNow;
             // One-shot resolution claim. EVERY path that resumes this batch
             // (Ya/Tidak click, Auto mode, the stale-confirm auto-reject, and
             // ResetSession's abandon reject) must claim it first — a batch may
@@ -295,6 +310,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Narration = outcome.NarrationSoFar,
                     Steps = outcome.Steps,
                     ReasoningSteps = outcome.ReasoningSteps,
+                    Blocks = outcome.Blocks,
                 };
                 var labels = new List<string>();
                 foreach (var c in outcome.PendingActions ?? new List<PendingToolCall>())
@@ -311,6 +327,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Steps = outcome.Steps,
                     ReasoningSteps = ToUiReasoning(outcome.ReasoningSteps),
                     ReasoningElapsedSeconds = outcome.ReasoningElapsedSeconds,
+                    Blocks = ToUiBlocks(outcome.Blocks),
                     // Action Mode addendum: Auto mode's programmatic-accept path
                     // is only safe when EVERY call in the batch opted out of
                     // confirmation. Empty/null pending list is never auto-eligible
@@ -344,8 +361,13 @@ namespace RevitWebAppSync.UI.Copilot
                 Followups = outcome.Followups,
                 ResultSummary = ToUiResultSummary(outcome.ResultSummary),
                 CodeRequiresConfirmation = outcome.CodeRequiresConfirmation,
+                Blocks = ToUiBlocks(outcome.Blocks),
             };
         }
+
+        // Stream v2: outcome snapshot -> UI list (null stays null — legacy).
+        private static List<TurnBlock> ToUiBlocks(IReadOnlyList<TurnBlock> blocks) =>
+            blocks == null || blocks.Count == 0 ? null : new List<TurnBlock>(blocks);
 
         // Turn receipt: service dict -> UI model. Null when nothing actually
         // changed — a receipt claiming zero changes is noise, not evidence.
@@ -479,7 +501,8 @@ namespace RevitWebAppSync.UI.Copilot
                     hitl.RunId, hitl.SessionId, answers, token, EmitProgress,
                     scts.Token, onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
                     onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } },
-                    onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } }
+                    onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } },
+                    onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } }
                     ).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { scanceled = true; }
@@ -521,6 +544,35 @@ namespace RevitWebAppSync.UI.Copilot
 
             var cfg = BinaConfig.Load();
             var token = cfg?.AccessToken ?? "";
+
+            // ─── Stream v2 confirm continuity (T5) ──────────────────────────
+            // The thinking timer must not count the drafter's decision time
+            // (the 457s lesson): shift every carried reasoning step's clock
+            // forward by the pause duration, so elapsed math resumes where the
+            // model actually stopped working. Then stamp the decision into the
+            // block thread as a compact record — the resumed frames append
+            // UNDER it, so the turn reads as one continuous thread.
+            var pause = DateTime.UtcNow - pc.PausedUtc;
+            if (pause > TimeSpan.Zero && pc.ReasoningSteps != null)
+                foreach (var rs in pc.ReasoningSteps)
+                    if (rs != null) rs.StartedUtc = rs.StartedUtc.Add(pause);
+            List<TurnBlock> continuedBlocks = null;
+            if (pc.Blocks != null && pc.Blocks.Count > 0)
+            {
+                int n = pc.Pending?.Count ?? 0;
+                continuedBlocks = new List<TurnBlock>(pc.Blocks)
+                {
+                    new TurnBlock
+                    {
+                        Kind = TurnBlockKind.ConfirmCard,
+                        Approved = approve,
+                        Text = approve
+                            ? (n == 1 ? "1 tindakan diluluskan" : n + " tindakan diluluskan")
+                            : (n == 1 ? "1 tindakan ditolak" : n + " tindakan ditolak"),
+                    },
+                };
+            }
+
             EmitProgress(approve ? "Menjalankan tindakan…" : "Thinking…");
             CancellationTokenSource ccts = new CancellationTokenSource();
             lock (_cancelLock)
@@ -538,7 +590,9 @@ namespace RevitWebAppSync.UI.Copilot
                     onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
                     onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } },
                     priorReasoningSteps: pc.ReasoningSteps,
-                    onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } }
+                    onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } },
+                    priorBlocks: continuedBlocks,
+                    onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } }
                     ).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { ccanceled = true; }
@@ -633,7 +687,8 @@ namespace RevitWebAppSync.UI.Copilot
                         hitl.RunId, hitl.SessionId, BuildAnswers(hitl, message), token, EmitProgress,
                         hcts.Token, onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
                         onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } },
-                        onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } }
+                        onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } },
+                        onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } }
                         ).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException) { hcanceled = true; }
@@ -700,7 +755,8 @@ namespace RevitWebAppSync.UI.Copilot
                         treq, token, EmitProgress, cts.Token,
                         onReply: t => { try { OnCodeStream?.Invoke(t); } catch { /* UI hiccup */ } },
                         onSteps: steps => { try { OnSteps?.Invoke(steps); } catch { /* UI hiccup */ } },
-                        onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } }
+                        onReasoning: steps => { try { OnReasoning?.Invoke(steps); } catch { /* UI hiccup */ } },
+                        onBlocks: blocks => { try { OnBlocks?.Invoke(blocks); } catch { /* UI hiccup */ } }
                         ).ConfigureAwait(false);
                 }
                 catch (OperationCanceledException)

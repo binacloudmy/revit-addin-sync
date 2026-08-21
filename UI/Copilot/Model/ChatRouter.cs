@@ -28,6 +28,10 @@ namespace RevitWebAppSync.UI.Copilot.Model
         // Done-frame follow-up chips + optional structured result breakdown.
         public List<FollowupAction> Followups;
         public ResultSummaryModel ResultSummary;
+        // Stream v2 segmented turn body (copilot-stream-v2 spec T1): ordered
+        // Narrative/ToolCard/ConfirmCard blocks. Null on legacy turns — the
+        // pane then renders the single Reply bubble exactly as today.
+        public List<TurnBlock> Blocks;
         // Action Mode addendum (2026-08-02): true when EVERY pending call in
         // this confirmation batch has requires_confirmation == false — the
         // ONLY thing that makes Auto mode's programmatic-accept path safe.

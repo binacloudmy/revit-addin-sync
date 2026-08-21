@@ -15,6 +15,13 @@ namespace RevitWebAppSync
         public int UserId { get; set; }
         public int? OrgId { get; set; }   // organisation/team id, when the user belongs to one
 
+        // Uniform installed-rate markup (%) applied by the cost match
+        // pipeline on top of N3C material rates. 0 = raw material prices.
+        // Surfaced on the cost dashboard total ("incl. N% markup") so the
+        // drafter always knows what the number contains.
+        [JsonProperty("costMarkupPct")]
+        public double CostMarkupPct { get; set; } = 0;
+
         // Session data
         public string UserName { get; set; }
         public string ProjectName { get; set; }
@@ -107,7 +114,7 @@ namespace RevitWebAppSync
         // is Revit on Windows against a developer's Mac over ngrok).
         public bool AllowNgrokApiBaseUrl { get; set; }
 
-        // BINA web app origin (app-stg.bina.cloud / bina.cloud). This is the page
+        // BINA web app origin (app-stg.binacloud.ai / app.binacloud.ai). This is the page
         // that runs the bina-be desktop-OAuth bridge: it authorizes against its
         // own NEXT_PUBLIC_API_URL and redirects back to our loopback with a code.
         // Distinct from LoginWebUrl, which is the bina-ai plugins landing page.
@@ -198,11 +205,11 @@ namespace RevitWebAppSync
         // BASE_URL when API_BASE_URL is absent so an env file without the new key
         // behaves exactly as before.
         public static string DEFAULT_API_BASE_URL =>
-            Env("API_BASE_URL") ?? Env("BASE_URL") ?? "https://bina-be-stg.azurewebsites.net";
+            Env("API_BASE_URL") ?? Env("BASE_URL") ?? "https://api.binacloud.ai";
 
         // BINA web origin that hosts the desktop-OAuth bridge page (/login).
         public static string DEFAULT_CLOUD_WEB_URL =>
-            Env("CLOUD_WEB_URL") ?? Env("LOGIN_WEB_URL") ?? "https://bina.cloud";
+            Env("CLOUD_WEB_URL") ?? Env("LOGIN_WEB_URL") ?? "https://app.binacloud.ai";
         // BINA web login origin for the desktop OAuth browser flow. Override via
         // the LOGIN_WEB_URL env key or config.json once the real origin is known.
         public static string DEFAULT_LOGIN_WEB_URL =>
@@ -225,6 +232,21 @@ namespace RevitWebAppSync
             return string.IsNullOrWhiteSpace(v) ? null : v;
         }
 
+        /// <summary>
+        /// Which channel this binary was built as, and therefore which .env is
+        /// baked into it. Shown by <see cref="DescribeEndpoints"/> — "which
+        /// backend is this install talking to" was previously answerable only
+        /// by disassembling the DLL.
+        /// </summary>
+        public static string Channel =>
+#if DEBUG
+            "Debug (.env.local)";
+#elif STAGING
+            "Staging (.env.staging)";
+#else
+            "Release (.env.production)";
+#endif
+
         private static Dictionary<string, string> LoadEnv()
         {
 #if DEBUG
@@ -234,29 +256,40 @@ namespace RevitWebAppSync
 #else
             const string resource = "env.production";
 #endif
-            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             try
             {
                 using var stream = Assembly.GetExecutingAssembly()
                     .GetManifestResourceStream(resource);
-                if (stream == null) return map;
+                if (stream == null)
+                    return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
                 using var reader = new StreamReader(stream);
-                string line;
-                while ((line = reader.ReadLine()) != null)
-                {
-                    var t = line.Trim();
-                    if (t.Length == 0 || t.StartsWith("#")) continue;
-                    var eq = t.IndexOf('=');
-                    if (eq <= 0) continue;
-                    var k = t.Substring(0, eq).Trim();
-                    var val = t.Substring(eq + 1).Trim().Trim('"');
-                    map[k] = val;
-                }
+                // Parser lives in Services/EnvFile.cs so EnvChannelTests lints
+                // the .env files with the same code that reads them at runtime.
+                return Services.EnvFile.Parse(reader);
             }
-            catch { /* fall back to literals above */ }
-            return map;
+            catch
+            {
+                /* fall back to literals above */
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
         }
+
+        /// <summary>
+        /// Every endpoint this build actually resolved, after config.json
+        /// overrides and the UrlResolution rules have been applied. Logged at
+        /// startup and attached to login failures: a wrong or stale host is the
+        /// most common cause of "signed in but nothing works", and until now
+        /// nothing surfaced which host was in play.
+        /// </summary>
+        public string DescribeEndpoints() =>
+            "channel        : " + Channel + "\n" +
+            "AI base        : " + ResolvedAIBaseUrl + "\n" +
+            "auth base      : " + ResolvedAuthBaseUrl + "\n" +
+            "bina-be API    : " + ResolvedApiBaseUrl + "\n" +
+            "AI login page  : " + ResolvedLoginWebUrl + "\n" +
+            "CDE login page : " + ResolvedCloudWebUrl + "\n" +
+            "update feed    : " + ResolvedUpdateFeedUrl;
 
         // --- Env-first resolution -------------------------------------------
         // Rules live in Services/UrlResolution.cs (pure, unit-tested): a
@@ -420,9 +453,24 @@ namespace RevitWebAppSync
                 EngineAutoSpawn = true;
             }
 
+            // Heal hand-configured boxes (2026-08-19). The block above only
+            // runs when EngineMode is FALSE — every UAT machine set up
+            // manually per the Phases 1-3 docs ({"EngineMode": true, ...},
+            // start-engine.ps1 era) skips it, so EngineAutoSpawn stays at its
+            // false default and the add-in NEVER spawns the engine. Those
+            // boxes only worked while someone re-ran start-engine.ps1 each
+            // session; otherwise every turn died with "connection refused
+            // localhost:48810". If a bundle is installed, a manual EngineMode
+            // config earns auto-spawn too.
+            if (EngineMode && !EngineAutoSpawn &&
+                !string.IsNullOrEmpty(Services.EngineManager.NewestEngineLauncher()))
+            {
+                EngineAutoSpawn = true;
+            }
+
             // Once Engine mode is on, AI calls must target the local engine,
             // not the cloud. Only steer AIBaseUrl away from blank or an
-            // obvious cloud default (bina.cloud / any https:// URL) — a
+            // obvious cloud default (binacloud.ai / any https:// URL) — a
             // custom localhost value a developer already set is left alone.
             if (EngineMode && IsBlankOrCloudDefault(AIBaseUrl))
             {
@@ -437,6 +485,7 @@ namespace RevitWebAppSync
         {
             if (string.IsNullOrWhiteSpace(url)) return true;
             if (url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)) return true;
+            if (url.IndexOf("binacloud.ai", StringComparison.OrdinalIgnoreCase) >= 0) return true;
             if (url.IndexOf("bina.cloud", StringComparison.OrdinalIgnoreCase) >= 0) return true;
             return false;
         }

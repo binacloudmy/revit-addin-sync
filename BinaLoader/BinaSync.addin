@@ -17,7 +17,7 @@
     <FullClassName>BinaLoader.LoaderApp</FullClassName>
     <AddInId>7A3F1C9E-5B24-4E8D-9C61-0D2F84A6B7E3</AddInId>
     <VendorId>BINA_CLOUD</VendorId>
-    <VendorDescription>Bina Cloud, app.bina.cloud</VendorDescription>
+    <VendorDescription>Bina Cloud, app.binacloud.ai</VendorDescription>
     <Text>Sync Revit files to Bina Cloud</Text>
     <Description>Loads the latest installed BINA Sync build (auto-updates without reinstall).</Description>
     <VisibilityMode>NotVisibleInFamily</VisibilityMode>

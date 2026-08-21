@@ -11,7 +11,7 @@ using RevitWebAppSync.Models;
 
 namespace RevitWebAppSync.Services
 {
-    public enum StreamChunkKind { Meta, Status, Tool, Reply, CodePartial, Done, Error, Unknown }
+    public enum StreamChunkKind { Meta, Status, Tool, Reply, CodePartial, Done, Error, ToolResult, Progress, Unknown }
 
     public sealed class StreamChunk
     {
@@ -20,6 +20,14 @@ namespace RevitWebAppSync.Services
         public string Delta { get; init; } = "";      // for CodePartial
         public AIResponse Final { get; init; }         // for Done
         public string Error { get; init; }             // for Error
+
+        // Reply only — stream-v2 per-leg segment id (copilot-stream-v2 spec
+        // V2.1). Empty on old backends; its presence is the v2 feature-detect
+        // that flips the pane into segmented rendering for the turn.
+        public string Segment { get; init; } = "";
+
+        // ToolResult only — the typed per-execution frame (V2.2).
+        public ToolResultEvent ToolResult { get; init; }
 
         // Status / Tool — a single human-readable progress line for the pane's
         // live progress card. For Status it's the backend's "label"; for Tool
@@ -37,6 +45,13 @@ namespace RevitWebAppSync.Services
         public string Phase { get; init; } = "";
         public string State { get; init; } = "running"; // running | done | error
         public string Detail { get; init; } = "";
+
+        // Progress only — determinate scan counts (wire event "progress").
+        // Current is required on the wire; Total is optional (-1 = counter-only,
+        // no bar). Never terminal: done/error still comes from tool/status.
+        public int Current { get; init; } = -1;
+        public int Total { get; init; } = -1;
+        public string Unit { get; init; } = "";
     }
 
     public static partial class AIServiceStreamExtensions
@@ -131,8 +146,44 @@ namespace RevitWebAppSync.Services
                             {
                                 Kind = StreamChunkKind.Reply,
                                 Delta = rdoc.RootElement.TryGetProperty("delta", out var rd) ? (rd.GetString() ?? "") : "",
+                                // v2 leg id — absent on old backends (empty).
+                                Segment = rdoc.RootElement.TryGetProperty("segment", out var sg) ? (sg.GetString() ?? "") : "",
                                 RawData = raw,
                             };
+                    case "tool_result":
+                        return new StreamChunk
+                        {
+                            Kind = StreamChunkKind.ToolResult,
+                            ToolResult = System.Text.Json.JsonSerializer.Deserialize<ToolResultEvent>(raw),
+                            RawData = raw,
+                        };
+                    case "progress":
+                        using (var doc = JsonDocument.Parse(raw))
+                        {
+                            // {step_id (required), tool?, current (required),
+                            // total?, unit?, label?, segment?}. Additive like
+                            // tool_result: old addins fall through to Unknown.
+                            var root = doc.RootElement;
+                            string pStepId = root.TryGetProperty("step_id", out var pid) ? (pid.GetString() ?? "") : "";
+                            string pTool = root.TryGetProperty("tool", out var pt) ? (pt.GetString() ?? "") : "";
+                            if (string.IsNullOrEmpty(pStepId)) pStepId = pTool;
+                            if (string.IsNullOrEmpty(pStepId))
+                                return new StreamChunk { Kind = StreamChunkKind.Unknown, RawData = raw };
+                            int cur = root.TryGetProperty("current", out var pc) && pc.TryGetInt32(out var pcv) ? pcv : -1;
+                            int tot = root.TryGetProperty("total", out var pto) && pto.TryGetInt32(out var ptov) ? ptov : -1;
+                            return new StreamChunk
+                            {
+                                Kind = StreamChunkKind.Progress,
+                                StepId = pStepId,
+                                ToolName = pTool,
+                                Current = cur,
+                                Total = tot,
+                                Unit = root.TryGetProperty("unit", out var pu) ? (pu.GetString() ?? "") : "",
+                                StatusLabel = root.TryGetProperty("label", out var pl) ? (pl.GetString() ?? "") : "",
+                                Segment = root.TryGetProperty("segment", out var psg) ? (psg.GetString() ?? "") : "",
+                                RawData = raw,
+                            };
+                        }
                     case "code_partial":
                         using (var doc = JsonDocument.Parse(raw))
                             return new StreamChunk

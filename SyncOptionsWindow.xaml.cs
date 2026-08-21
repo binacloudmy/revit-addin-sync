@@ -146,7 +146,7 @@ namespace RevitWebAppSync
                 // discipline chosen above rather than showing every folder in
                 // the project.
                 string discipline = (DisciplineCombo.SelectedItem as DisciplineChoice)?.ApiValue;
-                var folders = await _api.GetWipFoldersAsync(SelectedProjectId, discipline);
+                var folders = await _api.GetFoldersAsync(SelectedProjectId, BimArea.Wip, discipline);
                 FolderCombo.ItemsSource = folders;
                 FolderCombo.SelectedItem = folders.FirstOrDefault();
 
@@ -198,7 +198,7 @@ namespace RevitWebAppSync
             {
                 var head = await _api.GetHeadAsync(
                     SelectedProjectId, _docGuid, _fileName,
-                    (FolderCombo.SelectedItem as WipFolder)?.Id);
+                    (FolderCombo.SelectedItem as BimFolder)?.Id);
                 BaseVersion = head?.Version;
                 ShowHead(head);
             }
@@ -242,7 +242,7 @@ namespace RevitWebAppSync
 
         private void SyncButton_Click(object sender, RoutedEventArgs e)
         {
-            var folder = FolderCombo.SelectedItem as WipFolder;
+            var folder = FolderCombo.SelectedItem as BimFolder;
             if (folder == null)
             {
                 StatusText.Text = "Choose a folder for this model.";
