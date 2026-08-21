@@ -938,10 +938,19 @@ namespace BinaVibe.Mcp.Tools.Audit
 
         /// <summary>Section D: per-category presence + type-naming structure.
         /// Only the "Standard component file naming" column is automatable;
-        /// Quality/Information/Geometry stay manual and the remark says so.</summary>
+        /// Quality/Information/Geometry stay manual and the remark says so.
+        ///
+        /// The rule is JKR-naming-aware (AuditNaming.IsSectionDCompliant):
+        /// "(TKh281a) 600 x 1800 s900 @T3", "jkrAR_…" or a bare material
+        /// ("UPVC") pass; Revit defaults ("Curtain Wall", "Generic") fail.
+        /// Judged per INSTANCE: only types with ≥1 placed instance count
+        /// toward the verdict, and ElementIds are the offending instances.
+        /// Types nobody placed are listed as <c>unused_types</c> context —
+        /// unused library junk is not a model defect.</summary>
         public static CheckOutcome EvaluateCategory(AuditContext ctx, string label)
         {
-            const string rule = ">=2 segmen dipisah '-' atau '_' pada nama jenis (ElementType)";
+            const string rule = "nama jenis (ElementType) yang digunakan ikut format JKR — "
+                                + "kod JKR '(XXnnn)' / awalan 'jkrAR' / nama bahan";
             if (!CategoryMap.TryGetValue(label, out var entry))
                 throw new InvalidOperationException(
                     $"AuditMatching.CategoryLabels has '{label}' but AuditCheckers.CategoryMap does not");
@@ -953,12 +962,36 @@ namespace BinaVibe.Mcp.Tools.Audit
                 .WhereElementIsNotElementType().ToList();
             var types = new FilteredElementCollector(ctx.Doc).OfCategory(entry.bic)
                 .WhereElementIsElementType().Cast<ElementType>().ToList();
-            var nonConforming = types
-                .Where(t => (t.Name ?? "").Split('-', '_').Count(s => s.Trim().Length > 0) < 2)
-                .ToList();
+            var typeById = types.ToDictionary(t => t.Id, t => t);
 
-            // Best-effort rename per offending type name; null where no confident
-            // transform exists (a single-word type name has nothing to split).
+            // Usage per type: which instances sit on which type. An instance whose
+            // GetTypeId() does not resolve to one of this category's types (or
+            // throws) is counted as untyped and cannot be judged.
+            var usedTypes = new Dictionary<ElementId, List<Element>>();
+            int untypedInstances = 0;
+            foreach (var inst in instances)
+            {
+                ElementId tid;
+                try { tid = inst.GetTypeId(); }
+                catch { untypedInstances++; continue; }
+                if (tid == null || tid == ElementId.InvalidElementId || !typeById.ContainsKey(tid))
+                {
+                    untypedInstances++;
+                    continue;
+                }
+                if (!usedTypes.TryGetValue(tid, out var list)) usedTypes[tid] = list = new List<Element>();
+                list.Add(inst);
+            }
+            var unusedTypes = types.Where(t => !usedTypes.ContainsKey(t.Id)).ToList();
+            var nonConforming = usedTypes.Keys
+                .Select(id => typeById[id])
+                .Where(t => !AuditNaming.IsSectionDCompliant(t.Name))
+                .OrderByDescending(t => usedTypes[t.Id].Count)
+                .ToList();
+            var offendingInstances = nonConforming.SelectMany(t => usedTypes[t.Id]).ToList();
+
+            // Best-effort rename per offending USED type name; null where no
+            // confident transform exists (a single-word name has nothing to split).
             var suggestions = new List<object>();
             int noSuggestion = 0;
             var suggestedPairs = new List<(string current, string suggested)>();
@@ -973,6 +1006,7 @@ namespace BinaVibe.Mcp.Tools.Audit
                     {
                         ["current"] = name,
                         ["suggested"] = suggested,
+                        ["instances"] = usedTypes[t.Id].Count,
                     });
             }
 
@@ -982,13 +1016,21 @@ namespace BinaVibe.Mcp.Tools.Audit
             o.Evidence["category_expected"] = entry.expected;
             o.Evidence["instances"] = instances.Count;
             o.Evidence["types"] = types.Count;
+            o.Evidence["used_types"] = usedTypes.Count;
+            o.Evidence["untyped_instances"] = untypedInstances;
+            o.Evidence["nonconforming_used_types"] = nonConforming.Count;
+            o.Evidence["nonconforming_instances"] = offendingInstances.Count;
             AddNames(o, "types_nonconforming_naming", nonConforming.Select(t => t.Name ?? "").ToList());
+            AddNames(o, "examples", offendingInstances.Select(i =>
+                $"[{i.Id.Value}] {typeById[i.GetTypeId()].Name}").ToList());
+            // Context only — never part of the verdict.
+            AddNames(o, "unused_types", unusedTypes.Select(t => t.Name ?? "").ToList());
             o.Evidence["naming_suggestions"] = suggestions;
             o.Evidence["naming_suggestions_truncated"] = Math.Max(0, nonConforming.Count - Cap);
             o.Evidence["suggested_count"] = suggestedPairs.Count;
             o.Evidence["no_suggestion_count"] = noSuggestion;
-            o.Evidence["automated_scope"] = "standard naming only; quality/information/geometry manual";
-            o.ElementIds = nonConforming.Take(IdCap).Select(t => (long)t.Id.Value).ToList();
+            o.Evidence["automated_scope"] = "standard naming only (used types); quality/information/geometry manual";
+            o.ElementIds = offendingInstances.Take(IdCap).Select(i => (long)i.Id.Value).ToList();
 
             if (instances.Count == 0)
             {
@@ -1026,22 +1068,49 @@ namespace BinaVibe.Mcp.Tools.Audit
                 return o;
             }
 
+            if (usedTypes.Count == 0)
+            {
+                // Instances and types both exist but no instance resolves to one
+                // of this category's types: every type has zero placed
+                // instances, so there is no USED name to judge. Not a pass, not
+                // a fail — nothing placed can be audited.
+                o.Compliance = "not_verifiable";
+                o.Evidence["checked_count"] = 0;
+                o.Evidence["not_verifiable_reason"] = "zero_placed_instances";
+                o.Remark = $"Peraturan: {rule}. {instances.Count} elemen {label} tetapi tiada satu pun "
+                           + $"menggunakan {types.Count} jenis kategori ini (0 contoh diletakkan bagi "
+                           + "setiap jenis) — tiada nama jenis yang digunakan untuk dinilai; semak "
+                           + "manual. (Kualiti/maklumat/geometri: semak manual.)";
+                return o;
+            }
+
+            o.Evidence["checked_count"] = usedTypes.Count;
+            string unusedNote = unusedTypes.Count > 0
+                ? $" {unusedTypes.Count} jenis tanpa contoh diletakkan tidak dikira (lihat unused_types)."
+                : "";
+            string untypedNote = untypedInstances > 0
+                ? $" {untypedInstances} elemen tanpa jenis tidak dapat dinilai."
+                : "";
             bool ok = nonConforming.Count == 0;
             o.Compliance = ok ? "yes" : "no";
             o.Remark = ok
-                ? $"Format dijangka: {rule}. {instances.Count} elemen, {types.Count} jenis — "
-                  + "semua nama jenis sepadan. (Kualiti/maklumat/geometri: semak manual.)"
-                : $"Format dijangka: {rule}. {instances.Count} elemen; "
-                  + $"{nonConforming.Count}/{types.Count} nama jenis tidak sepadan. "
+                ? $"Peraturan: {rule}. {instances.Count} elemen, {usedTypes.Count} jenis digunakan — "
+                  + "semua nama jenis yang digunakan patuh." + unusedNote + untypedNote
+                  + " (Kualiti/maklumat/geometri: semak manual.)"
+                : $"Peraturan: {rule}. {nonConforming.Count}/{usedTypes.Count} jenis yang digunakan "
+                  + $"tidak patuh, meliputi {offendingInstances.Count}/{instances.Count} elemen (cth: "
+                  + string.Join(", ", nonConforming.Take(3).Select(t =>
+                        $"\"{t.Name}\" ×{usedTypes[t.Id].Count}")) + "). "
                   + (suggestedPairs.Count > 0
                       ? "Cadangan: " + string.Join(", ",
                           suggestedPairs.Take(3).Select(p => $"\"{p.current}\" → \"{p.suggested}\"")) + ". "
                       : "")
                   + (noSuggestion > 0
                       ? $"{noSuggestion} nama tiada cadangan automatik yang yakin — namakan semula "
-                        + "secara manual mengikut format itu. "
+                        + "secara manual mengikut format JKR. "
                       : "")
-                  + "(Kualiti/maklumat/geometri: semak manual.)" + FullListNote(nonConforming.Count);
+                  + unusedNote.TrimStart() + untypedNote
+                  + " (Kualiti/maklumat/geometri: semak manual.)" + FullListNote(offendingInstances.Count);
             return o;
         }
 
