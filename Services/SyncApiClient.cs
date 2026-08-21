@@ -4,8 +4,8 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.IO;
-using System.Text;
 using System.Threading;
+using System.Text;
 using System.Threading.Tasks;
 using System.Collections.Generic;
 using Newtonsoft.Json;
@@ -140,6 +140,111 @@ namespace RevitWebAppSync.Services
                 string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
                 if (!resp.IsSuccessStatusCode) return null;   // never-synced is not an error
                 return JsonConvert.DeserializeObject<SyncHeadResponse>(body)?.Head;
+            }
+        }
+
+        /// <summary>
+        /// Which BINA design an open document is, from the lineage GUID stamped
+        /// inside it. Null when nothing readable carries that stamp.
+        ///
+        /// Not `sync/head`: that keys on the folder as well as the name, and an
+        /// open .rvt carries no idea which BINA folder it came from — so the
+        /// head lookup only works when the user has already named the folder.
+        /// </summary>
+        public async Task<ResolvedDesign> ResolveDesignAsync(string docGuid)
+        {
+            if (string.IsNullOrEmpty(docGuid)) return null;
+
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/design/resolve" +
+                         $"?docGuid={Uri.EscapeDataString(docGuid)}";
+
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
+            {
+                if (!resp.IsSuccessStatusCode) return null;   // unknown model is not an error
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                return JsonConvert.DeserializeObject<ResolvedDesign>(body);
+            }
+        }
+
+        /// <summary>
+        /// Bina parameters to write into this model (ClickUp 86d3y5jxx).
+        ///
+        /// The default scope reads the whole version chain and keeps the newest
+        /// write per (element, parameter): values are stored against a single
+        /// version, so a model synced since they were entered would otherwise
+        /// come back empty.
+        /// </summary>
+        public async Task<ElementParametersResponse> GetElementParametersAsync(
+            int designId,
+            string scope = "lineage")
+        {
+            string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/design/{designId}" +
+                         $"/element-parameters?scope={Uri.EscapeDataString(scope)}";
+
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException(
+                        $"Could not load parameters (HTTP {(int)resp.StatusCode}): {body}");
+
+                var parsed = JsonConvert.DeserializeObject<ElementParametersResponse>(body)
+                             ?? new ElementParametersResponse();
+                if (parsed.Parameters == null) parsed.Parameters = new List<BinaElementParameter>();
+                return parsed;
+            }
+        }
+
+        /// <summary>
+        /// Issues for a project (ClickUp 86d3y5jtz). `designId` narrows to one
+        /// model and reads its whole version chain, so an issue raised on v3
+        /// still arrives for the model at v7.
+        /// </summary>
+        public async Task<BinaIssuePage> GetIssuesAsync(
+            int projectId,
+            int? designId = null,
+            string status = null,
+            string source = null,
+            int limit = 50)
+        {
+            var query = new List<string> { $"limit={limit}" };
+            if (designId.HasValue) query.Add($"designId={designId.Value}");
+            if (!string.IsNullOrEmpty(status)) query.Add($"status={Uri.EscapeDataString(status)}");
+            // design | coordination; omitted means both.
+            if (!string.IsNullOrEmpty(source)) query.Add($"source={Uri.EscapeDataString(source)}");
+
+            string url = $"{_baseUrl}/api/cloud-docs/bim-issues/project/{projectId}/issues" +
+                         $"?{string.Join("&", query)}";
+
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException(
+                        $"Could not load issues (HTTP {(int)resp.StatusCode}): {body}");
+
+                var page = JsonConvert.DeserializeObject<BinaIssuePage>(body) ?? new BinaIssuePage();
+                if (page.Issues == null) page.Issues = new List<BinaIssue>();
+                return page;
+            }
+        }
+
+        /// <summary>
+        /// One issue in full: the elements it points at, the camera it was
+        /// captured from, its replies and a snapshot URL.
+        /// </summary>
+        public async Task<BinaIssueDetail> GetIssueAsync(string guid)
+        {
+            string url = $"{_baseUrl}/api/cloud-docs/bim-issues/issue/{Uri.EscapeDataString(guid)}";
+
+            using (var resp = await SendWithRefreshAsync(() => _http.GetAsync(url)).ConfigureAwait(false))
+            {
+                string body = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
+                if (!resp.IsSuccessStatusCode)
+                    throw new InvalidOperationException(
+                        $"Could not load the issue (HTTP {(int)resp.StatusCode}): {body}");
+
+                return JsonConvert.DeserializeObject<BinaIssueDetail>(body);
             }
         }
 

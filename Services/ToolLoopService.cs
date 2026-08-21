@@ -59,6 +59,50 @@ namespace RevitWebAppSync.Services
                 _http.DefaultRequestHeaders.Add("X-Tenant-Id", tenant);
         }
 
+        // ─── Engine preflight + self-heal (2026-08-19) ───────────────────────
+        // "stream connect failed: … refused (localhost:48810)" reached drafters
+        // raw because nothing between the pane and the socket consulted
+        // EngineManager: the spawn is fire-and-forget at Revit startup, and a
+        // box in error:* state (or still cold-starting) simply failed every
+        // dial. Before each turn in engine mode: make sure a spawn is in
+        // flight, await it (EnsureRunningAsync returns only after the health
+        // gate), and translate a non-healthy Status into an honest message.
+        // A connect failure mid-turn gets ONE heal+retry — the engine may have
+        // died between turns and the watchdog not finished respawning yet.
+        private static bool EngineModeOn()
+        {
+            try { return BinaConfig.Load().EngineMode; } catch { return false; }
+        }
+
+        internal static async Task<string> EnsureEngineReadyAsync()
+        {
+            if (!EngineModeOn()) return null;
+            var eng = App.VibeEngine;
+            // No manager (dev rig running start-engine.ps1 by hand, autospawn
+            // off): dial and let the socket answer, exactly as before.
+            if (eng == null) return null;
+            try { await eng.EnsureRunningAsync().ConfigureAwait(false); }
+            catch { /* Status below still tells the truth */ }
+            var s = eng.Status ?? "";
+            switch (s)
+            {
+                case "healthy":
+                    return null;
+                case "error:not-installed":
+                    return "BINA Engine is not installed on this machine — the copilot cannot run locally yet. Wait for the engine update to arrive, or reinstall.";
+                case "error:addin-too-old":
+                    return "This add-in version is too old for the installed BINA Engine — update the add-in.";
+                case "error:crash-loop":
+                    return "BINA Engine keeps crashing on start — restart Revit; if it persists, send the engine log to support.";
+                case "error:start-timeout":
+                    return "BINA Engine did not come up in time — it may still be warming up. Try again in a minute.";
+                case "starting":
+                    return "BINA Engine is still starting — try again in a few seconds.";
+                default:
+                    return "BINA Engine is not ready (" + s + ") — try again shortly.";
+            }
+        }
+
         /// <summary>START a tool-calling turn. Body matches the codegen AIRequest
         /// ({prompt, context, session_id, user_id}) — reuse it so context capture
         /// stays in one place.</summary>
@@ -81,13 +125,14 @@ namespace RevitWebAppSync.Services
             ObservableCollection<ProgressStep> trail = null, CancellationToken ct = default,
             Action<string> onReply = null, Action<IReadOnlyList<ProgressStep>> onSteps = null,
             ObservableCollection<ReasoningStep> reasoningTrail = null,
-            Action<IReadOnlyList<ReasoningStep>> onReasoning = null)
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
+            TurnBlocks blocks = null, Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
             var bodyJson = Newtonsoft.Json.JsonConvert.SerializeObject(request);
             return await StreamTurnAsync(
                 AiUrl.Build(_baseUrl, "tool/generate/stream"),
                 bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps,
-                reasoningTrail, onReasoning).ConfigureAwait(false);
+                reasoningTrail, onReasoning, blocks, onBlocks).ConfigureAwait(false);
         }
 
         /// <summary>RESUME a paused run over SSE — the resume leg is where the
@@ -104,14 +149,15 @@ namespace RevitWebAppSync.Services
             Action<string> onReply = null, CancellationToken ct = default,
             Action<IReadOnlyList<ProgressStep>> onSteps = null,
             ObservableCollection<ReasoningStep> reasoningTrail = null,
-            Action<IReadOnlyList<ReasoningStep>> onReasoning = null)
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
+            TurnBlocks blocks = null, Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
             var body = new ToolResumeBody { RunId = runId, SessionId = sessionId, ToolResults = results };
             var bodyJson = JsonSerializer.Serialize(body, _json);
             var turn = await StreamTurnAsync(
                 AiUrl.Build(_baseUrl, "tool/resume/stream"),
                 bodyJson, accessToken, onProgress, trail, onReply, ct, onSteps,
-                reasoningTrail, onReasoning).ConfigureAwait(false);
+                reasoningTrail, onReasoning, blocks, onBlocks).ConfigureAwait(false);
             // Older backend without the streaming twin → transparent fallback.
             if (turn != null && turn.Status == "error" && (turn.Error ?? "").StartsWith("HTTP 404"))
                 return await ResumeAsync(runId, sessionId, results, accessToken, ct).ConfigureAwait(false);
@@ -127,7 +173,8 @@ namespace RevitWebAppSync.Services
             ObservableCollection<ProgressStep> trail, Action<string> onReply, CancellationToken ct,
             Action<IReadOnlyList<ProgressStep>> onSteps = null,
             ObservableCollection<ReasoningStep> reasoningTrail = null,
-            Action<IReadOnlyList<ReasoningStep>> onReasoning = null)
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
+            TurnBlocks blocks = null, Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
             // Accumulate phase/tool events into a step trail (BIMLogiq-style)
             // and push the rendered trail through onProgress, instead of a
@@ -138,22 +185,48 @@ namespace RevitWebAppSync.Services
             // Same idea for the reasoning ("working narrative") timeline — a
             // SEPARATE trail from the tool/status one above (see ReasoningStep).
             reasoningTrail ??= new ObservableCollection<ReasoningStep>();
-            using var req = new HttpRequestMessage(HttpMethod.Post, url)
-            {
-                Content = new StringContent(bodyJson, Encoding.UTF8, "application/json"),
-            };
-            req.Headers.Accept.ParseAdd("text/event-stream");
-            if (!string.IsNullOrEmpty(accessToken))
-                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            // Engine preflight — see EnsureEngineReadyAsync. Returns an honest
+            // status message instead of letting the dial fail with a raw
+            // WinSock string.
+            var notReady = await EnsureEngineReadyAsync().ConfigureAwait(false);
+            if (notReady != null)
+                return new ToolTurn { Status = "error", Success = false, Error = notReady };
 
-            HttpResponseMessage resp;
-            try
+            HttpRequestMessage BuildReq()
             {
-                resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                var r = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = new StringContent(bodyJson, Encoding.UTF8, "application/json"),
+                };
+                r.Headers.Accept.ParseAdd("text/event-stream");
+                if (!string.IsNullOrEmpty(accessToken))
+                    r.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                return r;
             }
-            catch (Exception ex)
+
+            HttpResponseMessage resp = null;
+            for (var attempt = 0; resp == null; attempt++)
             {
-                return new ToolTurn { Status = "error", Success = false, Error = $"stream connect failed: {ex.Message}" };
+                var req = BuildReq();
+                try
+                {
+                    resp = await _http.SendAsync(req, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    req.Dispose();
+                    // ONE self-heal + retry: the engine may have died between
+                    // turns (watchdog mid-respawn). EnsureEngineReadyAsync
+                    // awaits the respawn's health gate; if it comes back
+                    // healthy, re-dial — otherwise surface its honest message.
+                    if (attempt == 0 && !ct.IsCancellationRequested && EngineModeOn())
+                    {
+                        var healErr = await EnsureEngineReadyAsync().ConfigureAwait(false);
+                        if (healErr == null) continue;
+                        return new ToolTurn { Status = "error", Success = false, Error = healErr };
+                    }
+                    return new ToolTurn { Status = "error", Success = false, Error = $"stream connect failed: {ex.Message}" };
+                }
             }
             using (resp)
             {
@@ -178,7 +251,7 @@ namespace RevitWebAppSync.Services
                 {
                     if (ev != null && data.Length > 0)
                         final = HandleStreamEvent(ev, data.ToString(), onProgress, trail, onReply, replySb, onSteps,
-                            reasoningTrail, onReasoning) ?? final;
+                            reasoningTrail, onReasoning, blocks, onBlocks) ?? final;
                     data.Clear();
                 }
                 while (!reader.EndOfStream)
@@ -212,7 +285,8 @@ namespace RevitWebAppSync.Services
             ObservableCollection<ProgressStep> trail, Action<string> onReply, StringBuilder replySb,
             Action<IReadOnlyList<ProgressStep>> onSteps = null,
             ObservableCollection<ReasoningStep> reasoningTrail = null,
-            Action<IReadOnlyList<ReasoningStep>> onReasoning = null)
+            Action<IReadOnlyList<ReasoningStep>> onReasoning = null,
+            TurnBlocks blocks = null, Action<IReadOnlyList<TurnBlock>> onBlocks = null)
         {
             switch (ev)
             {
@@ -233,10 +307,35 @@ namespace RevitWebAppSync.Services
                             if (string.IsNullOrEmpty(state)) state = "running";
                             if (string.IsNullOrEmpty(stepId))
                                 stepId = string.IsNullOrEmpty(label) ? Guid.NewGuid().ToString("N") : "reason:" + label;
+                            // Stream v2 dedupe (T3): when tool cards are live this
+                            // turn, the strip drops the one-line tool headline the
+                            // card supersedes (phases + notes always pass).
+                            if (blocks != null && blocks.ShouldSuppressReasoning(stepId, delta))
+                                continue;
                             ReasoningReducer.Apply(reasoningTrail, stepId, label, delta, ReasoningReducer.StateFrom(state));
                         }
                         try { onReasoning?.Invoke(new List<ReasoningStep>(reasoningTrail ?? new ObservableCollection<ReasoningStep>())); }
                         catch { /* UI hiccup */ }
+                    }
+                    catch { }
+                    return null;
+                case "tool_result":
+                    // Stream v2 (V2.2): the per-execution tool card frame. Ignored
+                    // entirely until a segmented reply flipped the turn to v2 —
+                    // same fail-safe as blocks.ApplyToolResult's Active gate.
+                    try
+                    {
+                        if (blocks == null) return null;
+                        bool added = false;
+                        foreach (var objJson in ExtractAllJsonObjects(raw))
+                        {
+                            var evt = JsonSerializer.Deserialize<ToolResultEvent>(objJson, _json);
+                            if (evt != null && blocks.ApplyToolResult(evt)) added = true;
+                        }
+                        if (added)
+                        {
+                            try { onBlocks?.Invoke(blocks.Snapshot()); } catch { /* UI hiccup */ }
+                        }
                     }
                     catch { }
                     return null;
@@ -251,6 +350,7 @@ namespace RevitWebAppSync.Services
                     try
                     {
                         bool grew = false;
+                        bool blocksGrew = false;
                         foreach (var objJson in ExtractAllJsonObjects(raw))
                         {
                             using var d = JsonDocument.Parse(objJson);
@@ -260,10 +360,20 @@ namespace RevitWebAppSync.Services
                                 replySb.Append(delta);
                                 grew = true;
                             }
+                            // Stream v2 (V2.1): a segment id flips the turn into
+                            // segmented rendering; the accumulator ignores
+                            // untagged deltas until then (legacy path).
+                            if (blocks != null
+                                && blocks.ApplyReply(delta, GetStr(d.RootElement, "segment")))
+                                blocksGrew = true;
                         }
                         if (grew)
                         {
                             try { onReply?.Invoke(replySb.ToString()); } catch { /* UI hiccup */ }
+                        }
+                        if (blocksGrew)
+                        {
+                            try { onBlocks?.Invoke(blocks.Snapshot()); } catch { /* UI hiccup */ }
                         }
                     }
                     catch { }
@@ -289,7 +399,35 @@ namespace RevitWebAppSync.Services
                             label = string.IsNullOrEmpty(tool)
                                 ? "Working…"
                                 : "Running " + tool.Replace('_', ' ').Trim() + "…";
+                        // T3 dedupe bookkeeping: a completed call's NEXT
+                        // reasoning headline is superseded by its v2 tool card
+                        // (wire order: tool done → reasoning headline →
+                        // tool_result). No-op until v2 is active.
+                        if (blocks != null && (state == "done" || state == "error"))
+                            blocks.NoteToolCompletion();
                         ReduceAndEmit(trail, onProgress, onSteps, stepId, phase, label, detail, state);
+                    }
+                    catch { }
+                    return null;
+                case "progress":
+                    // Determinate scan counts {step_id, tool?, current, total?,
+                    // unit?, label?} — additive; never terminal (done/error still
+                    // rides tool/status on the same step_id). Coalesce a merged
+                    // buffer to the LAST frame: counts are cumulative, so
+                    // intermediate values in the same chunk carry no information.
+                    try
+                    {
+                        using var d = JsonDocument.Parse(ExtractLastJsonObject(raw));
+                        var root = d.RootElement;
+                        string stepId = GetStr(root, "step_id");
+                        if (string.IsNullOrEmpty(stepId)) stepId = GetStr(root, "tool");
+                        int cur = root.TryGetProperty("current", out var pc) && pc.TryGetInt32(out var pcv) ? pcv : -1;
+                        int tot = root.TryGetProperty("total", out var pt) && pt.TryGetInt32(out var ptv) ? ptv : -1;
+                        if (!string.IsNullOrEmpty(stepId) && cur >= 0 && trail != null)
+                        {
+                            ProgressReducer.ApplyCount(trail, stepId, cur, tot, GetStr(root, "unit"), GetStr(root, "label"));
+                            try { onSteps?.Invoke(new List<ProgressStep>(trail)); } catch { /* UI hiccup */ }
+                        }
                     }
                     catch { }
                     return null;
@@ -417,14 +555,44 @@ namespace RevitWebAppSync.Services
 
         private async Task<ToolTurn> PostAsync(string url, string bodyJson, string accessToken, CancellationToken ct)
         {
-            using var req = new HttpRequestMessage(HttpMethod.Post, url)
-            {
-                Content = new StringContent(bodyJson, Encoding.UTF8, "application/json"),
-            };
-            if (!string.IsNullOrEmpty(accessToken))
-                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            // Same preflight + single heal/retry as StreamTurnAsync — this
+            // blocking path previously let the raw socket exception PROPAGATE.
+            var notReady = await EnsureEngineReadyAsync().ConfigureAwait(false);
+            if (notReady != null)
+                return new ToolTurn { Status = "error", Success = false, Error = notReady };
 
-            using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            HttpRequestMessage BuildReq()
+            {
+                var r = new HttpRequestMessage(HttpMethod.Post, url)
+                {
+                    Content = new StringContent(bodyJson, Encoding.UTF8, "application/json"),
+                };
+                if (!string.IsNullOrEmpty(accessToken))
+                    r.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                return r;
+            }
+
+            HttpResponseMessage resp = null;
+            for (var attempt = 0; resp == null; attempt++)
+            {
+                var req = BuildReq();
+                try
+                {
+                    resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    req.Dispose();
+                    if (attempt == 0 && !ct.IsCancellationRequested && EngineModeOn())
+                    {
+                        var healErr = await EnsureEngineReadyAsync().ConfigureAwait(false);
+                        if (healErr == null) continue;
+                        return new ToolTurn { Status = "error", Success = false, Error = healErr };
+                    }
+                    return new ToolTurn { Status = "error", Success = false, Error = $"connect failed: {ex.Message}" };
+                }
+            }
+            using var _ = resp;
             var text = await resp.Content.ReadAsStringAsync().ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
                 return new ToolTurn { Status = "error", Success = false, Error = $"HTTP {(int)resp.StatusCode}: {text}" };

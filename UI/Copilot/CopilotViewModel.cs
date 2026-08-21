@@ -61,6 +61,7 @@ namespace RevitWebAppSync.UI.Copilot
                 _currentSession = null;
                 (Router as RevitChatRouter)?.ResetSession();
                 Tab = CpTab.Chat;   // "+" from the History tab must land on the new empty chat
+                RunStatus = "Ready";
             });
             ClearHighlightsCommand = new RelayCommand(_ => Highlights.Clear());
             ChatSendCommand = new RelayCommand(ChatSendAny);
@@ -455,7 +456,30 @@ namespace RevitWebAppSync.UI.Copilot
         // PromptBar so the send button becomes a Stop button the user can click
         // to cancel the prompt mid-reply.
         private bool _isSending;
-        public bool IsSending { get => _isSending; set { _isSending = value; Raise(); } }
+        public bool IsSending
+        {
+            get => _isSending;
+            set
+            {
+                _isSending = value;
+                Raise();
+                // Header status pill (PRD A7) rides the same transitions: a
+                // send opens Running; its end lands on Stopped (user clicked
+                // Stop this turn) or Done. No extra state machine.
+                if (value) RunStatus = "Running";
+                else if (RunStatus == "Running") RunStatus = _stopRequested ? "Stopped" : "Done";
+                _stopRequested = false;
+            }
+        }
+
+        // ─── Header status pill (PRD A7): Ready / Running / Done / Stopped ──
+        private bool _stopRequested;
+        private string _runStatus = "Ready";
+        public string RunStatus
+        {
+            get => _runStatus;
+            private set { if (_runStatus == value) return; _runStatus = value; Raise(); }
+        }
 
         // Live step trail state for the CURRENT turn. _lastSteps is the latest
         // typed-steps snapshot from RevitChatRouter.OnSteps (null until the
@@ -470,12 +494,16 @@ namespace RevitWebAppSync.UI.Copilot
         // as _lastSteps above, but a separate collection (see ReasoningStep):
         // the working-narrative timeline, not the terse tool/status trail.
         private IReadOnlyList<ReasoningStep> _lastReasoning;
+        // Stream v2 segmented turn body (T1) — same reset/lifecycle again.
+        // Null until the backend tags a reply leg with a segment id this turn.
+        private IReadOnlyList<TurnBlock> _lastBlocks;
 
         /// <summary>User clicked Stop — abort the streaming reply. The router's
         /// RouteAsync then returns a "Cancelled." result which resolves the bubble;
         /// IsSending clears in ResolveProposalAsync's finally.</summary>
         public void CancelSend()
         {
+            _stopRequested = true;
             try { (Router as RevitChatRouter)?.CancelStream(); } catch { /* already done */ }
         }
         public RelayCommand ChatRunCommand { get; }
@@ -730,6 +758,7 @@ namespace RevitWebAppSync.UI.Copilot
 
             _lastSteps = null;
             _lastReasoning = null;
+            _lastBlocks = null;
             // P2 slash command: hand the backend command id to the router BEFORE
             // routing kicks off. The field persists until RouteAsync consumes and
             // clears it (sends are serial, so it can't leak into another turn).
@@ -1180,6 +1209,7 @@ namespace RevitWebAppSync.UI.Copilot
                             Role = "ai", Kind = CpMsgKind.Thinking,
                             LiveSteps = steps,
                             LiveReasoningSteps = _lastReasoning,
+                            Blocks = LiveBlocks(),
                         });
                     };
                     // Streaming reasoning ("working narrative") timeline — a
@@ -1196,6 +1226,23 @@ namespace RevitWebAppSync.UI.Copilot
                             Role = "ai", Kind = CpMsgKind.Thinking,
                             LiveSteps = _lastSteps,
                             LiveReasoningSteps = steps,
+                            Blocks = LiveBlocks(),
+                        });
+                    };
+                    // Stream v2 (T1): the segmented turn body — ordered
+                    // Narrative/ToolCard blocks growing live. Fires only when
+                    // the backend tags reply legs with segment ids, so legacy
+                    // turns never reach here and render exactly as today.
+                    revitRouter.OnBlocks = blocks =>
+                    {
+                        if (CopilotPrefs.Load().StreamV2Enabled == false) return;
+                        _lastBlocks = blocks;
+                        ReplaceLastThinking(new ChatMessage
+                        {
+                            Role = "ai", Kind = CpMsgKind.Thinking,
+                            LiveSteps = _lastSteps,
+                            LiveReasoningSteps = _lastReasoning,
+                            Blocks = LiveBlocks(),
                         });
                     };
                     // 2026-08-02 "intermediate prose leak" fix: this callback's
@@ -1223,10 +1270,22 @@ namespace RevitWebAppSync.UI.Copilot
                             Role = "ai", Kind = CpMsgKind.Thinking,
                             LiveSteps = _lastSteps,
                             LiveReasoningSteps = _lastReasoning,
+                            Blocks = LiveBlocks(),
                         });
                     };
                 }
         }
+
+        // Fresh snapshot list for a ChatMessage — the callbacks already hand
+        // over immutable snapshots, so this only re-wraps to the List type the
+        // message field carries. Null when the turn hasn't gone v2.
+        private List<TurnBlock> LiveBlocks() =>
+            _lastBlocks == null || _lastBlocks.Count == 0 ? null : new List<TurnBlock>(_lastBlocks);
+
+        // Persisted blocks for a completed message — null unless the turn went
+        // v2 AND the kill switch is on (the flag also silences the live path).
+        private static List<TurnBlock> V2Blocks(RouteResult rr) =>
+            CopilotPrefs.Load().StreamV2Enabled ? rr?.Blocks : null;
 
         private void UnhookStreaming(RevitChatRouter revitRouter)
         {
@@ -1235,6 +1294,7 @@ namespace RevitWebAppSync.UI.Copilot
             revitRouter.OnCodeStream = null;
             revitRouter.OnSteps = null;
             revitRouter.OnReasoning = null;
+            revitRouter.OnBlocks = null;
         }
 
         /// <summary>Render a resolved RouteResult into the thread — clarify card,
@@ -1311,6 +1371,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Steps = rr.Steps,
                     ReasoningSteps = rr.ReasoningSteps,
                     ReasoningElapsedSeconds = rr.ReasoningElapsedSeconds,
+                    Blocks = V2Blocks(rr),
                     Time = System.DateTime.Now.ToString("h:mm tt"),
                     ActionsResolved = auto,
                     ActionsApproved = auto ? (bool?)true : null,
@@ -1351,6 +1412,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Steps = rr.Steps,
                     ReasoningSteps = rr.ReasoningSteps,
                     ReasoningElapsedSeconds = rr.ReasoningElapsedSeconds,
+                    Blocks = V2Blocks(rr),
                     Followups = rr.Followups,
                     ResultSummary = rr.ResultSummary,
                     Receipt = rr.Receipt,
@@ -1389,6 +1451,7 @@ namespace RevitWebAppSync.UI.Copilot
                     Steps = rr.Steps,
                     ReasoningSteps = rr.ReasoningSteps,
                     ReasoningElapsedSeconds = rr.ReasoningElapsedSeconds,
+                    Blocks = V2Blocks(rr),
                     Followups = rr.Followups,
                     ResultSummary = rr.ResultSummary,
                     Receipt = rr.Receipt,
@@ -1570,6 +1633,7 @@ namespace RevitWebAppSync.UI.Copilot
             if (revitRouter == null) return;
             _lastSteps = null;
             _lastReasoning = null;
+            _lastBlocks = null;
             Thread.Add(new ChatMessage { Role = "ai", Kind = CpMsgKind.Thinking, Text = "Thinking…" });
             HookStreaming(revitRouter);
             IsSending = true;
@@ -1630,6 +1694,7 @@ namespace RevitWebAppSync.UI.Copilot
 
             _lastSteps = null;
             _lastReasoning = null;
+            _lastBlocks = null;
             Thread.Add(new ChatMessage
             {
                 Role = "ai", Kind = CpMsgKind.Thinking,

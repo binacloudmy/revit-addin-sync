@@ -1,3 +1,9 @@
+// LEGACY — Federate Disciplines is retired. Kept for reference only and
+// excluded from compilation: the ribbon button was never added to a panel
+// (App.cs) and the .addin entry is commented out, so nothing could reach it.
+// Excluding it also keeps its hardcoded test credential out of the shipped
+// DLL. Delete `#if false` / `#endif` to bring it back.
+#if false
 using System;
 using System.IO;
 using System.Collections.Generic;
@@ -44,7 +50,7 @@ namespace RevitWebAppSync
                 
                 if (!Directory.Exists(downloadDir))
                 {
-                    TaskDialog.Show("No Downloads Found", $"BINA Downloads directory not found at:\n{downloadDir}\n\nPlease download discipline files first using the 'Download BIM Disciplines' button.");
+                    TaskDialog.Show("No Downloads Found", $"BINA Downloads directory not found at:\n{downloadDir}\n\nPlease download discipline files first using the 'Shared Download' button.");
                     return Result.Failed;
                 }
 
@@ -76,7 +82,7 @@ namespace RevitWebAppSync
                         "\n\nNo .rvt files found in directory.";
                     
                     TaskDialog.Show("No Discipline Files", 
-                        $"No discipline files found in:\n{downloadDir}\n\nExpected prefixes: Architecture_, Structure_, HVAC_, Electrical_{allFilesInfo}\n\nPlease download discipline files first using the 'Download BIM Disciplines' button.");
+                        $"No discipline files found in:\n{downloadDir}\n\nExpected prefixes: Architecture_, Structure_, HVAC_, Electrical_{allFilesInfo}\n\nPlease download discipline files first using the 'Shared Download' button.");
                     return Result.Failed;
                 }
 
@@ -542,3 +548,4 @@ namespace RevitWebAppSync
         }
     }
 }
+#endif

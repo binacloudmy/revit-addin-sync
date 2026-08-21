@@ -92,7 +92,7 @@ namespace BinaVibe.Auth
 
     public sealed class BinaOAuthClient
     {
-        private readonly string _webBaseUrl;   // landing page, e.g. https://revit.bina.cloud
+        private readonly string _webBaseUrl;   // landing page, e.g. https://plugins.jkrbinaxone.com
         private readonly string _aiBaseUrl;    // token-issuing API (bina-ai, or bina-be)
         private readonly HttpClient _http;
         private readonly BinaOAuthEndpoints _endpoints;

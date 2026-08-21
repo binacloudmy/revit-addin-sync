@@ -78,6 +78,29 @@ namespace Tests
         }
 
         [Fact]
+        public void OnlySelfHealsWhenLoaderManaged()
+        {
+            // The guard that stops a direct-load install from deleting its own
+            // manifest + .deps.json / .dll.config sidecars mid-session — which
+            // left every ribbon button throwing "Wrong Full Class Name" on the
+            // DevColocate box (2026-08-18).
+            var versions = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Bina", "RevitSync", "versions");
+
+            Assert.True(DirectLoadCleanup.IsLoaderManaged(
+                Path.Combine(versions, "0.0.49", "net10.0", "RevitWebAppSync.dll")));
+
+            // The dev PostBuild target's destination: never self-deletes.
+            Assert.False(DirectLoadCleanup.IsLoaderManaged(
+                Path.Combine(_root, "2027", "RevitWebAppSync.dll")));
+
+            // Single-file/in-memory hosts report an empty Location.
+            Assert.False(DirectLoadCleanup.IsLoaderManaged(""));
+            Assert.False(DirectLoadCleanup.IsLoaderManaged(null));
+        }
+
+        [Fact]
         public void MissingRoot_ReturnsZero_NeverThrows()
         {
             Assert.Equal(0, DirectLoadCleanup.CleanRoot(

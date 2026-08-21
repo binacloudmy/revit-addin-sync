@@ -97,6 +97,9 @@ namespace RevitWebAppSync.Services
                 // Get quantity and unit
                 var (quantity, unit) = GetQuantity(elem, doc);
 
+                // Dimensions (mm) for size-aware matching
+                var (widthMm, heightMm, thicknessMm) = GetDimensionsMm(elem, doc);
+
                 // Build display name
                 string displayName = BuildDisplayName(elementName, familyName, typeName);
 
@@ -112,7 +115,10 @@ namespace RevitWebAppSync.Services
                     Quantity = Math.Round(quantity, 2),
                     Unit = unit,
                     UnitPrice = 0,
-                    PriceSource = null
+                    PriceSource = null,
+                    WidthMm = widthMm,
+                    HeightMm = heightMm,
+                    ThicknessMm = thicknessMm
                 });
             }
 
@@ -210,6 +216,52 @@ namespace RevitWebAppSync.Services
 
             // Count-based (doors, windows, fixtures, etc.)
             return (1, "unit");
+        }
+
+        /// <summary>
+        /// Element dimensions in mm: width/height for openings (doors,
+        /// windows — instance first, then type, rough as fallback),
+        /// thickness for walls. Null when the element has no such dimension.
+        /// </summary>
+        private static (double? widthMm, double? heightMm, double? thicknessMm) GetDimensionsMm(Element elem, Document doc)
+        {
+            try
+            {
+                if (elem is Wall wall && wall.WallType != null && wall.WallType.Width > 0)
+                    return (null, null, UnitUtils.ConvertFromInternalUnits(wall.WallType.Width, UnitTypeId.Millimeters));
+
+                if (elem is FamilyInstance)
+                {
+                    ElementType elemType = doc.GetElement(elem.GetTypeId()) as ElementType;
+                    double? width = FirstDimMm(
+                        GetParameterDouble(elem, BuiltInParameter.DOOR_WIDTH),
+                        GetParameterDouble(elem, BuiltInParameter.WINDOW_WIDTH),
+                        GetParameterDouble(elem, BuiltInParameter.FAMILY_WIDTH_PARAM),
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.DOOR_WIDTH) : 0,
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.WINDOW_WIDTH) : 0,
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.FAMILY_WIDTH_PARAM) : 0,
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.FAMILY_ROUGH_WIDTH_PARAM) : 0);
+                    double? height = FirstDimMm(
+                        GetParameterDouble(elem, BuiltInParameter.DOOR_HEIGHT),
+                        GetParameterDouble(elem, BuiltInParameter.WINDOW_HEIGHT),
+                        GetParameterDouble(elem, BuiltInParameter.FAMILY_HEIGHT_PARAM),
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.DOOR_HEIGHT) : 0,
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.WINDOW_HEIGHT) : 0,
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.FAMILY_HEIGHT_PARAM) : 0,
+                        elemType != null ? GetParameterDouble(elemType, BuiltInParameter.FAMILY_ROUGH_HEIGHT_PARAM) : 0);
+                    return (width, height, null);
+                }
+            }
+            catch { /* dimensions are best-effort — never block costing */ }
+            return (null, null, null);
+        }
+
+        private static double? FirstDimMm(params double[] internalValues)
+        {
+            foreach (double v in internalValues)
+                if (v > 0)
+                    return Math.Round(UnitUtils.ConvertFromInternalUnits(v, UnitTypeId.Millimeters), 0);
+            return null;
         }
 
         private static double GetParameterDouble(Element elem, BuiltInParameter param)

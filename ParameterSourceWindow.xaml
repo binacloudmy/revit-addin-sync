@@ -1,0 +1,62 @@
+<Window x:Class="RevitWebAppSync.ParameterSourceWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Which model in BINA?"
+        Height="380" Width="560"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        Background="#F5F5F5">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0"
+                   Text="Which model in BINA?"
+                   FontSize="20" FontWeight="Bold" Foreground="#333333"
+                   Margin="0,0,0,4"/>
+
+        <!-- Shown only on the fallback path: a model that has never been synced
+             from Revit carries no BINA identity, so the folder has to be named
+             before the file name means anything. -->
+        <TextBlock Grid.Row="1" x:Name="IntroText"
+                   Text="This model carries no BINA identity yet, so tell us where it lives."
+                   Foreground="#666666" Margin="0,0,0,14" TextWrapping="Wrap"/>
+
+        <StackPanel Grid.Row="2" Margin="0,0,0,12">
+            <TextBlock Text="Project" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
+            <ComboBox x:Name="ProjectCombo" Height="30"
+                      DisplayMemberPath="Name"
+                      SelectionChanged="ProjectCombo_SelectionChanged"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="3" Margin="0,0,0,12">
+            <TextBlock Text="Discipline" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
+            <ComboBox x:Name="DisciplineCombo" Height="30" DisplayMemberPath="Label"
+                      SelectionChanged="DisciplineCombo_SelectionChanged"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="4" Margin="0,0,0,12">
+            <TextBlock Text="Folder" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
+            <ComboBox x:Name="FolderCombo" Height="30" DisplayMemberPath="Name"/>
+        </StackPanel>
+
+        <TextBlock Grid.Row="5" x:Name="StatusText"
+                   Foreground="#666666" Margin="0,6,0,0" TextWrapping="Wrap"
+                   VerticalAlignment="Top"/>
+
+        <StackPanel Grid.Row="6" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+            <Button x:Name="CancelButton" Content="Cancel" Width="100" Height="32"
+                    Margin="0,0,10,0" Click="CancelButton_Click" IsCancel="True"/>
+            <Button x:Name="ContinueButton" Content="Continue" Width="120" Height="32"
+                    Click="ContinueButton_Click" IsDefault="True"/>
+        </StackPanel>
+    </Grid>
+</Window>

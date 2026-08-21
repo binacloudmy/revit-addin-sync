@@ -6,32 +6,32 @@
     <FullClassName>RevitWebAppSync.App</FullClassName>
     <AddInId>12345678-1234-1234-1234-123456789ABC</AddInId>
     <VendorId>BINA_CLOUD</VendorId>
-    <VendorDescription>Bina Cloud, app.bina.cloud</VendorDescription>
+    <VendorDescription>Bina Cloud, app.binacloud.ai</VendorDescription>
     <Text>Sync Revit files to Bina Cloud</Text>
-    <Description>Opens app.bina.cloud in the default browser for Revit file synchronization.</Description>
+    <Description>Opens app.binacloud.ai in the default browser for Revit file synchronization.</Description>
     <VisibilityMode>NotVisibleInFamily</VisibilityMode>
   </AddIn>
   
   <AddIn Type="Command">
-    <Name>Sync to Web</Name>
+    <Name>Sync</Name>
     <Assembly>RevitWebAppSync.dll</Assembly>
     <FullClassName>RevitWebAppSync.SyncCommand</FullClassName>
     <AddInId>87654321-4321-4321-4321-CBA987654321</AddInId>
     <VendorId>BINA_CLOUD</VendorId>
-    <VendorDescription>Bina Cloud, app.bina.cloud</VendorDescription>
-    <Text>Sync to Bina Cloud</Text>
-    <Description>Opens app.bina.cloud in the default browser.</Description>
+    <VendorDescription>Bina Cloud, app.binacloud.ai</VendorDescription>
+    <Text>Sync</Text>
+    <Description>Opens app.binacloud.ai in the default browser.</Description>
     <VisibilityMode>AlwaysVisible</VisibilityMode>
   </AddIn>
   
   <AddIn Type="Command">
-    <Name>Download BIM Disciplines</Name>
+    <Name>Shared Download</Name>
     <Assembly>RevitWebAppSync.dll</Assembly>
     <FullClassName>RevitWebAppSync.BimDisciplineCommand</FullClassName>
     <AddInId>11111111-2222-3333-4444-555555555555</AddInId>
     <VendorId>BINA_CLOUD</VendorId>
-    <VendorDescription>Bina Cloud, app.bina.cloud</VendorDescription>
-    <Text>Download BIM Discipline Files</Text>
+    <VendorDescription>Bina Cloud, app.binacloud.ai</VendorDescription>
+    <Text>Shared Download</Text>
     <Description>Download Architecture, Structure, HVAC, and Electrical discipline files from Bina Cloud.</Description>
     <VisibilityMode>AlwaysVisible</VisibilityMode>
   </AddIn>
@@ -43,7 +43,7 @@
     <FullClassName>RevitWebAppSync.FederateDisciplinesCommand</FullClassName>
     <AddInId>22222222-3333-4444-5555-666666666666</AddInId>
     <VendorId>BINA_CLOUD</VendorId>
-    <VendorDescription>Bina Cloud, app.bina.cloud</VendorDescription>
+    <VendorDescription>Bina Cloud, app.binacloud.ai</VendorDescription>
     <Text>Federate Discipline Files</Text>
     <Description>Link downloaded discipline files to current Revit document for coordination and clash detection.</Description>
     <VisibilityMode>AlwaysVisible</VisibilityMode>

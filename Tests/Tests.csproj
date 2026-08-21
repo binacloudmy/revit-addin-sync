@@ -51,6 +51,10 @@
     <Compile Include="..\Helpers\TableCsv.cs" Link="TableCsv.cs" />
     <Compile Include="..\Services\AiUrl.cs" Link="AiUrl.cs" />
     <Compile Include="..\Services\UrlResolution.cs" Link="UrlResolution.cs" />
+    <!-- EnvFile: the .env parser BinaConfig reads the embedded channel files
+         with. Linked so EnvChannelTests lints those files with the runtime's
+         own parsing rules instead of a copy that can drift. -->
+    <Compile Include="..\Services\EnvFile.cs" Link="EnvFile.cs" />
     <!-- BombaSystemClassifier: pure category-scoped name classifier (System +
          Regex only, no Revit) — phase-2 §A.5 truth table tests run here. -->
     <Compile Include="..\Services\BombaSystemClassifier.cs" Link="BombaSystemClassifier.cs" />
@@ -101,6 +105,10 @@
          (System only), same split as ProgressStep — CopilotModels.ChatMessage
          references ReasoningStep, so this must be linked wherever that is. -->
     <Compile Include="..\UI\Copilot\Model\ReasoningStep.cs" Link="ReasoningStep.cs" />
+    <!-- TurnBlock + TurnBlocks (stream v2 segmented turn body): pure reducer,
+         same split rationale as ReasoningStep — ChatMessage references
+         TurnBlock, so it must be linked wherever CopilotModels is. -->
+    <Compile Include="..\UI\Copilot\Model\TurnBlock.cs" Link="TurnBlock.cs" />
     <Compile Include="..\BinaVibe\Mcp\Tools\BatchRefResolver.cs" Link="BatchRefResolver.cs" />
     <!-- PDF attachment reading: PdfPig + System only, no Revit and no WPF, so
          the extractor and its caps are testable here. (DwgReader is not — it

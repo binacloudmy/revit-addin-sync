@@ -75,6 +75,16 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // allows, Esc rejects — bubbles up from wherever focus is (composer
             // included), so the drafter never has to click into the card.
             PreviewKeyDown += OnApprovalKeyDown;
+            // Ctrl+K → command palette (PRD A8), from anywhere in the pane.
+            PreviewKeyDown += (_, e) =>
+            {
+                if (e.Key == System.Windows.Input.Key.K
+                    && (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0)
+                {
+                    Prompt.OpenCommandPalette();
+                    e.Handled = true;
+                }
+            };
         }
 
         // ─── Element-id click → local select+zoom (Task 7) ──────────────────
@@ -99,24 +109,29 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// (select_elements is a single fire-and-observe call). `async void` is
         /// deliberate here — this IS the event handler, and a click must never
         /// throw into WPF, so every failure path is swallowed into a status log.</summary>
-        private static async void OnElementIdClicked(long elementId)
+        private static void OnElementIdClicked(long elementId) => SelectElements(new[] { elementId });
+
+        /// <summary>Also the engine behind the answer's "Highlight in model"
+        /// action row (PRD A9), which fires the WHOLE id set in one call.</summary>
+        private static async void SelectElements(long[] elementIds)
         {
+            if (elementIds == null || elementIds.Length == 0) return;
             try
             {
                 var args = System.Text.Json.JsonSerializer.SerializeToElement(
                     new System.Collections.Generic.Dictionary<string, object>
                     {
-                        ["element_ids"] = new[] { elementId },
+                        ["element_ids"] = elementIds,
                     });
                 var job = new McpJob { Tool = "select_elements", Args = args };
                 McpJobPump.Enqueue(job);
                 await job.Done.Task.ConfigureAwait(false);
                 if (job.Error != null)
-                    System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements({elementId}) failed: {job.Error}");
+                    System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements(×{elementIds.Length}) failed: {job.Error}");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements({elementId}) threw: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[BinaVibe][chat] select_elements(×{elementIds.Length}) threw: {ex.Message}");
             }
         }
 
@@ -464,16 +479,31 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // ProgressTrailPanel/ThinkingTrail indicator untouched below.
             bool hasLiveReasoning = m.Kind == CpMsgKind.Thinking
                 && m.LiveReasoningSteps != null && m.LiveReasoningSteps.Count > 0;
+            // Stream v2 (T1): the segmented turn body. Non-empty only when this
+            // turn's backend tagged reply legs with segment ids (feature-detect)
+            // AND the kill switch is on — every other turn renders the legacy
+            // paths below byte-identically.
+            bool hasBlocks = m.Blocks != null && m.Blocks.Count > 0;
 
             if (m.Kind == CpMsgKind.Thinking && !m.StreamingReply)
             {
                 if (hasLiveReasoning)
-                    col.Children.Add(ReasoningTimelinePanel(m.LiveReasoningSteps, streaming: true, answerStarting: false));
-                else
+                    // v2: the narrative streaming below the card counts as the
+                    // answer starting — auto-collapse (unless drafter-toggled)
+                    // while the spinner/elapsed keep ticking honestly.
+                    col.Children.Add(ReasoningTimelinePanel(m.LiveReasoningSteps, streaming: true, answerStarting: hasBlocks));
+                else if (!hasBlocks)
                     // Typed live step trail (mock 1+2 combined): multi-row trail,
                     // ticking as rows go running -> done. Falls back to the old
                     // single-line ThinkingTrail when the backend never sent steps.
                     col.Children.Add(m.LiveSteps != null ? ProgressTrailPanel(m.LiveSteps) : ThinkingTrail(m.Text));
+                if (hasBlocks)
+                {
+                    // v2 live body: narrative legs + tool cards in arrival order,
+                    // dots pinned underneath for liveness.
+                    col.Children.Add(BlocksPanel(m, col.MaxWidth));
+                    col.Children.Add(StreamingDots());
+                }
                 aiRow.Children.Add(col);
                 return aiRow;
             }
@@ -484,12 +514,14 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     // pass answerStarting so the timeline auto-collapses (unless
                     // the drafter already toggled it open this turn).
                     col.Children.Add(ReasoningTimelinePanel(m.LiveReasoningSteps, streaming: false, answerStarting: true));
-                else if (m.LiveSteps != null)
+                else if (m.LiveSteps != null && !hasBlocks)
                     // Once reply prose starts streaming, the trail stays pinned
                     // ABOVE the growing answer (rows keep ticking) instead of
                     // collapsing.
                     col.Children.Add(ProgressTrailPanel(m.LiveSteps));
-                if (!string.IsNullOrEmpty(m.Text))
+                if (hasBlocks)
+                    col.Children.Add(BlocksPanel(m, col.MaxWidth));
+                else if (!string.IsNullOrEmpty(m.Text))
                     col.Children.Add(CopilotMessageBubble.MarkdownText(m.Text, col.MaxWidth));
                 // Pin the pulsing-dots liveness indicator below the partial prose.
                 // Still Kind=Thinking, so this only shows while the turn runs; the
@@ -648,7 +680,26 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 col.Children.Add(trailView);
             }
 
-            if (!string.IsNullOrEmpty(m.Text))
+            // Stream v2: a completed v2 turn keeps its segmented body — ordered
+            // narrative blocks + tool cards — instead of collapsing back into
+            // one blob. Same one-card-per-turn guard as the reasoning block: a
+            // ConfirmActions message only shows the thread while it's still the
+            // tail; once the turn continues past it, the later message carries
+            // the full (longer) block list and this one defers. Copy still
+            // hands over m.Text — the full accumulated reply.
+            bool renderBlocks = hasBlocks
+                && (m.Kind == CpMsgKind.AiReply
+                    || (m.Kind == CpMsgKind.ConfirmActions && IsThreadTail(m)));
+            if (renderBlocks)
+            {
+                col.Children.Add(BlocksPanel(m, col.MaxWidth));
+                if (!string.IsNullOrEmpty(m.Text))
+                {
+                    CopilotMessageBubble.AttachCopyMenu(col, m.Text);
+                    col.Children.Add(CopilotMessageBubble.HoverReveal(aiRow, CopilotMessageBubble.CopyButton(m.Text)));
+                }
+            }
+            else if (!string.IsNullOrEmpty(m.Text))
             {
                 // AI replies are markdown (headers, **bold**, tables, lists) —
                 // render formatted, not as raw text. User bubbles stay plain.
@@ -686,6 +737,16 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             if (m.Kind == CpMsgKind.AiReply && m.Receipt != null)
             {
                 col.Children.Add(ReceiptCard(m.Receipt));
+            }
+            // "Highlight in model" action row (PRD A9): when the answer lists
+            // 2+ clickable element ids, offer the whole set as one selection —
+            // the per-id click stays for single elements. Same local
+            // select_elements path, no backend round-trip.
+            if (m.Kind == CpMsgKind.AiReply && !string.IsNullOrEmpty(m.Text))
+            {
+                var elementIds = RevitWebAppSync.Helpers.MarkdownRenderer.ExtractElementIds(m.Text);
+                if (elementIds.Count >= 2)
+                    col.Children.Add(HighlightRow(elementIds));
             }
             if (m.Kind == CpMsgKind.AiReply && (hasResultBars || hasFollowups || hasTindakan))
             {
@@ -1252,6 +1313,63 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             view.Update(m.ReasoningSteps, streaming: false, answerStarting: false, seedOpen: false);
             view.Margin = new Thickness(0, 0, 0, 12);
             return view;
+        }
+
+        // ─── Stream v2 segmented turn body (T1/T3) ───────────────────────────
+        // Ordered Narrative | ToolCard | ConfirmCard blocks — the Hermes-parity
+        // rendering. Rebuilt per tick (cheap StackPanel of MarkdownText/cards);
+        // block objects are shared snapshots, read synchronously on the UI
+        // thread, same contract as LiveSteps.
+        private FrameworkElement BlocksPanel(ChatMessage m, double maxWidth)
+        {
+            var panel = new StackPanel();
+            foreach (var b in m.Blocks)
+            {
+                if (b == null) continue;
+                switch (b.Kind)
+                {
+                    case TurnBlockKind.Narrative:
+                        if (!string.IsNullOrWhiteSpace(b.Text))
+                        {
+                            var md = CopilotMessageBubble.MarkdownText(b.Text, maxWidth);
+                            md.Margin = new Thickness(0, 0, 0, 8);
+                            panel.Children.Add(md);
+                        }
+                        break;
+                    case TurnBlockKind.ToolCard:
+                        if (b.ToolResult != null)
+                            panel.Children.Add(new ToolResultCard(b.ToolResult));
+                        break;
+                    case TurnBlockKind.ConfirmCard:
+                        panel.Children.Add(ConfirmRecordLine(b));
+                        break;
+                }
+            }
+            return panel;
+        }
+
+        // Compact in-thread decision record (T5): after Ya/Tidak the confirm
+        // reads as one line inside the continuing thread — the interactive
+        // card itself still renders via ConfirmActionsCard while pending.
+        private FrameworkElement ConfirmRecordLine(TurnBlock b)
+        {
+            bool ok = b.Approved == true;
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 8) };
+            var mark = new TextBlock
+            {
+                Text = ok ? "✓" : "✗", FontSize = 11, FontWeight = FontWeights.Bold,
+                Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center,
+            };
+            mark.SetResourceReference(TextBlock.ForegroundProperty, ok ? "Cp.Green" : "Cp.IssueFg");
+            row.Children.Add(mark);
+            var label = new TextBlock
+            {
+                Text = string.IsNullOrWhiteSpace(b.Text) ? (ok ? "Diluluskan" : "Ditolak") : b.Text,
+                FontSize = 11, FontStyle = FontStyles.Italic, VerticalAlignment = VerticalAlignment.Center,
+            };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            row.Children.Add(label);
+            return row;
         }
 
         private FrameworkElement ClarifyCard(ChatMessage m)
@@ -2092,6 +2210,60 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             b.Child = tb;
             if (onClick != null) b.MouseLeftButtonUp += (_, __) => onClick();
             return b;
+        }
+
+        // Answer action row (PRD A9): count tag + "Highlight in model" chip.
+        // Same chip idiom as FollowupChip; the crosshair glyph is drawn inline
+        // (CopilotIcons has no crosshair and one icon doesn't warrant a map row).
+        private FrameworkElement HighlightRow(System.Collections.Generic.List<long> elementIds)
+        {
+            var row = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 8, 0, 0),
+            };
+
+            var countTag = new Border
+            {
+                CornerRadius = new CornerRadius(9), Padding = new Thickness(9, 4, 9, 4),
+                Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center,
+            };
+            countTag.SetResourceReference(Border.BackgroundProperty, "Cp.BlueSoft");
+            var countText = new TextBlock { Text = elementIds.Count + " elements", FontSize = 11.5 };
+            countText.SetResourceReference(TextBlock.ForegroundProperty, "Cp.BlueText");
+            countTag.Child = countText;
+            row.Children.Add(countTag);
+
+            var chip = new Border
+            {
+                CornerRadius = new CornerRadius(9), BorderThickness = new Thickness(1),
+                Padding = new Thickness(11, 5, 11, 5), Cursor = System.Windows.Input.Cursors.Hand,
+                VerticalAlignment = VerticalAlignment.Center,
+            };
+            chip.SetResourceReference(Border.BorderBrushProperty, "Cp.Reasoning.Border2");
+            chip.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
+            chip.MouseEnter += (_, __) => chip.SetResourceReference(Border.BackgroundProperty, "Cp.Reasoning.Hover");
+            chip.MouseLeave += (_, __) => chip.SetResourceReference(Border.BackgroundProperty, "Cp.Bg");
+
+            var content = new StackPanel { Orientation = Orientation.Horizontal };
+            var crosshair = new Path
+            {
+                Width = 12, Height = 12, Stretch = Stretch.Uniform, StrokeThickness = 1.6,
+                StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round,
+                Data = Geometry.Parse("M12,3 v4 M12,17 v4 M3,12 h4 M17,12 h4 M7,12 a5,5 0 1 0 10,0 a5,5 0 1 0 -10,0"),
+                VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0),
+            };
+            crosshair.SetResourceReference(Shape.StrokeProperty, "Cp.BlueText");
+            content.Children.Add(crosshair);
+            var label = new TextBlock { Text = "Highlight in model", FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Reasoning.TextPrimary");
+            content.Children.Add(label);
+            chip.Child = content;
+
+            var ids = elementIds.ToArray();
+            chip.MouseLeftButtonUp += (_, __) => SelectElements(ids);
+            row.Children.Add(chip);
+            return row;
         }
 
         // Design command card (lines 186-218): a hairline-topped SECTION inside the

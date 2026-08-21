@@ -127,6 +127,167 @@ namespace RevitWebAppSync.Services
         }
     }
 
+    /// <summary>
+    /// One Bina parameter to write onto an element (ClickUp 86d3y5jxx).
+    ///
+    /// `ElementExternalId` is the Revit UniqueId — BINA stores it rather than
+    /// the viewer's dbId precisely so that it resolves here, through
+    /// `doc.GetElement(uniqueId)`.
+    /// </summary>
+    public class BinaElementParameter
+    {
+        public string ElementExternalId { get; set; }
+        public string ParameterName { get; set; }
+        /// <summary>Text | Number | YesNo | Date — how BINA typed the value.</summary>
+        public string ParameterType { get; set; }
+        /// <summary>Always a string on the wire; coerced to the Revit storage type on write.</summary>
+        public string Value { get; set; }
+        /// <summary>Add = a new Bina parameter; Override = a value placed over an existing one.</summary>
+        public string Source { get; set; }
+        /// <summary>Version the value was entered on — shown in the summary, not used for matching.</summary>
+        public int? FromVersion { get; set; }
+    }
+
+    /// <summary>The design an open document turned out to be (GET design/resolve).</summary>
+    public class ResolvedDesign
+    {
+        public int DesignId { get; set; }
+        public int ProjectId { get; set; }
+        /// <summary>BINA folder — the thing the document itself gives no clue about.</summary>
+        public int? ParentId { get; set; }
+        public string Name { get; set; }
+        public int? VersionNumber { get; set; }
+        public string DesignStatus { get; set; }
+        public string DisciplineType { get; set; }
+        public string LineageId { get; set; }
+    }
+
+    /// <summary>Response of GET design/:id/element-parameters.</summary>
+    public class ElementParametersResponse
+    {
+        public int DesignId { get; set; }
+        public string LineageId { get; set; }
+        public int? VersionNumber { get; set; }
+        /// <summary>lineage (whole version chain, the default) | design (this version only).</summary>
+        public string Scope { get; set; }
+        public int Count { get; set; }
+        /// <summary>True when the server clipped the set at its ceiling.</summary>
+        public bool Truncated { get; set; }
+        public List<BinaElementParameter> Parameters { get; set; }
+    }
+
+    /// <summary>
+    /// An issue (BIM comment) as the panel lists it (ClickUp 86d3y5jtz).
+    ///
+    /// `Guid` is the BCF Topic GUID and never changes, so it is the key the
+    /// add-in holds on to. The web stays the source of truth: this release
+    /// reads, it does not write.
+    /// </summary>
+    public class BinaIssue
+    {
+        public string Guid { get; set; }
+        /// <summary>design | coordination — which store the issue came from.</summary>
+        public string Source { get; set; }
+        public string Title { get; set; }
+        public string TopicType { get; set; }
+        public string Status { get; set; }
+        public string Priority { get; set; }
+        public DateTime? DueDate { get; set; }
+        public bool IsResolved { get; set; }
+        public BinaPerson Author { get; set; }
+        /// <summary>
+        /// Null for a coordination issue: it belongs to the federated set in
+        /// `Models`, not to one design.
+        /// </summary>
+        public int? DesignId { get; set; }
+        public string DesignName { get; set; }
+        public int? VersionNumber { get; set; }
+        public string DisciplineType { get; set; }
+        public DateTime? UpdatedAt { get; set; }
+        /// <summary>Two-line preview under the title, as the web list shows.</summary>
+        public string Text { get; set; }
+        /// <summary>Presigned markup snapshot; expires, so the panel caches the bytes.</summary>
+        public string SnapshotUrl { get; set; }
+        /// <summary>
+        /// The models the issue belongs to. One for a design issue; for a
+        /// coordination issue, every model that was loaded in the federated view
+        /// when it was raised.
+        /// </summary>
+        public List<BinaIssueModel> Models { get; set; }
+
+        public override string ToString() =>
+            string.IsNullOrWhiteSpace(Title) ? $"({TopicType})" : Title;
+    }
+
+    public class BinaIssueModel
+    {
+        public string FileName { get; set; }
+        public int? DesignId { get; set; }
+    }
+
+    public class BinaPerson
+    {
+        public int Id { get; set; }
+        public string Name { get; set; }
+        public string Email { get; set; }
+    }
+
+    public class BinaIssueReply
+    {
+        public string Guid { get; set; }
+        public string Text { get; set; }
+        public BinaPerson Author { get; set; }
+        public DateTime? CreatedAt { get; set; }
+    }
+
+    /// <summary>
+    /// Where the issue was captured from, already converted server-side by the
+    /// same code the BCF export uses. Positions are in METRES — Revit works in
+    /// feet internally, so the caller divides by 0.3048.
+    /// </summary>
+    public class BinaIssueCamera
+    {
+        /// <summary>perspective | orthogonal</summary>
+        public string Type { get; set; }
+        public double[] ViewPoint { get; set; }
+        /// <summary>Unit vector, already normalised: the direction of gaze.</summary>
+        public double[] Direction { get; set; }
+        public double[] UpVector { get; set; }
+        public double? FieldOfView { get; set; }
+        public double? ViewToWorldScale { get; set; }
+        public string Units { get; set; }
+    }
+
+    /// <summary>Elements the issue points at, as Revit UniqueIds.</summary>
+    public class BinaIssueComponents
+    {
+        public string ModelUrn { get; set; }
+        public List<string> Selection { get; set; }
+        public List<string> Isolated { get; set; }
+        public List<string> Hidden { get; set; }
+    }
+
+    /// <summary>One issue in full (GET issue/:guid).</summary>
+    public class BinaIssueDetail : BinaIssue
+    {
+        public string Text { get; set; }
+        public string SnapshotUrl { get; set; }
+        public List<BinaIssueComponents> CapturedComponents { get; set; }
+        public BinaIssueCamera Camera { get; set; }
+        public double? UnitScale { get; set; }
+        public List<BinaIssueReply> Replies { get; set; }
+    }
+
+    /// <summary>Response of GET project/:projectId/issues.</summary>
+    public class BinaIssuePage
+    {
+        public int ProjectId { get; set; }
+        public int Count { get; set; }
+        public bool HasMore { get; set; }
+        public int? NextOffset { get; set; }
+        public List<BinaIssue> Issues { get; set; }
+    }
+
     /// <summary>Revit build + add-in version + worksharing state, stored on the version.</summary>
     public class SyncClientInfo
     {

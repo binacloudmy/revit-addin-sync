@@ -116,12 +116,26 @@ namespace BinaVibe.Mcp.Tools
 
         private static WallType FindWallType(Document doc, string? name, bool interior)
         {
-            var all = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>()
-                .Where(t => t.Kind == WallKind.Basic).ToList();
+            // Search ALL kinds, then explain kind mismatches. The old
+            // Basic-only collector made a Stacked/Curtain name copied straight
+            // from list_wall_types come back "not found" — a lying error that
+            // sent the model on a 3-round name-guessing flail before it
+            // abandoned build_design entirely (2026-08-18, trace 498a5cf1).
+            var every = new FilteredElementCollector(doc).OfClass(typeof(WallType)).Cast<WallType>().ToList();
+            var all = every.Where(t => t.Kind == WallKind.Basic).ToList();
             if (all.Count == 0) throw new InvalidOperationException("no basic wall types in this project");
             if (!string.IsNullOrWhiteSpace(name))
-                return all.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))
-                    ?? throw new ArgumentException($"wall type '{name}' not found (use list_wall_types)");
+            {
+                var hit = all.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+                if (hit != null) return hit;
+                var wrongKind = every.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase));
+                if (wrongKind != null)
+                    throw new ArgumentException(
+                        $"wall type '{name}' is a {wrongKind.Kind} wall type; build_design needs a Basic wall. " +
+                        $"Closest Basic types: {TypeCandidates.Nearest(all.Select(t => t.Name), name!)}");
+                throw new ArgumentException(
+                    $"wall type '{name}' not found; closest Basic types: {TypeCandidates.Nearest(all.Select(t => t.Name), name!)}");
+            }
             // No name given: pick by TARGET THICKNESS, not by extreme. "Take
             // the thickest" chose a 400mm+ compound wall on the 2026-08-11
             // smoke and the drafter's first question was "why the dinding so
@@ -272,7 +286,41 @@ namespace BinaVibe.Mcp.Tools
             bool isRepair = args.TryGetProperty("repair_of", out var repairOf)
                             && repairOf.ValueKind == JsonValueKind.String;
             if (isRepair)
-                return RepairFromParts(doc, args, uidoc, repairOf.GetString()!);
+                return RepairFromParts(doc, args, uidoc, repairOf.GetString()!, stageOf: null);
+
+            // Stage (E2, lod-ladder): ADD parts to a standing build — same
+            // prior-state plumbing as a repair (clear-if-exists, scorecard
+            // merge, spec_id kept), but separations/rooms DO run and the
+            // level-stack/curtain/structure extras still don't.
+            bool isStage = args.TryGetProperty("stage_of", out var stageOfEl)
+                           && stageOfEl.ValueKind == JsonValueKind.String;
+            if (isStage)
+                return RepairFromParts(doc, args, uidoc, repairOf: null,
+                                       stageOf: stageOfEl.GetString()!);
+
+            // Duplicate guard: a plain build_design on a document that already
+            // holds a spec used to build a SECOND building on top of the first
+            // and overwrite the ownership map — orphaning the original so no
+            // later update_design could ever delete it (2026-08-18 audit).
+            var standing = LoadJson(doc);
+            if (!string.IsNullOrEmpty(standing))
+            {
+                string? standingId = null;
+                try
+                {
+                    using var sd = JsonDocument.Parse(standing!);
+                    if (sd.RootElement.TryGetProperty("spec_id", out var sid)
+                        && sid.ValueKind == JsonValueKind.String)
+                        standingId = sid.GetString();
+                }
+                catch { /* unreadable stored spec — fall through to the build */ }
+                if (standingId != null)
+                    throw new InvalidOperationException(
+                        $"this document already holds design '{standingId}' — use update_design "
+                        + $"to change it, or build_design(stage_of=\"{standingId}\") to add the "
+                        + "next stage. A plain build_design here would build a DUPLICATE "
+                        + "building beside the existing one and orphan it.");
+            }
 
             var parts = Obj(args, "parts");
             if (parts != null && parts.Value.ValueKind == JsonValueKind.Array
@@ -293,18 +341,20 @@ namespace BinaVibe.Mcp.Tools
         /// the subset. Everything else standing in the model — including
         /// whatever the drafter drew by hand — is left alone regardless.</summary>
         private static Dictionary<string, object?> RepairFromParts(
-            Document doc, JsonElement args, UIDocument? uidoc, string repairOf)
+            Document doc, JsonElement args, UIDocument? uidoc, string? repairOf,
+            string? stageOf = null)
         {
+            var kind = repairOf != null ? $"repair_of '{repairOf}'" : $"stage_of '{stageOf}'";
             if (!args.TryGetProperty("parts", out var subset)
                 || subset.ValueKind != JsonValueKind.Array || subset.GetArrayLength() == 0)
                 throw new ArgumentException(
-                    $"repair_of '{repairOf}' given, but `parts` carries no subset to rebuild");
+                    $"{kind} given, but `parts` carries no subset to rebuild");
 
             var storedJson = LoadJson(doc);
             if (string.IsNullOrEmpty(storedJson))
                 throw new InvalidOperationException(
-                    $"repair_of '{repairOf}' given, but this document carries no BINA spec to "
-                    + "repair — build_design must run once before a repair round");
+                    $"{kind} given, but this document carries no BINA spec — "
+                    + "build_design must run once first");
             using var storedDoc = JsonDocument.Parse(storedJson);
             var stored = storedDoc.RootElement;
 
@@ -316,6 +366,21 @@ namespace BinaVibe.Mcp.Tools
             string? priorSpecId = stored.TryGetProperty("spec_id", out var specIdEl)
                                    && specIdEl.ValueKind == JsonValueKind.String
                 ? specIdEl.GetString() : null;
+
+            // A stage names the STABLE spec_id (unlike repair_of's per-round
+            // fingerprint) — a mismatch means the model is staging onto a
+            // different building than the one standing. Fail with the real id.
+            if (stageOf != null && priorSpecId != null
+                && !string.Equals(stageOf, priorSpecId, StringComparison.Ordinal))
+                throw new ArgumentException(
+                    $"stage_of '{stageOf}' does not match this document's design "
+                    + $"'{priorSpecId}' — use get_design to read the current spec_id");
+
+            // Stored args ride along so the additive save can persist the
+            // MERGED spec (stage args alone lack unsent fields like roof, and
+            // a repair's subset parts used to truncate the stored checklist).
+            string? priorArgsJson = stored.TryGetProperty("args", out var priorArgsEl)
+                ? priorArgsEl.GetRawText() : null;
 
             var priorOwns = new Dictionary<string, List<long>>();
             if (stored.TryGetProperty("owns", out var ownsEl) && ownsEl.ValueKind == JsonValueKind.Object)
@@ -351,9 +416,87 @@ namespace BinaVibe.Mcp.Tools
                         priorWallBySpecId[p.Name] = p.Value.GetInt64();
 
             return BuildFromParts(doc, args, uidoc, subset,
-                repairOf: repairOf, priorSpecId: priorSpecId,
+                repairOf: repairOf, stageOf: stageOf, priorSpecId: priorSpecId,
                 priorOwns: priorOwns, priorOwnsByPart: priorOwnsByPart,
-                priorScorecard: priorScorecard, priorWallBySpecId: priorWallBySpecId);
+                priorScorecard: priorScorecard, priorWallBySpecId: priorWallBySpecId,
+                priorArgsJson: priorArgsJson);
+        }
+
+        /// <summary>Field-wise merge of a stored spec's args with an additive
+        /// round's args (incoming wins; `parts` unions by id; the round-plumbing
+        /// keys never persist). Returns the merged JSON text.</summary>
+        private static string MergeSpecArgs(string priorArgsJson, JsonElement incoming)
+        {
+            var mergedArgs = JsonNode.Parse(priorArgsJson) as JsonObject ?? new JsonObject();
+            var partsById = new Dictionary<string, JsonNode>(StringComparer.Ordinal);
+            if (mergedArgs["parts"] is JsonArray priorParts)
+                foreach (var n in priorParts)
+                {
+                    var id = n?["id"]?.GetValue<string>();
+                    if (id != null) partsById[id] = JsonNode.Parse(n!.ToJsonString())!;
+                }
+            foreach (var p in incoming.EnumerateObject())
+            {
+                if (p.Name == "repair_of" || p.Name == "stage_of") continue;
+                if (p.Name == "parts")
+                {
+                    if (p.Value.ValueKind == JsonValueKind.Array)
+                        foreach (var part in p.Value.EnumerateArray())
+                        {
+                            var id = part.TryGetProperty("id", out var pid)
+                                     && pid.ValueKind == JsonValueKind.String
+                                ? pid.GetString() : null;
+                            if (id != null) partsById[id] = JsonNode.Parse(part.GetRawText())!;
+                        }
+                    continue;
+                }
+                mergedArgs[p.Name] = JsonNode.Parse(p.Value.GetRawText());
+            }
+            var partsArr = new JsonArray();
+            foreach (var v in partsById.Values) partsArr.Add(v);
+            mergedArgs["parts"] = partsArr;
+            return mergedArgs.ToJsonString();
+        }
+
+        /// <summary>Structural JSON equality — key order and number formatting
+        /// don't count as differences. update_design's change detection used raw
+        /// text compare, so a program resent byte-differently (key order, 3000
+        /// vs 3000.0) registered as "changed" and demolished the stretch fast
+        /// path for every real house (E4, 2026-08-18).</summary>
+        internal static bool JsonDeepEquals(JsonElement a, JsonElement b)
+        {
+            if (a.ValueKind != b.ValueKind) return false;
+            switch (a.ValueKind)
+            {
+                case JsonValueKind.Object:
+                    var bProps = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+                    foreach (var p in b.EnumerateObject()) bProps[p.Name] = p.Value;
+                    int aCount = 0;
+                    foreach (var p in a.EnumerateObject())
+                    {
+                        aCount++;
+                        if (!bProps.TryGetValue(p.Name, out var bv) || !JsonDeepEquals(p.Value, bv))
+                            return false;
+                    }
+                    return aCount == bProps.Count;
+                case JsonValueKind.Array:
+                    if (a.GetArrayLength() != b.GetArrayLength()) return false;
+                    using (var be = b.EnumerateArray().GetEnumerator())
+                    {
+                        foreach (var av in a.EnumerateArray())
+                        {
+                            be.MoveNext();
+                            if (!JsonDeepEquals(av, be.Current)) return false;
+                        }
+                    }
+                    return true;
+                case JsonValueKind.Number:
+                    return a.GetDouble().Equals(b.GetDouble());
+                case JsonValueKind.String:
+                    return a.GetString() == b.GetString();
+                default:
+                    return true;   // true/false/null: kind equality is enough
+            }
         }
 
         /// <summary>The full set of part ids that, under the pre-owns_by_part
@@ -475,11 +618,13 @@ namespace BinaVibe.Mcp.Tools
         private static Dictionary<string, object?> BuildFromParts(
             Document doc, JsonElement args, UIDocument? uidoc, JsonElement partsJson,
             string? repairOf = null,
+            string? stageOf = null,
             string? priorSpecId = null,
             Dictionary<string, List<long>>? priorOwns = null,
             Dictionary<string, List<long>>? priorOwnsByPart = null,
             JsonArray? priorScorecard = null,
-            Dictionary<string, long>? priorWallBySpecId = null)
+            Dictionary<string, long>? priorWallBySpecId = null,
+            string? priorArgsJson = null)
         {
             var t0 = System.Diagnostics.Stopwatch.StartNew();
             var footprint = Footprint(args);
@@ -927,6 +1072,7 @@ namespace BinaVibe.Mcp.Tools
             }
 
             using var tg = new TransactionGroup(doc, repairOf != null ? "BINA: repair design"
+                                                    : stageOf != null ? "BINA: stage design"
                                                                        : "BINA: build design");
             tg.Start();
             JsonArray scorecard;
@@ -967,7 +1113,7 @@ namespace BinaVibe.Mcp.Tools
                         // fed that bucket — otherwise the part is REFUSED,
                         // not rebuilt, so the repair never destroys geometry
                         // it wasn't asked to touch and never lies about it.
-                        if (repairOf != null && priorOwns != null)
+                        if ((repairOf != null || stageOf != null) && priorOwns != null)
                         {
                             var subsetIds = partsJson.EnumerateArray()
                                 .Select(p => p.TryGetProperty("id", out var pidv)
@@ -1043,12 +1189,13 @@ namespace BinaVibe.Mcp.Tools
                         doc.Regenerate();
 
                         levels.AddRange(EnsureLevels(doc, count, f2f, prefix, Own));
-                        // Repair rebuilds PARTS only — level stack, curtain-type
-                        // dressing and the structural grid/columns are none of
-                        // them a part, so a repair call must never redo them: the
-                        // grid and column code below carries no existence check
-                        // and would mint a second copy on every repair round.
-                        if (repairOf == null)
+                        // Repair AND stage rebuild PARTS only — level stack,
+                        // curtain-type dressing and the structural grid/columns
+                        // are none of them a part, so neither call may redo
+                        // them: the grid and column code below carries no
+                        // existence check and would mint a second copy on
+                        // every additive round.
+                        if (repairOf == null && stageOf == null)
                         {
                             if (curtainType != null) DressCurtainType(doc, curtainType, facadeSpec);
                             BuildStructure(doc, args, footprint, levels[0], Own);
@@ -1298,6 +1445,23 @@ namespace BinaVibe.Mcp.Tools
                         // reading as silently absent instead.
                         if (repairOf == null)
                         {
+                        // A RE-stage re-solves the interior: its partitions and
+                        // openings were cleared per-part above, but separations
+                        // and rooms are role-owned, not part-owned — delete the
+                        // prior ones here or every re-stage mints a second copy.
+                        if (stageOf != null && priorOwns != null)
+                        {
+                            var staleInterior = new[] { "separation", "room" }
+                                .Where(priorOwns.ContainsKey)
+                                .SelectMany(r => priorOwns[r])
+                                .Select(ElemIds.From)
+                                .Where(eid => doc.GetElement(eid) != null)
+                                .Distinct().ToList();
+                            if (staleInterior.Count > 0)
+                                try { doc.Delete(staleInterior); } catch { /* per-id survivors reported by the room count */ }
+                            priorOwns.Remove("separation");
+                            priorOwns.Remove("room");
+                        }
                         // Open-plan edges get a ROOM SEPARATION LINE — no wall
                         // by design, but without a boundary Revit merges the
                         // open pair into one enclosure and both rooms lose
@@ -1401,11 +1565,24 @@ namespace BinaVibe.Mcp.Tools
                         // it does not touch can still resolve the walls they
                         // are hosted in, and the per-part map so THAT round's
                         // clear stays precise too, not just this one's.
+                        // Additive rounds (repair/stage) persist the MERGED
+                        // spec, not the round's own args verbatim: a repair's
+                        // args carry only the failed subset in `parts` (which
+                        // used to truncate the stored checklist to that
+                        // subset), and a stage's args lack every field the
+                        // model didn't resend (roof, walls…). Field-wise merge,
+                        // incoming wins; `parts` unions by id.
+                        object? argsToStore;
+                        if (priorArgsJson != null && (repairOf != null || stageOf != null))
+                            argsToStore = JsonSerializer.Deserialize<object>(
+                                MergeSpecArgs(priorArgsJson, args));
+                        else
+                            argsToStore = JsonSerializer.Deserialize<object>(args.GetRawText());
                         SaveJson(doc, JsonSerializer.Serialize(new Dictionary<string, object?>
                         {
                             ["spec_id"] = specId,
                             ["version"] = 1,
-                            ["args"] = JsonSerializer.Deserialize<object>(args.GetRawText()),
+                            ["args"] = argsToStore,
                             ["owns"] = owns,
                             ["owns_by_part"] = ownsByPart,
                             ["scorecard"] = scorecard,
@@ -1472,6 +1649,7 @@ namespace BinaVibe.Mcp.Tools
                 ["digest"] = digest,
             };
             if (repairOf != null) result["repair_of"] = repairOf;
+            if (stageOf != null) result["stage_of"] = stageOf;
             return result;
         }
 
@@ -1771,6 +1949,7 @@ namespace BinaVibe.Mcp.Tools
                 if (lvl == null)
                 {
                     lvl = Level.Create(doc, elev);
+                    lvl.Pinned = true;   // datums pin at birth (field-guide guardrail)
                     try { lvl.Name = i == count ? "Roof" : $"{prefix}{i + 1}"; } catch { }
                     own("level", lvl.Id.Value);
                 }
@@ -1836,12 +2015,14 @@ namespace BinaVibe.Mcp.Tools
             {
                 var x = minX + i * xs;
                 var g = Grid.Create(doc, Line.CreateBound(new XYZ(x, minY, 0), new XYZ(x, maxY, 0)));
+                g.Pinned = true;   // datums pin at birth (field-guide guardrail)
                 own("grid", g.Id.Value);
             }
             for (int j = 0; j <= yb; j++)
             {
                 var y = minY + j * ys;
                 var g = Grid.Create(doc, Line.CreateBound(new XYZ(minX, y, 0), new XYZ(maxX, y, 0)));
+                g.Pinned = true;
                 own("grid", g.Id.Value);
             }
             var colSym = FindSymbol(doc, BuiltInCategory.OST_StructuralColumns,
@@ -2446,7 +2627,7 @@ namespace BinaVibe.Mcp.Tools
             {
                 if (p.Name == "spec_id") continue;
                 var isNew = !merged.TryGetValue(p.Name, out var prev)
-                            || prev.GetRawText() != p.Value.GetRawText();
+                            || !JsonDeepEquals(prev, p.Value);
                 merged[p.Name] = p.Value;
                 if (isNew) changed.Add(p.Name);
             }

@@ -29,8 +29,6 @@ namespace RevitWebAppSync
         public static RevitWebAppSync.Services.BombaAutoFixHandler BombaAutoFixHandler { get; private set; }
         public static ExternalEvent BombaAutoFixEvent { get; private set; }
         public static JkrRenameHandler JkrRenameHandler { get; private set; }
-        public static RevitWebAppSync.Handlers.RollbackSwapHandler RollbackSwapHandler { get; private set; }
-        public static ExternalEvent RollbackSwapEvent { get; private set; }
 
         // Cost Dashboard dockable pane host
         public static CostDashboardHost CostDashboardHost { get; private set; }
@@ -42,6 +40,12 @@ namespace RevitWebAppSync
         public static JkrComplianceDashboardHost JkrComplianceDashboardHost { get; private set; }
 
         public static BombaComplianceDashboardHost BombaComplianceDashboardHost { get; private set; }
+
+        // Issues dockable pane + the event that lets it touch the model
+        // (ClickUp 86d3y5jtz). The pane is plain WPF with no API context.
+        public static UI.Issues.IssuesPaneHost IssuesPaneHost { get; private set; }
+        public static Handlers.IssueShowHandler IssueShowHandler { get; private set; }
+        public static ExternalEvent IssueShowEvent { get; private set; }
 
         // Revit Copilot dockable pane host (right-docked side panel)
         public static CopilotPaneHost CopilotPaneHost { get; private set; }
@@ -195,6 +199,33 @@ namespace RevitWebAppSync
                 Services.TelemetryService.Init(application.ControlledApplication.VersionNumber);
                 Services.TelemetryService.Track("startup", "started");
 
+                // Which backends THIS build resolved. The channel .env is baked
+                // in at compile time and config.json can still pin individual
+                // hosts, so "which backend is this install talking to" had no
+                // answer short of disassembling the DLL — and a stale host is
+                // the usual cause of a sign-in that succeeds but leaves every
+                // feature 404ing. Best-effort: diagnostics must never be what
+                // stops the add-in loading.
+                try
+                {
+                    var endpoints = BinaConfig.Load();
+                    System.Diagnostics.Debug.WriteLine(
+                        "[BINA] resolved endpoints\n" + endpoints.DescribeEndpoints());
+                    Services.TelemetryService.Track("startup", "endpoints", new
+                    {
+                        channel = BinaConfig.Channel,
+                        ai_base = endpoints.ResolvedAIBaseUrl,
+                        api_base = endpoints.ResolvedApiBaseUrl,
+                        login_web = endpoints.ResolvedLoginWebUrl,
+                        cloud_web = endpoints.ResolvedCloudWebUrl
+                    });
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA] endpoint diagnostics failed: {ex.Message}");
+                }
+
                 // Self-heal legacy direct-load installs (stale RevitWebAppSync
                 // manifest + DLL in Addins collide with the loader path — the
                 // "assembly with same name is already loaded" dialog). The
@@ -257,11 +288,6 @@ namespace RevitWebAppSync
 
                 JkrRenameHandler = new JkrRenameHandler();
                 JkrRenameEvent = ExternalEvent.Create(JkrRenameHandler);
-
-                // Opening and closing documents is Revit API work that begins in a
-                // download continuation, so it has to be marshalled (86d3ut47q).
-                RollbackSwapHandler = new RevitWebAppSync.Handlers.RollbackSwapHandler();
-                RollbackSwapEvent = ExternalEvent.Create(RollbackSwapHandler);
 
                 BombaPickHandler = new RevitWebAppSync.Services.BombaPickWriteHandler();
                 BombaPickEvent = ExternalEvent.Create(BombaPickHandler);
@@ -371,6 +397,29 @@ namespace RevitWebAppSync
                     System.Diagnostics.Debug.WriteLine($"[BINA] Copilot dockable pane registration failed: {copilotEx.Message}");
                     Services.TelemetryService.Track("subsystem", "failed",
                         new { name = "copilot_pane", error_class = copilotEx.GetType().Name });
+                }
+
+                // Register the Issues dockable pane
+                try
+                {
+                    IssuesPaneHost = new UI.Issues.IssuesPaneHost();
+                    application.RegisterDockablePane(
+                        UI.Issues.IssuesPaneHost.PaneId,
+                        "BINA Issues",
+                        IssuesPaneHost);
+
+                    IssueShowHandler = new Handlers.IssueShowHandler
+                    {
+                        OnCompleted = (issue, result, error) =>
+                            IssuesPaneHost?.Panel?.ReportShown(issue, result, error)
+                    };
+                    IssueShowEvent = ExternalEvent.Create(IssueShowHandler);
+                }
+                catch (Exception issuesEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BINA] Issues dockable pane registration failed: {issuesEx.Message}");
+                    Services.TelemetryService.Track("subsystem", "failed",
+                        new { name = "issues_pane", error_class = issuesEx.GetType().Name });
                 }
 
                 // Subscribe to document changes for live cost updates
@@ -655,7 +704,7 @@ namespace RevitWebAppSync
 
             PushButtonData buttonData = new PushButtonData(
                 "SyncToWebApp",
-                "Sync to BINA",
+                "Sync",
                 Assembly.GetExecutingAssembly().Location,
                 "RevitWebAppSync.SyncCommand")
             {
@@ -692,18 +741,18 @@ namespace RevitWebAppSync
                 "RevitWebAppSync.BinaCloudLoginCommand")
             {
                 ToolTip = "Sign in to the BINA CDE / Cloud Docs (projects, documents, model sync)",
-                LongDescription = "Signs in to BINA Cloud Docs in your browser. Required by Sync to BINA and Download BIM Disciplines — the other buttons on this panel. Separate from Login to AI, which Copilot, JKR and space planning use.",
+                LongDescription = "Signs in to BINA Cloud Docs in your browser. Required by Sync and Shared Download — the other buttons on this panel. Separate from Login to AI, which Copilot, JKR and space planning use.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
 
             PushButtonData bimDisciplineButtonData = new PushButtonData(
                 "BimDiscipline",
-                "Download BIM\nDisciplines",
+                "Shared\nDownload",
                 Assembly.GetExecutingAssembly().Location,
                 "RevitWebAppSync.BimDisciplineCommand")
             {
-                ToolTip = "Download BIM Discipline Files",
+                ToolTip = "Download the latest shared discipline files",
                 LongDescription = "Download the latest Architecture, Structure, HVAC, and Electrical discipline files from BINA cloud.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
@@ -722,17 +771,49 @@ namespace RevitWebAppSync
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
 
-            PushButtonData federateButtonData = new PushButtonData(
-                "FederateDisciplines",
-                "Federate Disciplines",
+            // Parameters entered in the BINA viewer live in BINA's database, not
+            // in the .rvt — so a downloaded model opens without them. This writes
+            // them back onto the elements (ClickUp 86d3y5jxx).
+            PushButtonData syncParametersButtonData = new PushButtonData(
+                "SyncParameters",
+                "Sync\nParameters",
                 Assembly.GetExecutingAssembly().Location,
-                "RevitWebAppSync.FederateDisciplinesCommand")
+                "RevitWebAppSync.SyncParametersCommand")
             {
-                ToolTip = "Link Downloaded Discipline Files",
-                LongDescription = "Link previously downloaded discipline files to the current Revit document for coordination and clash detection.",
+                ToolTip = "Write BINA element parameters into this model",
+                LongDescription = "Pulls the parameters added to elements in BINA Cloud and writes them onto the matching elements here, creating shared parameters where the model does not have them yet.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
+            };
+
+            // Issues raised in the BINA viewer, shown against the open model
+            // (ClickUp 86d3y5jtz). Read-only in this release.
+            PushButtonData syncIssuesButtonData = new PushButtonData(
+                "SyncIssues",
+                "Issues",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.SyncIssuesCommand")
+            {
+                ToolTip = "Show BINA issues against this model",
+                LongDescription = "Pulls the issues raised on this model in BINA Cloud, selects the elements an issue points at, and restores the viewpoint it was captured from.",
                 Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
                 LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
             };
+
+            // LEGACY — Federate Disciplines is retired; the command itself is
+            // excluded from the build (FederateDisciplinesCommand.cs). This button
+            // was already never added to a panel; kept commented for reference.
+            // PushButtonData federateButtonData = new PushButtonData(
+            // "FederateDisciplines",
+            // "Federate Disciplines",
+            // Assembly.GetExecutingAssembly().Location,
+            // "RevitWebAppSync.FederateDisciplinesCommand")
+            // {
+            // ToolTip = "Link Downloaded Discipline Files",
+            // LongDescription = "Link previously downloaded discipline files to the current Revit document for coordination and clash detection.",
+            // Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
+            // LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+            // };
 
             PushButtonData askAiButtonData = new PushButtonData(
                 "AskAI",
@@ -824,21 +905,28 @@ namespace RevitWebAppSync
             cdePanel.AddItem(cloudLoginButtonData);
             cdePanel.AddItem(buttonData);
             cdePanel.AddItem(bimDisciplineButtonData);
+            cdePanel.AddItem(syncParametersButtonData);
+            cdePanel.AddItem(syncIssuesButtonData);
             cdePanel.AddItem(rollbackButtonData);
 
             // BINA AI: the bina-ai sign-in, then the copilot it unlocks.
             aiPanel.AddItem(loginButtonData);
             aiPanel.AddItem(askAiButtonData);
 
-            // Compliance: JKR (Cost/Fire hidden below)
+            // Compliance: JKR
             compliancePanel.AddItem(jkrComplianceButtonData);
             compliancePanel.AddItem(bombaComplianceButtonData);
 
-            // Stack: Export Cost Items / Import Prices
-            // cdePanel.AddStackedItems(costExportButtonData, costImportButtonData); // Hidden as requested
+            // Cost-to-BIM: Cost Tracker dashboard (restored standalone — see
+            // commit 3903b7f which had stacked it with Fire Compliance and hid
+            // both. We surface only the cost button; Fire stays hidden.)
+            compliancePanel.AddItem(costDashboardButtonData);
 
-            // Stack: Cost Tracker / Fire Compliance
-            // compliancePanel.AddStackedItems(costDashboardButtonData, complianceButtonData); // Hidden as requested
+            // Stack: Export Cost Items / Import Prices (hidden as requested)
+            // cdePanel.AddStackedItems(costExportButtonData, costImportButtonData);
+
+            // Fire Compliance stays hidden (restored only if explicitly requested)
+            // compliancePanel.AddItem(complianceButtonData);
             // cdePanel.AddItem(federateButtonData); // Hidden as requested
         }
 

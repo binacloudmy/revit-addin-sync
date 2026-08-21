@@ -26,6 +26,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// same idea as the theme toggle: persisted, defaults on.</summary>
         public bool ReasoningEnabled { get; set; } = true;
 
+        /// <summary>Stream v2 kill switch (copilot-stream-v2-hermes-parity spec,
+        /// "T1-T5 addin behind one internal flag"). Defaults ON — against an old
+        /// backend the segment feature-detect keeps rendering legacy anyway, so
+        /// the flag exists purely to force-disable segmented rendering if UAT
+        /// finds a defect (set false in copilot-prefs.json; no UI).</summary>
+        public bool StreamV2Enabled { get; set; } = true;
+
         /// <summary>Composer "Action Mode" chip (2026-08-02 addendum): false =
         /// Ask first (default — every write batch shows the approval card),
         /// true = Auto (write batches where every call opted out of
