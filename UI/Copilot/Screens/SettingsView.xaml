@@ -1,0 +1,23 @@
+<UserControl x:Class="RevitWebAppSync.UI.Copilot.Screens.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="{DynamicResource Cp.PanelBg}">
+    <!-- v6-panel "Settings" view: heading, then one bordered card per
+         preference — toggle rows built in code-behind from CopilotPrefs (the
+         real persisted flags, not the design's mock list). -->
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="14,14,14,8">
+            <TextBlock Text="Settings" FontSize="16" FontWeight="Medium" Foreground="{DynamicResource Cp.Ink}"/>
+            <TextBlock Text="Copilot preferences for this workspace" FontSize="12" Foreground="{DynamicResource Cp.Muted}"/>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Padding="14,0,14,14">
+            <StackPanel x:Name="Cards"/>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

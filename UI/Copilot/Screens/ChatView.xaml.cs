@@ -76,6 +76,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             // included), so the drafter never has to click into the card.
             PreviewKeyDown += OnApprovalKeyDown;
             // Ctrl+K → command palette (PRD A8), from anywhere in the pane.
+            // (Also reachable from the header's search button via OpenPalette.)
             PreviewKeyDown += (_, e) =>
             {
                 if (e.Key == System.Windows.Input.Key.K
@@ -86,6 +87,9 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 }
             };
         }
+
+        /// <summary>Open the command palette (header search button / Ctrl+K).</summary>
+        public void OpenPalette() => Prompt.OpenCommandPalette();
 
         // ─── Element-id click → local select+zoom (Task 7) ──────────────────
         // MarkdownRenderer.ElementIdClicked is STATIC and ChatView is cached
@@ -358,11 +362,24 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _thinkingView = null;
                 _progressTrailView = null;
                 _reasoningView = null;
+                _activityView = null;
+            }
+            if (empty)
+            {
+                // Per-thread render caches (tool cards / narrative blocks) only
+                // clear with the thread itself — mid-thread they are exactly
+                // what keeps re-renders from resetting card expand state.
+                _threadToolCards.Clear();
+                _threadNarratives.Clear();
             }
 
             if (empty) { BodyHost.Children.Add(EmptyState()); return; }
 
-            ConvCount.Text = $"Conversation · {Vm.Thread.Count(m => m.Role == "user")} messages";
+            // v6 subheader: the session is titled by its first user message
+            // (design sessionTitle — first letter uppercased), not a count.
+            var firstUser = Vm.Thread.FirstOrDefault(m => m.Role == "user")?.Text?.Trim() ?? "";
+            SessionTitle.Text = firstUser.Length == 0 ? "New session"
+                : char.ToUpperInvariant(firstUser[0]) + firstUser.Substring(1);
             var thread = new StackPanel { Margin = new Thickness(16, 16, 16, 16) };
             foreach (var m in Vm.Thread)
                 thread.Children.Add(Message(m));
@@ -487,21 +504,27 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
             if (m.Kind == CpMsgKind.Thinking && !m.StreamingReply)
             {
-                if (hasLiveReasoning)
-                    // v2: the narrative streaming below the card counts as the
-                    // answer starting — auto-collapse (unless drafter-toggled)
-                    // while the spinner/elapsed keep ticking honestly.
-                    col.Children.Add(ReasoningTimelinePanel(m.LiveReasoningSteps, streaming: true, answerStarting: hasBlocks));
+                System.Collections.Generic.ISet<string> claimed = null;
+                bool hasLiveEvidence = hasLiveReasoning || (m.LiveSteps != null && m.LiveSteps.Count > 0);
+                if (hasLiveEvidence)
+                {
+                    // v6: ONE agent-activity card — thinking prose + step
+                    // checklist + nested tool cards. The narrative streaming
+                    // below counts as the answer starting (auto-collapse
+                    // unless drafter-toggled) while the clock keeps ticking.
+                    var activity = ActivityPanel(m, streaming: true, answerStarting: hasBlocks);
+                    claimed = activity.ClaimedToolIds;
+                    col.Children.Add(activity);
+                }
                 else if (!hasBlocks)
-                    // Typed live step trail (mock 1+2 combined): multi-row trail,
-                    // ticking as rows go running -> done. Falls back to the old
-                    // single-line ThinkingTrail when the backend never sent steps.
-                    col.Children.Add(m.LiveSteps != null ? ProgressTrailPanel(m.LiveSteps) : ThinkingTrail(m.Text));
+                    // No reasoning AND no steps yet — the old single-line
+                    // ThinkingTrail placeholder until the first frame lands.
+                    col.Children.Add(ThinkingTrail(m.Text));
                 if (hasBlocks)
                 {
-                    // v2 live body: narrative legs + tool cards in arrival order,
-                    // dots pinned underneath for liveness.
-                    col.Children.Add(BlocksPanel(m, col.MaxWidth));
+                    // v2 live body: narrative legs (+ any tool card the activity
+                    // card did NOT claim) in arrival order, dots underneath.
+                    col.Children.Add(BlocksPanel(m, col.MaxWidth, claimed));
                     col.Children.Add(StreamingDots());
                 }
                 aiRow.Children.Add(col);
@@ -509,18 +532,18 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             }
             if (m.Kind == CpMsgKind.Thinking && m.StreamingReply)
             {
-                if (hasLiveReasoning)
-                    // Reasoning is done narrating the moment the answer starts —
-                    // pass answerStarting so the timeline auto-collapses (unless
-                    // the drafter already toggled it open this turn).
-                    col.Children.Add(ReasoningTimelinePanel(m.LiveReasoningSteps, streaming: false, answerStarting: true));
-                else if (m.LiveSteps != null && !hasBlocks)
-                    // Once reply prose starts streaming, the trail stays pinned
-                    // ABOVE the growing answer (rows keep ticking) instead of
-                    // collapsing.
-                    col.Children.Add(ProgressTrailPanel(m.LiveSteps));
+                System.Collections.Generic.ISet<string> claimed = null;
+                if (hasLiveReasoning || (m.LiveSteps != null && m.LiveSteps.Count > 0))
+                {
+                    // Answer streaming: the activity card auto-collapses (unless
+                    // the drafter toggled it open) and stays pinned above the
+                    // growing answer.
+                    var activity = ActivityPanel(m, streaming: false, answerStarting: true);
+                    claimed = activity.ClaimedToolIds;
+                    col.Children.Add(activity);
+                }
                 if (hasBlocks)
-                    col.Children.Add(BlocksPanel(m, col.MaxWidth));
+                    col.Children.Add(BlocksPanel(m, col.MaxWidth, claimed));
                 else if (!string.IsNullOrEmpty(m.Text))
                     col.Children.Add(CopilotMessageBubble.MarkdownText(m.Text, col.MaxWidth));
                 // Pin the pulsing-dots liveness indicator below the partial prose.
@@ -560,15 +583,27 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             bool showReasoningBlock = m.ReasoningSteps != null && m.ReasoningSteps.Count > 0
                 && (m.Kind == CpMsgKind.AiReply
                     || (m.Kind == CpMsgKind.ConfirmActions && IsThreadTail(m)));
+            System.Collections.Generic.ISet<string> claimedTools = null;
             if (showReasoningBlock)
             {
-                col.Children.Add(ReasoningBlock(m));
+                // v6: the persisted card carries the WHOLE run's evidence —
+                // prose + steps + nested tool cards (ActivityBlock replaces the
+                // old reasoning-only ReasoningBlock).
+                var activity = ActivityBlock(m);
+                claimedTools = activity.ClaimedToolIds;
+                col.Children.Add(activity);
             }
 
             // Progress trail pill: collapsed expandable summary on final AI replies
             // only (not Clarify/Proposal/Running/Result — those carry Steps too but
             // render their own cards, so the pill would be a stray duplicate).
-            if (m.Kind == CpMsgKind.AiReply && m.Steps != null && m.Steps.Count > 0)
+            // v6 dedupe (2026-08-20 parity pass): when the turn ALSO carries a
+            // reasoning trail, the Agent-activity card above already presents
+            // the run's evidence — a second "N · Xs · label" chip under it read
+            // as clutter in the JKR-audit screenshot. Steps stay reachable for
+            // reasoning-less turns (old backends) exactly as before.
+            if (m.Kind == CpMsgKind.AiReply && m.Steps != null && m.Steps.Count > 0
+                && (m.ReasoningSteps == null || m.ReasoningSteps.Count == 0))
             {
                 // ── Collapsed chip ────────────────────────────────────────────
                 // Redesigned 2026-07-27. The old pill stretched the full column
@@ -692,7 +727,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     || (m.Kind == CpMsgKind.ConfirmActions && IsThreadTail(m)));
             if (renderBlocks)
             {
-                col.Children.Add(BlocksPanel(m, col.MaxWidth));
+                col.Children.Add(BlocksPanel(m, col.MaxWidth, claimedTools));
                 if (!string.IsNullOrEmpty(m.Text))
                 {
                     CopilotMessageBubble.AttachCopyMenu(col, m.Text);
@@ -1298,6 +1333,81 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return _reasoningView;
         }
 
+        // ─── v6 Agent-activity card (2026-08-20 parity pass) ─────────────────
+        // ONE card per turn holding thinking prose + the step checklist with
+        // nested tool cards — replaces the separate reasoning card + progress
+        // chip + orphan cards. The LIVE instance is cached per turn (same
+        // lifecycle as _reasoningView); completed messages build a fresh,
+        // collapsed one per Rebuild, but their tool cards come from the shared
+        // per-thread cache so expand state survives re-renders.
+        private AgentActivityView _activityView;
+        private readonly System.Collections.Generic.Dictionary<string, ToolResultCard> _threadToolCards =
+            new System.Collections.Generic.Dictionary<string, ToolResultCard>(System.StringComparer.Ordinal);
+        private readonly System.Collections.Generic.Dictionary<string, (int len, double width, FrameworkElement el)> _threadNarratives =
+            new System.Collections.Generic.Dictionary<string, (int, double, FrameworkElement)>(System.StringComparer.Ordinal);
+
+        // Cache key for one execution's card. tool_call_ids are per-run nonces
+        // (globally unique), so a card keyed on one survives the live-Thinking →
+        // persisted-AiReply hand-off with its expand state. Id-less events fall
+        // back to tool name SCOPED to the message — leg/tool names repeat
+        // across turns, and an unscoped name key would re-parent an old turn's
+        // card into the new one.
+        private static string CardKey(ChatMessage m, RevitWebAppSync.Services.ToolResultEvent ev) =>
+            !string.IsNullOrEmpty(ev.ToolCallId) ? ev.ToolCallId
+                : m.GetHashCode().ToString() + ":" + (ev.Tool ?? "");
+
+        private ToolResultCard GetToolCard(ChatMessage m, RevitWebAppSync.Services.ToolResultEvent ev)
+        {
+            var key = CardKey(m, ev);
+            if (!_threadToolCards.TryGetValue(key, out var card))
+                _threadToolCards[key] = card = new ToolResultCard(ev);
+            return card;
+        }
+
+        /// <summary>Step-id → nested tool card resolver for one message: matches
+        /// a step to its execution by tool_call_id (locally-run batches key their
+        /// trail rows off exactly that id) or, failing that, the raw tool name
+        /// (the parser's step-id fallback). Cards are created once per thread.</summary>
+        private System.Func<string, ToolResultCard> ToolCardResolver(ChatMessage m)
+        {
+            var events = new System.Collections.Generic.Dictionary<string, RevitWebAppSync.Services.ToolResultEvent>(System.StringComparer.Ordinal);
+            if (m.Blocks != null)
+                foreach (var b in m.Blocks)
+                    if (b != null && b.Kind == TurnBlockKind.ToolCard && b.ToolResult != null)
+                    {
+                        if (!string.IsNullOrEmpty(b.ToolResult.ToolCallId)) events[b.ToolResult.ToolCallId] = b.ToolResult;
+                        if (!string.IsNullOrEmpty(b.ToolResult.Tool) && !events.ContainsKey(b.ToolResult.Tool)) events[b.ToolResult.Tool] = b.ToolResult;
+                    }
+            return id =>
+                !string.IsNullOrEmpty(id) && events.TryGetValue(id, out var ev)
+                    ? GetToolCard(m, ev) : null;
+        }
+
+        private AgentActivityView ActivityPanel(ChatMessage m, bool streaming, bool answerStarting)
+        {
+            if (_activityView == null)
+            {
+                _activityView = new AgentActivityView { Margin = new Thickness(0, 0, 0, 12) };
+                _activityView.OnLayoutChanged = RepinIfSticky;
+            }
+            else if (_activityView.Parent is Panel oldParent)
+                oldParent.Children.Remove(_activityView);
+            _activityView.ResolveToolCard = ToolCardResolver(m);
+            _activityView.Update(m.LiveReasoningSteps, m.LiveSteps, streaming, answerStarting);
+            return _activityView;
+        }
+
+        /// <summary>Fresh, collapsed activity card for a COMPLETED message —
+        /// same lifecycle as the old ReasoningBlock (once per Rebuild).</summary>
+        private AgentActivityView ActivityBlock(ChatMessage m)
+        {
+            var view = new AgentActivityView { Margin = new Thickness(0, 0, 0, 12) };
+            view.OnLayoutChanged = RepinIfSticky;
+            view.ResolveToolCard = ToolCardResolver(m);
+            view.Update(m.ReasoningSteps, m.Steps, streaming: false, answerStarting: false, seedOpen: false);
+            return view;
+        }
+
         /// <summary>Fresh (non-cached) reasoning timeline for a COMPLETED message —
         /// AiReply/ConfirmActions render this once per Rebuild (same lifecycle as
         /// ClarifyCard/ConfirmActionsCard below), always starting collapsed. The
@@ -1317,10 +1427,14 @@ namespace RevitWebAppSync.UI.Copilot.Screens
 
         // ─── Stream v2 segmented turn body (T1/T3) ───────────────────────────
         // Ordered Narrative | ToolCard | ConfirmCard blocks — the Hermes-parity
-        // rendering. Rebuilt per tick (cheap StackPanel of MarkdownText/cards);
-        // block objects are shared snapshots, read synchronously on the UI
-        // thread, same contract as LiveSteps.
-        private FrameworkElement BlocksPanel(ChatMessage m, double maxWidth)
+        // rendering. Smoothness pass (2026-08-20): narrative markdown and tool
+        // cards are cached per thread and RE-PARENTED instead of rebuilt on
+        // every SSE tick — a settled narrative leg is never re-parsed, and a
+        // tool card keeps its expand state across re-renders (the old
+        // rebuild-per-tick reset both). `suppressToolIds` skips cards the
+        // agent-activity card already nested under their steps.
+        private FrameworkElement BlocksPanel(ChatMessage m, double maxWidth,
+            System.Collections.Generic.ISet<string> suppressToolIds = null)
         {
             var panel = new StackPanel();
             foreach (var b in m.Blocks)
@@ -1331,14 +1445,36 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                     case TurnBlockKind.Narrative:
                         if (!string.IsNullOrWhiteSpace(b.Text))
                         {
-                            var md = CopilotMessageBubble.MarkdownText(b.Text, maxWidth);
-                            md.Margin = new Thickness(0, 0, 0, 8);
+                            // Message-scoped: leg ids restart per stream, so an
+                            // unscoped key would steal an older turn's element.
+                            var key = "n:" + m.GetHashCode() + ":" + (b.SegmentId ?? "");
+                            FrameworkElement md;
+                            if (_threadNarratives.TryGetValue(key, out var cached)
+                                && cached.len == b.Text.Length && cached.width == maxWidth)
+                            {
+                                md = cached.el;
+                                if (md.Parent is Panel oldP) oldP.Children.Remove(md);
+                            }
+                            else
+                            {
+                                md = CopilotMessageBubble.MarkdownText(b.Text, maxWidth);
+                                md.Margin = new Thickness(0, 0, 0, 8);
+                                _threadNarratives[key] = (b.Text.Length, maxWidth, md);
+                            }
                             panel.Children.Add(md);
                         }
                         break;
                     case TurnBlockKind.ToolCard:
                         if (b.ToolResult != null)
-                            panel.Children.Add(new ToolResultCard(b.ToolResult));
+                        {
+                            if (suppressToolIds != null
+                                && (suppressToolIds.Contains(b.ToolResult.ToolCallId ?? "")
+                                    || suppressToolIds.Contains(b.ToolResult.Tool ?? "")))
+                                break;   // nested under its step in the activity card
+                            var card = GetToolCard(m, b.ToolResult);
+                            if (card.Parent is Panel oldP) oldP.Children.Remove(card);
+                            panel.Children.Add(card);
+                        }
                         break;
                     case TurnBlockKind.ConfirmCard:
                         panel.Children.Add(ConfirmRecordLine(b));
@@ -2757,105 +2893,103 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             return char.ToUpperInvariant(s[0]) + s.Substring(1);
         }
 
-        // ─── Empty state (Slate: centered hero star + suggestion rows) ───────
+        // Welcome-card icon geometry (24-box, stroke-drawn — table / shield-check /
+        // ruler / tag, from the design's Phosphor set redrawn as paths).
+        private static string WelcomeIcon(string key)
+        {
+            switch (key)
+            {
+                case "shield": return "M12,3 l7,2.5 v5 c0,4.5 -3,8 -7,10.5 c-4,-2.5 -7,-6 -7,-10.5 v-5 Z M9,11.5 l2,2 4,-4";
+                case "ruler": return "M20.5,14.7 a1.8,1.8 0 0 1 0,2.6 l-3.2,3.2 a1.8,1.8 0 0 1 -2.6,0 L3.5,9.3 a1.8,1.8 0 0 1 0,-2.6 l3.2,-3.2 a1.8,1.8 0 0 1 2.6,0 Z M13.8,11.8 l1.6,-1.6 M11,9 l1.6,-1.6 M16.6,14.6 l1.6,-1.6";
+                case "tagIcon": return "M9,5 H5 a2,2 0 0 0 -2,2 v4 l9,9 a1.5,1.5 0 0 0 2.1,0 l4,-4 a1.5,1.5 0 0 0 0,-2.1 L9,5 z M7.5,8.5 h0.01";
+                default: return "M4,4.5 h16 a1,1 0 0 1 1,1 v13 a1,1 0 0 1 -1,1 h-16 a1,1 0 0 1 -1,-1 v-13 a1,1 0 0 1 1,-1 z M3,9.5 h18 M3,14.5 h18 M9.5,9.5 v9";
+            }
+        }
+
+        // ─── Empty state (v6-panel: brand diamond · "Ready when you are." ·
+        //     single-column welcome cards) ───────────────────────────────────
         private FrameworkElement EmptyState()
         {
-            var root = new StackPanel { Margin = new Thickness(26, 56, 26, 24) };
+            var root = new StackPanel { Margin = new Thickness(16, 40, 16, 24) };
 
-            // Hero: sparkle cluster — one big gradient star with a soft blue
-            // glow plus two small satellite stars at its top/bottom right.
-            var starGeom = Geometry.Parse("M12,1.1 C12.45,7.05 16.95,11.55 22.9,12 C16.95,12.45 12.45,16.95 12,22.9 C11.55,16.95 7.05,12.45 1.1,12 C7.05,11.55 11.55,7.05 12,1.1 Z");
-            Path Star(double size, double glow)
+            // Brand diamond — 20×20 rotated rounded square, blue→jade→gold.
+            var diamond = new Grid { Width = 34, Height = 34, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 13) };
+            diamond.Children.Add(new Border
             {
-                var p = new Path
-                {
-                    Width = size, Height = size, Stretch = Stretch.Uniform,
-                    Fill = CopilotMessageBubble.StarGradient(), Data = starGeom,
-                };
-                p.Effect = new System.Windows.Media.Effects.DropShadowEffect
-                {
-                    Color = (Color)ColorConverter.ConvertFromString("#3b8ef7"),
-                    BlurRadius = glow, ShadowDepth = 0, Opacity = 0.55,
-                };
-                return p;
-            }
-            var hero = new Grid { Width = 72, Height = 60, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 22) };
-            var big = Star(50, 16);
-            big.HorizontalAlignment = HorizontalAlignment.Left;
-            big.VerticalAlignment = VerticalAlignment.Center;
-            big.Margin = new Thickness(2, 0, 0, 0);
-            var small1 = Star(17, 8);
-            small1.HorizontalAlignment = HorizontalAlignment.Right;
-            small1.VerticalAlignment = VerticalAlignment.Top;
-            small1.Margin = new Thickness(0, 0, 4, 0);
-            var small2 = Star(13, 6);
-            small2.HorizontalAlignment = HorizontalAlignment.Right;
-            small2.VerticalAlignment = VerticalAlignment.Bottom;
-            small2.Margin = new Thickness(0, 0, 0, 8);
-            hero.Children.Add(big); hero.Children.Add(small1); hero.Children.Add(small2);
-            root.Children.Add(hero);
-
-            root.Children.Add(new TextBlock
-            {
-                Text = "How can I help with your model?",
-                FontSize = 19, FontWeight = FontWeights.Bold,
-                Foreground = CopilotColors.From("#131c2b"),
-                TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap,
-            });
-            root.Children.Add(new TextBlock
-            {
-                Text = "Describe what you need in plain words — I'll turn it into a Revit command you can review and apply.",
-                FontSize = 12.5, Foreground = CopilotColors.From("#586273"),
-                TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap,
-                LineHeight = 19, MaxWidth = 268, Margin = new Thickness(0, 9, 0, 0),
+                Width = 20, Height = 20, CornerRadius = new CornerRadius(6),
+                Background = CopilotTheme.LogoGrad(),
+                RenderTransformOrigin = new Point(0.5, 0.5),
+                RenderTransform = new RotateTransform(45),
                 HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            root.Children.Add(diamond);
+
+            root.Children.Add(new TextBlock
+            {
+                Text = "Ready when you are.",
+                FontSize = 17, FontWeight = FontWeights.Medium,
+                Foreground = CopilotColors.From("#131c2b"),
+                TextWrapping = TextWrapping.Wrap,
+            });
+            root.Children.Add(new TextBlock
+            {
+                Text = "Connected to Main Model — ask anything, or start from a task.",
+                FontSize = 13, Foreground = CopilotColors.From("#586273"),
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0),
             });
 
-            // Suggestions: hairline-separated rows (icon · label · chevron).
-            var sug = new StackPanel { Margin = new Thickness(0, 22, 0, 0) };
-            sug.Children.Add(new Border { Height = 1, Background = CopilotColors.From("#140F1B2D") });
-            (string icon, string label, string prompt)[] suggestions =
+            // Welcome cards (design welcomeCards): one bordered card per starter
+            // task, single column. Click INSERTS the prompt (house behaviour —
+            // the drafter reviews before sending; the design auto-runs).
+            var cards = new StackPanel { Margin = new Thickness(0, 13, 0, 0) };
+            (string icon, string title, string desc, string prompt)[] welcome =
             {
-                ("M3,4.5 h18 v15 h-18 Z M3,9.5 h18 M3,14.5 h18 M8,4.5 v5 M14,9.5 v5 M10,14.5 v5", "Create walls", "Create exterior walls on Level 2 along grid A–F"),
-                ("M3.5,3.5 h17 v17 h-17 Z M3.5,9 h17 M9,9 v11.5 M13,13 h4 M13,16.5 h4", "Generate schedule", "Generate a door schedule for Block A"),
-                ("M3.5,11.3 V4.5 a1,1 0 0 1 1,-1 h6.8 a1,1 0 0 1 0.7,0.3 l8,8 a1,1 0 0 1 0,1.4 l-6.8,6.8 a1,1 0 0 1 -1.4,0 l-8,-8 a1,1 0 0 1 -0.3,-0.7 Z M8,8 m-1.4,0 a1.4,1.4 0 1 0 2.8,0 a1.4,1.4 0 1 0 -2.8,0", "Tag rooms", "Tag all rooms on Level 1 with name and number"),
+                ("table",  "Door schedule", "Generate a door schedule grouped by type and level.",
+                 "Create a door schedule grouped by type and level"),
+                ("shield", "Clash check", "Structural vs MEP hard clashes with an element list.",
+                 "Check structural vs MEP clashes"),
+                ("ruler",  "Room areas", "Floor area per room with totals per level.",
+                 "Calculate floor area per room"),
+                ("tagIcon", "Auto-tag", "Tag untagged doors, rooms and windows in the active view.",
+                 "Tag all untagged elements in the active view"),
             };
-            foreach (var (icon, label, prompt) in suggestions)
+            foreach (var (icon, title, desc, prompt) in welcome)
             {
-                var btn = new Button
+                var body = new StackPanel();
+                body.Children.Add(new Path
                 {
-                    Cursor = System.Windows.Input.Cursors.Hand,
-                    Background = Brushes.Transparent, BorderThickness = new Thickness(0),
-                    HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                    Padding = new Thickness(4, 13, 4, 13),
-                };
-                btn.Template = SuggestionRowTemplate();
-                var g = new Grid();
-                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-                g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-                var ic = new Path
-                {
-                    Width = 18, Height = 18, Stretch = Stretch.Uniform,
-                    Stroke = CopilotColors.From("#131c2b"), StrokeThickness = 1.7,
+                    Width = 16, Height = 16, Stretch = Stretch.Uniform,
+                    Stroke = CopilotColors.From("#1d4ed8"), StrokeThickness = 1.7,
                     StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, StrokeLineJoin = PenLineJoin.Round,
-                    Data = Geometry.Parse(icon), VerticalAlignment = VerticalAlignment.Center,
+                    Data = Geometry.Parse(WelcomeIcon(icon)),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    Margin = new Thickness(0, 0, 0, 5),
+                });
+                body.Children.Add(new TextBlock
+                {
+                    Text = title, FontSize = 12.5, FontWeight = FontWeights.Medium,
+                    Foreground = CopilotColors.From("#131c2b"),
+                });
+                body.Children.Add(new TextBlock
+                {
+                    Text = desc, FontSize = 11, Foreground = CopilotColors.From("#586273"),
+                    TextWrapping = TextWrapping.Wrap, LineHeight = 15.4,
+                });
+                var card = new Border
+                {
+                    BorderBrush = CopilotColors.From("#140F1B2D"), BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(8), Padding = new Thickness(12, 11, 12, 11),
+                    Margin = new Thickness(0, 0, 0, 8), Background = CopilotColors.From("#ffffff"),
+                    Cursor = System.Windows.Input.Cursors.Hand, Child = body,
                 };
-                Grid.SetColumn(ic, 0); g.Children.Add(ic);
-                var tb = new TextBlock { Text = label, FontSize = 13, FontWeight = FontWeights.Medium, Foreground = CopilotColors.From("#131c2b"), VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
-                Grid.SetColumn(tb, 1); g.Children.Add(tb);
-                var chev = new Path { Width = 15, Height = 15, Stretch = Stretch.Uniform, Stroke = CopilotColors.From("#99a3b3"), StrokeThickness = 2, StrokeStartLineCap = PenLineCap.Round, StrokeEndLineCap = PenLineCap.Round, Data = Geometry.Parse("M9,6 l6,6 -6,6"), VerticalAlignment = VerticalAlignment.Center };
-                Grid.SetColumn(chev, 2); g.Children.Add(chev);
-                btn.Content = g;
+                card.MouseEnter += (_, __) => card.BorderBrush = CopilotColors.From("#1d4ed8");
+                card.MouseLeave += (_, __) => card.BorderBrush = CopilotColors.From("#140F1B2D");
                 var p = prompt;
-                // Behavior change: don't send — drop the starter prompt into the
-                // composer for the user to edit, then they press send themselves.
-                btn.Click += (_, __) => Prompt.InsertStarterPrompt(p);
-                sug.Children.Add(btn);
-                sug.Children.Add(new Border { Height = 1, Background = CopilotColors.From("#140F1B2D") });
+                card.MouseLeftButtonUp += (_, __) => Prompt.InsertStarterPrompt(p);
+                cards.Children.Add(card);
             }
-            sug.Children.RemoveAt(sug.Children.Count - 1);  // no hairline after the last row
-            root.Children.Add(sug);
+            root.Children.Add(cards);
 
             // // Suggested prompts
             // root.Children.Add(Label("TRY ONE OF THESE"));

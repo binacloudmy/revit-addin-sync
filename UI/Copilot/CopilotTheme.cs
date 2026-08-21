@@ -88,9 +88,9 @@ namespace RevitWebAppSync.UI.Copilot
                 foreach (var kv in Palette)
                     SetBrushEverywhere(app.Resources, kv.Key, dark ? kv.Value.dark : kv.Value.light);
                 SetGradientEverywhere(app.Resources, "Cp.AccentGrad",
-                    dark ? ("#83b8fb", "#60a5fa") : ("#7795e8", "#1d4ed8"));
+                    dark ? ("#83b8fb", "#60a5fa") : ("#3b7ee0", "#2a69c6"));
                 SetGradientEverywhere(app.Resources, "Cp.AccentGradHover",
-                    dark ? ("#95c3fc", "#74b0fb") : ("#8aa4ec", "#2c5ce0"));
+                    dark ? ("#95c3fc", "#74b0fb") : ("#4f8ee6", "#3b7ee0"));
             }
 
             if (persist)
@@ -122,9 +122,26 @@ namespace RevitWebAppSync.UI.Copilot
                 }
                 catch { /* skip malformed hex */ }
             }
-            rd["Cp.AccentGrad"] = Grad(IsDark ? ("#83b8fb", "#60a5fa") : ("#7795e8", "#1d4ed8"));
-            rd["Cp.AccentGradHover"] = Grad(IsDark ? ("#95c3fc", "#74b0fb") : ("#8aa4ec", "#2c5ce0"));
+            rd["Cp.AccentGrad"] = Grad(IsDark ? ("#83b8fb", "#60a5fa") : ("#3b7ee0", "#2a69c6"));
+            rd["Cp.AccentGradHover"] = Grad(IsDark ? ("#95c3fc", "#74b0fb") : ("#4f8ee6", "#3b7ee0"));
+            rd["Cp.LogoGrad"] = LogoGrad();
             return rd;
+        }
+
+        /// <summary>The v6 brand diamond's gradient — blue → jade → gold at 135°,
+        /// verbatim from the design file's logo mark. Theme-independent.</summary>
+        public static LinearGradientBrush LogoGrad()
+        {
+            var g = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+            try
+            {
+                g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#3b7ee0"), 0));
+                g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#2fbf9a"), 0.6));
+                g.GradientStops.Add(new GradientStop((Color)ColorConverter.ConvertFromString("#e0a53b"), 1));
+            }
+            catch { }
+            g.Freeze();
+            return g;
         }
 
         // 135° two-stop gradient, mirrors Cp.AccentGrad* in CopilotTokens.xaml.
@@ -147,30 +164,35 @@ namespace RevitWebAppSync.UI.Copilot
         private static readonly Dictionary<string, (string light, string dark)> Palette =
             new Dictionary<string, (string, string)>
             {
+                // Light column = v6-panel palette (docs/design/
+                // bina-copilot-v6-panel.dc.html): paper #f7f7f6 ground, white
+                // surfaces, ink #22242a, accent #2a69c6, divider 13% ink.
+                // Dark column stays Slate (v6 ships light-first; dark keeps
+                // working through the existing map).
                 ["Cp.Bg"]            = ("#ffffff", "#131d2b"),
-                ["Cp.Sunken"]        = ("#f3f6f9", "#0c1420"),
+                ["Cp.Sunken"]        = ("#f0f1f7", "#0c1420"),
                 ["Cp.Menu"]          = ("#ffffff", "#1a2433"),
-                ["Cp.PanelBg"]       = ("#f7f9fb", "#0c1420"),
-                ["Cp.Ink"]           = ("#131c2b", "#e8eef6"),
-                ["Cp.Ink2"]          = ("#0b1220", "#f4f7fb"),
-                ["Cp.Text"]          = ("#131c2b", "#e8eef6"),
-                ["Cp.Muted"]         = ("#586273", "#8a94a6"),
-                ["Cp.Faint"]         = ("#99a3b3", "#6b768a"),
-                ["Cp.Line"]          = ("#140F1B2D", "#12FFFFFF"),
-                ["Cp.Hair2"]         = ("#290F1B2D", "#24FFFFFF"),
-                ["Cp.LineSoft"]      = ("#0D0F1B2D", "#0DFFFFFF"),
-                ["Cp.Hover"]         = ("#f3f6f9", "#0DFFFFFF"),
-                ["Cp.UserBubble"]    = ("#eef1f5", "#222e40"),
-                ["Cp.Blue"]          = ("#1d4ed8", "#60a5fa"),
-                ["Cp.Accent"]        = ("#1d4ed8", "#60a5fa"),
-                ["Cp.BlueHover"]     = ("#1a44be", "#83b8fb"),
-                ["Cp.BlueSoft"]      = ("#1A1D4ED8", "#2660A5FA"),
-                ["Cp.BlueText"]      = ("#1e40af", "#9cc3f7"),
+                ["Cp.PanelBg"]       = ("#f7f7f6", "#0c1420"),
+                ["Cp.Ink"]           = ("#22242a", "#e8eef6"),
+                ["Cp.Ink2"]          = ("#1c1e26", "#f4f7fb"),
+                ["Cp.Text"]          = ("#22242a", "#e8eef6"),
+                ["Cp.Muted"]         = ("#5d6170", "#8a94a6"),
+                ["Cp.Faint"]         = ("#9397ab", "#6b768a"),
+                ["Cp.Line"]          = ("#2122242A", "#12FFFFFF"),
+                ["Cp.Hair2"]         = ("#3D22242A", "#24FFFFFF"),
+                ["Cp.LineSoft"]      = ("#1522242A", "#0DFFFFFF"),
+                ["Cp.Hover"]         = ("#0D22242A", "#0DFFFFFF"),
+                ["Cp.UserBubble"]    = ("#ffffff", "#222e40"),
+                ["Cp.Blue"]          = ("#2a69c6", "#60a5fa"),
+                ["Cp.Accent"]        = ("#2a69c6", "#60a5fa"),
+                ["Cp.BlueHover"]     = ("#22549e", "#83b8fb"),
+                ["Cp.BlueSoft"]      = ("#1A2A69C6", "#2660A5FA"),
+                ["Cp.BlueText"]      = ("#22549e", "#9cc3f7"),
                 ["Cp.AccentContrast"] = ("#ffffff", "#0c1420"),
-                ["Cp.Green"]         = ("#10b981", "#34d399"),
-                ["Cp.Amber"]         = ("#d97706", "#fbbf24"),
-                ["Cp.Red"]           = ("#dc2626", "#f87171"),
-                ["Cp.Meter"]         = ("#f59e0b", "#f59e0b"),
+                ["Cp.Green"]         = ("#2f9a72", "#34d399"),
+                ["Cp.Amber"]         = ("#d98a2b", "#fbbf24"),
+                ["Cp.Red"]           = ("#d95757", "#f87171"),
+                ["Cp.Meter"]         = ("#d98a2b", "#f59e0b"),
                 // Slash-command tool types — FIXED design hex, identical in both
                 // themes (badgeColor() is theme-independent; a white icon sits on the
                 // saturated tile and reads on light or dark). *Bg = exact 13% tint.
@@ -181,19 +203,19 @@ namespace RevitWebAppSync.UI.Copilot
                 ["Cp.Tool.AiBg"]     = ("#217c3aed", "#217c3aed"),
                 ["Cp.Tool.RepBg"]    = ("#21d97706", "#21d97706"),
                 ["Cp.Pin"]           = ("#f5a623", "#f5a623"),
-                ["Cp.Purple"]        = ("#1d4ed8", "#60a5fa"),
-                ["Cp.PurpleSoft"]    = ("#eff6ff", "#2660A5FA"),
-                ["Cp.PurpleLine"]    = ("#bfdbfe", "#3360A5FA"),
-                ["Cp.PurpleDeep"]    = ("#1e3a8a", "#cfe0fb"),
-                ["Cp.CodeBg"]        = ("#f3f6f9", "#0c1420"),
-                ["Cp.CodeFg"]        = ("#1e40af", "#9cc3f7"),
-                ["Cp.TabBadgeBg"]    = ("#eef0f3", "#12FFFFFF"),
-                ["Cp.Tier1Bg"]       = ("#dcfce7", "#1F34D399"),
-                ["Cp.Tier1Fg"]       = ("#15803d", "#34d399"),
-                ["Cp.Tier2Bg"]       = ("#dbeafe", "#2660A5FA"),
-                ["Cp.Tier2Fg"]       = ("#1d4ed8", "#60a5fa"),
-                ["Cp.OkBg"]          = ("#dcfce7", "#1F34D399"),
-                ["Cp.CodeFgAlt"]     = ("#1e40af", "#9cc3f7"),
+                ["Cp.Purple"]        = ("#2a69c6", "#60a5fa"),
+                ["Cp.PurpleSoft"]    = ("#edf3fd", "#2660A5FA"),
+                ["Cp.PurpleLine"]    = ("#a9c6f4", "#3360A5FA"),
+                ["Cp.PurpleDeep"]    = ("#1a3f76", "#cfe0fb"),
+                ["Cp.CodeBg"]        = ("#f0f1f7", "#0c1420"),
+                ["Cp.CodeFg"]        = ("#22549e", "#9cc3f7"),
+                ["Cp.TabBadgeBg"]    = ("#f0f1f7", "#12FFFFFF"),
+                ["Cp.Tier1Bg"]       = ("#d2f3e4", "#1F34D399"),
+                ["Cp.Tier1Fg"]       = ("#143528", "#34d399"),
+                ["Cp.Tier2Bg"]       = ("#d9e6fa", "#2660A5FA"),
+                ["Cp.Tier2Fg"]       = ("#1a3f76", "#60a5fa"),
+                ["Cp.OkBg"]          = ("#d2f3e4", "#1F34D399"),
+                ["Cp.CodeFgAlt"]     = ("#22549e", "#9cc3f7"),
             };
 
         // Re-colour every SolidColorBrush stored under `key` anywhere in the

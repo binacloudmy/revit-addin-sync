@@ -1284,8 +1284,16 @@ namespace RevitWebAppSync.UI.Copilot
 
         // Persisted blocks for a completed message — null unless the turn went
         // v2 AND the kill switch is on (the flag also silences the live path).
-        private static List<TurnBlock> V2Blocks(RouteResult rr) =>
-            CopilotPrefs.Load().StreamV2Enabled ? rr?.Blocks : null;
+        // Reconciled against the full reply text: a block feed that died
+        // mid-turn (stream cut → blocking-resume fallback, no block frames)
+        // otherwise renders a truncated prefix while copy has the full answer
+        // (defect 2026-08-20). Diverged blocks → null → plain-text rendering.
+        private static List<TurnBlock> V2Blocks(RouteResult rr)
+        {
+            if (!CopilotPrefs.Load().StreamV2Enabled) return null;
+            var rec = TurnBlocks.WithReplyTail(rr?.Blocks, rr?.Reply);
+            return rec == null ? null : new List<TurnBlock>(rec);
+        }
 
         private void UnhookStreaming(RevitChatRouter revitRouter)
         {

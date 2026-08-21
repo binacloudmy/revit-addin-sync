@@ -44,6 +44,12 @@ namespace RevitWebAppSync.UI.Copilot.Model
         /// <summary>True once any reply_partial carried a segment id this turn.</summary>
         public bool Active { get; private set; }
 
+        /// <summary>Segment id of the most recent tagged reply delta — lets the
+        /// SSE layer detect a leg boundary BEFORE appending to the flat copy
+        /// buffer (replySb), so copied text gets a paragraph break between legs
+        /// instead of the glued "…rename.The audit is complete." (2026-08-20).</summary>
+        public string CurrentSegment { get; private set; } = "";
+
         // T3 thinking-card dedupe: tool completions whose reasoning-strip
         // headline should be suppressed when v2 cards are rendering (the card
         // carries the same information richer). Incremented by the SSE layer
@@ -66,6 +72,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
                 return true;
             }
             Active = true;
+            CurrentSegment = segment;
             // The gate's 2-char holdback means a leg's TAIL delta can arrive
             // AFTER the tool cards that followed it — append to the existing
             // narrative block for that segment wherever it sits, never a new
@@ -120,6 +127,57 @@ namespace RevitWebAppSync.UI.Copilot.Model
 
         /// <summary>Immutable snapshot for the UI callback / persisted message.</summary>
         public List<TurnBlock> Snapshot() => new List<TurnBlock>(Blocks);
+
+        /// <summary>Reconcile a completed turn's block list against the FULL
+        /// reply text (defect 2026-08-20, JKR audit turn): the block feed can
+        /// die mid-leg — a cut resume stream falls back to the blocking
+        /// /tool/resume, which carries no block frames — leaving the blocks a
+        /// strict PREFIX of the real reply while the copy button (m.Text) has
+        /// it all. Returns:
+        ///  · the blocks unchanged when their narrative already covers the reply,
+        ///  · blocks + one appended tail narrative when they are a clean prefix,
+        ///  · null when the narrative diverges from the reply — the caller must
+        ///    then drop segmented rendering for this message and show the full
+        ///    text (correct content beats segmentation).
+        /// Pure — unit-testable.</summary>
+        public static IReadOnlyList<TurnBlock> WithReplyTail(IReadOnlyList<TurnBlock> blocks, string fullReply)
+        {
+            if (blocks == null || blocks.Count == 0) return blocks;
+            if (string.IsNullOrEmpty(fullReply)) return blocks;
+            var sb = new System.Text.StringBuilder();
+            foreach (var b in blocks)
+                if (b.Kind == TurnBlockKind.Narrative) sb.Append(b.Text);
+            var narrative = sb.ToString();
+            // Whitespace-insensitive prefix walk: the flat copy buffer inserts
+            // paragraph breaks at leg boundaries that the per-block text never
+            // held, so an exact StartsWith would false-negative every
+            // multi-leg turn.
+            int cut = MatchPrefixIgnoringWhitespace(fullReply, narrative);
+            if (cut < 0) return null;
+            var tail = fullReply.Substring(cut);
+            if (tail.Trim().Length == 0) return blocks;
+            var list = new List<TurnBlock>(blocks)
+            {
+                new TurnBlock { Kind = TurnBlockKind.Narrative, SegmentId = "reply-tail", Text = tail.TrimStart('\n', '\r') },
+            };
+            return list;
+        }
+
+        // Index in `full` just past the content of `prefix`, treating runs of
+        // whitespace on either side as equal; -1 when prefix is not a
+        // (whitespace-insensitive) prefix of full.
+        private static int MatchPrefixIgnoringWhitespace(string full, string prefix)
+        {
+            int i = 0, j = 0;
+            while (j < prefix.Length)
+            {
+                if (char.IsWhiteSpace(prefix[j])) { j++; continue; }
+                while (i < full.Length && char.IsWhiteSpace(full[i])) i++;
+                if (i >= full.Length || full[i] != prefix[j]) return -1;
+                i++; j++;
+            }
+            return i;
+        }
 
         /// <summary>Reconstitute state carried across a confirm pause (T5) —
         /// prior blocks re-seed the list and v2 stays engaged so the resumed

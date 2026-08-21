@@ -1,0 +1,742 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<style>
+:root{
+  /* v3 light — premium jade on paper-white; ramps inverted for the light ground */
+  --color-accent:#2a69c6;
+  --color-accent-2:#4368a4;
+  --color-accent-100:#122a4e;
+  --color-accent-200:#1a3f76;
+  --color-accent-300:#22549e;
+  --color-accent-400:#2a69c6;
+  --color-accent-500:#3b7ee0;
+  --color-accent-600:#7aa8ec;
+  --color-accent-700:#a9c6f4;
+  --color-accent-800:#d9e6fa;
+  --color-accent-900:#edf3fd;
+  --color-accent-2-100:#16273f;
+  --color-accent-2-200:#233c60;
+  --color-accent-2-300:#315282;
+  --color-accent-2-400:#4368a4;
+  --color-accent-2-500:#5b82bd;
+  --color-accent-2-600:#8fadd9;
+  --color-accent-2-700:#b3c9e8;
+  --color-accent-2-800:#d9e6fa;
+  --color-accent-2-900:#edf3fd;
+  --color-neutral-100:#1c1e26;
+  --color-neutral-200:#2c2f3a;
+  --color-neutral-300:#4a4e5c;
+  --color-neutral-400:#5d6170;
+  --color-neutral-500:#75798c;
+  --color-neutral-600:#9397ab;
+  --color-neutral-700:#cfd3e5;
+  --color-neutral-800:#d9dce9;
+  --color-neutral-900:#f0f1f7;
+  --color-bg:#f7f7f6;
+  --color-surface:#ffffff;
+  --color-success:#2f9a72;
+  --color-success-tint:#d2f3e4;
+  --color-success-deep:#143528;
+  --color-warn:#d98a2b;
+  --color-danger:#d95757;
+  --color-text:#22242a;
+  --color-divider:color-mix(in srgb, #22242a 13%, transparent);
+  --shadow-sm:0 0 0 1px rgba(34,36,42,0.08);
+  --shadow-md:0 0 0 1px rgba(34,36,42,0.07), 0 6px 18px rgba(34,36,42,0.08);
+  --shadow-lg:0 0 0 1px rgba(34,36,42,0.08), 0 16px 40px rgba(34,36,42,0.14);
+}
+html,body{height:100%}
+body{margin:0;overflow:hidden}
+a{color:var(--color-accent)} a:hover{color:var(--color-accent-300)}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes blink{50%{opacity:0}}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.msgs-col > *{flex:none}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--color-neutral-800);border-radius:4px}
+::-webkit-scrollbar-track{background:transparent}
+</style>
+</helmet>
+<div style="display:flex;flex-direction:column;height:100vh;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);overflow:hidden">
+  <div style="flex:none;padding:12px 14px 0;border-bottom:1px solid var(--color-divider);display:flex;flex-direction:column;gap:10px;background:var(--color-surface)">
+    <div style="display:flex;align-items:center;gap:10px">
+      <div style="width:26px;height:26px;display:grid;place-items:center;flex:none">
+        <div style="width:16px;height:16px;transform:rotate(45deg);border-radius:5px;background:linear-gradient(135deg, #3b7ee0 0%, #2fbf9a 60%, #e0a53b 115%);box-shadow:0 0 10px color-mix(in srgb, var(--color-accent) 45%, transparent)"></div>
+      </div>
+      <div style="min-width:0;flex:1">
+        <div style="font-family:var(--font-heading);font-weight:500;font-size:14px;letter-spacing:-0.01em">Bina AI Copilot</div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--color-neutral-500);margin-top:1px">
+          <span style="width:6px;height:6px;border-radius:50%;background:var(--color-success);flex:none"></span>
+          <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Main Model · Revit 2026 · synced</span>
+        </div>
+      </div>
+      <button class="btn btn-ghost btn-icon" onClick="{{ openPalette }}" style="width:28px;height:28px;color:var(--color-neutral-500);flex:none" title="Search · ⌘K"><i class="ph ph-magnifying-glass" style="font-size:15px"></i></button>
+      <div title="Settings" onClick="{{ pickSettings }}" style="{{ gearStyle }}"><i class="ph ph-gear" style="font-size:16px"></i></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:2px">
+      <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="4">
+        <div onClick="{{ n.pick }}" style="{{ n.style }}"><i class="{{ n.icon }}" style="font-size:14px"></i>{{ n.label }}</div>
+      </sc-for>
+    </div>
+  </div>
+  <div style="display:flex;flex:1;min-height:0">
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+      <sc-if value="{{ navChat }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px 8px;flex:none">
+        <div style="font-family:var(--font-heading);font-weight:500;font-size:15px;letter-spacing:-0.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ sessionTitle }}</div>
+        <span class="tag" style="{{ statusTagStyle }}"><i class="{{ statusIcon }}" style="{{ statusIconStyle }}"></i><span style="margin-left:5px">{{ statusLabel }}</span></span>
+        <sc-if value="{{ running }}" hint-placeholder-val="{{ false }}">
+          <button class="btn btn-secondary" onClick="{{ onStop }}" style="font-size:11px;padding:2px 9px"><i class="ph ph-stop" style="font-size:11px"></i>Stop</button>
+        </sc-if>
+        <span style="margin-left:auto;font-size:11px;color:var(--color-neutral-600);font-variant-numeric:tabular-nums">{{ elapsedLabel }}</span>
+        <button class="btn btn-ghost" onClick="{{ onNewChat }}" style="font-size:12px;padding:2px 6px"><i class="ph ph-plus" style="font-size:13px"></i>New</button>
+      </div>
+      <div ref="{{ msgsRef }}" class="msgs-col" style="flex:1;overflow-y:auto;padding:6px 14px 12px;display:flex;flex-direction:column;gap:14px">
+        <sc-if value="{{ notStarted }}" hint-placeholder-val="{{ false }}">
+          <div style="margin:auto 0;display:flex;flex-direction:column;gap:13px;padding:6px 2px">
+            <div style="width:34px;height:34px;display:grid;place-items:center">
+              <div style="width:20px;height:20px;transform:rotate(45deg);border-radius:6px;background:linear-gradient(135deg, #3b7ee0 0%, #2fbf9a 60%, #e0a53b 115%)"></div>
+            </div>
+            <div>
+              <div style="font-family:var(--font-heading);font-weight:500;font-size:17px;letter-spacing:-0.01em">Ready when you are.</div>
+              <div style="font-size:13px;color:var(--color-neutral-500);margin-top:3px">Connected to Main Model — ask anything, or start from a task.</div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr;gap:8px">
+              <sc-for list="{{ welcomeCards }}" as="w" hint-placeholder-count="4">
+                <div onClick="{{ w.run }}" style="border:1px solid var(--color-divider);border-radius:var(--radius-md);padding:11px 12px;cursor:pointer;display:flex;flex-direction:column;gap:5px;background:var(--color-surface)" style-hover="{ borderColor: 'var(--color-accent)' }">
+                  <i class="{{ w.icon }}" style="font-size:16px;color:var(--color-accent)"></i>
+                  <div style="font-size:12.5px;font-family:var(--font-heading);font-weight:500">{{ w.title }}</div>
+                  <div style="font-size:11px;color:var(--color-neutral-500);line-height:1.4">{{ w.desc }}</div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+        <sc-if value="{{ started }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;justify-content:flex-end">
+          <div style="max-width:82%;padding:9px 14px;border-radius:14px 14px 4px 14px;background:var(--color-surface);font-size:13.5px;box-shadow:var(--shadow-sm)">{{ userMsg }}</div>
+        </div>
+        </sc-if>
+        <sc-if value="{{ started }}" hint-placeholder-val="{{ true }}">
+          <div style="border:1px solid var(--color-divider);border-radius:var(--radius-lg);padding:12px 13px;display:flex;flex-direction:column;gap:2px;background:color-mix(in srgb, var(--color-surface) 45%, transparent)">
+            <div onClick="{{ toggleThinking }}" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;padding-bottom:8px">
+              <i class="ph ph-sparkle" style="color:var(--color-accent);font-size:14px"></i>
+              <span style="color:var(--color-neutral-300);letter-spacing:0.04em;text-transform:uppercase;font-size:10.5px">Agent activity</span>
+              <span style="color:var(--color-neutral-600)">{{ thinkingDur }}</span>
+              <i class="{{ thinkingCaret }}" style="margin-left:auto;color:var(--color-neutral-500)"></i>
+            </div>
+            <sc-if value="{{ thinkingOpen }}" hint-placeholder-val="{{ true }}">
+              <div style="font-size:12.5px;line-height:1.6;color:var(--color-neutral-500);padding:0 0 10px 22px;border-left:2px solid var(--color-divider);margin-left:6px">{{ thinkingText }}<sc-if value="{{ thinkingLive }}" hint-placeholder-val="{{ false }}"><span style="display:inline-block;width:7px;height:13px;margin-left:2px;background:var(--color-accent);vertical-align:text-bottom;animation:blink .8s steps(1) infinite"></span></sc-if></div>
+              <sc-for list="{{ steps }}" as="s" hint-placeholder-count="5">
+                <div style="display:flex;gap:10px">
+                  <div style="display:flex;flex-direction:column;align-items:center;width:14px;flex:none">
+                    <i class="{{ s.icon }}" style="{{ s.iconStyle }}"></i>
+                    <sc-if value="{{ s.line }}" hint-placeholder-val="{{ true }}"><div style="flex:1;width:1px;background:var(--color-divider);margin:3px 0"></div></sc-if>
+                  </div>
+                  <div style="min-width:0;flex:1;padding-bottom:12px">
+                    <div style="display:flex;align-items:baseline;gap:8px;font-size:13px">
+                      <span style="{{ s.labelStyle }}">{{ s.label }}</span>
+                      <span style="margin-left:auto;font-size:11px;color:var(--color-neutral-600);font-variant-numeric:tabular-nums">{{ s.time }}</span>
+                    </div>
+                    <sc-if value="{{ s.showDetail }}" hint-placeholder-val="{{ false }}">
+                      <div style="font-size:11.5px;color:var(--color-neutral-600);font-family:ui-monospace, SFMono-Regular, Menlo, monospace;margin-top:2px">{{ s.detail }}</div>
+                    </sc-if>
+                    <sc-for list="{{ s.tools }}" as="t" hint-placeholder-count="0">
+                      <div style="border:1px solid var(--color-divider);border-radius:var(--radius-md);overflow:hidden;margin-top:8px;animation:rise .25s ease;background:var(--color-bg)">
+                        <div onClick="{{ t.toggle }}" style="display:flex;align-items:center;gap:8px;padding:7px 11px;cursor:pointer;font-size:12px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace">
+                          <i class="ph ph-function" style="color:var(--color-accent);font-size:13px"></i>
+                          <span style="color:var(--color-accent-300)">{{ t.name }}</span>
+                          <span style="color:var(--color-neutral-600);font-size:11px">{{ t.dur }}</span>
+                          <i class="{{ t.statusIcon }}" style="{{ t.statusStyle }}"></i>
+                          <i class="{{ t.caret }}" style="margin-left:auto;color:var(--color-neutral-500);font-size:12px"></i>
+                        </div>
+                        <sc-if value="{{ t.open }}" hint-placeholder-val="{{ true }}">
+                          <div style="padding:0 11px 9px;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:11px;line-height:1.55">
+                            <div style="letter-spacing:0.08em;font-size:9px;color:var(--color-neutral-600);margin:3px 0 2px">ARGS</div>
+                            <div style="color:var(--color-neutral-300);white-space:pre-wrap;word-break:break-word">{{ t.args }}</div>
+                            <sc-if value="{{ t.hasResult }}" hint-placeholder-val="{{ false }}">
+                              <div style="letter-spacing:0.08em;font-size:9px;color:var(--color-neutral-600);margin:7px 0 2px">RESULT</div>
+                              <div style="color:var(--color-neutral-400);white-space:pre-wrap;word-break:break-word;max-height:130px;overflow-y:auto">{{ t.result }}</div>
+                            </sc-if>
+                          </div>
+                        </sc-if>
+                      </div>
+                    </sc-for>
+                    <sc-if value="{{ s.showProgress }}" hint-placeholder-val="{{ false }}">
+                      <div style="display:flex;flex-direction:column;gap:5px;font-size:11.5px;color:var(--color-neutral-400);margin-top:8px">
+                        <div style="display:flex;justify-content:space-between"><span>Scanning elements…</span><span style="font-variant-numeric:tabular-nums">{{ found }} / 62</span></div>
+                        <div style="height:3px;border-radius:2px;background:var(--color-neutral-800);overflow:hidden"><div style="{{ progressStyle }}"></div></div>
+                      </div>
+                    </sc-if>
+                  </div>
+                </div>
+              </sc-for>
+              <sc-if value="{{ elemsShown }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;align-items:center;gap:8px;animation:rise .25s ease;padding-left:24px">
+                  <span class="tag tag-accent"><i class="ph ph-cube" style="margin-right:5px"></i>62 elements · Doors</span>
+                  <button class="btn btn-ghost" onClick="{{ onHighlight }}" style="font-size:12px"><i class="ph ph-crosshair" style="font-size:14px"></i>Highlight in Revit</button>
+                </div>
+              </sc-if>
+            </sc-if>
+          </div>
+          <sc-if value="{{ answerVisible }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;flex-direction:column;gap:10px;animation:rise .3s ease;padding:2px 2px 0">
+              <div style="font-size:14.5px;line-height:1.5"><strong style="font-weight:600">{{ headline }}</strong></div>
+              <table class="table" style="font-size:13px">
+                <thead><tr><th>Door type</th><th>Size (mm)</th><th style="text-align:right">Count</th></tr></thead>
+                <tbody>
+                  <sc-for list="{{ visibleRows }}" as="row" hint-placeholder-count="0">
+                    <tr style="animation:rise .25s ease"><td style="font-family:ui-monospace, SFMono-Regular, Menlo, monospace;font-size:12.5px">{{ row.type }}</td><td style="color:var(--color-neutral-400)">{{ row.size }}</td><td style="text-align:right;font-variant-numeric:tabular-nums">{{ row.count }}</td></tr>
+                  </sc-for>
+                </tbody>
+              </table>
+              <sc-if value="{{ actionsShown }}" hint-placeholder-val="{{ false }}">
+                <div style="display:flex;flex-direction:column;gap:10px;animation:rise .3s ease">
+                  <div style="display:flex;gap:8px;flex-wrap:wrap">
+                    <button class="btn btn-primary" onClick="{{ onCreateSchedule }}" style="font-size:12.5px;padding:5px 12px"><i class="ph ph-table" style="font-size:14px"></i>Create schedule in Revit</button>
+                    <button class="btn btn-secondary" onClick="{{ onCopyAnswer }}" style="font-size:12.5px;padding:5px 12px"><i class="ph ph-copy" style="font-size:14px"></i>Copy table</button>
+                    <button class="btn btn-secondary" onClick="{{ onCsv }}" style="font-size:12.5px;padding:5px 12px"><i class="ph ph-download-simple" style="font-size:14px"></i>CSV</button>
+                  </div>
+                  <div style="display:flex;align-items:center;gap:2px;font-size:11px;color:var(--color-neutral-600)">
+                    <span style="margin-right:8px">2 tool calls · {{ elapsedLabel }} · bina-agent-1</span>
+                    <button class="btn btn-ghost btn-icon" onClick="{{ onCopyAnswer }}" style="width:26px;height:26px;color:var(--color-neutral-500)" title="Copy"><i class="ph ph-copy" style="font-size:14px"></i></button>
+                    <button class="btn btn-ghost btn-icon" onClick="{{ onRegenerate }}" style="width:26px;height:26px;color:var(--color-neutral-500)" title="Regenerate"><i class="ph ph-arrows-clockwise" style="font-size:14px"></i></button>
+                    <button class="btn btn-ghost btn-icon" onClick="{{ onGood }}" style="width:26px;height:26px;color:var(--color-neutral-500)" title="Good response"><i class="ph ph-thumbs-up" style="font-size:14px"></i></button>
+                    <button class="btn btn-ghost btn-icon" onClick="{{ onBad }}" style="width:26px;height:26px;color:var(--color-neutral-500)" title="Bad response"><i class="ph ph-thumbs-down" style="font-size:14px"></i></button>
+                  </div>
+                </div>
+              </sc-if>
+            </div>
+          </sc-if>
+        </sc-if>
+      </div>
+      <div style="padding:8px 14px 12px;flex:none;display:flex;flex-direction:column;gap:9px;position:relative">
+        <sc-if value="{{ menuOpen }}" hint-placeholder-val="{{ false }}">
+          <div style="position:absolute;bottom:100%;left:14px;right:14px;margin-bottom:-2px;background:var(--color-surface);border:1px solid var(--color-divider);border-radius:12px;box-shadow:var(--shadow-lg);overflow:hidden;z-index:20;animation:rise .15s ease">
+            <div style="padding:8px 13px 3px;font-size:10px;letter-spacing:0.08em;color:var(--color-neutral-500);text-transform:uppercase">{{ menuTitle }}</div>
+            <sc-for list="{{ menuItems }}" as="mi" hint-placeholder-count="4">
+              <div onClick="{{ mi.pick }}" style="display:flex;align-items:center;gap:10px;padding:8px 13px;cursor:pointer;font-size:13px" style-hover="{ background: 'color-mix(in srgb, var(--color-text) 5%, transparent)' }">
+                <i class="{{ mi.icon }}" style="font-size:15px;color:var(--color-accent)"></i>
+                <span>{{ mi.name }}</span>
+                <span style="margin-left:auto;font-size:11px;color:var(--color-neutral-500)">{{ mi.hint }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+        <sc-if value="{{ idleAfterRun }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <sc-for list="{{ suggestions }}" as="sug" hint-placeholder-count="3">
+              <button onClick="{{ sug.pick }}" style="font:inherit;font-size:12px;color:var(--color-neutral-300);background:transparent;border:1px solid var(--color-divider);border-radius:99px;padding:5px 12px;cursor:pointer" style-hover="{ borderColor: 'var(--color-accent)', color: 'var(--color-accent-300)' }">{{ sug.label }}</button>
+            </sc-for>
+          </div>
+        </sc-if>
+        <div style="border:1px solid var(--color-divider);border-radius:14px;background:var(--color-surface);padding:11px 13px 9px;display:flex;flex-direction:column;gap:8px;box-shadow:var(--shadow-md)">
+          <textarea ref="{{ inputRef }}" value="{{ inputVal }}" onChange="{{ onInput }}" onKeyDown="{{ onKey }}" placeholder="Ask Copilot… (/ for tools, @ to reference the model)" rows="1" style="width:100%;resize:none;border:0;outline:none;background:transparent;color:var(--color-text);font:inherit;font-size:13.5px;caret-color:var(--color-accent);padding:2px 0"></textarea>
+          <div style="display:flex;align-items:center;gap:4px">
+            <button class="btn btn-ghost btn-icon" style="width:28px;height:28px;color:var(--color-neutral-400)" title="Attach"><i class="ph ph-paperclip" style="font-size:15px"></i></button>
+            <button class="btn btn-ghost btn-icon" onClick="{{ onAtBtn }}" style="width:28px;height:28px;color:var(--color-neutral-400)" title="Reference"><i class="ph ph-at" style="font-size:15px"></i></button>
+            <button class="btn btn-ghost btn-icon" onClick="{{ onSlashBtn }}" style="width:28px;height:28px;color:var(--color-neutral-400)" title="Tools"><i class="ph ph-terminal" style="font-size:15px"></i></button>
+            <span style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--color-neutral-400);margin-left:8px;border:1px solid var(--color-divider);border-radius:99px;padding:3px 10px">
+              <span style="width:5px;height:5px;border-radius:50%;background:var(--color-warn)"></span>Reasoning · Auto
+              <i class="ph ph-caret-down" style="font-size:10px;color:var(--color-neutral-600)"></i>
+            </span>
+            <button class="btn btn-primary btn-icon" onClick="{{ onSend }}" style="{{ sendStyle }}" title="Send"><i class="ph ph-arrow-up" style="font-size:15px"></i></button>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+      <sc-if value="{{ navHistory }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:14px 14px 8px;flex:none">
+          <div style="font-family:var(--font-heading);font-weight:500;font-size:16px">History</div>
+          <div style="font-size:12px;color:var(--color-neutral-500)">85 sessions · Main Model</div>
+        </div>
+        <div class="msgs-col" style="flex:1;overflow-y:auto;padding:4px 10px 14px;display:flex;flex-direction:column;gap:2px">
+          <sc-for list="{{ historyItems }}" as="h" hint-placeholder-count="6">
+            <div onClick="{{ h.pick }}" style="display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:9px;cursor:pointer" style-hover="{ background: 'color-mix(in srgb, var(--color-text) 5%, transparent)' }">
+              <i class="ph ph-chat-circle-dots" style="font-size:15px;color:var(--color-neutral-500);flex:none"></i>
+              <div style="min-width:0;flex:1">
+                <div style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ h.title }}</div>
+                <div style="font-size:11px;color:var(--color-neutral-500)">{{ h.meta }}</div>
+              </div>
+              <span style="{{ h.tagStyle }}">{{ h.status }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{ navLibrary }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:14px 14px 8px;flex:none">
+          <div style="font-family:var(--font-heading);font-weight:500;font-size:16px">Library</div>
+          <div style="font-size:12px;color:var(--color-neutral-500)">Saved prompts — run them on the current model</div>
+        </div>
+        <div class="msgs-col" style="flex:1;overflow-y:auto;padding:4px 14px 14px;display:grid;grid-template-columns:1fr;gap:10px;align-content:start">
+          <sc-for list="{{ libraryItems }}" as="l" hint-placeholder-count="6">
+            <div style="border:1px solid var(--color-divider);border-radius:var(--radius-md);padding:12px 13px;display:flex;flex-direction:column;gap:6px;background:var(--color-surface)">
+              <i class="{{ l.icon }}" style="font-size:17px;color:var(--color-accent)"></i>
+              <div style="font-size:13px;font-family:var(--font-heading);font-weight:500">{{ l.title }}</div>
+              <div style="font-size:11.5px;color:var(--color-neutral-500);line-height:1.45;flex:1">{{ l.desc }}</div>
+              <button class="btn btn-ghost" onClick="{{ l.run }}" style="font-size:12px;align-self:flex-start;padding:2px 4px"><i class="ph ph-play" style="font-size:12px"></i>Run</button>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{ navModel }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:14px 14px 8px;flex:none;display:flex;align-items:flex-start;gap:10px">
+          <div style="flex:1">
+            <div style="font-family:var(--font-heading);font-weight:500;font-size:16px">Model</div>
+            <div style="font-size:12px;color:var(--color-neutral-500)">Main Model.rvt · connected to Revit 2026</div>
+          </div>
+          <button class="btn btn-secondary" onClick="{{ onResync }}" style="font-size:12px;padding:4px 11px"><i class="ph ph-arrows-clockwise" style="font-size:13px"></i>Resync</button>
+        </div>
+        <div class="msgs-col" style="flex:1;overflow-y:auto;padding:4px 14px 14px;display:flex;flex-direction:column">
+          <sc-for list="{{ modelRows }}" as="m" hint-placeholder-count="8">
+            <div style="display:flex;align-items:baseline;gap:10px;padding:8px 2px;border-bottom:1px solid color-mix(in srgb, var(--color-text) 7%, transparent);font-size:13px">
+              <span style="color:var(--color-neutral-500);width:130px;flex:none;font-size:12px">{{ m.k }}</span>
+              <span>{{ m.v }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{ navSettings }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:14px 14px 8px;flex:none">
+          <div style="font-family:var(--font-heading);font-weight:500;font-size:16px">Settings</div>
+          <div style="font-size:12px;color:var(--color-neutral-500)">Copilot preferences for this workspace</div>
+        </div>
+        <div class="msgs-col" style="flex:1;overflow-y:auto;padding:4px 14px 14px;display:flex;flex-direction:column;gap:8px">
+          <sc-for list="{{ settingsItems }}" as="st" hint-placeholder-count="3">
+            <div style="display:flex;align-items:center;gap:12px;border:1px solid var(--color-divider);border-radius:var(--radius-md);padding:11px 13px;background:var(--color-surface)">
+              <div style="flex:1;min-width:0">
+                <div style="font-size:13px">{{ st.name }}</div>
+                <div style="font-size:11.5px;color:var(--color-neutral-500)">{{ st.desc }}</div>
+              </div>
+              <div onClick="{{ st.toggle }}" style="{{ st.pillStyle }}"><div style="{{ st.knobStyle }}"></div></div>
+            </div>
+          </sc-for>
+          <div style="display:flex;align-items:center;gap:12px;border:1px solid var(--color-divider);border-radius:var(--radius-md);padding:11px 13px;background:var(--color-surface)">
+            <div style="flex:1"><div style="font-size:13px">Language</div><div style="font-size:11.5px;color:var(--color-neutral-500)">Answers and agent activity</div></div>
+            <span class="tag tag-accent">English</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;border:1px solid var(--color-divider);border-radius:var(--radius-md);padding:11px 13px;background:var(--color-surface)">
+            <div style="flex:1"><div style="font-size:13px">Theme</div><div style="font-size:11.5px;color:var(--color-neutral-500)">Interface appearance</div></div>
+            <span class="tag tag-neutral">Light</span>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+<sc-if value="{{ paletteOpen }}" hint-placeholder-val="{{ false }}">
+  <div onClick="{{ closePalette }}" style="position:fixed;inset:0;background:rgba(20,22,28,0.4);z-index:50;display:flex;align-items:flex-start;justify-content:center;padding-top:12vh;font-family:var(--font-body)">
+    <div onClick="{{ eatClick }}" style="width:min(540px, 90vw);background:var(--color-surface);border-radius:14px;box-shadow:var(--shadow-lg);overflow:hidden;animation:rise .15s ease">
+      <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--color-divider)">
+        <i class="ph ph-magnifying-glass" style="font-size:15px;color:var(--color-neutral-500)"></i>
+        <input ref="{{ paletteRef }}" value="{{ paletteQ }}" onChange="{{ onPaletteInput }}" onKeyDown="{{ onPaletteKey }}" placeholder="Type a command or search…" style="flex:1;border:0;outline:none;background:transparent;font:inherit;font-size:14px;color:var(--color-text);caret-color:var(--color-accent)">
+        <span style="font-family:ui-monospace, Menlo, monospace;font-size:10px;border:1px solid var(--color-divider);border-radius:4px;padding:1px 5px;color:var(--color-neutral-500)">esc</span>
+      </div>
+      <div style="max-height:320px;overflow-y:auto;padding:6px">
+        <sc-for list="{{ paletteItems }}" as="p" hint-placeholder-count="6">
+          <div onClick="{{ p.pick }}" style="display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:8px;cursor:pointer;font-size:13px" style-hover="{ background: 'color-mix(in srgb, var(--color-text) 5%, transparent)' }">
+            <i class="{{ p.icon }}" style="font-size:15px;color:var(--color-accent)"></i>
+            <span>{{ p.name }}</span>
+            <span style="margin-left:auto;font-size:11px;color:var(--color-neutral-500)">{{ p.hint }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </div>
+</sc-if>
+<sc-if value="{{ toastShown }}" hint-placeholder-val="{{ false }}">
+  <div style="position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:#22242a;color:#f5f6f8;padding:8px 16px;border-radius:99px;font-size:12.5px;z-index:60;box-shadow:var(--shadow-lg);animation:rise .2s ease;display:flex;align-items:center;gap:8px"><i class="ph ph-check-circle" style="font-size:14px;color:#5fd0a5"></i>{{ toast }}</div>
+</sc-if>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 440, &quot;height&quot;: 860}, &quot;speed&quot;: {&quot;editor&quot;: &quot;range&quot;, &quot;default&quot;: 1, &quot;min&quot;: 0.25, &quot;max&quot;: 3, &quot;step&quot;: 0.25, &quot;unit&quot;: &quot;×&quot;, &quot;tsType&quot;: &quot;number&quot;, &quot;section&quot;: &quot;Playback&quot;}, &quot;autoRun&quot;: {&quot;editor&quot;: &quot;boolean&quot;, &quot;default&quot;: true, &quot;tsType&quot;: &quot;boolean&quot;, &quot;section&quot;: &quot;Playback&quot;}}">
+class Component extends DCLogic {
+  state = { started: false, running: false, done: false, elapsed: 0, userMsg: 'list all doors in this model', thinkingText: '', thinkingLive: false, thinkingOpen: true, thinkingDur: '', steps: [], tools: [], scanning: false, progress: 0, found: 0, elemsShown: false, answerVisible: false, headline: '', rowsShown: 0, actionsShown: false, statusLabel: 'Ready', highlight: false, tab: 'viewport', logs: [], nav: 'chat', modelSync: '2 min ago', input: '', palette: false, paletteQ: '', menu: null, toast: '',
+    prefs: [
+      { name: 'Auto-run suggested prompts', desc: 'Run a suggestion as soon as you click it', on: true },
+      { name: 'Expand agent activity', desc: 'Show reasoning and tool calls by default', on: true },
+      { name: 'Sound on completion', desc: 'Chime when a long task finishes', on: false }
+    ] };
+  msgsRef = React.createRef();
+  paletteRef = React.createRef();
+  inputRef = React.createRef();
+  _timers = [];
+  _runId = 0;
+
+  STEPS = [
+    { label: 'Read the request', detail: 'list doors → filter category Doors', tool: null },
+    { label: 'Query model', detail: '', tool: 0 },
+    { label: 'Count by type', detail: '', tool: 1 },
+    { label: 'Validate results', detail: '62 unique · 0 duplicates · 0 errors', tool: null },
+    { label: 'Compose answer', detail: 'summary + door type table', tool: null }
+  ];
+  THINKING = "Request: list all doors in this model. I'll filter elements in the 'Doors' category across all levels, group them by type_name and level, then validate the counts before composing the answer.";
+  T1ARGS = '{"category": "Doors"}';
+  T1RES = "{'category': 'Doors', 'matches': [{'id': 1042809, 'name': '(PTa001a) 1800 x 2100 sp-pl', 'level': 'Level 01'}, {'id': 1043374, 'name': '(PTh300a) 750 x 2100 sd-d', 'level': 'Level 01'}, {'id': 1043424, 'name': '(PTh300a) 750 x 2100 sd-d', 'level': 'Level 01'}, … +59 more]}";
+  T2ARGS = '{"by": ["type_name", "level"]}';
+  T2RES = "{'PTh300a': 21, 'PTt760b': 15, 'PTr680a': 8, 'PTn520a': 4, 'PT2p600a': 4, 'others': 10}";
+  ROWS = [
+    { type: 'PTh300a', size: '750 × 2100', count: 21 },
+    { type: 'PTt760b', size: '3700 × 2100', count: 15 },
+    { type: 'PTr680a', size: '900 × 2100', count: 8 },
+    { type: 'PTn520a', size: '450 × 2100', count: 4 },
+    { type: 'PT2p600a', size: '900 × 2325', count: 4 },
+    { type: 'Others (5 types)', size: 'various', count: 10 }
+  ];
+  ROOMS = [
+    { x: 0, y: 0, w: 21, h: 34, e: 'b', n: 8 },
+    { x: 23, y: 0, w: 24, h: 34, e: 'b', n: 8 },
+    { x: 49, y: 0, w: 22, h: 34, e: 'b', n: 8 },
+    { x: 73, y: 0, w: 27, h: 34, e: 'b', n: 8 },
+    { x: 0, y: 40, w: 100, h: 14, e: null, n: 0 },
+    { x: 0, y: 60, w: 28, h: 40, e: 't', n: 8 },
+    { x: 30, y: 60, w: 22, h: 40, e: 't', n: 8 },
+    { x: 54, y: 60, w: 20, h: 40, e: 't', n: 7 },
+    { x: 76, y: 60, w: 24, h: 40, e: 't', n: 7 }
+  ];
+
+  componentDidMount() {
+    this.DOORS = [];
+    this.ROOMS.forEach(r => {
+      for (let i = 0; i < r.n; i++) {
+        this.DOORS.push({ x: r.x + ((i + 1) / (r.n + 1)) * r.w, y: r.e === 'b' ? r.y + r.h : r.y });
+      }
+    });
+    const types = [];
+    this.ROWS.slice(0, 5).forEach(r => { for (let i = 0; i < r.count; i++) types.push({ t: r.type, s: r.size }); });
+    ['PTa001a', 'PTk410b', 'PTm220a', 'PTs550c', 'PTx130a'].forEach(t => { types.push({ t, s: 'various' }, { t, s: 'various' }); });
+    this.ELEMENTS = types.map((e, i) => ({ id: String(1042809 + i * 37), name: '(' + e.t + ') ' + (e.s === 'various' ? 'custom' : e.s.replace(' × ', ' x ')), level: i < 60 ? 'Level 01' : 'Level 02' }));
+    this._onKeyDown = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); this.setState({ palette: true, paletteQ: '' }); }
+      else if (e.key === 'Escape') this.setState({ palette: false, menu: null });
+    };
+    window.addEventListener('keydown', this._onKeyDown);
+    if (this.props.autoRun ?? true) this.run(this.state.userMsg);
+    else this.forceUpdate();
+  }
+  componentWillUnmount() { this._clear(); clearTimeout(this._toastT); window.removeEventListener('keydown', this._onKeyDown); }
+  componentDidUpdate() {
+    const el = this.msgsRef.current;
+    if (el && (this.state.running || this._settled)) { el.scrollTop = el.scrollHeight; if (this._settled) this._settled--; }
+    if (this.state.palette) { const pi = this.paletteRef.current; if (pi && document.activeElement !== pi) pi.focus(); }
+  }
+  _clear() { this._timers.forEach(clearTimeout); this._timers = []; clearInterval(this._elInt); }
+  wait(ms) { const s = this.props.speed ?? 1; return new Promise(r => this._timers.push(setTimeout(r, ms / s))); }
+  async streamText(text, cb, step, delay) {
+    for (let i = step; i < text.length + step; i += step) { cb(text.slice(0, i)); await this.wait(delay); }
+  }
+  step(i, status, time) {
+    this.setState(s => ({ steps: s.steps.map((st, j) => j === i ? { ...st, status, time: time ?? st.time } : st) }));
+  }
+  tool(i, patch) {
+    this.setState(s => ({ tools: s.tools.map((t, j) => j === i ? { ...t, ...patch } : t) }));
+  }
+  log(text) {
+    this.setState(s => ({ logs: [...s.logs, { t: s.elapsed.toFixed(1) + 's', text }] }));
+  }
+  async run(msg) {
+    const id = ++this._runId;
+    this._clear();
+    this.setState({
+      started: true, running: true, done: false, elapsed: 0, userMsg: msg,
+      thinkingText: '', thinkingLive: true, thinkingOpen: true, thinkingDur: '',
+      steps: this.STEPS.map(st => ({ ...st, status: 'pending', time: '' })),
+      tools: [], scanning: false, progress: 0, found: 0, elemsShown: false,
+      answerVisible: false, headline: '', rowsShown: 0, actionsShown: false,
+      statusLabel: 'Thinking…', highlight: false, logs: []
+    });
+    this._elInt = setInterval(() => {
+      if (this._runId === id && this.state.running) this.setState(s => ({ elapsed: s.elapsed + 0.1 }));
+    }, 100 / (this.props.speed ?? 1));
+    const chk = () => { if (this._runId !== id) throw { stale: true }; };
+    try {
+      this.log('session started · model: bina-agent-1 · reasoning: auto');
+      await this.wait(450); chk();
+      await this.streamText(this.THINKING, t => this.setState({ thinkingText: t }), 3, 16); chk();
+      this.setState({ thinkingLive: false, thinkingDur: this.state.elapsed.toFixed(0) + 's' });
+      this.log('plan created · 5 steps');
+      this.step(0, 'active'); this.setState({ statusLabel: 'Reading the request…' });
+      await this.wait(420); chk();
+      this.step(0, 'done', '0.3s');
+      this.step(1, 'active');
+      this.setState({ statusLabel: 'Query model — Doors…', tools: [{ name: 'find_elements_by_filter', dur: '', ok: false, open: true, args: '', result: '' }], scanning: true });
+      this.log('find_elements_by_filter · category: Doors');
+      await this.streamText(this.T1ARGS, t => this.tool(0, { args: t }), 2, 18); chk();
+      for (let i = 1; i <= 62; i++) { this.setState({ found: i, progress: (i / 62) * 100 }); await this.wait(36); chk(); }
+      await this.streamText(this.T1RES, t => this.tool(0, { result: t }), 14, 12); chk();
+      this.tool(0, { ok: true, dur: '2.6s', open: false });
+      this.setState({ scanning: false });
+      this.step(1, 'done', '2.6s');
+      this.log('62 matches returned · 0 errors');
+      this.step(2, 'active'); this.setState({ statusLabel: 'Counting by type…' });
+      this.setState(s => ({ tools: [...s.tools, { name: 'count_by', dur: '', ok: false, open: true, args: '', result: '' }] }));
+      this.log('count_by · type_name, level');
+      await this.streamText(this.T2ARGS, t => this.tool(1, { args: t }), 3, 14); chk();
+      await this.wait(260); chk();
+      await this.streamText(this.T2RES, t => this.tool(1, { result: t }), 8, 10); chk();
+      this.tool(1, { ok: true, dur: '0.3s', open: false });
+      this.step(2, 'done', '0.3s');
+      this.setState({ elemsShown: true });
+      this.step(3, 'active'); this.setState({ statusLabel: 'Validating results…' });
+      await this.wait(520); chk();
+      this.step(3, 'done', '0.4s');
+      this.log('validation passed · 62 unique');
+      this.step(4, 'active'); this.setState({ statusLabel: 'Composing answer…', answerVisible: true });
+      await this.streamText('62 doors in this model — 60 on Level 01, 2 on Level 02.', t => this.setState({ headline: t }), 2, 18); chk();
+      for (let r = 1; r <= this.ROWS.length; r++) { this.setState({ rowsShown: r }); await this.wait(140); chk(); }
+      this.step(4, 'done', '0.5s');
+      this._settled = 3; // keep pinning to bottom for the post-run renders (answer table + actions)
+      this.setState({ actionsShown: true, running: false, done: true, statusLabel: 'Done' });
+      this.log('answer delivered · ' + this.state.elapsed.toFixed(1) + 's');
+      clearInterval(this._elInt);
+    } catch (e) { if (!e || !e.stale) throw e; }
+  }
+  onHighlight = () => {
+    this.log('highlight · 62 doors in active view');
+    this.showToast('62 doors highlighted in Revit');
+  };
+  showToast = (msg) => {
+    clearTimeout(this._toastT);
+    this.setState({ toast: msg });
+    this._toastT = setTimeout(() => this.setState({ toast: '' }), 2200);
+  };
+  onStop = () => {
+    this._runId++; this._clear();
+    this.setState({ running: false, scanning: false, thinkingLive: false, statusLabel: 'Stopped' });
+    this.log('run stopped by user');
+    this.showToast('Run stopped');
+  };
+  onNewChat = () => {
+    this._runId++; this._clear();
+    this.setState({ started: false, running: false, done: false, elapsed: 0, userMsg: '', thinkingText: '', thinkingLive: false, steps: [], tools: [], scanning: false, progress: 0, found: 0, elemsShown: false, answerVisible: false, headline: '', rowsShown: 0, actionsShown: false, statusLabel: 'Ready', logs: [], input: '', menu: null, nav: 'chat' });
+  };
+  renderVals() {
+    const s = this.state;
+    const toolView = s.tools.map((t, i) => ({
+      name: t.name, dur: t.dur, args: t.args, result: t.result, open: t.open,
+      hasResult: t.result.length > 0,
+      statusIcon: t.ok ? 'ph-fill ph-check-circle' : 'ph ph-circle-notch',
+      statusStyle: { fontSize: '12px', color: t.ok ? 'var(--color-success)' : 'var(--color-accent-300)', animation: t.ok ? 'none' : 'spin .8s linear infinite', display: 'inline-block' },
+      caret: t.open ? 'ph ph-caret-up' : 'ph ph-caret-down',
+      toggle: () => this.tool(i, { open: !t.open })
+    }));
+    const stepView = s.steps.map((st, i) => {
+      const done = st.status === 'done', active = st.status === 'active';
+      return {
+        label: st.label, detail: st.detail, time: st.time,
+        showDetail: (done || active) && st.detail.length > 0,
+        tools: st.tool !== null && toolView[st.tool] ? [toolView[st.tool]] : [],
+        showProgress: i === 1 && s.scanning,
+        line: i < s.steps.length - 1,
+        icon: done ? 'ph-fill ph-check-circle' : active ? 'ph ph-circle-notch' : 'ph ph-circle',
+        iconStyle: { fontSize: '14px', flex: 'none', color: done ? 'var(--color-success)' : active ? 'var(--color-accent-300)' : 'var(--color-neutral-700)', animation: active ? 'spin .8s linear infinite' : 'none', display: 'inline-block' },
+        labelStyle: { color: done || active ? 'var(--color-text)' : 'var(--color-neutral-600)' }
+      };
+    });
+    const rooms = this.ROOMS.map(r => ({
+      style: { position: 'absolute', left: r.x + '%', top: r.y + '%', width: r.w + '%', height: r.h + '%', border: '1px solid var(--color-neutral-800)', borderRadius: '2px', background: r.e ? 'color-mix(in srgb, #22242a 3%, transparent)' : 'transparent' }
+    }));
+    const doors = (this.DOORS || []).map((d, i) => {
+      const lit = i < s.found;
+      return {
+        style: {
+          position: 'absolute', left: d.x + '%', top: d.y + '%', width: '8px', height: '8px',
+          margin: '-4px 0 0 -4px', borderRadius: '2px', transition: 'background .2s, box-shadow .2s',
+          background: lit ? 'var(--color-accent)' : 'transparent',
+          border: '1px solid ' + (lit ? 'var(--color-accent)' : 'var(--color-neutral-700)'),
+          boxShadow: lit ? '0 0 9px color-mix(in srgb, var(--color-accent) 80%, transparent)' : 'none',
+          animation: s.highlight && lit ? 'pulse 1s ease-in-out infinite' : 'none'
+        }
+      };
+    });
+    const send = () => {
+      const txt = this.state.input.trim();
+      if (!txt) return;
+      const el = this.inputRef.current; if (el) el.style.height = 'auto';
+      this.setState({ input: '', menu: null });
+      this.run(txt);
+    };
+    const tabDefs = [
+      { key: 'viewport', label: 'Viewport', icon: 'ph ph-frame-corners', badge: '' },
+      { key: 'elements', label: 'Elements', icon: 'ph ph-stack', badge: s.found > 0 ? String(s.found) : '' },
+      { key: 'logs', label: 'Logs', icon: 'ph ph-terminal-window', badge: s.logs.length > 0 ? String(s.logs.length) : '' }
+    ];
+    const tabs = tabDefs.map(t => {
+      const on = s.tab === t.key;
+      return {
+        label: t.label, icon: t.icon, badge: t.badge, showBadge: t.badge.length > 0,
+        badgeStyle: { fontSize: '10px', padding: '0 6px', borderRadius: '99px', background: on ? 'var(--color-accent-800)' : 'var(--color-neutral-900)', color: on ? 'var(--color-accent-100)' : 'var(--color-neutral-400)', fontVariantNumeric: 'tabular-nums' },
+        style: { font: 'inherit', fontSize: '12px', display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '5px 12px', borderRadius: '8px', cursor: 'pointer', border: '1px solid ' + (on ? 'var(--color-accent)' : 'transparent'), color: on ? 'var(--color-accent)' : 'var(--color-neutral-400)', background: 'transparent' },
+        pick: () => this.setState({ tab: t.key })
+      };
+    });
+    const navDefs = [
+      { key: 'chat', icon: 'ph-fill ph-chat-circle-dots', label: 'Chat' },
+      { key: 'history', icon: 'ph ph-clock-counter-clockwise', label: 'History' },
+      { key: 'library', icon: 'ph ph-books', label: 'Library' },
+      { key: 'model', icon: 'ph ph-cube-transparent', label: 'Model' }
+    ];
+    const railStyle = (on) => ({ width: '36px', height: '36px', display: 'grid', placeItems: 'center', borderRadius: '9px', cursor: 'pointer', color: on ? 'var(--color-accent)' : 'var(--color-neutral-500)', background: on ? 'color-mix(in srgb, var(--color-accent) 10%, transparent)' : 'transparent' });
+    const switchStyles = (on, toggle) => ({
+      toggle,
+      pillStyle: { width: '34px', height: '19px', flex: 'none', borderRadius: '99px', cursor: 'pointer', padding: '2px', background: on ? 'var(--color-success)' : 'var(--color-neutral-700)', transition: 'background .15s' },
+      knobStyle: { width: '15px', height: '15px', borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(34,36,42,0.25)', transform: on ? 'translateX(15px)' : 'none', transition: 'transform .15s' }
+    });
+    const historyData = [
+      { title: 'List all doors in this model', meta: 'Today · 3:32 PM · 7 steps', status: 'Done' },
+      { title: 'Create door schedule for Level 01', meta: 'Today · 11:04 AM · 12 steps', status: 'Done' },
+      { title: 'Check structural vs MEP clashes', meta: 'Yesterday · 23 steps', status: 'Done' },
+      { title: 'Tag all untagged rooms', meta: 'Yesterday · 9 steps', status: 'Done' },
+      { title: 'Renumber doors by level', meta: 'Mon · 14 steps', status: 'Failed' },
+      { title: 'Window schedule with head heights', meta: 'Mon · 11 steps', status: 'Done' },
+      { title: 'Find duplicate families', meta: 'Last week · 6 steps', status: 'Done' },
+      { title: 'Export sheet list to CSV', meta: 'Last week · 4 steps', status: 'Done' }
+    ];
+    const libraryData = [
+      { icon: 'ph ph-table', title: 'Door schedule', desc: 'Generate a door schedule grouped by type and level.', prompt: 'Create a door schedule grouped by type and level' },
+      { icon: 'ph ph-shield-check', title: 'Clash check', desc: 'Structural vs MEP hard clashes with an element list.', prompt: 'Check structural vs MEP clashes' },
+      { icon: 'ph ph-ruler', title: 'Room areas', desc: 'Floor area per room with totals per level.', prompt: 'Calculate floor area per room' },
+      { icon: 'ph ph-tag', title: 'Auto-tag', desc: 'Tag untagged doors, rooms and windows in the active view.', prompt: 'Tag all untagged elements in the active view' },
+      { icon: 'ph ph-files', title: 'Sheet audit', desc: 'List sheets with missing title-block fields.', prompt: 'Audit sheets for missing title-block fields' },
+      { icon: 'ph ph-stack', title: 'Family audit', desc: 'Find duplicate or unused families in the model.', prompt: 'Find duplicate and unused families' }
+    ];
+    const welcomeCards = libraryData.slice(0, 4).map(l => ({ ...l, run: () => this.run(l.prompt) }));
+    const q = s.paletteQ.toLowerCase();
+    const paletteAll = [
+      { icon: 'ph ph-plus', name: 'New chat', hint: 'action', act: () => this.onNewChat() },
+      ...(s.running ? [{ icon: 'ph ph-stop', name: 'Stop current run', hint: 'action', act: () => this.onStop() }] : []),
+      { icon: 'ph ph-arrows-clockwise', name: 'Resync model', hint: 'action', act: () => { this.setState({ modelSync: 'just now' }); this.log('manual resync · ok'); this.showToast('Model resynced'); } },
+      ...navDefs.map(n => ({ icon: n.icon.replace('ph-fill ', 'ph '), name: 'Go to ' + n.label, hint: 'view', act: () => this.setState({ nav: n.key }) })),
+      { icon: 'ph ph-gear', name: 'Go to Settings', hint: 'view', act: () => this.setState({ nav: 'settings' }) },
+      ...libraryData.map(l => ({ icon: l.icon, name: 'Run: ' + l.title, hint: 'agent', act: () => { this.setState({ nav: 'chat' }); this.run(l.prompt); } }))
+    ];
+    const paletteItems = paletteAll.filter(p0 => p0.name.toLowerCase().includes(q)).map(p0 => ({ ...p0, pick: () => { this.setState({ palette: false }); p0.act(); } }));
+    return {
+      showViewport: this.props.showViewport ?? true,
+      started: s.started, notStarted: !s.started, running: s.running, idle: !s.running, idleAfterRun: s.started && !s.running,
+      userMsg: s.userMsg,
+      sessionTitle: s.userMsg ? s.userMsg.charAt(0).toUpperCase() + s.userMsg.slice(1) : 'New session',
+      statusLabel: (() => { const i = s.steps.findIndex(st => st.status === 'active'); return s.running && i >= 0 ? s.statusLabel + ' · ' + (i + 1) + '/5' : s.statusLabel; })(),
+      statusIcon: s.done ? 'ph-fill ph-check-circle' : s.running ? 'ph ph-circle-notch' : 'ph ph-circle',
+      statusIconStyle: { fontSize: '12px', animation: s.running ? 'spin .8s linear infinite' : 'none', display: 'inline-block' },
+      statusTagStyle: s.done ? { background: 'var(--color-success-tint)', color: 'var(--color-success-deep)' } : { background: 'var(--color-neutral-900)', color: 'var(--color-neutral-300)' },
+      elapsedLabel: s.elapsed.toFixed(1) + 's',
+      thinkingText: s.thinkingText, thinkingLive: s.thinkingLive, thinkingOpen: s.thinkingOpen,
+      thinkingDur: s.thinkingDur,
+      thinkingCaret: s.thinkingOpen ? 'ph ph-caret-up' : 'ph ph-caret-down',
+      toggleThinking: () => this.setState(p => ({ thinkingOpen: !p.thinkingOpen })),
+      steps: stepView,
+      scanning: s.scanning, found: s.found,
+      progressStyle: { height: '100%', width: s.progress + '%', background: 'linear-gradient(90deg, var(--color-accent), var(--color-success))', borderRadius: '2px', transition: 'width .1s linear' },
+      elemsShown: s.elemsShown, onHighlight: this.onHighlight,
+      answerVisible: s.answerVisible, headline: s.headline,
+      visibleRows: this.ROWS.slice(0, s.rowsShown),
+      actionsShown: s.actionsShown,
+      rooms, doors,
+      tabs,
+      tabViewport: s.tab === 'viewport', tabElements: s.tab === 'elements', tabLogs: s.tab === 'logs',
+      elements: (this.ELEMENTS || []).slice(0, s.found).map(el => ({ ...el, pick: this.onHighlight })),
+      noElements: s.found === 0,
+      logs: s.logs, noLogs: s.logs.length === 0,
+      navItems: navDefs.map(n => {
+        const on = s.nav === n.key;
+        return {
+          label: n.label,
+          icon: on && n.key !== 'chat' ? n.icon.replace('ph ph-', 'ph-fill ph-') : (n.key === 'chat' && !on ? 'ph ph-chat-circle-dots' : n.icon),
+          style: { display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', padding: '6px 11px', cursor: 'pointer', color: on ? 'var(--color-accent)' : 'var(--color-neutral-400)', borderBottom: '2px solid ' + (on ? 'var(--color-accent)' : 'transparent'), marginBottom: '-1px', fontFamily: on ? 'var(--font-heading)' : 'inherit', fontWeight: on ? 500 : 400 },
+          pick: () => this.setState({ nav: n.key })
+        };
+      }),
+      pickSettings: () => this.setState({ nav: 'settings' }),
+      gearStyle: { width: '28px', height: '28px', display: 'grid', placeItems: 'center', borderRadius: '8px', cursor: 'pointer', flex: 'none', color: s.nav === 'settings' ? 'var(--color-accent)' : 'var(--color-neutral-500)', background: s.nav === 'settings' ? 'color-mix(in srgb, var(--color-accent) 10%, transparent)' : 'transparent' },
+      navChat: s.nav === 'chat', navHistory: s.nav === 'history', navLibrary: s.nav === 'library',
+      navModel: s.nav === 'model', navSettings: s.nav === 'settings',
+      historyItems: historyData.map(h => ({
+        ...h,
+        tagStyle: { flex: 'none', fontSize: '11px', padding: '2px 9px', borderRadius: '99px', background: h.status === 'Done' ? 'var(--color-success-tint)' : '#fbe3e3', color: h.status === 'Done' ? 'var(--color-success-deep)' : '#7a2323' },
+        pick: () => { this.setState({ nav: 'chat' }); if (h.title !== s.userMsg) this.run(h.title); }
+      })),
+      libraryItems: libraryData.map(l => ({
+        ...l,
+        run: () => { this.setState({ nav: 'chat' }); this.run(l.prompt); }
+      })),
+      modelRows: [
+        { k: 'File', v: 'Main Model.rvt' },
+        { k: 'Revit version', v: '2026.1' },
+        { k: 'File size', v: '412 MB' },
+        { k: 'Levels', v: '2 — Level 01, Level 02' },
+        { k: 'Elements', v: '12,480' },
+        { k: 'Doors', v: '62' },
+        { k: 'Warnings', v: '14' },
+        { k: 'Last sync', v: s.modelSync }
+      ],
+      onResync: () => { this.setState({ modelSync: 'just now' }); this.log('manual resync · ok'); },
+      settingsItems: s.prefs.map((p0, i) => ({
+        name: p0.name, desc: p0.desc,
+        ...switchStyles(p0.on, () => this.setState(p => ({ prefs: p.prefs.map((x, j) => j === i ? { ...x, on: !x.on } : x) })))
+      })),
+      msgsRef: this.msgsRef, inputRef: this.inputRef,
+      onSend: send,
+      inputVal: s.input,
+      onInput: (e) => { const v = e.target.value; const el = e.target; el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 120) + 'px'; this.setState({ input: v, menu: v.startsWith('/') && v.length < 24 ? 'slash' : /@$/.test(v) ? 'at' : null }); },
+      sendStyle: { marginLeft: 'auto', width: '30px', height: '30px', borderRadius: '9px', opacity: s.input.trim() ? 1 : 0.45 },
+      onAtBtn: () => { this.setState(p => ({ input: p.input + '@', menu: 'at' })); const el = this.inputRef.current; if (el) el.focus(); },
+      onSlashBtn: () => { this.setState({ input: '/', menu: 'slash' }); const el = this.inputRef.current; if (el) el.focus(); },
+      menuOpen: !!s.menu && s.nav === 'chat',
+      menuTitle: s.menu === 'at' ? 'Reference' : 'Tools',
+      menuItems: (s.menu === 'at'
+        ? [
+            { icon: 'ph ph-stairs', name: '@Level 01', hint: 'level' },
+            { icon: 'ph ph-stairs', name: '@Level 02', hint: 'level' },
+            { icon: 'ph ph-frame-corners', name: '@Active view', hint: 'view' },
+            { icon: 'ph ph-cursor-click', name: '@Selection', hint: '3 elements' },
+            { icon: 'ph ph-door-open', name: '@Doors', hint: 'category' }
+          ].map(r => ({ ...r, pick: () => { this.setState(p => ({ input: p.input.replace(/@$/, '') + r.name + ' ', menu: null })); const el = this.inputRef.current; if (el) el.focus(); } }))
+        : [
+            { icon: 'ph ph-table', name: '/schedule', hint: 'door schedule', text: 'Create a door schedule grouped by type and level' },
+            { icon: 'ph ph-shield-check', name: '/clash', hint: 'clash check', text: 'Check structural vs MEP clashes' },
+            { icon: 'ph ph-ruler', name: '/areas', hint: 'room areas', text: 'Calculate floor area per room' },
+            { icon: 'ph ph-tag', name: '/tag', hint: 'auto-tag', text: 'Tag all untagged elements in the active view' },
+            { icon: 'ph ph-stack', name: '/families', hint: 'family audit', text: 'Find duplicate and unused families' }
+          ].filter(c => c.name.includes(s.input.slice(1).split(' ')[0] || '')).map(c => ({ ...c, pick: () => { this.setState({ input: c.text, menu: null }); const el = this.inputRef.current; if (el) el.focus(); } }))),
+      paletteOpen: s.palette,
+      openPalette: () => this.setState({ palette: true, paletteQ: '' }),
+      closePalette: () => this.setState({ palette: false }),
+      eatClick: (e) => e.stopPropagation(),
+      paletteRef: this.paletteRef,
+      paletteQ: s.paletteQ,
+      onPaletteInput: (e) => this.setState({ paletteQ: e.target.value }),
+      onPaletteKey: (e) => { if (e.key === 'Enter' && paletteItems.length) paletteItems[0].pick(); },
+      paletteItems,
+      toastShown: s.toast.length > 0, toast: s.toast,
+      onStop: this.onStop, onNewChat: this.onNewChat,
+      welcomeCards,
+      onCopyAnswer: () => { try { navigator.clipboard.writeText(this.ROWS.map(r => r.type + '\t' + r.size + '\t' + r.count).join('\n')); } catch (err) {} this.showToast('Table copied to clipboard'); },
+      onCsv: () => this.showToast('CSV export started'),
+      onCreateSchedule: () => { this.log('schedule created · Door Schedule — by type'); this.showToast('Door schedule created in Revit'); },
+      onGood: () => this.showToast('Feedback recorded — thanks'),
+      onBad: () => this.showToast('Feedback recorded — we will improve'),
+      onRegenerate: () => this.run(s.userMsg || 'list all doors in this model'),
+      onKey: (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } else if (e.key === 'Escape') { this.setState({ menu: null }); } },
+      suggestions: [
+        'Check structural vs MEP clashes',
+        'Create door schedule for Level 01',
+        'Calculate floor area per room'
+      ].map(label => ({ label, pick: () => { if (this.state.prefs[0].on) { this.run(label); } else { this.setState({ input: label }); const el = this.inputRef.current; if (el) el.focus(); } } }))
+    };
+  }
+}
+</script>
+</body>
+</html>
