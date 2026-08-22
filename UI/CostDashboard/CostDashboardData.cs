@@ -47,8 +47,11 @@ namespace RevitWebAppSync.UI.CostDashboard
 
         // Stats strip
         public string QuantifiedItems { get; set; }
+        public string QuantifiedItemsLabel { get; set; }
         public string Levels { get; set; }
+        public string LevelsLabel { get; set; }
         public string AwaitingRate { get; set; }
+        public string AwaitingRateLabel { get; set; }
 
         // Breakdown
         public string BreakdownHeader { get; set; }
@@ -57,7 +60,11 @@ namespace RevitWebAppSync.UI.CostDashboard
 
         // Footer
         public string Disclaimer { get; set; }
+        public string SyncLabel { get; set; }
+        public string SyncSubtext { get; set; }
+        public string DataLabel { get; set; }
         public string Status { get; set; }
+        public string LastSyncTime { get; set; }
 
         /// <summary>"Projects to RM 6.40M when every item carries a rate."</summary>
         public string Projection => ProjectionPrefix + ProjectionAmount + ProjectionSuffix;
@@ -85,15 +92,22 @@ namespace RevitWebAppSync.UI.CostDashboard
         public const string GaugeLabel = "PRICED";
 
         public const string QuantifiedItems = "4,463";
+        public const string QuantifiedItemsLabel = "quantified items";
         public const string Levels = "7";
+        public const string LevelsLabel = "levels";
         public const string AwaitingRate = "267";
+        public const string AwaitingRateLabel = "awaiting a rate";
 
         public const string BreakdownHeader = "BREAKDOWN BY DISCIPLINE";
         public const string BreakdownHint = "tap to open levels";
 
         public const string Disclaimer =
             "Rates from JKR Schedule of Rates 2024 and your Master DB.  Indicative order of cost — not a tender sum.";
+        public const string SyncLabel = "Sync model";
+        public const string SyncSubtext = "last run 2m";
+        public const string DataLabel = "Data";
         public const string Status = "Model synced 2m · 4,196 of 4,463 items priced";
+        public const string LastSyncTime = "14:50";
 
         public static IReadOnlyList<DisciplineBreakdown> Disciplines { get; } = new List<DisciplineBreakdown>
         {
@@ -120,13 +134,20 @@ namespace RevitWebAppSync.UI.CostDashboard
             GaugePercent = GaugePercent,
             GaugeLabel = GaugeLabel,
             QuantifiedItems = QuantifiedItems,
+            QuantifiedItemsLabel = QuantifiedItemsLabel,
             Levels = Levels,
+            LevelsLabel = LevelsLabel,
             AwaitingRate = AwaitingRate,
+            AwaitingRateLabel = AwaitingRateLabel,
             BreakdownHeader = BreakdownHeader,
             BreakdownHint = BreakdownHint,
             Disciplines = Disciplines,
             Disclaimer = Disclaimer,
+            SyncLabel = SyncLabel,
+            SyncSubtext = SyncSubtext,
+            DataLabel = DataLabel,
             Status = Status,
+            LastSyncTime = LastSyncTime,
         };
     }
 }

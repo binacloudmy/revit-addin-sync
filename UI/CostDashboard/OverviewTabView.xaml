@@ -8,56 +8,182 @@
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="CostDashboardStyles.xaml"/>
             </ResourceDictionary.MergedDictionaries>
+
+            <!-- Flat action button: no chrome, content-only, hand cursor. -->
+            <Style x:Key="Ov.FlatButton" TargetType="Button">
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Padding" Value="0"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Focusable" Value="False"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="Button">
+                            <ContentPresenter/>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <!-- Downstream Overview tab card builds out this panel.
-         This scaffold only proves the design system renders: one Cd.Card with
-         a success pill, a metric value and the circular gauge, fed from MockDashboardData. -->
     <StackPanel x:Name="Root">
 
-        <!-- Design-system demo card (estimated cost header, mirrors reference top card) -->
-        <Border Style="{StaticResource Cd.Card}">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-
-                <StackPanel Grid.Column="0">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="ESTIMATED COST" Style="{StaticResource Cd.SectionHeader}"/>
-                        <Border Style="{StaticResource Cd.Pill.Success}" Margin="12,0,0,0">
-                            <TextBlock x:Name="ConfidenceText"/>
-                        </Border>
-                    </StackPanel>
-
-                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                        <TextBlock x:Name="CurrencyText" Style="{StaticResource Cd.MetricValue}"
-                                   Foreground="{StaticResource Cd.TextSecondary}"
-                                   VerticalAlignment="Bottom" Margin="0,0,8,6"/>
-                        <TextBlock x:Name="CostText" Style="{StaticResource Cd.MetricValue.Hero}"/>
-                    </StackPanel>
-
-                    <TextBlock x:Name="ProjectionText" Style="{StaticResource Cd.Body}"
-                               FontSize="{StaticResource Cd.FontSize.Subhead}"
-                               TextWrapping="Wrap" TextTrimming="None" Margin="0,6,0,0"/>
-                </StackPanel>
-
-                <cd:CircularGaugeControl x:Name="Gauge" Grid.Column="1"
-                                         Width="120" Height="120"
-                                         VerticalAlignment="Top" Margin="16,0,0,0"/>
-            </Grid>
-        </Border>
-
-        <!-- Placeholder marker for the downstream card -->
-        <Border Style="{StaticResource Cd.Card}" Margin="0,12,0,0">
+        <!-- ═══ 1+2. ESTIMATED COST + STATS STRIP (same card, internal divider) ═══ -->
+        <Border Style="{StaticResource Cd.Card.Flush}">
             <StackPanel>
-                <TextBlock Text="Overview builds here" Style="{StaticResource Cd.Subhead}"/>
-                <TextBlock Style="{StaticResource Cd.Caption}" Margin="0,4,0,0" TextWrapping="Wrap" TextTrimming="None"
-                           Text="Stats strip, breakdown by discipline, disclaimer and status land in this panel."/>
+                <Grid Margin="{StaticResource Cd.Padding.Card}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="ESTIMATED COST" Style="{StaticResource Cd.SectionHeader}"/>
+                            <Border Style="{StaticResource Cd.Pill.Success}" Margin="12,0,0,0">
+                                <TextBlock x:Name="ConfidenceText"/>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                            <TextBlock x:Name="CurrencyText" Style="{StaticResource Cd.MetricValue}"
+                                       Foreground="{StaticResource Cd.TextSecondary}"
+                                       VerticalAlignment="Bottom" Margin="0,0,8,6"/>
+                            <TextBlock x:Name="CostText" Style="{StaticResource Cd.MetricValue.Hero}"/>
+                        </StackPanel>
+
+                        <TextBlock x:Name="ProjectionText" Style="{StaticResource Cd.Body}"
+                                   FontSize="{StaticResource Cd.FontSize.Subhead}"
+                                   TextWrapping="Wrap" TextTrimming="None" Margin="0,6,0,0"/>
+                    </StackPanel>
+
+                    <cd:CircularGaugeControl x:Name="Gauge" Grid.Column="1"
+                                             Width="120" Height="120"
+                                             VerticalAlignment="Top" Margin="16,0,0,0"/>
+                </Grid>
+
+                <!-- Internal divider between cost and stats strip -->
+                <Rectangle Height="1" Fill="{StaticResource Cd.Divider}" SnapsToDevicePixels="True"/>
+
+                <Grid Margin="{StaticResource Cd.Padding.Card}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                        <TextBlock x:Name="QuantifiedItemsText" Style="{StaticResource Cd.MetricValue}" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="QuantifiedItemsCaption" Style="{StaticResource Cd.Body}" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </StackPanel>
+
+                    <Rectangle Grid.Column="1" Width="1" Fill="{StaticResource Cd.Divider}" Margin="0,2"/>
+
+                    <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                        <TextBlock x:Name="LevelsText" Style="{StaticResource Cd.MetricValue}" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="LevelsCaption" Style="{StaticResource Cd.Body}" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </StackPanel>
+
+                    <Rectangle Grid.Column="3" Width="1" Fill="{StaticResource Cd.Divider}" Margin="0,2"/>
+
+                    <StackPanel Grid.Column="4" HorizontalAlignment="Center">
+                        <TextBlock x:Name="AwaitingRateText" Style="{StaticResource Cd.MetricValue}" HorizontalAlignment="Center"/>
+                        <TextBlock x:Name="AwaitingRateCaption" Style="{StaticResource Cd.Body}" HorizontalAlignment="Center" Margin="0,2,0,0"/>
+                    </StackPanel>
+                </Grid>
             </StackPanel>
         </Border>
+
+        <!-- ═══ 3. BREAKDOWN BY DISCIPLINE ═══ -->
+        <Border Style="{StaticResource Cd.Card.Flush}" Margin="0,12,0,0">
+            <StackPanel>
+                <Grid Margin="{StaticResource Cd.Padding.Card}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock x:Name="BreakdownHeaderText" Style="{StaticResource Cd.SectionHeader}" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="BreakdownHintText" Grid.Column="1" Style="{StaticResource Cd.Body}"
+                               FontSize="{StaticResource Cd.FontSize.Caption}"
+                               Foreground="{StaticResource Cd.TextMuted}" VerticalAlignment="Center"/>
+                </Grid>
+
+                <!-- Discipline rows generated in code-behind (see OverviewTabView.BuildDisciplineRow). -->
+                <StackPanel x:Name="DisciplineRows"/>
+            </StackPanel>
+        </Border>
+
+        <!-- ═══ 4. DISCLAIMER ═══ -->
+        <TextBlock x:Name="DisclaimerText" Style="{StaticResource Cd.Caption}"
+                   TextWrapping="Wrap" TextTrimming="None" Margin="4,14,4,0"/>
+
+        <!-- ═══ 5. ACTION BAR ═══ -->
+        <Grid Margin="0,14,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Button Grid.Column="0" Style="{StaticResource Ov.FlatButton}" HorizontalAlignment="Left">
+                <Border Background="{StaticResource Cd.Primary}"
+                        CornerRadius="{StaticResource Cd.Radius.Card}"
+                        Padding="18,10">
+                    <StackPanel Orientation="Horizontal">
+                        <!-- Sync glyph: two curved arrows -->
+                        <Path Width="18" Height="18" Stretch="Uniform"
+                              Fill="{StaticResource Cd.TextOnAccent}"
+                              VerticalAlignment="Center" Margin="0,0,12,0"
+                              Data="M12,4 V1 L8,5 L12,9 V6 A6,6 0 0 1 17.2,12 H19.2 A8,8 0 0 0 12,4 Z M12,18 A6,6 0 0 1 6.8,12 H4.8 A8,8 0 0 0 12,20 V23 L16,19 L12,15 Z"/>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="SyncLabelText" Style="{StaticResource Cd.Subhead}"
+                                       Foreground="{StaticResource Cd.TextOnAccent}"/>
+                            <TextBlock x:Name="SyncSubtextText" Style="{StaticResource Cd.Caption}"
+                                       Foreground="{StaticResource Cd.TextOnAccent}" Opacity="0.8"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Button>
+
+            <Button Grid.Column="1" Style="{StaticResource Ov.FlatButton}" Margin="12,0,0,0">
+                <Border Background="{StaticResource Cd.PillBg}"
+                        CornerRadius="{StaticResource Cd.Radius.Card}"
+                        Padding="16,10" VerticalAlignment="Stretch">
+                    <StackPanel Orientation="Horizontal">
+                        <!-- upload box + up arrow -->
+                        <Path Width="16" Height="16" Stretch="Uniform"
+                              Fill="{StaticResource Cd.TextSecondary}"
+                              VerticalAlignment="Center" Margin="0,0,10,0"
+                              Data="M4,12 H8 V18 H16 V12 H20 V20 H4 Z M12,4 V14 M8,8 L12,4 L16,8"/>
+                        <TextBlock x:Name="DataLabelText" Style="{StaticResource Cd.Subhead}"
+                                   Foreground="{StaticResource Cd.TextSecondary}"
+                                   VerticalAlignment="Center"/>
+                        <!-- up chevron -->
+                        <Path Width="14" Height="14" Stretch="Uniform"
+                              Fill="{StaticResource Cd.TextSecondary}"
+                              VerticalAlignment="Center" Margin="8,0,0,0"
+                              Data="M6,15 L12,9 L18,15"/>
+                    </StackPanel>
+                </Border>
+            </Button>
+        </Grid>
+
+        <!-- ═══ 6. STATUS LINE ═══ -->
+        <Grid Margin="4,12,4,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal">
+                <Ellipse Width="7" Height="7" Fill="{StaticResource Cd.TextMuted}"
+                         VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBlock x:Name="StatusText" Style="{StaticResource Cd.Caption}" VerticalAlignment="Center"/>
+            </StackPanel>
+            <TextBlock x:Name="SyncTimeText" Grid.Column="1" Style="{StaticResource Cd.Caption}"
+                       VerticalAlignment="Center" HorizontalAlignment="Right"/>
+        </Grid>
 
     </StackPanel>
 </UserControl>
