@@ -114,7 +114,7 @@ namespace RevitWebAppSync.UI.CostDashboard
             new DisciplineBreakdown { Name = "Architecture",        BrushKey = "Cd.Blue",   SoftBrushKey = "Cd.BlueSoft",   Cost = "RM 2,850,800", CostPercent = 47.4, Items = 2145, PricedPercent = 98 },
             new DisciplineBreakdown { Name = "Structure",           BrushKey = "Cd.Orange", SoftBrushKey = "Cd.OrangeSoft", Cost = "RM 2,481,896", CostPercent = 41.3, Items = 612,  PricedPercent = 98 },
             new DisciplineBreakdown { Name = "Mechanical",          BrushKey = "Cd.Teal",   SoftBrushKey = "Cd.TealSoft",   Cost = "RM 340,619",   CostPercent = 5.7,  Items = 388,  PricedPercent = 84 },
-            new DisciplineBreakdown { Name = "Plumbing & Sanitary", BrushKey = "Cd.Purple", SoftBrushKey = "Cd.PurpleSoft", Cost = "RM 236,588",   CostPercent = 3.9,  Items = 613,  PricedPercent = 87 },
+            new DisciplineBreakdown { Name = "Plumbing & sanitary", BrushKey = "Cd.Purple", SoftBrushKey = "Cd.PurpleSoft", Cost = "RM 236,588",   CostPercent = 3.9,  Items = 613,  PricedPercent = 87 },
             new DisciplineBreakdown { Name = "Electrical",          BrushKey = "Cd.Pink",   SoftBrushKey = "Cd.PinkSoft",   Cost = "RM 104,847",   CostPercent = 1.7,  Items = 705,  PricedPercent = 88 },
         };
 

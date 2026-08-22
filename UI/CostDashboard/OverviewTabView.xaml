@@ -177,7 +177,7 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal">
-                <Ellipse Width="7" Height="7" Fill="{StaticResource Cd.Green}"
+                <Ellipse Width="7" Height="7" Fill="{StaticResource Cd.TextMuted}"
                          VerticalAlignment="Center" Margin="0,0,8,0"/>
                 <TextBlock x:Name="StatusText" Style="{StaticResource Cd.Caption}" VerticalAlignment="Center"/>
             </StackPanel>

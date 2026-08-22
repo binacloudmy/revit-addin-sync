@@ -65,6 +65,7 @@ namespace RevitWebAppSync.UI
             bool overview = ReferenceEquals(view, _overviewView);
             OverviewTab.IsChecked = overview;
             ChartsTab.IsChecked = !overview;
+            ScopeText.Text = overview ? MockDashboardData.Scope : "5 charts";
             ShowView(view);
         }
 
