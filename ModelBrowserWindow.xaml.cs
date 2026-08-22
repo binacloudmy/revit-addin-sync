@@ -442,12 +442,18 @@ namespace RevitWebAppSync
             string current = DestinationText.Text;
             if (string.IsNullOrWhiteSpace(current)) return;
 
+            // Follow the stored file's own extension: this browser also lists .ifc,
+            // and a hardcoded .rvt filter renamed those on the way out.
+            string currentExt = Path.GetExtension(current);
+            if (string.IsNullOrWhiteSpace(currentExt)) currentExt = ".rvt";
+            string extLabel = currentExt.TrimStart('.').ToUpperInvariant();
+
             var dialog = new Microsoft.Win32.SaveFileDialog
             {
                 Title = "Save this version as",
                 FileName = Path.GetFileName(current),
-                DefaultExt = ".rvt",
-                Filter = "Revit model (*.rvt)|*.rvt|All files (*.*)|*.*",
+                DefaultExt = currentExt,
+                Filter = extLabel + " model (*" + currentExt + ")|*" + currentExt + "|All files (*.*)|*.*",
                 OverwritePrompt = false   // asked once, at download time
             };
 
@@ -478,6 +484,36 @@ namespace RevitWebAppSync
 
             string destination = DestinationText.Text;
             if (string.IsNullOrWhiteSpace(destination)) return;
+
+            // A renamed file syncs back as a NEW lineage: the server keys a chain on
+            // the filename and ignores the docGuid stamp. The default destination
+            // keeps the stored name, so this only fires if the user chose otherwise.
+            // Sanitised the same way the default destination is, so a name holding a
+            // character Windows forbids does not read as a rename on every download.
+            string storedName = SafeName(Path.GetFileName(model.Name ?? string.Empty));
+            string chosenName = Path.GetFileName(destination);
+            if (!string.IsNullOrEmpty(storedName) &&
+                !string.Equals(storedName, chosenName, StringComparison.OrdinalIgnoreCase))
+            {
+                var renameAnswer = MessageBox.Show(this,
+                    "You are saving this model as:\n\n" + chosenName +
+                    "\n\nBINA knows it as:\n\n" + storedName +
+                    "\n\nSyncing a renamed file creates a SEPARATE version history " +
+                    "rather than adding to this model's. Keep the original name?",
+                    "Rename will split the version history",
+                    MessageBoxButton.YesNoCancel, MessageBoxImage.Warning, MessageBoxResult.Yes);
+
+                if (renameAnswer == MessageBoxResult.Cancel) return;
+                if (renameAnswer == MessageBoxResult.Yes)
+                {
+                    string dir = Path.GetDirectoryName(destination);
+                    destination = string.IsNullOrEmpty(dir)
+                        ? storedName
+                        : Path.Combine(dir, storedName);
+                    DestinationText.Text = destination;
+                }
+                // No = keep the rename; the drafter has been told what it costs.
+            }
 
             if (File.Exists(destination))
             {
@@ -600,15 +636,30 @@ namespace RevitWebAppSync
         /// <summary>
         /// Folder and model names appear in the path, so a drafter can find the
         /// file later without remembering which BINA folder it came from.
+        ///
+        /// The version goes in the PATH, never the filename. A lineage is keyed on
+        /// (projectId, parentId, designStatus, name) server-side — applyLineageScope
+        /// calls the filename the identity and ignores the docGuid stamp entirely —
+        /// so saving v7 as "model-v7.rvt" and syncing it back opens a SECOND chain
+        /// at version 1 and orphans the original. Keeping the stored name verbatim
+        /// means a downloaded version syncs back onto the chain it came from.
+        ///
+        /// Each version still lands in its own directory, so downloading two
+        /// versions of one model does not overwrite either.
         /// </summary>
         private string BuildDefaultDestination(ModelRow model, DesignVersion version)
         {
             var folder = FoldersListBox.SelectedItem as FolderRow;
             string folderName = folder != null ? SafeName(folder.Name) : "wip";
 
-            string stem = Path.GetFileNameWithoutExtension(model.Name);
+            // The name exactly as BINA holds it — extension included, because the
+            // area can hold .ifc as well as .rvt and the old ".rvt" literal
+            // renamed those on the way out.
+            string storedName = SafeName(Path.GetFileName(model.Name));
+            if (string.IsNullOrWhiteSpace(storedName)) storedName = "model.rvt";
+
+            string stem = Path.GetFileNameWithoutExtension(storedName);
             if (string.IsNullOrWhiteSpace(stem)) stem = "model";
-            stem = SafeName(stem);
 
             string versionTag = version.VersionNumber.HasValue
                 ? "v" + version.VersionNumber.Value
@@ -620,7 +671,8 @@ namespace RevitWebAppSync
                 BimArea.Label(_area),
                 folderName,
                 stem,
-                stem + "-" + versionTag + ".rvt");
+                versionTag,
+                storedName);
         }
 
         private void ResetDestination()
