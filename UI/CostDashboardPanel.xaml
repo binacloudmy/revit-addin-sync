@@ -1,5 +1,117 @@
 <Page x:Class="RevitWebAppSync.UI.CostDashboardPanel"
       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      Background="#252526">
+      Title="Design to Cost"
+      FontFamily="{DynamicResource Cd.Font}"
+      Background="{DynamicResource Cd.Bg}">
+
+    <Page.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="CostDashboard/CostDashboardTokens.xaml"/>
+                <ResourceDictionary Source="CostDashboard/CostDashboardStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Page.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>   <!-- header -->
+            <RowDefinition Height="Auto"/>   <!-- tab bar -->
+            <RowDefinition Height="*"/>      <!-- scrolling content -->
+        </Grid.RowDefinitions>
+
+        <!-- ═══════ (a) HEADER ═══════ -->
+        <Border Grid.Row="0" Background="{StaticResource Cd.Card}"
+                BorderBrush="{StaticResource Cd.Divider}" BorderThickness="0,0,0,1"
+                Padding="16,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- App icon: primary-blue rounded square with white assistant/chat glyph -->
+                <Border Grid.Column="0" Width="40" Height="40"
+                        Background="{StaticResource Cd.Primary}"
+                        CornerRadius="{StaticResource Cd.Radius.Tile}"
+                        VerticalAlignment="Center">
+                    <Path Fill="{StaticResource Cd.TextOnAccent}" Stretch="Uniform" Width="22" Height="18"
+                          Data="M4,3 H20 C21.1,3 22,3.9 22,5 V14 C22,15.1 21.1,16 20,16 H10 L5,20 V16 H4 C2.9,16 2,15.1 2,14 V5 C2,3.9 2.9,3 4,3 Z M7,8 A1.3,1.3 0 1 0 7,10.6 A1.3,1.3 0 1 0 7,8 Z M12,8 A1.3,1.3 0 1 0 12,10.6 A1.3,1.3 0 1 0 12,8 Z M17,8 A1.3,1.3 0 1 0 17,10.6 A1.3,1.3 0 1 0 17,8 Z"/>
+                </Border>
+
+                <!-- Title + truncated model code -->
+                <StackPanel Grid.Column="1" Margin="12,0,12,0" VerticalAlignment="Center">
+                    <TextBlock x:Name="TitleText" Style="{StaticResource Cd.Title}" Text="Design to Cost"/>
+                    <TextBlock x:Name="ModelCodeText" Style="{StaticResource Cd.Body}" Margin="0,1,0,0"
+                               Text="jkrAR24_5a_(BEde1A_p14-001)_A1_w-02_(S)…"/>
+                </StackPanel>
+
+                <!-- Host pill: "Revit 2026" with a small cube glyph -->
+                <Border Grid.Column="2" Style="{StaticResource Cd.Pill}">
+                    <StackPanel Orientation="Horizontal">
+                        <Path Stroke="{StaticResource Cd.TextSecondary}" StrokeThickness="1.5" StrokeLineJoin="Round"
+                              Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center" Margin="0,0,7,0"
+                              Data="M12,2 L21,7 V17 L12,22 L3,17 V7 Z M3,7 L12,12 L21,7 M12,12 V22"/>
+                        <TextBlock x:Name="HostPillText" Text="Revit 2026" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- ═══════ (b) TAB BAR ═══════ -->
+        <Border Grid.Row="1" Background="{StaticResource Cd.Card}"
+                BorderBrush="{StaticResource Cd.Divider}" BorderThickness="0,0,0,1"
+                Padding="16,10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <!-- Segmented track -->
+                <Border Grid.Column="0" Background="{StaticResource Cd.PillBg}" CornerRadius="11" Padding="3">
+                    <StackPanel Orientation="Horizontal">
+                        <ToggleButton x:Name="OverviewTab" Style="{StaticResource Cd.TabButton}"
+                                      IsChecked="True" Click="OnOverviewTabClick">
+                            <StackPanel Orientation="Horizontal">
+                                <!-- grid glyph -->
+                                <Path Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
+                                      StrokeThickness="1.6" Width="14" Height="14" Stretch="Uniform"
+                                      VerticalAlignment="Center" Margin="0,0,8,0"
+                                      Data="M3,3 H10 V10 H3 Z M14,3 H21 V10 H14 Z M3,14 H10 V21 H3 Z M14,14 H21 V21 H14 Z"/>
+                                <TextBlock Text="Overview" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </ToggleButton>
+                        <ToggleButton x:Name="ChartsTab" Style="{StaticResource Cd.TabButton}"
+                                      Click="OnChartsTabClick">
+                            <StackPanel Orientation="Horizontal">
+                                <!-- pie glyph -->
+                                <Path Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ToggleButton}}"
+                                      StrokeThickness="1.6" Width="14" Height="14" Stretch="Uniform"
+                                      VerticalAlignment="Center" Margin="0,0,8,0"
+                                      Data="M12,3 A9,9 0 1 0 21,12 H12 Z M14,2.5 A9,9 0 0 1 21.5,10 H14 Z"/>
+                                <TextBlock Text="Charts" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </ToggleButton>
+                    </StackPanel>
+                </Border>
+
+                <!-- Scope caption -->
+                <TextBlock x:Name="ScopeText" Grid.Column="2" Style="{StaticResource Cd.Body}"
+                           FontSize="{StaticResource Cd.FontSize.Subhead}"
+                           VerticalAlignment="Center" Text="5 disciplines · 7 levels"/>
+            </Grid>
+        </Border>
+
+        <!-- ═══════ (c) CONTENT ═══════ -->
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      Background="{StaticResource Cd.Bg}">
+            <StackPanel Margin="{StaticResource Cd.Padding.Page}">
+                <ContentControl x:Name="ContentHost" Focusable="False"/>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
 </Page>

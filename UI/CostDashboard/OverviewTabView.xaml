@@ -1,0 +1,63 @@
+<UserControl x:Class="RevitWebAppSync.UI.CostDashboard.OverviewTabView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:cd="clr-namespace:RevitWebAppSync.UI.CostDashboard"
+             Background="Transparent">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="CostDashboardStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <!-- Downstream Overview tab card builds out this panel.
+         This scaffold only proves the design system renders: one Cd.Card with
+         a success pill, a metric value and the circular gauge, fed from MockDashboardData. -->
+    <StackPanel x:Name="Root">
+
+        <!-- Design-system demo card (estimated cost header, mirrors reference top card) -->
+        <Border Style="{StaticResource Cd.Card}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0">
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="ESTIMATED COST" Style="{StaticResource Cd.SectionHeader}"/>
+                        <Border Style="{StaticResource Cd.Pill.Success}" Margin="12,0,0,0">
+                            <TextBlock x:Name="ConfidenceText"/>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <TextBlock x:Name="CurrencyText" Style="{StaticResource Cd.MetricValue}"
+                                   Foreground="{StaticResource Cd.TextSecondary}"
+                                   VerticalAlignment="Bottom" Margin="0,0,8,6"/>
+                        <TextBlock x:Name="CostText" Style="{StaticResource Cd.MetricValue.Hero}"/>
+                    </StackPanel>
+
+                    <TextBlock x:Name="ProjectionText" Style="{StaticResource Cd.Body}"
+                               FontSize="{StaticResource Cd.FontSize.Subhead}"
+                               TextWrapping="Wrap" TextTrimming="None" Margin="0,6,0,0"/>
+                </StackPanel>
+
+                <cd:CircularGaugeControl x:Name="Gauge" Grid.Column="1"
+                                         Width="120" Height="120"
+                                         VerticalAlignment="Top" Margin="16,0,0,0"/>
+            </Grid>
+        </Border>
+
+        <!-- Placeholder marker for the downstream card -->
+        <Border Style="{StaticResource Cd.Card}" Margin="0,12,0,0">
+            <StackPanel>
+                <TextBlock Text="Overview builds here" Style="{StaticResource Cd.Subhead}"/>
+                <TextBlock Style="{StaticResource Cd.Caption}" Margin="0,4,0,0" TextWrapping="Wrap" TextTrimming="None"
+                           Text="Stats strip, breakdown by discipline, disclaimer and status land in this panel."/>
+            </StackPanel>
+        </Border>
+
+    </StackPanel>
+</UserControl>

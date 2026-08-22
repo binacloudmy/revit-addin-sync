@@ -1,0 +1,23 @@
+<UserControl x:Class="RevitWebAppSync.UI.CostDashboard.ChartsTabView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             Background="Transparent">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="CostDashboardStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </UserControl.Resources>
+
+    <!-- Downstream Charts tab card fills this panel (pure-WPF charts, no library). -->
+    <StackPanel x:Name="Root">
+        <Border Style="{StaticResource Cd.Card}">
+            <StackPanel>
+                <TextBlock Text="Charts build here" Style="{StaticResource Cd.Subhead}"/>
+                <TextBlock Style="{StaticResource Cd.Caption}" Margin="0,4,0,0" TextWrapping="Wrap" TextTrimming="None"
+                           Text="Cost-by-discipline and cost-by-level charts land in this panel."/>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>

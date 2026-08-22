@@ -1,0 +1,70 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+
+    <!-- ═══════════ COST-TO-BIM ("Design to Cost") PALETTE ═══════════
+         Canonical tokens derived from docs/cost-to-bim-OVERVIEW-reference.png
+         and docs/cost-to-bim-CHARTS-reference.png. Fixed hexes — never
+         SystemParameters. Every Cd.* screen/control must use these keys. -->
+
+    <!-- Surfaces -->
+    <SolidColorBrush x:Key="Cd.Bg"          Color="#F3F4F6"/>
+    <SolidColorBrush x:Key="Cd.Card"        Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="Cd.Track"       Color="#E9EBEF"/>
+    <SolidColorBrush x:Key="Cd.Divider"     Color="#E5E7EB"/>
+    <SolidColorBrush x:Key="Cd.PillBg"      Color="#ECEEF1"/>
+
+    <!-- Text -->
+    <SolidColorBrush x:Key="Cd.TextPrimary"   Color="#1A1A1E"/>
+    <SolidColorBrush x:Key="Cd.TextSecondary" Color="#6B7280"/>
+    <SolidColorBrush x:Key="Cd.TextMuted"     Color="#9CA3AF"/>
+    <SolidColorBrush x:Key="Cd.TextOnAccent"  Color="#FFFFFF"/>
+
+    <!-- Accent / disciplines -->
+    <SolidColorBrush x:Key="Cd.Primary"     Color="#3B7FD6"/>
+    <SolidColorBrush x:Key="Cd.Blue"        Color="#3B7FD6"/>
+    <SolidColorBrush x:Key="Cd.Orange"      Color="#ED9626"/>
+    <SolidColorBrush x:Key="Cd.Teal"        Color="#2FB5A6"/>
+    <SolidColorBrush x:Key="Cd.Purple"      Color="#9A54C9"/>
+    <SolidColorBrush x:Key="Cd.Pink"        Color="#DB4F66"/>
+
+    <!-- Soft tints for discipline icon tiles (reference: pale squares behind glyphs) -->
+    <SolidColorBrush x:Key="Cd.BlueSoft"    Color="#E8F0FB"/>
+    <SolidColorBrush x:Key="Cd.OrangeSoft"  Color="#FDF1E2"/>
+    <SolidColorBrush x:Key="Cd.TealSoft"    Color="#E3F6F3"/>
+    <SolidColorBrush x:Key="Cd.PurpleSoft"  Color="#F2E9FA"/>
+    <SolidColorBrush x:Key="Cd.PinkSoft"    Color="#FBE8EC"/>
+
+    <!-- Positive / confidence -->
+    <SolidColorBrush x:Key="Cd.Green"       Color="#1E9E4A"/>
+    <SolidColorBrush x:Key="Cd.GreenFill"   Color="#E5F6EA"/>
+    <SolidColorBrush x:Key="Cd.GreenMid"    Color="#5BBA5F"/>
+
+    <!-- Gauge gradient (teal → blue, clockwise from top) -->
+    <Color x:Key="Cd.GaugeStartColor">#2FB5A6</Color>
+    <Color x:Key="Cd.GaugeEndColor">#3B7FD6</Color>
+    <LinearGradientBrush x:Key="Cd.GaugeGradient" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Color="#2FB5A6" Offset="0"/>
+        <GradientStop Color="#3B7FD6" Offset="1"/>
+    </LinearGradientBrush>
+
+    <!-- Typography -->
+    <FontFamily x:Key="Cd.Font">Segoe UI, Inter, system-ui, sans-serif</FontFamily>
+    <sys:Double x:Key="Cd.FontSize.Hero">40</sys:Double>
+    <sys:Double x:Key="Cd.FontSize.Metric">22</sys:Double>
+    <sys:Double x:Key="Cd.FontSize.Title">17</sys:Double>
+    <sys:Double x:Key="Cd.FontSize.Subhead">15</sys:Double>
+    <sys:Double x:Key="Cd.FontSize.Body">13</sys:Double>
+    <sys:Double x:Key="Cd.FontSize.Caption">11</sys:Double>
+    <FontWeight x:Key="Cd.FontWeight.Bold">Bold</FontWeight>
+    <FontWeight x:Key="Cd.FontWeight.SemiBold">SemiBold</FontWeight>
+    <FontWeight x:Key="Cd.FontWeight.Regular">Normal</FontWeight>
+
+    <!-- Shape -->
+    <CornerRadius x:Key="Cd.Radius.Card">12</CornerRadius>
+    <CornerRadius x:Key="Cd.Radius.Pill">999</CornerRadius>
+    <CornerRadius x:Key="Cd.Radius.Tile">9</CornerRadius>
+    <Thickness x:Key="Cd.Padding.Card">20,18</Thickness>
+    <Thickness x:Key="Cd.Padding.Page">14,12</Thickness>
+
+</ResourceDictionary>
