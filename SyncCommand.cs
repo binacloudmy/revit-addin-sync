@@ -181,6 +181,8 @@ namespace RevitWebAppSync
                         DisciplineType = options.SelectedDiscipline,
                         DocGuid = lineageId,
                         BaseVersion = options.BaseVersion,
+                        // Chosen in the dialog. Null means the filename decides, as before.
+                        TargetDesignId = options.TargetDesignId,
                         Comment = options.Comment,
                         ClientInfo = clientInfo,
                         LinkedFiles = linkedFiles,

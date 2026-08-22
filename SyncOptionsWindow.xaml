@@ -15,6 +15,7 @@
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -53,7 +54,18 @@
                       SelectionChanged="DisciplineCombo_SelectionChanged"/>
         </StackPanel>
 
+        <!-- Which file this version belongs to. Without it the filename decides, so a
+             model saved under any other name silently starts a separate history. -->
         <StackPanel Grid.Row="5" Margin="0,0,0,12">
+            <TextBlock Text="Sync into" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
+            <ComboBox x:Name="TargetCombo" Height="30" DisplayMemberPath="Label"
+                      SelectionChanged="TargetCombo_SelectionChanged"/>
+            <TextBlock x:Name="TargetHint"
+                       Foreground="#666666" FontSize="11" Margin="0,4,0,0"
+                       TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="6" Margin="0,0,0,12">
             <TextBlock Text="What changed? (optional)" FontWeight="SemiBold" Foreground="#333333" Margin="0,0,0,4"/>
             <TextBox x:Name="CommentBox" Height="64" MaxLength="500"
                      AcceptsReturn="True" TextWrapping="Wrap"
@@ -61,7 +73,7 @@
         </StackPanel>
 
         <!-- Server state: what BINA already holds for this model. -->
-        <Border Grid.Row="6" x:Name="HeadPanel"
+        <Border Grid.Row="7" x:Name="HeadPanel"
                 Background="White" BorderBrush="#CCCCCC" BorderThickness="1"
                 Padding="12" Visibility="Collapsed" VerticalAlignment="Top">
             <StackPanel>
@@ -70,10 +82,10 @@
             </StackPanel>
         </Border>
 
-        <TextBlock Grid.Row="7" x:Name="StatusText"
+        <TextBlock Grid.Row="8" x:Name="StatusText"
                    Foreground="#666666" Margin="0,10,0,0" TextWrapping="Wrap"/>
 
-        <StackPanel Grid.Row="8" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
+        <StackPanel Grid.Row="9" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,14,0,0">
             <Button x:Name="CancelButton" Content="Cancel" Width="100" Height="32"
                     Margin="0,0,10,0" Click="CancelButton_Click" IsCancel="True"/>
             <Button x:Name="SyncButton" Content="Sync" Width="120" Height="32"

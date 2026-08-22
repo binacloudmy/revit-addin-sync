@@ -39,6 +39,23 @@ namespace RevitWebAppSync
         /// <summary>Version this machine is basing its sync on; null when never synced.</summary>
         public int? BaseVersion { get; private set; }
 
+        /// <summary>
+        /// The chain this sync joins, or null to let the filename decide as before.
+        ///
+        /// This is what makes a model called anything at all the next version of an
+        /// existing file: without it the server matches on the filename, so a rename
+        /// — or a version downloaded as "model-v7.rvt" — starts a second history.
+        /// </summary>
+        public int? TargetDesignId { get; private set; }
+
+        /// <summary>A row in the "Sync into" list. A null DesignId is "start a new file".</summary>
+        private sealed class TargetChoice
+        {
+            public int? DesignId { get; set; }
+            public string Label { get; set; }
+            public string Name { get; set; }
+        }
+
         private sealed class DisciplineChoice
         {
             public string ApiValue { get; set; }
@@ -165,7 +182,7 @@ namespace RevitWebAppSync
 
                 SyncButton.IsEnabled = true;
 
-                await RefreshHeadAsync();
+                await LoadTargetsAsync();
             }
             catch (Exception ex)
             {
@@ -187,25 +204,126 @@ namespace RevitWebAppSync
         private async void FolderCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
         {
             if (_loading) return;
-            // The head is per lineage, and lineage includes the folder — so the
-            // "BINA already has v7" panel has to follow the folder choice.
+            // Both the target list and the head belong to a folder, so both follow it.
+            await LoadTargetsAsync();
+        }
+
+        private async void TargetCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            if (_loading) return;
+            await RefreshHeadAsync();
+        }
+
+        /// <summary>
+        /// The files already in the chosen folder, plus "new file".
+        ///
+        /// Defaulting matters more than the list: a drafter who never opens this
+        /// control must still land where they always did, so the default is the file
+        /// matching this document's name, and only "new file" when there is none.
+        /// </summary>
+        private async System.Threading.Tasks.Task LoadTargetsAsync()
+        {
+            var folder = FolderCombo.SelectedItem as BimFolder;
+            var choices = new List<TargetChoice>
+            {
+                new TargetChoice { DesignId = null, Label = "New file — " + _fileName, Name = _fileName }
+            };
+
+            if (folder != null)
+            {
+                try
+                {
+                    var page = await _api.GetDesignsAsync(SelectedProjectId, folder.Id, BimArea.Wip);
+                    var designs = page?.Designs ?? new List<BimDesign>();
+
+                    foreach (var design in designs)
+                    {
+                        if (design == null || string.IsNullOrEmpty(design.Name)) continue;
+                        choices.Add(new TargetChoice
+                        {
+                            DesignId = design.DesignId,
+                            Label = design.VersionNumber.HasValue
+                                ? design.Name + "  (v" + design.VersionNumber.Value + ")"
+                                : design.Name,
+                            Name = design.Name
+                        });
+                    }
+                }
+                catch
+                {
+                    // A list we cannot read must not block a sync: "new file" alone still
+                    // reproduces the behaviour every earlier version of this plugin had.
+                }
+            }
+
+            _loading = true;
+            try
+            {
+                TargetCombo.ItemsSource = choices;
+
+                // Same file name as this document => same file, which is what the
+                // server would have concluded on its own.
+                var match = choices.FirstOrDefault(choice =>
+                    choice.DesignId.HasValue &&
+                    string.Equals(choice.Name, _fileName, StringComparison.OrdinalIgnoreCase));
+
+                TargetCombo.SelectedItem = match ?? choices[0];
+            }
+            finally
+            {
+                _loading = false;
+            }
+
             await RefreshHeadAsync();
         }
 
         private async System.Threading.Tasks.Task RefreshHeadAsync()
         {
+            // Cleared BEFORE the call, not just after a failure. BaseVersion is the
+            // number the server compares the head against on commit, and it belongs
+            // to one folder: carrying the previous folder's number into a new one
+            // makes the server answer "someone else synced first" when nobody did.
+            // Until this call succeeds we have no basis for that claim.
+            BaseVersion = null;
+
+            var target = TargetCombo.SelectedItem as TargetChoice;
+            TargetDesignId = target?.DesignId;
+
+            // Adding to an existing file under a different local name is the case the
+            // filename can never express, so say so plainly before they commit.
+            if (target != null && target.DesignId.HasValue &&
+                !string.Equals(target.Name, _fileName, StringComparison.OrdinalIgnoreCase))
+            {
+                TargetHint.Text =
+                    "This model will be added to \"" + target.Name +
+                    "\" as its next version. BINA keeps the file under the name you upload.";
+            }
+            else if (target != null && !target.DesignId.HasValue)
+            {
+                TargetHint.Text = "Starts a new file and its own version history.";
+            }
+            else
+            {
+                TargetHint.Text = string.Empty;
+            }
+
             try
             {
                 var head = await _api.GetHeadAsync(
                     SelectedProjectId, _docGuid, _fileName,
-                    (FolderCombo.SelectedItem as BimFolder)?.Id);
+                    (FolderCombo.SelectedItem as BimFolder)?.Id,
+                    TargetDesignId);
                 BaseVersion = head?.Version;
                 ShowHead(head);
             }
             catch
             {
-                // A head we cannot read is not worth blocking the sync over; the
-                // server re-checks the version on commit regardless.
+                // A head we cannot read is not worth blocking the sync over, and
+                // the server re-checks on commit regardless — but it checks against
+                // BaseVersion, so that has to stay null rather than keep a stale
+                // number. Null means "do not assert a base", which the server
+                // honours; the version is still computed server-side and the
+                // uniqueness indexes still refuse a genuine double-write.
                 HeadPanel.Visibility = Visibility.Collapsed;
             }
         }

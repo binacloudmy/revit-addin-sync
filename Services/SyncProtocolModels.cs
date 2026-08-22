@@ -191,6 +191,12 @@ namespace RevitWebAppSync.Services
         public string FileHash { get; set; }
         public string DocGuid { get; set; }
         public int? BaseVersion { get; set; }
+
+        /// <summary>
+        /// Add this upload to the chain that design belongs to, whatever the file is
+        /// called locally. Null keeps the old behaviour, where the filename decides.
+        /// </summary>
+        public int? TargetDesignId { get; set; }
     }
 
     public class SyncInitResponse

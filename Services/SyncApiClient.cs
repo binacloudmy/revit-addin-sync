@@ -198,12 +198,17 @@ namespace RevitWebAppSync.Services
         }
 
         /// <summary>Server's current version for this lineage; null if never synced.</summary>
-        public async Task<SyncHead> GetHeadAsync(int projectId, string docGuid, string fileName, int? parentId)
+        public async Task<SyncHead> GetHeadAsync(
+            int projectId, string docGuid, string fileName, int? parentId, int? targetDesignId = null)
         {
             var query = new List<string> { $"projectId={projectId}" };
             if (!string.IsNullOrEmpty(docGuid)) query.Add($"docGuid={Uri.EscapeDataString(docGuid)}");
             if (!string.IsNullOrEmpty(fileName)) query.Add($"name={Uri.EscapeDataString(fileName)}");
             if (parentId.HasValue) query.Add($"parentId={parentId.Value}");
+            // With a target the server answers for THAT chain, so the version shown —
+            // and the baseVersion committed against — belong to the file being written
+            // to rather than to whatever shares this document's name.
+            if (targetDesignId.HasValue) query.Add($"targetDesignId={targetDesignId.Value}");
 
             string url = $"{_baseUrl}/api/cloud-docs/bim-discipline/sync/head?{string.Join("&", query)}";
             using (var resp = await _http.GetAsync(url).ConfigureAwait(false))

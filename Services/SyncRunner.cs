@@ -25,6 +25,8 @@ namespace RevitWebAppSync.Services
             public string DisciplineType { get; set; }
             public string DocGuid { get; set; }
             public int? BaseVersion { get; set; }
+            /// <summary>Chain to version onto; null lets the filename decide.</summary>
+            public int? TargetDesignId { get; set; }
             public string Comment { get; set; }
             public SyncClientInfo ClientInfo { get; set; }
             public List<LinkedFileInfo> LinkedFiles { get; set; }
@@ -69,7 +71,8 @@ namespace RevitWebAppSync.Services
                     FileSize = fileInfo.Length,
                     FileHash = fileHash,
                     DocGuid = req.DocGuid,
-                    BaseVersion = req.BaseVersion
+                    BaseVersion = req.BaseVersion,
+                    TargetDesignId = req.TargetDesignId
                 }).ConfigureAwait(false);
 
                 // The server already holds these exact bytes. Uploading a
@@ -130,6 +133,7 @@ namespace RevitWebAppSync.Services
                     FileHash = fileHash,
                     DocGuid = req.DocGuid,
                     BaseVersion = req.BaseVersion,
+                    TargetDesignId = req.TargetDesignId,
                     // Server-issued: the add-in no longer invents object keys.
                     FileKey = init.FileKey,
                     SyncSessionId = syncSessionId,
