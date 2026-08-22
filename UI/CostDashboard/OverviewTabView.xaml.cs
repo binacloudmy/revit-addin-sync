@@ -81,6 +81,7 @@ namespace RevitWebAppSync.UI.CostDashboard
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
@@ -134,6 +135,24 @@ namespace RevitWebAppSync.UI.CostDashboard
             Grid.SetColumn(right, 2);
             grid.Children.Add(right);
 
+            // Chevron affordance (tap to open levels) — faint grey, far right
+            var chevron = new Path
+            {
+                Data = Geometry.Parse("M9,6 15,12 9,18"),
+                Stroke = (Brush)FindResource("Cd.TextMuted"),
+                StrokeThickness = 1.6,
+                StrokeStartLineCap = PenLineCap.Round,
+                StrokeEndLineCap = PenLineCap.Round,
+                StrokeLineJoin = PenLineJoin.Round,
+                Stretch = Stretch.Uniform,
+                Width = 8,
+                Height = 16,
+                VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(8, 0, 0, 0),
+            };
+            Grid.SetColumn(chevron, 3);
+            grid.Children.Add(chevron);
+
             // Progress bar spanning the two left columns
             var bar = new ProgressBar
             {
@@ -174,7 +193,7 @@ namespace RevitWebAppSync.UI.CostDashboard
                            "M22,12 C22,15 19,16 17,14 L15,12 L17,10 C19,8 22,9 22,12 Z " +
                            "M12,22 C9,22 8,19 10,17 L12,15 L14,17 C16,19 15,22 12,22 Z " +
                            "M2,12 C2,9 5,8 7,10 L9,12 L7,14 C5,16 2,15 2,12 Z";
-                case "Plumbing & sanitary":
+                case "Plumbing & Sanitary":
                     // Droplet
                     return "M12,2 C12,2 5,10 5,15 A7,7 0 0 0 19,15 C19,10 12,2 12,2 Z";
                 case "Electrical":
