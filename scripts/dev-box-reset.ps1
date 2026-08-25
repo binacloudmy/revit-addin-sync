@@ -1,4 +1,4 @@
-# dev-box-reset.ps1 — one command to put a Revit box into a KNOWN addin state.
+﻿# dev-box-reset.ps1 — one command to put a Revit box into a KNOWN addin state.
 #
 # Born from the 2026-08-18 archaeology session: the fleet loader
 # (BinaSync.addin) and the dev build silently sabotage each other (the
@@ -165,7 +165,10 @@ Write-Host "config.json reset for $Mode (tokens preserved): $configPath"
 if ($Mode -ne "Production") {
     Write-Host "building -c Staging (staging auth/login; DevColocate overrides AI to the local engine)..."
     Push-Location $repo
-    dotnet build RevitWebAppSync.csproj -c Staging
+    # ErrorsOnly: CS/NU warnings go to STDOUT, so a 3>/6> redirect at the
+    # call site cannot silence them — only the console logger can. -tl:off
+    # is required on dotnet 9+, where the terminal logger ignores -clp.
+    dotnet build RevitWebAppSync.csproj -c Staging --nologo -tl:off -clp:ErrorsOnly
     if ($LASTEXITCODE -ne 0) { Pop-Location; throw "build failed" }
     Pop-Location
 }
