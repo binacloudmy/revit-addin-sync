@@ -405,6 +405,11 @@ namespace RevitWebAppSync
             // install) and a pre-existing one that predates this field.
             cfg.ApplyDefaults();
 
+            // Repairs that must reach ALREADY-configured boxes, which
+            // ApplyDefaults' one-time gate can never touch. Every load,
+            // idempotent, writes only on an actual change — see ApplyHeals.
+            cfg.ApplyHeals();
+
             return cfg;
         }
 
@@ -453,20 +458,10 @@ namespace RevitWebAppSync
                 EngineAutoSpawn = true;
             }
 
-            // Heal hand-configured boxes (2026-08-19). The block above only
-            // runs when EngineMode is FALSE — every UAT machine set up
-            // manually per the Phases 1-3 docs ({"EngineMode": true, ...},
-            // start-engine.ps1 era) skips it, so EngineAutoSpawn stays at its
-            // false default and the add-in NEVER spawns the engine. Those
-            // boxes only worked while someone re-ran start-engine.ps1 each
-            // session; otherwise every turn died with "connection refused
-            // localhost:48810". If a bundle is installed, a manual EngineMode
-            // config earns auto-spawn too.
-            if (EngineMode && !EngineAutoSpawn &&
-                !string.IsNullOrEmpty(Services.EngineManager.NewestEngineLauncher()))
-            {
-                EngineAutoSpawn = true;
-            }
+            // (The hand-configured-box heal that used to sit here moved to
+            // ApplyHeals — it was unreachable on exactly the machines it
+            // targeted, because they all have AutoConfiguredAt set and return
+            // at the top of this method.)
 
             // Once Engine mode is on, AI calls must target the local engine,
             // not the cloud. Only steer AIBaseUrl away from blank or an
@@ -479,6 +474,81 @@ namespace RevitWebAppSync
 
             AutoConfiguredAt = DateTime.UtcNow;
             Save();
+        }
+
+        /// <summary>
+        /// Self-heal pass for configs that ApplyDefaults can never reach.
+        /// ApplyDefaults is one-shot (AutoConfiguredAt gate), so a repair added
+        /// to it only ever lands on machines configured AFTER the repair
+        /// shipped — the opposite of who needs it. The 2026-08-19 auto-spawn
+        /// heal was written for hand-configured Phase 1-3 UAT boxes
+        /// ({"EngineMode": true, "EngineAutoSpawn": false}) and reached none of
+        /// them: they were all stamped weeks earlier, so every turn kept dying
+        /// with "stream connect failed: … refused (localhost:48810)".
+        ///
+        /// This runs on EVERY Load. Rules for anything added here:
+        ///   - idempotent and self-terminating — the condition must be false
+        ///     once healed, so the disk probes below stop running;
+        ///   - only fills blank/missing/incoherent values, never overrides a
+        ///     deliberate user setting;
+        ///   - writes only when something actually changed (a Save on every
+        ///     Load would rewrite config.json on every tool-loop turn).
+        /// </summary>
+        private void ApplyHeals()
+        {
+            var changed = false;
+
+            // Engine mode with no port is incoherent; the rest of the block
+            // (and AIBaseUrl) depend on a real port.
+            if (EngineMode && EngineHostPort <= 0)
+            {
+                EngineHostPort = 48810;
+                changed = true;
+            }
+
+            // App.cs refuses to start the local tool server — and therefore
+            // the engine — on a blank secret, so a config that lost it is
+            // permanently dead in engine mode. Both sides read this one value.
+            if (EngineMode && string.IsNullOrWhiteSpace(EngineSecret))
+            {
+                EngineSecret = GenerateEngineSecret();
+                changed = true;
+            }
+
+            // The original heal: EngineMode true + a bundle installed on disk
+            // earns auto-spawn. Without it App.cs:173 returns before ever
+            // constructing an EngineManager, nothing listens on the engine
+            // port, and every turn dials a closed socket.
+            if (EngineMode && !EngineAutoSpawn &&
+                !string.IsNullOrEmpty(Services.EngineManager.NewestEngineLauncher()))
+            {
+                EngineAutoSpawn = true;
+                changed = true;
+            }
+
+            // A spawned engine with no gateway has no cloud path at all
+            // (BINA_GATEWAY_URL empty — app/engine/config.py). Take the
+            // installer-carried default if one is sitting next to the DLLs.
+            if (EngineMode && string.IsNullOrWhiteSpace(GatewayUrl))
+            {
+                var fromDefaultsFile = ReadGatewayUrlFromDefaultsFile();
+                if (!string.IsNullOrWhiteSpace(fromDefaultsFile))
+                {
+                    GatewayUrl = fromDefaultsFile;
+                    changed = true;
+                }
+            }
+
+            // Engine mode pointing at a cloud host never reaches the local
+            // engine. Same guard as ApplyDefaults — a custom localhost value a
+            // developer set is left alone.
+            if (EngineMode && IsBlankOrCloudDefault(AIBaseUrl))
+            {
+                AIBaseUrl = "http://localhost:" + EngineHostPort;
+                changed = true;
+            }
+
+            if (changed) Save();
         }
 
         private static bool IsBlankOrCloudDefault(string url)

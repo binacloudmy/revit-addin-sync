@@ -55,6 +55,16 @@ namespace RevitWebAppSync.Services
         private readonly string _secret;
         private Process _proc;
 
+        // Provider keys stripped from the engine's environment in gateway mode
+        // (see the spawn path). MUST stay in sync with _PROVIDER_KEY_ENVS in
+        // bina-ai's app/engine/config.py — that list is what the engine's
+        // poison-pill checks, and a key we miss here still bricks the start.
+        private static readonly string[] ProviderKeyEnvs =
+        {
+            "DEEPSEEK_API_KEY", "OPENAI_API_KEY",
+            "AZURE_OPENAI_API_KEY", "GATEWAY_UPSTREAM_KEY",
+        };
+
         // Crash watchdog state. _respawns/_healthySince are only mutated while
         // holding _gate (single-flight), so no interlocked ops needed.
         private int _respawns;
@@ -184,6 +194,33 @@ namespace RevitWebAppSync.Services
                     cfg.ResolvedGatewayUrl.TrimEnd('/') + "/gateway/langfuse";
                 psi.Environment["LANGFUSE_PUBLIC_KEY"] = cfg.DeviceToken;
                 psi.Environment["LANGFUSE_SECRET_KEY"] = "engine";
+            }
+
+            // Poison-pill compatibility (2026-08-25). The engine refuses to
+            // start when a provider key is visible in its environment AND a
+            // gateway is configured — app/engine/config.py's
+            // assert_no_provider_keys, enforcing the colocate invariant that a
+            // gateway-configured desktop must never hold keys that let it
+            // bypass the gateway and talk to a provider directly.
+            //
+            // Process.Start hands the child OUR environment, so any
+            // user- or machine-scope OPENAI_API_KEY on the box (a developer's
+            // shell key, a leftover from the pre-gateway dev path) reached the
+            // engine and killed every start with "engine refuses to start:
+            // provider key(s) present on a gateway-configured machine".
+            //
+            // Strip them from the CHILD environment only. The engine then
+            // genuinely holds no provider credentials — which is what the pill
+            // is protecting — while the key stays available to everything else
+            // on the machine. Same posture as the Langfuse block above: the
+            // engine authenticates to the gateway, never to a provider.
+            if (!string.IsNullOrEmpty(cfg.ResolvedGatewayUrl))
+            {
+                foreach (var key in ProviderKeyEnvs)
+                {
+                    if (psi.Environment.Remove(key))
+                        Debug.WriteLine("[BINA] stripped " + key + " from engine env (gateway mode).");
+                }
             }
 
             Status = "starting";
