@@ -1,448 +1,1077 @@
 <UserControl x:Class="RevitWebAppSync.UI.JkrComplianceDashboardPanel"
-      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-      xmlns:jkr="clr-namespace:RevitWebAppSync.UI.Jkr"
-      xmlns:ctl="clr-namespace:RevitWebAppSync.UI.Jkr.Controls"
-      Background="#F7F6F3" FontFamily="Segoe UI" Focusable="True">
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:jkr="clr-namespace:RevitWebAppSync.UI.Jkr"
+             xmlns:vm="clr-namespace:RevitWebAppSync.UI.Jkr.ViewModels"
+             Background="{StaticResource JkrCopilot.Bg}"
+             FontFamily="{StaticResource Font.Sans}"
+             Foreground="{StaticResource JkrCopilot.Ink}"
+             Focusable="True"
+             UseLayoutRounding="True" SnapsToDevicePixels="True">
 
     <UserControl.Resources>
-        <ResourceDictionary>
-            <ResourceDictionary.MergedDictionaries>
-                <ResourceDictionary Source="Jkr/Tokens.xaml"/>
-                <ResourceDictionary Source="Jkr/Styles.xaml"/>
-            </ResourceDictionary.MergedDictionaries>
+        <!-- ── S2 scan bar animation (dc.html scan 1.4s linear infinite) ── -->
+        <Storyboard x:Key="ScanBarAnim" RepeatBehavior="Forever" AutoReverse="False">
+            <DoubleAnimation Storyboard.TargetName="ScanBarXForm" Storyboard.TargetProperty="X"
+                             From="-140" To="420" Duration="0:0:1.4"/>
+        </Storyboard>
 
-            <jkr:BoolToVisibilityConverter x:Key="B2V"/>
-            <jkr:NonEmptyStringToVisibilityConverter x:Key="StrVis"/>
-            <jkr:CountGtZeroConverter x:Key="GtZero"/>
+        <!-- ── Copilot converters ── -->
+        <jkr:HexToBrushConverter x:Key="Hex"/>
+        <jkr:BoolToVisibilityConverter x:Key="B2V"/>
+        <jkr:NonEmptyStringToVisibilityConverter x:Key="NonEmpty"/>
+        <jkr:EqualsParamConverter x:Key="EqP"/>
+        <jkr:EqualsToVisConverter x:Key="EqVis"/>
+        <jkr:IntEqualsToVisConverter x:Key="IntEqVis"/>
+        <jkr:BoolToGlyphConverter x:Key="Glyph"/>
+        <jkr:RuleStatusConverter x:Key="RuleStatus"/>
+        <jkr:PctToStarConverter x:Key="PctStar"/>
 
-            <!-- Chromeless button so the severity pills are reliably clickable
-                 (MouseLeftButtonUp on the nested PillStat UserControl was unreliable). -->
-            <Style x:Key="SevPillBtn" TargetType="Button">
-                <Setter Property="Cursor" Value="Hand"/>
-                <Setter Property="Background" Value="Transparent"/>
-                <Setter Property="BorderThickness" Value="0"/>
-                <Setter Property="Padding" Value="0"/>
-                <Setter Property="Template">
-                    <Setter.Value>
-                        <ControlTemplate TargetType="Button">
-                            <Border Background="Transparent">
-                                <ContentPresenter/>
-                            </Border>
-                        </ControlTemplate>
-                    </Setter.Value>
-                </Setter>
-            </Style>
-        </ResourceDictionary>
+        <!-- ── Header icon button ── -->
+        <Style x:Key="CpHdrBtn" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink2}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Width" Value="34"/>
+            <Setter Property="Height" Value="34"/>
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource JkrCopilot.Soft}"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.35"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- ── S1 lang / small pill ── -->
+        <Style x:Key="CpPill" TargetType="Button">
+            <Setter Property="Background" Value="#FFFFFF"/>
+            <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink}"/>
+            <Setter Property="Padding" Value="12,6"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{StaticResource JkrCopilot.Line}"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{StaticResource JkrCopilot.SoftTint}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- BM / EN selected pill: bg #EDF1F6 border #1F3A5F fg #16293F (dc.html:122) -->
+        <Style x:Key="CpPillBM" TargetType="Button" BasedOn="{StaticResource CpPill}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding ReportLanguage, Converter={StaticResource EqP}, ConverterParameter=BM}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource JkrCopilot.Surf3}"/>
+                    <Setter Property="BorderBrush" Value="{StaticResource JkrCopilot.Navy}"/>
+                    <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink2}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="CpPillEN" TargetType="Button" BasedOn="{StaticResource CpPill}">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding ReportLanguage, Converter={StaticResource EqP}, ConverterParameter=EN}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource JkrCopilot.Surf3}"/>
+                    <Setter Property="BorderBrush" Value="{StaticResource JkrCopilot.Navy}"/>
+                    <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink2}"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- ── Group card : header + collapsible rules ── -->
+        <DataTemplate x:Key="GroupCard">
+            <Border Margin="0,0,0,6" Background="{StaticResource JkrCopilot.Surf}"
+                    BorderBrush="{StaticResource JkrCopilot.Line}" BorderThickness="1" CornerRadius="10">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="2"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <!-- severity rail (red for ai groups) -->
+                    <Border Grid.Column="0" Width="2" Background="{StaticResource JkrCopilot.Danger}"
+                            Margin="0,10,0,10"/>
+                    <StackPanel Grid.Column="1" Margin="12,10,12,10">
+                        <Button Click="GroupHeader_Click" Tag="{Binding Item}" Background="Transparent"
+                                BorderThickness="0" Cursor="Hand" HorizontalContentAlignment="Left" Padding="0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="{Binding Item}" MinWidth="30"
+                                           FontFamily="{StaticResource Font.Mono}" FontSize="13" FontWeight="Bold"
+                                           Foreground="{StaticResource JkrCopilot.Navy}" VerticalAlignment="Center"/>
+                                <StackPanel Grid.Column="1" Margin="7,0,8,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Name}" FontSize="12.5" FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Margin="0,2,0,0" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                               Foreground="{StaticResource JkrCopilot.Muted}">
+                                        <Run Text="{Binding Cells, StringFormat={}{0:N0} cells}"/>
+                                        <Run Text=" · "/>
+                                        <Run Text="{Binding Rows, StringFormat={}{0} rows}"/>
+                                        <Run Text=" · "/>
+                                        <Run Text="{Binding SecName}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                                <TextBlock Grid.Column="2" FontSize="13"
+                                           Foreground="{StaticResource JkrCopilot.Muted}"
+                                           Text="{Binding IsOpen, Converter={StaticResource Glyph}}"
+                                           VerticalAlignment="Center"/>
+                            </Grid>
+                        </Button>
+
+                        <ItemsControl ItemsSource="{Binding Rules}" Margin="0,8,0,0"
+                                      Visibility="{Binding IsOpen, Converter={StaticResource B2V}}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,6" Padding="8,6" CornerRadius="8"
+                                            Background="{StaticResource JkrCopilot.Soft}"
+                                            BorderBrush="{StaticResource JkrCopilot.Line4}" BorderThickness="1">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="2"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="0" Width="2" Background="{StaticResource JkrCopilot.Danger}">
+                                                <Border.Style>
+                                                    <Style TargetType="Border">
+                                                        <Setter Property="Background" Value="{StaticResource JkrCopilot.Manual}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Kind}" Value="ai">
+                                                                <Setter Property="Background" Value="{StaticResource JkrCopilot.Danger}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Border.Style>
+                                            </Border>
+
+                                            <Button Grid.Column="1" Click="RuleRow_Click" Tag="{Binding}"
+                                                    Background="Transparent" BorderThickness="0" Padding="10,0,6,0"
+                                                    HorizontalContentAlignment="Left" Cursor="Hand">
+                                                <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold"
+                                                           TextTrimming="CharacterEllipsis"/>
+                                            </Button>
+
+                                            <!-- status tag -->
+                                            <Border Grid.Column="2" Padding="8,3" CornerRadius="999"
+                                                    BorderThickness="1" VerticalAlignment="Center">
+                                                <Border.Background>
+                                                    <MultiBinding Converter="{StaticResource RuleStatus}">
+                                                        <Binding/>
+                                                        <Binding Path="DataContext.ActiveCopilotTab"
+                                                                 RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                                    </MultiBinding>
+                                                </Border.Background>
+                                                <Border.BorderBrush>
+                                                    <MultiBinding Converter="{StaticResource RuleStatus}">
+                                                        <Binding/>
+                                                        <Binding Path="DataContext.ActiveCopilotTab"
+                                                                 RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                                    </MultiBinding>
+                                                </Border.BorderBrush>
+                                                <TextBlock FontFamily="{StaticResource Font.Mono}" FontSize="10"
+                                                           FontWeight="Bold">
+                                                    <TextBlock.Foreground>
+                                                        <MultiBinding Converter="{StaticResource RuleStatus}" ConverterParameter="fg">
+                                                            <Binding/>
+                                                            <Binding Path="DataContext.ActiveCopilotTab"
+                                                                     RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                                        </MultiBinding>
+                                                    </TextBlock.Foreground>
+                                                    <TextBlock.Text>
+                                                        <MultiBinding Converter="{StaticResource RuleStatus}" ConverterParameter="text">
+                                                            <Binding/>
+                                                            <Binding Path="DataContext.ActiveCopilotTab"
+                                                                     RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                                        </MultiBinding>
+                                                    </TextBlock.Text>
+                                                </TextBlock>
+                                            </Border>
+
+                                            <Button Grid.Column="3" Content="⚡ Fix" Click="RuleFix_Click"
+                                                    Tag="{Binding}" Margin="8,0,0,0" Padding="9,4" FontSize="11"
+                                                    FontWeight="SemiBold" Foreground="White" Cursor="Hand"
+                                                    Background="{StaticResource JkrCopilot.Success}" BorderThickness="0"
+                                                    Visibility="{Binding From, Converter={StaticResource NonEmpty}}"
+                                                    VerticalAlignment="Center"/>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </DataTemplate>
     </UserControl.Resources>
 
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="26"/>    <!-- Title bar -->
-            <RowDefinition Height="Auto"/>  <!-- Hero -->
-            <RowDefinition Height="Auto"/>  <!-- Category nav -->
-            <RowDefinition Height="Auto"/>  <!-- Tabs -->
-            <RowDefinition Height="*"/>     <!-- Issues list -->
-            <RowDefinition Height="Auto"/>  <!-- Footer -->
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <!-- ═══════════ 0. Title bar ═══════════ -->
-        <Border Grid.Row="0" Background="{StaticResource NavyAlt}">
-            <Grid>
-                <TextBlock Text="BINA JKR Compliance" Foreground="White"
-                           FontSize="11" FontWeight="Medium" VerticalAlignment="Center"
-                           Margin="10,0,0,0" FontFamily="{StaticResource Font.Sans}"/>
-                <Button x:Name="CloseBtn" HorizontalAlignment="Right" Width="26" Height="26"
-                        Background="Transparent" BorderThickness="0" Cursor="Hand"
-                        Foreground="#B9CBDD" Click="CloseBtn_Click">
-                    <Button.Template>
-                        <ControlTemplate TargetType="Button">
-                            <Border x:Name="bd" Background="{TemplateBinding Background}">
-                                <TextBlock Text="×" FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                           Foreground="{TemplateBinding Foreground}"/>
-                            </Border>
-                            <ControlTemplate.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="bd" Property="Background" Value="#26FFFFFF"/>
-                                </Trigger>
-                            </ControlTemplate.Triggers>
-                        </ControlTemplate>
-                    </Button.Template>
+        <!-- ══════════ SHARED HEADER ══════════ -->
+        <Border Grid.Row="0" Background="{StaticResource JkrCopilot.Surf}"
+                BorderBrush="{StaticResource JkrCopilot.Line}" BorderThickness="0,0,0,1">
+            <Grid Margin="12,8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <Button Grid.Column="0" x:Name="BackBtn" Style="{StaticResource CpHdrBtn}"
+                        Content="←" Click="Back_Click" ToolTip="Back"/>
+
+                <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" ClipToBounds="True">
+                    <StackPanel Orientation="Horizontal">
+                        <!-- 5×26 navy accent (dc.html:54) -->
+                        <Border Width="5" Height="26" CornerRadius="4" Background="{StaticResource JkrCopilot.Navy}"
+                                VerticalAlignment="Center"/>
+                        <TextBlock Text="Model Audit · BIM 010" Margin="8,0,0,0" FontSize="12.5" FontWeight="SemiBold"
+                                   VerticalAlignment="Center"/>
+                        <!-- EN/BM tag (dc.html:59) -->
+                        <TextBlock Text="{Binding ReportLanguage}" Margin="8,0,0,0"
+                                   FontFamily="{StaticResource Font.Mono}" FontSize="10"
+                                   Foreground="{StaticResource JkrCopilot.Muted}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock Text="{Binding Filename}" FontFamily="{StaticResource Font.Mono}" FontSize="10"
+                               Foreground="{StaticResource JkrCopilot.Muted}" Margin="13,3,0,0"
+                               TextTrimming="CharacterEllipsis" MaxWidth="280"/>
+                </StackPanel>
+
+                <Button Grid.Column="2" Style="{StaticResource CpHdrBtn}"
+                        Click="Density_Click">
+                    <Button.ToolTip>
+                        <Binding Path="DensityTooltip" RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                    </Button.ToolTip>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="A" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding DensityLabel, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                   FontSize="11" Margin="4,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
                 </Button>
+
+                <Button Grid.Column="3" Content="⟲" Style="{StaticResource CpHdrBtn}"
+                        Click="Zoom_Click" Visibility="{Binding CanZoom, Converter={StaticResource B2V}}"
+                        ToolTip="Open in a bigger window"/>
+
+                <Button Grid.Column="4" Content="🗀" Style="{StaticResource CpHdrBtn}"
+                        Click="Menu_Click" ToolTip="Export"/>
             </Grid>
         </Border>
 
-        <!-- ═══════════ 1. Hero header (navy) ═══════════ -->
-        <Border Grid.Row="1" Background="{StaticResource Navy}" Padding="16,12,16,14">
-            <StackPanel>
-                <!-- Row A: logo + title -->
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Border Width="26" Height="26" CornerRadius="6" Background="{StaticResource Jkr.LogoGradient}">
-                            <TextBlock Text="JKR" Foreground="White" FontWeight="Black" FontSize="10.5"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                                       FontFamily="{StaticResource Font.Sans}"/>
-                        </Border>
-                        <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
-                            <TextBlock Text="JKR BIM Compliance" Foreground="{StaticResource Peach}"
-                                       FontSize="13.5" FontWeight="SemiBold"
-                                       FontFamily="{StaticResource Font.Sans}"/>
-                            <TextBlock x:Name="FilenameText" Text="(no model)"
-                                       Foreground="{StaticResource NavySubtle}"
-                                       FontSize="10.5" Margin="0,1,0,0"
-                                       FontFamily="{StaticResource Font.Mono}"
-                                       TextTrimming="CharacterEllipsis"
-                                       MaxWidth="250"/>
-                        </StackPanel>
-                    </StackPanel>
-                </Grid>
+        <!-- ══════════ BODY ══════════ -->
+        <Grid Grid.Row="1">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
 
-                <!-- Row A2: LOD + Discipline + Re-scan. WrapPanel so Re-scan wraps to a
-                     second line at narrow dock widths instead of clipping off-screen. -->
-                <WrapPanel Margin="0,8,0,0" Orientation="Horizontal">
-                    <!-- LOD level selector -->
-                    <Border Background="#26FFFFFF" CornerRadius="6" Padding="8,4,4,4" Margin="0,0,8,8"
-                            VerticalAlignment="Center" ToolTip="Level of Development target">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="LOD" Foreground="White" FontSize="11" FontWeight="SemiBold"
-                                       VerticalAlignment="Center" Margin="0,0,8,0"
-                                       FontFamily="{StaticResource Font.Sans}"/>
-                            <ComboBox x:Name="LodCombo" Width="72" Height="26" FontSize="14"
-                                      Foreground="#0F1A33" Background="White" BorderThickness="0"
-                                      FontWeight="Bold"
-                                      VerticalContentAlignment="Center"
-                                      Padding="8,0,4,0"
-                                      FontFamily="{StaticResource Font.Mono}"/>
+            <!-- content: S1 / S2 / (S3|S5 hero) + shared list / S6 -->
+            <Grid Grid.Row="0">
+                <!-- ─── S1 START ─── -->
+                <ScrollViewer Visibility="{Binding IsS1, Converter={StaticResource B2V}}"
+                              VerticalScrollBarVisibility="Auto" Style="{StaticResource ThinScrollBar}">
+                    <StackPanel Margin="16,16" MaxWidth="440" HorizontalAlignment="Center">
+
+                        <!-- already read from Revit (dc.html:72-88) -->
+                        <Border Margin="0,12,0,0" Padding="14" CornerRadius="6"
+                                Background="{StaticResource JkrCopilot.Soft}">
+                            <StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="✓" FontSize="12" FontWeight="Bold"
+                                               Foreground="{StaticResource JkrCopilot.Success}"/>
+                                    <TextBlock Text="ALREADY READ FROM REVIT" Margin="7,1,0,0"
+                                               FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                               FontWeight="SemiBold" Foreground="{StaticResource JkrCopilot.Success}"/>
+                                </StackPanel>
+                                <Grid Margin="0,10,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="56"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="File" FontFamily="{StaticResource Font.Mono}" FontSize="9.5" Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                    <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding Filename}" FontFamily="{StaticResource Font.Mono}" FontSize="11" Foreground="{StaticResource JkrCopilot.Ink}" TextTrimming="CharacterEllipsis"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Project" Margin="0,5,0,0" FontFamily="{StaticResource Font.Mono}" FontSize="9.5" Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                    <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,5,0,0" FontFamily="{StaticResource Font.Mono}" FontSize="11" Foreground="{StaticResource JkrCopilot.Ink}"
+                                               Text="{Binding AuditProject, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Model" Margin="0,5,0,0" FontFamily="{StaticResource Font.Mono}" FontSize="9.5" Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                    <TextBlock Grid.Row="2" Grid.Column="1" FontFamily="{StaticResource Font.Mono}" FontSize="11" Foreground="{StaticResource JkrCopilot.Ink}" Margin="0,5,0,0"
+                                               Text="{Binding AuditModel, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                                    <TextBlock Grid.Row="3" Grid.Column="0" Text="Date" Margin="0,5,0,0" FontFamily="{StaticResource Font.Mono}" FontSize="9.5" Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                    <TextBlock Grid.Row="3" Grid.Column="1" FontFamily="{StaticResource Font.Mono}" FontSize="11" Foreground="{StaticResource JkrCopilot.Ink}" Margin="0,5,0,0"
+                                               Text="{Binding AuditDate, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- 01 How complete is it? (dc.html:92-116) -->
+                        <StackPanel Margin="0,18,0,0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="01" FontFamily="{StaticResource Font.Mono}" FontSize="11.5" FontWeight="Bold"
+                                           Foreground="{StaticResource JkrCopilot.Navy}"/>
+                                <TextBlock Text="How complete is it?" Margin="9,0,0,0" FontSize="15" FontWeight="SemiBold"/>
+                            </StackPanel>
+                            <TextBlock Text="Describe the model as it stands today. This is what decides which parameters count as mandatory, so nothing is chosen for you."
+                                       Margin="0,8,0,0" FontSize="11.5" Foreground="{StaticResource JkrCopilot.Muted}" TextWrapping="Wrap"/>
+                            <ItemsControl ItemsSource="{Binding Lods.Values}" Margin="0,10,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Margin="0,0,0,5" CornerRadius="6" BorderThickness="1"
+                                                Background="{StaticResource JkrCopilot.Surf}"
+                                                BorderBrush="{StaticResource JkrCopilot.Line}">
+                                            <Button Tag="{Binding Level}" Click="Phase_Click" Cursor="Hand"
+                                                    Background="Transparent" BorderThickness="0" Padding="11,10"
+                                                    HorizontalContentAlignment="Left">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <!-- 14px radio dot -->
+                                                    <Border Grid.Column="0" Width="14" Height="14" CornerRadius="7"
+                                                            BorderBrush="{StaticResource JkrCopilot.Dash}" BorderThickness="1.5"
+                                                            VerticalAlignment="Top" Margin="0,2,0,0">
+                                                        <Ellipse Width="8" Height="8" Fill="{StaticResource JkrCopilot.Navy}">
+                                                            <Ellipse.Visibility>
+                                                                <MultiBinding Converter="{StaticResource IntEqVis}">
+                                                                    <Binding Path="Level"/>
+                                                                    <Binding Path="DataContext.SelectedLodLevel"
+                                                                             RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                                                </MultiBinding>
+                                                            </Ellipse.Visibility>
+                                                        </Ellipse>
+                                                    </Border>
+                                                    <StackPanel Grid.Column="1" Margin="11,0,8,0">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Text="{Binding Level}" FontFamily="{StaticResource Font.Mono}"
+                                                                       FontSize="11.5" FontWeight="Bold"
+                                                                       Foreground="{StaticResource JkrCopilot.Navy}"/>
+                                                            <TextBlock Text="{Binding Title}" Margin="8,0,0,0"
+                                                                       FontSize="13.5" FontWeight="SemiBold"/>
+                                                        </StackPanel>
+                                                        <TextBlock Text="{Binding Desc}" Margin="0,3,0,0" FontSize="11.5"
+                                                                   Foreground="{StaticResource JkrCopilot.Muted}" TextWrapping="Wrap"/>
+                                                        <TextBlock Margin="0,3,0,0" FontFamily="{StaticResource Font.Mono}" FontSize="10"
+                                                                   Foreground="{StaticResource JkrCopilot.Muted}"
+                                                                   Text="{Binding Checks, StringFormat={}{0:N0} checks}"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Button>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
                         </StackPanel>
-                    </Border>
-                    <!-- Discipline selector -->
-                    <Border Background="#26FFFFFF" CornerRadius="6" Padding="8,4,4,4" Margin="0,0,8,8"
-                            VerticalAlignment="Center" ToolTip="Discipline to scope this scan to">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="Discipline" Foreground="White" FontSize="11" FontWeight="SemiBold"
-                                       VerticalAlignment="Center" Margin="0,0,8,0"
-                                       FontFamily="{StaticResource Font.Sans}"/>
-                            <ComboBox x:Name="DisciplineCombo" Width="124" Height="26" FontSize="13"
-                                      Foreground="#0F1A33" Background="White" BorderThickness="0"
-                                      FontWeight="Bold"
-                                      VerticalContentAlignment="Center"
-                                      Padding="8,0,4,0"
-                                      FontFamily="{StaticResource Font.Sans}"/>
+
+                        <!-- report language (dc.html:118-125) -->
+                        <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
+                            <TextBlock Text="Report language" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                       Foreground="{StaticResource JkrCopilot.Muted}" VerticalAlignment="Center"/>
+                            <StackPanel Orientation="Horizontal" Margin="12,0,0,0">
+                                <Button Tag="BM" Click="Lang_Click" Style="{StaticResource CpPillBM}" Content="BM"/>
+                                <Button Tag="EN" Click="Lang_Click" Style="{StaticResource CpPillEN}" Content="EN" Margin="6,0,0,0"/>
+                            </StackPanel>
                         </StackPanel>
-                    </Border>
-                    <!-- Re-scan button — always visible; wraps below when space is tight -->
-                    <Button x:Name="RescanBtn" Style="{StaticResource Btn.Ghost}" Margin="0,0,0,8"
-                            Click="Rescan_Click" VerticalAlignment="Center" ToolTip="Re-scan (R)">
-                        <StackPanel Orientation="Horizontal">
-                            <Grid x:Name="RescanIconRoot" Margin="0,0,5,0">
-                                <jkr:IconGlyph Glyph="rotate" Size="12" Foreground="White"/>
+
+                        <!-- footer: 2 steps + run (dc.html:128-139) -->
+                        <StackPanel Margin="0,18,0,0">
+                            <Grid Margin="0,0,0,7">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="18"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Width="16" Height="16" CornerRadius="8"
+                                        Background="{StaticResource JkrCopilot.AddBg}">
+                                    <TextBlock Text="✓" FontSize="9" FontWeight="Bold" Foreground="{StaticResource JkrCopilot.Success}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Grid.Column="1" Text="Model read from Revit" FontSize="11.5" Foreground="{StaticResource JkrCopilot.Muted}"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" FontFamily="{StaticResource Font.Mono}" FontSize="10.5"
+                                           Foreground="{StaticResource JkrCopilot.Ink2}" VerticalAlignment="Center">
+                                    <Run Text="{Binding Filename}"/><Run Text=" · "/><Run Text="{Binding SelectedDiscipline}"/>
+                                </TextBlock>
                             </Grid>
-                            <TextBlock x:Name="RescanLabel" Text="Re-scan" FontSize="11"/>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="18"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Width="16" Height="16" CornerRadius="8"
+                                        Background="{StaticResource JkrCopilot.Surf4}">
+                                    <TextBlock Text="•" FontSize="10" FontWeight="Bold" Foreground="{StaticResource JkrCopilot.Muted}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Grid.Column="1" Text="Detail level" FontSize="11.5" Foreground="{StaticResource JkrCopilot.Muted}"
+                                           VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" FontFamily="{StaticResource Font.Mono}" FontSize="10.5"
+                                           Foreground="{StaticResource JkrCopilot.Ink2}" VerticalAlignment="Center">
+                                    <Run Text="{Binding SelectedLodLevel, StringFormat={}LOD {0}, TargetNullValue=not chosen}"/>
+                                </TextBlock>
+                            </Grid>
                         </StackPanel>
-                    </Button>
-                </WrapPanel>
 
-                <!-- Row B: progress ring + session stats + pill stats -->
-                <Grid Margin="0,14,0,0">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
+                        <!-- run -->
+                        <Button x:Name="RunBtn" Margin="0,16,0,0" Height="44" Click="Run_Click" Cursor="Hand"
+                                IsEnabled="{Binding CanRun}" FontSize="13.5" FontWeight="SemiBold"
+                                Foreground="White" Background="{StaticResource JkrCopilot.Navy}" BorderThickness="0">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Background" Value="{StaticResource JkrCopilot.Navy}"/>
+                                    <Setter Property="Foreground" Value="White"/>
+                                    <Setter Property="FontSize" Value="13.5"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                    <Setter Property="BorderThickness" Value="0"/>
+                                    <Setter Property="Cursor" Value="Hand"/>
+                                    <Style.Triggers>
+                                        <Trigger Property="IsEnabled" Value="False">
+                                            <Setter Property="Background" Value="#E8EAEE"/>
+                                            <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Muted}"/>
+                                            <Setter Property="Cursor" Value="Arrow"/>
+                                        </Trigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
 
-                    <ctl:ProgressRing x:Name="Ring" Grid.Column="0" VerticalAlignment="Center"/>
-
-                    <StackPanel Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center">
-                        <StackPanel Orientation="Horizontal">
-                            <TextBlock x:Name="ResolvedCountText" Text="0" Foreground="White"
-                                       FontSize="22" FontWeight="Bold"
-                                       FontFamily="{StaticResource Font.Sans}"/>
-                            <TextBlock x:Name="OfTotalText" Text=" of 0 resolved"
-                                       Foreground="{StaticResource NavySubtle}"
-                                       FontSize="12" VerticalAlignment="Bottom" Margin="4,0,0,3"
-                                       FontFamily="{StaticResource Font.Sans}"/>
-                        </StackPanel>
-                        <TextBlock x:Name="SessionLine" Text="—" Foreground="{StaticResource NavySubtle}"
-                                   FontSize="10.5" Margin="0,3,0,0"
-                                   FontFamily="{StaticResource Font.Sans}"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                            <Button Style="{StaticResource SevPillBtn}" Click="HiPill_Click" Margin="0,0,5,0"
-                                    ToolTip="Filter to High severity (click again to clear)">
-                                <ctl:PillStat x:Name="HiPill" Label="High" Fg="{StaticResource PillHi}" Bg="{StaticResource PillHiBg}"/>
-                            </Button>
-                            <Button Style="{StaticResource SevPillBtn}" Click="MdPill_Click" Margin="0,0,5,0"
-                                    ToolTip="Filter to Medium severity (click again to clear)">
-                                <ctl:PillStat x:Name="MdPill" Label="Med"  Fg="{StaticResource PillMd}" Bg="{StaticResource PillMdBg}"/>
-                            </Button>
-                            <Button Style="{StaticResource SevPillBtn}" Click="LoPill_Click"
-                                    ToolTip="Filter to Low severity (click again to clear)">
-                                <ctl:PillStat x:Name="LoPill" Label="Low"  Fg="{StaticResource PillLo}" Bg="{StaticResource PillLoBg}"/>
-                            </Button>
-                        </StackPanel>
+                        <TextBlock Margin="0,10,0,0" FontSize="10.5" Foreground="{StaticResource JkrCopilot.Muted}"
+                                   TextWrapping="Wrap">
+                            <Run Text="All five BIM 010 sections, all four aspects: naming, quality &amp; integrity, information, design geometry. Reference documents stay on the server."/>
+                        </TextBlock>
                     </StackPanel>
-                </Grid>
+                </ScrollViewer>
 
-                <!-- Row C: action buttons -->
-                <StackPanel Orientation="Horizontal" Margin="0,10,0,0" HorizontalAlignment="Right">
-                    <Button x:Name="IgnoreAllBtn" Style="{StaticResource Btn.Ghost}"
-                            Click="IgnoreAll_Click" Margin="0,0,6,0" ToolTip="Ignore all Medium + Low issues">
-                        <StackPanel Orientation="Horizontal">
-                            <jkr:IconGlyph Glyph="check" Size="11" Foreground="{StaticResource NavySubtle}" Margin="0,0,5,0"/>
-                            <TextBlock Text="Ignore All" FontSize="10.5"/>
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="FixAllBtn" Style="{StaticResource Btn.Ghost}"
-                            Click="FixAll_Click" ToolTip="Fix all auto-fixable issues (AI generates fixes for the rest)">
-                        <StackPanel Orientation="Horizontal">
-                            <jkr:IconGlyph Glyph="bolt" Size="11" Foreground="{StaticResource Peach}" Margin="0,0,5,0"/>
-                            <TextBlock Text="Fix All" FontSize="10.5" Foreground="{StaticResource Peach}"/>
-                            <Border x:Name="FixCountBadge" Background="{StaticResource Peach}" CornerRadius="8"
-                                    Padding="5,1,5,1" Margin="5,0,0,0" VerticalAlignment="Center">
-                                <TextBlock x:Name="FixCountText" Text="0" FontSize="9" FontWeight="Bold"
-                                           Foreground="{StaticResource Navy}"/>
-                            </Border>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
+                <!-- ─── S2 RUN ─── -->
+                <ScrollViewer Visibility="{Binding IsS2, Converter={StaticResource B2V}}"
+                              VerticalScrollBarVisibility="Auto" Style="{StaticResource ThinScrollBar}">
+                    <StackPanel Margin="16,20" MaxWidth="440" HorizontalAlignment="Center">
+                        <TextBlock FontFamily="{StaticResource Font.Mono}" FontSize="9.5" FontWeight="SemiBold"
+                                   Foreground="{StaticResource JkrCopilot.Muted}"
+                                   Text="{Binding SelectedLodLevel, StringFormat={}RUNNING · LOD {0}}"/>
+                        <TextBlock Text="Audit is running" FontSize="16" FontWeight="Bold" Margin="0,6,0,0"/>
 
-                <!-- Fix All progress bar -->
-                <Border x:Name="FixProgressPanel" Visibility="Collapsed" Margin="0,10,0,0">
-                    <StackPanel>
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBlock x:Name="FixProgressLabel" Text="Fixing issues..." FontSize="10.5"
-                                       Foreground="{StaticResource NavySubtle}" VerticalAlignment="Center"
-                                       FontFamily="{StaticResource Font.Sans}"/>
-                            <TextBlock x:Name="FixProgressCount" Grid.Column="1" Text="0/0" FontSize="10.5"
-                                       Foreground="White" FontWeight="SemiBold" VerticalAlignment="Center"
-                                       FontFamily="{StaticResource Font.Mono}"/>
-                        </Grid>
-                        <Border Background="#33FFFFFF" CornerRadius="3" Height="4" Margin="0,5,0,0">
-                            <Border x:Name="FixProgressBar" Background="{StaticResource Peach}"
-                                    CornerRadius="3" HorizontalAlignment="Left" Width="0"/>
+                        <Border Margin="0,16,0,0" Height="2" Background="{StaticResource JkrCopilot.Line}"
+                                ClipToBounds="True">
+                            <Rectangle Width="120" Height="2" Fill="{StaticResource JkrCopilot.Navy}"
+                                       HorizontalAlignment="Left">
+                                <Rectangle.RenderTransform>
+                                    <TranslateTransform x:Name="ScanBarXForm"/>
+                                </Rectangle.RenderTransform>
+                            </Rectangle>
+                        </Border>
+                        <TextBlock Margin="0,8,0,0" FontFamily="{StaticResource Font.Mono}" FontSize="10.5"
+                                   Foreground="{StaticResource JkrCopilot.Muted}" Text="scanning model…"/>
+
+                        <ItemsControl ItemsSource="{Binding RunProgress.Sections}" Margin="0,18,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding Id}" MinWidth="26"
+                                                   FontFamily="{StaticResource Font.Mono}" FontSize="12" FontWeight="Bold"
+                                                   Foreground="{StaticResource JkrCopilot.Navy}"/>
+                                        <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="12"
+                                                   Foreground="{StaticResource JkrCopilot.Ink2}" VerticalAlignment="Center"/>
+                                        <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                            <TextBlock Text="{Binding Pct, StringFormat={}{0:N0}%}" Margin="0,0,7,0"
+                                                       FontFamily="{StaticResource Font.Mono}" FontSize="11" FontWeight="Bold">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Muted}"/>
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding Stat}" Value="done">
+                                                                <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Success}"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Stat}" Value="scanning">
+                                                                <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Navy}"/>
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <TextBlock Text="{Binding Stat}" FontFamily="{StaticResource Font.Mono}"
+                                                       FontSize="10" Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Border Margin="0,8,0,0" Padding="14" CornerRadius="12" BorderThickness="1"
+                                BorderBrush="{StaticResource JkrCopilot.Line2}"
+                                Background="{StaticResource JkrCopilot.Surf}">
+                            <StackPanel>
+                                <TextBlock FontFamily="{StaticResource Font.Mono}" FontSize="26" FontWeight="Bold"
+                                           Foreground="{StaticResource JkrCopilot.Manual}"
+                                           Text="{Binding RunProgress.ManualCellsLabel}"/>
+                                <TextBlock Text="cells the AI will not judge" Margin="0,2,0,0" FontSize="11.5"
+                                           FontWeight="SemiBold"/>
+                                <TextBlock Text="counted, never scored" Margin="0,2,0,0"
+                                           FontSize="10.5" Foreground="{StaticResource JkrCopilot.Muted}"/>
+                            </StackPanel>
                         </Border>
                     </StackPanel>
-                </Border>
-            </StackPanel>
-        </Border>
+                </ScrollViewer>
 
-        <!-- ═══════════ 2. Category nav (search + pills) ═══════════ -->
-        <Border Grid.Row="2" Background="{StaticResource Surface.Panel}"
-                BorderBrush="{StaticResource Surface.Line}" BorderThickness="0,0,0,1"
-                Padding="12,10,12,10">
-            <StackPanel>
-                <!-- Search -->
-                <Border x:Name="SearchBox" Background="{StaticResource Surface.Bg}"
-                        BorderBrush="{StaticResource Surface.Line}" BorderThickness="1"
-                        CornerRadius="6" Padding="9,0,9,0" Margin="0,0,0,8">
+                <!-- ─── S3 hero ─── -->
+                <StackPanel Visibility="{Binding IsS3, Converter={StaticResource B2V}}"
+                            Margin="16,14,16,0">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-                        <jkr:IconGlyph Glyph="search" Size="13" Foreground="{StaticResource Ink4}" VerticalAlignment="Center" Margin="0,0,6,0"/>
-                        <TextBox x:Name="SearchInput" Grid.Column="1" Style="{StaticResource Tb.Search}"
-                                 TextChanged="Search_TextChanged"/>
-                        <TextBlock Grid.Column="1" Text="Search issues…" Foreground="{StaticResource Ink4}"
-                                   FontSize="12" VerticalAlignment="Center" IsHitTestVisible="False"
-                                   FontFamily="{StaticResource Font.Sans}">
+                        <StackPanel Grid.Column="0">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding Summary.Pct}"
+                                           FontFamily="{StaticResource Font.Mono}" FontSize="46" FontWeight="Bold"
+                                           Foreground="{StaticResource JkrCopilot.Navy}"/>
+                                <TextBlock Text="%" FontSize="24" FontWeight="Bold" Margin="2,14,0,0"
+                                           Foreground="{StaticResource JkrCopilot.Navy}"/>
+                            </StackPanel>
+                            <TextBlock Text="of what the AI could verify passed" Margin="0,2,0,0"
+                                       FontSize="11" Foreground="{StaticResource JkrCopilot.Muted}"/>
+                        </StackPanel>
+
+                        <!-- 9px pass/fail bar (#1F7A4D width = pct% / #DFAAA5 rest) -->
+                        <Grid Grid.Column="0" Grid.ColumnSpan="2" Margin="0,12,0,0" Height="9">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="{Binding Summary.Pct, Converter={StaticResource PctStar}, ConverterParameter=pass}"/>
+                                <ColumnDefinition Width="{Binding Summary.Pct, Converter={StaticResource PctStar}, ConverterParameter=rest}"/>
+                            </Grid.ColumnDefinitions>
+                            <Border Grid.Column="0" Background="{StaticResource JkrCopilot.Success}" CornerRadius="4,0,0,4"/>
+                            <Border Grid.Column="1" Background="{StaticResource JkrCopilot.Fail}" CornerRadius="0,4,4,0"/>
+                        </Grid>
+
+                        <Grid Grid.Column="0" Grid.ColumnSpan="2" Margin="0,5,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" FontFamily="{StaticResource Font.Mono}" FontSize="10"
+                                       Foreground="{StaticResource JkrCopilot.Muted}">
+                                <Run Text="{Binding Summary.Verified, StringFormat={}{0:N0}}"/><Run Text=" comply"/>
+                            </TextBlock>
+                            <TextBlock Grid.Column="1" FontFamily="{StaticResource Font.Mono}" FontSize="10"
+                                       Foreground="{StaticResource JkrCopilot.Danger}" HorizontalAlignment="Right">
+                                <Run Text="{Binding Summary.Failed, StringFormat={}{0:N0}}"/><Run Text=" not comply"/>
+                            </TextBlock>
+                        </Grid>
+                    </Grid>
+
+                    <!-- manual open -->
+                    <Border Margin="0,10,0,0" Padding="14" CornerRadius="12" BorderThickness="1"
+                            BorderBrush="{StaticResource JkrCopilot.Line2}"
+                            Background="{StaticResource JkrCopilot.Surf}">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{Binding ManualRuleCells}"
+                                       FontFamily="{StaticResource Font.Mono}" FontSize="22" FontWeight="Bold"
+                                       Foreground="{StaticResource JkrCopilot.Manual}" VerticalAlignment="Center"/>
+                            <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="cells need you, not the AI." FontSize="11.5" FontWeight="SemiBold"/>
+                                <TextBlock Text="Outside the percentage on purpose." FontSize="10.5"
+                                           Foreground="{StaticResource JkrCopilot.Muted}"/>
+                            </StackPanel>
+                            <Button Grid.Column="2" Content="Open" Click="OpenManual_Click"
+                                    Background="Transparent" BorderThickness="1"
+                                    BorderBrush="{StaticResource JkrCopilot.Manual}"
+                                    Foreground="{StaticResource JkrCopilot.Manual}" Padding="12,5"
+                                    FontSize="11" Cursor="Hand"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- leverage banner -->
+                    <!-- leverage banner (#EDF1F6, border-bottom #D8E1EB) -->
+                    <Border Margin="0,8,0,0" Padding="14,12" Background="{StaticResource JkrCopilot.Banner}"
+                            BorderBrush="{StaticResource JkrCopilot.Line5}" BorderThickness="0,0,0,1">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock FontFamily="{StaticResource Font.Mono}" FontSize="12.5" FontWeight="Bold"
+                                           Foreground="{StaticResource JkrCopilot.Navy}">
+                                    <Run Text="{Binding RowsFail, StringFormat={}{0} form rows will come back NOT COMPLY}"/>
+                                </TextBlock>
+                            </StackPanel>
+                            <TextBlock Text="{Binding Leverage}" FontSize="11" Margin="0,6,0,0"
+                                       Foreground="{StaticResource JkrCopilot.Muted}" TextWrapping="Wrap"/>
+                            <Button Content="Apply those fixes first" Click="FixTop_Click"
+                                    Margin="0,10,0,0" HorizontalAlignment="Left"
+                                    Background="{StaticResource JkrCopilot.Navy}" Foreground="White"
+                                    BorderThickness="0" Padding="13,6"
+                                    FontSize="10.5" FontWeight="SemiBold" Cursor="Hand"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- sections -->
+                    <ItemsControl ItemsSource="{Binding Sections}" Margin="0,14,0,0">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><UniformGrid Rows="1"/></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Margin="0,0,10,0">
+                                    <TextBlock Text="{Binding Short}" FontSize="11.5" FontWeight="SemiBold"
+                                               Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                    <TextBlock Text="{Binding Pct}" FontFamily="{StaticResource Font.Mono}"
+                                               FontSize="22" FontWeight="Bold" Margin="0,1,0,0"
+                                               Foreground="{Binding Color, Converter={StaticResource Hex}}"/>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <!-- ─── S5 hero ─── -->
+                <StackPanel Visibility="{Binding IsS5, Converter={StaticResource B2V}}"
+                            Margin="16,14,16,0">
+                    <TextBlock FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource JkrCopilot.Muted}"
+                               Text="MANUAL REVIEW"/>
+                    <TextBlock Text="Work through the manual queue" FontSize="16" FontWeight="Bold" Margin="0,5,0,0"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <TextBlock Text="{Binding ManualRuleCells}" FontFamily="{StaticResource Font.Mono}"
+                                   FontSize="32" FontWeight="Bold"
+                                   Foreground="{StaticResource JkrCopilot.Manual}"/>
+                        <TextBlock Text="cells the AI refused to judge" Margin="12,10,0,0" FontSize="12"
+                                   FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <TextBlock Text="Reasoning: too risky or form-specific for the auto-fixer"
+                               Margin="0,2,0,0" FontSize="10.5" Foreground="{StaticResource JkrCopilot.Muted}"/>
+                </StackPanel>
+
+                <!-- ─── SHARED LIST (S3 + S5) ─── -->
+                <Grid Visibility="{Binding ShowList, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource B2V}}"
+                      Margin="16,12,16,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- search -->
+                    <TextBox Grid.Row="0" Style="{StaticResource Tb.Search}"
+                             Text="{Binding SearchQuery, UpdateSourceTrigger=PropertyChanged}"
+                             Margin="0,0,0,8"/>
+
+                    <!-- tabs -->
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+                        <Button Click="Tab_Click" Tag="{x:Static vm:CopilotTab.Open}" Padding="10,5" Cursor="Hand">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink2}"/>
+                                    <Setter Property="FontSize" Value="11.5"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ActiveCopilotTab, Converter={StaticResource EqP}, ConverterParameter=Open}" Value="True">
+                                            <Setter Property="Background" Value="{StaticResource JkrCopilot.Dark}"/>
+                                            <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Bg}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <TextBlock FontSize="11.5" FontWeight="SemiBold"><Run Text="Open"/><Run Text=" "/><Run Text="{Binding OpenRuleCells, StringFormat={}{0:N0}}"/></TextBlock>
+                        </Button>
+                        <Button Click="Tab_Click" Tag="{x:Static vm:CopilotTab.Manual}" Padding="10,5" Cursor="Hand" Margin="2,0,0,0">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink2}"/>
+                                    <Setter Property="FontSize" Value="11.5"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ActiveCopilotTab, Converter={StaticResource EqP}, ConverterParameter=Manual}" Value="True">
+                                            <Setter Property="Background" Value="{StaticResource JkrCopilot.Dark}"/>
+                                            <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Bg}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <TextBlock FontSize="11.5" FontWeight="SemiBold"><Run Text="Manual"/><Run Text=" "/><Run Text="{Binding ManualRuleCells, StringFormat={}{0:N0}}"/></TextBlock>
+                        </Button>
+                        <Button Click="Tab_Click" Tag="{x:Static vm:CopilotTab.Ignored}" Padding="10,5" Cursor="Hand" Margin="2,0,0,0">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink2}"/>
+                                    <Setter Property="FontSize" Value="11.5"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ActiveCopilotTab, Converter={StaticResource EqP}, ConverterParameter=Ignored}" Value="True">
+                                            <Setter Property="Background" Value="{StaticResource JkrCopilot.Dark}"/>
+                                            <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Bg}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <TextBlock FontSize="11.5" FontWeight="SemiBold"><Run Text="Ignored"/><Run Text=" "/><Run Text="{Binding IgnoredRuleCells, StringFormat={}{0:N0}}"/></TextBlock>
+                        </Button>
+                        <Button Click="Tab_Click" Tag="{x:Static vm:CopilotTab.Resolved}" Padding="10,5" Cursor="Hand" Margin="2,0,0,0">
+                            <Button.Style>
+                                <Style TargetType="Button">
+                                    <Setter Property="Background" Value="Transparent"/>
+                                    <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink2}"/>
+                                    <Setter Property="FontSize" Value="11.5"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding ActiveCopilotTab, Converter={StaticResource EqP}, ConverterParameter=Resolved}" Value="True">
+                                            <Setter Property="Background" Value="{StaticResource JkrCopilot.Dark}"/>
+                                            <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Bg}"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                            <TextBlock FontSize="11.5" FontWeight="SemiBold"><Run Text="Fixed"/><Run Text=" "/><Run Text="{Binding ResolvedRuleCells, StringFormat={}{0:N0}}"/></TextBlock>
+                        </Button>
+                    </StackPanel>
+
+                    <!-- section chips -->
+                    <ItemsControl Grid.Row="2" ItemsSource="{Binding SectionOptions}" Margin="0,0,0,8">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0,0,6,5" Background="{StaticResource JkrCopilot.Soft}"
+                                        BorderBrush="{StaticResource JkrCopilot.Line}" BorderThickness="1" CornerRadius="999">
+                                    <Button Tag="{Binding Code}" Click="Chip_Click" Cursor="Hand"
+                                            Background="Transparent" BorderThickness="0" Padding="10,4">
+                                        <StackPanel Orientation="Horizontal">
+                                            <TextBlock Text="{Binding Label}" FontSize="11"
+                                                       Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                            <Ellipse Width="5" Height="5" Fill="{StaticResource JkrCopilot.Dark}"
+                                                     VerticalAlignment="Center" Margin="6,0,0,0">
+                                                <Ellipse.Visibility>
+                                                    <MultiBinding Converter="{StaticResource EqVis}">
+                                                        <Binding Path="DataContext.SelectedSection"
+                                                                 RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                                        <Binding Path="Code"/>
+                                                    </MultiBinding>
+                                                </Ellipse.Visibility>
+                                            </Ellipse>
+                                        </StackPanel>
+                                    </Button>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- groups / empty -->
+                    <Grid Grid.Row="3">
+                        <ItemsControl ItemsSource="{Binding Groups}" ItemTemplate="{StaticResource GroupCard}"/>
+
+                        <TextBlock Text="Nothing in this list."
+                                   HorizontalAlignment="Center" Margin="0,40,0,0"
+                                   FontSize="12" Foreground="{StaticResource JkrCopilot.Muted}"
+                                   Visibility="{Binding HasFilteredRules, Converter={StaticResource B2V}}">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
-                                    <Setter Property="Visibility" Value="Collapsed"/>
+                                    <Setter Property="Visibility" Value="Visible"/>
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding Text, ElementName=SearchInput}" Value="">
-                                            <Setter Property="Visibility" Value="Visible"/>
+                                        <DataTrigger Binding="{Binding HasFilteredRules}" Value="True">
+                                            <Setter Property="Visibility" Value="Collapsed"/>
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
                             </TextBlock.Style>
                         </TextBlock>
-                        <TextBlock Grid.Column="2" x:Name="SearchClear" Text="×" Foreground="{StaticResource Ink4}"
-                                   FontSize="13" VerticalAlignment="Center" Margin="0,0,6,0" Cursor="Hand"
-                                   MouseLeftButtonUp="SearchClear_Click"
-                                   Visibility="Collapsed"/>
-                        <Border Grid.Column="3" Background="{StaticResource Surface.Line2}" CornerRadius="3"
-                                Padding="5,1,5,1" VerticalAlignment="Center">
-                            <TextBlock Text="/" FontSize="9.5" Foreground="{StaticResource Ink4}"
-                                       FontFamily="{StaticResource Font.Mono}"/>
-                        </Border>
                     </Grid>
-                </Border>
+                </Grid>
 
-                <!-- Category pills (horizontal scroll) -->
-                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
-                              CanContentScroll="False" PanningMode="HorizontalOnly">
-                    <ItemsControl x:Name="CategoriesItems">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <StackPanel Orientation="Horizontal"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <ctl:CategoryPill Margin="0,0,5,2" Picked="Pill_Picked"/>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
+                <!-- ─── S6 EXPORT ─── -->
+                <ScrollViewer Visibility="{Binding IsS6, Converter={StaticResource B2V}}"
+                              VerticalScrollBarVisibility="Auto" Style="{StaticResource ThinScrollBar}">
+                    <StackPanel Margin="16,16" MaxWidth="520" HorizontalAlignment="Left">
+                        <TextBlock Text="EXPORT — BORANG BIM 010, FIVE PAGES" FontFamily="{StaticResource Font.Mono}"
+                                   FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource JkrCopilot.Muted}"/>
+                        <TextBlock Text="Ready for JKR submission" FontSize="16" FontWeight="Bold" Margin="0,6,0,0"/>
+                        <TextBlock Margin="0,6,0,0" FontSize="11.5" Foreground="{StaticResource JkrCopilot.Muted}" TextWrapping="Wrap">
+                            <Run Text="{Binding Summary.Pct, StringFormat={}{0}% of what the AI could verify passed}"/>
+                            <Run Text=" · bundle the audit result into the Borang sheet."/>
+                        </TextBlock>
+
+                        <ItemsControl ItemsSource="{Binding BorangPreview, RelativeSource={RelativeSource AncestorType=UserControl}}" Margin="0,12,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Margin="0,0,0,5" Padding="12,9" CornerRadius="8"
+                                            Background="{StaticResource JkrCopilot.Surf}"
+                                            BorderBrush="{StaticResource JkrCopilot.Line}" BorderThickness="1">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding Item}" MinWidth="34"
+                                                       FontFamily="{StaticResource Font.Mono}" FontSize="12" FontWeight="Bold"
+                                                       Foreground="{StaticResource JkrCopilot.Navy}"/>
+                                            <TextBlock Grid.Column="1" Text="{Binding Name}" Margin="8,0,8,0" FontSize="11.5"
+                                                       VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                            <TextBlock Grid.Column="2" Text="{Binding CellsLabel}" Margin="0,0,10,0"
+                                                       FontFamily="{StaticResource Font.Mono}" FontSize="10.5"
+                                                       Foreground="{StaticResource JkrCopilot.Muted}" VerticalAlignment="Center"/>
+                                            <Border Grid.Column="3" Padding="8,3" Background="{StaticResource JkrCopilot.Surf3}"
+                                                    VerticalAlignment="Center" CornerRadius="999">
+                                                <TextBlock Text="{Binding Status}" FontFamily="{StaticResource Font.Mono}"
+                                                           FontSize="10" FontWeight="Bold" Foreground="{Binding StatusBrush}"/>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <Button Content="Export Borang" Click="ExportBorang_Click"
+                                Margin="0,16,0,0" Height="42"
+                                Background="{StaticResource JkrCopilot.Dark}" Foreground="White"
+                                BorderThickness="0" FontSize="13" FontWeight="SemiBold" Cursor="Hand"/>
+                    </StackPanel>
                 </ScrollViewer>
-            </StackPanel>
-        </Border>
-
-        <!-- ═══════════ 3. Tabs ═══════════ -->
-        <Border Grid.Row="3" Background="{StaticResource Surface.Panel}"
-                BorderBrush="{StaticResource Surface.Line}" BorderThickness="0,0,0,1"
-                Padding="12,8,12,0">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <ToggleButton x:Name="TabOpen" Grid.Column="0" Style="{StaticResource Btn.Tab}"
-                              IsChecked="True" Click="TabOpen_Click">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Open" Margin="0,0,5,0"/>
-                        <Border x:Name="TabOpenPill" Background="{StaticResource BrandTint}" CornerRadius="8" Padding="6,1,6,1">
-                            <TextBlock x:Name="TabOpenCount" Text="0" FontSize="10" FontWeight="Bold"
-                                       Foreground="{StaticResource BrandDark}"/>
-                        </Border>
-                    </StackPanel>
-                </ToggleButton>
-                <ToggleButton x:Name="TabIgnore" Grid.Column="1" Style="{StaticResource Btn.Tab}"
-                              IsChecked="False" Click="TabIgnore_Click" Margin="2,0,0,0">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Ignore" Margin="0,0,5,0"/>
-                        <Border x:Name="TabIgnorePill" Background="{StaticResource Surface.Line2}" CornerRadius="8" Padding="6,1,6,1">
-                            <TextBlock x:Name="TabIgnoreCount" Text="0" FontSize="10" FontWeight="Bold"
-                                       Foreground="{StaticResource Ink3}"/>
-                        </Border>
-                    </StackPanel>
-                </ToggleButton>
-                <ToggleButton x:Name="TabResolved" Grid.Column="2" Style="{StaticResource Btn.Tab}"
-                              IsChecked="False" Click="TabResolved_Click" Margin="2,0,0,0">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Resolved" Margin="0,0,5,0"/>
-                        <Border x:Name="TabResolvedPill" Background="{StaticResource Surface.Line2}" CornerRadius="8" Padding="6,1,6,1">
-                            <TextBlock x:Name="TabResolvedCount" Text="0" FontSize="10" FontWeight="Bold"
-                                       Foreground="{StaticResource Ink3}"/>
-                        </Border>
-                    </StackPanel>
-                </ToggleButton>
-                <ToggleButton x:Name="TabManual" Grid.Column="3" Style="{StaticResource Btn.Tab}"
-                              IsChecked="False" Click="TabManual_Click" Margin="2,0,0,0"
-                              ToolTip="Issues the addin couldn't auto-fix — review and edit in Revit manually.">
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="Manual" Margin="0,0,5,0"/>
-                        <Border x:Name="TabManualPill" Background="{StaticResource Surface.Line2}" CornerRadius="8" Padding="6,1,6,1">
-                            <TextBlock x:Name="TabManualCount" Text="0" FontSize="10" FontWeight="Bold"
-                                       Foreground="{StaticResource Ink3}"/>
-                        </Border>
-                    </StackPanel>
-                </ToggleButton>
-                <TextBlock Grid.Column="5" x:Name="FilteredCountText" Text="0 shown"
-                           FontSize="10" Foreground="{StaticResource Ink4}"
-                           VerticalAlignment="Bottom" Margin="0,0,4,6"
-                           FontFamily="{StaticResource Font.Sans}"/>
             </Grid>
-        </Border>
 
-        <!-- ═══════════ 4. Issue list ═══════════ -->
-        <Grid Grid.Row="4" Background="{StaticResource Surface.Panel}">
-            <ScrollViewer x:Name="IssuesScroll" VerticalScrollBarVisibility="Auto"
-                          HorizontalScrollBarVisibility="Disabled">
-                <ItemsControl x:Name="IssuesItems">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <ctl:IssueRow RowClicked="Row_Clicked" Action="Row_Action"/>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </ScrollViewer>
+            <!-- ─────── FIXED FOOTER (list screens only) ─────── -->
+            <Border Grid.Row="1" Background="{StaticResource JkrCopilot.Surf}"
+                    BorderBrush="{StaticResource JkrCopilot.Line}" BorderThickness="0,1,0,0"
+                    Padding="12,8"
+                    Visibility="{Binding ShowList, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource B2V}}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0" Content="Ignore all" Click="IgnoreAll_Click"
+                            Background="Transparent" BorderThickness="0"
+                            Foreground="{StaticResource JkrCopilot.Muted}" FontSize="11.5" Cursor="Hand" Padding="6,4"/>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal">
+                        <TextBlock VerticalAlignment="Center" Margin="0,0,12,0" FontFamily="{StaticResource Font.Mono}"
+                                   FontSize="9.5" Foreground="{StaticResource JkrCopilot.Muted}"
+                                   Text="↵ open · J/K nav · F fix · A ignore · ESC close"/>
+                        <Button Content="Export" Click="GoExport_Click"
+                                Background="Transparent" BorderThickness="1"
+                                BorderBrush="{StaticResource JkrCopilot.Line}"
+                                Foreground="{StaticResource JkrCopilot.Ink2}" FontSize="11.5" Cursor="Hand"
+                                Padding="13,6" Margin="0,0,8,0"/>
+                        <Button Click="FixAll_Click" Cursor="Hand"
+                                Background="{StaticResource JkrCopilot.Dark}" Foreground="White"
+                                BorderThickness="0" Padding="13,6" FontSize="11.5" FontWeight="SemiBold">
+                            <TextBlock FontSize="11.5" FontWeight="SemiBold" Foreground="White">
+                                <Run Text="Fix all "/><Run Text="{Binding OpenRuleCells, StringFormat={}{0:N0}}"/>
+                            </TextBlock>
+                        </Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
 
-            <!-- Empty state -->
-            <StackPanel x:Name="EmptyState" VerticalAlignment="Center" HorizontalAlignment="Center"
-                        Visibility="Collapsed">
-                <jkr:IconGlyph x:Name="EmptyIcon" Glyph="check" Size="36" Foreground="{StaticResource Ink4}"
-                               Opacity="0.25" HorizontalAlignment="Center"/>
-                <TextBlock x:Name="EmptyMessage" Text="All clear — no open issues."
-                           Foreground="{StaticResource Ink3}" FontSize="12" Margin="0,10,0,0"
-                           HorizontalAlignment="Center"
-                           FontFamily="{StaticResource Font.Sans}"/>
-                <!-- Shown only when the empty result is caused by an active search/severity/
-                     category filter (see RenderAll) — one click resets all three. -->
-                <TextBlock x:Name="EmptyClearFilters" Text="Clear filters" Visibility="Collapsed"
-                           Foreground="{StaticResource BrandDark}" FontSize="12" Margin="0,8,0,0"
-                           HorizontalAlignment="Center" Cursor="Hand" TextDecorations="Underline"
-                           FontFamily="{StaticResource Font.Sans}"
-                           MouseLeftButtonUp="EmptyClearFilters_Click"/>
-            </StackPanel>
+            <!-- ─────── DETAIL OVERLAY ─────── -->
+            <Border Panel.ZIndex="6" Background="{StaticResource JkrCopilot.Surf}"
+                    BorderBrush="{StaticResource JkrCopilot.Line}" BorderThickness="1,0,0,0"
+                    Visibility="{Binding HasDetail, Converter={StaticResource B2V}}"
+                    Grid.RowSpan="2">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid Grid.Row="0" Margin="14,12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Grid.Column="0" Orientation="Horizontal">
+                            <TextBlock Text="{Binding DetailRule.Sec}" FontFamily="{StaticResource Font.Mono}"
+                                       FontSize="11" FontWeight="Bold" Foreground="{StaticResource JkrCopilot.Navy}"/>
+                            <TextBlock Text="{Binding DetailPosition}" Margin="10,0,0,0"
+                                       FontFamily="{StaticResource Font.Mono}" FontSize="11"
+                                       Foreground="{StaticResource JkrCopilot.Muted}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="2" Orientation="Horizontal">
+                            <Button Content="‹" Click="NavPrev_Click" Style="{StaticResource CpHdrBtn}" ToolTip="Previous (K)"/>
+                            <Button Content="›" Click="NavNext_Click" Style="{StaticResource CpHdrBtn}" ToolTip="Next (J)"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Style="{StaticResource ThinScrollBar}">
+                        <StackPanel Margin="16,0,16,16">
+                            <Border HorizontalAlignment="Left" Background="{StaticResource JkrCopilot.Surf3}" Padding="8,3">
+                                <TextBlock FontFamily="{StaticResource Font.Mono}" FontSize="10" FontWeight="Bold"
+                                           Foreground="{StaticResource JkrCopilot.Muted}"
+                                           Text="{Binding DetailRule.Kind}"/>
+                            </Border>
+                            <TextBlock Margin="0,10,0,0" FontSize="13.5" FontWeight="Bold" TextWrapping="Wrap">
+                                <Run Text="{Binding DetailRule.Item}"/><Run Text=" · "/>
+                                <Run Text="{Binding DetailRule.Cat}"/><Run Text=" — "/>
+                                <Run Text="{Binding DetailRule.Cells, StringFormat={}{0:N0} CELLS}"/>
+                            </TextBlock>
+                            <TextBlock Text="{Binding DetailRule.Title}" Margin="0,4,0,0" FontSize="12.5"
+                                       TextWrapping="Wrap" Foreground="{StaticResource JkrCopilot.Ink2}"/>
+
+                            <Border Margin="0,14,0,0" Padding="12" Background="{StaticResource JkrCopilot.Soft}">
+                                <StackPanel>
+                                    <TextBlock Text="CHECKED" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                               Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                    <TextBlock Text="{Binding DetailRule.Checked}" Margin="0,4,0,0" FontSize="11.5" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+
+                            <Grid Margin="0,10,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Grid.Column="0">
+                                    <TextBlock Text="IMPACT" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                               Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                    <TextBlock FontSize="11.5" Margin="0,4,0,0" TextWrapping="Wrap">
+                                        <Run Text="{Binding DetailRule.Cells, StringFormat={}{0:N0} cells}"/>
+                                        <Run Text=" · "/>
+                                        <Run Text="{Binding DetailRule.Rows, StringFormat={}{0} rows}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                                <StackPanel Grid.Column="1" Margin="10,0,0,0">
+                                    <TextBlock Text="REQUIRED" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                               Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                    <TextBlock Text="{Binding DetailRule.Req}" Margin="0,4,0,0" FontSize="11.5" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Grid>
+
+                            <StackPanel Margin="0,10,0,0">
+                                <TextBlock Text="IN-MODEL (ACTUAL)" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                           Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                <TextBlock Text="{Binding DetailRule.Act}" Margin="0,4,0,0" FontSize="11.5" TextWrapping="Wrap"/>
+                            </StackPanel>
+
+                            <StackPanel Margin="0,10,0,0">
+                                <TextBlock Text="CLAUSE" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                           Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                <TextBlock Text="{Binding DetailRule.Cite}" Margin="0,4,0,0" FontSize="11.5" TextWrapping="Wrap"/>
+                            </StackPanel>
+
+                            <!-- manual only -->
+                            <Border Margin="0,12,0,0" Padding="12" Background="{StaticResource JkrCopilot.Surf3}"
+                                    Visibility="{Binding DetailRule.Kind, Converter={StaticResource EqP}, ConverterParameter=manual}">
+                                <StackPanel>
+                                    <TextBlock Text="WHY" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                               Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                    <TextBlock Text="{Binding DetailRule.Reason}" Margin="0,4,0,0" FontSize="11.5" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- proposed fix (ai only) -->
+                            <Border Margin="0,12,0,0" Padding="12" BorderThickness="1"
+                                    BorderBrush="{StaticResource JkrCopilot.AddBg}"
+                                    Background="{StaticResource JkrCopilot.Surf}">
+                                <StackPanel>
+                                    <TextBlock Text="PROPOSED FIX" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                               Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                    <TextBlock Margin="0,4,0,0" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap">
+                                        <Run Text="{Binding DetailRule.From}"/><Run Text="  →  "/><Run Text="{Binding DetailRule.To}"/>
+                                    </TextBlock>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <!-- actions -->
+                    <Border Grid.Row="2" Background="{StaticResource JkrCopilot.Surf}"
+                            BorderBrush="{StaticResource JkrCopilot.Line}" BorderThickness="0,1,0,0" Padding="16,10">
+                        <StackPanel>
+                            <StackPanel Orientation="Horizontal"
+                                        Visibility="{Binding DetailRule.Kind, Converter={StaticResource EqP}, ConverterParameter=ai}">
+                                <Button Content="Apply fix" Click="DetailApply_Click"
+                                        Background="{StaticResource JkrCopilot.Success}" Foreground="White"
+                                        BorderThickness="0" Padding="14,8" FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
+                                <Button Content="⟳ Locate" Click="DetailLocate_Click" Margin="8,0,0,0"
+                                        Background="Transparent" BorderBrush="{StaticResource JkrCopilot.Line}"
+                                        BorderThickness="1" Foreground="{StaticResource JkrCopilot.Muted}" Padding="14,8"
+                                        FontSize="12" Cursor="Hand"/>
+                                <Button Content="✕ Ignore" Click="DetailIgnore_Click" Margin="8,0,0,0"
+                                        Background="Transparent" Foreground="{StaticResource JkrCopilot.Muted}"
+                                        Padding="14,8" FontSize="12" Cursor="Hand"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal"
+                                        Visibility="{Binding DetailRule.Kind, Converter={StaticResource EqP}, ConverterParameter=manual}">
+                                <Button Content="✓ Comply" Click="DetailComply_Click"
+                                        Background="{StaticResource JkrCopilot.Success}" Foreground="White"
+                                        BorderThickness="0" Padding="14,8" FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
+                                <Button Content="✗ Not" Click="DetailNot_Click" Margin="8,0,0,0"
+                                        Background="{StaticResource JkrCopilot.FailBg}"
+                                        Foreground="{StaticResource JkrCopilot.Danger}" BorderThickness="0"
+                                        Padding="14,8" FontSize="12" Cursor="Hand"/>
+                                <Button Content="defer" Click="DetailDefer_Click" Margin="8,0,0,0"
+                                        Background="Transparent" BorderBrush="{StaticResource JkrCopilot.Line}"
+                                        BorderThickness="1" Foreground="{StaticResource JkrCopilot.Muted}"
+                                        Padding="14,8" FontSize="12" Cursor="Hand"/>
+                                <Button Content="✕ Ignore" Click="DetailIgnore_Click" Margin="8,0,0,0"
+                                        Background="Transparent" Foreground="{StaticResource JkrCopilot.Muted}"
+                                        Padding="14,8" FontSize="12" Cursor="Hand"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </Grid>
+            </Border>
+
+            <!-- ─────── CONFIRM SHEET ─────── -->
+            <Grid Panel.ZIndex="7" Visibility="{Binding HasConfirm, Converter={StaticResource B2V}}" Grid.RowSpan="2">
+                <Border Background="#2A2422" Opacity="0.42"/>
+                <Border VerticalAlignment="Bottom" Background="{StaticResource JkrCopilot.Surf}"
+                        BorderBrush="{StaticResource JkrCopilot.Navy}" BorderThickness="0,2,0,0">
+                    <StackPanel Margin="20,18,20,20">
+                        <TextBlock Text="{Binding ConfirmRequest.Title}" FontSize="15" FontWeight="Bold" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding ConfirmRequest.Body}" Margin="0,10,0,0" FontSize="12.5"
+                                   Foreground="{StaticResource JkrCopilot.Ink2}" TextWrapping="Wrap"/>
+                        <TextBlock Text="{Binding ConfirmRequest.Note}" Margin="0,10,0,0" FontSize="10.5"
+                                   Foreground="{StaticResource JkrCopilot.Muted}"/>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                            <Button Content="No, wait" Click="ConfirmNo_Click"
+                                    Background="Transparent" BorderBrush="{StaticResource JkrCopilot.Line}"
+                                    BorderThickness="1" Foreground="{StaticResource JkrCopilot.Muted}"
+                                    Padding="16,9" FontSize="12" Cursor="Hand"/>
+                            <Button Content="{Binding ConfirmRequest.Cta}" Click="ConfirmYes_Click" Margin="8,0,0,0"
+                                    Background="{StaticResource JkrCopilot.Dark}" Foreground="White"
+                                    BorderThickness="0" Padding="16,9" FontSize="12" FontWeight="SemiBold"
+                                    Cursor="Hand"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+            </Grid>
+
+            <!-- ─────── TOAST ─────── -->
+            <Border x:Name="ToastPanel" Panel.ZIndex="8" Visibility="Collapsed" Margin="0,0,0,20"
+                    VerticalAlignment="Bottom" HorizontalAlignment="Center"
+                    Background="#E8EEF5" Padding="14,9">
+                <TextBlock x:Name="ToastText" FontSize="11.5" FontWeight="SemiBold"
+                           Foreground="{StaticResource JkrCopilot.Navy}"/>
+            </Border>
         </Grid>
-
-        <!-- ═══════════ 5. Footer ═══════════ -->
-        <Border Grid.Row="5" Background="{StaticResource Surface.Panel}"
-                BorderBrush="{StaticResource Surface.Line}" BorderThickness="0,1,0,0"
-                Padding="12,7,12,7">
-            <Grid>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" VerticalAlignment="Center">
-                    <ctl:KbdHint Key="↵" Label="open" Margin="0,0,10,0"/>
-                    <ctl:KbdHint Key="J/K" Label="nav" Margin="0,0,10,0"/>
-                    <ctl:KbdHint Key="F" Label="fix" Margin="0,0,10,0"/>
-                    <ctl:KbdHint Key="A" Label="ignore"/>
-                </StackPanel>
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-                    <Button x:Name="ResetBtn" Style="{StaticResource Btn.Sec}" Click="Reset_Click" Margin="0,0,6,0"
-                            ToolTip="Reset all decisions back to Open">
-                        <StackPanel Orientation="Horizontal">
-                            <jkr:IconGlyph Glyph="undo" Size="12" Margin="0,0,5,0"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                            <TextBlock Text="Reset" FontSize="11" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-                    <Button x:Name="ExportBtn" Style="{StaticResource Btn.Sec}" Click="Export_Click">
-                        <StackPanel Orientation="Horizontal">
-                            <jkr:IconGlyph Glyph="download" Size="12" Margin="0,0,5,0"
-                                           Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"/>
-                            <TextBlock Text="Export" FontSize="11" VerticalAlignment="Center"/>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-            </Grid>
-        </Border>
-
-        <!-- ═══════════ Toast overlay ═══════════ -->
-        <Border x:Name="Toast" Grid.Row="4" VerticalAlignment="Bottom"
-                Margin="12,0,12,12" CornerRadius="6" Padding="12,9,12,9"
-                Background="{StaticResource Ink}"
-                Visibility="Collapsed">
-            <Border.Effect>
-                <DropShadowEffect Color="Black" BlurRadius="20" ShadowDepth="4" Opacity="0.2"/>
-            </Border.Effect>
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <jkr:IconGlyph Grid.Column="0" Glyph="check" Size="13" StrokeThickness="2"
-                               Foreground="{StaticResource Ok}" VerticalAlignment="Center" Margin="0,0,10,0"/>
-                <TextBlock Grid.Column="1" x:Name="ToastMsg" Foreground="White" FontSize="11.5"
-                           VerticalAlignment="Center" TextTrimming="CharacterEllipsis"
-                           FontFamily="{StaticResource Font.Sans}"/>
-                <Button Grid.Column="2" x:Name="UndoBtn" Style="{StaticResource Btn.Link}" Click="Undo_Click">
-                    <TextBlock Text="Undo" Foreground="{StaticResource Peach}" FontSize="11" FontWeight="SemiBold"/>
-                </Button>
-            </Grid>
-        </Border>
     </Grid>
 </UserControl>
