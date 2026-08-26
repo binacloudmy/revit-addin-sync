@@ -80,7 +80,7 @@ namespace Tests
             Assert.Equal(299, JkrCopilotMath.FailedCells(rules, st));   // 722 - r1(311) - r7(112); r7 is Comply so not open
             Assert.Equal(78 - 3, JkrCopilotMath.ManualCells(rules, st));
             Assert.Equal(CellDecision.Ignored, JkrCopilotMath.State(r1, st));
-            Assert.Equal(CellDecision.Resolved, JkrCopilotMath.State(r7, st));
+            Assert.Equal(CellDecision.Comply, JkrCopilotMath.State(r7, st));
         }
 
         // ── Rank / top fixes ──

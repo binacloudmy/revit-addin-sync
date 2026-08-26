@@ -841,7 +841,9 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                     foreach (var r in JkrCopilotMath.TopFixes(RunData.Rules, _decisions)) _decisions[r.Id] = CellDecision.Resolved;
                     break;
                 case "ignoreAll":
-                    foreach (var r in RunData.Rules.Where(FitsTab)) _decisions[r.Id] = CellDecision.Ignored;
+                    // Commit over the filtered visible list (_ordered = tab + section + search),
+                    // matching the "Ignore N rules?" title in RequestConfirm which counts _ordered.
+                    foreach (var r in _ordered) _decisions[r.Id] = CellDecision.Ignored;
                     break;
             }
             ConfirmRequest = null;
