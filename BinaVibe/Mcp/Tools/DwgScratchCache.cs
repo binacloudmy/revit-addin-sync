@@ -115,6 +115,13 @@ namespace BinaVibe.Mcp.Tools
         public static bool IsAttachmentRef(string dwgRef) =>
             !string.IsNullOrEmpty(dwgRef) && dwgRef.StartsWith("att:", StringComparison.Ordinal);
 
+        /// <summary>The on-disk path behind an "att:" ref, for readers (e.g.
+        /// ACadSharp) that parse the file directly instead of going through a
+        /// linked ImportInstance. Null if the ref is unknown or not an
+        /// attachment — in-model CAD ("model:<id>") has no local file.</summary>
+        public static string? GetPath(string dwgRef) =>
+            _entries.TryGetValue(dwgRef, out var entry) ? entry.Path : null;
+
         /// <summary>Close every scratch document. Called when the pane's session
         /// ends and when the host document closes — a scratch document left open
         /// would show up in Revit's window list and hold a file lock.</summary>
