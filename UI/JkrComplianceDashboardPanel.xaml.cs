@@ -48,8 +48,9 @@ namespace RevitWebAppSync.UI
         private JkrComplianceRequestV2 _lastScanRequest;
 
         // LOD level is selectable via the LOD ComboBox in the hero header.
-        // Default is 300; user can change to 100/200/300/400/500 before scanning.
-        private int SelectedLodLevel => _vm.SelectedLodLevel;
+        // Fall back to the extractor's default (300) for the legacy scan path until
+        // the copilot run picks a LOD (the copilot deliberately has no default).
+        private int SelectedLodLevel => _vm.SelectedLodLevel ?? 300;
 
         // Discipline scope: auto-detected from the model on first scan, overridable
         // by the user via DisciplineCombo. Once the user picks, stop auto-syncing.
@@ -77,7 +78,7 @@ namespace RevitWebAppSync.UI
             // above and avoids the binding-order race that blanked the dropdown when bindings
             // evaluated before DataContext propagated.
             LodCombo.ItemsSource = _vm.LodLevels;
-            LodCombo.SelectedItem = _vm.SelectedLodLevel;
+            LodCombo.SelectedItem = _vm.SelectedLodLevel ?? _vm.LodLevels.FirstOrDefault();
             LodCombo.SelectionChanged += (_, __) =>
             {
                 if (LodCombo.SelectedItem is int v) _vm.SelectedLodLevel = v;
