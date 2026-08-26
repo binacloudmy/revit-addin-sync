@@ -261,6 +261,10 @@ namespace BinaVibe.Mcp.Tools
                 "store_data"                    => ScratchStore.Store(doc, args),
                 "query_data"                    => ScratchStore.Query(doc, args),
 
+                // CAD-to-BIM viewer: reads an attached DWG/DXF straight off
+                // disk via ACadSharp (see CadLoad.cs).
+                "cad_load"                      => CadLoad.Run(uidoc, args),
+
                 _ => NotImplemented(tool),
             };
         }
