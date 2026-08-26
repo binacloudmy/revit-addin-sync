@@ -1,0 +1,10 @@
+# Drawings never enter this repo. The repo is public, and a test DWG is somebody's
+# real project: floor plans, room names, and a title block carrying the client.
+# Keep test files beside the checkout, not inside it.
+*.dwg
+*.dxf
+*.dwl
+*.dwl2
+
+obj/
+bin/
