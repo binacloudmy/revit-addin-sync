@@ -218,7 +218,14 @@
         </ResourceDictionary>
     </UserControl.Resources>
 
-    <Grid>
+    <!-- DesignWidth guard. The Claude Design canvas is a 452px column
+         ("JKR Audit Copilot.dc.html": width:452px). A Revit dockable panel can be
+         dragged far wider, and without a cap the Fix Queue stretched to fill it —
+         the headline %, the progress bar and the nam/par/qua/geo/doc row all spread
+         out and stopped matching the comp. S1/S2 already capped themselves at 440;
+         S3 did not, which is why only that screen looked wrong. Capping at the root
+         fixes every screen at once and still shrinks normally on a narrow dock. -->
+    <Grid MaxWidth="452" HorizontalAlignment="Left">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -986,7 +993,7 @@
                             </Grid>
 
                             <StackPanel Margin="0,10,0,0">
-                                <TextBlock Text="IN-MODEL (ACTUAL)" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                <TextBlock Text="IN MODEL" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
                                            Foreground="{StaticResource JkrCopilot.Muted}"/>
                                 <TextBlock Text="{Binding DetailRule.Act}" Margin="0,4,0,0" FontSize="11.5" TextWrapping="Wrap"/>
                             </StackPanel>
@@ -998,12 +1005,33 @@
                             </StackPanel>
 
                             <!-- manual only -->
-                            <Border Margin="0,12,0,0" Padding="12" Background="{StaticResource JkrCopilot.Surf3}"
+                            <Border Margin="0,12,0,0" Padding="14" CornerRadius="6"
+                                    Background="#0D3F5C7A" BorderBrush="#98A2AE" BorderThickness="1"
                                     Visibility="{Binding DetailRule.Kind, Converter={StaticResource EqP}, ConverterParameter=manual}">
                                 <StackPanel>
-                                    <TextBlock Text="WHY THIS IS YOURS TO CALL" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
-                                               Foreground="{StaticResource JkrCopilot.Muted}"/>
-                                    <TextBlock Text="{Binding DetailRule.Reason}" Margin="0,4,0,0" FontSize="11.5" TextWrapping="Wrap"/>
+                                    <TextBlock Text="Why this is yours to call" FontSize="13.5"
+                                               FontWeight="SemiBold" Foreground="#55606D" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{Binding DetailRule.Reason}" Margin="0,8,0,0" FontSize="12.5"
+                                               LineHeight="19" Foreground="#4C555F" TextWrapping="Wrap"/>
+                                    <Button Content="I confirm comply" Click="DetailComply_Click" Margin="0,12,0,0"
+                                            Padding="11" Background="White" Foreground="#1F7A4D"
+                                            BorderBrush="#1F7A4D" BorderThickness="1"
+                                            FontSize="12.5" FontWeight="SemiBold" Cursor="Hand"/>
+                                    <Grid Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="6"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Button Grid.Column="0" Content="Not comply" Click="DetailNot_Click"
+                                                Padding="10" Background="White" Foreground="#B3261E"
+                                                BorderBrush="#B3261E" BorderThickness="1"
+                                                FontSize="11.5" FontWeight="SemiBold" Cursor="Hand"/>
+                                        <Button Grid.Column="2" Content="Leave for JKR" Click="DetailDefer_Click"
+                                                Padding="11" Background="White" Foreground="#5C636B"
+                                                BorderBrush="#DBDFE4" BorderThickness="1"
+                                                FontSize="12.5" FontWeight="SemiBold" Cursor="Hand"/>
+                                    </Grid>
                                 </StackPanel>
                             </Border>
 
@@ -1013,8 +1041,8 @@
                                     BorderBrush="{StaticResource JkrCopilot.AddBg}"
                                     Background="{StaticResource JkrCopilot.Surf}">
                                 <StackPanel>
-                                    <TextBlock Text="PROPOSED FIX" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
-                                               Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                    <TextBlock Text="Proposed fix" FontSize="13.5" FontWeight="SemiBold"
+                                               Foreground="{StaticResource JkrCopilot.Navy}"/>
                                     <TextBlock Margin="0,4,0,0" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap">
                                         <Run Text="{Binding DetailRule.From, Mode=OneWay}"/><Run Text="  →  "/><Run Text="{Binding DetailRule.To, Mode=OneWay}"/>
                                     </TextBlock>
@@ -1029,10 +1057,10 @@
                         <StackPanel>
                             <StackPanel Orientation="Horizontal"
                                         Visibility="{Binding DetailRule.Kind, Converter={StaticResource EqP}, ConverterParameter=ai}">
-                                <Button Content="Apply fix" Click="DetailApply_Click"
-                                        Background="{StaticResource JkrCopilot.Success}" Foreground="White"
-                                        BorderThickness="0" Padding="14,8" FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
-                                <Button Content="⟳ Locate" Click="DetailLocate_Click" Margin="8,0,0,0"
+                                <Button Content="⚡ Apply to model" Click="DetailApply_Click"
+                                        Background="{StaticResource JkrCopilot.Navy}" Foreground="White"
+                                        BorderThickness="0" Padding="13" FontSize="12.5" FontWeight="SemiBold" Cursor="Hand"/>
+                                <Button Content="◎ Locate in 3D" Click="DetailLocate_Click" Margin="8,0,0,0"
                                         Background="Transparent" BorderBrush="{StaticResource JkrCopilot.Line}"
                                         BorderThickness="1" Foreground="{StaticResource JkrCopilot.Muted}" Padding="14,8"
                                         FontSize="12" Cursor="Hand"/>
@@ -1042,18 +1070,9 @@
                             </StackPanel>
                             <StackPanel Orientation="Horizontal"
                                         Visibility="{Binding DetailRule.Kind, Converter={StaticResource EqP}, ConverterParameter=manual}">
-                                <Button Content="✓ Comply" Click="DetailComply_Click"
-                                        Background="Transparent" Foreground="{StaticResource JkrCopilot.Success}"
-                                        BorderBrush="{StaticResource JkrCopilot.Success}" BorderThickness="1"
-                                        Padding="14,8" FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
-                                <Button Content="✗ Not" Click="DetailNot_Click" Margin="8,0,0,0"
-                                        Background="Transparent" Foreground="{StaticResource JkrCopilot.Danger}"
-                                        BorderBrush="{StaticResource JkrCopilot.Danger}" BorderThickness="1"
-                                        Padding="14,8" FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
-                                <Button Content="defer" Click="DetailDefer_Click" Margin="8,0,0,0"
-                                        Background="Transparent" BorderBrush="{StaticResource JkrCopilot.Line}"
-                                        BorderThickness="1" Foreground="{StaticResource JkrCopilot.Muted}"
-                                        Padding="14,8" FontSize="12" Cursor="Hand"/>
+                                <!-- The three verdicts now live in the dashed "Why this is yours
+                                     to call" box above, exactly as the dc.html groups them. Only
+                                     Ignore belongs on this row. -->
                                 <Button Content="✕ Ignore" Click="DetailIgnore_Click" Margin="8,0,0,0"
                                         Background="Transparent" Foreground="{StaticResource JkrCopilot.Muted}"
                                         Padding="14,8" FontSize="12" Cursor="Hand"/>
