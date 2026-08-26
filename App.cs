@@ -717,8 +717,8 @@ namespace RevitWebAppSync
             {
                 ToolTip = "Open BINA Cloud",
                 LongDescription = "Opens BINA Cloud in your default browser.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
+                Image = LoadIcon("Sync", 16),
+                LargeImage = LoadIcon("Sync", 32)
             };
 
             // Login opens the BINA Cloud web page (login OR register) in the
@@ -732,8 +732,8 @@ namespace RevitWebAppSync
             {
                 ToolTip = "Sign in to BINA AI (Copilot, JKR compliance, space planning)",
                 LongDescription = "Opens the BINA AI sign-in page in your browser to log in or create an account. Separate from Login to CDE — that one signs you in to Cloud Docs for model sync, and the two backends issue their own tokens.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+                Image = LoadIcon("LoginAi", 16),
+                LargeImage = LoadIcon("LoginAi", 32)
             };
 
             // Second sign-in, against bina-be. Cloud Docs / BIM sync live on a
@@ -749,8 +749,8 @@ namespace RevitWebAppSync
             {
                 ToolTip = "Sign in to the BINA CDE / Cloud Docs (projects, documents, model sync)",
                 LongDescription = "Signs in to BINA Cloud Docs in your browser. Required by Sync and Download Model — the other buttons on this panel. Separate from Login to AI, which Copilot, JKR and space planning use.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+                Image = LoadIcon("LoginCde", 16),
+                LargeImage = LoadIcon("LoginCde", 32)
             };
 
             // "Shared Download" retired: Download Model browses the Shared area
@@ -775,8 +775,8 @@ namespace RevitWebAppSync
                 ToolTip = "Download a version of any model in this project's WIP area",
                 LongDescription = "Browse the project's WIP folders, pick a model and a version, and save it " +
                     "to your machine. Only the folders and models your BINA role gives you access to are listed.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+                Image = LoadIcon("DownloadModel", 16),
+                LargeImage = LoadIcon("DownloadModel", 32)
             };
 
             // Parameters entered in the BINA viewer live in BINA's database, not
@@ -790,8 +790,8 @@ namespace RevitWebAppSync
             {
                 ToolTip = "Write BINA element parameters into this model",
                 LongDescription = "Pulls the parameters added to elements in BINA Cloud and writes them onto the matching elements here, creating shared parameters where the model does not have them yet.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
+                Image = LoadIcon("SyncParameters", 16),
+                LargeImage = LoadIcon("SyncParameters", 32)
             };
 
             // Issues raised in the BINA viewer, shown against the open model
@@ -804,8 +804,8 @@ namespace RevitWebAppSync
             {
                 ToolTip = "Show BINA issues against this model",
                 LongDescription = "Pulls the issues raised on this model in BINA Cloud, selects the elements an issue points at, and restores the viewpoint it was captured from.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+                Image = LoadIcon("Issues", 16),
+                LargeImage = LoadIcon("Issues", 32)
             };
 
             // LEGACY — Federate Disciplines is retired; the command itself is
@@ -831,8 +831,8 @@ namespace RevitWebAppSync
             {
                 ToolTip = "Open BINA AI Copilot",
                 LongDescription = "Open the BINA AI Copilot side panel to run vetted tools or AI commands with natural language. Examples: Count doors by level, Rename levels, Find walls missing fire rating.",
-                Image = LoadImage("RevitWebAppSync.Resources.aiAssistant.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.aiAssistant.png", 32)
+                Image = LoadIcon("AiAssistant", 16),
+                LargeImage = LoadIcon("AiAssistant", 32)
             };
 
             // Cost Tracker buttons
@@ -868,8 +868,8 @@ namespace RevitWebAppSync
             {
                 ToolTip = "Open Cost Tracker Dashboard",
                 LongDescription = "Show the cost tracker panel with total cost breakdown by level and category.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+                Image = LoadIcon("CostTracker", 16),
+                LargeImage = LoadIcon("CostTracker", 32)
             };
 
             PushButtonData complianceButtonData = new PushButtonData(
@@ -892,8 +892,8 @@ namespace RevitWebAppSync
             {
                 ToolTip = "Check JKR BIM Compliance (Document 09)",
                 LongDescription = "Check model elements against JKR BIM Spesifikasi Parameter — naming, required parameters per LOD level, JKR codes. 53 categories, 5,478 parameter rules.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+                Image = LoadIcon("JkrCompliance", 16),
+                LargeImage = LoadIcon("JkrCompliance", 32)
             };
 
             PushButtonData bombaComplianceButtonData = new PushButtonData(
@@ -904,8 +904,8 @@ namespace RevitWebAppSync
             {
                 ToolTip = "Check Bomba fire-safety compliance (UBBL)",
                 LongDescription = "Check the model against UBBL fire-safety requirements — exit width, travel distance, fire systems. Reads the model; changes nothing.",
-                Image = LoadImage("RevitWebAppSync.Resources.revitSave.png", 16),
-                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSave.png", 32)
+                Image = LoadIcon("BombaCompliance", 16),
+                LargeImage = LoadIcon("BombaCompliance", 32)
             };
 
             // BINA CDE: the bina-be sign-in, then the two buttons that need it.
@@ -935,6 +935,19 @@ namespace RevitWebAppSync
             // Fire Compliance stays hidden (restored only if explicitly requested)
             // compliancePanel.AddItem(complianceButtonData);
             // cdePanel.AddItem(federateButtonData); // Hidden as requested
+        }
+
+        // Ribbon icons live in Resources\Icons as one drawing per size, not one
+        // scaled: the 16 is redrawn at 1.3px with detail dropped, the 32/64 are
+        // stroked at 1.8px (see Resources\Icons\svg and Resources\Icons\README.md).
+        // Image takes the 16 and LargeImage the 32, which is the size the Revit
+        // ribbon slot is defined at. A 64 is embedded too but deliberately not
+        // bound: AdWindows does not constrain the large slot in every button
+        // template, so an oversized BitmapImage can render at its natural size
+        // and blow the button out. Using it needs a DPI check on a real Revit.
+        private BitmapImage LoadIcon(string name, int size)
+        {
+            return LoadImage("RevitWebAppSync.Resources.Icons." + name + size + ".png", size);
         }
 
         private BitmapImage LoadImage(string resourceName, int size = 32)

@@ -115,6 +115,12 @@
     <EmbeddedResource Include="Resources\revitSave.png" />
     <EmbeddedResource Include="Resources\microchip.png" />
     <EmbeddedResource Include="Resources\aiAssistant.png" />
+
+    <!-- Bina ribbon icon set (design canvas "Bina Ribbon Icons"). Glob, not
+         named files: every command takes a 16 and a 64, and the set grows with
+         the tab. The .svg sources next to them are the masters — regenerate the
+         PNGs with scripts\gen-ribbon-icons.mjs rather than editing the raster. -->
+    <EmbeddedResource Include="Resources\Icons\*.png" />
   </ItemGroup>
 
   <ItemGroup>
