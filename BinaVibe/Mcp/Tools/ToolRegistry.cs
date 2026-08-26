@@ -266,6 +266,7 @@ namespace BinaVibe.Mcp.Tools
                 // disk via ACadSharp (see CadLoad.cs).
                 "cad_load"                      => CadLoad.Run(uidoc, args),
                 "cad_get_lines"                 => CadGetLines.Run(uidoc, args),
+                "cad_create_walls"              => CadCreateWalls.Run(uidoc, args),
 
                 _ => NotImplemented(tool),
             };
