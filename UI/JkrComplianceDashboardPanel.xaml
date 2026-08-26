@@ -116,11 +116,11 @@
                                                    TextTrimming="CharacterEllipsis"/>
                                         <TextBlock Margin="0,2,0,0" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
                                                    Foreground="{StaticResource JkrCopilot.Muted}">
-                                            <Run Text="{Binding Cells, StringFormat={}{0:N0} cells}"/>
+                                            <Run Text="{Binding Cells, Mode=OneWay, StringFormat={}{0:N0} cells}"/>
                                             <Run Text=" · "/>
-                                            <Run Text="{Binding Rows, StringFormat={}{0} rows}"/>
+                                            <Run Text="{Binding Rows, Mode=OneWay, StringFormat={}{0} rows}"/>
                                             <Run Text=" · "/>
-                                            <Run Text="{Binding SecName}"/>
+                                            <Run Text="{Binding SecName, Mode=OneWay}"/>
                                         </TextBlock>
                                     </StackPanel>
                                     <TextBlock Grid.Column="2" FontSize="13"
@@ -288,7 +288,7 @@
             <Grid Grid.Row="0">
                 <!-- ─── S1 START ─── -->
                 <ScrollViewer Visibility="{Binding IsS1, Converter={StaticResource B2V}}"
-                              VerticalScrollBarVisibility="Auto" Style="{StaticResource ThinScrollBar}">
+                              VerticalScrollBarVisibility="Auto" Style="{StaticResource ThinScroll}">
                     <StackPanel Margin="16,16" MaxWidth="440" HorizontalAlignment="Center">
 
                         <!-- already read from Revit (dc.html:72-88) -->
@@ -415,7 +415,7 @@
                                            VerticalAlignment="Center"/>
                                 <TextBlock Grid.Column="2" FontFamily="{StaticResource Font.Mono}" FontSize="10.5"
                                            Foreground="{StaticResource JkrCopilot.Ink2}" VerticalAlignment="Center">
-                                    <Run Text="{Binding Filename}"/><Run Text=" · "/><Run Text="{Binding SelectedDiscipline}"/>
+                                    <Run Text="{Binding Filename, Mode=OneWay}"/><Run Text=" · "/><Run Text="{Binding SelectedDiscipline, Mode=OneWay}"/>
                                 </TextBlock>
                             </Grid>
                             <Grid>
@@ -433,7 +433,7 @@
                                            VerticalAlignment="Center"/>
                                 <TextBlock Grid.Column="2" FontFamily="{StaticResource Font.Mono}" FontSize="10.5"
                                            Foreground="{StaticResource JkrCopilot.Ink2}" VerticalAlignment="Center">
-                                    <Run Text="{Binding SelectedLodLevel, StringFormat={}LOD {0}, TargetNullValue=not chosen}"/>
+                                    <Run Text="{Binding SelectedLodLevel, Mode=OneWay, StringFormat={}LOD {0}, TargetNullValue=not chosen}"/>
                                 </TextBlock>
                             </Grid>
                         </StackPanel>
@@ -470,7 +470,7 @@
 
                 <!-- ─── S2 RUN ─── -->
                 <ScrollViewer Visibility="{Binding IsS2, Converter={StaticResource B2V}}"
-                              VerticalScrollBarVisibility="Auto" Style="{StaticResource ThinScrollBar}">
+                              VerticalScrollBarVisibility="Auto" Style="{StaticResource ThinScroll}">
                     <StackPanel Margin="16,20" MaxWidth="440" HorizontalAlignment="Center">
                         <TextBlock FontFamily="{StaticResource Font.Mono}" FontSize="9.5" FontWeight="SemiBold"
                                    Foreground="{StaticResource JkrCopilot.Muted}"
@@ -544,15 +544,28 @@
                     </StackPanel>
                 </ScrollViewer>
 
+                <!-- ─── (S3|S5 hero) + shared list — a vertical column, not an overlay ─── -->
+                <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
                 <!-- ─── S3 hero ─── -->
-                <StackPanel Visibility="{Binding IsS3, Converter={StaticResource B2V}}"
+                <StackPanel Grid.Row="0" Visibility="{Binding IsS3, Converter={StaticResource B2V}}"
                             Margin="16,14,16,0">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" Grid.Column="0">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="{Binding Summary.Pct}"
                                            FontFamily="{StaticResource Font.Mono}" FontSize="46" FontWeight="Bold"
@@ -565,7 +578,7 @@
                         </StackPanel>
 
                         <!-- 9px pass/fail bar (#1F7A4D width = pct% / #DFAAA5 rest) -->
-                        <Grid Grid.Column="0" Grid.ColumnSpan="2" Margin="0,12,0,0" Height="9">
+                        <Grid Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,12,0,0" Height="9">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="{Binding Summary.Pct, Converter={StaticResource PctStar}, ConverterParameter=pass}"/>
                                 <ColumnDefinition Width="{Binding Summary.Pct, Converter={StaticResource PctStar}, ConverterParameter=rest}"/>
@@ -574,18 +587,18 @@
                             <Border Grid.Column="1" Background="{StaticResource JkrCopilot.Fail}" CornerRadius="0,4,4,0"/>
                         </Grid>
 
-                        <Grid Grid.Column="0" Grid.ColumnSpan="2" Margin="0,5,0,0">
+                        <Grid Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,5,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
                                 <ColumnDefinition Width="*"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Column="0" FontFamily="{StaticResource Font.Mono}" FontSize="10"
                                        Foreground="{StaticResource JkrCopilot.Muted}">
-                                <Run Text="{Binding Summary.Verified, StringFormat={}{0:N0}}"/><Run Text=" comply"/>
+                                <Run Text="{Binding Summary.Verified, Mode=OneWay, StringFormat={}{0:N0}}"/><Run Text=" comply"/>
                             </TextBlock>
                             <TextBlock Grid.Column="1" FontFamily="{StaticResource Font.Mono}" FontSize="10"
                                        Foreground="{StaticResource JkrCopilot.Danger}" HorizontalAlignment="Right">
-                                <Run Text="{Binding Summary.Failed, StringFormat={}{0:N0}}"/><Run Text=" not comply"/>
+                                <Run Text="{Binding Summary.Failed, Mode=OneWay, StringFormat={}{0:N0}}"/><Run Text=" not comply"/>
                             </TextBlock>
                         </Grid>
                     </Grid>
@@ -624,7 +637,7 @@
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="{StaticResource Font.Mono}" FontSize="12.5" FontWeight="Bold"
                                            Foreground="{StaticResource JkrCopilot.Navy}">
-                                    <Run Text="{Binding RowsFail, StringFormat={}{0} form rows will come back NOT COMPLY}"/>
+                                    <Run Text="{Binding RowsFail, Mode=OneWay, StringFormat={}{0} form rows will come back NOT COMPLY}"/>
                                 </TextBlock>
                             </StackPanel>
                             <TextBlock Text="{Binding Leverage}" FontSize="11" Margin="0,6,0,0"
@@ -657,7 +670,7 @@
                 </StackPanel>
 
                 <!-- ─── S5 hero ─── -->
-                <StackPanel Visibility="{Binding IsS5, Converter={StaticResource B2V}}"
+                <StackPanel Grid.Row="1" Visibility="{Binding IsS5, Converter={StaticResource B2V}}"
                             Margin="16,14,16,0">
                     <TextBlock FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource JkrCopilot.Muted}"
                                Text="MANUAL REVIEW"/>
@@ -674,7 +687,7 @@
                 </StackPanel>
 
                 <!-- ─── SHARED LIST (S3 + S5) ─── -->
-                <Grid Visibility="{Binding ShowList, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource B2V}}"
+                <Grid Grid.Row="2" Visibility="{Binding ShowList, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource B2V}}"
                       Margin="16,12,16,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -705,7 +718,7 @@
                                     </Style.Triggers>
                                 </Style>
                             </Button.Style>
-                            <TextBlock FontSize="11.5" FontWeight="SemiBold"><Run Text="Open"/><Run Text=" "/><Run Text="{Binding OpenRuleCells, StringFormat={}{0:N0}}"/></TextBlock>
+                            <TextBlock FontSize="11.5" FontWeight="SemiBold"><Run Text="Open"/><Run Text=" "/><Run Text="{Binding OpenRuleCells, Mode=OneWay, StringFormat={}{0:N0}}"/></TextBlock>
                         </Button>
                         <Button Click="Tab_Click" Tag="{x:Static vm:CopilotTab.Manual}" Padding="10,5" Cursor="Hand" Margin="2,0,0,0">
                             <Button.Style>
@@ -721,7 +734,7 @@
                                     </Style.Triggers>
                                 </Style>
                             </Button.Style>
-                            <TextBlock FontSize="11.5" FontWeight="SemiBold"><Run Text="Manual"/><Run Text=" "/><Run Text="{Binding ManualRuleCells, StringFormat={}{0:N0}}"/></TextBlock>
+                            <TextBlock FontSize="11.5" FontWeight="SemiBold"><Run Text="Manual"/><Run Text=" "/><Run Text="{Binding ManualRuleCells, Mode=OneWay, StringFormat={}{0:N0}}"/></TextBlock>
                         </Button>
                         <Button Click="Tab_Click" Tag="{x:Static vm:CopilotTab.Ignored}" Padding="10,5" Cursor="Hand" Margin="2,0,0,0">
                             <Button.Style>
@@ -737,7 +750,7 @@
                                     </Style.Triggers>
                                 </Style>
                             </Button.Style>
-                            <TextBlock FontSize="11.5" FontWeight="SemiBold"><Run Text="Ignored"/><Run Text=" "/><Run Text="{Binding IgnoredRuleCells, StringFormat={}{0:N0}}"/></TextBlock>
+                            <TextBlock FontSize="11.5" FontWeight="SemiBold"><Run Text="Ignored"/><Run Text=" "/><Run Text="{Binding IgnoredRuleCells, Mode=OneWay, StringFormat={}{0:N0}}"/></TextBlock>
                         </Button>
                         <Button Click="Tab_Click" Tag="{x:Static vm:CopilotTab.Resolved}" Padding="10,5" Cursor="Hand" Margin="2,0,0,0">
                             <Button.Style>
@@ -753,7 +766,7 @@
                                     </Style.Triggers>
                                 </Style>
                             </Button.Style>
-                            <TextBlock FontSize="11.5" FontWeight="SemiBold"><Run Text="Fixed"/><Run Text=" "/><Run Text="{Binding ResolvedRuleCells, StringFormat={}{0:N0}}"/></TextBlock>
+                            <TextBlock FontSize="11.5" FontWeight="SemiBold"><Run Text="Fixed"/><Run Text=" "/><Run Text="{Binding ResolvedRuleCells, Mode=OneWay, StringFormat={}{0:N0}}"/></TextBlock>
                         </Button>
                     </StackPanel>
 
@@ -790,12 +803,13 @@
 
                     <!-- groups / empty -->
                     <Grid Grid.Row="3">
-                        <ItemsControl ItemsSource="{Binding Groups}" ItemTemplate="{StaticResource GroupCard}"/>
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" Style="{StaticResource ThinScroll}">
+                            <ItemsControl ItemsSource="{Binding Groups}" ItemTemplate="{StaticResource GroupCard}"/>
+                        </ScrollViewer>
 
                         <TextBlock Text="Nothing in this list."
                                    HorizontalAlignment="Center" Margin="0,40,0,0"
-                                   FontSize="12" Foreground="{StaticResource JkrCopilot.Muted}"
-                                   Visibility="{Binding HasFilteredRules, Converter={StaticResource B2V}}">
+                                   FontSize="12" Foreground="{StaticResource JkrCopilot.Muted}">
                             <TextBlock.Style>
                                 <Style TargetType="TextBlock">
                                     <Setter Property="Visibility" Value="Visible"/>
@@ -809,16 +823,17 @@
                         </TextBlock>
                     </Grid>
                 </Grid>
+                </Grid>
 
                 <!-- ─── S6 EXPORT ─── -->
                 <ScrollViewer Visibility="{Binding IsS6, Converter={StaticResource B2V}}"
-                              VerticalScrollBarVisibility="Auto" Style="{StaticResource ThinScrollBar}">
+                              VerticalScrollBarVisibility="Auto" Style="{StaticResource ThinScroll}">
                     <StackPanel Margin="16,16" MaxWidth="520" HorizontalAlignment="Left">
                         <TextBlock Text="EXPORT — BORANG BIM 010, FIVE PAGES" FontFamily="{StaticResource Font.Mono}"
                                    FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource JkrCopilot.Muted}"/>
                         <TextBlock Text="Ready for JKR submission" FontSize="16" FontWeight="Bold" Margin="0,6,0,0"/>
                         <TextBlock Margin="0,6,0,0" FontSize="11.5" Foreground="{StaticResource JkrCopilot.Muted}" TextWrapping="Wrap">
-                            <Run Text="{Binding Summary.Pct, StringFormat={}{0}% of what the AI could verify passed}"/>
+                            <Run Text="{Binding Summary.Pct, Mode=OneWay, StringFormat={}{0}% of what the AI could verify passed}"/>
                             <Run Text=" · bundle the audit result into the Borang sheet."/>
                         </TextBlock>
 
@@ -889,7 +904,7 @@
                                 Background="{StaticResource JkrCopilot.Dark}" Foreground="White"
                                 BorderThickness="0" Padding="13,6" FontSize="11.5" FontWeight="SemiBold">
                             <TextBlock FontSize="11.5" FontWeight="SemiBold" Foreground="White">
-                                <Run Text="Fix all "/><Run Text="{Binding OpenRuleCells, StringFormat={}{0:N0}}"/>
+                                <Run Text="Fix all "/><Run Text="{Binding OpenRuleCells, Mode=OneWay, StringFormat={}{0:N0}}"/>
                             </TextBlock>
                         </Button>
                     </StackPanel>
@@ -926,7 +941,7 @@
                         </StackPanel>
                     </Grid>
 
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Style="{StaticResource ThinScrollBar}">
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Style="{StaticResource ThinScroll}">
                         <StackPanel Margin="16,0,16,16">
                             <Border HorizontalAlignment="Left" Background="{StaticResource JkrCopilot.Surf3}" Padding="8,3">
                                 <TextBlock FontFamily="{StaticResource Font.Mono}" FontSize="10" FontWeight="Bold"
@@ -934,9 +949,9 @@
                                            Text="{Binding DetailRule.Kind}"/>
                             </Border>
                             <TextBlock Margin="0,10,0,0" FontSize="13.5" FontWeight="Bold" TextWrapping="Wrap">
-                                <Run Text="{Binding DetailRule.Item}"/><Run Text=" · "/>
-                                <Run Text="{Binding DetailRule.Cat}"/><Run Text=" — "/>
-                                <Run Text="{Binding DetailRule.Cells, StringFormat={}{0:N0} CELLS}"/>
+                                <Run Text="{Binding DetailRule.Item, Mode=OneWay}"/><Run Text=" · "/>
+                                <Run Text="{Binding DetailRule.Cat, Mode=OneWay}"/><Run Text=" — "/>
+                                <Run Text="{Binding DetailRule.Cells, Mode=OneWay, StringFormat={}{0:N0} CELLS}"/>
                             </TextBlock>
                             <TextBlock Text="{Binding DetailRule.Title}" Margin="0,4,0,0" FontSize="12.5"
                                        TextWrapping="Wrap" Foreground="{StaticResource JkrCopilot.Ink2}"/>
@@ -958,9 +973,9 @@
                                     <TextBlock Text="IMPACT" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
                                                Foreground="{StaticResource JkrCopilot.Muted}"/>
                                     <TextBlock FontSize="11.5" Margin="0,4,0,0" TextWrapping="Wrap">
-                                        <Run Text="{Binding DetailRule.Cells, StringFormat={}{0:N0} cells}"/>
+                                        <Run Text="{Binding DetailRule.Cells, Mode=OneWay, StringFormat={}{0:N0} cells}"/>
                                         <Run Text=" · "/>
-                                        <Run Text="{Binding DetailRule.Rows, StringFormat={}{0} rows}"/>
+                                        <Run Text="{Binding DetailRule.Rows, Mode=OneWay, StringFormat={}{0} rows}"/>
                                     </TextBlock>
                                 </StackPanel>
                                 <StackPanel Grid.Column="1" Margin="10,0,0,0">
@@ -994,13 +1009,14 @@
 
                             <!-- proposed fix (ai only) -->
                             <Border Margin="0,12,0,0" Padding="12" BorderThickness="1"
+                                    Visibility="{Binding DetailRule.Kind, Converter={StaticResource EqP}, ConverterParameter=ai}"
                                     BorderBrush="{StaticResource JkrCopilot.AddBg}"
                                     Background="{StaticResource JkrCopilot.Surf}">
                                 <StackPanel>
                                     <TextBlock Text="PROPOSED FIX" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
                                                Foreground="{StaticResource JkrCopilot.Muted}"/>
                                     <TextBlock Margin="0,4,0,0" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap">
-                                        <Run Text="{Binding DetailRule.From}"/><Run Text="  →  "/><Run Text="{Binding DetailRule.To}"/>
+                                        <Run Text="{Binding DetailRule.From, Mode=OneWay}"/><Run Text="  →  "/><Run Text="{Binding DetailRule.To, Mode=OneWay}"/>
                                     </TextBlock>
                                 </StackPanel>
                             </Border>

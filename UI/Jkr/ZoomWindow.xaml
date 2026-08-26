@@ -52,9 +52,9 @@
                                                 <TextBlock FontFamily="{StaticResource Font.Mono}" FontSize="11"
                                                            Foreground="{StaticResource JkrCopilot.Muted}"
                                                            Margin="0,3,0,0">
-                                                    <Run Text="Item "/><Run Text="{Binding Item}"/>
-                                                    <Run Text=" · "/><Run Text="{Binding Cat}"/>
-                                                    <Run Text=" · "/><Run Text="{Binding Cells, StringFormat={}{0:N0}}"/>
+                                                    <Run Text="Item "/><Run Text="{Binding Item, Mode=OneWay}"/>
+                                                    <Run Text=" · "/><Run Text="{Binding Cat, Mode=OneWay}"/>
+                                                    <Run Text=" · "/><Run Text="{Binding Cells, Mode=OneWay, StringFormat={}{0:N0}}"/>
                                                     <Run Text=" cells"/>
                                                 </TextBlock>
                                             </StackPanel>
@@ -93,9 +93,9 @@
                            Foreground="{StaticResource JkrCopilot.Navy}" Margin="2,8,0,0"/>
                 <TextBlock VerticalAlignment="Bottom" Margin="16,0,0,6" FontSize="14"
                            Foreground="{StaticResource JkrCopilot.Muted}">
-                    <Run Text="{Binding Summary.Verified, StringFormat={}{0:N0}}"/><Run Text=" comply"/>
+                    <Run Text="{Binding Summary.Verified, Mode=OneWay, StringFormat={}{0:N0}}"/><Run Text=" comply"/>
                     <Run Text=" · "/>
-                    <Run Text="{Binding Summary.Failed, StringFormat={}{0:N0}}"/><Run Text=" not comply"/>
+                    <Run Text="{Binding Summary.Failed, Mode=OneWay, StringFormat={}{0:N0}}"/><Run Text=" not comply"/>
                 </TextBlock>
             </StackPanel>
         </StackPanel>
@@ -121,7 +121,7 @@
         <!-- Groups (read-only) -->
         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled"
-                      Style="{StaticResource ThinScrollBar}">
+                      Style="{StaticResource ThinScroll}">
             <ItemsControl ItemsSource="{Binding Groups}" ItemTemplate="{StaticResource ZoomGroup}"/>
         </ScrollViewer>
     </Grid>

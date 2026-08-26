@@ -87,8 +87,10 @@ namespace UiHarness
         }
 
         // Select the first rule row, optionally the first human-decides one.
+        // Manual rules only appear in the Manual tab's groups, so switch there first.
         private static void OpenFirstDetail(PanelVm vm, bool manual)
         {
+            if (manual) vm.ActiveCopilotTab = CopilotTab.Manual;
             foreach (var g in vm.Groups)
             {
                 foreach (var r in g.Rules)

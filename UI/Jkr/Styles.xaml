@@ -273,6 +273,14 @@
         </Setter>
     </Style>
 
+    <!-- Apply to a ScrollViewer: restyles the ScrollBars inside its template.
+         ThinScrollBar itself targets ScrollBar and cannot be set on a ScrollViewer. -->
+    <Style x:Key="ThinScroll" TargetType="ScrollViewer">
+        <Style.Resources>
+            <Style TargetType="ScrollBar" BasedOn="{StaticResource ThinScrollBar}"/>
+        </Style.Resources>
+    </Style>
+
     <!-- ══════════ CHECKBOX (flat) ══════════ -->
     <Style x:Key="Cb.Flat" TargetType="CheckBox">
         <Setter Property="FontSize" Value="11.5"/>

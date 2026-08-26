@@ -76,11 +76,17 @@ namespace RevitWebAppSync.UI.Jkr
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
     }
 
-    // string equality against a static ConverterParameter (tab pill / discipline / language highlight)
+    // string equality against a static ConverterParameter (tab pill / discipline / language highlight).
+    // Returns Visibility when bound to a Visibility property (a raw bool there fails conversion
+    // and the element silently stays Visible), bool everywhere else (DataTrigger values).
     public class EqualsParamConverter : IValueConverter
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
-            => object.Equals(value?.ToString(), parameter?.ToString());
+        {
+            bool eq = object.Equals(value?.ToString(), parameter?.ToString());
+            if (targetType == typeof(Visibility)) return eq ? Visibility.Visible : Visibility.Collapsed;
+            return eq;
+        }
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => Binding.DoNothing;
     }
 
