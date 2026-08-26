@@ -90,14 +90,14 @@
                 <TextBlock Text="Drag a field to scrub, click to type." Foreground="{StaticResource TextDimBrush}"
                            FontSize="11" Margin="0,0,0,2" TextWrapping="Wrap"/>
 
-                <TextBlock Text="WALL THICKNESS" Style="{StaticResource SectionHeader}"/>
+                <TextBlock Text="WALL THICKNESS (MM)" Style="{StaticResource SectionHeader}"/>
                 <Border Style="{StaticResource SectionRule}"/>
-                <controls:NumericScrubBox Label="SMin"
+                <controls:NumericScrubBox Label="SMin (mm)"
                                           Value="{Binding Settings.SMin}"
-                                          Minimum="0.001" Maximum="1" Step="0.001" Format="0.###"/>
-                <controls:NumericScrubBox Label="SMax"
+                                          Minimum="1" Maximum="600" Step="1" Format="0"/>
+                <controls:NumericScrubBox Label="SMax (mm)"
                                           Value="{Binding Settings.SMax}"
-                                          Minimum="0.001" Maximum="2" Step="0.002" Format="0.###"/>
+                                          Minimum="1" Maximum="1200" Step="2" Format="0"/>
             </StackPanel>
         </Border>
 
