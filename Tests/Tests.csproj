@@ -1,12 +1,23 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <PlatformTarget>x64</PlatformTarget>
-    <UseWPF>true</UseWPF>
-    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- Two targets. On Windows `dotnet test` runs BOTH: net10.0 runs the
+         cross-platform suite (pure logic + Borang BIM 010, no WPF) and
+         net10.0-windows runs the full WindowsDesktop suite. On macOS/Linux CI only
+         net10.0 is selected, so the pure + Borang BIM 010 tests actually EXECUTE
+         here instead of compiling-then-skipping on the WindowsDesktop runtime. -->
+    <TargetFrameworks Condition="'$(OS)' == 'Windows_NT'">net10.0;net10.0-windows</TargetFrameworks>
+    <TargetFrameworks Condition="'$(OS)' != 'Windows_NT'">net10.0</TargetFrameworks>
+    <!-- UseWPF + x64 only on the WindowsDesktop target; the plain net10.0 target is
+         WPF-free so it runs on arm64 macOS. -->
+    <UseWPF Condition="'$(TargetFramework)' == 'net10.0-windows'">true</UseWPF>
+    <PlatformTarget Condition="'$(TargetFramework)' == 'net10.0-windows'">x64</PlatformTarget>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- Build the net10.0-windows test TFM headlessly on macOS/Linux CI so the
+         suite at least compiles-and-milestones here; real execution happens on
+         the Windows runner where the WindowsDesktop runtime exists. -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,11 +31,18 @@
       the DocumentChangedIndexer source link below, which pulls in
       Autodesk.Revit.DB. From NuGet, so it builds with no local Revit install.
     -->
-    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.*" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2027.*" Condition="'$(SkipRevitSources)' != 'true' and '$(TargetFramework)' == 'net10.0-windows'" />
     <!-- PdfPig: needed by the linked PdfReader source below, and used by the
          tests themselves (PdfDocumentBuilder) to generate fixture PDFs — no
          checked-in binaries, no SkiaSharp/native dependency in the test host. -->
     <PackageReference Include="PdfPig" Version="0.1.*" />
+    <!-- QuestPDF: renders the Borang BIM 010 PDF (BorangBim010Exporter). Same
+         "2024.*" resolver the add-in uses, so the exporter compiles identically
+         in both hosts; runs cross-platform for the render smoke test. -->
+    <PackageReference Include="QuestPDF" Version="2024.*" />
+    <!-- ClosedXML: ReportExporter.cs (linked below for BorangBim010Exporter's
+         mandatory EnsureQuestPdfReady dependency) also exposes the xlsx writer. -->
+    <PackageReference Include="ClosedXML" Version="0.102.2" />
   </ItemGroup>
 
   <ItemGroup>
@@ -35,12 +53,16 @@
     <Compile Include="..\UI\Jkr\ViewModels\JkrTierMap.cs" Link="JkrTierMap.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\IssueVm.cs" Link="IssueVm.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\SpecDoc.cs" Link="SpecDoc.cs" />
-    <Compile Include="..\UI\Jkr\ViewModels\CategoryVm.cs" Link="CategoryVm.cs" />
-    <Compile Include="..\UI\Jkr\ViewModels\PanelVm.cs" Link="PanelVm.cs" />
+    <!-- C14 copilot panel foundation. JkrCopilotModels / IJkrCopilotSource /
+         FixtureCopilotSource / JkrCopilotMath are WPF-free and run on BOTH targets;
+         PanelVm + CategoryVm pull System.Windows.Data/Threading, so the net10.0
+         carve-out below drops them together with JkrCopilotVmTests. -->
     <Compile Include="..\Models\JkrCopilotModels.cs" Link="JkrCopilotModels.cs" />
     <Compile Include="..\Services\IJkrCopilotSource.cs" Link="IJkrCopilotSource.cs" />
     <Compile Include="..\Services\FixtureCopilotSource.cs" Link="FixtureCopilotSource.cs" />
     <Compile Include="..\Services\JkrCopilotMath.cs" Link="JkrCopilotMath.cs" />
+    <Compile Include="..\UI\Jkr\ViewModels\CategoryVm.cs" Link="CategoryVm.cs" />
+    <Compile Include="..\UI\Jkr\ViewModels\PanelVm.cs" Link="PanelVm.cs" />
     <Compile Include="..\UI\Jkr\JkrTheme.cs" Link="JkrTheme.cs" />
     <!-- JkrTheme.cs calls Helpers.WpfAppBootstrap.Ensure(). This project uses
          explicit Compile items (no default globs), so a file added to the addin
@@ -88,6 +110,20 @@
     <Compile Include="..\UI\Copilot\Model\AttachmentGate.cs" Link="AttachmentGate.cs" />
     <Compile Include="..\Services\VettedToolCode.cs" Link="VettedToolCode.cs" />
     <Compile Include="..\UI\Copilot\Model\CopilotModels.cs" Link="CopilotModels.cs" />
+    <!-- CostUnitRules: pure unit-normalization class (System only). Its tests
+         (CostUnitRulesTests.cs) were added in the same commit but the source
+         was never linked here — the exact WpfAppBootstrap trap above: the
+         whole test project fails to compile without it. -->
+    <Compile Include="..\Services\CostUnitRules.cs" Link="CostUnitRules.cs" />
+    <!-- Borang BIM 010 PDF exporter + its model, and QuestPdfBootstrap — the WPF-free
+         single source of truth for QuestPDF init the exporter must call before
+         Document.Create. All pure C# + QuestPDF. (ReportExporter.cs is linked below
+         only on the WindowsDesktop target: it pulls CopilotModels/ToolCatalog, which
+         use System.Windows.Media.) -->
+    <Compile Include="..\Services\BorangBim010\BorangBim010Model.cs" Link="BorangBim010\BorangBim010Model.cs" Condition="Exists('..\Services\BorangBim010\BorangBim010Model.cs')" />
+    <Compile Include="..\Services\BorangBim010\BorangBim010Exporter.cs" Link="BorangBim010\BorangBim010Exporter.cs" Condition="Exists('..\Services\BorangBim010\BorangBim010Exporter.cs')" />
+    <Compile Include="..\Services\QuestPdfBootstrap.cs" Link="QuestPdfBootstrap.cs" Condition="Exists('..\Services\QuestPdfBootstrap.cs')" />
+    <Compile Include="..\Services\ReportExporter.cs" Link="ReportExporter.cs" Condition="'$(TargetFramework)' == 'net10.0-windows'" />
     <!-- RouteText: the attachment wire format the backend parses ([Attached:] /
          [Attached DWG:] blocks). Pure StringBuilder logic, split out of
          CopilotViewModel precisely so it compiles here. -->
@@ -144,7 +180,6 @@
     <!-- Lean-context wire contract: AIRequest/ModelContext (pure Newtonsoft
          DTOs). No Revit refs. -->
     <Compile Include="..\Models\AIRequest.cs" Link="AIRequest.cs" />
-    <Compile Include="..\Services\CostUnitRules.cs" Link="CostUnitRules.cs" />
     <!--
       DocumentChangedIndexer: included for BuildBulkPayload / SnapshotDoc /
       SnapshotPayload (pure logic, no Revit refs). BulkIndexAsync and the
@@ -154,10 +189,10 @@
       On a machine without the Revit assemblies, skip it (and its tests) with:
         dotnet test -p:SkipRevitSources=true
     -->
-    <Compile Include="..\BinaVibe\Indexer\DEPRECATED_DocumentChangedIndexer.cs" Link="DocumentChangedIndexer.cs" Condition="'$(SkipRevitSources)' != 'true'" />
+    <Compile Include="..\BinaVibe\Indexer\DEPRECATED_DocumentChangedIndexer.cs" Link="DocumentChangedIndexer.cs" Condition="'$(SkipRevitSources)' != 'true' and '$(TargetFramework)' == 'net10.0-windows'" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(SkipRevitSources)' == 'true'">
+  <ItemGroup Condition="'$(SkipRevitSources)' == 'true' or '$(TargetFramework)' != 'net10.0-windows'">
     <Compile Remove="DocumentChangedIndexerTests.cs" />
   </ItemGroup>
 
@@ -165,6 +200,33 @@
     <!-- Real BIM 010 audit form + its hand-verified expected rows: the parser's
          row banding can only be trusted against a genuine multi-page form. -->
     <None Include="data\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Cross-platform (net10.0) carve-out: drop the WPF-bound linked sources and the
+       tests that exercise them, so the pure + Borang BIM 010 suites COMPILE and RUN
+       on macOS/Linux where the WindowsDesktop runtime is absent. The
+       net10.0-windows target keeps all of these and runs the full suite. -->
+  <ItemGroup Condition="'$(TargetFramework)' != 'net10.0-windows'">
+    <Compile Remove="..\UI\Copilot\Model\ToolCatalog.cs" />
+    <Compile Remove="..\UI\Copilot\Model\CopilotModels.cs" />
+    <Compile Remove="..\UI\Copilot\Model\CopilotCatalog.cs" />
+    <Compile Remove="..\UI\Copilot\Model\CopilotContext.cs" />
+    <Compile Remove="..\UI\Copilot\Model\AttachmentGate.cs" />
+    <Compile Remove="..\UI\Copilot\Model\RouteText.cs" />
+    <Compile Remove="CopilotCatalogTests.cs" />
+    <Compile Remove="CopilotContextTests.cs" />
+    <Compile Remove="SlashToolCatalogTests.cs" />
+    <Compile Remove="AttachmentGateTests.cs" />
+    <Compile Remove="RouteTextTests.cs" />
+    <Compile Remove="..\UI\Jkr\ViewModels\JkrTierMap.cs" />
+    <Compile Remove="..\UI\Jkr\ViewModels\IssueVm.cs" />
+    <Compile Remove="..\UI\Jkr\ViewModels\SpecDoc.cs" />
+    <Compile Remove="..\UI\Jkr\JkrTheme.cs" />
+    <Compile Remove="..\Helpers\WpfAppBootstrap.cs" />
+    <Compile Remove="JkrTierMapTests.cs" />
+    <Compile Remove="..\UI\Jkr\ViewModels\PanelVm.cs" />
+    <Compile Remove="..\UI\Jkr\ViewModels\CategoryVm.cs" />
+    <Compile Remove="JkrCopilotVmTests.cs" />
   </ItemGroup>
 
 </Project>
