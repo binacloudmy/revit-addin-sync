@@ -491,7 +491,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             if (!CanRun) return;
             IsRunning = true;
             _decisions = new Dictionary<string, CellDecision>();
-            _detailRule = null; _detailIndex = 0; _confirm = null;
+            DetailRule = null; _detailIndex = 0; ConfirmRequest = null;
             CurrentScreen = CopilotScreen.S2;
             _activeStep = 0;
             RunProgress = BuildRunProgress(0);
@@ -517,11 +517,12 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
         }
 
-        /// <summary>Advance the S2 per-section scan marker (driven by the UI timer).</summary>
+        /// <summary>Advance the S2 per-section scan marker (driven by the UI timer). Reaches
+        /// DesignSections.Count so the final section E also lands on "done" (design: done = step &gt; i).</summary>
         public void AdvanceRunStep()
         {
             if (CurrentScreen != CopilotScreen.S2) return;
-            if (_activeStep < FixtureCopilotSource.DesignSections.Count - 1)
+            if (_activeStep < FixtureCopilotSource.DesignSections.Count)
             {
                 _activeStep++;
                 RunProgress = BuildRunProgress(_activeStep);
@@ -534,19 +535,38 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
 
         private RunProgress BuildRunProgress(int step)
         {
+            var stepIds = FixtureCopilotSource.DesignSections.Take(step).Select(s => s.Id).ToHashSet();
             var sections = new List<RunSectionProgress>();
             int i = 0;
             foreach (var s in FixtureCopilotSource.DesignSections)
             {
+                int pct = 0;
+                if (i < step && RunData != null)
+                {
+                    pct = JkrCopilotMath.Section(RunData.Rules, _decisions, s).Pct;
+                }
                 sections.Add(new RunSectionProgress
                 {
                     Id = s.Id,
                     Name = s.Name,
                     Stat = i < step ? "done" : (i == step ? "scanning" : "queued"),
+                    Pct = pct,
                 });
                 i++;
             }
-            return new RunProgress { ActiveStep = step, Sections = sections };
+            // S2 "cells the AI will not judge": manual cells in the sections already scanned
+            // (design runManual = manual rules with Sec index < step), thousands-formatted.
+            int runManual = RunData == null
+                ? 0
+                : RunData.Rules
+                    .Where(r => r.Kind == "manual" && stepIds.Contains(r.Sec))
+                    .Sum(r => r.Cells);
+            return new RunProgress
+            {
+                ActiveStep = step,
+                Sections = sections,
+                ManualCellsLabel = JkrCopilotMath.Fmt(runManual),
+            };
         }
 
         // ── Results ──

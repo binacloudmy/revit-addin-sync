@@ -78,7 +78,7 @@ namespace RevitWebAppSync.UI
             // above and avoids the binding-order race that blanked the dropdown when bindings
             // evaluated before DataContext propagated.
             LodCombo.ItemsSource = _vm.LodLevels;
-            LodCombo.SelectedItem = _vm.SelectedLodLevel ?? _vm.LodLevels.FirstOrDefault();
+            LodCombo.SelectedItem = _vm.SelectedLodLevel;
             LodCombo.SelectionChanged += (_, __) =>
             {
                 if (LodCombo.SelectedItem is int v) _vm.SelectedLodLevel = v;
