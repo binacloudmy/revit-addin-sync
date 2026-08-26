@@ -20,6 +20,72 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
+  <!-- NETSDK1022 guard. These sources live outside the project directory and are
+       linked in explicitly below. On Windows the SDK default glob can also match
+       them, and the duplicate is a hard build error (it broke CI while macOS,
+       which resolves the ..\ spelling differently, stayed green). Removing first
+       makes each link idempotent on every platform. -->
+  <ItemGroup>
+    <Compile Remove="..\AppInfo.cs" />
+    <Compile Remove="..\BinaVibe\Indexer\DEPRECATED_DocumentChangedIndexer.cs" />
+    <Compile Remove="..\BinaVibe\Mcp\Tools\Audit\AuditFormParser.cs" />
+    <Compile Remove="..\BinaVibe\Mcp\Tools\Audit\AuditModels.cs" />
+    <Compile Remove="..\BinaVibe\Mcp\Tools\Audit\AuditNaming.cs" />
+    <Compile Remove="..\BinaVibe\Mcp\Tools\BatchRefResolver.cs" />
+    <Compile Remove="..\BinaVibe\Mcp\Tools\Electrical\SocketLayout.cs" />
+    <Compile Remove="..\BinaVibe\Mcp\Tools\Electrical\SocketPlanCache.cs" />
+    <Compile Remove="..\BinaVibe\Mcp\Tools\PdfAttachmentCache.cs" />
+    <Compile Remove="..\BinaVibe\Mcp\Tools\PdfReader.cs" />
+    <Compile Remove="..\BinaVibe\Mcp\Tools\ScheduleLogic.cs" />
+    <Compile Remove="..\Helpers\TableCsv.cs" />
+    <Compile Remove="..\Helpers\WpfAppBootstrap.cs" />
+    <Compile Remove="..\Models\AIRequest.cs" />
+    <Compile Remove="..\Models\AIResponse.cs" />
+    <Compile Remove="..\Models\JkrCopilotModels.cs" />
+    <Compile Remove="..\Services\AIServiceStreamParser.cs" />
+    <Compile Remove="..\Services\AiUrl.cs" />
+    <Compile Remove="..\Services\BombaSystemClassifier.cs" />
+    <Compile Remove="..\Services\BorangBim010\BorangBim010Exporter.cs" />
+    <Compile Remove="..\Services\BorangBim010\BorangBim010Model.cs" />
+    <Compile Remove="..\Services\ConfirmGate.cs" />
+    <Compile Remove="..\Services\CostUnitRules.cs" />
+    <Compile Remove="..\Services\DirectLoadCleanup.cs" />
+    <Compile Remove="..\Services\EnvFile.cs" />
+    <Compile Remove="..\Services\ExecutionResult.cs" />
+    <Compile Remove="..\Services\FixtureCopilotSource.cs" />
+    <Compile Remove="..\Services\IJkrCopilotSource.cs" />
+    <Compile Remove="..\Services\JkrCodeParser.cs" />
+    <Compile Remove="..\Services\JkrCopilotMath.cs" />
+    <Compile Remove="..\Services\QuestPdfBootstrap.cs" />
+    <Compile Remove="..\Services\ReportExporter.cs" />
+    <Compile Remove="..\Services\SelfHeal.cs" />
+    <Compile Remove="..\Services\TelemetryEvent.cs" />
+    <Compile Remove="..\Services\ToolLabels.cs" />
+    <Compile Remove="..\Services\ToolLoopDtos.cs" />
+    <Compile Remove="..\Services\UrlResolution.cs" />
+    <Compile Remove="..\Services\VettedToolCode.cs" />
+    <Compile Remove="..\UI\Copilot\Model\AttachmentGate.cs" />
+    <Compile Remove="..\UI\Copilot\Model\CopilotCatalog.cs" />
+    <Compile Remove="..\UI\Copilot\Model\CopilotContext.cs" />
+    <Compile Remove="..\UI\Copilot\Model\CopilotModels.cs" />
+    <Compile Remove="..\UI\Copilot\Model\FriendlyStep.cs" />
+    <Compile Remove="..\UI\Copilot\Model\MentionProvider.cs" />
+    <Compile Remove="..\UI\Copilot\Model\MentionToken.cs" />
+    <Compile Remove="..\UI\Copilot\Model\MentionTree.cs" />
+    <Compile Remove="..\UI\Copilot\Model\ProgressStep.cs" />
+    <Compile Remove="..\UI\Copilot\Model\ReasoningStep.cs" />
+    <Compile Remove="..\UI\Copilot\Model\RouteText.cs" />
+    <Compile Remove="..\UI\Copilot\Model\ToolCatalog.cs" />
+    <Compile Remove="..\UI\Copilot\Model\TurnBlock.cs" />
+    <Compile Remove="..\UI\Copilot\Model\UsageState.cs" />
+    <Compile Remove="..\UI\Jkr\JkrTheme.cs" />
+    <Compile Remove="..\UI\Jkr\ViewModels\CategoryVm.cs" />
+    <Compile Remove="..\UI\Jkr\ViewModels\IssueVm.cs" />
+    <Compile Remove="..\UI\Jkr\ViewModels\JkrTierMap.cs" />
+    <Compile Remove="..\UI\Jkr\ViewModels\PanelVm.cs" />
+    <Compile Remove="..\UI\Jkr\ViewModels\SpecDoc.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
