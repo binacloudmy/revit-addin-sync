@@ -25,6 +25,10 @@ namespace RevitWebAppSync.UI
         private readonly DispatcherTimer _toastHide;
         private Autodesk.Revit.UI.UIApplication _uiApp;
 
+        /// <summary>The panel's view-model. Exposed so the UiHarness screenshot
+        /// runner can drive each screen without Revit (mirrors CopilotPanel.ViewModel).</summary>
+        public PanelVm ViewModel => _vm;
+
         public event System.ComponentModel.PropertyChangedEventHandler PropertyChanged;
         private void Raise(string name) => PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(name));
 

@@ -127,6 +127,15 @@ namespace UiHarness
                 Content = new Frame { Content = new RevitWebAppSync.UI.Copilot.CopilotPanel() },
             });
 
+        private void OpenJkr(object sender, RoutedEventArgs e) =>
+            Open(() => new Window
+            {
+                Title = "JKR Audit Copilot",
+                Width = 430,
+                Height = 860,
+                Content = new Frame { Content = new RevitWebAppSync.UI.JkrComplianceDashboardPanel() },
+            });
+
         // The upgrade sheet's only in-product entry point is the at-limit blocked
         // view, which needs a live usage API. Call it directly so the sheet (and
         // its real Process.Start redirect) can be exercised without one.

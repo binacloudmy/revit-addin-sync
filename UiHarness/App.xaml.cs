@@ -51,6 +51,18 @@ namespace UiHarness
                 return;
             }
 
+            // And the JKR Audit Copilot panel: `UiHarness --shot-jkr <dir>` renders
+            // every screen (S1/S2/S3/S4-detail/S5/S6) against FixtureCopilotSource
+            // so the build can be diffed 1:1 against the Claude Design canvas.
+            if (e.Args.Length >= 1 && e.Args[0] == "--shot-jkr")
+            {
+                ShutdownMode = ShutdownMode.OnExplicitShutdown;
+                var jkrDir = e.Args.Length >= 2 ? e.Args[1] : System.AppContext.BaseDirectory;
+                JkrShots.Capture(jkrDir);
+                Shutdown();
+                return;
+            }
+
             new LauncherWindow().Show();
         }
     }

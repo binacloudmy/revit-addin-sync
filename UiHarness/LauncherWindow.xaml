@@ -13,6 +13,7 @@
         <Button Content="Update" Click="OpenUpdate" Margin="0,4" Padding="8,6"/>
         <Button Content="Command Run" Click="OpenCommandRun" Margin="0,4" Padding="8,6"/>
         <Button Content="Copilot Panel" Click="OpenCopilot" Margin="0,4" Padding="8,6"/>
+        <Button Content="JKR Audit Copilot" Click="OpenJkr" Margin="0,4" Padding="8,6"/>
         <Button Content="Upgrade Sheet" Click="OpenUpgradeSheet" Margin="0,4" Padding="8,6"/>
         <Button Content="WIP Model Browser" Click="OpenModelBrowser" Margin="0,4" Padding="8,6"/>
     </StackPanel>
