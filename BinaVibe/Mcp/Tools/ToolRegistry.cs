@@ -264,6 +264,7 @@ namespace BinaVibe.Mcp.Tools
                 // CAD-to-BIM viewer: reads an attached DWG/DXF straight off
                 // disk via ACadSharp (see CadLoad.cs).
                 "cad_load"                      => CadLoad.Run(uidoc, args),
+                "cad_get_lines"                 => CadGetLines.Run(uidoc, args),
 
                 _ => NotImplemented(tool),
             };
