@@ -3,213 +3,219 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:jkr="clr-namespace:RevitWebAppSync.UI.Jkr"
              xmlns:vm="clr-namespace:RevitWebAppSync.UI.Jkr.ViewModels"
-             Background="{StaticResource JkrCopilot.Bg}"
-             FontFamily="{StaticResource Font.Sans}"
-             Foreground="{StaticResource JkrCopilot.Ink}"
+             Background="#F7F8FA"
+             FontFamily="Segoe UI, system-ui, sans-serif"
+             Foreground="#14171C"
              Focusable="True"
              UseLayoutRounding="True" SnapsToDevicePixels="True">
 
     <UserControl.Resources>
-        <!-- ── S2 scan bar animation (dc.html scan 1.4s linear infinite) ── -->
-        <Storyboard x:Key="ScanBarAnim" RepeatBehavior="Forever" AutoReverse="False">
-            <DoubleAnimation Storyboard.TargetName="ScanBarXForm" Storyboard.TargetProperty="X"
-                             From="-140" To="420" Duration="0:0:1.4"/>
-        </Storyboard>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Jkr/Tokens.xaml"/>
+                <ResourceDictionary Source="Jkr/Styles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <!-- ── S2 scan bar animation (dc.html scan 1.4s linear infinite) ── -->
+            <Storyboard x:Key="ScanBarAnim" RepeatBehavior="Forever" AutoReverse="False">
+                <DoubleAnimation Storyboard.TargetName="ScanBarXForm" Storyboard.TargetProperty="X"
+                                 From="-140" To="420" Duration="0:0:1.4"/>
+            </Storyboard>
 
-        <!-- ── Copilot converters ── -->
-        <jkr:HexToBrushConverter x:Key="Hex"/>
-        <jkr:BoolToVisibilityConverter x:Key="B2V"/>
-        <jkr:NonEmptyStringToVisibilityConverter x:Key="NonEmpty"/>
-        <jkr:EqualsParamConverter x:Key="EqP"/>
-        <jkr:EqualsToVisConverter x:Key="EqVis"/>
-        <jkr:IntEqualsToVisConverter x:Key="IntEqVis"/>
-        <jkr:BoolToGlyphConverter x:Key="Glyph"/>
-        <jkr:RuleStatusConverter x:Key="RuleStatus"/>
-        <jkr:PctToStarConverter x:Key="PctStar"/>
+            <!-- ── Copilot converters ── -->
+            <jkr:HexToBrushConverter x:Key="Hex"/>
+            <jkr:BoolToVisibilityConverter x:Key="B2V"/>
+            <jkr:NonEmptyStringToVisibilityConverter x:Key="NonEmpty"/>
+            <jkr:EqualsParamConverter x:Key="EqP"/>
+            <jkr:EqualsToVisConverter x:Key="EqVis"/>
+            <jkr:IntEqualsToVisConverter x:Key="IntEqVis"/>
+            <jkr:BoolToGlyphConverter x:Key="Glyph"/>
+            <jkr:RuleStatusConverter x:Key="RuleStatus"/>
+            <jkr:PctToStarConverter x:Key="PctStar"/>
 
-        <!-- ── Header icon button ── -->
-        <Style x:Key="CpHdrBtn" TargetType="Button">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink2}"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Width" Value="34"/>
-            <Setter Property="Height" Value="34"/>
-            <Setter Property="FontSize" Value="15"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{StaticResource JkrCopilot.Soft}"/>
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Opacity" Value="0.35"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
+            <!-- ── Header icon button ── -->
+            <Style x:Key="CpHdrBtn" TargetType="Button">
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink2}"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Width" Value="34"/>
+                <Setter Property="Height" Value="34"/>
+                <Setter Property="FontSize" Value="15"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Background" Value="{StaticResource JkrCopilot.Soft}"/>
+                    </Trigger>
+                    <Trigger Property="IsEnabled" Value="False">
+                        <Setter Property="Opacity" Value="0.35"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
 
-        <!-- ── S1 lang / small pill ── -->
-        <Style x:Key="CpPill" TargetType="Button">
-            <Setter Property="Background" Value="#FFFFFF"/>
-            <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink}"/>
-            <Setter Property="Padding" Value="12,6"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="BorderBrush" Value="{StaticResource JkrCopilot.Line}"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="{StaticResource JkrCopilot.SoftTint}"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
+            <!-- ── S1 lang / small pill ── -->
+            <Style x:Key="CpPill" TargetType="Button">
+                <Setter Property="Background" Value="#FFFFFF"/>
+                <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink}"/>
+                <Setter Property="Padding" Value="12,6"/>
+                <Setter Property="BorderThickness" Value="1"/>
+                <Setter Property="BorderBrush" Value="{StaticResource JkrCopilot.Line}"/>
+                <Setter Property="FontSize" Value="12"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Style.Triggers>
+                    <Trigger Property="IsMouseOver" Value="True">
+                        <Setter Property="Background" Value="{StaticResource JkrCopilot.SoftTint}"/>
+                    </Trigger>
+                </Style.Triggers>
+            </Style>
 
-        <!-- BM / EN selected pill: bg #EDF1F6 border #1F3A5F fg #16293F (dc.html:122) -->
-        <Style x:Key="CpPillBM" TargetType="Button" BasedOn="{StaticResource CpPill}">
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding ReportLanguage, Converter={StaticResource EqP}, ConverterParameter=BM}" Value="True">
-                    <Setter Property="Background" Value="{StaticResource JkrCopilot.Surf3}"/>
-                    <Setter Property="BorderBrush" Value="{StaticResource JkrCopilot.Navy}"/>
-                    <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink2}"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-        <Style x:Key="CpPillEN" TargetType="Button" BasedOn="{StaticResource CpPill}">
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding ReportLanguage, Converter={StaticResource EqP}, ConverterParameter=EN}" Value="True">
-                    <Setter Property="Background" Value="{StaticResource JkrCopilot.Surf3}"/>
-                    <Setter Property="BorderBrush" Value="{StaticResource JkrCopilot.Navy}"/>
-                    <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink2}"/>
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
+            <!-- BM / EN selected pill: bg #EDF1F6 border #1F3A5F fg #16293F (dc.html:122) -->
+            <Style x:Key="CpPillBM" TargetType="Button" BasedOn="{StaticResource CpPill}">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding ReportLanguage, Converter={StaticResource EqP}, ConverterParameter=BM}" Value="True">
+                        <Setter Property="Background" Value="{StaticResource JkrCopilot.Surf3}"/>
+                        <Setter Property="BorderBrush" Value="{StaticResource JkrCopilot.Navy}"/>
+                        <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink2}"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+            <Style x:Key="CpPillEN" TargetType="Button" BasedOn="{StaticResource CpPill}">
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding ReportLanguage, Converter={StaticResource EqP}, ConverterParameter=EN}" Value="True">
+                        <Setter Property="Background" Value="{StaticResource JkrCopilot.Surf3}"/>
+                        <Setter Property="BorderBrush" Value="{StaticResource JkrCopilot.Navy}"/>
+                        <Setter Property="Foreground" Value="{StaticResource JkrCopilot.Ink2}"/>
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
 
-        <!-- ── Group card : header + collapsible rules ── -->
-        <DataTemplate x:Key="GroupCard">
-            <Border Margin="0,0,0,6" Background="{StaticResource JkrCopilot.Surf}"
-                    BorderBrush="{StaticResource JkrCopilot.Line}" BorderThickness="1" CornerRadius="10">
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="2"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-                    <!-- severity rail (red for ai groups) -->
-                    <Border Grid.Column="0" Width="2" Background="{StaticResource JkrCopilot.Danger}"
-                            Margin="0,10,0,10"/>
-                    <StackPanel Grid.Column="1" Margin="12,10,12,10">
-                        <Button Click="GroupHeader_Click" Tag="{Binding Item}" Background="Transparent"
-                                BorderThickness="0" Cursor="Hand" HorizontalContentAlignment="Left" Padding="0">
-                            <Grid>
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" Text="{Binding Item}" MinWidth="30"
-                                           FontFamily="{StaticResource Font.Mono}" FontSize="13" FontWeight="Bold"
-                                           Foreground="{StaticResource JkrCopilot.Navy}" VerticalAlignment="Center"/>
-                                <StackPanel Grid.Column="1" Margin="7,0,8,0" VerticalAlignment="Center">
-                                    <TextBlock Text="{Binding Name}" FontSize="12.5" FontWeight="SemiBold"
-                                               TextTrimming="CharacterEllipsis"/>
-                                    <TextBlock Margin="0,2,0,0" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
-                                               Foreground="{StaticResource JkrCopilot.Muted}">
-                                        <Run Text="{Binding Cells, StringFormat={}{0:N0} cells}"/>
-                                        <Run Text=" · "/>
-                                        <Run Text="{Binding Rows, StringFormat={}{0} rows}"/>
-                                        <Run Text=" · "/>
-                                        <Run Text="{Binding SecName}"/>
-                                    </TextBlock>
-                                </StackPanel>
-                                <TextBlock Grid.Column="2" FontSize="13"
-                                           Foreground="{StaticResource JkrCopilot.Muted}"
-                                           Text="{Binding IsOpen, Converter={StaticResource Glyph}}"
-                                           VerticalAlignment="Center"/>
-                            </Grid>
-                        </Button>
+            <!-- ── Group card : header + collapsible rules ── -->
+            <DataTemplate x:Key="GroupCard">
+                <Border Margin="0,0,0,6" Background="{StaticResource JkrCopilot.Surf}"
+                        BorderBrush="{StaticResource JkrCopilot.Line}" BorderThickness="1" CornerRadius="10">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="2"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <!-- severity rail (red for ai groups) -->
+                        <Border Grid.Column="0" Width="2" Background="{StaticResource JkrCopilot.Danger}"
+                                Margin="0,10,0,10"/>
+                        <StackPanel Grid.Column="1" Margin="12,10,12,10">
+                            <Button Click="GroupHeader_Click" Tag="{Binding Item}" Background="Transparent"
+                                    BorderThickness="0" Cursor="Hand" HorizontalContentAlignment="Left" Padding="0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="{Binding Item}" MinWidth="30"
+                                               FontFamily="{StaticResource Font.Mono}" FontSize="13" FontWeight="Bold"
+                                               Foreground="{StaticResource JkrCopilot.Navy}" VerticalAlignment="Center"/>
+                                    <StackPanel Grid.Column="1" Margin="7,0,8,0" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" FontSize="12.5" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Margin="0,2,0,0" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                                   Foreground="{StaticResource JkrCopilot.Muted}">
+                                            <Run Text="{Binding Cells, StringFormat={}{0:N0} cells}"/>
+                                            <Run Text=" · "/>
+                                            <Run Text="{Binding Rows, StringFormat={}{0} rows}"/>
+                                            <Run Text=" · "/>
+                                            <Run Text="{Binding SecName}"/>
+                                        </TextBlock>
+                                    </StackPanel>
+                                    <TextBlock Grid.Column="2" FontSize="13"
+                                               Foreground="{StaticResource JkrCopilot.Muted}"
+                                               Text="{Binding IsOpen, Converter={StaticResource Glyph}}"
+                                               VerticalAlignment="Center"/>
+                                </Grid>
+                            </Button>
 
-                        <ItemsControl ItemsSource="{Binding Rules}" Margin="0,8,0,0"
-                                      Visibility="{Binding IsOpen, Converter={StaticResource B2V}}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Margin="0,0,0,6" Padding="8,6" CornerRadius="8"
-                                            Background="{StaticResource JkrCopilot.Soft}"
-                                            BorderBrush="{StaticResource JkrCopilot.Line4}" BorderThickness="1">
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="2"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Border Grid.Column="0" Width="2" Background="{StaticResource JkrCopilot.Danger}">
-                                                <Border.Style>
-                                                    <Style TargetType="Border">
-                                                        <Setter Property="Background" Value="{StaticResource JkrCopilot.Manual}"/>
-                                                        <Style.Triggers>
-                                                            <DataTrigger Binding="{Binding Kind}" Value="ai">
-                                                                <Setter Property="Background" Value="{StaticResource JkrCopilot.Danger}"/>
-                                                            </DataTrigger>
-                                                        </Style.Triggers>
-                                                    </Style>
-                                                </Border.Style>
-                                            </Border>
+                            <ItemsControl ItemsSource="{Binding Rules}" Margin="0,8,0,0"
+                                          Visibility="{Binding IsOpen, Converter={StaticResource B2V}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Margin="0,0,0,6" Padding="8,6" CornerRadius="8"
+                                                Background="{StaticResource JkrCopilot.Soft}"
+                                                BorderBrush="{StaticResource JkrCopilot.Line4}" BorderThickness="1">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="2"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <Border Grid.Column="0" Width="2" Background="{StaticResource JkrCopilot.Danger}">
+                                                    <Border.Style>
+                                                        <Style TargetType="Border">
+                                                            <Setter Property="Background" Value="{StaticResource JkrCopilot.Manual}"/>
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding Kind}" Value="ai">
+                                                                    <Setter Property="Background" Value="{StaticResource JkrCopilot.Danger}"/>
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </Border.Style>
+                                                </Border>
 
-                                            <Button Grid.Column="1" Click="RuleRow_Click" Tag="{Binding}"
-                                                    Background="Transparent" BorderThickness="0" Padding="10,0,6,0"
-                                                    HorizontalContentAlignment="Left" Cursor="Hand">
-                                                <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold"
-                                                           TextTrimming="CharacterEllipsis"/>
-                                            </Button>
+                                                <Button Grid.Column="1" Click="RuleRow_Click" Tag="{Binding}"
+                                                        Background="Transparent" BorderThickness="0" Padding="10,0,6,0"
+                                                        HorizontalContentAlignment="Left" Cursor="Hand">
+                                                    <TextBlock Text="{Binding Title}" FontSize="12.5" FontWeight="SemiBold"
+                                                               TextTrimming="CharacterEllipsis"/>
+                                                </Button>
 
-                                            <!-- status tag -->
-                                            <Border Grid.Column="2" Padding="8,3" CornerRadius="999"
-                                                    BorderThickness="1" VerticalAlignment="Center">
-                                                <Border.Background>
-                                                    <MultiBinding Converter="{StaticResource RuleStatus}">
-                                                        <Binding/>
-                                                        <Binding Path="DataContext.ActiveCopilotTab"
-                                                                 RelativeSource="{RelativeSource AncestorType=UserControl}"/>
-                                                    </MultiBinding>
-                                                </Border.Background>
-                                                <Border.BorderBrush>
-                                                    <MultiBinding Converter="{StaticResource RuleStatus}">
-                                                        <Binding/>
-                                                        <Binding Path="DataContext.ActiveCopilotTab"
-                                                                 RelativeSource="{RelativeSource AncestorType=UserControl}"/>
-                                                    </MultiBinding>
-                                                </Border.BorderBrush>
-                                                <TextBlock FontFamily="{StaticResource Font.Mono}" FontSize="10"
-                                                           FontWeight="Bold">
-                                                    <TextBlock.Foreground>
-                                                        <MultiBinding Converter="{StaticResource RuleStatus}" ConverterParameter="fg">
+                                                <!-- status tag -->
+                                                <Border Grid.Column="2" Padding="8,3" CornerRadius="999"
+                                                        BorderThickness="1" VerticalAlignment="Center">
+                                                    <Border.Background>
+                                                        <MultiBinding Converter="{StaticResource RuleStatus}">
                                                             <Binding/>
                                                             <Binding Path="DataContext.ActiveCopilotTab"
                                                                      RelativeSource="{RelativeSource AncestorType=UserControl}"/>
                                                         </MultiBinding>
-                                                    </TextBlock.Foreground>
-                                                    <TextBlock.Text>
-                                                        <MultiBinding Converter="{StaticResource RuleStatus}" ConverterParameter="text">
+                                                    </Border.Background>
+                                                    <Border.BorderBrush>
+                                                        <MultiBinding Converter="{StaticResource RuleStatus}">
                                                             <Binding/>
                                                             <Binding Path="DataContext.ActiveCopilotTab"
                                                                      RelativeSource="{RelativeSource AncestorType=UserControl}"/>
                                                         </MultiBinding>
-                                                    </TextBlock.Text>
-                                                </TextBlock>
-                                            </Border>
+                                                    </Border.BorderBrush>
+                                                    <TextBlock FontFamily="{StaticResource Font.Mono}" FontSize="10"
+                                                               FontWeight="Bold">
+                                                        <TextBlock.Foreground>
+                                                            <MultiBinding Converter="{StaticResource RuleStatus}" ConverterParameter="fg">
+                                                                <Binding/>
+                                                                <Binding Path="DataContext.ActiveCopilotTab"
+                                                                         RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                                            </MultiBinding>
+                                                        </TextBlock.Foreground>
+                                                        <TextBlock.Text>
+                                                            <MultiBinding Converter="{StaticResource RuleStatus}" ConverterParameter="text">
+                                                                <Binding/>
+                                                                <Binding Path="DataContext.ActiveCopilotTab"
+                                                                         RelativeSource="{RelativeSource AncestorType=UserControl}"/>
+                                                            </MultiBinding>
+                                                        </TextBlock.Text>
+                                                    </TextBlock>
+                                                </Border>
 
-                                            <Button Grid.Column="3" Content="⚡ Fix" Click="RuleFix_Click"
-                                                    Tag="{Binding}" Margin="8,0,0,0" Padding="9,4" FontSize="11"
-                                                    FontWeight="SemiBold" Foreground="White" Cursor="Hand"
-                                                    Background="{StaticResource JkrCopilot.Success}" BorderThickness="0"
-                                                    Visibility="{Binding From, Converter={StaticResource NonEmpty}}"
-                                                    VerticalAlignment="Center"/>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </Grid>
-            </Border>
-        </DataTemplate>
+                                                <Button Grid.Column="3" Content="⚡ Fix" Click="RuleFix_Click"
+                                                        Tag="{Binding}" Margin="8,0,0,0" Padding="9,4" FontSize="11"
+                                                        FontWeight="SemiBold" Foreground="White" Cursor="Hand"
+                                                        Background="{StaticResource JkrCopilot.Success}" BorderThickness="0"
+                                                        Visibility="{Binding From, Converter={StaticResource NonEmpty}}"
+                                                        VerticalAlignment="Center"/>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </DataTemplate>
+        </ResourceDictionary>
     </UserControl.Resources>
 
     <Grid>
@@ -980,7 +986,7 @@
                             <Border Margin="0,12,0,0" Padding="12" Background="{StaticResource JkrCopilot.Surf3}"
                                     Visibility="{Binding DetailRule.Kind, Converter={StaticResource EqP}, ConverterParameter=manual}">
                                 <StackPanel>
-                                    <TextBlock Text="WHY" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                    <TextBlock Text="WHY THIS IS YOURS TO CALL" FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
                                                Foreground="{StaticResource JkrCopilot.Muted}"/>
                                     <TextBlock Text="{Binding DetailRule.Reason}" Margin="0,4,0,0" FontSize="11.5" TextWrapping="Wrap"/>
                                 </StackPanel>
@@ -1021,12 +1027,13 @@
                             <StackPanel Orientation="Horizontal"
                                         Visibility="{Binding DetailRule.Kind, Converter={StaticResource EqP}, ConverterParameter=manual}">
                                 <Button Content="✓ Comply" Click="DetailComply_Click"
-                                        Background="{StaticResource JkrCopilot.Success}" Foreground="White"
-                                        BorderThickness="0" Padding="14,8" FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
+                                        Background="Transparent" Foreground="{StaticResource JkrCopilot.Success}"
+                                        BorderBrush="{StaticResource JkrCopilot.Success}" BorderThickness="1"
+                                        Padding="14,8" FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
                                 <Button Content="✗ Not" Click="DetailNot_Click" Margin="8,0,0,0"
-                                        Background="{StaticResource JkrCopilot.FailBg}"
-                                        Foreground="{StaticResource JkrCopilot.Danger}" BorderThickness="0"
-                                        Padding="14,8" FontSize="12" Cursor="Hand"/>
+                                        Background="Transparent" Foreground="{StaticResource JkrCopilot.Danger}"
+                                        BorderBrush="{StaticResource JkrCopilot.Danger}" BorderThickness="1"
+                                        Padding="14,8" FontSize="12" FontWeight="SemiBold" Cursor="Hand"/>
                                 <Button Content="defer" Click="DetailDefer_Click" Margin="8,0,0,0"
                                         Background="Transparent" BorderBrush="{StaticResource JkrCopilot.Line}"
                                         BorderThickness="1" Foreground="{StaticResource JkrCopilot.Muted}"

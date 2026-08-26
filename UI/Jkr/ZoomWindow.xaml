@@ -4,69 +4,75 @@
         xmlns:jkr="clr-namespace:RevitWebAppSync.UI.Jkr"
         Title="JKR Audit Copilot — Zoom"
         Width="900" Height="640" MinWidth="520" MinHeight="360"
-        Background="#F7F8FA" FontFamily="{StaticResource Font.Sans}"
-        Foreground="{StaticResource JkrCopilot.Ink}"
+        Background="#F7F8FA" FontFamily="Segoe UI, system-ui, sans-serif"
+        Foreground="#14171C"
         WindowStartupLocation="CenterOwner" ShowActivated="True">
     <Window.Resources>
-        <jkr:HexToBrushConverter x:Key="Hex"/>
-        <jkr:BoolToVisibilityConverter x:Key="B2V"/>
-        <jkr:RuleStatusConverter x:Key="RuleStatus"/>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Tokens.xaml"/>
+                <ResourceDictionary Source="pack://application:,,,/RevitWebAppSync;component/UI/Jkr/Styles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+            <jkr:HexToBrushConverter x:Key="Hex"/>
+            <jkr:BoolToVisibilityConverter x:Key="B2V"/>
+            <jkr:RuleStatusConverter x:Key="RuleStatus"/>
 
-        <!-- Group card header only; rows are read-only in zoom -->
-        <DataTemplate x:Key="ZoomGroup">
-            <Border Margin="0,0,0,8" Padding="14,12"
-                    Background="#FFFFFF" BorderBrush="#E2E5E9" BorderThickness="1" CornerRadius="10">
-                <StackPanel>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="{Binding Item}" FontFamily="{StaticResource Font.Mono}"
-                                   FontWeight="Bold" FontSize="15" Foreground="{StaticResource JkrCopilot.Navy}"/>
-                        <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
-                                   Foreground="{StaticResource JkrCopilot.Ink}" Margin="10,0,0,0"
-                                   VerticalAlignment="Center"/>
-                        <TextBlock Text="{Binding IsOpen, Converter={StaticResource B2V}}"
-                                   Visibility="Collapsed"/>
+            <!-- Group card header only; rows are read-only in zoom -->
+            <DataTemplate x:Key="ZoomGroup">
+                <Border Margin="0,0,0,8" Padding="14,12"
+                        Background="#FFFFFF" BorderBrush="#E2E5E9" BorderThickness="1" CornerRadius="10">
+                    <StackPanel>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding Item}" FontFamily="{StaticResource Font.Mono}"
+                                       FontWeight="Bold" FontSize="15" Foreground="{StaticResource JkrCopilot.Navy}"/>
+                            <TextBlock Text="{Binding Name}" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{StaticResource JkrCopilot.Ink}" Margin="10,0,0,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding IsOpen, Converter={StaticResource B2V}}"
+                                       Visibility="Collapsed"/>
+                        </StackPanel>
+                        <ItemsControl ItemsSource="{Binding Rules}" Margin="0,8,0,0">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Padding="10,7" CornerRadius="8"
+                                            Background="#F3F4F6" BorderBrush="#ECEEF1"
+                                            BorderThickness="1" Margin="0,0,0,6">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="2"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Width="2" Grid.Column="0" Background="#B3261E"
+                                                    HorizontalAlignment="Left"/>
+                                            <StackPanel Grid.Column="1" Margin="10,0,8,0">
+                                                <TextBlock Text="{Binding Title}" FontSize="13"
+                                                           FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                                           Foreground="{StaticResource JkrCopilot.Ink}"/>
+                                                <TextBlock FontFamily="{StaticResource Font.Mono}" FontSize="11"
+                                                           Foreground="{StaticResource JkrCopilot.Muted}"
+                                                           Margin="0,3,0,0">
+                                                    <Run Text="Item "/><Run Text="{Binding Item}"/>
+                                                    <Run Text=" · "/><Run Text="{Binding Cat}"/>
+                                                    <Run Text=" · "/><Run Text="{Binding Cells, StringFormat={}{0:N0}}"/>
+                                                    <Run Text=" cells"/>
+                                                </TextBlock>
+                                            </StackPanel>
+                                            <Border Grid.Column="2" Padding="8,3" CornerRadius="999"
+                                                    BorderThickness="0" VerticalAlignment="Center">
+                                                <TextBlock x:Name="StatusText" Text="fail"
+                                                           FontFamily="{StaticResource Font.Mono}" FontSize="11"
+                                                           FontWeight="Bold" Foreground="#B3261E"/>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </StackPanel>
-                    <ItemsControl ItemsSource="{Binding Rules}" Margin="0,8,0,0">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Padding="10,7" CornerRadius="8"
-                                        Background="#F3F4F6" BorderBrush="#ECEEF1"
-                                        BorderThickness="1" Margin="0,0,0,6">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="2"/>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <Border Width="2" Grid.Column="0" Background="#B3261E"
-                                                HorizontalAlignment="Left"/>
-                                        <StackPanel Grid.Column="1" Margin="10,0,8,0">
-                                            <TextBlock Text="{Binding Title}" FontSize="13"
-                                                       FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
-                                                       Foreground="{StaticResource JkrCopilot.Ink}"/>
-                                            <TextBlock FontFamily="{StaticResource Font.Mono}" FontSize="11"
-                                                       Foreground="{StaticResource JkrCopilot.Muted}"
-                                                       Margin="0,3,0,0">
-                                                <Run Text="Item "/><Run Text="{Binding Item}"/>
-                                                <Run Text=" · "/><Run Text="{Binding Cat}"/>
-                                                <Run Text=" · "/><Run Text="{Binding Cells, StringFormat={}{0:N0}}"/>
-                                                <Run Text=" cells"/>
-                                            </TextBlock>
-                                        </StackPanel>
-                                        <Border Grid.Column="2" Padding="8,3" CornerRadius="999"
-                                                BorderThickness="0" VerticalAlignment="Center">
-                                            <TextBlock x:Name="StatusText" Text="fail"
-                                                       FontFamily="{StaticResource Font.Mono}" FontSize="11"
-                                                       FontWeight="Bold" Foreground="#B3261E"/>
-                                        </Border>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-            </Border>
-        </DataTemplate>
+                </Border>
+            </DataTemplate>
+        </ResourceDictionary>
     </Window.Resources>
 
     <Grid Margin="20">
