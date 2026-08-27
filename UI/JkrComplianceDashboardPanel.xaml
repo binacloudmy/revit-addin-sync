@@ -928,10 +928,23 @@
                     <Button Grid.Column="0" Content="Ignore all" Click="IgnoreAll_Click"
                             Background="Transparent" BorderThickness="0"
                             Foreground="{StaticResource JkrCopilot.Muted}" FontSize="11.5" Cursor="Hand" Padding="6,4"/>
+                    <!-- The keys, then what they would act on. J/K move a cursor that is
+                         otherwise invisible until ⏎ opens it, so the cursor has to be
+                         readable somewhere or the nav keys feel inert (mirrors the Zoom
+                         window status bar, dc.html:637). Column 1 is the elastic one:
+                         the readout trims before it can push the buttons off-panel. -->
+                    <TextBlock Grid.Column="1" VerticalAlignment="Center" Margin="8,0,12,0"
+                               HorizontalAlignment="Right" TextTrimming="CharacterEllipsis"
+                               FontFamily="{StaticResource Font.Mono}"
+                               FontSize="9.5" Foreground="{StaticResource JkrCopilot.Muted}">
+                        <Run Text="↵ open · J/K nav · F fix · A ignore · ESC close"/>
+                        <Run Text=" ▸ " Foreground="{StaticResource JkrCopilot.Dash2}"/>
+                        <Run Text="{Binding DetailPosition, Mode=OneWay}"/>
+                        <Run Text=" "/>
+                        <Run Text="{Binding CursorRule.Title, Mode=OneWay}"
+                             Foreground="{StaticResource JkrCopilot.Ink}"/>
+                    </TextBlock>
                     <StackPanel Grid.Column="2" Orientation="Horizontal">
-                        <TextBlock VerticalAlignment="Center" Margin="0,0,12,0" FontFamily="{StaticResource Font.Mono}"
-                                   FontSize="9.5" Foreground="{StaticResource JkrCopilot.Muted}"
-                                   Text="↵ open · J/K nav · F fix · A ignore · ESC close"/>
                         <Button Content="Export" Click="GoExport_Click"
                                 Background="Transparent" BorderThickness="1"
                                 BorderBrush="{StaticResource JkrCopilot.Line}"

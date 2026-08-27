@@ -674,7 +674,11 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             FilteredRules.Clear();
             foreach (var r in _ordered) FilteredRules.Add(r);
             Groups = BuildGroups(_ordered);
+            // The cursor is an index into _ordered; a shorter list must not leave it
+            // pointing past the end, or ⏎/F/A would act on nothing.
+            if (_detailIndex >= _ordered.Count) _detailIndex = 0;
             Raise(nameof(Groups)); Raise(nameof(FilteredRuleCount)); Raise(nameof(HasFilteredRules));
+            Raise(nameof(CursorRule)); Raise(nameof(DetailPosition));
         }
 
         private static int SecRank(string sec) { int i = Array.IndexOf(SecOrder, sec); return i < 0 ? SecOrder.Length : i; }
@@ -751,6 +755,7 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             int i = _ordered.IndexOf(rule);
             _detailIndex = i < 0 ? 0 : i;
             DetailRule = rule;
+            Raise(nameof(CursorRule));
         }
         public void PrevDetail() => StepDetail(-1);
         public void NextDetail() => StepDetail(1);
@@ -758,18 +763,56 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         {
             if (_ordered.Count == 0) return;
             _detailIndex = (_detailIndex + dir + _ordered.Count) % _ordered.Count;
-            DetailRule = _ordered[_detailIndex];
+            // Design (.dc.html:810): `detail: p.detail ? r.id : null` — J/K move the
+            // cursor and the detail pane only follows when it is already open. ⏎ is
+            // the key that opens; conflating the two makes the list vanish under the
+            // user the moment they press J.
+            if (_detailRule != null) DetailRule = _ordered[_detailIndex];
+            Raise(nameof(CursorRule)); Raise(nameof(DetailPosition));
+        }
+
+        // ── Key model (design .dc.html:794-824) ──
+        // The keyboard acts on `list[sel]` — the cursor — not on whatever the detail
+        // pane happens to be showing. _detailIndex IS that cursor: OpenDetail seats it,
+        // J/K walk it, and ⏎/F/A read it. Both the docked panel and the Zoom window
+        // drive these; neither re-implements the decision logic.
+
+        /// <summary>The finding under the cursor, or null when the visible list is empty.</summary>
+        public JkrCopilotRule CursorRule =>
+            _ordered.Count == 0 ? null : _ordered[Math.Min(_detailIndex, _ordered.Count - 1)];
+
+        /// <summary>⏎ — open the finding under the cursor.</summary>
+        public void OpenDetailAtCursor() => OpenDetail(CursorRule);
+
+        /// <summary>F — route the finding under the cursor through the confirm gate.
+        /// Design gates on `if (r.from)`: a rule with no auto-fix has nothing to confirm.</summary>
+        public void FixCursor()
+        {
+            var r = CursorRule;
+            if (r != null && r.IsFixable) FixRule(r.Id);
+        }
+
+        /// <summary>A — ignore the finding under the cursor and close the detail pane.</summary>
+        public void IgnoreCursor() => Decide(CursorRule, CellDecision.Ignored);
+
+        /// <summary>ESC — back out of a finding. Explicitly NOT a verdict: it clears the
+        /// detail pane and any pending confirm sheet without recording a decision
+        /// (design .dc.html:800-803, `up(k, { detail:null, confirm:null })`).</summary>
+        public void CloseDetail()
+        {
+            DetailRule = null;
+            ConfirmRequest = null;
         }
 
         // ── Manual decide ops ──
-        public void MarkComply() => Decide(CellDecision.Comply);
-        public void MarkNot() => Decide(CellDecision.NotComply);
-        public void MarkDefer() => Decide(CellDecision.Defer);
-        public void IgnoreDetail() => Decide(CellDecision.Ignored);
-        private void Decide(CellDecision d)
+        public void MarkComply() => Decide(_detailRule, CellDecision.Comply);
+        public void MarkNot() => Decide(_detailRule, CellDecision.NotComply);
+        public void MarkDefer() => Decide(_detailRule, CellDecision.Defer);
+        public void IgnoreDetail() => Decide(_detailRule, CellDecision.Ignored);
+        private void Decide(JkrCopilotRule rule, CellDecision d)
         {
-            if (_detailRule == null) return;
-            _decisions[_detailRule.Id] = d;
+            if (rule == null) return;
+            _decisions[rule.Id] = d;
             DetailRule = null;
             RefreshAfterDecision();
         }
@@ -825,13 +868,18 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             }
             else if (kind == "top")
             {
+                // Design (.dc.html:1048-1049): the leverage promise has to survive into
+                // the consent sheet — WHICH fixes, and how many of the total failing rows
+                // they clear. A sheet that only says "N auto-fixes / C cells" is
+                // indistinguishable from Fix All, and the band's whole argument is lost.
                 var top = JkrCopilotMath.TopFixes(RunData.Rules, _decisions);
-                int cells = top.Sum(r => r.Cells), rows = top.Sum(r => r.Rows);
+                int rows = top.Sum(r => r.Rows);
+                int failing = JkrCopilotMath.RowsFail(RunData.Rules, _decisions);
                 ConfirmRequest = new ConfirmRequest
                 {
                     Kind = "top",
-                    Title = $"Apply {top.Count} auto-fixes?",
-                    Body = $"Touches {JkrCopilotMath.Fmt(cells)} cells and clears {rows} Borang rows.",
+                    Title = $"Apply the top {top.Count} fixes?",
+                    Body = $"{string.Join(" · ", top.Select(r => r.Title))}. Clears {rows} of {failing} failing rows.",
                     Note = "Chargeable generate action · one run",
                     Cta = "I consent, run it",
                 };

@@ -295,6 +295,9 @@
     <Compile Remove="..\UI\Jkr\ViewModels\PanelVm.cs" />
     <Compile Remove="..\UI\Jkr\ViewModels\CategoryVm.cs" />
     <Compile Remove="JkrCopilotVmTests.cs" />
+    <!-- Design-acceptance suite: grades PanelVm/IssueVm against the Claude Design
+         canvas, so it follows those WPF-bound sources off the cross-platform target. -->
+    <Compile Remove="JkrDesignAcceptanceTests.cs" />
   </ItemGroup>
 
 </Project>

@@ -237,31 +237,47 @@ namespace RevitWebAppSync.UI
             _toastHide.Start();
         }
 
-        // ── Keyboard shortcuts ──
+        // ── Keyboard shortcuts (design .dc.html:794-824) ──
+        // The footer advertises "↵ open · J/K nav · F fix · A ignore · ESC close"; this
+        // is what makes that true. Same branches, same order, same VM calls as
+        // Jkr/ZoomWindow.OnPreviewKeyDown — the window mirrors the panel, so the two
+        // must not disagree about what a key does.
         protected override void OnPreviewKeyDown(KeyEventArgs e)
         {
             base.OnPreviewKeyDown(e);
+
+            // Typing in the search box is typing, not navigating (design skips
+            // INPUT/TEXTAREA). ESC still gets through — it means nothing to a text field.
+            if (Keyboard.FocusedElement is TextBox && e.Key != Key.Escape) return;
+
+            // The confirm sheet is modal to the keyboard as well as the mouse.
             if (_vm.HasConfirm)
             {
                 if (e.Key == Key.Escape) { _vm.CancelConfirm(); e.Handled = true; }
                 else if (e.Key == Key.Enter) { _vm.CommitConfirm(); ShowToast("Changes applied ✓"); e.Handled = true; }
                 return;
             }
+
             switch (e.Key)
             {
+                // ⏎ opens the finding under the cursor — it does NOT route the fix.
+                // F is the fix key (design :811-817); conflating them meant Enter wrote
+                // to the model where the footer promised it would only open a finding.
+                case Key.Enter: _vm.OpenDetailAtCursor(); e.Handled = true; break;
                 case Key.J: _vm.NextDetail(); e.Handled = true; break;
                 case Key.K: _vm.PrevDetail(); e.Handled = true; break;
-                case Key.Enter:
-                    if (_vm.HasDetail) { _vm.FixDetail(); e.Handled = true; }
-                    else if (_vm.HasFilteredRules) { _vm.OpenDetail(_vm.FilteredRules.FirstOrDefault()); e.Handled = true; }
-                    break;
-                case Key.F: if (_vm.HasDetail) { _vm.FixDetail(); e.Handled = true; } break;
+                case Key.F: _vm.FixCursor(); e.Handled = true; break;
                 case Key.A:
-                    if (_vm.HasDetail) { _vm.IgnoreDetail(); ShowToast("Ignored — kept as NOT COMPLY"); }
-                    else _vm.IgnoreAll();
+                    _vm.IgnoreCursor();
+                    ShowToast("Ignored — kept as NOT COMPLY");
                     e.Handled = true;
                     break;
-                case Key.Escape: if (_vm.HasDetail) _vm.CancelConfirm(); e.Handled = true; break;
+                case Key.Escape:
+                    // ESC backs out of the finding without recording a verdict
+                    // (:800-803). CancelConfirm here was inert — no confirm sheet can be
+                    // open on this branch, so ESC never closed anything.
+                    if (_vm.HasDetail) { _vm.CloseDetail(); e.Handled = true; }
+                    break;
             }
         }
 

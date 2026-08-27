@@ -18,6 +18,7 @@
             <jkr:BoolToVisibilityConverter x:Key="B2V"/>
             <jkr:RuleStatusConverter x:Key="RuleStatus"/>
             <jkr:CountGtZeroConverter x:Key="GtZero"/>
+            <jkr:EqualsParamConverter x:Key="EqP"/>
 
             <!-- Group card header only; rows are read-only in zoom -->
             <DataTemplate x:Key="ZoomGroup">
@@ -243,7 +244,11 @@
                 </StackPanel>
             </ScrollViewer>
 
-            <Grid Grid.Column="2">
+            <!-- List and detail share the area beside the rail, exactly as the design
+                 splits it (sc-if noDetail / sc-if hasDetail, .dc.html:496-628): the rail
+                 stays put, the queue gives way to the finding. -->
+            <Grid Grid.Column="2"
+                  Visibility="{Binding HasDetail, Converter={StaticResource B2V}, ConverterParameter=Invert}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto"/>
                     <RowDefinition Height="*"/>
@@ -281,6 +286,180 @@
                     <ItemsControl ItemsSource="{Binding Groups}" ItemTemplate="{StaticResource ZoomGroup}"/>
                 </ScrollViewer>
             </Grid>
+
+            <!-- ── 5b FOCUS PANE ── the design's hasDetail region (.dc.html:562-628).
+                 The inline row already carried the Build Diff line, but Checked, Required,
+                 In model and Clause had nowhere to land, so ⏎ opened onto nothing and the
+                 window could state a failure without ever citing the clause behind it. -->
+            <Border Grid.Column="2" Background="{StaticResource JkrCopilot.Surf}"
+                    BorderBrush="{StaticResource JkrCopilot.Line}" BorderThickness="1"
+                    CornerRadius="10"
+                    Visibility="{Binding HasDetail, Converter={StaticResource B2V}}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Header: the way back, the position in the queue, and the two
+                         nav keys spelled out on the buttons that do the same thing. -->
+                    <Border Grid.Row="0" Padding="14,10" Background="{StaticResource JkrCopilot.Bg}"
+                            BorderBrush="{StaticResource JkrCopilot.Line2}" BorderThickness="0,0,0,1">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <Button Grid.Column="0" Content="← All issues" Click="DetailBack_Click"
+                                    Style="{StaticResource Btn.Sec}"/>
+                            <TextBlock Grid.Column="1" Text="{Binding DetailPosition}" Margin="12,0,0,0"
+                                       VerticalAlignment="Center" FontFamily="{StaticResource Font.Mono}"
+                                       FontSize="11" Foreground="{StaticResource JkrCopilot.Muted}"/>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                                <Button Content="↑ K" Click="NavPrev_Click" Style="{StaticResource Btn.Sec}" Margin="0,0,6,0"/>
+                                <Button Content="↓ J" Click="NavNext_Click" Style="{StaticResource Btn.Sec}" Margin="0,0,6,0"/>
+                                <Button Content="✕" Click="DetailBack_Click" Style="{StaticResource Btn.Sec}"/>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                  Style="{StaticResource ThinScroll}">
+                        <StackPanel Margin="20,16,20,18">
+                            <StackPanel Orientation="Horizontal">
+                                <Border Padding="6,2" CornerRadius="4" BorderThickness="1"
+                                        Background="{Binding DetailRule.SevBg, Converter={StaticResource Hex}}"
+                                        BorderBrush="{Binding DetailRule.SevBd, Converter={StaticResource Hex}}">
+                                    <TextBlock Text="{Binding DetailRule.SevTag}" FontFamily="{StaticResource Font.Mono}"
+                                               FontSize="9.5" FontWeight="SemiBold"
+                                               Foreground="{Binding DetailRule.SevFg, Converter={StaticResource Hex}}"/>
+                                </Border>
+                                <TextBlock Margin="10,0,0,0" VerticalAlignment="Center"
+                                           FontFamily="{StaticResource Font.Mono}" FontSize="10.5"
+                                           Foreground="{StaticResource JkrCopilot.Muted}">
+                                    <Run Text="{Binding DetailRule.Item, Mode=OneWay}"/><Run Text=" · "/>
+                                    <Run Text="{Binding DetailRule.Cat, Mode=OneWay}"/><Run Text=" · "/>
+                                    <Run Text="{Binding DetailRule.Cells, Mode=OneWay, StringFormat={}{0:N0} cells}"/>
+                                </TextBlock>
+                            </StackPanel>
+
+                            <TextBlock Text="{Binding DetailRule.Title}" Margin="0,12,0,0" FontSize="19"
+                                       FontWeight="SemiBold" TextWrapping="Wrap"
+                                       Foreground="{StaticResource JkrCopilot.Ink}"/>
+                            <TextBlock Text="{Binding DetailRule.Checked}" Margin="0,6,0,0" FontSize="13"
+                                       TextWrapping="Wrap" Foreground="#4A5158"/>
+
+                            <!-- Required / In model / Clause — the three lines the inline
+                                 DiffLine compresses into one and the design keeps apart. -->
+                            <Grid Margin="0,16,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="86"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Grid.Column="0" Text="REQUIRED" Margin="0,10,0,0"
+                                           FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                           Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{Binding DetailRule.Req}" Margin="0,10,0,0"
+                                           FontFamily="{StaticResource Font.Mono}" FontSize="12" TextWrapping="Wrap"/>
+                                <TextBlock Grid.Row="1" Grid.Column="0" Text="IN MODEL" Margin="0,10,0,0"
+                                           FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                           Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DetailRule.Act}" Margin="0,10,0,0"
+                                           FontFamily="{StaticResource Font.Mono}" FontSize="12" TextWrapping="Wrap"
+                                           Foreground="{StaticResource JkrCopilot.Danger}"/>
+                                <TextBlock Grid.Row="2" Grid.Column="0" Text="CLAUSE" Margin="0,10,0,0"
+                                           FontFamily="{StaticResource Font.Mono}" FontSize="9.5"
+                                           Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding DetailRule.Cite}" Margin="0,10,0,0"
+                                           FontSize="12" TextWrapping="Wrap"
+                                           Foreground="{StaticResource JkrCopilot.Navy}"/>
+                            </Grid>
+
+                            <!-- Proposed fix — the from/to pair, shown only where an
+                                 auto-fix exists so the pane never offers one it lacks. -->
+                            <Border Margin="0,18,0,0" CornerRadius="8" BorderThickness="1"
+                                    BorderBrush="{StaticResource JkrCopilot.Line5}"
+                                    Visibility="{Binding DetailRule.IsFixable, Converter={StaticResource B2V}}">
+                                <StackPanel>
+                                    <Border Padding="13,10" Background="{StaticResource JkrCopilot.Surf3}">
+                                        <StackPanel>
+                                            <TextBlock Text="Proposed fix" FontSize="13.5" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource JkrCopilot.Navy}"/>
+                                            <TextBlock Margin="0,2,0,0" FontSize="11.5" TextWrapping="Wrap"
+                                                       Foreground="#4A5158">
+                                                <Run Text="{Binding DetailRule.Cells, Mode=OneWay, StringFormat={}{0:N0} cells}"/>
+                                                <Run Text=" · "/>
+                                                <Run Text="{Binding DetailRule.Rows, Mode=OneWay, StringFormat={}{0} Borang rows}"/>
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Border>
+                                    <StackPanel Margin="14,12,14,12" Background="Transparent">
+                                        <TextBlock FontFamily="{StaticResource Font.Mono}" FontSize="12">
+                                            <Run Text="− " Foreground="#B3261E"/><Run
+                                                Text="{Binding DetailRule.From, Mode=OneWay}"
+                                                Background="{StaticResource JkrCopilot.FailBg}"/>
+                                        </TextBlock>
+                                        <TextBlock Margin="0,5,0,0" FontFamily="{StaticResource Font.Mono}" FontSize="12">
+                                            <Run Text="+ " Foreground="#1F7A4D"/><Run
+                                                Text="{Binding DetailRule.To, Mode=OneWay}"
+                                                Background="{StaticResource JkrCopilot.AddBg}"/>
+                                        </TextBlock>
+                                    </StackPanel>
+                                    <Button Content="⚡ Apply to model   F" Click="DetailApply_Click"
+                                            Background="{StaticResource JkrCopilot.Navy}" Foreground="White"
+                                            BorderThickness="0" Padding="14" FontSize="13" FontWeight="SemiBold"
+                                            Cursor="Hand"/>
+                                </StackPanel>
+                            </Border>
+
+                            <!-- Manual: no tick, no cross, no guess — the three verdicts
+                                 the user records, none of which touch the percentage. -->
+                            <Border Margin="0,18,0,0" Padding="14" CornerRadius="8" BorderThickness="1"
+                                    Background="#0D3F5C7A" BorderBrush="{StaticResource JkrCopilot.Dash}"
+                                    Visibility="{Binding DetailRule.Kind, Converter={StaticResource EqP}, ConverterParameter=manual}">
+                                <StackPanel>
+                                    <TextBlock Text="Why this is yours to call" FontSize="13.5" FontWeight="SemiBold"
+                                               Foreground="{StaticResource JkrCopilot.DarkSoft}"/>
+                                    <TextBlock Text="{Binding DetailRule.Reason}" Margin="0,8,0,0" FontSize="12.5"
+                                               LineHeight="19" TextWrapping="Wrap" Foreground="{StaticResource JkrCopilot.Soft2}"/>
+                                    <Button Content="I confirm comply" Click="DetailComply_Click" Margin="0,12,0,0"
+                                            Padding="11" Background="White" Foreground="#1F7A4D"
+                                            BorderBrush="#1F7A4D" BorderThickness="1"
+                                            FontSize="12.5" FontWeight="SemiBold" Cursor="Hand"/>
+                                    <Grid Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="6"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Button Grid.Column="0" Content="Not comply" Click="DetailNot_Click"
+                                                Padding="10" Background="White" Foreground="#B3261E"
+                                                BorderBrush="#B3261E" BorderThickness="1"
+                                                FontSize="11.5" FontWeight="SemiBold" Cursor="Hand"/>
+                                        <Button Grid.Column="2" Content="Leave for JKR" Click="DetailDefer_Click"
+                                                Padding="10" Background="White" Foreground="#5C636B"
+                                                BorderBrush="#DBDFE4" BorderThickness="1"
+                                                FontSize="11.5" FontWeight="SemiBold" Cursor="Hand"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+
+                    <Border Grid.Row="2" Padding="14,10" Background="{StaticResource JkrCopilot.Bg}"
+                            BorderBrush="{StaticResource JkrCopilot.Line2}" BorderThickness="0,1,0,0">
+                        <Button Content="Ignore" Click="DetailIgnore_Click" HorizontalAlignment="Right"
+                                Style="{StaticResource Btn.Sec}"/>
+                    </Border>
+                </Grid>
+            </Border>
         </Grid>
 
         <!-- ── 6 STATUS BAR ── J/K, F and A already worked but were undiscoverable, so the
@@ -292,9 +471,19 @@
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
+                <!-- The keys, then what they would act on. J/K move a cursor that is
+                     otherwise invisible until ⏎ opens it, so the cursor has to be
+                     readable somewhere or the nav keys feel inert. -->
                 <TextBlock Grid.Column="0" FontFamily="{StaticResource Font.Mono}" FontSize="10.5"
-                           Foreground="{StaticResource JkrCopilot.Muted}"
-                           Text="↵ open   J/K nav   F fix   A ignore   ESC dock"/>
+                           TextTrimming="CharacterEllipsis"
+                           Foreground="{StaticResource JkrCopilot.Muted}">
+                    <Run Text="↵ open   J/K nav   F fix   A ignore   ESC dock"/>
+                    <Run Text="   ▸ " Foreground="{StaticResource JkrCopilot.Dash2}"/>
+                    <Run Text="{Binding DetailPosition, Mode=OneWay}"/>
+                    <Run Text=" "/>
+                    <Run Text="{Binding CursorRule.Title, Mode=OneWay}"
+                         Foreground="{StaticResource JkrCopilot.Ink}"/>
+                </TextBlock>
                 <TextBlock Grid.Column="1" FontFamily="{StaticResource Font.Mono}" FontSize="10.5"
                            Foreground="{StaticResource JkrCopilot.Muted}">
                     <Run Text="{Binding RowsFail, Mode=OneWay}"/><Run Text=" rows failing · "/>
@@ -302,6 +491,36 @@
                 </TextBlock>
             </Grid>
         </Border>
+
+        <!-- ── CONFIRM SHEET ── the ask-first gate (design :657-666). Fix all, Ignore
+             all, ⚡ Fix and the F key all set a ConfirmRequest; without this the window
+             raised the sheet and never showed it, so those actions looked dead and
+             nothing was ever written. Nothing is written until you confirm. -->
+        <Grid Grid.RowSpan="5" Panel.ZIndex="9"
+              Visibility="{Binding HasConfirm, Converter={StaticResource B2V}}">
+            <Border Background="#2A2422" Opacity="0.42"/>
+            <Border Width="452" VerticalAlignment="Center" HorizontalAlignment="Center"
+                    Background="{StaticResource JkrCopilot.Surf}" CornerRadius="12"
+                    BorderBrush="{StaticResource JkrCopilot.Navy}" BorderThickness="0,2,0,0">
+                <StackPanel Margin="20">
+                    <TextBlock Text="{Binding ConfirmRequest.Title}" FontSize="15" FontWeight="Bold"
+                               TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding ConfirmRequest.Body}" Margin="0,10,0,0" FontSize="12.5"
+                               Foreground="{StaticResource JkrCopilot.Ink2}" TextWrapping="Wrap"/>
+                    <TextBlock Text="{Binding ConfirmRequest.Note}" Margin="0,10,0,0" FontSize="10.5"
+                               FontFamily="{StaticResource Font.Mono}"
+                               Foreground="{StaticResource JkrCopilot.Muted}" TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                        <Button Content="Cancel" Click="ConfirmNo_Click" Style="{StaticResource Btn.Sec}"
+                                Margin="0,0,8,0"/>
+                        <Button Content="{Binding ConfirmRequest.Cta}" Click="ConfirmYes_Click"
+                                Background="{StaticResource JkrCopilot.Navy}" Foreground="White"
+                                BorderThickness="0" Padding="16,9" FontSize="12" FontWeight="SemiBold"
+                                Cursor="Hand"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Grid>
 
     </Grid>
 </Window>
