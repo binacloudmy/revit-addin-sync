@@ -133,6 +133,8 @@ namespace Cad2Bim {
             foreach (TextElement text in texts) {
                 Point anchor = new((text.P1.x + text.P2.x) / 2, (text.P1.y + text.P2.y) / 2);
 
+                if (!IsName(text.Text)) continue;
+
                 Space? smallest = null;
                 foreach (Space space in spaces) {
                     if (space.Text.Count > 0) continue;
@@ -144,6 +146,22 @@ namespace Cad2Bim {
 
                 smallest?.Text.Add(text);
             }
+        }
+
+        /// <summary>
+        /// Whether a label names a room rather than measures one. Plans are covered in
+        /// annotations that sit inside rooms without naming them - areas, levels, door marks,
+        /// grid references - and the nearest-text rule cannot tell them apart on position
+        /// alone. "17.79MP" is an area written inside a room; it is not what the room is
+        /// called. A name has letters in it and is not mostly digits.
+        /// </summary>
+        internal static bool IsName(string text) {
+            if (text.Length < 2) return false;
+
+            int letters = text.Count(char.IsLetter);
+            int digits = text.Count(char.IsDigit);
+
+            return letters >= 2 && letters > digits;
         }
 
         /// <summary>Shoelace with the sign kept: positive is counter-clockwise.</summary>

@@ -187,9 +187,43 @@ namespace Cad2Bim {
                     P1 = new Point(x, y),
                     // Rough box: the DWG stores an insertion point, not an extent.
                     P2 = new Point(x + (height * value.Length * 0.6), y + height),
-                    Text = value.Trim(),
+                    Text = CleanText(value),
                     Layer = layer,
                 });
+            }
+
+            /// <summary>
+            /// Strips MText formatting so a room name reads the way it looks on the drawing.
+            /// MText stores its styling inline: \P is a paragraph break, \A1; an alignment,
+            /// {\f...} a font switch. Left in, they arrive as part of the name and a room
+            /// comes back called "BILIK \PPERBINCANGAN".
+            /// </summary>
+            internal static string CleanText(string value) {
+                var text = new System.Text.StringBuilder(value.Length);
+
+                for (int i = 0; i < value.Length; i++) {
+                    char c = value[i];
+
+                    if (c == '\\' && i + 1 < value.Length) {
+                        char code = value[i + 1];
+
+                        // \P and \p are line breaks; the rest run to a semicolon.
+                        if (code is 'P' or 'p' or '~') { text.Append(' '); i++; continue; }
+                        if (code is '\\' or '{' or '}') { text.Append(code); i++; continue; }
+
+                        int end = value.IndexOf(';', i);
+                        i = end < 0 ? value.Length : end;
+                        continue;
+                    }
+
+                    if (c is '{' or '}') continue;
+                    text.Append(c);
+                }
+
+                // A paragraph break becomes a space, so "BILIK\PPERBINCANGAN" would otherwise
+                // come back double-spaced where the drawing shows one word per line.
+                return string.Join(' ', text.ToString()
+                    .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
             }
 
             private void AddSegment((double X, double Y) a, (double X, double Y) b, string layer) {
