@@ -607,10 +607,10 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         /// for AI-assisted wall classification and Revit wall creation.</summary>
         private void OpenCadViewer()
         {
-            var secret = BinaConfig.EngineSecret;
-            var url = $"http://localhost:48820/cad/viewer?secret={System.Uri.EscapeDataString(secret ?? "")}";
             try
             {
+                var secret = RevitWebAppSync.BinaConfig.Load().EngineSecret ?? "";
+                var url = $"http://localhost:48820/cad/viewer?secret={System.Uri.EscapeDataString(secret)}";
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
                 {
                     FileName = url,
