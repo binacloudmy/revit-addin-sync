@@ -218,7 +218,13 @@
                                    Foreground="{DynamicResource Cp.Faint}" Margin="6,0,0,0" VerticalAlignment="Center"/>
                     </StackPanel>
                 </ToggleButton>
+                <!-- Library is hidden. The tab is the only way into it that is still
+                     wired up — the Chat empty-state CTA that also went there is already
+                     commented out — so collapsing this button takes the screen out of
+                     reach without deleting LibraryView, CpTab.Library or the prompt
+                     fetch. Drop the Visibility to bring it back. -->
                 <ToggleButton Style="{DynamicResource Cp.TabButton}" Command="{Binding GoTabCommand}" CommandParameter="Library"
+                              Visibility="Collapsed"
                               IsChecked="{Binding Tab, Mode=OneWay, Converter={StaticResource EnumEq}, ConverterParameter=Library}">
                     <StackPanel Orientation="Horizontal">
                         <Path Width="13" Height="13" Stretch="Uniform" StrokeThickness="1.8" Margin="0,0,6,0" VerticalAlignment="Center"
