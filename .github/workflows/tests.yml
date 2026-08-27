@@ -22,3 +22,50 @@ jobs:
 
       - name: Run unit tests
         run: dotnet test Tests/Tests.csproj -c Release -p:SkipRevitSources=true --logger "console;verbosity=normal"
+
+  # Installer scripts are PowerShell that only ever runs on a drafter's box or
+  # a release runner — neither of which is where they get written. Two gates:
+  #
+  #   parse   — every installer/*.ps1 must at least PARSE. engine-boot.ps1
+  #             shipped in v0.0.58-staging having never been fed to a
+  #             PowerShell parser (no pwsh on the dev Mac). A syntax error
+  #             there fails closed (the logon task never registers, logged)
+  #             but it fails on the fleet, not here.
+  #   gate    — fetch-engine-bundle.ps1's sha/manifest verification, dry-run
+  #             with a synthetic bundle and no network. This is what stops a
+  #             release from seeding corrupt or substituted engine bytes.
+  installer-scripts:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse every installer script
+        shell: pwsh
+        run: |
+          $bad = 0
+          foreach ($f in Get-ChildItem installer -Recurse -Filter *.ps1) {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errors)
+            if ($errors -and $errors.Count) {
+              $bad++
+              Write-Host "::error file=$($f.FullName)::$($errors.Count) parse error(s)"
+              $errors | ForEach-Object { Write-Host "  $($_.Extent.StartLineNumber): $($_.Message)" }
+            } else {
+              Write-Host "ok   $($f.FullName)"
+            }
+          }
+          # Windows PowerShell 5.1 is what the scheduled task actually runs
+          # engine-boot.ps1 under — parse there too, not just pwsh 7.
+          $ps51 = powershell.exe -NoProfile -NonInteractive -Command {
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile("$PWD\installer\engine-boot.ps1", [ref]$null, [ref]$errors)
+            if ($errors -and $errors.Count) { $errors | ForEach-Object { "$($_.Extent.StartLineNumber): $($_.Message)" }; exit 1 }
+            "ok   engine-boot.ps1 (Windows PowerShell 5.1)"
+          }
+          Write-Host ($ps51 -join "`n")
+          if ($LASTEXITCODE -ne 0) { $bad++ }
+          if ($bad) { throw "$bad installer script(s) failed to parse" }
+
+      - name: Engine fetch verification gate (dry-run)
+        shell: pwsh
+        run: installer/tests/fetch-engine-bundle.tests.ps1
