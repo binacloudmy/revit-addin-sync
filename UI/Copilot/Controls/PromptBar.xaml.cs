@@ -168,6 +168,7 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 };
                 if (dlg.ShowDialog() == true) AddFiles(dlg.FileNames);
             };
+            CadViewerBtn.Click += (_, __) => OpenCadViewer();
             PlanBtn.Click += (_, __) =>
             {
                 UsagePopup.IsOpen = !UsagePopup.IsOpen;
@@ -598,6 +599,25 @@ namespace RevitWebAppSync.UI.Copilot.Controls
                 ActionModePopup.IsOpen = false;
                 e.Handled = true;
             }
+        }
+
+        // ─── CAD Viewer ───────────────────────────────────────────────────
+        /// <summary>Open the CAD-to-BIM viewer in the default browser. The viewer
+        /// runs against the local MCP server and lets the user load a DWG file
+        /// for AI-assisted wall classification and Revit wall creation.</summary>
+        private void OpenCadViewer()
+        {
+            var secret = BinaConfig.EngineSecret;
+            var url = $"http://localhost:48820/cad/viewer?secret={System.Uri.EscapeDataString(secret ?? "")}";
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = url,
+                    UseShellExecute = true,
+                });
+            }
+            catch { /* browser launch failed — swallow, no drafter action */ }
         }
 
         // "Ask Copilot" (no ellipsis) — 2026-08-02 defect #6, matches the

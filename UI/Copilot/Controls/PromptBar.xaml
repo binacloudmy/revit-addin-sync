@@ -74,6 +74,29 @@
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round"
                                   Data="M16,8 v5 a3,3 0 0 0 6,0 v-1 a10,10 0 1 0 -4,8 M12,8 a4,4 0 1 0 0,8 a4,4 0 1 0 0,-8"/>
                         </Button>
+                        <!-- CAD Viewer button: opens the CAD-to-BIM viewer in browser -->
+                        <Button x:Name="CadViewerBtn" DockPanel.Dock="Left" Width="26" Height="26" Cursor="Hand"
+                                Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
+                                FocusVisualStyle="{x:Null}" Margin="2,0,0,0"
+                                ToolTip="Open CAD-to-BIM Viewer">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border x:Name="bd" Background="Transparent" CornerRadius="8">
+                                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter TargetName="bd" Property="Background" Value="{DynamicResource Cp.Hover}"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Button.Template>
+                            <!-- Grid/blueprint icon -->
+                            <Path Width="14" Height="14" Stretch="Uniform" Fill="Transparent"
+                                  Stroke="{DynamicResource Cp.Muted}" StrokeThickness="1.9"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  Data="M3,3 H21 V21 H3 Z M3,9 H21 M3,15 H21 M9,3 V21 M15,3 V21"/>
+                        </Button>
                         <!-- "/" tools button (v6): opens the same slash palette
                              typing "/" opens. -->
                         <Button x:Name="SlashBtn" DockPanel.Dock="Left" Width="26" Height="26" Cursor="Hand"

@@ -48,8 +48,13 @@ namespace BinaVibe.Mcp
         </div>
         <div class=""sidebar"">
             <div class=""panel"">
-                <h3>Configuration</h3>
+                <h3>Load DWG</h3>
                 <div class=""config"">
+                    <label>DWG File Path:</label>
+                    <input type=""text"" id=""dwgPath"" placeholder=""C:\\path\\to\\file.dwg"">
+                    <button class=""btn btn-primary"" id=""loadDwgBtn"" style=""margin-top:8px;width:100%"">Load DWG</button>
+                </div>
+                <div class=""config"" style=""margin-top:12px"">
                     <label>AI Server URL:</label>
                     <input type=""text"" id=""serverUrl"" placeholder=""https://your-ngrok-url"">
                 </div>
@@ -243,10 +248,23 @@ namespace BinaVibe.Mcp
         function setStatus(t) { document.getElementById('status').textContent = t; }
 
         document.getElementById('createBtn').onclick = createWalls;
+        document.getElementById('loadDwgBtn').onclick = loadDwgFromPath;
         resizeCanvas();
 
+        async function loadDwgFromPath() {
+            const path = document.getElementById('dwgPath').value.trim();
+            if (!path) { addMessage('error', 'Enter a DWG file path'); return; }
+            setStatus('Opening DWG...');
+            try {
+                const result = await callAddinTool('dwg_open_attachment', { path });
+                if (!result.ok) throw new Error(result.error || 'Failed to open DWG');
+                addMessage('ai', 'Opened: ' + (result.name || path));
+                await loadCAD(result.dwg_ref);
+            } catch (err) { addMessage('error', err.message); setStatus('Error: ' + err.message); }
+        }
+
         const dwgRef = params.get('dwg_ref');
-        if (dwgRef) { loadCAD(dwgRef); } else { addMessage('ai', 'Add ?dwg_ref=att:XXX to URL'); setStatus('Waiting'); }
+        if (dwgRef) { loadCAD(dwgRef); } else { addMessage('ai', 'Enter a DWG file path above and click Load DWG, or use AI Server URL for classification.'); setStatus('Ready'); }
     </script>
 </body>
 </html>";
