@@ -11,7 +11,7 @@
     3. pointer carries no engine fields -> present=false, no throw
 
   Plus: a pointer with a version that disagrees with the bundle's own
-  engine-version.json must throw — the installer's DestDir is engine\<ver>\
+  engine-version.json must throw - the installer's DestDir is engine\<ver>\
   and EngineManager scans by that name.
 
   Run from the repo root:  installer\tests\fetch-engine-bundle.tests.ps1
@@ -60,7 +60,7 @@ try {
     $ptr = Write-Pointer 'bad' @{ version = '0.0.58'; engine_version = '9.9.9'; engine_key = 'engine/x.zip'; engine_sha256 = ('0' * 64) }
     $out = Join-Path $work 'out-bad'
     $null = & $script -Prefix 'p' -OutDir $out -PointerFile $ptr -ZipFile $zip
-    Fail 'bad sha' 'did NOT throw — the gate is open'
+    Fail 'bad sha' 'did NOT throw - the gate is open'
 } catch {
     if ($_.Exception.Message -match 'sha256 mismatch') { Pass 'bad sha -> throws with "sha256 mismatch"' }
     else { Fail 'bad sha' "threw the wrong thing: $($_.Exception.Message)" }

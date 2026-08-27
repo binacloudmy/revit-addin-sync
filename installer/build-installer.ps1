@@ -1,4 +1,4 @@
-# Revit Copilot — installer build script (run on Windows with .NET 8 SDK).
+# Revit Copilot - installer build script (run on Windows with .NET 8 SDK).
 #
 #   powershell -ExecutionPolicy Bypass -File installer\build-installer.ps1 -Version 0.0.8
 #
@@ -73,7 +73,7 @@ Remove-Item -Recurse -Force (Join-Path $repo "artifacts") -ErrorAction SilentlyC
 #   versions\<ver>\manifest.json   root manifest with the year->subfolder map
 #   versions\<ver>\net8.0\         Revit 2025 + 2026 (both .NET 8 hosts)
 #   versions\<ver>\net10.0\        Revit 2027 (.NET 10 host)
-#   versions\<ver>\net48\          Revit 2024 (Phase B — when the csproj grows net48)
+#   versions\<ver>\net48\          Revit 2024 (Phase B - when the csproj grows net48)
 # ALWAYS publish with an explicit -f: publishing a multi-TFM project without
 # one is what shipped a net10 payload to a .NET 8 Revit (2026-07-13 incident).
 $pluginTargets = [ordered]@{ "net8.0-windows" = "net8.0"; "net10.0-windows" = "net10.0" }
@@ -107,7 +107,7 @@ if ($LASTEXITCODE -ne 0) { throw "loader publish failed for net48" }
 Copy-Item -Force (Join-Path $repo "BinaLoader\BinaSync.addin") $loaderNet48Dir
 
 # Root manifest (year->subfolder map the loader keys on) + completeness marker
-# — the seed folder must look exactly like one staged by UpdateService.
+# - the seed folder must look exactly like one staged by UpdateService.
 @{ version = $Version; assembly = 'RevitWebAppSync.dll'; entryType = 'RevitWebAppSync.App'; targets = $yearMap } |
     ConvertTo-Json | Set-Content (Join-Path $pluginDir "manifest.json")
 Set-Content (Join-Path $pluginDir ".complete") $Version
@@ -119,7 +119,7 @@ Write-Host "==> Pruning payload..." -ForegroundColor Cyan
 & (Join-Path $PSScriptRoot "prune-payload.ps1") -PluginDir $pluginDir
 
 # Optional: stage the packaged Copilot Engine into the layout the .iss packs.
-# EngineDir/EngineVersion are only passed to ISCC when -EngineZip is given —
+# EngineDir/EngineVersion are only passed to ISCC when -EngineZip is given  - 
 # without it, the /D flags below are omitted entirely and RevitCopilot.iss
 # falls back to its own (nonexistent-by-default) engine dir, which its
 # skipifsourcedoesntexist flag skips cleanly. Net effect: no -EngineZip ->
@@ -132,7 +132,7 @@ if ($EngineZip) {
     Expand-Archive -Path $EngineZip -DestinationPath $engineDir -Force
     $engineManifestPath = Join-Path $engineDir "engine-version.json"
     if (-not (Test-Path $engineManifestPath)) {
-        throw "engine-version.json not found at the root of $EngineZip — bad bundle"
+        throw "engine-version.json not found at the root of $EngineZip - bad bundle"
     }
     $engineVersion = (Get-Content $engineManifestPath -Raw | ConvertFrom-Json).engine_version
     if (-not $engineVersion) { throw "engine-version.json has no engine_version field" }
@@ -142,7 +142,7 @@ if ($EngineZip) {
 
 # Optional: stage bina-defaults.json (zero-config release) next to the addin
 # DLLs. BinaConfig reads it from the executing assembly's own directory, which
-# is now a per-target SUBFOLDER — so it goes into every payload subfolder and
+# is now a per-target SUBFOLDER - so it goes into every payload subfolder and
 # rides the PluginDir recursesubdirs copy (no separate .iss entry needed).
 # Without -GatewayUrl nothing is written: byte-identical to an addin-only build.
 if ($GatewayUrl) {
@@ -154,7 +154,7 @@ if ($GatewayUrl) {
 }
 
 # Optional: code signing, native Inno mechanism (signs the setup EXE AND the
-# embedded uninstaller stub — post-compile signtool can only reach the EXE).
+# embedded uninstaller stub - post-compile signtool can only reach the EXE).
 # Precedence: SIGNTOOL_ARGS env (password never touches the command line) >
 # -SignCert (thumbprint if it doesn't resolve to a file, else treated as a
 # PFX path, paired with -SignPassword). Omit all three -> no /S/ /D flags ->
@@ -175,7 +175,7 @@ if ($env:SIGNTOOL_ARGS -or $SignCert) {
         $signCertObj = Get-Item "Cert:\CurrentUser\My\$SignCert"
         Write-Host "==> Signing via cert store thumbprint $SignCert" -ForegroundColor Cyan
     }
-    # Revit validates Authenticode on the addin DLLs themselves — an unsigned
+    # Revit validates Authenticode on the addin DLLs themselves - an unsigned
     # BinaLoader.dll shows "Unknown Publisher" in Revit's security dialog even
     # when the installer EXE is signed. Sign them here, before ISCC packs them.
     # Via cmd so $signBody stays one opaque string in all three cert forms
@@ -190,8 +190,8 @@ if ($env:SIGNTOOL_ARGS -or $SignCert) {
         if ($LASTEXITCODE -ne 0) { throw "signtool failed for $dll" }
     }
     # Export the PUBLIC cert so the installer can pre-trust the publisher
-    # (certutil -addstore TrustedPublisher in the .iss [Run] section) — without
-    # it Revit still shows the one-time "Signed Add-In — Always Load?" prompt.
+    # (certutil -addstore TrustedPublisher in the .iss [Run] section) - without
+    # it Revit still shows the one-time "Signed Add-In - Always Load?" prompt.
     # Unsigned builds never write the .cer, so the .iss entries skip and the
     # output stays byte-identical.
     if ($signCertObj) {
@@ -201,7 +201,7 @@ if ($env:SIGNTOOL_ARGS -or $SignCert) {
     }
     # Inno's /S<name>=<command> registers a sign tool ISCC shells out to per
     # artifact; $f is INNO's own placeholder for the file being signed (not a
-    # PowerShell variable) so it must stay unexpanded — built via string
+    # PowerShell variable) so it must stay unexpanded - built via string
     # concatenation, not interpolation, to keep it literal.
     # Inno Setup 6.7.3+ quotes the $f substitution itself; wrapping it in $q
     # (Inno's quote placeholder, needed on older ISCC) now yields ""path""
@@ -209,15 +209,15 @@ if ($env:SIGNTOOL_ARGS -or $SignCert) {
     $signCommand = 'signtool.exe sign ' + $signBody + ' $f'
     $signIscArgs = @("/Sbinasign=$signCommand", "/DSignToolName=binasign")
 } elseif ($SignPassword) {
-    Write-Warning "-SignPassword given without -SignCert — signing skipped"
+    Write-Warning "-SignPassword given without -SignCert - signing skipped"
 }
 
 if ($Sign -and $signIscArgs.Count -gt 0) {
-    Write-Warning "-Sign/-Thumbprint (legacy, EXE-only) ignored — SIGNTOOL_ARGS/-SignCert already sign the installer + uninstaller via Inno's native SignTool."
+    Write-Warning "-Sign/-Thumbprint (legacy, EXE-only) ignored - SIGNTOOL_ARGS/-SignCert already sign the installer + uninstaller via Inno's native SignTool."
     $Sign = $false
 }
 
-# Inno Setup compiler — machine-wide (elevated install) or per-user (winget
+# Inno Setup compiler - machine-wide (elevated install) or per-user (winget
 # without admin lands in %LOCALAPPDATA%\Programs).
 $isccCandidates = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
@@ -229,7 +229,7 @@ if (-not $iscc) {
     throw "Inno Setup 6 not found (looked in: $($isccCandidates -join '; ')). Install: winget install JRSoftware.InnoSetup"
 }
 
-# Addins\2024 registration is gated on an actual 2024 payload — a net48 loader
+# Addins\2024 registration is gated on an actual 2024 payload - a net48 loader
 # with nothing to load would dead-end Revit 2024 users on a reinstall dialog.
 $net48IscArgs = @()
 if ($yearMap.Contains("2024")) {
