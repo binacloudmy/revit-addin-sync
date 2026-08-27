@@ -88,7 +88,28 @@ namespace BinaVibe.Mcp
         {
             try
             {
+                // Add CORS headers for cross-origin viewer requests
+                ctx.Response.AddHeader("Access-Control-Allow-Origin", "*");
+                ctx.Response.AddHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+                ctx.Response.AddHeader("Access-Control-Allow-Headers", "Content-Type, X-Bina-Secret");
+
+                // Handle CORS preflight
+                if (ctx.Request.HttpMethod == "OPTIONS")
+                {
+                    ctx.Response.StatusCode = 204;
+                    ctx.Response.OutputStream.Close();
+                    return;
+                }
+
                 var path = ctx.Request.Url?.AbsolutePath ?? "";
+
+                // CAD viewer HTML
+                if (path == "/cad/viewer" && ctx.Request.HttpMethod == "GET")
+                {
+                    await ServeCadViewer(ctx);
+                    return;
+                }
+
                 if (path == "/mcp/health")
                 {
                     await WriteJson(ctx, 200, new { ok = true });
@@ -176,6 +197,18 @@ namespace BinaVibe.Mcp
             {
                 try { await WriteJson(ctx, 500, new { error = ex.Message }); } catch { }
             }
+        }
+
+        private static async Task ServeCadViewer(HttpListenerContext ctx)
+        {
+            // Serve embedded CAD viewer HTML
+            var html = CadViewerHtml.Content;
+            var bytes = Encoding.UTF8.GetBytes(html);
+            ctx.Response.StatusCode = 200;
+            ctx.Response.ContentType = "text/html; charset=utf-8";
+            ctx.Response.ContentLength64 = bytes.Length;
+            await ctx.Response.OutputStream.WriteAsync(bytes, 0, bytes.Length);
+            ctx.Response.OutputStream.Close();
         }
 
         private static async Task WriteJson(HttpListenerContext ctx, int status, object body)
