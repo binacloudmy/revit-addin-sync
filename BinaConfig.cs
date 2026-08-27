@@ -521,12 +521,15 @@ namespace RevitWebAppSync
                 changed = true;
             }
 
-            // The original heal: EngineMode true + a bundle installed on disk
-            // earns auto-spawn. Without it App.cs:173 returns before ever
-            // constructing an EngineManager, nothing listens on the engine
-            // port, and every turn dials a closed socket.
-            if (EngineMode && !EngineAutoSpawn &&
-                !string.IsNullOrEmpty(Services.EngineManager.NewestEngineLauncher()))
+            // Engine mode earns auto-spawn, full stop. This heal used to ALSO
+            // require a bundle on disk — which no fresh install had, because
+            // every staging release shipped addin-only. So the boxes that most
+            // needed the flag never got it: OnStartup skipped the manager,
+            // nothing listened on the engine port, and every turn dialled a
+            // closed socket. The bundle question now belongs to the turn
+            // preflight (ToolLoopService.EnsureEngineReadyAsync), which can
+            // answer "no" by fetching one. Cloud-mode configs are untouched.
+            if (Services.EnginePreflight.ShouldEnableAutoSpawn(EngineMode, EngineAutoSpawn))
             {
                 EngineAutoSpawn = true;
                 changed = true;
