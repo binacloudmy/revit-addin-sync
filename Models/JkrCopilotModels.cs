@@ -35,6 +35,23 @@ namespace RevitWebAppSync.Models
         public string To { get; set; }         // fix target
         public string Reason { get; set; }     // manual-only: why AI is not allowed to judge
         public string Cite { get; set; }       // citation
+
+        // ── Severity presentation (design: sev() / diff() in the .dc.html) ──
+        // Computed, never stored: the tier is a pure function of Kind/Crit/Sev, so it
+        // can never drift out of sync with the fields it is derived from. Bound
+        // directly by the row markup in both the panel and the Zoom window.
+        public string SevTag => Services.JkrCopilotSeverity.Of(this).Tag;
+        public string SevBar => Services.JkrCopilotSeverity.Of(this).Bar;
+        public string SevBg => Services.JkrCopilotSeverity.Of(this).Bg;
+        public string SevFg => Services.JkrCopilotSeverity.Of(this).Fg;
+        public string SevBd => Services.JkrCopilotSeverity.Of(this).Bd;
+        public bool SevDashed => Services.JkrCopilotSeverity.Of(this).Style == "dashed";
+
+        /// <summary>"from → to", or "requirement ≠ actual" where no auto-fix exists.</summary>
+        public string DiffLine => Services.JkrCopilotSeverity.Diff(this);
+        /// <summary>"311 cells · 1 row · auto"</summary>
+        public string SubLine => Services.JkrCopilotSeverity.Sub(this);
+        public bool IsFixable => Services.JkrCopilotSeverity.Fixable(this);
     }
 
     public sealed class JkrCopilotSection

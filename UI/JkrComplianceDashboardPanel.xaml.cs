@@ -35,6 +35,11 @@ namespace RevitWebAppSync.UI
         public ObservableCollection<BorangRow> BorangPreview { get; } = new ObservableCollection<BorangRow>();
 
         // Header density toggle label/tooltip (dc.html:1259-1262).
+        /// <summary>Whether the density button has room for its word ("Normal"/"Large").
+        /// Below this the label clipped mid-word to "A Nor"; the design's answer is to
+        /// fall back to the bare "A" and let the tooltip carry the meaning, never to clip.</summary>
+        public bool ShowDensityWord => ActualWidth >= 420;
+
         public string DensityLabel => _vm.IsDensityComfortable ? "Large" : "Normal";
         public string DensityTooltip => _vm.IsDensityComfortable
             ? "Text is large — click for normal size"
@@ -57,6 +62,7 @@ namespace RevitWebAppSync.UI
             _toastHide = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2.2) };
             _toastHide.Tick += (_, __) => { _toastHide.Stop(); ToastPanel.Visibility = Visibility.Collapsed; };
 
+            SizeChanged += (_, __) => Raise(nameof(ShowDensityWord));
             _vm.PropertyChanged += (s, e) =>
             {
                 switch (e.PropertyName)

@@ -784,6 +784,10 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
         public bool HasConfirm => _confirm != null;
 
         public void FixDetail() { if (_detailRule != null) OpenConfirmOne(_detailRule.Id); }
+        /// <summary>Fix one rule by id, from a row action rather than the detail pane.
+        /// Still routes through the confirm gate — no fix path may write to the model
+        /// without the ask-first sheet (principle 0.7).</summary>
+        public void FixRule(string id) { if (!string.IsNullOrEmpty(id)) OpenConfirmOne(id); }
         public void FixTop() => RequestConfirm("top");
         public void FixAll() => RequestConfirm("all");
         public void IgnoreAll() => RequestConfirm("ignoreAll");

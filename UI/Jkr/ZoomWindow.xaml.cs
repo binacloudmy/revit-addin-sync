@@ -25,6 +25,16 @@ namespace RevitWebAppSync.UI.Jkr
             _vm.PropertyChanged += OnVmPropertyChanged;
         }
 
+        // Row-level fix. The window was originally read-only, but a queue that shows
+        // failures and offers no action is the problem the redesign set out to remove
+        // (Build Diff delta 02). Goes through the same confirm sheet as the panel.
+        // "Apply those fixes first" — the leverage band's one action. Same confirm
+        // gate as everywhere else; the band only ever offers the ranked top fixes.
+        private void FixTop_Click(object sender, RoutedEventArgs e) => _vm.FixTop();
+
+        private void RuleFix_Click(object sender, RoutedEventArgs e)
+            => _vm.FixRule((sender as System.Windows.Controls.Button)?.Tag as string);
+
         private void OnVmPropertyChanged(object sender, PropertyChangedEventArgs e)
         {
             // Clamp Hero percentage + confirm it tracks fixes applied while the window is open.

@@ -48,8 +48,12 @@ namespace RevitWebAppSync.UI.Jkr
     {
         public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
         {
-            if (value is int n) return n > 0;
-            return false;
+            bool gt = value is int n && n > 0;
+            // Returning a bare bool for a Visibility target is silently ignored by WPF,
+            // which leaves the element visible — the same trap that leaked manual-only
+            // sections into the AI detail. Answer in the type the target asked for.
+            if (targetType == typeof(Visibility)) return gt ? Visibility.Visible : Visibility.Collapsed;
+            return gt;
         }
         public object ConvertBack(object v, Type t, object p, CultureInfo c) => Binding.DoNothing;
     }

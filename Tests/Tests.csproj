@@ -56,6 +56,7 @@
     <Compile Remove="..\Services\IJkrCopilotSource.cs" />
     <Compile Remove="..\Services\JkrCodeParser.cs" />
     <Compile Remove="..\Services\JkrCopilotMath.cs" />
+    <Compile Remove="..\Services\JkrCopilotSeverity.cs" />
     <Compile Remove="..\Services\QuestPdfBootstrap.cs" />
     <Compile Remove="..\Services\ReportExporter.cs" />
     <Compile Remove="..\Services\SelfHeal.cs" />
@@ -127,6 +128,7 @@
     <Compile Include="..\Services\IJkrCopilotSource.cs" Link="IJkrCopilotSource.cs" />
     <Compile Include="..\Services\FixtureCopilotSource.cs" Link="FixtureCopilotSource.cs" />
     <Compile Include="..\Services\JkrCopilotMath.cs" Link="JkrCopilotMath.cs" />
+    <Compile Include="..\Services\JkrCopilotSeverity.cs" Link="JkrCopilotSeverity.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\CategoryVm.cs" Link="CategoryVm.cs" />
     <Compile Include="..\UI\Jkr\ViewModels\PanelVm.cs" Link="PanelVm.cs" />
     <Compile Include="..\UI\Jkr\JkrTheme.cs" Link="JkrTheme.cs" />
