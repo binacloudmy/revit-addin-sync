@@ -27,6 +27,22 @@ namespace Cad2Bim {
         public bool IncludeHatch { get; set; }
         public bool IncludeDimensions { get; set; }
 
+        /// <summary>
+        /// Whether a label may be read. Exclusions still apply - a dimension's text is not a
+        /// room name - but the include list does not, because it says where the walls are, not
+        /// where the words are.
+        /// </summary>
+        public bool AllowsText(string layer, CadSource source) {
+            if (source == CadSource.Hatch && !IncludeHatch) return false;
+            if (source == CadSource.Dimension && !IncludeDimensions) return false;
+
+            foreach (string pattern in Exclude) {
+                if (Matches(layer, pattern)) return false;
+            }
+
+            return true;
+        }
+
         public bool Allows(string layer, CadSource source) {
             if (source == CadSource.Hatch && !IncludeHatch) return false;
             if (source == CadSource.Dimension && !IncludeDimensions) return false;
@@ -186,7 +202,11 @@ namespace Cad2Bim {
 
             public void Text(double x, double y, double height, string value,
                              string layer, CadSource source) {
-                if (!_filter.Allows(layer, source)) return;
+                // Text is judged by the exclude list only. Include names which layers hold
+                // *walls*, and room labels never live on a wall layer - they sit on a text
+                // layer of their own. Filtering them the same way loses every room name the
+                // drawing carries, which is the one thing a plan states outright.
+                if (!_filter.AllowsText(layer, source)) return;
 
                 Model.Texts.Add(new TextElement {
                     P1 = new Point(x, y),

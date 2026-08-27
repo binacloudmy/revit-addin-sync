@@ -393,7 +393,7 @@ namespace RevitWebAppSync.Commands
             filter.Exclude.AddRange(new[]
             {
                 "PERABUT", "FURNITURE", "FURN*", "SANI*", "FITTING", "Toilet-fitting",
-                "*-DIM*", "*TEXT*", "DEFPOINTS", "G-bubble", "GRID*",
+                "*-DIM*", "DEFPOINTS", "G-bubble", "GRID*",
             });
             return filter;
         }
