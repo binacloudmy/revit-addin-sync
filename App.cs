@@ -979,14 +979,17 @@ namespace RevitWebAppSync
             aiPanel.AddItem(loginButtonData);
             aiPanel.AddItem(askAiButtonData);
 
-            // Compliance: JKR
-            compliancePanel.AddItem(jkrComplianceButtonData);
-            compliancePanel.AddItem(bombaComplianceButtonData);
+            // Compliance ships as coming soon. All three commands are built and
+            // the buttons are added rather than hidden, so the panel keeps its
+            // width and nothing on the tab reflows on the release that turns
+            // them on — the icon a drafter learns now is in the same place then.
+            MarkComingSoon(compliancePanel.AddItem(jkrComplianceButtonData));
+            MarkComingSoon(compliancePanel.AddItem(bombaComplianceButtonData));
 
             // Cost-to-BIM: Cost Tracker dashboard (restored standalone — see
             // commit 3903b7f which had stacked it with Fire Compliance and hid
             // both. We surface only the cost button; Fire stays hidden.)
-            compliancePanel.AddItem(costDashboardButtonData);
+            MarkComingSoon(compliancePanel.AddItem(costDashboardButtonData));
 
             // Stack: Export Cost Items / Import Prices (hidden as requested)
             // cdePanel.AddStackedItems(costExportButtonData, costImportButtonData);
@@ -994,6 +997,29 @@ namespace RevitWebAppSync
             // Fire Compliance stays hidden (restored only if explicitly requested)
             // compliancePanel.AddItem(complianceButtonData);
             // cdePanel.AddItem(federateButtonData); // Hidden as requested
+        }
+
+        // Holds a built command on the tab without letting it run yet.
+        //
+        // Revit has no "coming soon" badge on a ribbon button, so the state is
+        // carried the way Revit already carries it: the button is disabled,
+        // which greys the icon and its label through the host's own disabled
+        // rendering. That is deliberately not a second set of dimmed PNGs — a
+        // pre-dimmed icon would be greyed twice and end up barely visible, and
+        // it would stay grey on the release that enables the button.
+        //
+        // The tooltip is what actually says the words, since a disabled ribbon
+        // button still shows one on hover and it is the only surface here that
+        // can hold a sentence.
+        private static void MarkComingSoon(RibbonItem item)
+        {
+            PushButton button = item as PushButton;
+            if (button == null)
+                return;
+
+            button.Enabled = false;
+            button.ToolTip = "Coming soon — " + button.ToolTip;
+            button.LongDescription = "Not available in this release. " + button.LongDescription;
         }
 
         // Ribbon icons live in Resources\Icons as one drawing per size, not one
