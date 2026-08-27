@@ -72,6 +72,16 @@ namespace Cad2Bim.Headless {
                 }
             }
 
+            if (model.Segments.Count > 0) {
+                double minX = model.Segments.Min(s => Math.Min(s.P1.x, s.P2.x));
+                double maxX = model.Segments.Max(s => Math.Max(s.P1.x, s.P2.x));
+                double minY = model.Segments.Min(s => Math.Min(s.P1.y, s.P2.y));
+                double maxY = model.Segments.Max(s => Math.Max(s.P1.y, s.P2.y));
+                Console.WriteLine($"  extents   x {minX:0} to {maxX:0} mm, y {minY:0} to {maxY:0} mm");
+                Console.WriteLine($"  size      {(maxX - minX) / 1000.0:0.#} m x {(maxY - minY) / 1000.0:0.#} m, " +
+                                  $"centre {(minX + maxX) / 2000.0:0.#} m, {(minY + maxY) / 2000.0:0.#} m from origin");
+            }
+
             Wall.SMin = Number(args, 1) ?? Units.DefaultMinWallThicknessMm;
             Wall.SMax = Number(args, 2) ?? Units.DefaultMaxWallThicknessMm;
 

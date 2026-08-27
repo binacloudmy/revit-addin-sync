@@ -83,6 +83,14 @@ namespace RevitWebAppSync.Commands
                     return Result.Cancelled;
                 }
 
+                // A drawing carries whatever coordinates its author used - this one sits
+                // 389 m east and 128 m south of nothing in particular. Built there, the walls
+                // land off the edge of every default view, and the model reads as empty even
+                // though it is not. They are shifted so the drawing's own corner meets the
+                // project origin, which is where a Revit user expects a building to be.
+                double originX = model.Segments.Min(segment => Math.Min(segment.P1.x, segment.P2.x));
+                double originY = model.Segments.Min(segment => Math.Min(segment.P1.y, segment.P2.y));
+
                 int created = 0;
                 var failed = new List<string>();
 
@@ -104,7 +112,7 @@ namespace RevitWebAppSync.Commands
                     {
                         try
                         {
-                            if (CreateWall(document, wall, wallType, level) != null) created++;
+                            if (CreateWall(document, wall, wallType, level, originX, originY) != null) created++;
                         }
                         catch (Exception ex)
                         {
@@ -126,6 +134,10 @@ namespace RevitWebAppSync.Commands
                 report.AppendLine("  " + model.Segments.Count + " segments, " + model.Texts.Count + " labels");
                 report.AppendLine("  " + spaces.Count + " rooms found, " +
                                   spaces.Count(s => s.Name != null) + " of them named");
+                report.AppendLine();
+                report.AppendLine("The drawing sat " + (originX / 1000.0).ToString("0") + " m by " +
+                                  (originY / 1000.0).ToString("0") + " m from its own origin; " +
+                                  "the walls are placed at the project origin instead.");
                 report.AppendLine();
                 report.AppendLine("Wall height is " + DefaultWallHeightMm + " mm throughout - a plan " +
                                   "carries no height, so it is assumed until a section is read.");
@@ -184,13 +196,14 @@ namespace RevitWebAppSync.Commands
         }
 
         private static Autodesk.Revit.DB.Wall CreateWall(
-            Document document, CadWall wall, WallType wallType, Level level)
+            Document document, CadWall wall, WallType wallType, Level level,
+            double originX, double originY)
         {
             CadSegment centerline = wall.Centerline;
             if (centerline.Length < 1.0) return null;   // shorter than a millimetre
 
-            XYZ start = ToRevit(centerline.P1);
-            XYZ end = ToRevit(centerline.P2);
+            XYZ start = ToRevit(centerline.P1, originX, originY);
+            XYZ end = ToRevit(centerline.P2, originX, originY);
             if (start.DistanceTo(end) < document.Application.ShortCurveTolerance) return null;
 
             Curve curve = Line.CreateBound(start, end);
@@ -215,8 +228,8 @@ namespace RevitWebAppSync.Commands
         private static double FromMm(double millimetres) =>
             UnitUtils.ConvertToInternalUnits(millimetres, UnitTypeId.Millimeters);
 
-        private static XYZ ToRevit(Cad2Bim.Point point) =>
-            new XYZ(FromMm(point.x), FromMm(point.y), 0);
+        private static XYZ ToRevit(Cad2Bim.Point point, double originX, double originY) =>
+            new XYZ(FromMm(point.x - originX), FromMm(point.y - originY), 0);
 
         /// <summary>
         /// Everything on a drawing that is plainly not building fabric. A starting point, not
