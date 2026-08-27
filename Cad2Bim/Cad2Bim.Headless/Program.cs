@@ -21,7 +21,8 @@ namespace Cad2Bim.Headless {
                     "  --texts                     list the text found in the drawing\n" +
                     "  --faces                     why room loops were kept or dropped\n" +
                     "  --merge=250                 gap between pieces of one wall (mm)\n" +
-                    "  --bridge=2000               widest doorway a room boundary may jump (mm)");
+                    "  --bridge=2000               widest doorway a room boundary may jump (mm)\n" +
+                    "  --ifc=out.ifc               write the result as an IFC model");
                 return 2;
             }
 
@@ -143,6 +144,25 @@ namespace Cad2Bim.Headless {
                     Console.WriteLine($"  [faces] area m2: min={sorted[0]/1e6:0.###} " +
                                       $"median={sorted[sorted.Count/2]/1e6:0.###} max={sorted[^1]/1e6:0.#}");
                 }
+            }
+
+            string? ifcPath = args.FirstOrDefault(a => a.StartsWith("--ifc=", StringComparison.OrdinalIgnoreCase))?[6..];
+            if (!string.IsNullOrWhiteSpace(ifcPath)) {
+                var exporter = new IfcExporter {
+                    ProjectName = Path.GetFileNameWithoutExtension(path),
+                    // The file's own timestamp, so the same drawing always exports the same
+                    // bytes and two exports can be diffed.
+                    Timestamp = File.GetLastWriteTimeUtc(path),
+                };
+                exporter.Write(ifcPath, walls, spaces);
+
+                var written = new FileInfo(ifcPath);
+                Console.WriteLine();
+                Console.WriteLine("-- ifc --");
+                Console.WriteLine($"  wrote     {written.FullName}");
+                Console.WriteLine($"  size      {written.Length / 1024.0:0.#} KB");
+                Console.WriteLine($"  contains  {walls.Count} walls, {spaces.Count} spaces, " +
+                                  $"wall height {exporter.WallHeightMm:0} mm (assumed - a plan carries no height)");
             }
 
             foreach (Space space in spaces.OrderByDescending(s => s.Area).Take(15)) {
