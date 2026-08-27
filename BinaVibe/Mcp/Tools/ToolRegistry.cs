@@ -244,6 +244,7 @@ namespace BinaVibe.Mcp.Tools
                 "create_duct"                   => MutatorsMep.CreateDuct(doc, args),
                 "create_pipe"                   => MutatorsMep.CreatePipe(doc, args),
                 "create_dimensions"             => Dimensioning.CreateDimensions(app, doc, args),
+                "list_dimensions"               => Dimensioning.ListDimensions(doc, args),
                 "list_connectors"               => MutatorsMepRouting.ListConnectors(doc, args),
                 "trace_connections"             => MutatorsMepRouting.TraceConnections(doc, args),
                 "route_duct"                    => MutatorsMepRouting.RouteDuct(doc, args),

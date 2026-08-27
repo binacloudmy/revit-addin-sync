@@ -6,6 +6,7 @@
 // FindReferenceAtPoint mode and AIResult envelope.
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using Autodesk.Revit.DB;
 using Autodesk.Revit.UI;
@@ -89,6 +90,147 @@ namespace BinaVibe.Mcp.Tools
                 };
             }
             catch { tx.RollBack(); throw; }
+        }
+
+
+        // ─── list_dimensions ────────────────────────────────────────────────
+        /// <summary>
+        /// args: { view_id?: long, limit?: int }
+        /// Read-only: the dimension chains PRESENT in a view, so the copilot can
+        /// verify work instead of re-placing it. Revit stores lengths in feet
+        /// (x304.8 -> mm); every length here is millimetres, per the units
+        /// contract the python side enforces.
+        /// </summary>
+        public static Dictionary<string, object?> ListDimensions(Document doc, JsonElement args)
+        {
+            View view;
+            var viewId = ArgsHelp.GetLong(args, "view_id");
+            if (viewId.HasValue)
+                view = doc.GetElement(ElemIds.From(viewId.Value)) as View
+                    ?? throw new InvalidOperationException($"view {viewId} not found");
+            else
+                view = doc.ActiveView
+                    ?? throw new InvalidOperationException("no active view — open a view first");
+
+            var limit = (int)(ArgsHelp.GetLong(args, "limit") ?? 50);
+            if (limit <= 0) limit = 50;
+
+            // View-scoped collector: never sweeps the whole model.
+            var all = new FilteredElementCollector(doc, view.Id)
+                .OfClass(typeof(Dimension))
+                .Cast<Dimension>()
+                .ToList();
+
+            var items = new List<object>();
+            foreach (var d in all.Take(limit))
+            {
+                try { items.Add(Describe(doc, d)); }
+                catch (Exception ex)
+                {
+                    // One unreadable dimension must not cost the drafter the
+                    // whole report — name it and carry on.
+                    items.Add(new Dictionary<string, object?>
+                    {
+                        ["id"] = d.Id.Value,
+                        ["error"] = ex.Message,
+                    });
+                }
+            }
+
+            return new Dictionary<string, object?>
+            {
+                ["ok"] = true,
+                ["view"] = new Dictionary<string, object?>
+                {
+                    ["id"] = view.Id.Value,
+                    ["name"] = view.Name,
+                    ["type"] = view.ViewType.ToString(),
+                },
+                ["count"] = all.Count,
+                ["truncated"] = all.Count > limit,
+                ["dimensions"] = items,
+            };
+        }
+
+        private static Dictionary<string, object?> Describe(Document doc, Dimension d)
+        {
+            // Segment values. A SINGLE-segment dimension reports
+            // NumberOfSegments == 0 and carries its length on Value instead —
+            // and that is exactly the shape of an overall grid-to-grid string,
+            // so treating 0 as "empty chain" would misreport the most common
+            // case this tool exists to verify.
+            var segmentMm = new List<object>();
+            double totalMm = 0;
+            int segments;
+            if (d.NumberOfSegments > 0)
+            {
+                segments = d.NumberOfSegments;
+                foreach (DimensionSegment seg in d.Segments)
+                {
+                    var v = seg.Value.HasValue ? seg.Value.Value * 304.8 : 0.0;
+                    segmentMm.Add(Math.Round(v, 1));
+                    totalMm += v;
+                }
+            }
+            else
+            {
+                segments = 1;
+                var v = d.Value.HasValue ? d.Value.Value * 304.8 : 0.0;
+                segmentMm.Add(Math.Round(v, 1));
+                totalMm = v;
+            }
+
+            // Axis, not a raw vector — the model reports "below the building",
+            // not a direction triple.
+            string direction = "unknown";
+            try
+            {
+                if (d.Curve is Line line)
+                {
+                    var dir = line.Direction;
+                    if (Math.Abs(dir.X) > 0.9) direction = "horizontal";
+                    else if (Math.Abs(dir.Y) > 0.9) direction = "vertical";
+                    else direction = "angled";
+                }
+            }
+            catch { /* dimension without a resolvable curve — leave "unknown" */ }
+
+            List<object>? originMm = null;
+            try
+            {
+                var o = d.Origin;
+                if (o != null)
+                    originMm = new List<object>
+                    {
+                        Math.Round(o.X * 304.8, 1),
+                        Math.Round(o.Y * 304.8, 1),
+                        Math.Round(o.Z * 304.8, 1),
+                    };
+            }
+            catch { /* Origin throws on some dimension shapes — optional field */ }
+
+            // What the chain dimensions. Paired with list_grids ids this is how
+            // the model says "this is the Grid 1-13 string" instead of guessing.
+            var referenced = new List<object>();
+            try
+            {
+                foreach (Reference r in d.References)
+                    if (r?.ElementId != null && r.ElementId != ElementId.InvalidElementId)
+                        referenced.Add(r.ElementId.Value);
+            }
+            catch { /* references unavailable — optional field */ }
+
+            return new Dictionary<string, object?>
+            {
+                ["id"] = d.Id.Value,
+                ["type_name"] = doc.GetElement(d.GetTypeId())?.Name,
+                ["segments"] = segments,
+                ["total_mm"] = Math.Round(totalMm, 1),
+                ["segment_mm"] = segmentMm,
+                ["direction"] = direction,
+                ["origin_mm"] = originMm,
+                ["referenced_ids"] = referenced,
+            };
         }
 
         // adapted from mcp-servers-for-revit (MIT): pick the planar face whose

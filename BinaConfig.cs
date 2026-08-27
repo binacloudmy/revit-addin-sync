@@ -167,6 +167,12 @@ namespace RevitWebAppSync
         // BINA_GATEWAY_URL / BINA_ENGINE_TOKEN env vars (EngineManager).
         // Nullable/plain — no other behavior; whichever task lands first
         // carries them, do not duplicate.
+        //
+        // RENAME WARNING: installer\engine-boot.ps1 reads DeviceToken (and
+        // EngineSecret above) out of config.json BY NAME at logon, via the
+        // secret_env map in Services\EngineBootManifest.cs. Renaming either
+        // property silently disables engine auto-start after a reboot — update
+        // EngineBootManifest.SecretEnvSources (and its test) in the same change.
         public string GatewayUrl { get; set; }
         public string DeviceToken { get; set; }
         // Unix epoch SECONDS the DeviceToken expires at (from the gateway's

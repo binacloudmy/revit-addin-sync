@@ -95,6 +95,11 @@ namespace RevitWebAppSync.Services
         private static string PidFile => Path.Combine(EngineRoot, "engine.pid");
         private static string LogsDir => Path.Combine(EngineRoot, "logs");
 
+        /// <summary>Handoff contract for installer\engine-boot.ps1 (the ONLOGON
+        /// scheduled task). Written on every successful spawn — see
+        /// EngineBootManifest.</summary>
+        private static string BootManifestFile => Path.Combine(EngineRoot, "engine-boot.json");
+
         public EngineManager(int port, string secret)
         {
             _port = port;
@@ -124,12 +129,22 @@ namespace RevitWebAppSync.Services
         /// _gate held (EnsureRunningAsync or the watchdog's gated section).</summary>
         private async Task EnsureRunningCoreAsync()
         {
-            KillStaleFromPidFile();
+            // Health FIRST, stale-kill second. The order matters and used to be
+            // the other way round: KillStaleFromPidFile accepts any live process
+            // named "cmd" whose start time precedes the pidfile write, which is
+            // exactly the shape of a HEALTHY engine — so with the old order, an
+            // engine started outside this add-in session (installer\engine-boot.ps1
+            // at logon) was tree-killed on every Revit open and then cold-started
+            // again, paying the full 60s readiness tax the boot launcher exists to
+            // avoid. Reaping a stale pid is only ever the right move when nothing
+            // is actually serving the port; if something answers /health with our
+            // shape, it IS the engine and we attach to it.
             if (await IsHealthyAsync())
             {
                 Status = "healthy";   // something already serving — reuse it
                 return;
             }
+            KillStaleFromPidFile();
 
             var launcher = NewestEngineLauncher();
             if (launcher == null)
@@ -143,6 +158,11 @@ namespace RevitWebAppSync.Services
             {
                 Status = "error:addin-too-old";
                 Debug.WriteLine("[BINA] engine version gate refused start: " + gateReason);
+                // Drop the boot manifest too: it points at a bundle THIS add-in
+                // now refuses (an add-in rollback under a newer engine), and the
+                // logon launcher replays the manifest without re-running this
+                // gate. Leaving it would let boot start what Revit won't.
+                TryDeleteBootManifest();
                 return;
             }
 
@@ -262,6 +282,13 @@ namespace RevitWebAppSync.Services
                 Directory.CreateDirectory(EngineRoot);
                 File.WriteAllText(PidFile, proc.Id.ToString());
                 Debug.WriteLine($"[BINA] engine starting pid={proc.Id} port={_port} launcher={launcher}");
+
+                // Record what we just used so the logon launcher can replay it
+                // verbatim instead of re-deriving port/gateway/bundle from raw
+                // config.json — see EngineBootManifest's header for why every one
+                // of those is a derived value. Best-effort: a failed write only
+                // costs the NEXT reboot's auto-start, never this session.
+                WriteBootManifest(psi, launcher);
 
                 // Subscribe BEFORE enabling events — the reverse order has a
                 // window where an instant crash raises no Exited callback.
@@ -465,6 +492,44 @@ namespace RevitWebAppSync.Services
             {
                 if (proc != null && !proc.HasExited) RuntimeCompat.KillTree(proc);
             }
+            catch { /* best-effort */ }
+        }
+
+        /// <summary>Record the exact spawn parameters for the logon launcher.
+        /// Best-effort by construction: auto-start at the next boot is a
+        /// convenience, and no failure here may affect the running engine.</summary>
+        private void WriteBootManifest(ProcessStartInfo psi, string launcher)
+        {
+            try
+            {
+                var manifest = EngineBootManifest.Build(
+                    psi.Environment,
+                    _port,
+                    launcher,
+                    psi.WorkingDirectory,
+                    UpdateService.CurrentVersion?.ToString(),
+                    // Only what we actually stripped: outside gateway mode the
+                    // poison pill doesn't apply and the launcher must not
+                    // second-guess that.
+                    psi.Environment.ContainsKey("BINA_GATEWAY_URL") ? ProviderKeyEnvs : Array.Empty<string>(),
+                    DateTime.UtcNow);
+
+                // Write-then-rename: a logon launcher reading the file while we
+                // rewrite it must never see a half-written manifest.
+                var tmp = BootManifestFile + ".tmp";
+                File.WriteAllText(tmp, manifest.ToJson());
+                if (File.Exists(BootManifestFile)) File.Delete(BootManifestFile);
+                File.Move(tmp, BootManifestFile);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("[BINA] boot manifest write failed (auto-start at next logon disabled): " + ex.Message);
+            }
+        }
+
+        private static void TryDeleteBootManifest()
+        {
+            try { if (File.Exists(BootManifestFile)) File.Delete(BootManifestFile); }
             catch { /* best-effort */ }
         }
 
