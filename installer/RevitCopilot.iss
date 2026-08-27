@@ -103,9 +103,11 @@ Source: "{#EngineDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\engine\{#Engin
 ; Always Load?" prompt. Unsigned builds have no .cer -> both entries skip.
 Source: "..\artifacts\bina-cloudtech.cer"; DestDir: "{localappdata}\Bina\RevitSync"; Flags: skipifsourcedoesntexist
 ; Boot-time engine launcher (ONLOGON Scheduled Task handler). Stable, NON-versioned
-; path so the task registration survives engine OTA updates (it always re-resolves
-; the newest engine\<ver>\ bundle itself). Without it, a reboot leaves the engine
-; down until a human opens Revit.
+; path so the task registration survives engine OTA updates (it replays the
+; add-in's own engine-boot.json handoff, which the add-in rewrites on every
+; spawn). Without it, a reboot leaves the engine down until a human opens Revit.
+; Always shipped (it is also the -Unregister handler); the task registration
+; below is what's gated on an engine bundle actually being present.
 Source: "engine-boot.ps1"; DestDir: "{localappdata}\Bina\RevitSync\engine"; Flags: ignoreversion
 
 [Run]
@@ -115,15 +117,26 @@ Filename: "certutil"; Parameters: "-user -addstore TrustedPublisher ""{localappd
 ; Auto-start the engine at every Windows logon — this is the "survives reboot"
 ; guarantee. ONLOGON (not ONSTARTUP): the engine runs as the signed-in user and
 ; writes its session DB under that user's home, so it must start in their session.
-; /F makes install/upgrade idempotent (re-register overwrites). schtasks runs
-; hidden; engine-boot.ps1 starts powershell -WindowStyle Hidden and the engine
-; via CreateNoWindow, so the end user NEVER sees a terminal.
-Filename: "schtasks.exe"; Parameters: "/Create /F /TN ""BINA Copilot Engine"" /RL LIMITED /SC ONLOGON /TR ""powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File {localappdata}\Bina\RevitSync\engine\engine-boot.ps1"""; Flags: runhidden
+;
+; The script registers its OWN task (-Register) instead of us calling
+; `schtasks /Create /TR "..."` here. schtasks needs the inner -File path escaped
+; as \" inside an already-quoted /TR value, which breaks for every drafter whose
+; Windows profile contains a space; Register-ScheduledTask takes the argument
+; string as data and has nothing to escape. Idempotent via -Force.
+;
+; Check: only when an engine bundle actually shipped. The versioned payload dir
+; is created only by the (skipifsourcedoesntexist) engine [Files] entry above, so
+; its presence is an exact install-time test — an addin-only cloud build has
+; nothing to boot and gets no logon task. Everything runs hidden: runhidden here,
+; -WindowStyle Hidden on the task, CreateNoWindow on the engine itself. The end
+; user never sees a terminal.
+Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{localappdata}\Bina\RevitSync\engine\engine-boot.ps1"" -Register"; Flags: runhidden; Check: DirExists(ExpandConstant('{localappdata}\Bina\RevitSync\engine\{#EngineVersion}'))
 
 ; Remove the scheduled task on uninstall so we never leave a zombie launcher that
-; fires at every logon after the product is gone.
+; fires at every logon after the product is gone. [UninstallRun] executes BEFORE
+; files are deleted, so the script is still on disk to run its own -Unregister.
 [UninstallRun]
-Filename: "schtasks.exe"; Parameters: "/Delete /F /TN ""BINA Copilot Engine"""; Flags: runhidden
+Filename: "powershell.exe"; Parameters: "-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File ""{localappdata}\Bina\RevitSync\engine\engine-boot.ps1"" -Unregister"; Flags: runhidden; Check: FileExists(ExpandConstant('{localappdata}\Bina\RevitSync\engine\engine-boot.ps1'))
 
 [InstallDelete]
 ; Stale pre-loader direct-load manifests — a second live copy breaks startup.
