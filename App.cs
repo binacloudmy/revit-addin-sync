@@ -536,6 +536,23 @@ namespace RevitWebAppSync
                         VibeMcpServer.Start();
                         System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP server listening on {VibeMcpServer.Prefix}");
 
+                        // Device token for already-signed-in boxes. The login-time
+                        // mint only runs on a ribbon Login click; a box that was
+                        // signed in BEFORE the gateway URL arrived (every OTA'd box
+                        // on 2026-08-27) otherwise spawns the engine tokenless and
+                        // every turn dies 401 at the gateway. Fire-and-forget: the
+                        // spawn below proceeds, and the mint restarts the engine
+                        // with the token when it lands (RestartVibeEngineForNewToken).
+                        // The turn preflight repeats this check per turn as a
+                        // backstop, so a failure here is never the last word.
+                        if (!string.IsNullOrEmpty(cfg.ResolvedGatewayUrl) &&
+                            !string.IsNullOrEmpty(cfg.AccessToken) &&
+                            BrowserLoginCommand.DeviceTokenMissingOrExpiring(cfg))
+                        {
+                            _ = BrowserLoginCommand.MintDeviceTokenAndRestartEngineAsync(cfg.AccessToken);
+                            System.Diagnostics.Debug.WriteLine("[BINA] device token missing/expiring at startup — minting.");
+                        }
+
                         // Phase 4 (opt-in): auto-spawn the packaged engine and
                         // hand it the SAME secret the tool server validates.
                         // Off by default — Phases 1-3 start the engine manually.

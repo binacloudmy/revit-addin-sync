@@ -103,13 +103,19 @@ namespace RevitWebAppSync.Services
             // four evaluations on the longest path; a fifth means a step
             // "succeeded" without changing the world, and we report instead
             // of spinning.
-            const int maxSteps = 5;
+            const int maxSteps = 6;   // MintToken adds one evaluation to the longest path
             for (var i = 0; i < maxSteps; i++)
             {
                 var healthy = await EngineHealthyAsync().ConfigureAwait(false);
                 var mgr = App.VibeEngine;
                 var bundle = !string.IsNullOrEmpty(Services.EngineManager.NewestEngineLauncher());
-                var step = EnginePreflight.Next(healthy, mgr != null, bundle, mgr?.Status);
+                BinaConfig cfg;
+                try { cfg = BinaConfig.Load(); } catch { cfg = new BinaConfig(); }
+                var gateway = !string.IsNullOrEmpty(cfg.ResolvedGatewayUrl);
+                var step = EnginePreflight.Next(healthy, mgr != null, bundle, mgr?.Status,
+                    gatewayConfigured: gateway,
+                    hasAccessToken: !string.IsNullOrEmpty(cfg.AccessToken),
+                    hasDeviceToken: !BrowserLoginCommand.DeviceTokenMissingOrExpiring(cfg));
 
                 switch (step)
                 {
@@ -124,6 +130,17 @@ namespace RevitWebAppSync.Services
                     case PreflightStep.FetchBundle:
                         if (!await UpdateService.EnsureEngineBundleAsync().ConfigureAwait(false))
                             return EnginePreflight.FailureMessage(step, null, UpdateService.LastEngineStageError);
+                        continue;
+
+                    case PreflightStep.LoginRequired:
+                        return EnginePreflight.FailureMessage(step, null, null);
+
+                    case PreflightStep.MintToken:
+                        // Mints at the gateway with the access token this
+                        // session already holds, persists it, and restarts the
+                        // engine with it - the loop then re-probes.
+                        if (!await BrowserLoginCommand.MintDeviceTokenAndRestartEngineAsync(cfg.AccessToken).ConfigureAwait(false))
+                            return EnginePreflight.FailureMessage(step, null, BrowserLoginCommand.LastMintError);
                         continue;
 
                     case PreflightStep.Spawn:

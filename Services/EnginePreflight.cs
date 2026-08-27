@@ -25,6 +25,14 @@ namespace RevitWebAppSync.Services
         FetchBundle,
         /// <summary>Bundle present, engine not answering — spawn and await health.</summary>
         Spawn,
+        /// <summary>Gateway configured, user signed in, no device token — mint one
+        /// (BrowserLoginCommand.MintDeviceTokenAndRestartEngineAsync) and restart
+        /// the engine with it. Taken BEFORE the health check: a healthy engine
+        /// that was spawned tokenless still dies 401 at the gateway.</summary>
+        MintToken,
+        /// <summary>Gateway configured, no sign-in at all — nothing the preflight
+        /// can do; tell the drafter which button, and never dial.</summary>
+        LoginRequired,
     }
 
     public static class EnginePreflight
@@ -35,8 +43,17 @@ namespace RevitWebAppSync.Services
         /// bundle must exist before a spawn can succeed. A terminal manager
         /// status (crash-loop, start-timeout) is an earlier attempt's verdict —
         /// this turn still gets one fresh spawn; the caller bounds the loop.</summary>
-        public static PreflightStep Next(bool healthy, bool managerExists, bool bundleOnDisk, string status)
+        public static PreflightStep Next(bool healthy, bool managerExists, bool bundleOnDisk, string status,
+                                         bool gatewayConfigured, bool hasAccessToken, bool hasDeviceToken)
         {
+            // Token first, health second. v0.0.60 on a fresh box got all the way
+            // to a running engine and a 4-step turn, then died 401 "login
+            // required" - surfaced as "Unknown model error" - because the device
+            // token is only minted by a ribbon Login click, and a box signed in
+            // BEFORE the gateway URL arrived (every OTA'd box) never clicked
+            // again. A healthy-but-tokenless engine is not ready.
+            if (gatewayConfigured && !hasDeviceToken)
+                return hasAccessToken ? PreflightStep.MintToken : PreflightStep.LoginRequired;
             if (healthy) return PreflightStep.Ready;
             if (!managerExists) return PreflightStep.ConstructManager;
             if (!bundleOnDisk) return PreflightStep.FetchBundle;
@@ -82,6 +99,12 @@ namespace RevitWebAppSync.Services
                     return "BINA Engine download failed" + why + " — check the network and try again.";
                 case PreflightStep.Spawn:
                     return MessageFor(status) ?? "BINA Engine is not ready — try again shortly.";
+                case PreflightStep.LoginRequired:
+                    // Name the RIGHT button. The "BINA Cloud Account" dialog is a
+                    // different sign-in (CDE) and never mints the engine token.
+                    return "Please sign in to use the Copilot: Bina tab -> Login.";
+                case PreflightStep.MintToken:
+                    return "BINA Engine could not get its sign-in token" + why + " - open Bina tab -> Login to sign in again.";
                 default:
                     return MessageFor(status) ?? "BINA Engine is not ready — try again shortly.";
             }
