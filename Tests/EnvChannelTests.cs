@@ -51,7 +51,10 @@ namespace Tests
         {
             "bina.cloud",
             "bina-be-stg.azurewebsites.net",
-            "bypass-api-stgbinacloud.workers.dev"
+            // The retired bypass API lived at the APEX of this workers zone.
+            // The staging landing page (LOGIN_WEB_URL) is a SUBDOMAIN of the
+            // same zone and is live - match the apex only.
+            "://bypass-api-stgbinacloud.workers.dev"
         };
 
         private static Dictionary<string, string> Channel(string name) =>
@@ -109,6 +112,24 @@ namespace Tests
             // prod's gateway, where inference is off.
             var env = Channel(".env.staging");
             Assert.Contains("bina-ai-staging.azurewebsites.net", env["GATEWAY_URL"]);
+        }
+
+        [Fact]
+        public void Staging_LoginPageIsTheStagingLandingPage()
+        {
+            // The browser login page carries the PKCE bridge. Staging testers
+            // must land on the staging landing page, not prod's - and this
+            // key was plugins.jkrbinaxone.com on BOTH channels until
+            // 2026-08-27.
+            var env = Channel(".env.staging");
+            Assert.Equal("https://staging-plugins-landing-page.bypass-api-stgbinacloud.workers.dev", env["LOGIN_WEB_URL"].TrimEnd('/'));
+        }
+
+        [Fact]
+        public void Production_LoginPageIsPluginsJkrBinaxone()
+        {
+            var env = Channel(".env.production");
+            Assert.Equal("https://plugins.jkrbinaxone.com", env["LOGIN_WEB_URL"].TrimEnd('/'));
         }
 
         [Fact]
