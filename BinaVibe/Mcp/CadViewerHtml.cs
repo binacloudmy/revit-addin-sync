@@ -172,7 +172,11 @@ namespace BinaVibe.Mcp
         async function callServer(endpoint, body) {
             const serverUrl = getServerUrl();
             if (!serverUrl) throw new Error('Set AI Server URL first');
-            const resp = await fetch(`${serverUrl}${endpoint}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+            const resp = await fetch(`${serverUrl}${endpoint}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'ngrok-skip-browser-warning': '1' },
+                body: JSON.stringify(body)
+            });
             if (!resp.ok) { const d = await resp.json().catch(() => ({})); throw new Error(d.detail || `Server error: ${resp.status}`); }
             return resp.json();
         }
