@@ -22,3 +22,33 @@ jobs:
 
       - name: Run unit tests
         run: dotnet test Tests/Tests.csproj -c Release -p:SkipRevitSources=true --logger "console;verbosity=normal"
+
+  # Installer scripts are PowerShell that only ever runs on a drafter's box or
+  # a release runner — neither of which is where they get written. Two gates:
+  #
+  #   parse   — every installer/*.ps1 must at least PARSE. engine-boot.ps1
+  #             shipped in v0.0.58-staging having never been fed to a
+  #             PowerShell parser (no pwsh on the dev Mac). A syntax error
+  #             there fails closed (the logon task never registers, logged)
+  #             but it fails on the fleet, not here.
+  #   gate    — fetch-engine-bundle.ps1's sha/manifest verification, dry-run
+  #             with a synthetic bundle and no network. This is what stops a
+  #             release from seeding corrupt or substituted engine bytes.
+  installer-scripts:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse every installer script (pwsh 7)
+        shell: pwsh
+        run: installer/tests/parse-check.ps1
+
+      - name: Parse every installer script (Windows PowerShell 5.1)
+        # The host the ONLOGON scheduled task actually runs engine-boot.ps1
+        # under. 5.1 rejects syntax pwsh 7 accepts, so both must pass.
+        shell: powershell
+        run: installer/tests/parse-check.ps1
+
+      - name: Engine fetch verification gate (dry-run)
+        shell: pwsh
+        run: installer/tests/fetch-engine-bundle.tests.ps1

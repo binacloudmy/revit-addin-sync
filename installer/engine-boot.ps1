@@ -21,7 +21,7 @@
   and this script replays it. See Services\EngineBootManifest.cs.
 
   Credentials are NOT in that manifest: it names the config.json field each
-  secret env var comes from, and we read the live value here — so a rotated
+  secret env var comes from, and we read the live value here - so a rotated
   device token is picked up at the next logon instead of being pinned.
 
 .PARAMETER Register
@@ -137,7 +137,7 @@ try {
     $cfg = Get-JsonFile $ConfigPath
 
     # The add-in only auto-spawns when BOTH flags are on (App.cs) and refuses to
-    # start the tool server at all without a secret. Honour the same gates —
+    # start the tool server at all without a secret. Honour the same gates  - 
     # a cloud-mode box that deliberately turned the engine off must not get one
     # started behind its back at every logon.
     if (-not (Get-Prop $cfg 'EngineMode') -or -not (Get-Prop $cfg 'EngineAutoSpawn')) { exit 0 }
@@ -146,7 +146,7 @@ try {
     $m = Get-JsonFile $ManifestPath
 
     if ((Get-Prop $m 'schema') -ne $SchemaVersion) {
-        Write-BootLog "manifest schema $(Get-Prop $m 'schema') != $SchemaVersion — refusing to guess; skipping"
+        Write-BootLog "manifest schema $(Get-Prop $m 'schema') != $SchemaVersion - refusing to guess; skipping"
         exit 0
     }
 
@@ -186,14 +186,14 @@ try {
                 # A blank secret means the user has logged out / the token was
                 # cleared. The engine would refuse to start anyway (config.py);
                 # exiting quietly is the honest outcome.
-                Write-BootLog "config.json has no $($p.Value) for $($p.Name) — not started"
+                Write-BootLog "config.json has no $($p.Value) for $($p.Name) - not started"
                 exit 0
             }
             $envMap[$p.Name] = $value
         }
     }
 
-    # A .cmd is not a PE and cannot be CreateProcess'd under UseShellExecute=0 —
+    # A .cmd is not a PE and cannot be CreateProcess'd under UseShellExecute=0  - 
     # same cmd.exe /c wrapper the add-in uses. Legacy bina-engine.exe is a real
     # PE and launches directly.
     $psi = New-Object System.Diagnostics.ProcessStartInfo
@@ -220,7 +220,7 @@ try {
 
     # Pidfile so a LATER add-in session can reap this process if it hangs without
     # answering /health. Safe now that EngineManager health-checks before it
-    # touches the pidfile — with the old order this line got the boot engine
+    # touches the pidfile - with the old order this line got the boot engine
     # tree-killed on every Revit open.
     Set-Content -LiteralPath $PidPath -Value $proc.Id -Encoding Ascii
     Write-BootLog "started pid=$($proc.Id) port=$port launcher=$launcher"
