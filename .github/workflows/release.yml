@@ -163,37 +163,72 @@ jobs:
           Copy-Item BinaLoader/BinaSync.addin artifacts/loader-net48/
           Get-ChildItem artifacts -Recurse -Filter *.pdb | Remove-Item -ErrorAction SilentlyContinue
 
-      # Optional colocated-engine channel: set the ENGINE_ZIP_URL repository
-      # variable (Settings -> Secrets and variables -> Actions -> Variables) to
-      # a bina-engine-<ver>.zip built by bina-ai scripts/build-engine-bundle.ps1
-      # (e.g. a previous release's asset URL, or blob storage). When set, the
-      # release re-attaches the zip, version.json carries the flat
-      # engineVersion/engineUrl/engineSha256 fields UpdateService.CheckEngineAsync
-      # reads, and the installer seeds the bundle. Unset = engine channel inert,
-      # release is byte-identical to an addin-only one.
-      - name: Fetch engine bundle (optional)
+      # Colocated-engine channel. Three sources, first match wins:
+      #
+      #   1. ENGINE_ZIP_URL repository variable — explicit override for cutting
+      #      a NEW engine (a bina-engine-<ver>.zip from bina-ai
+      #      scripts/build-engine-bundle.ps1 at any GET-able URL).
+      #   2. STAGING TAGS: the channel's own latest.json on TM One. Whatever
+      #      engine the feed already serves, the installer seeds the identical
+      #      bytes (sha-verified) — see installer/fetch-engine-bundle.ps1. This
+      #      is the default path and it FAILS the build if the pointer names an
+      #      engine we cannot fetch. Every staging release before 2026-08-27
+      #      shipped addin-only because nobody set (1), and a fresh install had
+      #      no engine until an OTA cycle completed; everything in between
+      #      failed silently. Never again.
+      #   3. PROD TAGS with no override: addin-only, with a visible warning.
+      #      Prod's TM One creds are deliberately NOT in GitHub (sovereign
+      #      delivery — signing, upload and pointer flip stay on the operator's
+      #      box), so this job cannot read the prod pointer. Set (1) for a prod
+      #      release that must carry the engine.
+      - name: Fetch engine bundle
         id: engine
         shell: pwsh
+        env:
+          TMONE_SERVER: ${{ secrets.TMONE_SERVER }}
+          TMONE_BUCKET: ${{ secrets.TMONE_BUCKET }}
+          TMONE_ACCESS_KEY_ID: ${{ secrets.TMONE_ACCESS_KEY_ID }}
+          TMONE_SECRET_ACCESS_KEY: ${{ secrets.TMONE_SECRET_ACCESS_KEY }}
         run: |
           $url = '${{ vars.ENGINE_ZIP_URL }}'
-          if (-not $url) {
-            Write-Host "ENGINE_ZIP_URL not set — addin-only release"
+          $isStaging = '${{ steps.ver.outputs.prerelease }}' -eq 'true'
+
+          if ($url) {
+            Write-Host "ENGINE_ZIP_URL set — fetching explicit engine bundle"
+            Invoke-WebRequest $url -OutFile engine-download.zip
+            Expand-Archive engine-download.zip -DestinationPath artifacts/engine
+            $manifest = Get-Content artifacts/engine/engine-version.json -Raw | ConvertFrom-Json
+            $ev = $manifest.engine_version
+            if (-not $ev) { throw "engine-version.json in $url has no engine_version" }
+            $zip = "bina-engine-$ev.zip"
+            Move-Item engine-download.zip $zip
+            $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+            Write-Host "engine bundle $ev ($zip, sha256=$sha)"
+            "present=true" >> $env:GITHUB_OUTPUT
+            "version=$ev" >> $env:GITHUB_OUTPUT
+            "sha256=$sha" >> $env:GITHUB_OUTPUT
+            "zip=$zip" >> $env:GITHUB_OUTPUT
+            exit 0
+          }
+
+          if (-not $isStaging) {
+            Write-Warning "prod tag with no ENGINE_ZIP_URL — addin-only release (prod pointer is operator-side by design)"
             "present=false" >> $env:GITHUB_OUTPUT
             exit 0
           }
-          Invoke-WebRequest $url -OutFile engine-download.zip
-          Expand-Archive engine-download.zip -DestinationPath artifacts/engine
-          $manifest = Get-Content artifacts/engine/engine-version.json -Raw | ConvertFrom-Json
-          $ev = $manifest.engine_version
-          if (-not $ev) { throw "engine-version.json in $url has no engine_version" }
-          $zip = "bina-engine-$ev.zip"
-          Move-Item engine-download.zip $zip
-          $sha = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
-          Write-Host "engine bundle $ev ($zip, sha256=$sha)"
-          "present=true" >> $env:GITHUB_OUTPUT
-          "version=$ev" >> $env:GITHUB_OUTPUT
-          "sha256=$sha" >> $env:GITHUB_OUTPUT
-          "zip=$zip" >> $env:GITHUB_OUTPUT
+
+          if (-not (Get-Command aws -ErrorAction SilentlyContinue)) {
+            throw "aws CLI not on PATH on windows-latest runner"
+          }
+          $r = & installer/fetch-engine-bundle.ps1 `
+                 -Prefix 'revit-copilot/releases-staging' `
+                 -OutDir (Join-Path (Get-Location) 'artifacts/engine')
+          if ($r.present -eq 'true') {
+            # Re-attach under the conventional name so the GitHub release
+            # asset matches what the feed json below links to.
+            Copy-Item $r.zip "bina-engine-$($r.version).zip"
+            "zip=bina-engine-$($r.version).zip" >> $env:GITHUB_OUTPUT
+          }
 
       - name: Zip payload + feed json
         id: payload

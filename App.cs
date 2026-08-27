@@ -161,6 +161,48 @@ namespace RevitWebAppSync
         /// in that mode, so there is nothing to restart). Best-effort/
         /// fire-and-forget — never blocks the caller (login UX).
         /// </summary>
+        /// <summary>
+        /// Construct the engine manager on demand. The turn preflight
+        /// (ToolLoopService.EnsureEngineReadyAsync) calls this when a turn
+        /// starts and no manager exists — which used to mean the preflight
+        /// stepped aside and the dial hit a closed socket. Now the add-in owns
+        /// the engine whenever EngineMode is on, so "no manager yet" is a step
+        /// to take, not a reason to give up. Returns the manager, or null with
+        /// <paramref name="reason"/> set when the config cannot support one
+        /// (engine mode off, blank secret). Idempotent: an existing manager is
+        /// returned as-is.
+        /// </summary>
+        internal static RevitWebAppSync.Services.EngineManager EnsureVibeEngine(out string reason)
+        {
+            reason = null;
+            var existing = VibeEngine;
+            if (existing != null) return existing;
+
+            BinaConfig cfg;
+            try { cfg = BinaConfig.Load(); }
+            catch (Exception ex) { reason = "config unreadable: " + ex.Message; return null; }
+
+            if (!cfg.EngineMode) { reason = "EngineMode is off"; return null; }
+            // Same refusal OnStartup makes: the local tool server needs the
+            // secret, and an engine without a tool server has nothing to do.
+            if (string.IsNullOrWhiteSpace(cfg.EngineSecret)) { reason = "EngineSecret blank"; return null; }
+
+            try
+            {
+                var mgr = new RevitWebAppSync.Services.EngineManager(
+                    cfg.EngineHostPort, cfg.EngineSecret ?? "");
+                VibeEngine = mgr;
+                System.Diagnostics.Debug.WriteLine(
+                    $"[BINA] engine manager constructed on demand (port {cfg.EngineHostPort})");
+                return mgr;
+            }
+            catch (Exception ex)
+            {
+                reason = ex.Message;
+                return null;
+            }
+        }
+
         public static void RestartVibeEngineForNewToken()
         {
             try

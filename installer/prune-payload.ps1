@@ -5,12 +5,12 @@
 #
 # Per TFM subfolder (net48\, net8.0\, net10.0\):
 #   - runtimes\<rid>\  deleted for every RID except win-x64 / win (QuestPDF +
-#     qpdf ship 7 platforms; Revit is Windows x64 only — 56MB dead per TFM)
+#     qpdf ship 7 platforms; Revit is Windows x64 only - 56MB dead per TFM)
 #   - LatoFont\        pruned to the weights QuestPDF reports use (Regular,
 #     Bold, Italic, BoldItalic; see Services\ReportExporter.cs) + OFL.txt
 #
 # Guard: runtimes\win-x64\native\qpdf.dll + QuestPdfSkia.dll must remain in
-# every TFM subfolder — fail the build rather than ship a payload that cannot
+# every TFM subfolder - fail the build rather than ship a payload that cannot
 # render PDF. Must stay PowerShell 5.1-compatible (build-installer.ps1 runs
 # under powershell.exe): nested Join-Path only.
 
@@ -48,16 +48,16 @@ foreach ($tfm in $tfmDirs) {
                 Remove-Item $_.FullName -Force
             }
         # A renamed font set would be pruned to nothing and PDFs would fall
-        # back silently — assert the default face survived.
+        # back silently - assert the default face survived.
         if (-not (Test-Path (Join-Path $lato "Lato-Regular.ttf"))) {
-            throw "prune-payload: $($tfm.Name)/LatoFont lost Lato-Regular.ttf — keep-list no longer matches the shipped font set"
+            throw "prune-payload: $($tfm.Name)/LatoFont lost Lato-Regular.ttf - keep-list no longer matches the shipped font set"
         }
     }
 
     $native = Join-Path (Join-Path $runtimes "win-x64") "native"
     foreach ($dll in $guardDlls) {
         if (-not (Test-Path (Join-Path $native $dll))) {
-            throw "prune-payload: $($tfm.Name) lost runtimes/win-x64/native/$dll — refusing to ship a payload that cannot render PDF"
+            throw "prune-payload: $($tfm.Name) lost runtimes/win-x64/native/$dll - refusing to ship a payload that cannot render PDF"
         }
     }
 }
