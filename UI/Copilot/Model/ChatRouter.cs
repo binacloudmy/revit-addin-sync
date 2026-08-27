@@ -7,6 +7,7 @@ namespace RevitWebAppSync.UI.Copilot.Model
     /// <summary>Normalized outcome of a chat route — backend or offline fallback.</summary>
     public class RouteResult
     {
+        public bool Failed;              // tool-loop turn did not complete; Reply carries the reason (preflight / gateway sentence)
         public bool NeedsClarification;
         public string ClarifyingQuestion;
         public string ToolId;            // catalog tool used for visuals

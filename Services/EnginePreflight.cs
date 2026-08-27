@@ -87,6 +87,21 @@ namespace RevitWebAppSync.Services
             }
         }
 
+        /// <summary>What the pane shows above the composer while a slow step
+        /// runs. Null for steps that are instant or need the drafter (those
+        /// get a card, not a strip).</summary>
+        public static string ProgressLabel(PreflightStep step)
+        {
+            switch (step)
+            {
+                case PreflightStep.MintToken:       return "Signing in the BINA Engine…";
+                case PreflightStep.FetchBundle:     return "Downloading the BINA Engine… first run, about a minute";
+                case PreflightStep.ConstructManager:
+                case PreflightStep.Spawn:           return "Starting the BINA Engine…";
+                default:                            return null;
+            }
+        }
+
         /// <summary>Sentence for the step that could not be completed.</summary>
         public static string FailureMessage(PreflightStep failedAt, string status, string detail)
         {

@@ -114,6 +114,28 @@ namespace RevitWebAppSync.Tests
             Assert.Contains("Login", msg);
         }
 
+        // ─── Progress labels (the pane's engine strip) ─────────────────
+
+        [Theory]
+        [InlineData(PreflightStep.MintToken, "Signing in")]
+        [InlineData(PreflightStep.FetchBundle, "Downloading")]
+        [InlineData(PreflightStep.Spawn, "Starting")]
+        [InlineData(PreflightStep.ConstructManager, "Starting")]
+        public void Steps_that_take_time_have_a_drafter_facing_label(PreflightStep step, string startsWith)
+        {
+            var label = EnginePreflight.ProgressLabel(step);
+            Assert.StartsWith(startsWith, label);
+            Assert.Contains("BINA Engine", label);
+        }
+
+        [Theory]
+        [InlineData(PreflightStep.Ready)]
+        [InlineData(PreflightStep.LoginRequired)]
+        public void Instant_steps_have_no_label(PreflightStep step)
+        {
+            Assert.Null(EnginePreflight.ProgressLabel(step));
+        }
+
         // ─── Messages ──────────────────────────────────────────────────
 
         [Fact]

@@ -37,6 +37,7 @@ namespace RevitWebAppSync
                             config.ClearSession();
                             config.Save();
                             SecureTokenStore.Clear();
+                            App.RaiseSessionChanged();   // pane: lock composer
                             // Clear the credit badge in the (still-open) Copilot pane.
                             _ = App.CopilotPaneHost?.Panel?.ViewModel?.RefreshCreditBadgeAsync();
                             TaskDialog.Show("Logged Out", "You have been logged out successfully.");
@@ -121,6 +122,7 @@ namespace RevitWebAppSync
                 // persists — that was the other job this block was doing.)
                 config.Save();
                 Services.TelemetryService.SetUser(tokens.UserId);
+                App.RaiseSessionChanged();   // pane: unlock composer, re-send the kept prompt
 
                 // Engine credential (deployment spec B4/gateway spec A4): exchange the
                 // access token for a 14-day revocable device token, persist it, and
