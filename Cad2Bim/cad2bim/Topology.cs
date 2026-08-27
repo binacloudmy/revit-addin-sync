@@ -46,10 +46,10 @@ namespace Cad2Bim {
 
         /// <summary>Two degrees, in radians: how far two pieces may differ in direction and
         /// still be called the same line.</summary>
-        private const double AngleBucket = 0.035;
+        private const double AngleTolerance = 0.035;
 
         /// <summary>How far apart two parallel pieces may sit and still be the same line.</summary>
-        private const double OffsetBucketMm = 60.0;
+        private const double OffsetToleranceMm = 60.0;
 
         /// <summary>
         /// Splits every wall centreline at its crossings with other walls, then merges
@@ -147,7 +147,7 @@ namespace Cad2Bim {
         /// wherever the gap between them is drafting slop rather than a doorway.
         /// </summary>
         private static List<Run> MergeCollinear(List<Wall> walls, double mergeGapMm) {
-            var groups = new Dictionary<(long Angle, long Offset), List<Wall>>();
+            var pieces = new List<(double Angle, double Offset, Wall Wall)>(walls.Count);
 
             foreach (Wall wall in walls) {
                 Segment line = wall.Centerline;
@@ -163,74 +163,90 @@ namespace Cad2Bim {
                 // so a wall drawn left-to-right groups with the same wall drawn right-to-left.
                 if (dx < 0 || (dx == 0 && dy < 0)) { dx = -dx; dy = -dy; }
 
-                double angle = Math.Atan2(dy, dx);
-                double offset = (-dy * line.P1.x) + (dx * line.P1.y);
-
-                var key = ((long)Math.Round(angle / AngleBucket),
-                           (long)Math.Round(offset / OffsetBucketMm));
-
-                if (!groups.TryGetValue(key, out List<Wall>? group)) {
-                    group = new List<Wall>();
-                    groups[key] = group;
-                }
-                group.Add(wall);
+                pieces.Add((Math.Atan2(dy, dx), (-dy * line.P1.x) + (dx * line.P1.y), wall));
             }
 
+            if (pieces.Count == 0) return new List<Run>();
+
+            // Sweep-cluster rather than bucket. Fixed buckets split a group at their own
+            // edges: two pieces of one wall at offsets 59.9 and 60.1 mm land either side of a
+            // 60 mm boundary and never merge, however wide the gap setting is. Sorting and
+            // breaking only on a real jump has no such seams.
             var runs = new List<Run>();
 
-            foreach (List<Wall> group in groups.Values) {
-                // Everything in the group shares a line; order along it and merge neighbours.
-                Segment first = group[0].Centerline;
-                double dx = first.P2.x - first.P1.x;
-                double dy = first.P2.y - first.P1.y;
-                double length = Math.Sqrt((dx * dx) + (dy * dy));
-                dx /= length;
-                dy /= length;
-                if (dx < 0 || (dx == 0 && dy < 0)) { dx = -dx; dy = -dy; }
+            foreach (List<(double Angle, double Offset, Wall Wall)> byAngle
+                     in Cluster(pieces.OrderBy(p => p.Angle).ToList(), p => p.Angle, AngleTolerance)) {
 
-                double Project(Point p) => (p.x * dx) + (p.y * dy);
-                Point At(double t, Point reference) {
-                    double drop = (-dy * reference.x) + (dx * reference.y);
-                    return new Point((t * dx) - (drop * dy), (t * dy) + (drop * dx));
+                foreach (List<(double Angle, double Offset, Wall Wall)> online
+                         in Cluster(byAngle.OrderBy(p => p.Offset).ToList(), p => p.Offset, OffsetToleranceMm)) {
+
+                    MergeAlongLine(online, mergeGapMm, runs);
                 }
-
-                var pieces = group
-                    .Select(w => {
-                        double a = Project(w.Centerline.P1);
-                        double b = Project(w.Centerline.P2);
-                        return (Start: Math.Min(a, b), End: Math.Max(a, b), Wall: w);
-                    })
-                    .OrderBy(p => p.Start)
-                    .ToList();
-
-                double runStart = pieces[0].Start;
-                double runEnd = pieces[0].End;
-                var members = new List<Wall> { pieces[0].Wall };
-
-                void Flush() {
-                    Point anchor = members[0].Centerline.P1;
-                    runs.Add(new Run(new Segment(At(runStart, anchor), At(runEnd, anchor)), members));
-                }
-
-                for (int i = 1; i < pieces.Count; i++) {
-                    var piece = pieces[i];
-
-                    if (piece.Start - runEnd <= mergeGapMm) {
-                        runEnd = Math.Max(runEnd, piece.End);
-                        members.Add(piece.Wall);
-                        continue;
-                    }
-
-                    Flush();
-                    runStart = piece.Start;
-                    runEnd = piece.End;
-                    members = new List<Wall> { piece.Wall };
-                }
-
-                Flush();
             }
 
             return runs;
+        }
+
+        /// <summary>Runs of values with no gap wider than the tolerance between neighbours.</summary>
+        private static IEnumerable<List<T>> Cluster<T>(List<T> sorted, Func<T, double> key, double tolerance) {
+            var current = new List<T> { sorted[0] };
+
+            for (int i = 1; i < sorted.Count; i++) {
+                if (key(sorted[i]) - key(sorted[i - 1]) > tolerance) {
+                    yield return current;
+                    current = new List<T>();
+                }
+                current.Add(sorted[i]);
+            }
+
+            yield return current;
+        }
+
+        /// <summary>Merges pieces already known to share a line, along that line.</summary>
+        private static void MergeAlongLine(
+                List<(double Angle, double Offset, Wall Wall)> online, double mergeGapMm, List<Run> runs) {
+
+            double angle = online[0].Angle;
+            double dx = Math.Cos(angle);
+            double dy = Math.Sin(angle);
+
+            double Project(Point p) => (p.x * dx) + (p.y * dy);
+            Point At(double t, double drop) => new((t * dx) - (drop * dy), (t * dy) + (drop * dx));
+
+            var spans = online
+                .Select(p => {
+                    double a = Project(p.Wall.Centerline.P1);
+                    double b = Project(p.Wall.Centerline.P2);
+                    return (Start: Math.Min(a, b), End: Math.Max(a, b), Drop: p.Offset, p.Wall);
+                })
+                .OrderBy(p => p.Start)
+                .ToList();
+
+            double runStart = spans[0].Start;
+            double runEnd = spans[0].End;
+            double drop = spans[0].Drop;
+            var members = new List<Wall> { spans[0].Wall };
+
+            void Flush() =>
+                runs.Add(new Run(new Segment(At(runStart, drop), At(runEnd, drop)), members));
+
+            for (int i = 1; i < spans.Count; i++) {
+                var span = spans[i];
+
+                if (span.Start - runEnd <= mergeGapMm) {
+                    runEnd = Math.Max(runEnd, span.End);
+                    members.Add(span.Wall);
+                    continue;
+                }
+
+                Flush();
+                runStart = span.Start;
+                runEnd = span.End;
+                drop = span.Drop;
+                members = new List<Wall> { span.Wall };
+            }
+
+            Flush();
         }
 
 
