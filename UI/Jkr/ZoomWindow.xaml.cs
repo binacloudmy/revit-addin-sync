@@ -30,6 +30,24 @@ namespace RevitWebAppSync.UI.Jkr
         // (Build Diff delta 02). Goes through the same confirm sheet as the panel.
         // "Apply those fixes first" — the leverage band's one action. Same confirm
         // gate as everywhere else; the band only ever offers the ranked top fixes.
+        // Rail: null Tag = the "Everything" row.
+        private void Section_Click(object sender, RoutedEventArgs e)
+            => _vm.SelectedSection = (sender as System.Windows.Controls.Button)?.Tag as string;
+
+        private void Tab_Click(object sender, RoutedEventArgs e)
+        {
+            var tag = (sender as System.Windows.Controls.Button)?.Tag;
+            if (tag is CopilotTab t) _vm.ActiveCopilotTab = t;
+        }
+
+        private void IgnoreAll_Click(object sender, RoutedEventArgs e) => _vm.IgnoreAll();
+        private void FixAll_Click(object sender, RoutedEventArgs e) => _vm.FixAll();
+        private void Export_Click(object sender, RoutedEventArgs e) => _vm.GoExport();
+
+        // "Dock back" simply closes: the docked panel is the same VM, so the user lands
+        // exactly where they left off.
+        private void Dock_Click(object sender, RoutedEventArgs e) => Close();
+
         private void FixTop_Click(object sender, RoutedEventArgs e) => _vm.FixTop();
 
         private void RuleFix_Click(object sender, RoutedEventArgs e)

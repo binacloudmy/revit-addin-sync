@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:jkr="clr-namespace:RevitWebAppSync.UI.Jkr"
+        xmlns:vm="clr-namespace:RevitWebAppSync.UI.Jkr.ViewModels"
         Title="Model Audit · BIM 005"
         Width="900" Height="640" MinWidth="520" MinHeight="360"
         Background="#F7F8FA" FontFamily="Segoe UI, system-ui, sans-serif"
@@ -93,17 +94,47 @@
     </Window.Resources>
 
     <Grid Margin="20">
+        <!-- The six regions the design specifies, top to bottom. The shipped window
+             carried only 1, a partial 3, and 5 — toolbar, leverage band and status bar
+             were absent entirely (Build Diff, "Window structure"). -->
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>   <!-- hero -->
-            <RowDefinition Height="Auto"/>   <!-- leverage band -->
-            <RowDefinition Height="Auto"/>   <!-- section figures -->
-            <RowDefinition Height="*"/>      <!-- grouped list -->
+            <RowDefinition Height="Auto"/>   <!-- 2 toolbar -->
+            <RowDefinition Height="Auto"/>   <!-- 3 summary bar -->
+            <RowDefinition Height="Auto"/>   <!-- 4 leverage band -->
+            <RowDefinition Height="*"/>      <!-- 5 rail + list -->
+            <RowDefinition Height="Auto"/>   <!-- 6 status bar -->
         </Grid.RowDefinitions>
+
+        <!-- ── 2 TOOLBAR ── run context plus every bulk action. Without this Fix all,
+             Ignore all and Export had no home in the window at all, so the bulk actions
+             were unreachable from the view where the work happens (delta 07). -->
+        <Border Grid.Row="0" Margin="0,0,0,14" Padding="0,0,0,10"
+                BorderBrush="{StaticResource JkrCopilot.Line}" BorderThickness="0,0,0,1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                           FontFamily="{StaticResource Font.Mono}" FontSize="11"
+                           Foreground="{StaticResource JkrCopilot.Muted}">
+                    <Run Text="LOD "/><Run Text="{Binding SelectedLodLevel, Mode=OneWay}"/>
+                    <Run Text="  ·  "/><Run Text="{Binding SelectedDiscipline, Mode=OneWay}"/>
+                    <Run Text="  ·  "/><Run Text="{Binding ReportLanguage, Mode=OneWay}"/>
+                </TextBlock>
+                <StackPanel Grid.Column="1" Orientation="Horizontal">
+                    <Button Content="Ignore all" Click="IgnoreAll_Click" Style="{StaticResource Btn.Sec}" Margin="0,0,8,0"/>
+                    <Button Content="Fix all" Click="FixAll_Click" Style="{StaticResource Btn.Sec}" Margin="0,0,8,0"/>
+                    <Button Content="Export Borang" Click="Export_Click" Style="{StaticResource Btn.Sec}" Margin="0,0,8,0"/>
+                    <Button Content="⤓ Dock back" Click="Dock_Click" Style="{StaticResource Btn.Sec}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
 
         <!-- Hero. The "AUTO-FIX QUEUE" strap is gone: it is not in the design and it
              named an action the window did not carry (Build Diff). The document name
              now lives in the title bar instead. -->
-        <StackPanel Grid.Row="0" Margin="0,0,0,14">
+        <StackPanel Grid.Row="1" Margin="0,0,0,14">
             <StackPanel Orientation="Horizontal">
                 <TextBlock Text="{Binding Summary.Pct}" FontFamily="{StaticResource Font.Mono}"
                            FontSize="52" FontWeight="Bold" Foreground="{StaticResource JkrCopilot.Navy}"/>
@@ -127,11 +158,18 @@
                     <Run Text="{Binding ManualRuleCells, Mode=OneWay, StringFormat={}{0:N0}}" FontWeight="Bold"/><Run Text="  cells need you, not the AI"/>
                 </TextBlock>
             </StackPanel>
+
+            <!-- The bar the hero was missing. Spans the AI-verifiable budget only: the
+                 manual cells above sit outside it by design, never inside the fill. -->
+            <ProgressBar Height="6" Margin="0,12,0,0" Minimum="0" Maximum="100"
+                         Value="{Binding Summary.Pct, Mode=OneWay}"
+                         Foreground="{StaticResource JkrCopilot.Success}"
+                         Background="#F0D9D6" BorderThickness="0"/>
         </StackPanel>
 
         <!-- Leverage band. This was the answer to the original brief: without it the
              window states a problem and offers no route out (Build Diff delta 01). -->
-        <Border Grid.Row="1" Margin="0,0,0,14" Padding="14,12"
+        <Border Grid.Row="2" Margin="0,0,0,14" Padding="14,12"
                 Background="{StaticResource JkrCopilot.Banner}"
                 BorderBrush="{StaticResource JkrCopilot.Line5}" BorderThickness="0,0,0,1"
                 Visibility="{Binding RowsFail, Converter={StaticResource GtZero}}">
@@ -150,29 +188,120 @@
             </StackPanel>
         </Border>
 
-        <!-- Sections -->
-        <ItemsControl Grid.Row="2" ItemsSource="{Binding Sections}" Margin="0,0,0,14">
-            <ItemsControl.ItemsPanel>
-                <ItemsPanelTemplate><StackPanel Orientation="Horizontal"/></ItemsPanelTemplate>
-            </ItemsControl.ItemsPanel>
-            <ItemsControl.ItemTemplate>
-                <DataTemplate>
-                    <StackPanel Margin="0,0,22,0">
-                        <TextBlock Text="{Binding Short}" FontSize="13" FontWeight="Bold"
-                                   Foreground="{StaticResource JkrCopilot.Navy}"/>
-                        <TextBlock Text="{Binding Pct}" FontFamily="{StaticResource Font.Mono}"
-                                   FontSize="20" FontWeight="Bold" Margin="0,2,0,0"
-                                   Foreground="{Binding Color, Converter={StaticResource Hex}}"/>
-                    </StackPanel>
-                </DataTemplate>
-            </ItemsControl.ItemTemplate>
-        </ItemsControl>
+        <!-- ── 5 RAIL + LIST ── the section figures were display-only, which removed the
+             only way to work one Borang section at a time — how the form is actually
+             reviewed and signed off (delta 06). They are now a filterable rail. -->
+        <Grid Grid.Row="3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="252"/>
+                <ColumnDefinition Width="18"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
-        <!-- Groups (read-only) -->
-        <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto"
-                      HorizontalScrollBarVisibility="Disabled"
-                      Style="{StaticResource ThinScroll}">
-            <ItemsControl ItemsSource="{Binding Groups}" ItemTemplate="{StaticResource ZoomGroup}"/>
-        </ScrollViewer>
+            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto"
+                          Style="{StaticResource ThinScroll}">
+                <StackPanel>
+                    <TextBlock Text="BORANG SECTIONS" FontFamily="{StaticResource Font.Mono}"
+                               FontSize="9.5" Margin="0,0,0,8"
+                               Foreground="{StaticResource JkrCopilot.Muted}"/>
+                    <Button Content="Everything" Click="Section_Click" Tag="{x:Null}"
+                            HorizontalContentAlignment="Left" Padding="10,7" Cursor="Hand"
+                            Background="Transparent" BorderThickness="0" FontSize="12.5"
+                            FontWeight="SemiBold" Foreground="{StaticResource JkrCopilot.Ink}"/>
+                    <ItemsControl ItemsSource="{Binding Sections}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Button Click="Section_Click" Tag="{Binding Id}" Cursor="Hand"
+                                        HorizontalContentAlignment="Stretch" Padding="10,7"
+                                        Background="Transparent" BorderThickness="0">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0" Text="{Binding Id}" FontWeight="Bold"
+                                                   FontSize="12.5" MinWidth="16"
+                                                   Foreground="{StaticResource JkrCopilot.Navy}"/>
+                                        <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                                            <TextBlock Text="{Binding Name}" FontSize="12"
+                                                       TextTrimming="CharacterEllipsis"
+                                                       Foreground="{StaticResource JkrCopilot.Ink}"/>
+                                            <TextBlock Text="{Binding OpenCellsLabel}" FontFamily="{StaticResource Font.Mono}"
+                                                       FontSize="9.5" Margin="0,2,0,0"
+                                                       Foreground="{StaticResource JkrCopilot.Muted}"/>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="2" Text="{Binding Pct, StringFormat={}{0}%}"
+                                                   FontFamily="{StaticResource Font.Mono}" FontSize="13"
+                                                   FontWeight="Bold" VerticalAlignment="Center"
+                                                   Foreground="{Binding Color, Converter={StaticResource Hex}}"/>
+                                    </Grid>
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </ScrollViewer>
+
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- Tabs + search. Without these, manual items could not be separated from
+                     failures, resolved work could not be confirmed, and the only way to
+                     reach a known finding was scrolling (delta 08). -->
+                <Grid Grid.Row="0" Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="240"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Column="0" Orientation="Horizontal">
+                        <Button Click="Tab_Click" Tag="{x:Static vm:CopilotTab.Open}" Style="{StaticResource Btn.Sec}" Margin="0,0,6,0">
+                            <TextBlock><Run Text="Open "/><Run Text="{Binding OpenRuleCells, Mode=OneWay, StringFormat={}{0:N0}}"/></TextBlock>
+                        </Button>
+                        <Button Click="Tab_Click" Tag="{x:Static vm:CopilotTab.Manual}" Style="{StaticResource Btn.Sec}" Margin="0,0,6,0">
+                            <TextBlock><Run Text="Manual "/><Run Text="{Binding ManualRuleCells, Mode=OneWay, StringFormat={}{0:N0}}"/></TextBlock>
+                        </Button>
+                        <Button Click="Tab_Click" Tag="{x:Static vm:CopilotTab.Ignored}" Style="{StaticResource Btn.Sec}" Margin="0,0,6,0">
+                            <TextBlock><Run Text="Ignored "/><Run Text="{Binding IgnoredRuleCells, Mode=OneWay, StringFormat={}{0:N0}}"/></TextBlock>
+                        </Button>
+                        <Button Click="Tab_Click" Tag="{x:Static vm:CopilotTab.Resolved}" Style="{StaticResource Btn.Sec}">
+                            <TextBlock><Run Text="Fixed "/><Run Text="{Binding ResolvedRuleCells, Mode=OneWay, StringFormat={}{0:N0}}"/></TextBlock>
+                        </Button>
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Style="{StaticResource Tb.Search}" VerticalAlignment="Center"
+                             Text="{Binding SearchQuery, UpdateSourceTrigger=PropertyChanged}"/>
+                </Grid>
+
+                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              Style="{StaticResource ThinScroll}">
+                    <ItemsControl ItemsSource="{Binding Groups}" ItemTemplate="{StaticResource ZoomGroup}"/>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+
+        <!-- ── 6 STATUS BAR ── J/K, F and A already worked but were undiscoverable, so the
+             fast path through 722 findings went unused (delta 14). -->
+        <Border Grid.Row="4" Margin="0,12,0,0" Padding="0,9,0,0"
+                BorderBrush="{StaticResource JkrCopilot.Line}" BorderThickness="0,1,0,0">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" FontFamily="{StaticResource Font.Mono}" FontSize="10.5"
+                           Foreground="{StaticResource JkrCopilot.Muted}"
+                           Text="↵ open   J/K nav   F fix   A ignore   ESC dock"/>
+                <TextBlock Grid.Column="1" FontFamily="{StaticResource Font.Mono}" FontSize="10.5"
+                           Foreground="{StaticResource JkrCopilot.Muted}">
+                    <Run Text="{Binding RowsFail, Mode=OneWay}"/><Run Text=" rows failing · "/>
+                    <Run Text="{Binding ManualRuleCells, Mode=OneWay, StringFormat={}{0:N0}}"/><Run Text=" semak manual · BIM 005 · PINDAAN 00"/>
+                </TextBlock>
+            </Grid>
+        </Border>
+
     </Grid>
 </Window>

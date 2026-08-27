@@ -75,8 +75,32 @@ namespace UiHarness
             // S6 — export handoff (Borang BIM005 / BIM010).
             Shot(dir, "jkr-s6-export.png", vm => { Run(vm); vm.GoExport(); });
 
+            // The Zoom window — the view the Build Diff was written about. Captured at
+            // its own size so the six regions (toolbar, hero+bar, leverage band, rail,
+            // tabs/list, status bar) can be checked against the design in one image.
+            ZoomShot(dir, "jkr-zoom-window.png");
+
             // Comfortable density — the header toggle changes row heights throughout.
             Shot(dir, "jkr-s3-density-large.png", vm => { Run(vm); vm.IsDensityComfortable = true; });
+        }
+
+        // The zoom window is a Window, not a panel, so it gets its own capture path.
+        private static void ZoomShot(string dir, string file)
+        {
+            var vm = new PanelVm();
+            Run(vm);
+            var win = new RevitWebAppSync.UI.Jkr.ZoomWindow(vm)
+            {
+                Width = 1180, Height = 820,
+                WindowStartupLocation = WindowStartupLocation.Manual,
+                ShowInTaskbar = false, Left = -4000, Top = -4000,
+            };
+            win.Show();
+            Settle(500);
+            var root = win.Content as FrameworkElement;
+            if (root != null) Save(root, Path.Combine(dir, file));
+            win.Close();
+            Console.WriteLine($"wrote {file}");
         }
 
         // Drive a full fixture run so the VM lands on S3 with real data.
