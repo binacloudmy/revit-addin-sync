@@ -85,12 +85,23 @@ namespace Cad2Bim.Headless {
             Wall.SMin = Number(args, 1) ?? Units.DefaultMinWallThicknessMm;
             Wall.SMax = Number(args, 2) ?? Units.DefaultMaxWallThicknessMm;
 
-            List<Wall> walls = CadClassifier.ClassifyWalls(model.Segments);
+            // Walls come only from the layers that hold walls, even when the read is wider:
+            // door and window linework has to reach the classifier for the openings, and it
+            // pairs into false walls if it is allowed to stand in for fabric.
+            string[] wallWords = { "wall", "dinding", "tembok" };
+            List<Segment> wallSegments = model.Segments
+                .Where(seg => seg.Layer.Length == 0 ||
+                              wallWords.Any(w => seg.Layer.IndexOf(w, StringComparison.OrdinalIgnoreCase) >= 0))
+                .ToList();
+
+            if (wallSegments.Count == 0) wallSegments = model.Segments.ToList();
+
+            List<Wall> walls = CadClassifier.ClassifyWalls(wallSegments);
             Console.WriteLine();
             Console.WriteLine($"-- walls (SMin={Wall.SMin:0.##} mm, SMax={Wall.SMax:0.##} mm) --");
             Console.WriteLine($"  walls     {walls.Count}");
-            Console.WriteLine($"  consumed  {walls.Count * 2} of {model.Segments.Count} segments " +
-                              $"({Share(walls.Count * 2, model.Segments.Count)})");
+            Console.WriteLine($"  consumed  {walls.Count * 2} of {wallSegments.Count} wall-layer segments " +
+                              $"({Share(walls.Count * 2, wallSegments.Count)} of the wall layers)");
             if (walls.Count > 0) {
                 var thicknesses = walls.Select(w => w.Thickness).OrderBy(t => t).ToList();
                 Console.WriteLine($"  thickness min={thicknesses[0]:0.#} " +
@@ -111,6 +122,17 @@ namespace Cad2Bim.Headless {
             Console.WriteLine($"  junctions {graph.Nodes.Count(n => n.Degree >= 3)}");
             Console.WriteLine($"  settings  merge={mergeGap:0} mm, bridge={bridgeGap:0} mm");
 
+            if (args.Contains("--symbols")) {
+                Console.WriteLine();
+                Console.WriteLine("-- arcs by layer (door swings live among these) --");
+                foreach (var g in model.Arcs.GroupBy(a => a.Layer).OrderByDescending(g => g.Count()).Take(15)) {
+                    var radii = g.Select(a => a.Radius).OrderBy(r => r).ToList();
+                    int quarter = g.Count(a => Math.Abs(a.SweepDegrees - 90) <= 30);
+                    Console.WriteLine($"  {g.Count(),6}  {(g.Key.Length == 0 ? "(none)" : g.Key),-20} " +
+                                      $"radius median {radii[radii.Count/2]:0} mm, {quarter} near-quarter sweeps");
+                }
+            }
+
             if (args.Contains("--faces")) {
                 var lengths = walls.Select(w => w.Centerline.Length).OrderBy(l => l).ToList();
                 if (lengths.Count > 0) {
@@ -124,9 +146,23 @@ namespace Cad2Bim.Headless {
                 Console.WriteLine($"  components {comps}  (cycles = {graph.Edges.Count - graph.Nodes.Count + comps})");
             }
 
-            List<Opening> openings = CadClassifier.ClassifyOpenings(walls, model.Segments, model.Arcs);
+            // Windows are found by layer, doors are not. In this drawing the swings sit on
+            // Hatch-wall and C-door while A-DOOR holds only 75 mm fillets, so a layer named
+            // for doors is no guide to where the doors are. The geometry is: a quarter-turn
+            // arc with a leaf-width radius is a door swing wherever it was filed.
+            string[] windowWords = { "win", "tingkap", "glaz" };
+
+            bool OnAny(string layer, string[] words) =>
+                words.Any(word => layer.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0);
+
+            List<Arc> swings = model.Arcs;
+            List<Segment> windowLines = model.Segments.Where(s => OnAny(s.Layer, windowWords)).ToList();
+
+            List<Opening> openings = CadClassifier.ClassifyOpeningsFromSymbols(walls, swings, windowLines);
+            openings.AddRange(CadClassifier.ClassifyOpenings(walls, model.Segments, model.Arcs));
             Console.WriteLine();
             Console.WriteLine("-- openings --");
+            Console.WriteLine($"  symbols   {swings.Count} arcs searched for swings, {windowLines.Count} window lines");
             Console.WriteLine($"  openings  {openings.Count}");
             Console.WriteLine($"  doors     {openings.Count(o => o.IsDoor)} (a swing hinged at a jamb)");
             Console.WriteLine($"  other     {openings.Count(o => !o.IsDoor)} (window or plain opening)");

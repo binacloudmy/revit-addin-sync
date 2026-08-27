@@ -13,6 +13,7 @@ using Cad2Bim.Services;
 // Revit has its own Segment and Wall; the classifier's are always spelled through these.
 using CadSegment = Cad2Bim.Segment;
 using CadWall = Cad2Bim.Wall;
+using CadOpening = Cad2Bim.Opening;
 
 namespace RevitWebAppSync.Commands
 {
@@ -66,9 +67,21 @@ namespace RevitWebAppSync.Commands
                 {
                     LayerFilter focused = BuildFilter();
                     focused.Include.AddRange(wallLayers);
+
+                    // Door and window linework has to reach the classifier for the openings,
+                    // even though walls are taken only from the wall layers below.
+                    focused.Include.AddRange(survey.LayerCensus.Keys.Where(IsOpeningLayer));
                     model = ModelSource.Read(drawing, focused);
                 }
-                List<CadWall> walls = CadClassifier.ClassifyWalls(model.Segments);
+                // Walls come only from the wall layers even though the read is wider: door and
+                // window linework pairs into false walls if allowed to stand in for fabric.
+                List<CadSegment> wallSegments = model.Segments
+                    .Where(seg => seg.Layer.Length == 0 || IsWallLayer(seg.Layer))
+                    .ToList();
+
+                if (wallSegments.Count == 0) wallSegments = model.Segments.ToList();
+
+                List<CadWall> walls = CadClassifier.ClassifyWalls(wallSegments);
 
                 if (walls.Count == 0)
                 {
@@ -78,6 +91,16 @@ namespace RevitWebAppSync.Commands
                         "on a layer of their own, filtering to that layer usually finds them.");
                     return Result.Cancelled;
                 }
+
+                // Doors are found by geometry, not by layer. In these drawings the swings sit
+                // on Hatch-wall and C-door while A-DOOR holds only small fillets, so a layer
+                // named for doors is no guide; a quarter-turn arc of leaf-width radius is a
+                // door swing wherever it was filed. Windows are the opposite - their linework
+                // is on a window layer and has no shape that identifies it.
+                List<CadSegment> windowLines = model.Segments.Where(seg => IsWindowLayer(seg.Layer)).ToList();
+                List<Cad2Bim.Arc> arcs = model.Arcs.ToList();
+                List<CadOpening> openings =
+                    CadClassifier.ClassifyOpeningsFromSymbols(walls, arcs, windowLines);
 
                 WallGraph graph = CadClassifier.CreateTopologicalPoints(walls);
                 List<Space> spaces = CadClassifier.ClassifySpaces(graph, model.Texts);
@@ -107,7 +130,10 @@ namespace RevitWebAppSync.Commands
 
                 int created = 0;
                 int rooms = 0;
+                int doors = 0;
+                int windows = 0;
                 var createdIds = new List<ElementId>();
+                var hosts = new Dictionary<CadWall, Autodesk.Revit.DB.Wall>();
                 var failed = new List<string>();
 
                 using (var transaction = new Transaction(document, "CAD to BIM"))
@@ -135,6 +161,7 @@ namespace RevitWebAppSync.Commands
                             {
                                 created++;
                                 createdIds.Add(made.Id);
+                                hosts[wall] = made;
                             }
                         }
                         catch (Exception ex)
@@ -143,6 +170,12 @@ namespace RevitWebAppSync.Commands
                             if (failed.Count < 20) failed.Add(ex.Message);
                         }
                     }
+
+                    // Openings need their host to exist, so they follow the walls inside the
+                    // same transaction.
+                    document.Regenerate();
+                    CreateOpenings(document, openings, hosts, level, originX, originY,
+                                   ref doors, ref windows);
 
                     rooms = CreateRooms(document, spaces, level, originX, originY);
 
@@ -193,6 +226,8 @@ namespace RevitWebAppSync.Commands
                 report.AppendLine("  " + spaces.Count + " rooms found, " +
                                   spaces.Count(s => s.Name != null) + " of them named");
                 report.AppendLine("  " + rooms + " placed as Revit rooms");
+                report.AppendLine("  " + openings.Count + " openings found; placed " +
+                                  doors + " doors and " + windows + " windows");
                 report.AppendLine();
                 report.AppendLine("The drawing sat " + (originX / 1000.0).ToString("0") + " m by " +
                                   (originY / 1000.0).ToString("0") + " m from its own origin; " +
@@ -266,6 +301,78 @@ namespace RevitWebAppSync.Commands
         /// of wall geometry, and a room appears wherever a loop closed - regardless of how
         /// ragged the walls around it are.
         /// </summary>
+        /// <summary>
+        /// Places each opening into the wall it belongs to.
+        ///
+        /// A door needs a host: Revit cuts the opening out of the wall it is placed in, which
+        /// is why the classifier's wall-to-opening pairing matters more here than anywhere
+        /// else. An opening whose host failed to build is skipped rather than dropped into
+        /// space, since a door standing in a room is worse than a door that is missing.
+        /// </summary>
+        private static void CreateOpenings(
+            Document document, List<CadOpening> openings,
+            Dictionary<CadWall, Autodesk.Revit.DB.Wall> hosts,
+            Level level, double originX, double originY, ref int doors, ref int windows)
+        {
+            FamilySymbol doorType = FirstSymbol(document, BuiltInCategory.OST_Doors);
+            FamilySymbol windowType = FirstSymbol(document, BuiltInCategory.OST_Windows);
+
+            foreach (CadOpening opening in openings)
+            {
+                FamilySymbol symbol = opening.IsDoor ? doorType : windowType;
+                if (symbol == null) continue;
+
+                if (!hosts.TryGetValue(opening.Wall, out Autodesk.Revit.DB.Wall host)) continue;
+                if (opening.Width < 300) continue;   // narrower than any real opening
+
+                try
+                {
+                    if (!symbol.IsActive) symbol.Activate();
+
+                    // A window sits at sill height; a door starts at the floor.
+                    double z = level.Elevation + (opening.IsDoor ? 0 : FromMm(WindowSillMm));
+                    XYZ where = ToRevit(opening.Position, originX, originY);
+
+                    FamilyInstance placed = document.Create.NewFamilyInstance(
+                        new XYZ(where.X, where.Y, z), symbol, host, level,
+                        Autodesk.Revit.DB.Structure.StructuralType.NonStructural);
+
+                    if (placed == null) continue;
+
+                    if (opening.IsDoor) doors++;
+                    else windows++;
+                }
+                catch
+                {
+                    // A single opening that will not host should not cost the rest.
+                }
+            }
+        }
+
+        /// <summary>Ordinary sill height, in millimetres. The plan does not say - that is a
+        /// section - so it is assumed, like the wall height.</summary>
+        private const double WindowSillMm = 900.0;
+
+        private static FamilySymbol FirstSymbol(Document document, BuiltInCategory category) =>
+            new FilteredElementCollector(document)
+                .OfClass(typeof(FamilySymbol))
+                .OfCategory(category)
+                .Cast<FamilySymbol>()
+                .OrderBy(symbol => symbol.Name)
+                .FirstOrDefault();
+
+        private static bool IsWallLayer(string layer) =>
+            Mentions(layer, "wall", "dinding", "tembok");
+
+        private static bool IsWindowLayer(string layer) =>
+            Mentions(layer, "win", "tingkap", "glaz");
+
+        private static bool IsOpeningLayer(string layer) =>
+            IsWindowLayer(layer) || Mentions(layer, "door", "pintu");
+
+        private static bool Mentions(string layer, params string[] words) =>
+            words.Any(word => layer.IndexOf(word, StringComparison.OrdinalIgnoreCase) >= 0);
+
         private static int CreateRooms(
             Document document, List<Space> spaces, Level level, double originX, double originY)
         {
