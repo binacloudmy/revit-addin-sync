@@ -1,3 +1,8 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
 namespace Cad2Bim {
     public partial class CadClassifier {
         // A jamb is the short line closing the wall off at the side of an opening: it runs

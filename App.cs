@@ -920,6 +920,26 @@ namespace RevitWebAppSync
             aiPanel.AddItem(loginButtonData);
             aiPanel.AddItem(askAiButtonData);
 
+            // CAD to BIM reads a DWG and builds native walls in the open model. Not on
+            // Revit 2023/24: the classifier uses language features that target predates.
+#if !REVIT2023_24
+            PushButtonData cadToBimButtonData = new PushButtonData(
+                "Cad2BimConvert",
+                "CAD to\nBIM",
+                Assembly.GetExecutingAssembly().Location,
+                "RevitWebAppSync.Commands.Cad2BimConvertCommand")
+            {
+                ToolTip = "Build Revit walls from a DWG",
+                LongDescription = "Reads a CAD drawing, works out which linework is wall, and " +
+                                  "creates native Revit walls from it in the open model. Save the " +
+                                  "model afterwards to get a .rvt.",
+                Image = LoadImage("RevitWebAppSync.Resources.revitSync.png", 16),
+                LargeImage = LoadImage("RevitWebAppSync.Resources.revitSync.png", 32)
+            };
+
+            aiPanel.AddItem(cadToBimButtonData);
+#endif
+
             // Compliance: JKR
             compliancePanel.AddItem(jkrComplianceButtonData);
             compliancePanel.AddItem(bombaComplianceButtonData);

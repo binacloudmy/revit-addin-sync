@@ -186,4 +186,32 @@
     <Message Text="Deployed $(TargetFramework) build to Revit Addins folder(s): $(DeployVersions)" Importance="high" />
   </Target>
 
+
+  <!-- The Cad2Bim folder holds its own projects, including a WPF viewer. The SDK glob would
+       otherwise compile all of it into the add-in. -->
+  <ItemGroup>
+    <Compile Remove="Cad2Bim\**" />
+    <None Remove="Cad2Bim\**" />
+    <Page Remove="Cad2Bim\**" />
+    <ApplicationDefinition Remove="Cad2Bim\**" />
+  </ItemGroup>
+
+  <!-- Cad2Bim classification, shared with the standalone viewer. Linked rather than
+       project-referenced because the viewer targets one framework and the add-in targets
+       three; the sources themselves carry no Revit and no WPF dependency. Not on net48:
+       Revit 2023/24 predate the language features these use. -->
+  <ItemGroup Condition="'$(TargetFramework)' != 'net48'">
+    <Compile Include="Cad2Bim\cad2bim\Geometry.cs" Link="Cad2Bim\Geometry.cs" />
+    <Compile Include="Cad2Bim\cad2bim\ModelSource.cs" Link="Cad2Bim\ModelSource.cs" />
+    <Compile Include="Cad2Bim\cad2bim\Openings.cs" Link="Cad2Bim\Openings.cs" />
+    <Compile Include="Cad2Bim\cad2bim\Spaces.cs" Link="Cad2Bim\Spaces.cs" />
+    <Compile Include="Cad2Bim\cad2bim\SpatialIndex.cs" Link="Cad2Bim\SpatialIndex.cs" />
+    <Compile Include="Cad2Bim\cad2bim\Topology.cs" Link="Cad2Bim\Topology.cs" />
+    <Compile Include="Cad2Bim\cad2bim\Units.cs" Link="Cad2Bim\Units.cs" />
+    <Compile Include="Cad2Bim\cad2bim\IfcExporter.cs" Link="Cad2Bim\IfcExporter.cs" />
+    <Compile Include="Cad2Bim\cad2bim\Services\CadRenderSource.cs" Link="Cad2Bim\CadRenderSource.cs" />
+    <Compile Include="Cad2Bim\cad2bim\ViewModels\Shapes\PolylineShape.cs" Link="Cad2Bim\PolylineShape.cs" />
+    <PackageReference Include="ACadSharp" Version="3.6.51" />
+  </ItemGroup>
+
 </Project>

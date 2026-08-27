@@ -1,3 +1,8 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
 namespace Cad2Bim.ViewModels.Shapes {
     // Render-ready, immutable, in raw CAD coordinates (Y up). Every curve the DWG holds
     // (arc, circle, ellipse, spline, bulged polyline) arrives here already tessellated,

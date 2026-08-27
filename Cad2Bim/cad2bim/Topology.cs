@@ -1,3 +1,8 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
 namespace Cad2Bim {
     /// <summary>Where wall centrelines meet. Degree 1 is a loose end, 2 a corner or a
     /// continuation, 3 or more a junction.</summary>

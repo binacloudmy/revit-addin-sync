@@ -1,3 +1,8 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
 namespace Cad2Bim {
     /// <summary>
     /// A uniform grid over segments, so "what is near this line" costs about nothing.

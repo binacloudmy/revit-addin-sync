@@ -1,3 +1,8 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
 namespace Cad2Bim {
     /// <summary>Why faces were rejected, for the --faces flag. A room that fails to appear
     /// is either a loop the traversal never closed or one it closed and then discarded, and
