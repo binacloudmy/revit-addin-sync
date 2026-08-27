@@ -26,10 +26,13 @@ namespace Cad2Bim {
         /// a plain opening, which is as far as a floor plan alone can settle it.
         /// </summary>
         public static List<Opening> ClassifyOpenings(
-                List<Wall> walls, List<Segment> segments, List<Arc> arcs) {
+                List<Wall> walls, IReadOnlyList<Segment> segments, IReadOnlyList<Arc> arcs) {
 
             var openings = new List<Opening>();
             List<Arc> swings = arcs.Where(IsDoorSwing).ToList();
+
+            // A jamb sits on the wall, so only segments near the centreline can be one.
+            var index = new SegmentIndex(segments, 1000);
 
             foreach (Wall wall in walls) {
                 Segment centerline = wall.Centerline;
@@ -39,7 +42,8 @@ namespace Cad2Bim {
                 // Jamb candidates on this wall, keyed by where they sit along it.
                 var jambs = new List<(double Distance, Segment Segment)>();
 
-                foreach (Segment candidate in segments) {
+                foreach (int index2 in index.Near(centerline, wall.Thickness * 2)) {
+                    Segment candidate = segments[index2];
                     if (wall.Geometry.Contains(candidate)) continue;
 
                     double jambLength = candidate.Length;

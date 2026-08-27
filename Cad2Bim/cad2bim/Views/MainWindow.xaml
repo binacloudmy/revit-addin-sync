@@ -64,6 +64,8 @@
             <DockPanel>
                 <Button Content="Open…" Command="{Binding OpenFileCommand}"
                         Style="{StaticResource DarkButton}" DockPanel.Dock="Left"/>
+                <CheckBox x:Name="LightSheet" Content="Light sheet" DockPanel.Dock="Right"
+                          VerticalAlignment="Center" Margin="16,0,0,0"/>
                 <ItemsControl ItemsSource="{Binding Layers}" DockPanel.Dock="Right" VerticalAlignment="Center">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate>
@@ -102,7 +104,18 @@
         </Border>
 
         <!-- Center: CAD viewport -->
-        <rendering:CadViewport LayersSource="{Binding Layers}" ContentBounds="{Binding Bounds}"/>
+        <rendering:CadViewport LayersSource="{Binding Layers}" ContentBounds="{Binding Bounds}">
+            <rendering:CadViewport.Style>
+                <Style TargetType="{x:Type rendering:CadViewport}">
+                    <Setter Property="Backdrop" Value="Black"/>
+                    <Style.Triggers>
+                        <DataTrigger Binding="{Binding IsChecked, ElementName=LightSheet}" Value="True">
+                            <Setter Property="Backdrop" Value="White"/>
+                        </DataTrigger>
+                    </Style.Triggers>
+                </Style>
+            </rendering:CadViewport.Style>
+        </rendering:CadViewport>
 
     </DockPanel>
 </Window>

@@ -6,11 +6,19 @@ namespace Cad2Bim {
     public record Point(double x, double y);
     
     // Primitives
-    public abstract class GeometryElement { public List<Point> Points { get; protected set; } = new(); }
+    public abstract class GeometryElement {
+        public List<Point> Points { get; protected set; } = new();
+
+        /// <summary>The CAD layer this came off - the drawing's own statement of what the
+        /// linework is for, and the cheapest filter there is.</summary>
+        public string Layer { get; set; } = string.Empty;
+    }
+
     public class TextElement {
-        public Point P1 { get; init; } // top-left
-        public Point P2 { get; init; } // bottom-right
+        public Point P1 { get; init; } = new(0, 0); // top-left
+        public Point P2 { get; init; } = new(0, 0); // bottom-right
         public String Text { get; init; } = string.Empty;
+        public string Layer { get; init; } = string.Empty;
     }
 
     public abstract class BuildingElement {
@@ -166,6 +174,14 @@ namespace Cad2Bim {
         public static double SMin = Units.DefaultMinWallThicknessMm;
         public static double SMax = Units.DefaultMaxWallThicknessMm;
 
+        /// <summary>Shortest run of line that can be a wall face, in millimetres.
+        ///
+        /// Reading the whole drawing means reading its curves too, and a curve arrives as a
+        /// run of short chords that are near enough parallel and near enough apart to pass
+        /// every other test — a tessellated circle pairs with itself into dozens of "walls".
+        /// A wall face is a long straight run; nothing else here is.</summary>
+        public static double MinFaceLength = 300.0;
+
         public double Thickness { get; }
         public bool IsOutdoor { get; set; }
 
@@ -303,22 +319,29 @@ namespace Cad2Bim {
         // rather than which pairs are admissible: candidates must overlap when projected onto the
         // shared direction, and the closest admissible candidate wins instead of the first one
         // scanned. Pairing is still exclusive - a face belongs to at most one wall.
-        public static List<Wall> ClassifyWalls(List<Segment> Segments) {
+        public static List<Wall> ClassifyWalls(IReadOnlyList<Segment> Segments) {
 
             List<Wall> walls = new List<Wall>();
             HashSet<Segment> used = new HashSet<Segment>();
 
+            // Only segments within SMax of this one can be its far face, and the grid answers
+            // that without walking the whole drawing. Same pairs as a full scan, same order.
+            var index = new SegmentIndex(Segments, Math.Max(Wall.SMax * 4, 1000));
+
             for (int i=0; i < Segments.Count; i++) {
                 Segment s1 = Segments[i];
                 if(used.Contains(s1)) continue;
+                if(s1.Length < Wall.MinFaceLength) continue;
 
                 Segment? nearest = null;
                 double nearestDistance = double.MaxValue;
 
-                for (int j=i+1; j < Segments.Count; j++) {
+                foreach (int j in index.Near(s1, Wall.SMax)) {
+                    if(j <= i) continue;
                     Segment s2 = Segments[j];
 
                     if(used.Contains(s2)) continue;
+                    if(s2.Length < Wall.MinFaceLength) continue;
                     if(!s1.isParallelTo(s2)) continue;
 
                     double d = Segment.Distance(s1, s2);

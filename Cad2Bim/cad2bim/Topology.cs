@@ -38,8 +38,15 @@ namespace Cad2Bim {
                 breaks.Add(new List<double> { 0.0, wall.Centerline.Length });
             }
 
+            // Walls that never come within the junction tolerance of each other cannot cross,
+            // so the grid rules out almost every pair before the intersection maths runs.
+            var centerlines = walls.Select(w => w.Centerline).ToList();
+            var crossings = new SegmentIndex(centerlines, Math.Max(toleranceMm * 20, 1000));
+
             for (int i = 0; i < walls.Count; i++) {
-                for (int j = i + 1; j < walls.Count; j++) {
+                foreach (int j in crossings.Near(centerlines[i], toleranceMm)) {
+                    if (j <= i) continue;
+
                     if (TryIntersect(walls[i].Centerline, walls[j].Centerline, toleranceMm,
                                      out _, out double ti, out double tj)) {
                         breaks[i].Add(ti);

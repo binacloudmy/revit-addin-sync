@@ -25,6 +25,18 @@ namespace Cad2Bim.Views.Rendering {
 
         private static readonly SolidColorBrush BaseStroke = Frozen(Color.FromRgb(0x88, 0x88, 0x88));
 
+        /// <summary>The sheet the drawing sits on. Black reads like a CAD model space, but a
+        /// white sheet is what a drafter sees on paper and is far easier on the eye for a long
+        /// session — so it is a property rather than a constant.</summary>
+        public static readonly DependencyProperty BackdropProperty =
+            DependencyProperty.Register(nameof(Backdrop), typeof(Brush), typeof(CadViewport),
+                new FrameworkPropertyMetadata(Brushes.Black, FrameworkPropertyMetadataOptions.AffectsRender));
+
+        public Brush Backdrop {
+            get => (Brush)GetValue(BackdropProperty);
+            set => SetValue(BackdropProperty, value);
+        }
+
         // Same highlight palette as the cad2bim Viewer's ClassificationHighlightLayer.
         private static readonly Color[] HighlightPalette = [
             Color.FromRgb(0xFF, 0x8C, 0x00),   // orange
@@ -81,7 +93,7 @@ namespace Cad2Bim.Views.Rendering {
 
         protected override void OnRender(DrawingContext dc) {
             // Opaque backdrop doubles as the mouse hit-test surface.
-            dc.DrawRectangle(Brushes.Black, null, new Rect(RenderSize));
+            dc.DrawRectangle(Backdrop ?? Brushes.Black, null, new Rect(RenderSize));
         }
 
         private void OnLayersSourceChanged(DependencyPropertyChangedEventArgs e) {
