@@ -90,6 +90,16 @@ namespace RevitWebAppSync.Commands
                 {
                     transaction.Start();
 
+                    // Revit tries to join every new wall to whatever it touches, and traced
+                    // walls touch constantly: coincident ends, near-parallel runs, four floor
+                    // plans side by side. Each failed join raises a dialog, so a thousand walls
+                    // becomes a thousand interruptions. The joins are not wanted here anyway -
+                    // junctions are the classifier's job, not Revit's guess.
+                    FailureHandlingOptions options = transaction.GetFailureHandlingOptions();
+                    options.SetFailuresPreprocessor(new SilenceJoinFailures());
+                    options.SetClearAfterRollback(true);
+                    transaction.SetFailureHandlingOptions(options);
+
                     foreach (CadWall wall in walls)
                     {
                         try
@@ -138,6 +148,41 @@ namespace RevitWebAppSync.Commands
             }
         }
 
+        /// <summary>
+        /// Clears the join complaints that bulk wall creation raises. Warnings are deleted
+        /// outright; errors are resolved the way the dialog's own default button would, so the
+        /// run continues instead of stopping on the first of a thousand.
+        /// </summary>
+        private sealed class SilenceJoinFailures : IFailuresPreprocessor
+        {
+            public FailureProcessingResult PreprocessFailures(FailuresAccessor accessor)
+            {
+                IList<FailureMessageAccessor> failures = accessor.GetFailureMessages();
+                if (failures.Count == 0) return FailureProcessingResult.Continue;
+
+                bool resolved = false;
+
+                foreach (FailureMessageAccessor failure in failures)
+                {
+                    if (failure.GetSeverity() == FailureSeverity.Warning)
+                    {
+                        accessor.DeleteWarning(failure);
+                        continue;
+                    }
+
+                    if (failure.HasResolutions())
+                    {
+                        accessor.ResolveFailure(failure);
+                        resolved = true;
+                    }
+                }
+
+                return resolved
+                    ? FailureProcessingResult.ProceedWithCommit
+                    : FailureProcessingResult.Continue;
+            }
+        }
+
         private static Autodesk.Revit.DB.Wall CreateWall(
             Document document, CadWall wall, WallType wallType, Level level)
         {
@@ -151,8 +196,19 @@ namespace RevitWebAppSync.Commands
             Curve curve = Line.CreateBound(start, end);
             double height = FromMm(DefaultWallHeightMm);
 
-            return Autodesk.Revit.DB.Wall.Create(
+            Autodesk.Revit.DB.Wall created = Autodesk.Revit.DB.Wall.Create(
                 document, curve, wallType.Id, level.Id, height, 0.0, false, false);
+
+            if (created != null)
+            {
+                // Traced walls meet at whatever angle the drawing had them; letting Revit
+                // resolve those joins produces geometry nobody asked for and a warning for
+                // each one. They are placed as drawn and joined later, deliberately, if at all.
+                WallUtils.DisallowWallJoinAtEnd(created, 0);
+                WallUtils.DisallowWallJoinAtEnd(created, 1);
+            }
+
+            return created;
         }
 
         /// <summary>The classifier works in millimetres; the Revit API works in feet.</summary>
