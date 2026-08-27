@@ -92,6 +92,7 @@ namespace RevitWebAppSync.Commands
                 double originY = model.Segments.Min(segment => Math.Min(segment.P1.y, segment.P2.y));
 
                 int created = 0;
+                var createdIds = new List<ElementId>();
                 var failed = new List<string>();
 
                 using (var transaction = new Transaction(document, "CAD to BIM"))
@@ -112,7 +113,14 @@ namespace RevitWebAppSync.Commands
                     {
                         try
                         {
-                            if (CreateWall(document, wall, wallType, level, originX, originY) != null) created++;
+                            Autodesk.Revit.DB.Wall made =
+                                CreateWall(document, wall, wallType, level, originX, originY);
+
+                            if (made != null)
+                            {
+                                created++;
+                                createdIds.Add(made.Id);
+                            }
                         }
                         catch (Exception ex)
                         {
@@ -124,11 +132,41 @@ namespace RevitWebAppSync.Commands
                     transaction.Commit();
                 }
 
+                // Ask the model what is actually in it rather than trusting the loop's own
+                // tally: a transaction that rolls back, or elements a failure handler quietly
+                // deletes, leave the counter saying one thing and the model saying another.
+                var survivors = new FilteredElementCollector(document)
+                    .OfClass(typeof(Autodesk.Revit.DB.Wall))
+                    .WhereElementIsNotElementType()
+                    .ToElementIds()
+                    .Where(id => createdIds.Contains(id))
+                    .ToList();
+
+                // Select and zoom to them. Nothing else answers "where did they go" as
+                // directly, and a plan view will not show what sits outside its crop.
+                if (survivors.Count > 0)
+                {
+                    uiDocument.Selection.SetElementIds(survivors);
+                    uiDocument.ShowElements(survivors);
+                }
+
                 // Counts are reported against what was found, not just what worked: a
                 // conversion that quietly drops a third of the walls looks identical to one
                 // that succeeded unless the shortfall is stated.
                 var report = new System.Text.StringBuilder();
-                report.AppendLine(created + " of " + walls.Count + " walls created.");
+                report.AppendLine(created + " of " + walls.Count + " walls created, " +
+                                  survivors.Count + " present in the model afterwards.");
+
+                if (survivors.Count == 0 && created > 0)
+                {
+                    report.AppendLine();
+                    report.AppendLine("They were created and are no longer there, which means the " +
+                                      "transaction rolled back rather than the view hiding them.");
+                }
+                else if (survivors.Count > 0)
+                {
+                    report.AppendLine("They are selected and the view has been zoomed to them.");
+                }
                 report.AppendLine();
                 report.AppendLine("Read from " + System.IO.Path.GetFileName(path) + ":");
                 report.AppendLine("  " + model.Segments.Count + " segments, " + model.Texts.Count + " labels");
