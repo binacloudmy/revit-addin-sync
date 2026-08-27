@@ -23,6 +23,18 @@ namespace Tests
         }
 
         [Fact]
+        public void Gateway_FollowsTheGatewayDefault_NotTheAiBase()
+        {
+            // Staging channel: a persisted GatewayUrl of prod (stale, or seeded
+            // by an older bina-defaults.json) must be rewritten to the channel's
+            // GATEWAY default - which is NOT its BASE_URL. BinaConfig passes
+            // DEFAULT_GATEWAY_URL here; passing DEFAULT_AI_BASE_URL sends every
+            // engine turn to a gateway with inference off.
+            Assert.Equal(StaleStaging, UrlResolution.ResolveGateway(Prod, StaleStaging));
+            Assert.Equal(StaleStaging, UrlResolution.ResolveGateway(Prod + "/", StaleStaging));
+        }
+
+        [Fact]
         public void Gateway_Custom_IsHonored()
         {
             Assert.Equal(CustomHost, UrlResolution.ResolveGateway(CustomHost + "/", Prod));
