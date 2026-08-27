@@ -25,12 +25,20 @@ namespace Cad2Bim {
         /// Drafters leave gaps and overshoots at corners; anything under this closes.</summary>
         public const double DefaultJunctionToleranceMm = 150.0;
 
+        /// <summary>Widest gap a room boundary may jump. A single-leaf door is 900 mm and a
+        /// double 1800 mm; past that the gap is a missing wall, not an opening.</summary>
+        public const double DefaultGapBridgeMm = 2000.0;
+
+        /// <summary>How straight two stubs must line up to be joined: cos 25 degrees.</summary>
+        private const double CollinearCosine = 0.906;
+
         /// <summary>
         /// Splits every wall centreline at its crossings with other walls, then merges
         /// coincident ends into shared nodes.
         /// </summary>
         public static WallGraph CreateTopologicalPoints(
-                List<Wall> walls, double toleranceMm = DefaultJunctionToleranceMm) {
+                List<Wall> walls, double toleranceMm = DefaultJunctionToleranceMm,
+                double maxGapMm = DefaultGapBridgeMm) {
 
             // Breakpoints per wall, as distances along that wall's centreline.
             var breaks = new List<List<double>>(walls.Count);
@@ -92,7 +100,108 @@ namespace Cad2Bim {
                 }
             }
 
+            BridgeGaps(graph, maxGapMm);
             return graph;
+        }
+
+        /// <summary>
+        /// Joins wall ends that point straight at each other across a gap.
+        ///
+        /// A room boundary is broken at every doorway — there is no wall across an opening,
+        /// and a drafter leaves a gap wherever a wall stops short. Read literally, such a
+        /// boundary never closes, and no amount of threshold tuning changes that: on the test
+        /// plan the graph came back with 1,653 nodes against 1,601 edges, which is a forest,
+        /// not a floor plan. Rooms stayed at one under every configuration because there were
+        /// no loops to find.
+        ///
+        /// Only collinear stubs are bridged — two ends facing each other along the same line.
+        /// Joining any two nearby ends would invent rooms that the drawing does not show.
+        /// </summary>
+        private static void BridgeGaps(WallGraph graph, double maxGapMm) {
+            var direction = new Dictionary<int, (double X, double Y)>();
+            var degree = new int[graph.Nodes.Count];
+
+            foreach (WallEdge edge in graph.Edges) {
+                degree[edge.A]++;
+                degree[edge.B]++;
+            }
+
+            // The way each dangling end was heading when it stopped.
+            foreach (WallEdge edge in graph.Edges) {
+                Record(edge.A, edge.B);
+                Record(edge.B, edge.A);
+            }
+
+            void Record(int from, int to) {
+                if (degree[from] != 1) return;
+
+                Point a = graph.Nodes[from].Position;
+                Point b = graph.Nodes[to].Position;
+                double dx = a.x - b.x, dy = a.y - b.y;   // outward, away from the wall
+                double length = Math.Sqrt((dx * dx) + (dy * dy));
+                if (length > 0) direction[from] = (dx / length, dy / length);
+            }
+
+            List<int> loose = direction.Keys.OrderBy(n => n).ToList();
+            var bridged = new HashSet<int>();
+            var index = new PointIndex(maxGapMm);
+            var buckets = new Dictionary<(long, long), List<int>>();
+
+            foreach (int node in loose) {
+                Point p = graph.Nodes[node].Position;
+                var key = ((long)Math.Floor(p.x / maxGapMm), (long)Math.Floor(p.y / maxGapMm));
+                if (!buckets.TryGetValue(key, out List<int>? bucket)) {
+                    bucket = new List<int>();
+                    buckets[key] = bucket;
+                }
+                bucket.Add(node);
+            }
+
+            foreach (int node in loose) {
+                if (bridged.Contains(node)) continue;
+
+                Point from = graph.Nodes[node].Position;
+                var heading = direction[node];
+
+                int best = -1;
+                double bestGap = double.MaxValue;
+
+                long cx = (long)Math.Floor(from.x / maxGapMm);
+                long cy = (long)Math.Floor(from.y / maxGapMm);
+
+                for (long ox = -1; ox <= 1; ox++) {
+                    for (long oy = -1; oy <= 1; oy++) {
+                        if (!buckets.TryGetValue((cx + ox, cy + oy), out List<int>? bucket)) continue;
+
+                        foreach (int other in bucket) {
+                            if (other == node || bridged.Contains(other)) continue;
+
+                            Point to = graph.Nodes[other].Position;
+                            double dx = to.x - from.x, dy = to.y - from.y;
+                            double gap = Math.Sqrt((dx * dx) + (dy * dy));
+                            if (gap <= 0 || gap > maxGapMm || gap >= bestGap) continue;
+
+                            // The other end has to lie ahead of this one, and face back at it.
+                            double ahead = ((dx / gap) * heading.X) + ((dy / gap) * heading.Y);
+                            if (ahead < CollinearCosine) continue;
+
+                            var facing = direction[other];
+                            double back = ((-dx / gap) * facing.X) + ((-dy / gap) * facing.Y);
+                            if (back < CollinearCosine) continue;
+
+                            best = other;
+                            bestGap = gap;
+                        }
+                    }
+                }
+
+                if (best < 0) continue;
+
+                graph.Edges.Add(new WallEdge(node, best, graph.Nodes[node].Walls.FirstOrDefault()
+                                                          ?? graph.Nodes[best].Walls[0]));
+                bridged.Add(node);
+                bridged.Add(best);
+            }
         }
 
         internal static Point PointAlong(Segment segment, double distance) {

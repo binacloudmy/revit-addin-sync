@@ -18,7 +18,8 @@ namespace Cad2Bim.Headless {
                     "  --hatch                     keep hatch boundaries\n" +
                     "  --dimensions                keep dimension geometry\n" +
                     "  --layers                    list every layer and its segment count\n" +
-                    "  --texts                     list the text found in the drawing");
+                    "  --texts                     list the text found in the drawing\n" +
+                    "  --faces                     why room loops were kept or dropped");
                 return 2;
             }
 
@@ -93,6 +94,19 @@ namespace Cad2Bim.Headless {
                               "(ends that meet nothing — every one is a hole in a room boundary)");
             Console.WriteLine($"  junctions {graph.Nodes.Count(n => n.Degree >= 3)}");
 
+            if (args.Contains("--faces")) {
+                var lengths = walls.Select(w => w.Centerline.Length).OrderBy(l => l).ToList();
+                if (lengths.Count > 0) {
+                    Console.WriteLine($"  wall len  min={lengths[0]:0} median={lengths[lengths.Count/2]:0} max={lengths[^1]:0} mm");
+                }
+                // connected components over the graph
+                var parent = Enumerable.Range(0, graph.Nodes.Count).ToArray();
+                int Find(int x) { while (parent[x] != x) { parent[x] = parent[parent[x]]; x = parent[x]; } return x; }
+                foreach (var e in graph.Edges) { int a = Find(e.A), b = Find(e.B); if (a != b) parent[a] = b; }
+                int comps = Enumerable.Range(0, graph.Nodes.Count).Count(i => Find(i) == i);
+                Console.WriteLine($"  components {comps}  (cycles = {graph.Edges.Count - graph.Nodes.Count + comps})");
+            }
+
             List<Opening> openings = CadClassifier.ClassifyOpenings(walls, model.Segments, model.Arcs);
             Console.WriteLine();
             Console.WriteLine("-- openings --");
@@ -114,6 +128,16 @@ namespace Cad2Bim.Headless {
             Console.WriteLine($"  area      {spaces.Sum(s => s.Area) / 1_000_000.0:0.#} m² total");
             Console.WriteLine($"  external  {walls.Count(w => w.IsOutdoor)} of {walls.Count} walls " +
                               "border fewer than two rooms");
+
+            if (args.Contains("--faces")) {
+            Console.WriteLine($"  [faces] wrong-winding={Diagnostics.Dropped} " +
+                              $"kept={Diagnostics.Areas.Count} too-small={Diagnostics.TooSmall}");
+                if (Diagnostics.Areas.Count > 0) {
+                    var sorted = Diagnostics.Areas.OrderBy(a => a).ToList();
+                    Console.WriteLine($"  [faces] area m2: min={sorted[0]/1e6:0.###} " +
+                                      $"median={sorted[sorted.Count/2]/1e6:0.###} max={sorted[^1]/1e6:0.#}");
+                }
+            }
 
             foreach (Space space in spaces.OrderByDescending(s => s.Area).Take(15)) {
                 Console.WriteLine($"    {space.Area / 1_000_000.0,8:0.0} m²  {space.Name ?? "(unnamed)"}");

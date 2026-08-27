@@ -1,4 +1,13 @@
 namespace Cad2Bim {
+    /// <summary>Why faces were rejected, for the --faces flag. A room that fails to appear
+    /// is either a loop the traversal never closed or one it closed and then discarded, and
+    /// those two have completely different fixes.</summary>
+    public static class Diagnostics {
+        public static int Dropped;
+        public static int TooSmall;
+        public static List<double> Areas = new();
+    }
+
     public partial class CadClassifier {
         /// <summary>Smallest room worth reporting. Below this the loop is a duct, a column
         /// box or a sliver left by two walls crossing.</summary>
@@ -82,10 +91,12 @@ namespace Cad2Bim {
 
                 // Counter-clockwise means an interior face; the outside of the building is
                 // the single loop that comes back clockwise.
-                if (SignedArea(boundary) <= 0) continue;
+                double signed = SignedArea(boundary);
+                if (signed <= 0) { Diagnostics.Dropped++; continue; }
 
                 var space = new Space(boundary, walls);
-                if (space.Area < minAreaMm2) continue;
+                Diagnostics.Areas.Add(space.Area);
+                if (space.Area < minAreaMm2) { Diagnostics.TooSmall++; continue; }
 
                 spaces.Add(space);
             }
