@@ -349,6 +349,7 @@ namespace RevitWebAppSync.UI.Copilot
                 // populated when the agent fell back to codegen → the pane
                 // runs it through the normal executor (compile-gate + tx).
                 Code = outcome.Code ?? "",
+                Failed = !outcome.Success,
                 Reply = !string.IsNullOrWhiteSpace(outcome.Reply)
                     ? outcome.Reply
                     : (outcome.Success ? "Done." : (outcome.Error ?? "Tool run failed.")),

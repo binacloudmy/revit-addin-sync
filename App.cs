@@ -72,6 +72,37 @@ namespace RevitWebAppSync
         // Phase 4: owns the local engine process when EngineAutoSpawn is on.
         public static RevitWebAppSync.Services.EngineManager VibeEngine { get; private set; }
 
+        /// <summary>Raised after a BINA AI sign-in or sign-out has been persisted
+        /// (BrowserLoginCommand). The Copilot pane listens: it unlocks the
+        /// composer and re-sends the prompt it kept while signed out.</summary>
+        public static event Action SessionChanged;
+        internal static void RaiseSessionChanged()
+        {
+            try { SessionChanged?.Invoke(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] SessionChanged handler failed: " + ex.Message); }
+        }
+
+        /// <summary>Run the ribbon's "Login to AI" (BrowserLoginCommand) from
+        /// non-command code — the pane's Sign-in card. PostCommand queues it on
+        /// Revit's UI thread exactly as a click would. Composite id form for an
+        /// add-in button: CustomCtrl_%CustomCtrl_%{tab}%{panel}%{buttonName}.
+        /// False when the id cannot be resolved (ribbon not built yet).</summary>
+        internal static bool PostLoginToAI()
+        {
+            try
+            {
+                var id = RevitCommandId.LookupCommandId("CustomCtrl_%CustomCtrl_%Bina%BINA AI%Login");
+                if (id == null || UiApp == null || !UiApp.CanPostCommand(id)) return false;
+                UiApp.PostCommand(id);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[BINA] PostLoginToAI failed: " + ex.Message);
+                return false;
+            }
+        }
+
         // BinaVibe v2 outbound WSS tunnel client (PRD §6.5 / production
         // transport). When BINA_VIBE_MCP_TRANSPORT is "wss" or "both",
         // the addin dials out to bina-ai at /revit-copilot/mcp/tunnel and the

@@ -510,6 +510,26 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         public ICommand SubmitCommand { get => (ICommand)GetValue(SubmitCommandProperty); set => SetValue(SubmitCommandProperty, value); }
 
         // True while a reply is streaming — flips the send button to a Stop button.
+        /// <summary>Signed out: the composer cannot send. The box goes sunken,
+        /// the editor is read-only, the send ring dims, and the hint says why.
+        /// Typing into a pane that cannot send is the frustration this
+        /// prevents. Bound to CopilotViewModel.IsSignedOut.</summary>
+        public static readonly DependencyProperty LockedProperty = DependencyProperty.Register(
+            nameof(Locked), typeof(bool), typeof(PromptBar), new PropertyMetadata(false, OnLockedChanged));
+        public bool Locked { get => (bool)GetValue(LockedProperty); set => SetValue(LockedProperty, value); }
+
+        private static void OnLockedChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            var pb = (PromptBar)d;
+            bool locked = (bool)e.NewValue;
+            if (pb.Input?.Editor != null) pb.Input.Editor.IsReadOnly = locked;
+            if (pb.ComposerBox != null)
+                pb.ComposerBox.SetResourceReference(Border.BackgroundProperty, locked ? "Cp.Sunken" : "Cp.Bg");
+            if (pb.LockedHint != null) pb.LockedHint.Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
+            if (pb.PlaceholderHint != null) pb.PlaceholderHint.Visibility = locked ? Visibility.Collapsed : Visibility.Visible;
+            pb.UpdateSendVisual();
+        }
+
         public static readonly DependencyProperty BusyProperty = DependencyProperty.Register(
             nameof(Busy), typeof(bool), typeof(PromptBar), new PropertyMetadata(false, OnBusyChanged));
         public bool Busy { get => (bool)GetValue(BusyProperty); set => SetValue(BusyProperty, value); }
@@ -535,11 +555,13 @@ namespace RevitWebAppSync.UI.Copilot.Controls
         private void UpdateSendVisual()
         {
             if (SendBtn == null || SendIcon == null || Input?.Editor == null) return;
-            bool armed = Busy || _pendingTool != null || !string.IsNullOrWhiteSpace(Input.Editor.Text);
+            bool armed = !Locked && (Busy || _pendingTool != null || !string.IsNullOrWhiteSpace(Input.Editor.Text));
             var accent = TryFindResource("Cp.Accent") as System.Windows.Media.Brush ?? Brushes.RoyalBlue;
+            var faint = TryFindResource("Cp.Line") as System.Windows.Media.Brush ?? Brushes.LightGray;
             SendBtn.Background = Brushes.Transparent;
-            SendBtn.BorderBrush = accent;
+            SendBtn.BorderBrush = Locked ? faint : accent;
             SendBtn.Opacity = armed ? 1.0 : 0.45;
+            SendBtn.IsEnabled = !Locked;
             if (Busy)
             {
                 SendIcon.Fill = accent;

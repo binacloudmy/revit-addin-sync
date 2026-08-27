@@ -107,9 +107,10 @@
                                 ToolTip="Toggle the reasoning timeline for the next turn">
                             <Button.Template>
                                 <ControlTemplate TargetType="Button">
-                                    <!-- v6: bordered pill (radius 99), not a bare hover pad. -->
-                                    <Border x:Name="bd" Background="Transparent" CornerRadius="99" Padding="10,3,10,3"
-                                            BorderThickness="1" BorderBrush="{DynamicResource Cp.Line}">
+                                    <!-- 2026-08-27 composer refresh: quiet text toggle (dot + label,
+                                         hover pad only) — the bordered ring made it read as a
+                                         different control class from the "Ask first" chip next to it. -->
+                                    <Border x:Name="bd" Background="Transparent" CornerRadius="8" Padding="9,4,9,4">
                                         <ContentPresenter/>
                                     </Border>
                                     <ControlTemplate.Triggers>
@@ -153,17 +154,17 @@
                                       Data="M1,5 L4,1.5 L7,5"/>
                             </StackPanel>
                         </Button>
-                        <!-- send / stop (v6 btn-primary btn-icon): 30×30, radius 9,
-                             accent outline + accent arrow-up; dimmed until armed;
+                        <!-- send / stop: 32×32 CIRCLE (2026-08-27 refresh, was a radius-9
+                             square), accent ring + accent arrow-up; dimmed until armed;
                              stop square while a reply streams. Fill/border colours
                              are driven from UpdateSendVisual in code-behind. -->
-                        <Button x:Name="SendBtn" DockPanel.Dock="Right" Width="30" Height="30" Cursor="Hand"
+                        <Button x:Name="SendBtn" DockPanel.Dock="Right" Width="32" Height="32" Cursor="Hand"
                                 Background="Transparent" BorderThickness="0" VerticalAlignment="Center"
                                 FocusVisualStyle="{x:Null}" ToolTip="Send">
                             <Button.Template>
                                 <ControlTemplate TargetType="Button">
-                                    <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="9"
-                                            BorderThickness="1" BorderBrush="{TemplateBinding BorderBrush}">
+                                    <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="16"
+                                            BorderThickness="1.5" BorderBrush="{TemplateBinding BorderBrush}">
                                         <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                     </Border>
                                     <ControlTemplate.Triggers>
@@ -278,6 +279,12 @@
                 </Grid.ColumnDefinitions>
                 <!-- Single line; truncates with ellipsis on narrow widths so it
                      always yields to the plan button on the right. -->
+                <!-- Locked (signed out): replaces the tools hint with why the
+                     composer will not send. Toggled by OnLockedChanged. -->
+                <TextBlock x:Name="LockedHint" Grid.Column="0" VerticalAlignment="Center" Visibility="Collapsed"
+                           TextTrimming="CharacterEllipsis" Margin="2,0,8,0"
+                           FontSize="10" Foreground="{DynamicResource Cp.Muted}"
+                           Text="Sign in to BINA AI to send — use the card above, or Bina tab → Login to AI"/>
                 <TextBlock x:Name="PlaceholderHint" Grid.Column="0" VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis" Margin="2,0,8,0"
                            FontSize="10" Foreground="{DynamicResource Cp.Faint}">

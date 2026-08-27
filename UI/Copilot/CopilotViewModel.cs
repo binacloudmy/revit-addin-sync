@@ -66,6 +66,15 @@ namespace RevitWebAppSync.UI.Copilot
             ClearHighlightsCommand = new RelayCommand(_ => Highlights.Clear());
             ChatSendCommand = new RelayCommand(ChatSendAny);
             FollowUpCommand = new RelayCommand(ChatSendAny);
+
+            // Sign-in state (2026-08-27 sign-in states): the composer locks
+            // while signed out and the prompt typed into it is kept; a BINA AI
+            // sign-in (App.SessionChanged) unlocks it and re-sends that prompt.
+            try { IsSignedOut = !(BinaConfig.Load()?.IsLoggedIn() ?? false); } catch { IsSignedOut = false; }
+            App.SessionChanged += OnSessionChanged;
+            // Engine strip: the turn preflight reports its slow steps here.
+            RevitWebAppSync.Services.ToolLoopService.PreflightProgress += text =>
+                System.Windows.Application.Current?.Dispatcher?.BeginInvoke(new Action(() => EngineStatus = text));
             CancelSendCommand = new RelayCommand(_ => CancelSend());
             ChatRunCommand = new RelayCommand(p => ChatRun(p as ChatMessage));
             ChatRegenerateCommand = new RelayCommand(p => ChatRegenerate(p as ChatMessage));
@@ -456,6 +465,114 @@ namespace RevitWebAppSync.UI.Copilot
         // PromptBar so the send button becomes a Stop button the user can click
         // to cancel the prompt mid-reply.
         private bool _isSending;
+        /// <summary>Raised by the 402 Attention card's "See plans"; ChatView
+        /// forwards it to the pane's existing upgrade flow.</summary>
+        public event Action UpgradeRequested;
+
+        private bool _isSignedOut;
+        /// <summary>No BINA AI session. Bound to PromptBar.Locked.</summary>
+        public bool IsSignedOut
+        {
+            get => _isSignedOut;
+            set { if (_isSignedOut == value) return; _isSignedOut = value; Raise(nameof(IsSignedOut)); }
+        }
+
+        private string _engineStatus;
+        /// <summary>Text for the strip above the composer while the engine
+        /// preflight signs in / downloads / starts. Null hides the strip.</summary>
+        public string EngineStatus
+        {
+            get => _engineStatus;
+            set { if (_engineStatus == value) return; _engineStatus = value; Raise(nameof(EngineStatus)); }
+        }
+
+        // The prompt kept while signed out — sent automatically after sign-in.
+        private PromptPayload _pendingAfterSignIn;
+        private SlashTool _pendingSlashAfterSignIn;
+
+        private void OnSessionChanged()
+        {
+            System.Windows.Application.Current?.Dispatcher?.BeginInvoke(new Action(() =>
+            {
+                bool signedOut;
+                try { signedOut = !(BinaConfig.Load()?.IsLoggedIn() ?? false); } catch { signedOut = false; }
+                IsSignedOut = signedOut;
+                if (signedOut) return;
+                // Drop the Sign-in card(s) now that they are answered.
+                for (int i = Thread.Count - 1; i >= 0; i--)
+                    if (Thread[i].Kind == CpMsgKind.SignIn) Thread.RemoveAt(i);
+                var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
+                var slash = _pendingSlashAfterSignIn; _pendingSlashAfterSignIn = null;
+                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, slash);
+            }));
+        }
+
+        /// <summary>The Sign-in card: replaces the old chat bubble that named the
+        /// wrong ribbon button ("BINA Cloud → Login" is the CDE sign-in and never
+        /// mints the engine token). Names the ACCOUNT, not a button.</summary>
+        private ChatMessage SignInCard(bool tokenExpired = false) => new ChatMessage
+        {
+            Role = "ai", Kind = CpMsgKind.SignIn,
+            Title = tokenExpired ? "Your BINA AI sign-in has expired" : "Sign in to use the Copilot",
+            Body = "Your prompt is kept. Sign in once and it runs — the Copilot needs your BINA AI account for credits and the model.",
+            PrimaryLabel = "Sign in to BINA AI",
+            PrimaryAction = () =>
+            {
+                if (!App.PostLoginToAI())
+                    Thread.Add(AttentionCard("Couldn't open the sign-in", "Use the ribbon: Bina tab → Login to AI.", "pane · PostLoginToAI · command id not resolved"));
+            },
+            SecondaryLabel = "Not now",
+            SecondaryAction = () => { _pendingAfterSignIn = null; _pendingSlashAfterSignIn = null; },
+        };
+
+        /// <summary>One Attention card for every "do one thing" failure.</summary>
+        private ChatMessage AttentionCard(string title, string body, string origin,
+            string primaryLabel = "Try again", Action primary = null, string secondaryLabel = null, Action secondary = null)
+        {
+            var card = new ChatMessage
+            {
+                Role = "ai", Kind = CpMsgKind.Attention,
+                Title = title, Body = body, Origin = origin,
+                PrimaryLabel = primaryLabel, SecondaryLabel = secondaryLabel, SecondaryAction = secondary,
+            };
+            card.PrimaryAction = primary ?? (() =>
+            {
+                var pending = _pendingAfterSignIn; _pendingAfterSignIn = null;
+                if (pending != null) ChatSend(pending.Text, pending.ImagesBase64, pending.Files, _pendingSlashAfterSignIn);
+            });
+            return card;
+        }
+
+        /// <summary>Map a failed preflight (ToolLoopService.LastFailedStep) or a
+        /// gateway rejection to a card. Returns null when the failure is not one
+        /// the drafter can act on (falls through to the normal error path).</summary>
+        private ChatMessage CardForFailure(string error, PromptPayload retry)
+        {
+            var step = RevitWebAppSync.Services.ToolLoopService.LastFailedStep;
+            var detail = RevitWebAppSync.Services.ToolLoopService.LastFailureDetail;
+            if (step == RevitWebAppSync.Services.PreflightStep.LoginRequired) { _pendingAfterSignIn = retry; return SignInCard(); }
+            if (step != null)
+            {
+                _pendingAfterSignIn = retry;
+                var origin = "preflight · " + step + (string.IsNullOrEmpty(detail) ? "" : " · " + detail);
+                return AttentionCard(error ?? "BINA Engine is not ready", "Nothing was changed in the model.", origin);
+            }
+            var e = error ?? "";
+            // Gateway rejections now carry the OpenAI error shape (bina-ai #121);
+            // the message text is what reaches us through the engine.
+            if (e.IndexOf("login required", StringComparison.OrdinalIgnoreCase) >= 0
+                || e.IndexOf("device token", StringComparison.OrdinalIgnoreCase) >= 0)
+            { _pendingAfterSignIn = retry; return SignInCard(tokenExpired: true); }
+            if (e.IndexOf("credit limit", StringComparison.OrdinalIgnoreCase) >= 0)
+                return AttentionCard("AI credit limit reached for this period", "Your plan's credits are used up. Upgrade, or wait for the next period.",
+                    "gateway · 402 insufficient_quota", primaryLabel: "See plans", primary: () => UpgradeRequested?.Invoke(), secondaryLabel: "Try again",
+                    secondary: () => { if (retry != null) ChatSend(retry.Text, retry.ImagesBase64, retry.Files); });
+            if (e.IndexOf("Unknown model error", StringComparison.OrdinalIgnoreCase) >= 0
+                || e.IndexOf("stream connect failed", StringComparison.OrdinalIgnoreCase) >= 0)
+            { _pendingAfterSignIn = retry; return AttentionCard("The Copilot couldn't reach its model", "Check the network and try again. Nothing was changed in the model.", "engine · " + e.Trim()); }
+            return null;
+        }
+
         public bool IsSending
         {
             get => _isSending;
@@ -736,11 +853,15 @@ namespace RevitWebAppSync.UI.Copilot
             var authCfg = BinaConfig.Load();
             if (authCfg == null || !authCfg.IsLoggedIn())
             {
-                Thread.Add(new ChatMessage
-                {
-                    Role = "ai", Kind = CpMsgKind.AiReply,
-                    Text = "Please sign in to use BINA Copilot — click BINA Cloud → Login in the ribbon, then try again.",
-                });
+                // Sign-in card in the thread, composer locks, prompt kept and
+                // re-sent after sign-in (OnSessionChanged). The old bubble here
+                // named "BINA Cloud → Login" - the CDE sign-in, which never mints
+                // the engine token - and had nothing to click.
+                _pendingAfterSignIn = new PromptPayload { Text = text, ImagesBase64 = images, Files = files };
+                _pendingSlashAfterSignIn = slashChip;
+                IsSignedOut = true;
+                Thread.Add(new ChatMessage { Role = "user", Kind = CpMsgKind.User, Text = text, SlashCommand = slashChip });
+                Thread.Add(SignInCard());
                 return;
             }
 
@@ -1152,6 +1273,14 @@ namespace RevitWebAppSync.UI.Copilot
             // The credit was consumed by the backend during RouteAsync — refresh the
             // footer meter so usage ticks up live (best-effort).
             _ = RefreshUsageAsync();
+
+            // A failed turn the drafter can act on becomes a card (Sign-in /
+            // Attention) instead of a reply bubble carrying the raw reason.
+            if (rr != null && rr.Failed)
+            {
+                var card = CardForFailure(rr.Reply, new PromptPayload { Text = routeText });
+                if (card != null) { ReplaceLastThinking(card); return; }
+            }
 
             RenderRouteResult(rr, routeText, displayText, fallbackToolId, historyFiles);
         }
