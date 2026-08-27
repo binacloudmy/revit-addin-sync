@@ -16,11 +16,6 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         private bool _stepsOpen = true;
         private bool _specOpen = false;
 
-        // Back-reference so action clicks route through the panel's DispatchAction
-        // (which handles backend auto-fix + audit persistence). Set by the panel
-        // after construction — nullable-safe on old callsites.
-        internal RevitWebAppSync.UI.JkrComplianceDashboardPanel HostPanel { get; set; }
-
         public IssueFocusWindow()
         {
             InitializeComponent();
@@ -252,8 +247,9 @@ namespace RevitWebAppSync.UI.Jkr.Modals
         private void Reopen_Click(object s, RoutedEventArgs e)   => _Act(IssueStatus.Open,     advance: false);
         private void Locate_Click(object s, RoutedEventArgs e)
         {
-            if (_vm?.ActiveIssue == null) return;
-            HostPanel?.LocateInRevit(_vm.ActiveIssue);
+            // Live-model locate requires the WIRE layer; the fixture build has no
+            // Revit context. The C14 panel no longer opens this window (D11) —
+            // kept only as a standalone fallback.
         }
 
         private void OpenPdf_Click(object s, MouseButtonEventArgs e)
@@ -273,11 +269,8 @@ namespace RevitWebAppSync.UI.Jkr.Modals
             if (newStatus == IssueStatus.Ignored && !issue.CanIgnore) return;
             if (newStatus == IssueStatus.ManualFixNeeded && !issue.CanMarkManual) return;
 
-            // Route through the panel so backend auto-fix + audit persistence fire.
-            // Falls back to in-memory flip only if the modal was opened without a host
-            // (shouldn't happen in prod — guard keeps the window self-sufficient for tests).
-            if (HostPanel != null) HostPanel.InvokeAction(issue, newStatus, advance);
-            else _vm.ApplyAction(issue, newStatus, advance);
+            // Route through the VM so backend auto-fix + audit persistence fire.
+            _vm.ApplyAction(issue, newStatus, advance);
         }
         private void SpecToggle_Click(object s, RoutedEventArgs e) { _specOpen = !_specOpen; Render(); }
         private void StepsToggle_Click(object s, RoutedEventArgs e) { _stepsOpen = !_stepsOpen; Render(); }

@@ -6,6 +6,9 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Windows.Data;
 using System.Windows.Threading;
+using System.Threading.Tasks;
+using RevitWebAppSync.Models;
+using RevitWebAppSync.Services;
 
 namespace RevitWebAppSync.UI.Jkr.ViewModels
 {
@@ -22,6 +25,19 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
     }
 
     public enum TabKind { Open, Ignored, Resolved, Manual }
+
+    // Copilot run screens. S4 (inline detail) is an overlay on S3/S5, not a whole screen.
+    public enum CopilotScreen { S1, S2, S3, S5, S6 }
+    public enum CopilotTab { Open, Manual, Ignored, Resolved }
+
+    /// <summary>A section filter chip (All, or one of A..E).</summary>
+    public sealed class SectionOption
+    {
+        public SectionOption(string code, string label) { Code = code; Label = label; }
+        public string Code { get; }
+        public string Label { get; }
+        public override string ToString() => Label;
+    }
 
     /// <summary>A selectable discipline for the compliance scan: backend code + UI label.</summary>
     public sealed class DisciplineOption
@@ -96,12 +112,27 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
             set { _activeIssue = value; Raise(); Raise(nameof(ActiveIndexDisplay)); Raise(nameof(QueueProgress)); }
         }
 
-        private int _selectedLodLevel = 300;
-        public int SelectedLodLevel
+        private int? _selectedLodLevel;
+        /// <summary>Detail level for the copilot run. Nullable (D5): the run is
+        /// gated on a LOD having been chosen — there is no silent default.</summary>
+        public int? SelectedLodLevel
         {
             get => _selectedLodLevel;
-            set { if (_selectedLodLevel != value) { _selectedLodLevel = value; Raise(); } }
+            set
+            {
+                if (_selectedLodLevel != value)
+                {
+                    _selectedLodLevel = value;
+                    Raise();
+                    Raise(nameof(NoLod));
+                    Raise(nameof(Ready));
+                    Raise(nameof(RunLabel));
+                    Raise(nameof(CanRun));
+                }
+            }
         }
+        public bool NoLod => !_selectedLodLevel.HasValue;
+        public bool Ready => _selectedLodLevel.HasValue;
 
         /// <summary>Available LOD levels for the dropdown.</summary>
         public int[] LodLevels { get; } = { 100, 200, 300, 400, 500 };
@@ -407,6 +438,447 @@ namespace RevitWebAppSync.UI.Jkr.ViewModels
                 c.TotalCount = items.Count;
             }
         }
+
+        // ══════════════════════ JKR Audit Copilot (C14) ══════════════════════
+        // Screen state machine + run surface. The SCREENS card binds XAML to these
+        // members. Decisions map rule id → CellDecision (D10); every score is
+        // derived deterministically by JkrCopilotMath.
+
+        public IJkrCopilotSource CopilotSource { get; set; } = new FixtureCopilotSource();
+
+        private CopilotScreen _screen = CopilotScreen.S1;
+        public CopilotScreen CurrentScreen
+        {
+            get => _screen;
+            private set
+            {
+                if (_screen == value) return;
+                _screen = value;
+                Raise(nameof(CurrentScreen));
+                Raise(nameof(IsS1)); Raise(nameof(IsS2)); Raise(nameof(IsS3));
+                Raise(nameof(IsS5)); Raise(nameof(IsS6)); Raise(nameof(CanZoom));
+            }
+        }
+        public bool IsS1 => _screen == CopilotScreen.S1;
+        public bool IsS2 => _screen == CopilotScreen.S2;
+        public bool IsS3 => _screen == CopilotScreen.S3;
+        public bool IsS5 => _screen == CopilotScreen.S5;
+        public bool IsS6 => _screen == CopilotScreen.S6;
+        public bool CanZoom => _screen == CopilotScreen.S3 || _screen == CopilotScreen.S5;
+
+        private bool _zoomed;
+        public bool IsZoomed { get => _zoomed; set { if (_zoomed != value) { _zoomed = value; Raise(); } } }
+
+        // ── S1 run parameters ──
+        private string _reportLanguage = "BM";   // D6: ms | en, default BM
+        public string ReportLanguage { get => _reportLanguage; set { _reportLanguage = value; Raise(); } }
+        private bool _densityComfortable;         // D7
+        public bool IsDensityComfortable { get => _densityComfortable; set { _densityComfortable = value; Raise(); } }
+
+        public IReadOnlyList<JkrCopilotPhase> Phases =>
+            RunData?.Phases ?? FixtureCopilotSource.DesignPhases;
+        public IReadOnlyDictionary<int, JkrCopilotLod> Lods =>
+            RunData?.Lods ?? FixtureCopilotSource.DesignLods;
+
+        private bool _isRunning;
+        public bool IsRunning { get => _isRunning; private set { _isRunning = value; Raise(nameof(IsRunning)); Raise(nameof(CanRun)); } }
+        /// <summary>Run is disabled (canExecute=false) until a LOD is chosen.</summary>
+        public bool CanRun => !IsRunning && Ready;
+        public string RunLabel => IsRunning ? "Scanning…" : (NoLod ? "Choose a detail level to run" : "Run audit");
+
+        public async Task RunAsync()
+        {
+            if (!CanRun) return;
+            IsRunning = true;
+            _decisions = new Dictionary<string, CellDecision>();
+            DetailRule = null; _detailIndex = 0; ConfirmRequest = null;
+            CurrentScreen = CopilotScreen.S2;
+            _activeStep = 0;
+            RunProgress = BuildRunProgress(0);
+            Raise(nameof(RunProgress));
+            try
+            {
+                var req = new PanelRunRequest
+                {
+                    LodLevel = _selectedLodLevel,
+                    Discipline = SelectedDiscipline,
+                    ReportLanguage = ReportLanguage,
+                    IsDensityComfortable = IsDensityComfortable,
+                };
+                var data = await CopilotSource.LoadRunAsync(req);
+                RunData = data;
+                ComputeResults(data);
+                CurrentScreen = CopilotScreen.S3;
+            }
+            finally
+            {
+                IsRunning = false;
+                Raise(nameof(RunLabel));
+            }
+        }
+
+        /// <summary>Advance the S2 per-section scan marker (driven by the UI timer). Reaches
+        /// DesignSections.Count so the final section E also lands on "done" (design: done = step &gt; i).</summary>
+        public void AdvanceRunStep()
+        {
+            if (CurrentScreen != CopilotScreen.S2) return;
+            if (_activeStep < FixtureCopilotSource.DesignSections.Count)
+            {
+                _activeStep++;
+                RunProgress = BuildRunProgress(_activeStep);
+                Raise(nameof(RunProgress));
+            }
+        }
+
+        public RunProgress RunProgress { get; private set; }
+        private int _activeStep;
+
+        private RunProgress BuildRunProgress(int step)
+        {
+            var stepIds = FixtureCopilotSource.DesignSections.Take(step).Select(s => s.Id).ToHashSet();
+            var sections = new List<RunSectionProgress>();
+            int i = 0;
+            foreach (var s in FixtureCopilotSource.DesignSections)
+            {
+                int pct = 0;
+                if (i < step && RunData != null)
+                {
+                    pct = JkrCopilotMath.Section(RunData.Rules, _decisions, s).Pct;
+                }
+                sections.Add(new RunSectionProgress
+                {
+                    Id = s.Id,
+                    Name = s.Name,
+                    Stat = i < step ? "done" : (i == step ? "scanning" : "queued"),
+                    Pct = pct,
+                });
+                i++;
+            }
+            // S2 "cells the AI will not judge": manual cells in the sections already scanned
+            // (design runManual = manual rules with Sec index < step), thousands-formatted.
+            int runManual = RunData == null
+                ? 0
+                : RunData.Rules
+                    .Where(r => r.Kind == "manual" && stepIds.Contains(r.Sec))
+                    .Sum(r => r.Cells);
+            return new RunProgress
+            {
+                ActiveStep = step,
+                Sections = sections,
+                ManualCellsLabel = JkrCopilotMath.Fmt(runManual),
+            };
+        }
+
+        // ── Results ──
+        public JkrCopilotRunData RunData { get; private set; }
+        public ScoreSummary Summary { get; private set; }
+        public int RowsFail { get; private set; }
+        public string Leverage { get; private set; }
+        public IReadOnlyList<JkrCopilotRule> TopFixes { get; private set; } = Array.Empty<JkrCopilotRule>();
+        public IReadOnlyList<SectionScore> Sections { get; private set; } = Array.Empty<SectionScore>();
+        public IReadOnlyList<RuleGroup> Groups { get; private set; } = Array.Empty<RuleGroup>();
+
+        private Dictionary<string, CellDecision> _decisions = new Dictionary<string, CellDecision>();
+
+        public int OpenRuleCells => RunData == null ? 0 : JkrCopilotMath.FailedCells(RunData.Rules, _decisions);
+        public int ManualRuleCells => RunData == null ? 0 : JkrCopilotMath.ManualCells(RunData.Rules, _decisions);
+        public int IgnoredRuleCells => RunData == null ? 0 : JkrCopilotMath.IgnoredCells(RunData.Rules, _decisions);
+        public int ResolvedRuleCells => RunData == null ? 0 : JkrCopilotMath.ResolvedCells(RunData.Rules, _decisions);
+
+        private void ComputeResults(JkrCopilotRunData data)
+        {
+            Summary = JkrCopilotMath.Summary(data.Rules, _decisions, data.TotalAi);
+            RowsFail = JkrCopilotMath.RowsFail(data.Rules, _decisions);
+            Leverage = JkrCopilotMath.Leverage(data.Rules, _decisions);
+            TopFixes = JkrCopilotMath.TopFixes(data.Rules, _decisions);
+            Sections = data.Sections.Select(s => JkrCopilotMath.Section(data.Rules, _decisions, s)).ToList();
+            RefreshRuleList();
+            RaiseAllResults();
+        }
+
+        private void RaiseAllResults()
+        {
+            Raise(nameof(Summary)); Raise(nameof(RowsFail)); Raise(nameof(Leverage)); Raise(nameof(TopFixes));
+            Raise(nameof(Sections)); Raise(nameof(Groups)); Raise(nameof(OpenRuleCells)); Raise(nameof(ManualRuleCells));
+            Raise(nameof(IgnoredRuleCells)); Raise(nameof(ResolvedRuleCells)); Raise(nameof(FilteredRuleCount));
+            Raise(nameof(HasFilteredRules));
+        }
+
+        private void RefreshAfterDecision() => ComputeResults(RunData);
+
+        // ── Tabs / filters / list ──
+        private CopilotTab _copilotTab = CopilotTab.Open;
+        public CopilotTab ActiveCopilotTab
+        {
+            get => _copilotTab;
+            set
+            {
+                if (_copilotTab != value) { _copilotTab = value; DetailRule = null; RefreshRuleList(); Raise(nameof(ActiveCopilotTab)); }
+            }
+        }
+        private string _searchQuery = "";
+        public string SearchQuery
+        {
+            get => _searchQuery;
+            set
+            {
+                var v = value ?? "";
+                if (_searchQuery == v) return;
+                _searchQuery = v;
+                RefreshRuleList();
+                Raise(nameof(SearchQuery)); Raise(nameof(FilteredRuleCount)); Raise(nameof(HasFilteredRules));
+            }
+        }
+        private string _selectedSection;          // null = All
+        public string SelectedSection
+        {
+            get => _selectedSection;
+            set { if (_selectedSection == value) return; _selectedSection = value; RefreshRuleList(); Raise(nameof(SelectedSection)); }
+        }
+        public IReadOnlyList<SectionOption> SectionOptions { get; } = new[]
+        {
+            new SectionOption(null, "All"),
+            new SectionOption("A", "A · Penamaan"),
+            new SectionOption("B", "B · Parameter"),
+            new SectionOption("C", "C · Kualiti"),
+            new SectionOption("D", "D · Geometri"),
+            new SectionOption("E", "E · Dokumen"),
+        };
+
+        public ObservableCollection<JkrCopilotRule> FilteredRules { get; } = new ObservableCollection<JkrCopilotRule>();
+        public int FilteredRuleCount => FilteredRules.Count;
+        public bool HasFilteredRules => FilteredRules.Count > 0;
+
+        private List<JkrCopilotRule> _ordered = new List<JkrCopilotRule>();
+        private HashSet<string> _collapsedGroups = new HashSet<string>();
+
+        private static readonly string[] SecOrder = { "A", "B", "C", "D", "E" };
+
+        private void RefreshRuleList()
+        {
+            if (RunData == null)
+            {
+                _ordered.Clear();
+                FilteredRules.Clear();
+                Groups = Array.Empty<RuleGroup>();
+                Raise(nameof(Groups)); Raise(nameof(FilteredRuleCount)); Raise(nameof(HasFilteredRules));
+                return;
+            }
+            var source = RunData.Rules.Where(r => FitsTab(r) && FitsSection(r) && FitsQuery(r)).ToList();
+            IEnumerable<JkrCopilotRule> sorted;
+            if (_copilotTab == CopilotTab.Open)
+                sorted = source.OrderBy(r => SecRank(r.Sec)).ThenBy(r => r.Item, StringComparer.Ordinal).ThenBy(r => r.Id, StringComparer.Ordinal);
+            else
+                sorted = JkrCopilotMath.Rank(source);
+            _ordered = sorted.ToList();
+            FilteredRules.Clear();
+            foreach (var r in _ordered) FilteredRules.Add(r);
+            Groups = BuildGroups(_ordered);
+            Raise(nameof(Groups)); Raise(nameof(FilteredRuleCount)); Raise(nameof(HasFilteredRules));
+        }
+
+        private static int SecRank(string sec) { int i = Array.IndexOf(SecOrder, sec); return i < 0 ? SecOrder.Length : i; }
+
+        private bool FitsTab(JkrCopilotRule r)
+        {
+            var st = JkrCopilotMath.State(r, _decisions);
+            switch (_copilotTab)
+            {
+                case CopilotTab.Open: return r.Kind == "ai" && st == CellDecision.Open;
+                case CopilotTab.Manual: return r.Kind == "manual" && st == CellDecision.Open;
+                case CopilotTab.Ignored: return st == CellDecision.Ignored;
+                case CopilotTab.Resolved: return st == CellDecision.Resolved || st == CellDecision.Comply;
+                default: return false;
+            }
+        }
+
+        private bool FitsSection(JkrCopilotRule r) => _selectedSection == null || r.Sec == _selectedSection;
+
+        private bool FitsQuery(JkrCopilotRule r)
+        {
+            if (string.IsNullOrEmpty(_searchQuery)) return true;
+            var q = _searchQuery.ToLowerInvariant();
+            return (r.Title ?? "").ToLowerInvariant().IndexOf(q, StringComparison.Ordinal) >= 0
+                || (r.Cat ?? "").ToLowerInvariant().IndexOf(q, StringComparison.Ordinal) >= 0
+                || (r.Item ?? "").ToLowerInvariant().IndexOf(q, StringComparison.Ordinal) >= 0
+                || (r.Sec ?? "").ToLowerInvariant().IndexOf(q, StringComparison.Ordinal) >= 0;
+        }
+
+        private IReadOnlyList<RuleGroup> BuildGroups(List<JkrCopilotRule> ordered)
+        {
+            var list = new List<RuleGroup>();
+            foreach (var g in ordered.GroupBy(r => r.Item))
+            {
+                var items = g.ToList();
+                string sec = items[0].Sec;
+                list.Add(new RuleGroup
+                {
+                    Item = g.Key,
+                    Name = RunData.RowNames.TryGetValue(g.Key, out var nm) ? nm : g.Key,
+                    Sec = sec,
+                    SecName = RunData.Sections.FirstOrDefault(s => s.Id == sec)?.Name ?? "",
+                    Cells = items.Sum(r => r.Cells),
+                    Rows = items.Sum(r => r.Rows),
+                    Crit = items.Any(r => r.Crit),
+                    IsOpen = !_collapsedGroups.Contains(g.Key),
+                    Rules = items,
+                });
+            }
+            return list;
+        }
+
+        public void ToggleGroup(string item)
+        {
+            if (_collapsedGroups.Contains(item)) _collapsedGroups.Remove(item); else _collapsedGroups.Add(item);
+            Groups = BuildGroups(_ordered);
+            Raise(nameof(Groups));
+        }
+
+        // ── Detail (S4 overlay) ──
+        private JkrCopilotRule _detailRule;
+        private int _detailIndex;
+        public JkrCopilotRule DetailRule
+        {
+            get => _detailRule;
+            private set { _detailRule = value; Raise(nameof(DetailRule)); Raise(nameof(HasDetail)); Raise(nameof(DetailPosition)); }
+        }
+        public bool HasDetail => _detailRule != null;
+        public string DetailPosition => _ordered.Count == 0 ? "1 / 0" : (_detailIndex + 1) + " / " + _ordered.Count;
+
+        public void OpenDetail(JkrCopilotRule rule)
+        {
+            if (rule == null) return;
+            int i = _ordered.IndexOf(rule);
+            _detailIndex = i < 0 ? 0 : i;
+            DetailRule = rule;
+        }
+        public void PrevDetail() => StepDetail(-1);
+        public void NextDetail() => StepDetail(1);
+        private void StepDetail(int dir)
+        {
+            if (_ordered.Count == 0) return;
+            _detailIndex = (_detailIndex + dir + _ordered.Count) % _ordered.Count;
+            DetailRule = _ordered[_detailIndex];
+        }
+
+        // ── Manual decide ops ──
+        public void MarkComply() => Decide(CellDecision.Comply);
+        public void MarkNot() => Decide(CellDecision.NotComply);
+        public void MarkDefer() => Decide(CellDecision.Defer);
+        public void IgnoreDetail() => Decide(CellDecision.Ignored);
+        private void Decide(CellDecision d)
+        {
+            if (_detailRule == null) return;
+            _decisions[_detailRule.Id] = d;
+            DetailRule = null;
+            RefreshAfterDecision();
+        }
+
+        // ── Fix / ignore confirm sheets ──
+        private ConfirmRequest _confirm;
+        public ConfirmRequest ConfirmRequest
+        {
+            get => _confirm;
+            private set { _confirm = value; Raise(nameof(ConfirmRequest)); Raise(nameof(HasConfirm)); }
+        }
+        public bool HasConfirm => _confirm != null;
+
+        public void FixDetail() { if (_detailRule != null) OpenConfirmOne(_detailRule.Id); }
+        /// <summary>Fix one rule by id, from a row action rather than the detail pane.
+        /// Still routes through the confirm gate — no fix path may write to the model
+        /// without the ask-first sheet (principle 0.7).</summary>
+        public void FixRule(string id) { if (!string.IsNullOrEmpty(id)) OpenConfirmOne(id); }
+        public void FixTop() => RequestConfirm("top");
+        public void FixAll() => RequestConfirm("all");
+        public void IgnoreAll() => RequestConfirm("ignoreAll");
+
+        private void OpenConfirmOne(string id)
+        {
+            var r = RunData.Rules.FirstOrDefault(x => x.Id == id);
+            if (r == null) return;
+            string cat = (r.Cat ?? "").ToLowerInvariant();
+            ConfirmRequest = new ConfirmRequest
+            {
+                Kind = "one", RuleId = id,
+                Title = $"Change {r.Cells} {cat} in the model?",
+                Body = $"{r.From} → {r.To} across {r.Cells} {cat}. Nothing is written until you confirm.",
+                Note = "Writes to the open model · undoable",
+                Cta = "Apply fix",
+            };
+        }
+
+        private void RequestConfirm(string kind)
+        {
+            if (RunData == null) return;
+            if (kind == "all")
+            {
+                var fx = JkrCopilotMath.Fixables(RunData.Rules, _decisions);
+                int cells = fx.Sum(r => r.Cells), rows = fx.Sum(r => r.Rows);
+                ConfirmRequest = new ConfirmRequest
+                {
+                    Kind = "all",
+                    Title = $"Apply {fx.Count} auto-fixes?",
+                    Body = $"Touches {JkrCopilotMath.Fmt(cells)} cells across {fx.Count} rules and clears {rows} Borang rows. Every change is written to the open model.",
+                    Note = "Chargeable generate action · one run",
+                    Cta = "I consent, run it",
+                };
+            }
+            else if (kind == "top")
+            {
+                var top = JkrCopilotMath.TopFixes(RunData.Rules, _decisions);
+                int cells = top.Sum(r => r.Cells), rows = top.Sum(r => r.Rows);
+                ConfirmRequest = new ConfirmRequest
+                {
+                    Kind = "top",
+                    Title = $"Apply {top.Count} auto-fixes?",
+                    Body = $"Touches {JkrCopilotMath.Fmt(cells)} cells and clears {rows} Borang rows.",
+                    Note = "Chargeable generate action · one run",
+                    Cta = "I consent, run it",
+                };
+            }
+            else // ignoreAll
+            {
+                int n = _ordered.Count;
+                ConfirmRequest = new ConfirmRequest
+                {
+                    Kind = "ignoreAll",
+                    Title = $"Ignore {n} rules?",
+                    Body = "They stay in the exported Borang as not comply. Ignoring only clears them from your working list.",
+                    Note = "No change to the model",
+                    Cta = "Ignore them",
+                };
+            }
+        }
+
+        public void CommitConfirm()
+        {
+            if (_confirm == null || RunData == null) return;
+            switch (_confirm.Kind)
+            {
+                case "one":
+                    if (!string.IsNullOrEmpty(_confirm.RuleId)) _decisions[_confirm.RuleId] = CellDecision.Resolved;
+                    break;
+                case "all":
+                    foreach (var r in JkrCopilotMath.Fixables(RunData.Rules, _decisions)) _decisions[r.Id] = CellDecision.Resolved;
+                    break;
+                case "top":
+                    foreach (var r in JkrCopilotMath.TopFixes(RunData.Rules, _decisions)) _decisions[r.Id] = CellDecision.Resolved;
+                    break;
+                case "ignoreAll":
+                    // Commit over the filtered visible list (_ordered = tab + section + search),
+                    // matching the "Ignore N rules?" title in RequestConfirm which counts _ordered.
+                    foreach (var r in _ordered) _decisions[r.Id] = CellDecision.Ignored;
+                    break;
+            }
+            ConfirmRequest = null;
+            DetailRule = null;
+            RefreshAfterDecision();
+        }
+        public void CancelConfirm() => ConfirmRequest = null;
+
+        // ── Navigation ──
+        public void ShowManual() { ActiveCopilotTab = CopilotTab.Manual; CurrentScreen = CopilotScreen.S5; DetailRule = null; }
+        public void GoExport() { CurrentScreen = CopilotScreen.S6; DetailRule = null; }
 
         // ─── INotifyPropertyChanged ───
         public event PropertyChangedEventHandler PropertyChanged;

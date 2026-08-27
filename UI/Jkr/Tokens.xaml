@@ -66,6 +66,46 @@
     <FontFamily x:Key="Font.Sans">Segoe UI, system-ui, sans-serif</FontFamily>
     <FontFamily x:Key="Font.Mono">Cascadia Mono, Consolas, Courier New, monospace</FontFamily>
 
+    <!-- ═══════════ COPILOT DESIGN PALETTE (C14, .dc.html) ═══════════ -->
+    <!-- Fidelity tokens from JKR Audit Copilot design; added alongside the
+         legacy keys so the older panels keep working untouched. -->
+    <SolidColorBrush x:Key="JkrCopilot.Bg"      Color="#F7F8FA"/>
+    <SolidColorBrush x:Key="JkrCopilot.Ink"     Color="#14171C"/>
+    <SolidColorBrush x:Key="JkrCopilot.Ink2"    Color="#16293F"/>
+    <SolidColorBrush x:Key="JkrCopilot.Navy"    Color="#1F3A5F"/>
+    <SolidColorBrush x:Key="JkrCopilot.Success" Color="#1F7A4D"/>
+    <SolidColorBrush x:Key="JkrCopilot.Danger"  Color="#B3261E"/>
+    <SolidColorBrush x:Key="JkrCopilot.Muted"   Color="#5C636B"/>
+    <SolidColorBrush x:Key="JkrCopilot.Soft"    Color="#F3F4F6"/>
+    <SolidColorBrush x:Key="JkrCopilot.Soft2"   Color="#4C555F"/>
+    <SolidColorBrush x:Key="JkrCopilot.Manual"  Color="#55606D"/>
+    <SolidColorBrush x:Key="JkrCopilot.Gold"    Color="#8A6D2F"/>
+    <SolidColorBrush x:Key="JkrCopilot.Idle"    Color="#2C3238"/>
+    <SolidColorBrush x:Key="JkrCopilot.Surf"    Color="#FFFFFF"/>
+    <SolidColorBrush x:Key="JkrCopilot.Surf2"   Color="#F3F4F6"/>
+    <SolidColorBrush x:Key="JkrCopilot.Surf3"   Color="#EDF1F6"/>
+    <SolidColorBrush x:Key="JkrCopilot.Surf4"   Color="#ECEEF1"/>
+    <SolidColorBrush x:Key="JkrCopilot.SoftTint" Color="#9AA0A6"/>
+    <SolidColorBrush x:Key="JkrCopilot.Border"  Color="#D0D5DB"/>
+    <SolidColorBrush x:Key="JkrCopilot.Line"    Color="#E2E5E9"/>
+    <SolidColorBrush x:Key="JkrCopilot.Line2"   Color="#ECEEF1"/>
+    <SolidColorBrush x:Key="JkrCopilot.Line3"   Color="#DBDFE4"/>
+    <SolidColorBrush x:Key="JkrCopilot.Line4"   Color="#F1F3F5"/>
+    <SolidColorBrush x:Key="JkrCopilot.Line5"   Color="#D8E1EB"/>
+    <SolidColorBrush x:Key="JkrCopilot.Line6"   Color="#C6D3E1"/>
+    <SolidColorBrush x:Key="JkrCopilot.Dash"    Color="#98A2AE"/>
+    <SolidColorBrush x:Key="JkrCopilot.Dash2"   Color="#C1C7CE"/>
+    <SolidColorBrush x:Key="JkrCopilot.Banner"  Color="#EDF1F6"/>
+    <SolidColorBrush x:Key="JkrCopilot.Dark"    Color="#14171C"/>
+    <SolidColorBrush x:Key="JkrCopilot.DarkSoft" Color="#55606D"/>
+    <SolidColorBrush x:Key="JkrCopilot.Fail"    Color="#DFAAA5"/>
+    <SolidColorBrush x:Key="JkrCopilot.FailBg"  Color="#FBEAE8"/>
+    <SolidColorBrush x:Key="JkrCopilot.AddBg"   Color="#E4F1EB"/>
+    <SolidColorBrush x:Key="JkrCopilot.Disabled" Color="#E8EAEE"/>
+    <SolidColorBrush x:Key="JkrCopilot.SugBorder" Color="#B8BFC7"/>
+    <SolidColorBrush x:Key="JkrCopilot.FixBadge" Color="#8FBEE4"/>
+    <SolidColorBrush x:Key="JkrCopilot.ManualDot" Color="#C77A3E"/>
+
     <!-- ═══════════ DIMENSIONS ═══════════ -->
     <sys:Double x:Key="Dim.PanelWidth">460</sys:Double>
     <sys:Double x:Key="Dim.TitleBarH">26</sys:Double>
