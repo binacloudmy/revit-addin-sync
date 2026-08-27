@@ -59,48 +59,83 @@ namespace RevitWebAppSync.Services
                 _http.DefaultRequestHeaders.Add("X-Tenant-Id", tenant);
         }
 
-        // ─── Engine preflight + self-heal (2026-08-19) ───────────────────────
-        // "stream connect failed: … refused (localhost:48810)" reached drafters
-        // raw because nothing between the pane and the socket consulted
-        // EngineManager: the spawn is fire-and-forget at Revit startup, and a
-        // box in error:* state (or still cold-starting) simply failed every
-        // dial. Before each turn in engine mode: make sure a spawn is in
-        // flight, await it (EnsureRunningAsync returns only after the health
-        // gate), and translate a non-healthy Status into an honest message.
-        // A connect failure mid-turn gets ONE heal+retry — the engine may have
-        // died between turns and the watchdog not finished respawning yet.
+        // ─── Engine preflight: MAKE it healthy (2026-08-27) ──────────────────
+        // The 08-19 preflight translated a dead engine into an honest message —
+        // except in the one case that mattered: no EngineManager in the session
+        // (`if (eng == null) return null`) dialled blind, and the raw WinSock
+        // "actively refused (localhost:48810)" reached drafters on every fresh
+        // install, because fresh installs ship no engine bundle and nothing
+        // downstream ever constructs a manager without one.
+        //
+        // Now: EngineMode on means the add-in OWNS the engine. Before each turn,
+        // loop over EnginePreflight.Next() — probe; construct the manager if
+        // missing; stage a bundle from the feed if missing; spawn and await the
+        // health gate — until the engine answers or a step genuinely cannot be
+        // completed. The drafter waits once, on first use; every turn after
+        // that is one 2s probe. The only message they ever see names the step
+        // that failed. Never the socket text.
         private static bool EngineModeOn()
         {
             try { return BinaConfig.Load().EngineMode; } catch { return false; }
         }
 
+        private static async Task<bool> EngineHealthyAsync()
+        {
+            try
+            {
+                var port = BinaConfig.Load().EngineHostPort;
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(2) };
+                var r = await http.GetAsync($"http://127.0.0.1:{port}/health").ConfigureAwait(false);
+                if (!r.IsSuccessStatusCode) return false;
+                // Shape check, same as EngineManager.IsHealthyAsync: a foreign
+                // process squatting the port must not pass as our engine.
+                var body = await r.Content.ReadAsStringAsync().ConfigureAwait(false);
+                return body.Contains("\"engine\"");
+            }
+            catch { return false; }
+        }
+
         internal static async Task<string> EnsureEngineReadyAsync()
         {
             if (!EngineModeOn()) return null;
-            var eng = App.VibeEngine;
-            // No manager (dev rig running start-engine.ps1 by hand, autospawn
-            // off): dial and let the socket answer, exactly as before.
-            if (eng == null) return null;
-            try { await eng.EnsureRunningAsync().ConfigureAwait(false); }
-            catch { /* Status below still tells the truth */ }
-            var s = eng.Status ?? "";
-            switch (s)
+
+            // Bounded: ConstructManager → FetchBundle → Spawn → (re-probe) is
+            // four evaluations on the longest path; a fifth means a step
+            // "succeeded" without changing the world, and we report instead
+            // of spinning.
+            const int maxSteps = 5;
+            for (var i = 0; i < maxSteps; i++)
             {
-                case "healthy":
-                    return null;
-                case "error:not-installed":
-                    return "BINA Engine is not installed on this machine — the copilot cannot run locally yet. Wait for the engine update to arrive, or reinstall.";
-                case "error:addin-too-old":
-                    return "This add-in version is too old for the installed BINA Engine — update the add-in.";
-                case "error:crash-loop":
-                    return "BINA Engine keeps crashing on start — restart Revit; if it persists, send the engine log to support.";
-                case "error:start-timeout":
-                    return "BINA Engine did not come up in time — it may still be warming up. Try again in a minute.";
-                case "starting":
-                    return "BINA Engine is still starting — try again in a few seconds.";
-                default:
-                    return "BINA Engine is not ready (" + s + ") — try again shortly.";
+                var healthy = await EngineHealthyAsync().ConfigureAwait(false);
+                var mgr = App.VibeEngine;
+                var bundle = !string.IsNullOrEmpty(Services.EngineManager.NewestEngineLauncher());
+                var step = EnginePreflight.Next(healthy, mgr != null, bundle, mgr?.Status);
+
+                switch (step)
+                {
+                    case PreflightStep.Ready:
+                        return null;
+
+                    case PreflightStep.ConstructManager:
+                        if (App.EnsureVibeEngine(out var why) == null)
+                            return EnginePreflight.FailureMessage(step, null, why);
+                        continue;
+
+                    case PreflightStep.FetchBundle:
+                        if (!await UpdateService.EnsureEngineBundleAsync().ConfigureAwait(false))
+                            return EnginePreflight.FailureMessage(step, null, UpdateService.LastEngineStageError);
+                        continue;
+
+                    case PreflightStep.Spawn:
+                        // Returns only after the 60s health gate resolves one
+                        // way or the other. Single-flight inside the manager.
+                        try { await mgr.EnsureRunningAsync().ConfigureAwait(false); }
+                        catch { /* Status below tells the truth */ }
+                        if (mgr.Status == "healthy") return null;
+                        return EnginePreflight.FailureMessage(step, mgr.Status, null);
+                }
             }
+            return EnginePreflight.MessageFor(App.VibeEngine?.Status);
         }
 
         /// <summary>START a tool-calling turn. Body matches the codegen AIRequest

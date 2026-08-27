@@ -60,6 +60,11 @@
          be linked here (Process/HttpClient lifecycle), precisely so the
          "no credential ever lands in the manifest" guarantee is testable. -->
     <Compile Include="..\Services\EngineBootManifest.cs" Link="EngineBootManifest.cs" />
+    <!-- EnginePreflight: the pure "make the engine healthy" planner behind
+         ToolLoopService.EnsureEngineReadyAsync. System only — the decision
+         table and every drafter-facing message are pinned here, including the
+         invariant that null is returned ONLY for "healthy". -->
+    <Compile Include="..\Services\EnginePreflight.cs" Link="EnginePreflight.cs" />
     <!-- EnvFile: the .env parser BinaConfig reads the embedded channel files
          with. Linked so EnvChannelTests lints those files with the runtime's
          own parsing rules instead of a copy that can drift. -->
