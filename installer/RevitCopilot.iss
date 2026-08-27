@@ -102,11 +102,28 @@ Source: "{#EngineDir}\*"; DestDir: "{localappdata}\Bina\RevitSync\engine\{#Engin
 ; builds). Pre-trusting it below removes even the one-time "Signed Add-In —
 ; Always Load?" prompt. Unsigned builds have no .cer -> both entries skip.
 Source: "..\artifacts\bina-cloudtech.cer"; DestDir: "{localappdata}\Bina\RevitSync"; Flags: skipifsourcedoesntexist
+; Boot-time engine launcher (ONLOGON Scheduled Task handler). Stable, NON-versioned
+; path so the task registration survives engine OTA updates (it always re-resolves
+; the newest engine\<ver>\ bundle itself). Without it, a reboot leaves the engine
+; down until a human opens Revit.
+Source: "engine-boot.ps1"; DestDir: "{localappdata}\Bina\RevitSync\engine"; Flags: ignoreversion
 
 [Run]
 ; Per-user TrustedPublisher store (no admin) — Revit checks it before showing
 ; the addin security dialog. Idempotent: re-adding an existing cert is a no-op.
 Filename: "certutil"; Parameters: "-user -addstore TrustedPublisher ""{localappdata}\Bina\RevitSync\bina-cloudtech.cer"""; Flags: runhidden; Check: FileExists(ExpandConstant('{localappdata}\Bina\RevitSync\bina-cloudtech.cer'))
+; Auto-start the engine at every Windows logon — this is the "survives reboot"
+; guarantee. ONLOGON (not ONSTARTUP): the engine runs as the signed-in user and
+; writes its session DB under that user's home, so it must start in their session.
+; /F makes install/upgrade idempotent (re-register overwrites). schtasks runs
+; hidden; engine-boot.ps1 starts powershell -WindowStyle Hidden and the engine
+; via CreateNoWindow, so the end user NEVER sees a terminal.
+Filename: "schtasks.exe"; Parameters: "/Create /F /TN ""BINA Copilot Engine"" /RL LIMITED /SC ONLOGON /TR ""powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File {localappdata}\Bina\RevitSync\engine\engine-boot.ps1"""; Flags: runhidden
+
+; Remove the scheduled task on uninstall so we never leave a zombie launcher that
+; fires at every logon after the product is gone.
+[UninstallRun]
+Filename: "schtasks.exe"; Parameters: "/Delete /F /TN ""BINA Copilot Engine"""; Flags: runhidden
 
 [InstallDelete]
 ; Stale pre-loader direct-load manifests — a second live copy breaks startup.
