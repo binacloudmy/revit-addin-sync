@@ -39,6 +39,11 @@ namespace BinaVibe.Mcp
         .status { padding: 8px 16px; background: #0f3460; font-size: 12px; }
         .config { font-size: 11px; color: #888; margin-top: 8px; }
         .config input { background: #0f3460; border: 1px solid #333; color: #eee; padding: 4px 8px; width: 100%; margin-top: 4px; border-radius: 4px; }
+        .input-widget { margin-top: 8px; }
+        .input-widget input[type=""text""] { width: 100%; padding: 8px; background: #0f3460; border: 1px solid #333; color: #eee; border-radius: 4px; }
+        .input-widget input[type=""range""] { width: 100%; accent-color: #e94560; }
+        .slider-value { text-align: center; font-size: 14px; margin-top: 4px; color: #e94560; }
+        .input-widget button { margin-top: 8px; }
     </style>
 </head>
 <body>
@@ -203,41 +208,142 @@ namespace BinaVibe.Mcp
 
                 resizeCanvas(); fitToExtents();
                 setStatus(`Loaded: ${lines.length} lines, ${arcs.length} arcs`);
-                await startClassification();
+                await askNextQuestion();
             } catch (err) { addMessage('error', err.message); setStatus('Error: ' + err.message); }
         }
 
-        async function startClassification() {
-            addMessage('ai', 'Analyzing layers...');
+        // --- AI Clarification Flow ---
+        let currentQuestion = null;
+
+        async function askNextQuestion() {
             try {
-                const result = await callServer('/cad/classify', { session_id: sessionId });
-                if (result.wall) addMessage('ai', `Detected wall: ""${result.wall}""`);
-                if (result.door_window) addMessage('ai', `Detected door: ""${result.door_window}""`);
-                if (result.wall) {
-                    addMessage('ai', `Is ""${result.wall}"" correct?`);
-                    showButtons([{ label: 'Yes, preview', action: () => previewWalls(result.wall) }, { label: 'Pick layer', action: showLayerPicker }]);
-                } else { addMessage('ai', 'Select wall layer:'); showLayerPicker(); }
-            } catch (err) { addMessage('error', err.message); }
+                setStatus('AI thinking...');
+                const result = await callServer('/cad/ask', { session_id: sessionId });
+
+                if (result.done) {
+                    addMessage('ai', 'All set! Click Create Walls when ready.');
+                    document.getElementById('createBtn').disabled = false;
+                    setStatus('Ready to create');
+                    return;
+                }
+
+                currentQuestion = result.question;
+                addMessage('ai', currentQuestion.question);
+
+                // Show preview if available
+                if (result.preview) {
+                    centerlines = result.preview.centerlines || [];
+                    render();
+                }
+
+                renderQuestionInput(currentQuestion);
+                setStatus('Waiting for your answer...');
+            } catch (err) { addMessage('error', err.message); setStatus('Error'); }
         }
 
-        function showLayerPicker() { showButtons(layers.map(l => ({ label: l, action: () => previewWalls(l) }))); }
+        function renderQuestionInput(q) {
+            clearButtons();
+            const container = document.getElementById('responseButtons');
 
-        async function previewWalls(wallLayer) {
-            addMessage('user', `Using ""${wallLayer}""`); clearButtons(); setStatus('Computing walls...');
+            if (q.type === 'choice' || q.type === 'multi_choice') {
+                // Button choices
+                const opts = q.options || [];
+                opts.forEach(opt => {
+                    const btn = document.createElement('button');
+                    btn.className = 'btn btn-secondary';
+                    btn.textContent = opt;
+                    btn.onclick = () => submitAnswer(q.key, opt);
+                    container.appendChild(btn);
+                });
+            } else if (q.type === 'slider') {
+                // Slider input
+                const widget = document.createElement('div');
+                widget.className = 'input-widget';
+                const slider = document.createElement('input');
+                slider.type = 'range';
+                slider.min = q.min || 0;
+                slider.max = q.max || 100;
+                slider.value = q.default || q.min || 0;
+                const valueLabel = document.createElement('div');
+                valueLabel.className = 'slider-value';
+                valueLabel.textContent = slider.value + (q.unit || '');
+                slider.oninput = () => { valueLabel.textContent = slider.value + (q.unit || ''); };
+                const submitBtn = document.createElement('button');
+                submitBtn.className = 'btn btn-primary';
+                submitBtn.textContent = 'Confirm';
+                submitBtn.onclick = () => submitAnswer(q.key, parseInt(slider.value));
+                widget.appendChild(slider);
+                widget.appendChild(valueLabel);
+                widget.appendChild(submitBtn);
+                container.appendChild(widget);
+            } else if (q.type === 'text') {
+                // Text input
+                const widget = document.createElement('div');
+                widget.className = 'input-widget';
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.placeholder = 'Type your answer...';
+                input.onkeypress = (e) => { if (e.key === 'Enter') submitAnswer(q.key, input.value); };
+                const submitBtn = document.createElement('button');
+                submitBtn.className = 'btn btn-primary';
+                submitBtn.textContent = 'Submit';
+                submitBtn.onclick = () => submitAnswer(q.key, input.value);
+                widget.appendChild(input);
+                widget.appendChild(submitBtn);
+                container.appendChild(widget);
+            } else if (q.type === 'confirm') {
+                // Confirm buttons
+                const yesBtn = document.createElement('button');
+                yesBtn.className = 'btn btn-primary';
+                yesBtn.textContent = 'Yes, create walls';
+                yesBtn.onclick = () => submitAnswer(q.key, true);
+                const noBtn = document.createElement('button');
+                noBtn.className = 'btn btn-secondary';
+                noBtn.textContent = 'Go back';
+                noBtn.onclick = () => { addMessage('user', 'Let me reconsider...'); /* TODO: implement back */ };
+                container.appendChild(yesBtn);
+                container.appendChild(noBtn);
+            }
+        }
+
+        async function submitAnswer(key, value) {
+            addMessage('user', String(value));
+            clearButtons();
+            setStatus('Processing...');
+
             try {
-                const result = await callServer('/cad/preview', { session_id: sessionId, wall_layer: wallLayer });
-                centerlines = result.centerlines || []; render();
-                addMessage('ai', `Found ${result.count} walls (green).`);
-                if (result.count > 0) document.getElementById('createBtn').disabled = false;
-                else { addMessage('ai', 'No walls found. Try another layer.'); showLayerPicker(); }
-            } catch (err) { addMessage('error', err.message); }
+                const result = await callServer('/cad/answer', { session_id: sessionId, key, value });
+
+                if (result.ready) {
+                    // Ready to create walls
+                    centerlines = result.centerlines || [];
+                    render();
+                    addMessage('ai', `Ready to create ${result.count} walls!`);
+                    document.getElementById('createBtn').disabled = false;
+                    setStatus('Ready to create');
+                    return;
+                }
+
+                if (result.next_question) {
+                    currentQuestion = result.next_question;
+                    addMessage('ai', currentQuestion.question);
+
+                    // Show preview if available
+                    if (result.preview) {
+                        centerlines = result.preview.centerlines || [];
+                        render();
+                    }
+
+                    renderQuestionInput(currentQuestion);
+                    setStatus('Waiting for your answer...');
+                }
+            } catch (err) { addMessage('error', err.message); setStatus('Error'); }
         }
 
         async function createWalls() {
             setStatus('Creating walls...'); document.getElementById('createBtn').disabled = true;
             try {
-                const confirm = await callServer('/cad/confirm', { session_id: sessionId });
-                const create = await callAddinTool('cad_create_walls', { centerlines: confirm.centerlines });
+                const create = await callAddinTool('cad_create_walls', { centerlines });
                 if (!create.ok) throw new Error(create.error);
                 addMessage('ai', `Created ${create.count} walls!`); setStatus('Done'); centerlines = []; render();
             } catch (err) { addMessage('error', err.message); setStatus('Error'); document.getElementById('createBtn').disabled = false; }
