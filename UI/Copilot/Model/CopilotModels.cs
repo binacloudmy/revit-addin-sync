@@ -7,7 +7,13 @@ namespace RevitWebAppSync.UI.Copilot.Model
     // ─── Enums (mirror the prototype state machine) ──────────────────────────
     public enum CpScreen { Home, ToolForm, ToolReview, Running, Result }
     public enum CpTab { Chat, Library, History, Saved, Model, Settings }
-    public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, AiReply, ConfirmActions }
+    public enum CpMsgKind { User, Thinking, Clarify, Proposal, Running, Result, AiReply, ConfirmActions, SignIn, Attention }
+    // SignIn / Attention (2026-08-27): notice cards the drafter can ACT on, in
+    // the thread where the answer would have gone. SignIn = no BINA AI session
+    // (composer locks, prompt is kept and re-sent after sign-in). Attention =
+    // one card for every "do one thing" failure: preflight step failed, credit
+    // limit, gateway rejection. Title/Body/Origin + up to two actions. Replaces
+    // a chat bubble that named the wrong ribbon button and "Unknown model error".
     // AiReply = plain-text AI response (no card, no Save/Copy/Undo). Used
     // when the backend marks is_query=true: code is auto-run and the
     // structured result is reformulated as one conversational sentence.
@@ -243,6 +249,11 @@ namespace RevitWebAppSync.UI.Copilot.Model
         public SlashTool SlashCommand;  // slash-command chip shown atop a user bubble (UI-only)
         public List<Mention> Mentions = new List<Mention>();
         public string Question;      // clarify
+        public string Title;         // SignIn / Attention card headline
+        public string Body;          // SignIn / Attention card sentence
+        public string Origin;        // Attention: exact source for support ("preflight · FetchBundle · sha256 mismatch")
+        public string PrimaryLabel;  public Action PrimaryAction;
+        public string SecondaryLabel; public Action SecondaryAction;
         public List<ClarifyOption> Options = new List<ClarifyOption>();  // clarify
         // Structured ask_user questions (2026-08-18): rendered as tappable
         // option rows (single) / checkbox rows + Hantar (multi_select). The

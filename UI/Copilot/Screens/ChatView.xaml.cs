@@ -2,6 +2,7 @@ using System;
 using System.Collections.Specialized;
 using System.Linq;
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
@@ -169,6 +170,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
         /// <summary>Raised by the blocked state's "Upgrade plan" CTA (the panel opens the sheet).</summary>
         public event System.Action UpgradeRequested;
 
+        private void OnVmUpgrade() => UpgradeRequested?.Invoke();
+
         private void Hook()
         {
             if (_hooked != null)
@@ -176,6 +179,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _hooked.Thread.CollectionChanged -= OnThread;
                 _hooked.UsageChanged -= UpdateUsage;
                 _hooked.PropertyChanged -= OnVmProp;
+                _hooked.UpgradeRequested -= OnVmUpgrade;
             }
             _hooked = Vm;
             if (_hooked != null)
@@ -183,6 +187,7 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 _hooked.Thread.CollectionChanged += OnThread;
                 _hooked.UsageChanged += UpdateUsage;
                 _hooked.PropertyChanged += OnVmProp;
+                _hooked.UpgradeRequested += OnVmUpgrade;
                 Prompt.BindUsage(_hooked);
                 _ = _hooked.RefreshUsageAsync();
             }
@@ -794,6 +799,8 @@ namespace RevitWebAppSync.UI.Copilot.Screens
                 // there is deliberately no Thinking case here, so the panel can
                 // never render a second loading indicator for one message.
                 case CpMsgKind.Clarify: col.Children.Add(ClarifyCard(m)); break;
+                case CpMsgKind.SignIn:
+                case CpMsgKind.Attention: col.Children.Add(NoticeCard(m)); break;
                 // Auto mode means auto: an approval card for something nobody was
                 // asked to approve is noise, and on a build that is dozens of
                 // writes it buries the actual reply (UAT 2026-08-06 — a tower
@@ -1506,6 +1513,75 @@ namespace RevitWebAppSync.UI.Copilot.Screens
             label.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
             row.Children.Add(label);
             return row;
+        }
+
+        /// <summary>SignIn / Attention notice card (design: copilot-signin-states,
+        /// 2026-08-27). Lives in the thread where the answer would have gone, so
+        /// the drafter sees exactly what their prompt is waiting on. Amber for
+        /// Attention (nothing broke, one thing to do), plain for SignIn. Every
+        /// colour is a pane token; the origin line is mono for support.</summary>
+        private FrameworkElement NoticeCard(ChatMessage m)
+        {
+            bool attention = m.Kind == CpMsgKind.Attention;
+            var amber = CopilotColors.From(CopilotTheme.IsDark ? "#f2a33a" : "#d97706");
+            var amberBg = CopilotColors.From(CopilotTheme.IsDark ? "#1Ff2a33a" : "#1Ad97706");
+
+            var outer = new Border { CornerRadius = new CornerRadius(10), BorderThickness = new Thickness(1), Padding = new Thickness(14) };
+            if (attention) { outer.BorderBrush = amber; outer.Background = amberBg; }
+            else { outer.SetResourceReference(Border.BorderBrushProperty, "Cp.Line"); outer.SetResourceReference(Border.BackgroundProperty, "Cp.Bg"); }
+            var sp = new StackPanel();
+
+            var eyebrow = new TextBlock { Text = attention ? "\u26A0  COPILOT NEEDS ATTENTION" : "SIGN IN REQUIRED", FontSize = 10, FontWeight = FontWeights.SemiBold };
+            eyebrow.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.FontMono");
+            if (attention) eyebrow.Foreground = amber; else eyebrow.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+            sp.Children.Add(eyebrow);
+
+            var title = new TextBlock { Text = m.Title ?? "", FontSize = 13.5, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
+            title.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
+            sp.Children.Add(title);
+
+            if (!string.IsNullOrWhiteSpace(m.Body))
+            {
+                var body = new TextBlock { Text = m.Body, FontSize = 12.5, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) };
+                body.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Muted");
+                sp.Children.Add(body);
+            }
+
+            var actions = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 12, 0, 0) };
+            if (!string.IsNullOrEmpty(m.PrimaryLabel)) actions.Children.Add(NoticeButton(m.PrimaryLabel, m.PrimaryAction, primary: true));
+            if (!string.IsNullOrEmpty(m.SecondaryLabel)) actions.Children.Add(NoticeButton(m.SecondaryLabel, m.SecondaryAction, primary: false));
+            if (actions.Children.Count > 0) sp.Children.Add(actions);
+
+            if (!string.IsNullOrWhiteSpace(m.Origin))
+            {
+                var origin = new TextBlock { Text = m.Origin, FontSize = 10.5, Margin = new Thickness(0, 10, 0, 0), TextWrapping = TextWrapping.Wrap };
+                origin.SetResourceReference(TextBlock.FontFamilyProperty, "Cp.FontMono");
+                origin.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Faint");
+                sp.Children.Add(origin);
+            }
+            outer.Child = sp;
+            return outer;
+        }
+
+        private FrameworkElement NoticeButton(string label, Action onClick, bool primary)
+        {
+            var bd = new Border { CornerRadius = new CornerRadius(7), Padding = new Thickness(14, 7, 14, 7), Margin = new Thickness(0, 0, 8, 0), Cursor = Cursors.Hand, BorderThickness = new Thickness(1) };
+            var tb = new TextBlock { Text = label, FontSize = 12.5, FontWeight = FontWeights.Medium };
+            if (primary)
+            {
+                bd.SetResourceReference(Border.BackgroundProperty, "Cp.AccentGrad");
+                bd.BorderBrush = Brushes.Transparent;
+                tb.SetResourceReference(TextBlock.ForegroundProperty, "Cp.AccentContrast");
+            }
+            else
+            {
+                bd.Background = Brushes.Transparent;
+                bd.SetResourceReference(Border.BorderBrushProperty, "Cp.Line");
+                tb.SetResourceReference(TextBlock.ForegroundProperty, "Cp.Ink");
+            }
+            bd.Child = tb;
+            bd.MouseLeftButtonUp += (_, __) => { try { onClick?.Invoke(); } catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] notice action failed: " + ex.Message); } };
+            return bd;
         }
 
         private FrameworkElement ClarifyCard(ChatMessage m)

@@ -95,35 +95,77 @@ namespace RevitWebAppSync.Services
             catch { return false; }
         }
 
+        /// <summary>What the pane's engine strip shows while a slow preflight
+        /// step runs; null when nothing is in progress.</summary>
+        internal static event Action<string> PreflightProgress;
+        /// <summary>The step the last preflight failed on, so the pane can pick
+        /// a SignIn card (LoginRequired) or an Attention card (everything else)
+        /// instead of a bubble. Null after a successful preflight.</summary>
+        internal static PreflightStep? LastFailedStep { get; private set; }
+        internal static string LastFailureDetail { get; private set; }
+
+        private static void Progress(string text)
+        {
+            try { PreflightProgress?.Invoke(text); } catch { }
+        }
+
+        private static string Fail(PreflightStep step, string status, string detail)
+        {
+            LastFailedStep = step;
+            LastFailureDetail = detail ?? status;
+            Progress(null);
+            return EnginePreflight.FailureMessage(step, status, detail);
+        }
+
         internal static async Task<string> EnsureEngineReadyAsync()
         {
             if (!EngineModeOn()) return null;
+            LastFailedStep = null; LastFailureDetail = null;
 
             // Bounded: ConstructManager → FetchBundle → Spawn → (re-probe) is
             // four evaluations on the longest path; a fifth means a step
             // "succeeded" without changing the world, and we report instead
             // of spinning.
-            const int maxSteps = 5;
+            const int maxSteps = 6;   // MintToken adds one evaluation to the longest path
             for (var i = 0; i < maxSteps; i++)
             {
                 var healthy = await EngineHealthyAsync().ConfigureAwait(false);
                 var mgr = App.VibeEngine;
                 var bundle = !string.IsNullOrEmpty(Services.EngineManager.NewestEngineLauncher());
-                var step = EnginePreflight.Next(healthy, mgr != null, bundle, mgr?.Status);
+                BinaConfig cfg;
+                try { cfg = BinaConfig.Load(); } catch { cfg = new BinaConfig(); }
+                var gateway = !string.IsNullOrEmpty(cfg.ResolvedGatewayUrl);
+                var step = EnginePreflight.Next(healthy, mgr != null, bundle, mgr?.Status,
+                    gatewayConfigured: gateway,
+                    hasAccessToken: !string.IsNullOrEmpty(cfg.AccessToken),
+                    hasDeviceToken: !BrowserLoginCommand.DeviceTokenMissingOrExpiring(cfg));
 
+                Progress(EnginePreflight.ProgressLabel(step));
                 switch (step)
                 {
                     case PreflightStep.Ready:
+                        Progress(null);
                         return null;
 
                     case PreflightStep.ConstructManager:
                         if (App.EnsureVibeEngine(out var why) == null)
-                            return EnginePreflight.FailureMessage(step, null, why);
+                            return Fail(step, null, why);
                         continue;
 
                     case PreflightStep.FetchBundle:
                         if (!await UpdateService.EnsureEngineBundleAsync().ConfigureAwait(false))
-                            return EnginePreflight.FailureMessage(step, null, UpdateService.LastEngineStageError);
+                            return Fail(step, null, UpdateService.LastEngineStageError);
+                        continue;
+
+                    case PreflightStep.LoginRequired:
+                        return Fail(step, null, null);
+
+                    case PreflightStep.MintToken:
+                        // Mints at the gateway with the access token this
+                        // session already holds, persists it, and restarts the
+                        // engine with it - the loop then re-probes.
+                        if (!await BrowserLoginCommand.MintDeviceTokenAndRestartEngineAsync(cfg.AccessToken).ConfigureAwait(false))
+                            return Fail(step, null, BrowserLoginCommand.LastMintError);
                         continue;
 
                     case PreflightStep.Spawn:
@@ -131,11 +173,11 @@ namespace RevitWebAppSync.Services
                         // way or the other. Single-flight inside the manager.
                         try { await mgr.EnsureRunningAsync().ConfigureAwait(false); }
                         catch { /* Status below tells the truth */ }
-                        if (mgr.Status == "healthy") return null;
-                        return EnginePreflight.FailureMessage(step, mgr.Status, null);
+                        if (mgr.Status == "healthy") { Progress(null); return null; }
+                        return Fail(step, mgr.Status, null);
                 }
             }
-            return EnginePreflight.MessageFor(App.VibeEngine?.Status);
+            return Fail(PreflightStep.Spawn, App.VibeEngine?.Status, "preflight did not converge");
         }
 
         /// <summary>START a tool-calling turn. Body matches the codegen AIRequest

@@ -72,6 +72,37 @@ namespace RevitWebAppSync
         // Phase 4: owns the local engine process when EngineAutoSpawn is on.
         public static RevitWebAppSync.Services.EngineManager VibeEngine { get; private set; }
 
+        /// <summary>Raised after a BINA AI sign-in or sign-out has been persisted
+        /// (BrowserLoginCommand). The Copilot pane listens: it unlocks the
+        /// composer and re-sends the prompt it kept while signed out.</summary>
+        public static event Action SessionChanged;
+        internal static void RaiseSessionChanged()
+        {
+            try { SessionChanged?.Invoke(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine("[BINA] SessionChanged handler failed: " + ex.Message); }
+        }
+
+        /// <summary>Run the ribbon's "Login to AI" (BrowserLoginCommand) from
+        /// non-command code — the pane's Sign-in card. PostCommand queues it on
+        /// Revit's UI thread exactly as a click would. Composite id form for an
+        /// add-in button: CustomCtrl_%CustomCtrl_%{tab}%{panel}%{buttonName}.
+        /// False when the id cannot be resolved (ribbon not built yet).</summary>
+        internal static bool PostLoginToAI()
+        {
+            try
+            {
+                var id = RevitCommandId.LookupCommandId("CustomCtrl_%CustomCtrl_%Bina%BINA AI%Login");
+                if (id == null || UiApp == null || !UiApp.CanPostCommand(id)) return false;
+                UiApp.PostCommand(id);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine("[BINA] PostLoginToAI failed: " + ex.Message);
+                return false;
+            }
+        }
+
         // BinaVibe v2 outbound WSS tunnel client (PRD §6.5 / production
         // transport). When BINA_VIBE_MCP_TRANSPORT is "wss" or "both",
         // the addin dials out to bina-ai at /revit-copilot/mcp/tunnel and the
@@ -536,6 +567,23 @@ namespace RevitWebAppSync
                         VibeMcpServer.Start();
                         System.Diagnostics.Debug.WriteLine($"[BINA] Vibe MCP server listening on {VibeMcpServer.Prefix}");
 
+                        // Device token for already-signed-in boxes. The login-time
+                        // mint only runs on a ribbon Login click; a box that was
+                        // signed in BEFORE the gateway URL arrived (every OTA'd box
+                        // on 2026-08-27) otherwise spawns the engine tokenless and
+                        // every turn dies 401 at the gateway. Fire-and-forget: the
+                        // spawn below proceeds, and the mint restarts the engine
+                        // with the token when it lands (RestartVibeEngineForNewToken).
+                        // The turn preflight repeats this check per turn as a
+                        // backstop, so a failure here is never the last word.
+                        if (!string.IsNullOrEmpty(cfg.ResolvedGatewayUrl) &&
+                            !string.IsNullOrEmpty(cfg.AccessToken) &&
+                            BrowserLoginCommand.DeviceTokenMissingOrExpiring(cfg))
+                        {
+                            _ = BrowserLoginCommand.MintDeviceTokenAndRestartEngineAsync(cfg.AccessToken);
+                            System.Diagnostics.Debug.WriteLine("[BINA] device token missing/expiring at startup — minting.");
+                        }
+
                         // Phase 4 (opt-in): auto-spawn the packaged engine and
                         // hand it the SAME secret the tool server validates.
                         // Off by default — Phases 1-3 start the engine manually.
@@ -962,14 +1010,17 @@ namespace RevitWebAppSync
             aiPanel.AddItem(loginButtonData);
             aiPanel.AddItem(askAiButtonData);
 
-            // Compliance: JKR
-            compliancePanel.AddItem(jkrComplianceButtonData);
-            compliancePanel.AddItem(bombaComplianceButtonData);
+            // Compliance ships as coming soon. All three commands are built and
+            // the buttons are added rather than hidden, so the panel keeps its
+            // width and nothing on the tab reflows on the release that turns
+            // them on — the icon a drafter learns now is in the same place then.
+            MarkComingSoon(compliancePanel.AddItem(jkrComplianceButtonData));
+            MarkComingSoon(compliancePanel.AddItem(bombaComplianceButtonData));
 
             // Cost-to-BIM: Cost Tracker dashboard (restored standalone — see
             // commit 3903b7f which had stacked it with Fire Compliance and hid
             // both. We surface only the cost button; Fire stays hidden.)
-            compliancePanel.AddItem(costDashboardButtonData);
+            MarkComingSoon(compliancePanel.AddItem(costDashboardButtonData));
 
             // Stack: Export Cost Items / Import Prices (hidden as requested)
             // cdePanel.AddStackedItems(costExportButtonData, costImportButtonData);
@@ -977,6 +1028,29 @@ namespace RevitWebAppSync
             // Fire Compliance stays hidden (restored only if explicitly requested)
             // compliancePanel.AddItem(complianceButtonData);
             // cdePanel.AddItem(federateButtonData); // Hidden as requested
+        }
+
+        // Holds a built command on the tab without letting it run yet.
+        //
+        // Revit has no "coming soon" badge on a ribbon button, so the state is
+        // carried the way Revit already carries it: the button is disabled,
+        // which greys the icon and its label through the host's own disabled
+        // rendering. That is deliberately not a second set of dimmed PNGs — a
+        // pre-dimmed icon would be greyed twice and end up barely visible, and
+        // it would stay grey on the release that enables the button.
+        //
+        // The tooltip is what actually says the words, since a disabled ribbon
+        // button still shows one on hover and it is the only surface here that
+        // can hold a sentence.
+        private static void MarkComingSoon(RibbonItem item)
+        {
+            PushButton button = item as PushButton;
+            if (button == null)
+                return;
+
+            button.Enabled = false;
+            button.ToolTip = "Coming soon — " + button.ToolTip;
+            button.LongDescription = "Not available in this release. " + button.LongDescription;
         }
 
         // Ribbon icons live in Resources\Icons as one drawing per size, not one

@@ -188,3 +188,42 @@ type. The one click is unavoidable (credits are per-account).
 Still open: the pane shows raw text on a gateway 401 (no "please log in"
 mapping); prod channel stays engine-less until prod gets a backend promotion,
 `GATEWAY_INFERENCE_ENABLED=1`, and a `validate_gateway.py` pass.
+
+## Addendum 2 - stage F: the device token is a step, not a surprise (PR 4)
+
+v0.0.60 on a fresh box: engine spawned, `GatewayUrl` = staging with no hand
+edit, a 4-step turn ran - and died `401 login required`, shown as "Unknown
+model error" (agno's OpenAI client reads `error.message`; FastAPI returns
+`detail`). Engine log: `Illegal header value b'Bearer '` on retrieval, 401 on
+chat. No device token in config.json.
+
+Cause: the token is minted only by a ribbon **Login** click
+(`BrowserLoginCommand`). A box signed in BEFORE the gateway URL arrived -
+every OTA'd box - never clicked again. The **BINA Cloud Account** dialog is a
+different sign-in (CDE) and never mints.
+
+Two more findings while tracing:
+- `LOGIN_WEB_URL` was `plugins.jkrbinaxone.com` on BOTH channels, so staging
+  testers were sent to prod's login page.
+- PR 3 moved more than inference: `ResolvedCloudBaseUrl` had "gateway wins",
+  so login, credits, compliance, telemetry and cost silently followed
+  `GATEWAY_URL` to staging - reversing the 08-22 decision. Regression, fixed.
+
+PR 4:
+- `EnginePreflight.Next` takes `gatewayConfigured / hasAccessToken /
+  hasDeviceToken`. Gateway + no token -> `MintToken` (signed in) or
+  `LoginRequired` (not) - evaluated BEFORE the health check, because a
+  healthy tokenless engine is not ready. Messages name **Bina tab -> Login**.
+- `BrowserLoginCommand.MintDeviceTokenAndRestartEngineAsync` is `internal`,
+  returns bool, records `LastMintError`, logs + telemetry on failure (it was
+  a silent `if (IsSuccessStatusCode)` with no else).
+- `App.OnStartup` mints when gateway + access token + no device token.
+- `ResolvedCloudBaseUrl` no longer follows the gateway: cloud half = BASE_URL
+  (prod), gateway = inference + mint (staging). Mint is signature-only on the
+  shared JWT secret, so a prod access token mints on staging.
+- `.env.staging` `LOGIN_WEB_URL` -> staging landing page; retired-host lint
+  narrowed to the apex it was written for.
+
+Still bina-ai side (PR 5): gateway errors also carry `{"error":{"message"}}`;
+engine refuses a turn with gateway set + empty jwt; retrieval with an empty
+bearer skips with a visible warning.

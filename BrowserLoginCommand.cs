@@ -37,6 +37,7 @@ namespace RevitWebAppSync
                             config.ClearSession();
                             config.Save();
                             SecureTokenStore.Clear();
+                            App.RaiseSessionChanged();   // pane: lock composer
                             // Clear the credit badge in the (still-open) Copilot pane.
                             _ = App.CopilotPaneHost?.Panel?.ViewModel?.RefreshCreditBadgeAsync();
                             TaskDialog.Show("Logged Out", "You have been logged out successfully.");
@@ -121,6 +122,7 @@ namespace RevitWebAppSync
                 // persists — that was the other job this block was doing.)
                 config.Save();
                 Services.TelemetryService.SetUser(tokens.UserId);
+                App.RaiseSessionChanged();   // pane: unlock composer, re-send the kept prompt
 
                 // Engine credential (deployment spec B4/gateway spec A4): exchange the
                 // access token for a 14-day revocable device token, persist it, and
@@ -181,14 +183,31 @@ namespace RevitWebAppSync
         /// gateway to mint against). Best-effort: any failure is swallowed so
         /// login never fails because of this.
         /// </summary>
-        private static async Task MintDeviceTokenAndRestartEngineAsync(string accessToken)
+        /// <summary>Why the last mint failed, for the turn preflight to put in
+        /// front of the drafter. Null after a success.</summary>
+        internal static volatile string LastMintError;
+
+        /// <summary>Exchange the bina-ai access token for a 14-day engine device
+        /// token at the GATEWAY (ResolvedGatewayUrl - staging on the staging
+        /// channel, where the mint is signature-only on the shared JWT secret),
+        /// persist it, restart the engine with it. internal (not private): the
+        /// turn preflight and OnStartup call this too, because a box signed in
+        /// BEFORE the gateway URL arrived never reaches the login-time mint and
+        /// would run tokenless forever. True on success.</summary>
+        internal static async Task<bool> MintDeviceTokenAndRestartEngineAsync(string accessToken)
         {
             var cfg = BinaConfig.Load();
             if (string.IsNullOrEmpty(cfg.ResolvedGatewayUrl))
             {
+                LastMintError = "no gateway configured";
                 System.Diagnostics.Debug.WriteLine(
                     "[BINA] GatewayUrl not configured — skipping engine device-token mint.");
-                return;
+                return false;
+            }
+            if (string.IsNullOrEmpty(accessToken))
+            {
+                LastMintError = "not signed in";
+                return false;
             }
 
             try
@@ -198,17 +217,35 @@ namespace RevitWebAppSync
                     new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
                 var resp = await http.PostAsync(
                     cfg.ResolvedGatewayUrl + "/auth/device-token", null).ConfigureAwait(false);
-                if (resp.IsSuccessStatusCode)
+                if (!resp.IsSuccessStatusCode)
                 {
-                    var j = Newtonsoft.Json.Linq.JObject.Parse(
-                        await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
-                    cfg.DeviceToken = (string)j["token"];
-                    cfg.DeviceTokenExpiresAt = ParseExpiryToUnixSeconds(j["expires_at"]);
-                    cfg.Save();
-                    App.RestartVibeEngineForNewToken();
+                    // Was a bare `if (IsSuccessStatusCode)` with no else: a
+                    // cross-env mint rejected 401 left no trace anywhere.
+                    LastMintError = "HTTP " + (int)resp.StatusCode;
+                    System.Diagnostics.Debug.WriteLine(
+                        $"[BINA] device-token mint failed: HTTP {(int)resp.StatusCode} from {cfg.ResolvedGatewayUrl}");
+                    Services.TelemetryService.Track("engine", "device_token_mint_failed",
+                        new { status = (int)resp.StatusCode });
+                    return false;
                 }
+                var j = Newtonsoft.Json.Linq.JObject.Parse(
+                    await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+                cfg.DeviceToken = (string)j["token"];
+                cfg.DeviceTokenExpiresAt = ParseExpiryToUnixSeconds(j["expires_at"]);
+                cfg.Save();
+                LastMintError = null;
+                System.Diagnostics.Debug.WriteLine("[BINA] device-token minted; restarting engine with it.");
+                App.RestartVibeEngineForNewToken();
+                return true;
             }
-            catch { /* engine token is best-effort at login; next login retries */ }
+            catch (Exception ex)
+            {
+                LastMintError = ex.GetType().Name;
+                System.Diagnostics.Debug.WriteLine("[BINA] device-token mint threw: " + ex.Message);
+                Services.TelemetryService.Track("engine", "device_token_mint_failed",
+                    new { error_class = ex.GetType().Name });
+                return false;
+            }
         }
 
         /// <summary>True when no device token is persisted, or the persisted one
@@ -217,7 +254,7 @@ namespace RevitWebAppSync
         /// expiry persistence, or the gateway omitted/changed the field) is
         /// treated as healthy — we only refresh on positive evidence, so old
         /// configs don't re-mint on every ribbon click.</summary>
-        private static bool DeviceTokenMissingOrExpiring(BinaConfig cfg)
+        internal static bool DeviceTokenMissingOrExpiring(BinaConfig cfg)
         {
             if (string.IsNullOrEmpty(cfg.DeviceToken)) return true;
             if (!cfg.DeviceTokenExpiresAt.HasValue) return false;

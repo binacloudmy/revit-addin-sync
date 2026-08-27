@@ -337,8 +337,15 @@ namespace RevitWebAppSync
             // auth (PKCE 404, first zero-config UAT 2026-07-13), JKR/fire
             // compliance ("Scan failed: NotFound", same day), cost analysis
             // and /credits/balance all live cloud-side only.
+            // resolvedGateway deliberately NOT passed (2026-08-27). "Gateway
+            // wins" was harmless while gateway == BASE_URL; with GATEWAY_URL
+            // now a separate key it silently moved login, credits, compliance,
+            // telemetry and cost to the staging gateway - reversing the 08-22
+            // decision that the cloud half lives on BASE_URL (prod: accounts
+            // are there). The gateway is for inference + the device-token
+            // mint only (ResolvedGatewayUrl); everything else follows BASE_URL.
             Services.UrlResolution.ResolveCloudBase(
-                ResolvedGatewayUrl, ResolvedAIBaseUrl, DEFAULT_AI_BASE_URL);
+                null, ResolvedAIBaseUrl, DEFAULT_AI_BASE_URL);
 
         // Token-issuing base (login page api= param, /auth/*). Named alias so
         // auth call sites read as auth; it IS the cloud base.

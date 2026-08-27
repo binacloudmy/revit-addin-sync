@@ -101,8 +101,23 @@
              collapse together when the blocked state takes over (see UpdateUsage). -->
         <StackPanel Grid.Row="2">
             <ContentControl x:Name="NoticeHost" Visibility="Collapsed"/>
+            <!-- Engine strip (2026-08-27): transient, belongs to the engine not
+                 the conversation, so it sits above the composer and vanishes
+                 when the turn streams. Text is driven by the turn preflight
+                 (Signing in → Downloading → Starting). Plain Borders, no
+                 Storyboard — animations crash Revit's dockable host. -->
+            <Border Margin="14,0,14,8" Padding="12,8" CornerRadius="8" Background="{DynamicResource Cp.Sunken}"
+                    Visibility="{Binding EngineStatus, Converter={StaticResource NotEmptyVis}}">
+                <DockPanel LastChildFill="True">
+                    <Border DockPanel.Dock="Left" Width="6" Height="6" CornerRadius="3" Margin="0,0,9,0" VerticalAlignment="Center"
+                            Background="{DynamicResource Cp.Accent}"/>
+                    <TextBlock Text="{Binding EngineStatus}" FontSize="12" VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis" Foreground="{DynamicResource Cp.Muted}"/>
+                </DockPanel>
+            </Border>
             <ctl:PromptBar x:Name="Prompt" SubmitCommand="{Binding ChatSendCommand}"
-                           Busy="{Binding IsSending}" CancelCommand="{Binding CancelSendCommand}"/>
+                           Busy="{Binding IsSending}" CancelCommand="{Binding CancelSendCommand}"
+                           Locked="{Binding IsSignedOut}"/>
         </StackPanel>
 
         <!-- Usage-limit blocked state; replaces the composer at 100% usage
