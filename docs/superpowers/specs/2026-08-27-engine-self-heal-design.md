@@ -147,3 +147,44 @@ The test project cherry-picks source files (`Tests/Tests.csproj`) precisely so p
 ### Dev-rig note
 
 A developer running `start-engine.ps1` by hand with auto-spawn off currently relies on the `eng == null` → dial path. After PR 1 that box gets a manager constructed and `EnsureRunningAsync` called — which is idempotent: health-first (`EngineManager.cs:124`), so it attaches to the hand-started engine rather than fighting it.
+
+## Addendum (same day) - stage E: the engine had nowhere to send inference
+
+PR 1 + PR 2 shipped as v0.0.59-staging. First install on a real box: engine
+spawned, `/health` answered, first turn returned **500** -
+`RuntimeError: DEEPSEEK_API_KEY is not set`. Tracing the fresh-install path
+end to end found two more breaks, both upstream of anything PR 1/2 touched:
+
+| Stage | Break | Where |
+|---|---|---|
+| A install | `bina-defaults.json` (the `GatewayUrl` seed) is written by `build-installer.ps1 -GatewayUrl` only. **`release.yml` never wrote it**, and nothing asserted it. Every CI installer shipped without the zero-config seed; masked until PR 2 put an engine on disk | `release.yml` publish-plugin step |
+| B-D | blank `GatewayUrl` -> `EngineMode` never flips on a fresh box -> device-token mint skipped (`BrowserLoginCommand.cs:187`) -> engine spawns with no `BINA_GATEWAY_URL` -> `get_model()` -> 500 | one root cause, four symptoms |
+| E inference | `ResolveGateway` rewrites every our-host `GatewayUrl` to `BASE_URL`, which on the staging channel is **prod** (08-22). Prod: `GATEWAY_INFERENCE_ENABLED=0`, image `0170255` predates the gateway routers - `/gateway/v1` 404s. Would have bitten the moment A was fixed | `BinaConfig.ResolvedGatewayUrl` |
+
+The 08-25 JWT-secret match (stg<->prod) was made precisely so prod-minted
+tokens validate on the **staging** gateway: auth on prod, inference on staging
+is the intended architecture. The add-in just had no way to say "gateway !=
+BASE_URL".
+
+**PR 3** - "the installer tells the engine where its gateway is":
+
+1. `GATEWAY_URL` key in `.env.staging` (-> bina-ai-staging) and
+   `.env.production` (-> same as BASE_URL). `EnvChannelTests` requires it on
+   deployed channels and pins the staging value.
+2. `BinaConfig.DEFAULT_GATEWAY_URL = Env("GATEWAY_URL") ?? DEFAULT_AI_BASE_URL`;
+   `ResolvedGatewayUrl` resolves against it. `ResolveGateway` itself is
+   unchanged (it always took `envDefault` explicitly); one test pins the
+   staging scenario.
+3. `release.yml` writes `bina-defaults.json { GatewayUrl: <GATEWAY_URL ?? BASE_URL from the channel .env> }`
+   into every payload subfolder and **asserts** it, both channels. Seed and
+   resolver read the same key, so they cannot disagree.
+4. No add-in behaviour change beyond (2): `ApplyDefaults` seeds fresh boxes;
+   `ApplyHeals` re-reads the file on every load when engine mode has no
+   gateway, so every 0.0.58/0.0.59 box heals on its next OTA with no hand edit.
+
+Zero-config after PR 3 = download, install, open Revit, **click Login once**,
+type. The one click is unavoidable (credits are per-account).
+
+Still open: the pane shows raw text on a gateway 401 (no "please log in"
+mapping); prod channel stays engine-less until prod gets a backend promotion,
+`GATEWAY_INFERENCE_ENABLED=1`, and a `validate_gateway.py` pass.

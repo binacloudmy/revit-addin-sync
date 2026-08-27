@@ -148,6 +148,34 @@ jobs:
           @{ version = $v; assembly = 'RevitWebAppSync.dll'; entryType = 'RevitWebAppSync.App'; targets = $yearMap } |
             ConvertTo-Json | Set-Content artifacts/plugin/manifest.json
           & installer/prune-payload.ps1 -PluginDir artifacts/plugin
+
+          # Zero-config seed (bina-defaults.json). BinaConfig.ApplyDefaults reads
+          # GatewayUrl from this file, next to the DLL, on first run; ApplyHeals
+          # re-reads it on every load when engine mode has no gateway. Without
+          # it a fresh install never flips EngineMode, never mints a device
+          # token, and the engine (seeded since 2026-08-27) spawns with no
+          # BINA_GATEWAY_URL and dies on the first turn with "DEEPSEEK_API_KEY
+          # is not set". installer/build-installer.ps1 has always written this
+          # file; this workflow NEVER did, and nothing checked. Source of truth
+          # is the channel's own .env (GATEWAY_URL, falling back to BASE_URL) -
+          # the same key BinaConfig.DEFAULT_GATEWAY_URL resolves against, so the
+          # seed and the resolver cannot disagree.
+          $envFile = if ('${{ steps.ver.outputs.config }}' -eq 'Staging') { '.env.staging' } else { '.env.production' }
+          $envMap = @{}
+          foreach ($line in Get-Content $envFile) {
+            if ($line -match '^\s*([A-Z_]+)\s*=\s*(.*?)\s*$') { $envMap[$Matches[1]] = $Matches[2] }
+          }
+          $gw = if ($envMap['GATEWAY_URL']) { $envMap['GATEWAY_URL'] } else { $envMap['BASE_URL'] }
+          if (-not $gw) { throw "$envFile has neither GATEWAY_URL nor BASE_URL - cannot seed bina-defaults.json" }
+          foreach ($sub in $targets.Values) {
+            @{ GatewayUrl = $gw } | ConvertTo-Json | Set-Content "artifacts/plugin/$sub/bina-defaults.json"
+          }
+          # Assert, the way the engine fetch asserts: a payload subfolder without
+          # the seed is a broken install, not an addin-only one.
+          foreach ($sub in $targets.Values) {
+            if (-not (Test-Path "artifacts/plugin/$sub/bina-defaults.json")) { throw "bina-defaults.json missing from artifacts/plugin/$sub" }
+          }
+          Write-Host "bina-defaults.json seeded (GatewayUrl=$gw) into: $($targets.Values -join ', ')"
           if ($LASTEXITCODE -ne 0) { exit 1 }
           Get-ChildItem artifacts/plugin -Recurse -Filter *.pdb | Remove-Item -ErrorAction SilentlyContinue
 

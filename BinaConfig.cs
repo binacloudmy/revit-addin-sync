@@ -203,6 +203,17 @@ namespace RevitWebAppSync
         // share BASE_URL — they're the same host. config.json still overrides.
         public static string DEFAULT_AI_BASE_URL =>
             Env("BASE_URL") ?? "https://bina-ai-prod.azurewebsites.net";
+        // Colocated-engine gateway (inference + device-token mint). A SEPARATE
+        // key from BASE_URL: the staging channel authenticates against prod
+        // (accounts live there) but must run inference on the staging gateway,
+        // the only one with GATEWAY_INFERENCE_ENABLED=1 and the gateway routers
+        // deployed. Until 2026-08-27 ResolvedGatewayUrl fell back to
+        // DEFAULT_AI_BASE_URL, so every staging engine turn reached prod's
+        // gateway and died 404 "inference gateway disabled" after a 60s cold
+        // start. Falls back to BASE_URL when the key is absent, so a channel
+        // file without it behaves exactly as before.
+        public static string DEFAULT_GATEWAY_URL =>
+            Env("GATEWAY_URL") ?? DEFAULT_AI_BASE_URL;
         // bina-be, the BINA Cloud REST API. This is a DIFFERENT service from
         // bina-ai: it serves /api/cloud-docs/* and /api/system/*, which bina-ai
         // does not implement at all. It aliased DEFAULT_AI_BASE_URL from 52bd3b4
@@ -316,7 +327,7 @@ namespace RevitWebAppSync
         [JsonIgnore]
         public string ResolvedGatewayUrl =>
             Services.UrlResolution.ResolveGateway(
-                GatewayUrl, DEFAULT_AI_BASE_URL, AllowBackendOverride);
+                GatewayUrl, DEFAULT_GATEWAY_URL, AllowBackendOverride);
 
         [JsonIgnore]
         public string ResolvedCloudBaseUrl =>
