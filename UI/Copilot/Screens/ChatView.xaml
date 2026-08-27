@@ -5,6 +5,9 @@
              FontFamily="{DynamicResource Cp.Font}">
     <UserControl.Resources>
         <ctl:BoolToVisibilityConverter x:Key="BoolVisChat"/>
+        <!-- Own-scope copy: CopilotPanel.xaml's NotEmptyVis is NOT visible from
+             this UserControl. v0.0.61 referenced it and the pane failed to load. -->
+        <ctl:NotEmptyToVisibilityConverter x:Key="NotEmptyVisChat"/>
     </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
@@ -107,7 +110,7 @@
                  (Signing in → Downloading → Starting). Plain Borders, no
                  Storyboard — animations crash Revit's dockable host. -->
             <Border Margin="14,0,14,8" Padding="12,8" CornerRadius="8" Background="{DynamicResource Cp.Sunken}"
-                    Visibility="{Binding EngineStatus, Converter={StaticResource NotEmptyVis}}">
+                    Visibility="{Binding EngineStatus, Converter={StaticResource NotEmptyVisChat}}">
                 <DockPanel LastChildFill="True">
                     <Border DockPanel.Dock="Left" Width="6" Height="6" CornerRadius="3" Margin="0,0,9,0" VerticalAlignment="Center"
                             Background="{DynamicResource Cp.Accent}"/>
